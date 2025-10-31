@@ -130,8 +130,11 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@v3
         with:
-          install: true
+          install: false
           cache: true
+
+      - name: Install mise tools
+        run: mise install
 
       - name: Install dependencies
         run: mise run install

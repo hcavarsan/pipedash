@@ -33,8 +33,11 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@v3
         with:
-          install: true
+          install: false
           cache: true
+
+      - name: Install mise tools
+        run: mise install
 
       - name: Install dependencies
         run: mise run install
@@ -68,8 +71,11 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@v3
         with:
-          install: true
+          install: false
           cache: true
+
+      - name: Install mise tools
+        run: mise install
 
       - name: Run rustfmt
         run: mise run format:back:check
@@ -113,8 +119,11 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@v3
         with:
-          install: true
+          install: false
           cache: true
+
+      - name: Install mise tools
+        run: mise install
 
       - name: Install OpenSSL on Windows
         if: matrix.os == 'windows-latest'
