@@ -8,86 +8,139 @@ bun = "latest"
 "cargo:cargo-insta" = "latest"
 "cargo:tauri-cli" = "latest"
 
+[tasks.install]
+description = "Install all dependencies"
+depends = ["install:front"]
+
+[tasks."install:front"]
+description = "Install frontend dependencies"
+run = "bun install"
+
 [tasks.dev]
-description = "Start Tauri development mode (tauri dev)"
+description = "Start full Tauri development mode"
 run = "bun run tauri dev"
 
+[tasks.ui]
+description = "Start frontend development server only"
+run = "bunx vite"
+
 [tasks.build]
-description = "Build Tauri application for production (tauri build)"
+description = "Build full Tauri application for production"
 run = "bun run tauri build"
 
-[tasks."build:ui"]
-description = "Build only the frontend UI"
-run = "bun run build"
+[tasks."build:front"]
+description = "Build frontend only"
+run = "bunx tsc && bunx vite build"
+
+[tasks."build:back"]
+description = "Build backend only"
+run = "cargo build --release --workspace"
 
 [tasks."build:analyze"]
 description = "Build frontend with bundle analysis"
-run = "bun run build:analyze"
-
-[tasks.tauri]
-description = "Run tauri CLI directly"
-run = "bun run tauri"
-
-[tasks."test:back"]
-description = "Run Rust backend tests with coverage"
-run = "INSTA_UPDATE=1 RUST_BACKTRACE=1 cargo llvm-cov nextest --profile ci --config-file .cargo/nextest.toml --locked --workspace --all-features --lib --bins --examples --tests"
+run = "ANALYZE=true bunx tsc && bunx vite build"
 
 [tasks.check]
-description = "Run frontend type checking"
-run = "bun run check"
+description = "Run all type and syntax checking"
+depends = ["check:front", "check:back"]
 
-[tasks."lint:front"]
-description = "Lint frontend code with ESLint (with auto-fix)"
-run = "bun run lint"
+[tasks."check:front"]
+description = "Run frontend TypeScript type checking"
+run = "bunx tsc --noEmit"
 
-[tasks."lint:back"]
-description = "Lint backend code with Clippy (with auto-fix)"
-run = "bun run clippy"
+[tasks."check:back"]
+description = "Run backend cargo check"
+run = "cargo check --workspace --all-targets --all-features"
 
 [tasks.lint]
-description = "Lint both frontend and backend (with auto-fix)"
+description = "Lint frontend and backend code"
 depends = ["lint:front", "lint:back"]
 
+[tasks."lint:front"]
+description = "Lint frontend code with ESLint"
+run = "bunx eslint . --fix"
+
+[tasks."lint:back"]
+description = "Lint backend code with Clippy"
+run = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+
+[tasks.format]
+description = "Format frontend and backend code"
+depends = ["format:front", "format:back"]
+
 [tasks."format:front"]
-description = "Format frontend code with Prettier"
-run = "bun run format"
+description = "Format frontend code with ESLint"
+run = "bunx eslint . --fix"
 
 [tasks."format:back"]
 description = "Format backend code with rustfmt"
-run = "bun run fmt"
+run = "rustup run nightly cargo fmt --all"
 
-[tasks.format]
-description = "Format both frontend and backend code"
-depends = ["format:front", "format:back"]
+[tasks."format:check"]
+description = "Check formatting without fixing"
+depends = ["format:front:check", "format:back:check"]
+
+[tasks."format:front:check"]
+description = "Check frontend formatting"
+run = "bunx eslint ."
+
+[tasks."format:back:check"]
+description = "Check backend formatting"
+run = "cargo +nightly fmt --all -- --check"
+
+[tasks.knip]
+description = "Detect unused exports and dependencies"
+run = "bunx knip"
 
 [tasks."bump:patch"]
-description = "Bump patch version"
-run = "cd hacks/ && cargo run --bin bump_version patch && cd .. && cargo update --workspace && git add . && git commit -m 'chore: bump version'"
+description = "Bump patch version and commit"
+run = "cd hacks && cargo run --bin bump_version patch && cd .. && cargo update --workspace && git add . && git commit -m 'chore: bump version'"
 
 [tasks."bump:minor"]
-description = "Bump minor version"
-run = "cd hacks/ && cargo run --bin bump_version minor && cd .. && cargo update --workspace && git add . && git commit -m 'chore: bump version'"
+description = "Bump minor version and commit"
+run = "cd hacks && cargo run --bin bump_version minor && cd .. && cargo update --workspace && git add . && git commit -m 'chore: bump version'"
 
 [tasks."bump:major"]
-description = "Bump major version"
-run = "cd hacks/ && cargo run --bin bump_version major && cd .. && cargo update --workspace && git add . && git commit -m 'chore: bump version'"
+description = "Bump major version and commit"
+run = "cd hacks && cargo run --bin bump_version major && cd .. && cargo update --workspace && git add . && git commit -m 'chore: bump version'"
 
-[tasks.precommit]
-description = "Run pre-commit checks (format, lint, test)"
-run = ["mise run format", "mise run lint", "mise run test:back"]
-
-[tasks."precommit:hook"]
-description = "Run git pre-commit hook (format, check, git add)"
+[tasks.release]
+description = "Full release workflow"
 run = [
-  "mise run format",
-  "cargo check --workspace --all-targets --all-features",
-  "git add -u",
+  "mise run format:check",
+  "mise run lint",
+  "mise run check",
+  "mise run build"
 ]
 
-[tasks."generate-icons"]
+[tasks.icons]
 description = "Generate application icons"
 run = "cargo run --bin generate_icons"
 
-[tasks.knip]
-description = "Detect unused exports in frontend"
-run = "bun run knip"
+[tasks.deps]
+description = "Update dependencies to latest major versions"
+run = "bunx taze major -I"
+
+[tasks."deps:minor"]
+description = "Update dependencies to latest minor versions"
+run = "bunx taze minor -w"
+
+[tasks.ci]
+description = "Run all CI checks"
+depends = ["format:check", "lint", "check"]
+
+[tasks."ci:front"]
+description = "Run frontend CI checks"
+depends = ["format:front:check", "lint:front", "check:front"]
+
+[tasks."ci:back"]
+description = "Run backend CI checks"
+depends = ["format:back:check", "lint:back", "check:back"]
+
+[tasks.precommit]
+description = "Run pre-commit checks"
+run = [
+  "mise run format",
+  "mise run check:back",
+  "git add -u"
+]

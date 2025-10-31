@@ -34,6 +34,7 @@ export default [{
         "**/crates/",
         "**/target/",
 		"**/eslint.config.mjs",
+		"**/postcss.config.cjs",
     ],
 }, ...fixupConfigRules(compat.extends(
     "plugin:react/recommended",

@@ -30,33 +30,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
 
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v1
+      - name: Install mise
+        uses: jdx/mise-action@v3
         with:
-          bun-version: latest
-
-      - name: Install Node.js
-        uses: actions/setup-node@7e24a656e1c7a0d6f3eaef8d8e84ae379a5b035b
-        with:
-          node-version: "22"
-
-      - name: Cache Bun modules
-        uses: actions/cache@640a1c2554105b57832a23eea0b4672fc7a790d5
-        with:
-          path: |
-            ~/.bun-store
-            node_modules
-            frontend/node_modules
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-${{ runner.arch }}-
-            bun-${{ runner.os }}-
+          install: true
+          cache: true
 
       - name: Install dependencies
-        run: bun install
+        run: mise run install
 
       - name: Perform linting
-        run: bun run lint:front
+        run: mise run lint:front
 
   rust-format:
     name: rustfmt
@@ -81,26 +65,14 @@ jobs:
               patchelf \
               xdg-utils
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+      - name: Install mise
+        uses: jdx/mise-action@v3
         with:
-          toolchain: nightly
-
-      - name: Install Rust nightly
-        run: rustup toolchain install nightly
-
-      - name: Install rustfmt for nightly
-        run: rustup component add --toolchain nightly rustfmt
-
-      - name: Cache Rust
-        uses: swatinem/rust-cache@7e1e2d0a10862b34e5df481373b2b0f295d1a2ef
-        with:
-          key: rust-format-${{ runner.os }}
-          shared-key: deps-format
-          cache-on-failure: false
+          install: true
+          cache: true
 
       - name: Run rustfmt
-        run: cargo +nightly fmt --all -- --check
+        run: mise run format:back:check
 
   rust-lint:
     name: Clippy
@@ -138,10 +110,11 @@ jobs:
               patchelf \
               xdg-utils
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+      - name: Install mise
+        uses: jdx/mise-action@v3
         with:
-          toolchain: nightly
+          install: true
+          cache: true
 
       - name: Install OpenSSL on Windows
         if: matrix.os == 'windows-latest'
@@ -164,16 +137,5 @@ jobs:
         run: rustup target add ${{ matrix.rust_target }}
         shell: bash
 
-      - name: Cache Rust
-        uses: swatinem/rust-cache@7e1e2d0a10862b34e5df481373b2b0f295d1a2ef
-        with:
-          key: rust-lint-${{ matrix.os }}-${{ matrix.rust_target }}
-          shared-key: deps-lint-${{ matrix.rust_target }}
-          workspaces: |
-            .
-            crates/pipedash
-          cache-on-failure: false
-
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --allow-dirty --allow-staged --all-features --fix -- -D warnings
-
+        run: mise run lint:back

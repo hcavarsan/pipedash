@@ -89,32 +89,47 @@ When the app starts, it loads cached pipeline data from SQLite immediately. In t
 
 ## Development
 
-The project uses [mise](https://mise.jdx.dev) for development environment management.
+The project uses [mise](https://mise.jdx.dev) for development environment and task management.
 
 ```bash
-# Install mise
 curl https://mise.run | sh
 
-# Clone repository
 git clone https://github.com/hcavarsan/pipedash.git
 cd pipedash
 
-# Install tools (Rust, Bun, Node, etc.)
 mise install
+mise run install
 
-# Install frontend dependencies
-bun install
-
-# Start development server with hot reload
-mise run tauri dev
+mise run dev
 ```
 
-Available commands:
-- `mise run tauri dev` – Start development mode with hot reload
-- `mise run tauri build` – Build production binary
-- `cargo test` – Run Rust tests
-- `cargo clippy` – Run linter
-- `cargo fmt` – Format Rust code
+The first `mise install` sets up all required tools (Rust, Bun, Node, cargo plugins). The second `mise run install` installs project dependencies.
+
+**Development commands:**
+
+```bash
+mise run dev
+mise run ui
+
+mise run build
+mise run build:front
+mise run build:back
+
+mise run format
+mise run lint
+mise run check
+
+mise run release
+```
+
+- `dev` starts full Tauri development mode with hot reload
+- `build` creates production Tauri binary
+- `build:front` builds frontend only
+- `build:back` builds backend only
+- `format` formats all code (frontend and backend)
+- `lint` lints all code
+- `check` runs type checking
+- `release` runs full release workflow (format check, lint, type check, build)
 
 
 

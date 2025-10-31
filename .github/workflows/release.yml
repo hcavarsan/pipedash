@@ -47,7 +47,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Attempt to get release ID and check if it's a valid number
           release_id=$(gh api repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} --jq .id 2>/dev/null || echo "")
           if [[ "$release_id" =~ ^[0-9]+$ ]]; then
             echo "Release already exists with ID: $release_id"
@@ -128,46 +127,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+      - name: Install mise
+        uses: jdx/mise-action@v3
         with:
-          toolchain: nightly
-
-      - name: Cache Rust
-        uses: swatinem/rust-cache@7e1e2d0a10862b34e5df481373b2b0f295d1a2ef
-        with:
-          key: pipedash-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.rust_target }}
-          shared-key: deps-tauri-${{ matrix.rust_target }}
-          workspaces: |
-            .
-            crates/pipedash
-          cache-on-failure: false
-
-      - name: Install Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
-      - name: Install Node.js
-        uses: actions/setup-node@7e24a656e1c7a0d6f3eaef8d8e84ae379a5b035b
-        with:
-          node-version: "22"
-
-
-      - name: Cache Bun modules
-        uses: actions/cache@640a1c2554105b57832a23eea0b4672fc7a790d5
-        with:
-          path: |
-            ~/.bun-store
-            node_modules
-            frontend/node_modules
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-${{ runner.arch }}-
-            bun-${{ runner.os }}-
+          install: true
+          cache: true
 
       - name: Install dependencies
-        run: bun install
+        run: mise run install
 
       - name: Set up Visual Studio shell
         if: matrix.os == 'windows-latest' && matrix.arch == 'arm64'
@@ -368,4 +335,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           release_id: ${{ needs.create-release-draft.outputs.release_id }}
-
