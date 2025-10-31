@@ -20,9 +20,9 @@ interface AppLayoutProps {
   onAddProvider: (config: ProviderConfig) => Promise<void>;
   onUpdateProvider: (id: number, config: ProviderConfig) => Promise<void>;
   onRemoveProvider: (id: number, name: string) => Promise<void>;
-  onRefreshCurrent?: () => void;
   onRefreshAll?: () => void;
   onRefreshProviders?: () => Promise<void>;
+  refreshing?: boolean;
 }
 
 export const AppLayout = ({
@@ -33,9 +33,9 @@ export const AppLayout = ({
   onAddProvider,
   onUpdateProvider,
   onRemoveProvider,
-  onRefreshCurrent,
   onRefreshAll,
   onRefreshProviders,
+  refreshing = false,
 }: AppLayoutProps) => {
   const isMobile = useIsMobile()
   const [opened, setOpened] = useState(false)
@@ -62,11 +62,11 @@ export const AppLayout = ({
     >
       <AppShell.Header>
         <Header
-          onRefreshCurrent={onRefreshCurrent}
           onRefreshAll={onRefreshAll}
           onToggleNavbar={toggle}
           navbarOpened={opened}
           onOpenSettings={() => setSettingsOpened(true)}
+          refreshing={refreshing}
         />
       </AppShell.Header>
 

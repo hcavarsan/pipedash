@@ -31,10 +31,12 @@ select {
   font-size: 16px;
 }
 
-body {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
+@media (max-width: 48em) {
+  body {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 @media (max-width: 48em) {

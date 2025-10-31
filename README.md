@@ -17,7 +17,7 @@
 </div>
 </p>
 
-> **[WIP]** This is an experimental work-in-progress. It works for basic use cases but hasn't been thoroughly tested. Things might break, APIs might change, and there are probably bugs. Tested primarily on macOS – not sure if it works properly on Linux and Windows due to webview differences. Help with testing or fixes on those platforms would be appreciated.
+> **[WIP]** This is an work-in-progress project. It works for basic use cases but hasn't been thoroughly tested. Things might break, APIs might change, and there are probably bugs. Tested primarily on macOS – not sure if it works properly on Linux and Windows due to webview differences.
 
 ## About
 
@@ -41,7 +41,7 @@ The plugin architecture allows adding more providers.
 
 ## What It Does
 
-The app polls configured providers and displays pipelines organized by repository and workflow. Background refresh runs every 5 seconds (configurable per provider). When pipeline status changes, the UI updates automatically.
+The app polls configured providers and displays pipelines organized by repository and workflow. Background refresh runs every X seconds (configurable per provider). When pipeline status changes, the UI updates automatically.
 
 Main capabilities:
 - View pipeline status across multiple providers
@@ -73,19 +73,33 @@ Launch the app and add a provider via the sidebar. Each provider needs an API to
 
 After adding a provider, the app validates credentials and fetches available repositories. Select which ones to monitor and save. Pipelines will appear in the main view and refresh automatically.
 
-## Configuration
+## How It Works
+
+**Store**
 
 Provider configurations are stored in a local SQLite database. Tokens are kept separate in the system keyring.
 
 Each provider has its own refresh interval (default: 30 seconds), adjustable based on API rate limits.
 
-## How It Works
 
-**Plugin System** Each CI/CD provider is implemented as a plugin that exposes a common interface. The core application doesn't know the specifics of how GitHub or Buildkite work it just calls standard methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
+
+**Plugin System**
+
+Each CI/CD provider is implemented as a plugin that exposes a common interface. The core application doesn't know the specifics of how GitHub or Buildkite work it just calls standard methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
 
 Plugins are compiled into the application at build time, not loaded dynamically at runtime. This keeps things simpler and avoids the security concerns of runtime plugin loading.
 
 When the app starts, it loads cached pipeline data from SQLite immediately. In the background, a refresh loop polls each provider's API and updates the cache when changes are detected. The frontend listens for events and re-renders when new data arrives.
+
+## Adding Providers
+
+To add support for a new CI/CD platform, create a new crate in `crates/pipedash-plugin-{name}/` and implement the `Plugin` trait from `pipedash-plugin-api`. The trait defines methods for fetching pipelines, validating credentials, triggering builds, and retrieving run history.
+
+After implementing the plugin, register it in the main application's plugin registry and add any provider-specific configuration UI in the frontend.
+
+The existing GitHub, Buildkite, and Jenkins plugins serve as reference implementations.
+
+
 
 ## Development
 
@@ -173,13 +187,6 @@ mise run release
 - `check` validates TypeScript types and Rust compilation
 - `release` runs full CI checks locally (format, lint, check, build)
 
-## Adding Providers
-
-To add support for a new CI/CD platform, create a new crate in `crates/pipedash-plugin-{name}/` and implement the `Plugin` trait from `pipedash-plugin-api`. The trait defines methods for fetching pipelines, validating credentials, triggering builds, and retrieving run history.
-
-After implementing the plugin, register it in the main application's plugin registry and add any provider-specific configuration UI in the frontend.
-
-The existing GitHub, Buildkite, and Jenkins plugins serve as reference implementations.
 
 ## Tech Stack
 
@@ -195,15 +202,14 @@ The existing GitHub, Buildkite, and Jenkins plugins serve as reference implement
 - [ ] Azure Pipelines
 - [ ] Travis CI
 - [ ] Drone CI
+- [ ] ArgoCD
 
 **Features**
-- [ ] Desktop notifications for status changes
-- [ ] Filtering and search improvements
-- [ ] Build duration analytics
+- [ ] Build duration metrics
 - [ ] Log viewing within the app (currently opens external links)
 - [ ] Auto-updater for releases
 
-**Platforms**
+**Platforms** (maybe)
 - [ ] iOS app (tested locally in simulator, needs polish for store release)
 - [ ] Android app
 
@@ -219,8 +225,3 @@ No formal contribution guidelines yet since the project is still finding its sha
 
 GPL 3.0 License. See [LICENSE](LICENSE) for details.
 
-## Acknowledgments
-
-Built with Tauri, which provides a reasonable way to build desktop apps with web technologies and Rust.
-
-The plugin system was inspired by similar patterns in other Rust projects that need extensibility without dynamic loading.

@@ -27,21 +27,23 @@ function App() {
     runNumber: 0,
   })
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [runHistoryLoading, setRunHistoryLoading] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const { pipelines, refresh: refreshPipelines } = usePipelines(selectedProviderId)
-  const { providers, addProvider, updateProvider, removeProvider, refresh: refreshProviders } = useProviders()
-
-  const handleRefreshCurrent = async () => {
-    if (currentView === 'run-history') {
-      setRefreshTrigger(prev => prev + 1)
-    } else {
-      await refreshPipelines()
-    }
-  }
+  const { pipelines, loading: pipelinesLoading, refresh: refreshPipelines } = usePipelines(selectedProviderId)
+  const { providers, loading: providersLoading, addProvider, updateProvider, removeProvider, refresh: refreshProviders } = useProviders()
 
   const handleRefreshAll = async () => {
-    await refreshPipelines()
-    setRefreshTrigger(prev => prev + 1)
+    setIsRefreshing(true)
+    try {
+      await Promise.all([
+        refreshProviders(),
+        refreshPipelines()
+      ])
+      setRefreshTrigger(prev => prev + 1)
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 300)
+    }
   }
 
   const filteredPipelines = selectedProviderId
@@ -65,20 +67,28 @@ function App() {
   }
 
   const handleRerun = async (pipeline: Pipeline, run: PipelineRun) => {
+    setTriggerPipeline(pipeline)
+    setTriggerInputs(undefined)
+
     try {
-      console.log('[Rerun] Fetching details for run #', run.run_number)
-
-      setTriggerPipeline(pipeline)
-
       const runDetails = await tauriService.getWorkflowRunDetails(
         run.pipeline_id,
         run.run_number
       )
 
-      console.log('[Rerun] Fetched run details:', runDetails)
-      console.log('[Rerun] Inputs:', runDetails.inputs)
+      const inputs = runDetails.inputs || {}
 
-      setTriggerInputs(runDetails.inputs)
+      if (run.branch) {
+        if (!inputs.branch && !inputs.ref) {
+          inputs.ref = run.branch
+        } else if (inputs.ref) {
+          inputs.ref = run.branch
+        } else if (inputs.branch) {
+          inputs.branch = run.branch
+        }
+      }
+
+      setTriggerInputs(inputs)
     } catch (error: any) {
       console.error('[Rerun] Failed to fetch run details:', error)
       const errorMsg = error?.error || error?.message || 'Failed to load run details'
@@ -105,10 +115,37 @@ function App() {
 
       await tauriService.cancelPipelineRun(run.pipeline_id, run.run_number)
 
+      console.log('[Cancel] Waiting for backend to update status...')
+      let attempts = 0
+      const maxAttempts = 10
+      let statusUpdated = false
+
+      while (attempts < maxAttempts && !statusUpdated) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+
+        try {
+          const runDetails = await tauriService.getWorkflowRunDetails(run.pipeline_id, run.run_number)
+
+
+          if (runDetails && (runDetails.status === 'cancelled' as any)) {
+            statusUpdated = true
+            console.log(`[Cancel] Status updated after ${attempts + 1} seconds`)
+          }
+        } catch (_error) {
+          console.warn(`[Cancel] Polling attempt ${attempts + 1} failed, continuing...`)
+        }
+
+        attempts++
+      }
+
+      if (!statusUpdated) {
+        console.warn('[Cancel] Status not confirmed after 10s, refreshing anyway')
+      }
+
+      await handleRefreshAll()
     } catch (error: any) {
       console.error('[Cancel] Failed to cancel run:', error)
       const errorMsg = error?.error || error?.message || 'Failed to cancel run'
-
 
       notifications.show({
         title: 'Error',
@@ -126,9 +163,9 @@ function App() {
       onAddProvider={addProvider}
       onUpdateProvider={updateProvider}
       onRemoveProvider={removeProvider}
-      onRefreshCurrent={handleRefreshCurrent}
       onRefreshAll={handleRefreshAll}
       onRefreshProviders={refreshProviders}
+      refreshing={isRefreshing || pipelinesLoading || providersLoading || runHistoryLoading}
     >
       {currentView === 'run-history' ? (
         <RunHistoryPage
@@ -140,12 +177,14 @@ function App() {
           onRerun={handleRerun}
           onCancel={handleCancel}
           refreshTrigger={refreshTrigger}
+          onLoadingChange={setRunHistoryLoading}
         />
       ) : (
-        <Container size="100%" py={{ base: 'xs', sm: 'md' }} px={{ base: 'xs', sm: 'xl' }}>
+        <Container size="100%" pt={{ base: 'xs', sm: 'md' }} pb={{ base: 'xl', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }}>
           <UnifiedPipelinesView
             pipelines={filteredPipelines}
             providers={providers}
+            loading={providersLoading}
             onViewHistory={handleViewHistory}
             onTrigger={setTriggerPipeline}
           />
@@ -158,8 +197,8 @@ function App() {
           onClose={handleCloseTriggerModal}
           pipeline={triggerPipeline}
           initialInputs={triggerInputs}
-          onSuccess={(pipelineId, runNumber) => {
-            // Navigate to run history page
+          onSuccess={async (pipelineId, runNumber) => {
+            await handleRefreshAll()
             if (triggerPipeline) {
               handleViewHistory(triggerPipeline)
             }
@@ -173,11 +212,12 @@ function App() {
         onClose={() => setLogsModal({ opened: false, pipelineId: '', runNumber: 0 })}
         pipelineId={logsModal.pipelineId}
         runNumber={logsModal.runNumber}
-        onRerunSuccess={(pipelineId, newRunNumber) => {
+        onRerunSuccess={async (pipelineId, newRunNumber) => {
+          await handleRefreshAll()
           setLogsModal({ opened: true, pipelineId, runNumber: newRunNumber })
         }}
-        onCancelSuccess={() => {
-          setRefreshTrigger(prev => prev + 1)
+        onCancelSuccess={async () => {
+          await handleRefreshAll()
         }}
       />
     </AppLayout>

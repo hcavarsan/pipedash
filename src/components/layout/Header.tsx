@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 
-import { ActionIcon, Badge, Box, Divider, Group, Image, Menu, Title, Tooltip } from '@mantine/core'
+import { ActionIcon, Badge, Box, Divider, Group, Image, Title, Tooltip } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconChevronDown, IconChevronsRight, IconRefresh, IconSettings } from '@tabler/icons-react'
+import { IconChevronsRight, IconRefresh, IconSettings } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import { useRefresh } from '../../hooks/useRefresh'
@@ -10,26 +10,24 @@ import { platform } from '../../utils/platform'
 import { WindowControls } from '../common/WindowControls'
 
 interface HeaderProps {
-  onRefreshCurrent?: () => void;
   onRefreshAll?: () => void;
   onToggleNavbar?: () => void;
   navbarOpened?: boolean;
   onOpenSettings?: () => void;
+  refreshing?: boolean;
 }
 
 export const Header = React.memo(({
-  onRefreshCurrent,
   onRefreshAll,
   onToggleNavbar,
   navbarOpened = false,
   onOpenSettings,
+  refreshing = false,
 }: HeaderProps) => {
   const { mode } = useRefresh()
-  const [loading, setLoading] = useState(false)
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null)
   const isMobile = useIsMobile()
 
-  // Detect platform on mount
   useEffect(() => {
     platform()
       .then((p) => setIsMacOS(p === 'macos'))
@@ -39,11 +37,10 @@ export const Header = React.memo(({
       })
   }, [])
 
-  const handleRefreshCurrent = async () => {
-    setLoading(true)
+  const handleRefresh = async () => {
     try {
-      if (onRefreshCurrent) {
-        await onRefreshCurrent()
+      if (onRefreshAll) {
+        await onRefreshAll()
       }
     } catch (error: any) {
       console.error('[Header] Failed to refresh:', error)
@@ -55,29 +52,6 @@ export const Header = React.memo(({
         message: errorMsg,
         color: 'red',
       })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleRefreshAll = async () => {
-    setLoading(true)
-    try {
-      if (onRefreshAll) {
-        await onRefreshAll()
-      }
-    } catch (error: any) {
-      console.error('[Header] Failed to refresh all:', error)
-      const errorMsg = error?.error || error?.message || 'Failed to refresh'
-
-
-      notifications.show({
-        title: 'Error',
-        message: errorMsg,
-        color: 'red',
-      })
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -154,84 +128,39 @@ export const Header = React.memo(({
             {mode === 'active' ? 'Auto-refresh' : 'Idle'}
           </Badge>
 
+          <Tooltip label="Refresh all" position="bottom">
+            <ActionIcon
+              variant="subtle"
+              size="xl"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              color="gray"
+              style={{
+                backgroundColor: 'transparent',
+                cursor: refreshing ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <IconRefresh
+                size={22}
+                style={{
+                  animation: refreshing ? 'spin 1s linear infinite' : 'none',
+                  color: 'currentColor',
+                }}
+              />
+            </ActionIcon>
+          </Tooltip>
+
           {onOpenSettings && (
             <Tooltip label="Settings" position="bottom">
               <ActionIcon
                 variant="subtle"
-                size="lg"
+                size="xl"
                 onClick={onOpenSettings}
                 color="gray"
               >
-                <IconSettings size={18} />
+                <IconSettings size={22} />
               </ActionIcon>
             </Tooltip>
-          )}
-
-          {isMobile ? (
-            <Tooltip label="Refresh" position="bottom">
-              <ActionIcon
-                variant="subtle"
-                size="lg"
-                onClick={handleRefreshCurrent}
-                disabled={loading}
-                color="gray"
-              >
-                <IconRefresh
-                  size={18}
-                  style={{
-                    animation: loading ? 'spin 1s linear infinite' : 'none',
-                    color: 'currentColor',
-                  }}
-                />
-              </ActionIcon>
-            </Tooltip>
-          ) : (
-            <Group gap={0}>
-              <Tooltip label="Refresh current view" position="bottom">
-                <ActionIcon
-                  variant="subtle"
-                  size="lg"
-                  onClick={handleRefreshCurrent}
-                  disabled={loading}
-                  color="gray"
-                  style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
-                >
-                  <IconRefresh
-                    size={18}
-                    style={{
-                      animation: loading ? 'spin 1s linear infinite' : 'none',
-                      color: 'currentColor',
-                    }}
-                  />
-                </ActionIcon>
-              </Tooltip>
-
-              <Menu shadow="md" width={200} position="bottom-end">
-                <Menu.Target>
-                  <Tooltip label="More refresh options" position="bottom">
-                    <ActionIcon
-                      variant="subtle"
-                      size="lg"
-                      color="gray"
-                      disabled={loading}
-                      style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
-                    >
-                      <IconChevronDown size={12} />
-                    </ActionIcon>
-                  </Tooltip>
-                </Menu.Target>
-
-                <Menu.Dropdown>
-                  <Menu.Item
-                    leftSection={<IconRefresh size={16} />}
-                    onClick={handleRefreshAll}
-                    disabled={loading}
-                  >
-                    Refresh All Providers
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
-            </Group>
           )}
         </Group>
       </Box>

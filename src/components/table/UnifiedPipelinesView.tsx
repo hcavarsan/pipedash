@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { DataTableSortStatus } from 'mantine-datatable'
 
-import { ActionIcon, Box, Card, Group, Stack, Text, Tooltip } from '@mantine/core'
+import { ActionIcon, Box, Card, Center, Group, Loader, Stack, Text, Tooltip } from '@mantine/core'
 import { IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
@@ -33,6 +33,7 @@ interface TableRow {
 interface UnifiedPipelinesViewProps {
   pipelines: Pipeline[];
   providers: ProviderSummary[];
+  loading?: boolean;
   onViewHistory: (pipeline: Pipeline) => void;
   onTrigger: (pipeline: Pipeline) => void;
 }
@@ -40,6 +41,7 @@ interface UnifiedPipelinesViewProps {
 export const UnifiedPipelinesView = ({
   pipelines,
   providers,
+  loading = false,
   onViewHistory,
   onTrigger,
 }: UnifiedPipelinesViewProps) => {
@@ -493,6 +495,20 @@ return null
           })
         )}
       </Stack>
+    )
+  }
+
+  if (loading) {
+    return (
+      <Box>
+        <TableHeader title="Repositories & Workflows" count={repositoryCount} />
+        <Center py="xl">
+          <Stack align="center" gap="md">
+            <Loader size="lg" />
+            <Text size="sm" c="dimmed">Loading pipelines...</Text>
+          </Stack>
+        </Center>
+      </Box>
     )
   }
 

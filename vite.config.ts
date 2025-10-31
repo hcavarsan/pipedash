@@ -83,7 +83,7 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
-    open: process.env.TAURI_ARCH === undefined,
+    open: false,
     watch: {
       ignored: ['!**/node_modules/**']
     }

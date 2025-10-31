@@ -254,9 +254,6 @@ return (
         <>
           <Divider />
           <Box p="md">
-            <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
-              Providers
-            </Text>
             <Button
               leftSection={<IconPlus size={14} />}
               variant="light"

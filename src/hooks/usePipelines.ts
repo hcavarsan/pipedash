@@ -45,7 +45,7 @@ export const usePipelines = (providerId?: number) => {
   )
 
   const refresh = useCallback(async () => {
-    await loadPipelines(false, false)
+    await loadPipelines(false, true)
   }, [loadPipelines])
 
   useEffect(() => {

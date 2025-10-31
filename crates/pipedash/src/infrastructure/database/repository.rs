@@ -316,9 +316,39 @@ impl Repository {
         })
     }
 
-    fn keyring_entry(&self, provider_id: i64) -> DomainResult<Entry> {
-        Entry::new("pipedash", &format!("provider_{}", provider_id))
+    fn keyring_entry(&self) -> DomainResult<Entry> {
+        Entry::new("pipedash", "tokens")
             .map_err(|e| DomainError::DatabaseError(format!("Failed to create keyring entry: {e}")))
+    }
+
+    fn get_all_tokens(&self) -> DomainResult<HashMap<String, String>> {
+        let entry = self.keyring_entry()?;
+        match entry.get_password() {
+            Ok(json) => serde_json::from_str(&json).map_err(|e| {
+                DomainError::DatabaseError(format!("Failed to parse tokens JSON: {e}"))
+            }),
+            Err(keyring::Error::NoEntry) => Ok(HashMap::new()),
+            Err(e) => Err(DomainError::DatabaseError(format!(
+                "Failed to get tokens from keyring: {e}"
+            ))),
+        }
+    }
+
+    fn save_all_tokens(&self, tokens: &HashMap<String, String>) -> DomainResult<()> {
+        let entry = self.keyring_entry()?;
+        let json = serde_json::to_string(tokens)
+            .map_err(|e| DomainError::DatabaseError(format!("Failed to serialize tokens: {e}")))?;
+
+        entry.set_password(&json).map_err(|e| {
+            DomainError::DatabaseError(format!(
+                "Failed to store tokens in system keyring: {}\n\
+                 \nThe tokens will not be saved securely. Please ensure:\n\
+                 - macOS: Grant Keychain Access permission to Pipedash\n\
+                 - Linux: Install libsecret (sudo apt install libsecret-1-dev)\n\
+                 - Windows: Ensure Credential Manager is accessible",
+                e
+            ))
+        })
     }
 
     fn store_token_in_keyring(&self, provider_id: i64, token: &str) -> DomainResult<()> {
@@ -326,17 +356,9 @@ impl Repository {
             DomainError::DatabaseError(format!("Failed to acquire keyring lock: {}", e))
         })?;
 
-        let entry = self.keyring_entry(provider_id)?;
-        entry.set_password(token).map_err(|e| {
-            DomainError::DatabaseError(format!(
-                "Failed to store token in system keyring for provider {}: {}\n\
-                 \nThe token will not be saved securely. Please ensure:\n\
-                 - macOS: Grant Keychain Access permission to Pipedash\n\
-                 - Linux: Install libsecret (sudo apt install libsecret-1-dev)\n\
-                 - Windows: Ensure Credential Manager is accessible",
-                provider_id, e
-            ))
-        })
+        let mut tokens = self.get_all_tokens()?;
+        tokens.insert(provider_id.to_string(), token.to_string());
+        self.save_all_tokens(&tokens)
     }
 
     fn get_token_from_keyring(&self, provider_id: i64) -> DomainResult<String> {
@@ -344,17 +366,34 @@ impl Repository {
             DomainError::DatabaseError(format!("Failed to acquire keyring lock: {}", e))
         })?;
 
-        let entry = self.keyring_entry(provider_id)?;
-        entry.get_password().map_err(|e| {
-            DomainError::DatabaseError(format!(
-                "Failed to get token from system keyring for provider {}: {}\n\
-                 \nTroubleshooting:\n\
-                 - macOS: Check Keychain Access permissions\n\
-                 - Linux: Ensure 'libsecret' is installed (sudo apt install libsecret-1-dev)\n\
-                 - Windows: Check Credential Manager access",
-                provider_id, e
-            ))
-        })
+        let mut tokens = self.get_all_tokens()?;
+
+        if let Some(token) = tokens.get(&provider_id.to_string()) {
+            return Ok(token.clone());
+        }
+
+        let old_entry =
+            Entry::new("pipedash", &format!("provider_{}", provider_id)).map_err(|e| {
+                DomainError::DatabaseError(format!("Failed to create old keyring entry: {e}"))
+            })?;
+
+        if let Ok(token) = old_entry.get_password() {
+            eprintln!(
+                "[INFO] Migrating provider {} from old keyring format",
+                provider_id
+            );
+            tokens.insert(provider_id.to_string(), token.clone());
+            self.save_all_tokens(&tokens)?;
+
+            let _ = old_entry.delete_credential();
+
+            return Ok(token);
+        }
+
+        Err(DomainError::DatabaseError(format!(
+            "Token not found in keyring for provider {}",
+            provider_id
+        )))
     }
 
     fn delete_token_from_keyring(&self, provider_id: i64) -> DomainResult<()> {
@@ -362,10 +401,17 @@ impl Repository {
             DomainError::DatabaseError(format!("Failed to acquire keyring lock: {}", e))
         })?;
 
-        let entry = self.keyring_entry(provider_id)?;
-        entry.delete_credential().map_err(|e| {
-            DomainError::DatabaseError(format!("Failed to delete token from keyring: {e}"))
-        })
+        let mut tokens = self.get_all_tokens()?;
+        tokens.remove(&provider_id.to_string());
+
+        if tokens.is_empty() {
+            let entry = self.keyring_entry()?;
+            entry.delete_credential().map_err(|e| {
+                DomainError::DatabaseError(format!("Failed to delete keyring entry: {e}"))
+            })
+        } else {
+            self.save_all_tokens(&tokens)
+        }
     }
 
     pub fn cache_workflow_parameters(

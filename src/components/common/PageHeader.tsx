@@ -18,8 +18,8 @@ export const PageHeader = ({
   backLabel = 'Back',
 }: PageHeaderProps) => {
   return (
-    <Box mb="sm" pt={0} pb="xs">
-      <Group justify="space-between" align="center">
+    <Box mb="sm" pt={0} pb="xs" style={{ minHeight: 52 }}>
+      <Group justify="space-between" align="center" h={52}>
         <Stack gap={2}>
           <Group gap="xs" align="center">
             <Title order={3} fw={600} size="h3">

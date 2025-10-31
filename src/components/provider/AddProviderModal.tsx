@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
   Alert,
@@ -20,8 +20,9 @@ import {
   Text,
   Textarea,
   TextInput,
+  Tooltip,
 } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconKey, IconList } from '@tabler/icons-react'
+import { IconAlertCircle, IconCheck, IconKey, IconList, IconSearch } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import { usePlugins } from '../../contexts/PluginContext'
@@ -55,28 +56,33 @@ export const AddProviderModal = ({
   const [providerName, setProviderName] = useState('')
   const [token, setToken] = useState('')
   const [configValues, setConfigValues] = useState<Record<string, string>>({})
+  const [availableOrganizations, setAvailableOrganizations] = useState<string[]>([])
+  const [selectedOrganization, setSelectedOrganization] = useState<string>('')
+  const [allPipelines, setAllPipelines] = useState<AvailablePipeline[]>([])
   const [availablePipelines, setAvailablePipelines] = useState<AvailablePipeline[]>([])
   const [selectedPipelines, setSelectedPipelines] = useState<Set<string>>(new Set())
+  const [loadingOrganizations, setLoadingOrganizations] = useState(false)
   const [loadingPipelines, setLoadingPipelines] = useState(false)
-  const [organizationFilter, setOrganizationFilter] = useState<string>('')
-  const [repositoryFilter, setRepositoryFilter] = useState<string>('')
+  const [repositorySearch, setRepositorySearch] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!opened) {
-      // Reset form when modal closes
       setStep('credentials')
       setSelectedPlugin(null)
       setProviderName('')
       setToken('')
       setConfigValues({})
+      setAvailableOrganizations([])
+      setSelectedOrganization('')
+      setAllPipelines([])
       setAvailablePipelines([])
       setSelectedPipelines(new Set())
+      setRepositorySearch('')
       setError(null)
-      setSuccess(false)
+      setFieldErrors({})
     } else if (opened && editMode && existingProvider) {
       const plugin = plugins.find((p) => p.provider_type === existingProvider.provider_type)
 
@@ -95,7 +101,7 @@ export const AddProviderModal = ({
       setSelectedPlugin(null)
       setConfigValues({})
       setProviderName('')
-
+      
 return
     }
 
@@ -104,12 +110,10 @@ return
 
     if (plugin) {
       setSelectedPlugin(plugin)
-
       if (!editMode) {
         setProviderName(plugin.name)
       }
 
-      // Initialize config values with default values
       const initialConfig: Record<string, string> = {}
 
 
@@ -145,6 +149,7 @@ return
         handleConfigChange(field.key, newValue)
         if (fieldErrors[field.key]) {
           const newErrors = { ...fieldErrors }
+
 
           delete newErrors[field.key]
           setFieldErrors(newErrors)
@@ -244,11 +249,11 @@ return false
 
   const handleNext = async () => {
     if (!validateCredentials() || !selectedPlugin) {
-return
-}
+      return
+    }
 
     try {
-      setLoadingPipelines(true)
+      setLoadingOrganizations(true)
       setError(null)
 
       const pipelines = await tauriService.previewProviderPipelines(
@@ -257,11 +262,65 @@ return
         configValues
       )
 
-      setAvailablePipelines(pipelines)
+      setAllPipelines(pipelines)
+
+      const orgs = Array.from(
+        new Set(pipelines.map((p) => p.organization).filter((org): org is string => !!org))
+      ).sort()
+
+      setAvailableOrganizations(orgs)
+
+      if (orgs.length === 1) {
+        setSelectedOrganization(orgs[0])
+        const orgPipelines = pipelines.filter((p) => p.organization === orgs[0])
+
+
+        setAvailablePipelines(orgPipelines)
+
+        if (editMode && existingProvider) {
+          const existingPipelineIds = new Set<string>()
+          const selectedItems = existingProvider.config.selected_items || ''
+
+
+          if (selectedItems) {
+            selectedItems.split(',').forEach((id) => {
+              const trimmed = id.trim()
+
+
+              if (trimmed) {
+                existingPipelineIds.add(trimmed)
+              }
+            })
+          }
+          setSelectedPipelines(existingPipelineIds)
+        }
+      }
+
+      setStep('pipelines')
+    } catch (err: any) {
+      setError(err?.error || err?.message || 'Failed to fetch organizations')
+    } finally {
+      setLoadingOrganizations(false)
+    }
+  }
+
+  const handleOrganizationSelect = (org: string | null) => {
+    if (!org) {
+      return
+    }
+
+    setSelectedOrganization(org)
+    setRepositorySearch('')
+    setLoadingPipelines(true)
+
+    setTimeout(() => {
+      const orgPipelines = allPipelines.filter((p) => p.organization === org)
+
+
+      setAvailablePipelines(orgPipelines)
 
       if (editMode && existingProvider) {
         const existingPipelineIds = new Set<string>()
-
         const selectedItems = existingProvider.config.selected_items || ''
 
 
@@ -275,16 +334,11 @@ return
             }
           })
         }
-
         setSelectedPipelines(existingPipelineIds)
       }
 
-      setStep('pipelines')
-    } catch (err: any) {
-      setError(err?.error || err?.message || 'Failed to fetch available pipelines')
-    } finally {
       setLoadingPipelines(false)
-    }
+    }, 0)
   }
 
   const handlePipelineToggle = (pipelineId: string) => {
@@ -297,40 +351,36 @@ return
       } else {
         newSet.add(pipelineId)
       }
-
+      
 return newSet
     })
   }
 
   const handleSelectAll = () => {
-    if (selectedPipelines.size === availablePipelines.length) {
+    if (selectedPipelines.size === filteredPipelines.length) {
       setSelectedPipelines(new Set())
     } else {
-      setSelectedPipelines(new Set(availablePipelines.map((p) => p.id)))
+      setSelectedPipelines(new Set(filteredPipelines.map((p) => p.id)))
     }
   }
 
-  const uniqueOrganizations = Array.from(
-    new Set(availablePipelines.map((p) => p.organization).filter((org): org is string => !!org))
-  ).sort()
-
-  const uniqueRepositories = Array.from(
-    new Set(availablePipelines.map((p) => p.repository).filter((repo): repo is string => !!repo))
-  ).sort()
-
-  const filteredPipelines = availablePipelines.filter((pipeline) => {
-    const matchesOrg = !organizationFilter || pipeline.organization === organizationFilter
-    const matchesRepo = !repositoryFilter || pipeline.repository === repositoryFilter
+  const filteredPipelines = useMemo(() => {
+    if (!repositorySearch.trim()) {
+      return availablePipelines
+    }
+    const searchLower = repositorySearch.toLowerCase()
 
 
-
-return matchesOrg && matchesRepo
-  })
+    
+return availablePipelines.filter((pipeline) => {
+      return pipeline.repository?.toLowerCase().includes(searchLower)
+    })
+  }, [availablePipelines, repositorySearch])
 
   const handleSubmit = async () => {
     if (!selectedPlugin || selectedPipelines.size === 0) {
       setError('Please select at least one pipeline')
-
+      
 return
     }
 
@@ -339,6 +389,7 @@ return
       setError(null)
 
       const finalConfig = { ...configValues }
+
 
       finalConfig.selected_items = Array.from(selectedPipelines).join(',')
 
@@ -356,11 +407,7 @@ return
         await onAdd(providerConfig)
       }
 
-      setSuccess(true)
-
-      setTimeout(() => {
-        onClose()
-      }, 1500)
+      onClose()
     } catch (err: any) {
       setError(err?.error || err?.message || `Failed to ${editMode ? 'update' : 'add'} provider`)
     } finally {
@@ -447,7 +494,7 @@ return (
             description={isMobile ? undefined : 'Choose pipelines to monitor'}
             icon={<IconList size={18} />}
             completedIcon={<IconCheck size={18} />}
-            loading={loadingPipelines}
+            loading={loadingOrganizations || loadingPipelines}
           />
         </Stepper>
 
@@ -466,16 +513,10 @@ return (
               </Alert>
             )}
 
-            {success && (
-              <Alert icon={<IconCheck size={16} />} color="green" title="Success">
-                Provider {editMode ? 'updated' : 'added'} successfully!
-              </Alert>
-            )}
-
             {step === 'credentials' && (
               <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                  <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, overflow: 'auto' }}>
+                <ScrollArea style={{ flex: 1 }} type="auto">
+                  <Stack gap={isMobile ? 'xs' : 'md'} pb="md">
                     <Select
                       label="Provider Type"
                       placeholder="Select a provider type"
@@ -486,7 +527,7 @@ return (
                       value={selectedPlugin?.provider_type || null}
                       onChange={handlePluginSelect}
                       required
-                      disabled={submitting || success || editMode}
+                      disabled={submitting || editMode}
                     />
 
                     {selectedPlugin ? (
@@ -510,7 +551,7 @@ return (
                               }
                             }}
                             required
-                            disabled={submitting || success}
+                            disabled={submitting}
                             description="A friendly name to identify this provider"
                             error={fieldErrors.providerName}
                           />
@@ -529,7 +570,7 @@ return (
                               }
                             }}
                             required
-                            disabled={submitting || success}
+                            disabled={submitting}
                             description="Your API token for authentication"
                             error={fieldErrors.token}
                           />
@@ -547,30 +588,32 @@ return (
                       )
                     )}
                   </Stack>
-                </Box>
+                </ScrollArea>
 
                 <Box
                   style={{
                     borderTop: '1px solid var(--mantine-color-default-border)',
                     paddingTop: isMobile ? 8 : 12,
-                    marginTop: 0,
+                    marginTop: isMobile ? 8 : 12,
                     flexShrink: 0,
                   }}
                 >
-                  <Group justify="flex-end" gap={isMobile ? 'xs' : 'sm'}>
+                  <Group justify="flex-end" gap="xs">
                     <Button
-                      variant="subtle"
-                      size={isMobile ? 'sm' : 'md'}
+                      variant="light"
+                      size="sm"
                       onClick={onClose}
-                      disabled={submitting || success}
+                      disabled={submitting}
                     >
                       Cancel
                     </Button>
                     <Button
+                      variant="light"
+                      color="blue"
+                      size="sm"
                       onClick={handleNext}
-                      size={isMobile ? 'sm' : 'md'}
-                      loading={loadingPipelines}
-                      disabled={!selectedPlugin || success || !providerName.trim() || !token.trim()}
+                      loading={loadingOrganizations}
+                      disabled={!selectedPlugin || !providerName.trim() || !token.trim()}
                     >
                       {isMobile ? 'Next' : 'Next: Select Pipelines'}
                     </Button>
@@ -581,64 +624,103 @@ return (
 
             {step === 'pipelines' && (
               <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                  <Stack gap={isMobile ? 'xs' : 'sm'} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    <Paper p={{ base: 'xs', sm: 'md' }} withBorder style={{ flexShrink: 0 }}>
-                    <Stack gap="xs">
-                      <Group justify="space-between" wrap="nowrap">
-                        <Box style={{ flex: 1, minWidth: 0 }}>
-                          <Text size="sm" fw={500} truncate>
-                            {filteredPipelines.length} of {availablePipelines.length}
-                          </Text>
-                          <Text size="xs" c="dimmed">
-                            {selectedPipelines.size} selected
-                          </Text>
-                        </Box>
-                        <Button
-                          size="xs"
-                          variant="subtle"
-                          onClick={handleSelectAll}
-                        >
-                          {isMobile ? (selectedPipelines.size === availablePipelines.length ? 'Clear' : 'All') : (selectedPipelines.size === availablePipelines.length ? 'Deselect All' : 'Select All')}
-                        </Button>
-                      </Group>
-                      <Group grow>
-                        <Select
-                          placeholder={isMobile ? 'Org...' : 'Filter by organization...'}
-                          size="xs"
-                          value={organizationFilter}
-                          onChange={(value) => setOrganizationFilter(value || '')}
-                          data={uniqueOrganizations}
-                          clearable
-                          searchable
+                <Stack gap="xs" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  <Paper p="sm" withBorder style={{ flexShrink: 0 }}>
+                    {loadingOrganizations ? (
+                      <Box py="lg">
+                        <Stack align="center" gap="xs">
+                          <Loader size="md" />
+                          <Text size="sm" c="dimmed">Loading organizations...</Text>
+                        </Stack>
+                      </Box>
+                    ) : (
+                      <Group gap="sm" wrap="nowrap" align="flex-start">
+                        {availableOrganizations.length > 1 && (
+                          <Select
+                            placeholder="Select organization"
+                            value={selectedOrganization}
+                            onChange={handleOrganizationSelect}
+                            data={availableOrganizations}
+                            searchable
+                            disabled={loadingPipelines}
+                            rightSection={loadingPipelines ? <Loader size="xs" /> : undefined}
+                            style={{ flex: 1 }}
+                            styles={{
+                              input: {
+                                height: 36,
+                                fontSize: '0.875rem',
+                              },
+                            }}
+                          />
+                        )}
+                        <TextInput
+                          placeholder="Search repositories..."
+                          value={repositorySearch}
+                          onChange={(e) => setRepositorySearch(e.currentTarget.value)}
+                          leftSection={<IconSearch size={16} />}
+                          disabled={!selectedOrganization || loadingPipelines}
+                          style={{ flex: 1 }}
+                          styles={{
+                            input: {
+                              height: 36,
+                              fontSize: '0.875rem',
+                            },
+                          }}
                         />
-                        <Select
-                          placeholder={isMobile ? 'Repo...' : 'Filter by repository...'}
-                          size="xs"
-                          value={repositoryFilter}
-                          onChange={(value) => setRepositoryFilter(value || '')}
-                          data={uniqueRepositories}
-                          clearable
-                          searchable
-                        />
                       </Group>
-                    </Stack>
+                    )}
                   </Paper>
 
-                  {isMobile ? (
-                    <Box style={{ flex: 1, overflow: 'auto' }}>
-                      {renderMobilePipelineCards()}
+                  {loadingOrganizations ? (
+                    <Box style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Stack align="center" gap="xs">
+                        <Loader size="md" />
+                        <Text size="sm" c="dimmed">Fetching organizations...</Text>
+                      </Stack>
                     </Box>
+                  ) : loadingPipelines ? (
+                    <Box style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Stack align="center" gap="xs">
+                        <Loader size="md" />
+                        <Text size="sm" c="dimmed">Loading pipelines...</Text>
+                      </Stack>
+                    </Box>
+                  ) : !selectedOrganization ? (
+                    <Box style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text size="sm" c="dimmed">
+                        {availableOrganizations.length > 1 ? 'Select organization above' : 'No organizations found'}
+                      </Text>
+                    </Box>
+                  ) : isMobile ? (
+                    <ScrollArea style={{ flex: 1 }} type="auto">
+                      {renderMobilePipelineCards()}
+                    </ScrollArea>
                   ) : (
-                    <ScrollArea h={400}>
-                      <Table highlightOnHover>
+                    <ScrollArea style={{ flex: 1 }} type="auto">
+                      <Table
+                        highlightOnHover
+                        verticalSpacing="xs"
+                        styles={{
+                          tr: {
+                            height: 44,
+                          },
+                        }}
+                      >
                         <Table.Thead>
                           <Table.Tr>
-                            <Table.Th style={{ width: 40 }}></Table.Th>
-                            <Table.Th>Name</Table.Th>
-                            <Table.Th>Organization</Table.Th>
-                            <Table.Th>Repository</Table.Th>
-                            <Table.Th>Description</Table.Th>
+                            <Table.Th style={{ width: 50 }}>
+                              {filteredPipelines.length > 0 && (
+                                <MantineCheckbox
+                                  checked={selectedPipelines.size === filteredPipelines.length && filteredPipelines.length > 0}
+                                  indeterminate={selectedPipelines.size > 0 && selectedPipelines.size < filteredPipelines.length}
+                                  onChange={handleSelectAll}
+                                />
+                              )}
+                            </Table.Th>
+                            <Table.Th style={{ width: '25%' }}>Name</Table.Th>
+                            <Table.Th style={{ width: '15%' }}>Organization</Table.Th>
+                            <Table.Th style={{ width: '20%' }}>Repository</Table.Th>
+                            <Table.Th style={{ width: '40%' }}>Description</Table.Th>
                           </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
@@ -646,33 +728,41 @@ return (
                             <Table.Tr
                               key={pipeline.id}
                               onClick={() => handlePipelineToggle(pipeline.id)}
-                              style={{ cursor: 'pointer' }}
+                              style={{ cursor: 'pointer', height: 44 }}
                             >
-                              <Table.Td>
+                              <Table.Td onClick={(e) => e.stopPropagation()}>
                                 <MantineCheckbox
                                   checked={selectedPipelines.has(pipeline.id)}
                                   onChange={() => handlePipelineToggle(pipeline.id)}
                                 />
                               </Table.Td>
-                              <Table.Td>
-                                <Text size="sm" fw={500}>
-                                  {pipeline.name}
-                                </Text>
+                              <Table.Td style={{ maxWidth: 0 }}>
+                                <Tooltip label={pipeline.name} openDelay={500}>
+                                  <Text size="sm" fw={500} truncate="end">
+                                    {pipeline.name}
+                                  </Text>
+                                </Tooltip>
                               </Table.Td>
-                              <Table.Td>
-                                <Text size="sm">
-                                  {pipeline.organization || '—'}
-                                </Text>
+                              <Table.Td style={{ maxWidth: 0 }}>
+                                <Tooltip label={pipeline.organization || '—'} openDelay={500}>
+                                  <Text size="sm" truncate="end">
+                                    {pipeline.organization || '—'}
+                                  </Text>
+                                </Tooltip>
                               </Table.Td>
-                              <Table.Td>
-                                <Text size="sm">
-                                  {pipeline.repository || '—'}
-                                </Text>
+                              <Table.Td style={{ maxWidth: 0 }}>
+                                <Tooltip label={pipeline.repository || '—'} openDelay={500}>
+                                  <Text size="sm" truncate="end">
+                                    {pipeline.repository || '—'}
+                                  </Text>
+                                </Tooltip>
                               </Table.Td>
-                              <Table.Td>
-                                <Text size="sm" c="dimmed">
-                                  {pipeline.description || '—'}
-                                </Text>
+                              <Table.Td style={{ maxWidth: 0 }}>
+                                <Tooltip label={pipeline.description || '—'} openDelay={500}>
+                                  <Text size="sm" c="dimmed" truncate="end">
+                                    {pipeline.description || '—'}
+                                  </Text>
+                                </Tooltip>
                               </Table.Td>
                             </Table.Tr>
                           ))}
@@ -681,7 +771,6 @@ return (
                     </ScrollArea>
                   )}
                 </Stack>
-                </Box>
 
                 <Box
                   style={{
@@ -692,30 +781,39 @@ return (
                   }}
                 >
                   <Group justify="space-between">
-                    <Button
-                      variant="subtle"
-                      size={isMobile ? 'sm' : 'md'}
-                      onClick={() => setStep('credentials')}
-                      disabled={submitting || success}
-                    >
-                      Back
-                    </Button>
-                    <Group gap={isMobile ? 'xs' : 'sm'}>
+                    <Group gap="sm">
                       <Button
-                        variant="subtle"
-                        size={isMobile ? 'sm' : 'md'}
+                        variant="light"
+                        size="sm"
+                        onClick={() => setStep('credentials')}
+                        disabled={submitting}
+                      >
+                        Back
+                      </Button>
+                      {selectedOrganization && (
+                        <Text size="sm" c="dimmed">
+                          {selectedPipelines.size} of {filteredPipelines.length} selected
+                        </Text>
+                      )}
+                    </Group>
+                    <Group gap="xs">
+                      <Button
+                        variant="light"
+                        size="sm"
                         onClick={onClose}
-                        disabled={submitting || success}
+                        disabled={submitting}
                       >
                         Cancel
                       </Button>
                       <Button
+                        variant="light"
+                        color="blue"
+                        size="sm"
                         onClick={handleSubmit}
-                        size={isMobile ? 'sm' : 'md'}
                         loading={submitting}
-                        disabled={success || selectedPipelines.size === 0}
+                        disabled={selectedPipelines.size === 0}
                       >
-                        {success ? 'Done!' : editMode ? (isMobile ? 'Update' : 'Update Provider') : (isMobile ? 'Add' : 'Add Provider')}
+                        {editMode ? (isMobile ? 'Update' : 'Update Provider') : (isMobile ? 'Add' : 'Add Provider')}
                       </Button>
                     </Group>
                   </Group>

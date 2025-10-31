@@ -20,6 +20,7 @@ interface WorkflowLogsModalProps {
   onCancelSuccess?: () => void;
 }
 
+/* eslint-disable complexity */
 export const WorkflowLogsModal = ({
   opened,
   onClose,
@@ -104,6 +105,7 @@ return () => clearTimeout(timeoutId)
   }
 
   const isRunning = runDetails?.status === 'running' || runDetails?.status === 'pending'
+  const isPending = runDetails?.status === 'pending'
 
   const formatDuration = (seconds: number | null) => {
     if (!seconds) {
@@ -179,7 +181,9 @@ return
         }
 
         onClose()
-        onRerunSuccess(pipelineId, newRunNumber)
+        if (onRerunSuccess) {
+          await onRerunSuccess(pipelineId, newRunNumber)
+        }
 
         setTimeout(() => setRerunning(false), 100)
       } else {
@@ -212,6 +216,7 @@ return
 
       await tauriService.cancelPipelineRun(pipelineId, runNumber)
 
+      console.log('[WorkflowLogs] Cancel request sent, waiting for confirmation...')
 
       const maxAttempts = 10
       let attempt = 0
@@ -240,17 +245,15 @@ return
 
       if (!statusChanged) {
         console.warn('[WorkflowLogs] Cancel timeout - status not updated after 10s')
-        // Final refresh anyway
         await fetchRunDetails(false)
       }
 
       if (onCancelSuccess) {
-        onCancelSuccess()
+        await onCancelSuccess()
       }
     } catch (error: any) {
       console.error('[WorkflowLogs] Failed to cancel run:', error)
       const errorMsg = error?.error || error?.message || 'Failed to cancel run'
-
 
       notifications.show({
         title: 'Error',
@@ -287,8 +290,17 @@ return
               onClick={handleManualRefresh}
               disabled={refreshing}
               title="Refresh run details"
+              style={{
+                backgroundColor: 'transparent',
+                cursor: refreshing ? 'not-allowed' : 'pointer',
+              }}
             >
-              {refreshing ? <Loader size={16} color="blue" /> : <IconReload size={16} />}
+              <IconReload
+                size={16}
+                style={{
+                  animation: refreshing ? 'spin 1s linear infinite' : 'none',
+                }}
+              />
             </ActionIcon>
           )}
         </Group>
@@ -308,18 +320,15 @@ return
           </Alert>
         ) : runDetails ? (
           <>
-            {/* Scrollable content area */}
-            <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, overflow: 'auto' }}>
-                {isRunning && !isMobile && (
-                  <Alert color="blue" icon={<IconRefresh size={16} />} title="Build in Progress">
-                    <Text size="sm">
-                      Details will automatically update every 5 seconds.
-                    </Text>
-                  </Alert>
-                )}
+            {isRunning && !isMobile && (
+              <Alert color="blue" icon={<IconRefresh size={16} />} title="Build in Progress" style={{ flexShrink: 0 }}>
+                <Text size="sm">
+                  Details will automatically update every 5 seconds.
+                </Text>
+              </Alert>
+            )}
 
-                <Paper p={isMobile ? 'sm' : 'lg'} withBorder>
+            <Paper p={isMobile ? 'sm' : 'lg'} withBorder style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={isMobile ? 'sm' : 'lg'}>
                 <Stack gap={isMobile ? 'xs' : 'md'}>
                   <Box>
@@ -401,8 +410,6 @@ return
                 </>
               )}
             </Paper>
-              </Stack>
-            </Box>
 
             {/* Sticky footer */}
             <Box
@@ -420,10 +427,17 @@ return
                     color="red"
                     size="sm"
                     style={{ flex: isMobile ? 1 : undefined }}
-                    leftSection={cancelling ? <Loader size={14} color="red" /> : <IconSquare size={14} />}
+                    leftSection={
+                      <IconSquare
+                        size={14}
+                        style={{
+                          animation: cancelling ? 'spin 1s linear infinite' : 'none',
+                        }}
+                      />
+                    }
                     onClick={handleCancel}
-                    disabled={cancelling}
-                    title="Stop the running workflow"
+                    disabled={cancelling || isPending}
+                    title={isPending ? 'Cannot cancel pending workflow' : 'Stop the running workflow'}
                   >
                     {isMobile ? 'Stop' : 'Stop Workflow'}
                   </Button>
@@ -433,10 +447,17 @@ return
                     color="blue"
                     size="sm"
                     style={{ flex: isMobile ? 1 : undefined }}
-                    leftSection={rerunning ? <Loader size={14} color="blue" /> : <IconPlayerPlay size={14} />}
+                    leftSection={
+                      <IconPlayerPlay
+                        size={14}
+                        style={{
+                          animation: rerunning ? 'spin 1s linear infinite' : 'none',
+                        }}
+                      />
+                    }
                     onClick={handleRerun}
-                    disabled={rerunning}
-                    title="Re-run workflow with same parameters"
+                    disabled={rerunning || isPending}
+                    title={isPending ? 'Workflow is pending' : 'Re-run workflow with same parameters'}
                   >
                     {isMobile ? 'Re-run' : 'Re-run Workflow'}
                   </Button>
@@ -459,6 +480,16 @@ return
           </>
         ) : null}
       </Stack>
+      <style>{`
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      `}</style>
     </StandardModal>
   )
 }

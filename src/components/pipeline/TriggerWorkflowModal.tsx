@@ -30,30 +30,39 @@ export const TriggerWorkflowModal = ({
   const [parameters, setParameters] = useState<WorkflowParameter[]>([])
   const [paramValues, setParamValues] = useState<Record<string, any>>({})
   const [error, setError] = useState<string | null>(null)
+  const [isPreparingRerun, setIsPreparingRerun] = useState(false)
 
   useEffect(() => {
     if (opened) {
+      if (initialInputs === undefined) {
+        setIsPreparingRerun(true)
+      }
       fetchParameters()
     } else {
       setParamValues({})
       setError(null)
+      setIsPreparingRerun(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opened, pipeline.id])
 
+  useEffect(() => {
+    if (initialInputs !== undefined && isPreparingRerun) {
+      setIsPreparingRerun(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialInputs])
+
   const initializeParamValues = (params: WorkflowParameter[]) => {
     const initialValues: Record<string, any> = {}
-    const isReplay = initialInputs !== undefined
-
-    console.log(`[TriggerModal] Initializing params. Replay: ${isReplay}, Params count: ${params.length}`)
+    const isReplay = initialInputs !== undefined && Object.keys(initialInputs).length > 0
 
     params.forEach((param) => {
-      if (isReplay && initialInputs[param.name] !== undefined) {
+      if (isReplay && initialInputs && initialInputs[param.name] !== undefined) {
         initialValues[param.name] = initialInputs[param.name]
       } else if (param.default !== undefined && param.default !== null) {
         if (param.type === 'string' || param.type === 'choice') {
           const defaultStr = String(param.default)
-
 
           if (defaultStr.trim() !== '') {
             initialValues[param.name] = param.default
@@ -66,7 +75,6 @@ export const TriggerWorkflowModal = ({
       }
     })
 
-    console.log(`[TriggerModal] Initialized ${Object.keys(initialValues).length} parameter values`)
     setParamValues(initialValues)
   }
 
@@ -150,7 +158,7 @@ return
 
       if (onSuccess && shouldOpenLogs) {
         console.log('[Trigger] Opening logs modal for run #', runNumber)
-        onSuccess(pipeline.id, runNumber)
+        await onSuccess(pipeline.id, runNumber)
       } else if (runNumber === 0) {
         console.warn('[Trigger] No run number returned, cannot open logs modal')
         notifications.show({
@@ -249,11 +257,11 @@ return
       <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, overflow: 'auto' }}>
-            {fetchingParams ? (
+            {isPreparingRerun || fetchingParams ? (
               <Stack align="center" gap="sm" py="md">
                 <Loader size="sm" />
                 <Text size="sm" c="dimmed">
-                  Loading workflow parameters...
+                  {isPreparingRerun ? 'Preparing rerun...' : 'Loading workflow parameters...'}
                 </Text>
               </Stack>
             ) : error ? (
@@ -291,10 +299,9 @@ return
             color="blue"
             fullWidth
             size={isMobile ? 'sm' : 'md'}
-            disabled={fetchingParams || !!error || loading}
-            leftSection={loading ? <Loader size={16} color="blue" /> : undefined}
+            disabled={isPreparingRerun || fetchingParams || !!error || loading}
           >
-            Trigger Workflow
+            {loading ? 'Triggering...' : 'Trigger Workflow'}
           </Button>
         </Box>
       </Stack>

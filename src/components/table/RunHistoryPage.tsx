@@ -20,6 +20,7 @@ interface RunHistoryPageProps {
   onRerun?: (pipeline: Pipeline, run: PipelineRun) => void;
   onCancel?: (pipeline: Pipeline, run: PipelineRun) => void;
   refreshTrigger?: number;
+  onLoadingChange?: (loading: boolean) => void;
 }
 
 export const RunHistoryPage = ({
@@ -29,6 +30,7 @@ export const RunHistoryPage = ({
   onRerun,
   onCancel,
   refreshTrigger,
+  onLoadingChange,
 }: RunHistoryPageProps) => {
   const isMobile = useIsMobile()
   const [runs, setRuns] = useState<PipelineRun[]>([])
@@ -81,7 +83,7 @@ return `${mins}m ${secs}s`
       setTotalPages(0)
       setHasMore(false)
       setIsComplete(false)
-      
+
 return
     }
 
@@ -94,9 +96,15 @@ return
       // Show full loading only on initial load
       if (showLoading && initialLoad) {
         setLoading(true)
+        if (onLoadingChange) {
+onLoadingChange(true)
+}
       } else if (showLoading) {
         // Show small page loading indicator for page changes
         setPageLoading(true)
+        if (onLoadingChange) {
+onLoadingChange(true)
+}
       }
 
       const data = await tauriService.fetchRunHistory(pipeline.id, targetPage, PAGE_SIZE)
@@ -118,6 +126,9 @@ return
     } finally {
       setLoading(false)
       setPageLoading(false)
+      if (onLoadingChange) {
+onLoadingChange(false)
+}
       if (initialLoad) {
         setInitialLoad(false)
       }
@@ -132,8 +143,8 @@ return
   }, [pipeline])
 
   useEffect(() => {
-    if (refreshTrigger !== undefined && refreshTrigger > 0 && !initialLoad) {
-      loadRuns(false, page, true) // Silent refresh with cache clear
+    if (refreshTrigger !== undefined && refreshTrigger > 0) {
+      loadRuns(true, page, true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger])
@@ -151,42 +162,6 @@ return
     try {
       if (onCancel) {
         await onCancel(pipeline, run)
-      }
-
-      const maxAttempts = 10
-      let attempt = 0
-      let statusChanged = false
-
-      while (attempt < maxAttempts && !statusChanged) {
-        await new Promise(resolve => setTimeout(resolve, 1000))
-
-        try {
-          const freshData = await tauriService.fetchRunHistory(pipeline.id, page, PAGE_SIZE)
-
-          setRuns(freshData.runs)
-          setTotalCount(freshData.total_count)
-          setTotalPages(freshData.total_pages)
-          setHasMore(freshData.has_more)
-          setIsComplete(freshData.is_complete)
-
-          const updatedRun = freshData.runs.find(r => r.run_number === run.run_number)
-
-          if (updatedRun && (updatedRun.status === 'cancelled' as any)) {
-            statusChanged = true
-            console.log(`[RunHistory] Cancel confirmed after ${attempt + 1} seconds - status: ${updatedRun.status}`)
-          } else if (updatedRun) {
-            console.log(`[RunHistory] Attempt ${attempt + 1}: status still ${updatedRun.status}`)
-          }
-        } catch (error) {
-          console.warn(`[RunHistory] Failed to fetch runs on attempt ${attempt + 1}:`, error)
-        }
-
-        attempt++
-      }
-
-      if (!statusChanged) {
-        console.warn('[RunHistory] Cancel timeout - status not updated after 10s')
-        await loadRuns(false)
       }
     } finally {
       setCancellingRunNumber(null)
@@ -321,9 +296,19 @@ bVal = ''
                             e.stopPropagation()
                             handleCancelRun(pipeline!, run)
                           }}
-                          disabled={isCancelling}
+                          disabled={isCancelling || run.status === 'pending'}
+                          title={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
+                          style={{
+                            backgroundColor: 'transparent',
+                            cursor: (isCancelling || run.status === 'pending') ? 'not-allowed' : 'pointer',
+                          }}
                         >
-                          {isCancelling ? <Loader size={18} color="red" /> : <IconSquare size={18} />}
+                          <IconSquare
+                            size={18}
+                            style={{
+                              animation: isCancelling ? 'spin 1s linear infinite' : 'none',
+                            }}
+                          />
                         </ActionIcon>
                       )
                     ) : (
@@ -433,7 +418,7 @@ bVal = ''
   }
 
   return (
-    <Container size="100%" py={{ base: 'xs', sm: 'sm' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
+    <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xl', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
       <PageHeader
         title="Run History"
         badge={pipeline.name}
@@ -479,6 +464,8 @@ bVal = ''
           ) : (
             <StandardTable<PipelineRun>
             records={sortedRuns}
+            onRowClick={({ record }) => onViewRun(pipeline!.id, record.run_number)}
+            rowStyle={() => ({ cursor: 'pointer' })}
             columns={[
               {
                 accessor: 'run_number',
@@ -541,52 +528,63 @@ bVal = ''
                   const isCancelling = cancellingRunNumber === run.run_number
 
                   return (
-                    <Group gap={4} wrap="nowrap" justify="center">
-                      {isRunning ? (
-                        onCancel && (
-                          <ActionIcon
-                            variant="subtle"
-                            color="red"
-                            size="md"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCancelRun(pipeline, run)
-                            }}
-                            title="Stop run"
-                            disabled={isCancelling}
-                          >
-                            {isCancelling ? <Loader size={18} color="red" /> : <IconSquare size={18} />}
-                          </ActionIcon>
-                        )
-                      ) : (
-                        onRerun && (
-                          <ActionIcon
-                            variant="subtle"
-                            color="blue"
-                            size="md"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onRerun(pipeline, run)
-                            }}
-                            title="Rerun workflow"
-                          >
-                            <IconRefresh size={18} />
-                          </ActionIcon>
-                        )
-                      )}
-                      <ActionIcon
-                        variant="subtle"
-                        color="blue"
-                        size="md"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onViewRun(pipeline.id, run.run_number)
-                        }}
-                        title="View details"
-                      >
-                        <IconFileText size={18} />
-                      </ActionIcon>
-                    </Group>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <Group gap={4} wrap="nowrap" justify="center">
+                        {isRunning ? (
+                          onCancel && (
+                            <ActionIcon
+                              variant="subtle"
+                              color="red"
+                              size="md"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleCancelRun(pipeline, run)
+                              }}
+                              title={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
+                              disabled={isCancelling || run.status === 'pending'}
+                              style={{
+                                backgroundColor: 'transparent',
+                                cursor: (isCancelling || run.status === 'pending') ? 'not-allowed' : 'pointer',
+                              }}
+                            >
+                              <IconSquare
+                                size={18}
+                                style={{
+                                  animation: isCancelling ? 'spin 1s linear infinite' : 'none',
+                                }}
+                              />
+                            </ActionIcon>
+                          )
+                        ) : (
+                          onRerun && (
+                            <ActionIcon
+                              variant="subtle"
+                              color="blue"
+                              size="md"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onRerun(pipeline, run)
+                              }}
+                              title="Rerun workflow"
+                            >
+                              <IconRefresh size={18} />
+                            </ActionIcon>
+                          )
+                        )}
+                        <ActionIcon
+                          variant="subtle"
+                          color="blue"
+                          size="md"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onViewRun(pipeline.id, run.run_number)
+                          }}
+                          title="View details"
+                        >
+                          <IconFileText size={18} />
+                        </ActionIcon>
+                      </Group>
+                    </div>
                   )
                 },
               },
@@ -607,6 +605,16 @@ bVal = ''
           )}
         </>
       )}
+      <style>{`
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      `}</style>
     </Container>
   )
 }

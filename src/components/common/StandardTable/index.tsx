@@ -39,6 +39,7 @@ export function StandardTable<T>(props: DataTableProps<T>) {
           pagination: {
             paddingTop: '1rem',
             paddingBottom: '1rem',
+            marginBottom: '1.5rem',
             fontSize: 'var(--mantine-font-size-sm)',
             ...(props.styles?.pagination || {}),
           },

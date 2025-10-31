@@ -23,7 +23,7 @@ export const StandardModal = ({
       opened={opened}
       onClose={onClose}
       title={title}
-      size={800}
+      size="xl"
       closeOnClickOutside={!loading}
       closeOnEscape={!loading}
       withCloseButton={!loading}
@@ -31,6 +31,17 @@ export const StandardModal = ({
         title: {
           fontWeight: 600,
           fontSize: '1.25rem',
+        },
+        header: {
+          borderBottom: '1px solid var(--mantine-color-default-border)',
+          paddingBottom: '1.25rem',
+          marginBottom: '1.5rem',
+        },
+        body: {
+          display: 'flex',
+          flexDirection: 'column',
+          height: '70vh',
+          maxHeight: '70vh',
         },
       }}
     >
