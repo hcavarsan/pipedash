@@ -83,7 +83,10 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
-    open: process.env.TAURI_ARCH === undefined
+    open: process.env.TAURI_ARCH === undefined,
+    watch: {
+      ignored: ['!**/node_modules/**']
+    }
   },
 
   envPrefix: ['VITE_', 'TAURI_'],
@@ -91,6 +94,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    emptyOutDirExceptions: ['.gitkeep'],
     chunkSizeWarningLimit: 500,
     target: process.env.TAURI_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
     minify: !process.env.TAURI_DEBUG ? 'terser' : false,

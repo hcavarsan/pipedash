@@ -5,15 +5,15 @@ bun = "latest"
 
 [tasks.install]
 description = "Install all dependencies"
-depends = ["install:front", "install:back"]
-
-[tasks."install:front"]
-description = "Install frontend dependencies"
 run = "bun install"
 
-[tasks."install:back"]
-description = "Install backend cargo tools"
-run = "cargo install tauri-cli --locked"
+[tasks."install:ios"]
+description = "Initialize iOS development (requires Xcode)"
+run = "bun run tauri ios init"
+
+[tasks."install:android"]
+description = "Initialize Android development (requires Android SDK)"
+run = "bun run tauri android init"
 
 [tasks.dev]
 description = "Start full Tauri development mode"
@@ -23,9 +23,25 @@ run = "bun run tauri dev"
 description = "Start frontend development server only"
 run = "bunx vite"
 
+[tasks."dev:ios"]
+description = "Start iOS development mode"
+run = "bun run tauri ios dev"
+
+[tasks."dev:android"]
+description = "Start Android development mode"
+run = "bun run tauri android dev"
+
 [tasks.build]
 description = "Build full Tauri application for production"
 run = "bun run tauri build"
+
+[tasks."build:ios"]
+description = "Build iOS application"
+run = "bun run tauri ios build"
+
+[tasks."build:android"]
+description = "Build Android application"
+run = "bun run tauri android build"
 
 [tasks."build:front"]
 description = "Build frontend only"

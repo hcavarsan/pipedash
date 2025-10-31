@@ -103,35 +103,75 @@ mise run install
 mise run dev
 ```
 
-The first `mise install` sets up all required tools (Rust, Bun, Node, cargo plugins). The second `mise run install` installs project dependencies.
+### Development Workflow
 
-**Development commands:**
+**Initial Setup** (first time only):
+
+1. Install OS-specific Tauri prerequisites (see above)
+2. `mise install` installs development tools: Rust nightly (with clippy, rustfmt), Node 24, Bun
+3. `mise run install` installs project dependencies: npm packages including @tauri-apps/cli
+4. Ready to develop
+
+**Daily Development Loop**:
+
+1. `mise run dev` starts the app with hot reload enabled
+2. Edit frontend code in `src/` - changes appear instantly in the running app
+3. Edit backend code in `crates/` - Tauri rebuilds and restarts automatically
+4. App window updates live as you code
+
+**Before Committing**:
+
+```bash
+mise run format
+mise run lint
+mise run check
+```
+
+This formats code, checks for issues, and validates types across frontend and backend.
+
+**Available Commands**:
 
 ```bash
 mise run dev
 mise run ui
 
+mise run dev:ios
+mise run dev:android
+
 mise run build
 mise run build:front
 mise run build:back
+mise run build:ios
+mise run build:android
 
 mise run format
+mise run format:front
+mise run format:back
+
 mise run lint
+mise run lint:front
+mise run lint:back
+
 mise run check
+mise run check:front
+mise run check:back
 
 mise run release
 ```
 
-- `dev` starts full Tauri development mode with hot reload
-- `build` creates production Tauri binary
-- `build:front` builds frontend only
-- `build:back` builds backend only
-- `format` formats all code (frontend and backend)
-- `lint` lints all code
-- `check` runs type checking
-- `release` runs full release workflow (format check, lint, type check, build)
+**Command Reference**:
 
-
+- `dev` runs full desktop app with hot reload (recommended)
+- `ui` runs frontend dev server only (no Tauri)
+- `dev:ios` runs iOS simulator (requires setup above)
+- `dev:android` runs Android emulator (requires setup above)
+- `build` creates production desktop binary
+- `build:ios` creates iOS app bundle
+- `build:android` creates Android APK
+- `format` auto-fixes code style issues
+- `lint` checks code quality and patterns
+- `check` validates TypeScript types and Rust compilation
+- `release` runs full CI checks locally (format, lint, check, build)
 
 ## Adding Providers
 
