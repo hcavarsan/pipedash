@@ -1,0 +1,15 @@
+[package]
+name = "pipedash-plugin-buildkite"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+futures = "0.3"
+pipedash-plugin-api.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

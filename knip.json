@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["src/main.tsx!"],
+  "project": ["src/**/*.{ts,tsx}!"],
+  "ignore": [
+    "**/dist/**",
+    "**/node_modules/**",
+    "src/components/atoms/index.ts"
+  ],
+  "ignoreBinaries": ["rustup"]
+}

@@ -1,0 +1,179 @@
+name: PR
+
+on:
+  workflow_dispatch:
+
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_DEV_DEBUG: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  eslint-format:
+    name: ESLint
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install Node.js
+        uses: actions/setup-node@7e24a656e1c7a0d6f3eaef8d8e84ae379a5b035b
+        with:
+          node-version: "22"
+
+      - name: Cache Bun modules
+        uses: actions/cache@640a1c2554105b57832a23eea0b4672fc7a790d5
+        with:
+          path: |
+            ~/.bun-store
+            node_modules
+            frontend/node_modules
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Perform linting
+        run: bun run lint:front
+
+  rust-format:
+    name: rustfmt
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt install -y \
+              build-essential \
+              curl \
+              wget \
+              file \
+              libxdo-dev \
+              libssl-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libwebkit2gtk-4.1-dev \
+              patchelf \
+              xdg-utils
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+        with:
+          toolchain: nightly
+
+      - name: Install Rust nightly
+        run: rustup toolchain install nightly
+
+      - name: Install rustfmt for nightly
+        run: rustup component add --toolchain nightly rustfmt
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@7e1e2d0a10862b34e5df481373b2b0f295d1a2ef
+        with:
+          key: rust-format-${{ runner.os }}
+          shared-key: deps-format
+          cache-on-failure: false
+
+      - name: Run rustfmt
+        run: cargo +nightly fmt --all -- --check
+
+  rust-lint:
+    name: Clippy
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            os_name: linux
+            rust_target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            os_name: macos
+            rust_target: aarch64-apple-darwin
+          - os: windows-latest
+            os_name: windows
+            rust_target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+
+      - name: Install dependencies
+        if: matrix.os_name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt install -y \
+              build-essential \
+              curl \
+              wget \
+              file \
+              libxdo-dev \
+              libssl-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libwebkit2gtk-4.1-dev \
+              patchelf \
+              xdg-utils
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+        with:
+          toolchain: nightly
+
+      - name: Install OpenSSL on Windows
+        if: matrix.os == 'windows-latest'
+        run: choco install openssl
+
+      - name: Set up Perl on Windows
+        if: matrix.os == 'windows-latest'
+        uses: shogo82148/actions-setup-perl@2fde72b7b7b24c986737ffc0eb0cbba8622c9d78
+        with:
+          perl-version: "5.32"
+          distribution: "strawberry"
+
+      - name: Set Perl environment variables
+        if: matrix.os == 'windows-latest'
+        run: |
+          echo "PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "OPENSSL_SRC_PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Configure Rust targets
+        run: rustup target add ${{ matrix.rust_target }}
+        shell: bash
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@7e1e2d0a10862b34e5df481373b2b0f295d1a2ef
+        with:
+          key: rust-lint-${{ matrix.os }}-${{ matrix.rust_target }}
+          shared-key: deps-lint-${{ matrix.rust_target }}
+          workspaces: |
+            .
+            crates/pipedash
+          cache-on-failure: false
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --allow-dirty --allow-staged --all-features --fix -- -D warnings
+

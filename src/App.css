@@ -1,0 +1,96 @@
+:root {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.mantine-AppShell-main {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
+body {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (max-width: 48em) {
+  .mantine-Modal-inner {
+    padding-top: calc(env(safe-area-inset-top) + 60px) !important;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 20px) !important;
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+  }
+
+  .mantine-Modal-content {
+    height: 550px !important;
+    width: 90% !important;
+    max-width: 90% !important;
+    margin-top: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .mantine-Modal-body {
+    overflow-y: auto !important;
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+  }
+
+  .mantine-AppShell-main {
+    padding-bottom: calc(52px + env(safe-area-inset-bottom)) !important;
+    overflow-y: auto !important;
+  }
+}
+
+input,
+textarea,
+[contenteditable] {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+.mantine-DataTable-root .mantine-ScrollArea-scrollbar {
+  background-color: var(--mantine-color-dark-6);
+  border-radius: 4px;
+}
+
+.mantine-DataTable-root .mantine-ScrollArea-thumb {
+  background-color: var(--mantine-color-dark-4);
+  border-radius: 4px;
+}
+
+.mantine-DataTable-root .mantine-ScrollArea-thumb:hover {
+  background-color: var(--mantine-color-dark-3);
+}
+
+.mantine-DataTable-root .mantine-ScrollArea-root::before,
+.mantine-DataTable-root .mantine-ScrollArea-root::after {
+  display: none;
+}

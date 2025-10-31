@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/pipedash",
+  "crates/pipedash-plugin-api",
+  "crates/pipedash-plugin-buildkite",
+  "crates/pipedash-plugin-github",
+  "crates/pipedash-plugin-jenkins",
+]
+
+[workspace.package]
+version = "0.1.1"
+authors = ["Pipedash Team"]
+edition = "2021"
+
+[workspace.dependencies]
+anyhow = "1"
+# Async
+async-trait = "0.1"
+base64 = "0.22"
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+# Security (only for main app)
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+# Plugin-specific
+octocrab = "0.47.0"
+# Internal workspace crates
+pipedash-plugin-api = { path = "crates/pipedash-plugin-api" }
+pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
+pipedash-plugin-github = { path = "crates/pipedash-plugin-github" }
+pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
+# HTTP Client
+reqwest = { version = "0.12", features = ["json"] }
+# Database (only for main app)
+rusqlite = { version = "0.37.0", features = ["bundled", "unlock_notify"] }
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Tauri (only for main app)
+tauri = { version = "2", features = ["devtools", "custom-protocol"] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-os = "2"
+# Error Handling
+thiserror = "2.0"
+tokio = { version = "1", features = ["full"] }

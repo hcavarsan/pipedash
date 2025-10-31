@@ -1,0 +1,371 @@
+name: Release
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: read
+  statuses: write
+
+env:
+  TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+  VITE_ENV: "production"
+  TAURI_DEBUG: "false"
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Validate version format
+        run: |
+          if ! [[ ${{ github.ref_name }} =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "Invalid version format. Must be vX.Y.Z or vX.Y.Z-suffix"
+            exit 1
+          fi
+
+  create-release-draft:
+    needs:
+    - validate-version
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    outputs:
+      release_id: ${{ steps.create_release.outputs.id }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+        with:
+          fetch-depth: 0
+
+      - name: Check existing release
+        id: check_release
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Attempt to get release ID and check if it's a valid number
+          release_id=$(gh api repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} --jq .id 2>/dev/null || echo "")
+          if [[ "$release_id" =~ ^[0-9]+$ ]]; then
+            echo "Release already exists with ID: $release_id"
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+            echo "existing_release_id=$release_id" >> "$GITHUB_OUTPUT"
+          else
+            echo "Release does not exist"
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release draft
+        id: create_release
+        if: steps.check_release.outputs.release_exists != 'true'
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Pipedash - ${{ github.ref_name }}"
+          draft: true
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set release ID output
+        run: |
+          if [ "${{ steps.check_release.outputs.release_exists }}" == "true" ]; then
+            echo "id=${{ steps.check_release.outputs.existing_release_id }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "id=${{ steps.create_release.outputs.id }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  pipedash:
+    needs: create-release-draft
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: arm64
+            runner: ubicloud-standard-4-arm-ubuntu-2204
+            rust_target: aarch64-unknown-linux-gnu
+            tauri_args: "--target aarch64-unknown-linux-gnu --bundles appimage,updater --verbose"
+          - os: ubuntu-22.04
+            arch: amd64
+            rust_target: x86_64-unknown-linux-gnu
+            tauri_args: "--target x86_64-unknown-linux-gnu --bundles appimage,updater --verbose"
+          - os: ubuntu-24.04
+            arch: arm64
+            runner: ubicloud-standard-4-arm-ubuntu-2404
+            rust_target: aarch64-unknown-linux-gnu
+            tauri_args: "--target aarch64-unknown-linux-gnu --bundles appimage,updater --verbose"
+            asset_name_pattern: "pipedash_[version]_newer-glibc_aarch64[ext]"
+          - os: ubuntu-24.04
+            arch: amd64
+            rust_target: x86_64-unknown-linux-gnu
+            tauri_args: "--target x86_64-unknown-linux-gnu --bundles appimage,updater --verbose"
+            asset_name_pattern: "pipedash_[version]_newer-glibc_amd64[ext]"
+          - os: macos-latest
+            arch: universal
+            rust_target: universal-apple-darwin
+            tauri_args: "--target universal-apple-darwin --bundles dmg,app,updater --verbose"
+          - os: windows-latest
+            arch: x86
+            rust_target: i686-pc-windows-msvc
+            tauri_args: "--target i686-pc-windows-msvc --bundles nsis,updater --verbose"
+            msvc_arch: x86
+          - os: windows-latest
+            arch: x86_64
+            rust_target: x86_64-pc-windows-msvc
+            tauri_args: "--target x86_64-pc-windows-msvc --bundles nsis,updater --verbose"
+            msvc_arch: x64
+          - os: windows-latest
+            arch: arm64
+            rust_target: aarch64-pc-windows-msvc
+            tauri_args: "--target aarch64-pc-windows-msvc --bundles nsis,updater --verbose"
+
+    runs-on: ${{ matrix.runner || matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+        with:
+          toolchain: nightly
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@7e1e2d0a10862b34e5df481373b2b0f295d1a2ef
+        with:
+          key: pipedash-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.rust_target }}
+          shared-key: deps-tauri-${{ matrix.rust_target }}
+          workspaces: |
+            .
+            crates/pipedash
+          cache-on-failure: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install Node.js
+        uses: actions/setup-node@7e24a656e1c7a0d6f3eaef8d8e84ae379a5b035b
+        with:
+          node-version: "22"
+
+
+      - name: Cache Bun modules
+        uses: actions/cache@640a1c2554105b57832a23eea0b4672fc7a790d5
+        with:
+          path: |
+            ~/.bun-store
+            node_modules
+            frontend/node_modules
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Set up Visual Studio shell
+        if: matrix.os == 'windows-latest' && matrix.arch == 'arm64'
+        uses: TheMrMilchmann/setup-msvc-dev@fb19abb8a41b3cf0340f5d1be17d420309232be6
+        with:
+          arch: amd64_arm64
+
+
+      - name: Setup platform-specific dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt install -y \
+              build-essential \
+              curl \
+              wget \
+              file \
+              libxdo-dev \
+              libssl-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libwebkit2gtk-4.1-dev \
+              patchelf \
+              xdg-utils
+
+      - name: Reconfigure Rust targets
+        run: |
+          if [ "${{ matrix.os }}" == "macos-latest" ]; then
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          else
+            rustup target add ${{ matrix.rust_target }}
+          fi
+        shell: bash
+
+      - name: Setup platform-specific dependencies (Ubuntu 24.04)
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt install -y \
+              build-essential \
+              curl \
+              wget \
+              file \
+              libxdo-dev \
+              libssl-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libwebkit2gtk-4.1-0=2.44.0-2 \
+              libwebkit2gtk-4.1-dev=2.44.0-2 \
+              libjavascriptcoregtk-4.1-0=2.44.0-2 \
+              libjavascriptcoregtk-4.1-dev=2.44.0-2 \
+              gir1.2-javascriptcoregtk-4.1=2.44.0-2 \
+              gir1.2-webkit2-4.1=2.44.0-2 \
+              patchelf \
+              xdg-utils
+
+      - name: Install NASM on Windows
+        if: matrix.os == 'windows-latest'
+        run: choco install nasm
+
+      - name: Build pipedash Desktop App
+        uses: tauri-apps/tauri-action@e834788a94591d81e3ae0bd9ec06366f5afb8994
+        id: tauri_build
+        continue-on-error: true
+        env:
+          RUSTFLAGS: ${{ matrix.os == 'macos-latest' && '-C link-arg=-s' || '-C target-cpu=native -C link-arg=-s' }}
+          AWS_LC_SYS_CMAKE_CFLAGS: ${{ matrix.os == 'windows-latest' && '/std:c11' || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_OPTIONS: --max-old-space-size=6000
+          ENABLE_CODE_SIGNING: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Pipedash - ${{ github.ref_name }}"
+          releaseBody: "See the assets to download this version and install."
+          releaseDraft: true
+          prerelease: false
+          updaterJsonKeepUniversal: true
+          assetNamePattern: ${{ matrix.asset_name_pattern || '' }}
+          args: ${{ matrix.tauri_args }}
+
+      - name: Retry Build on Failure
+        if: steps.tauri_build.outcome == 'failure'
+        uses: tauri-apps/tauri-action@e834788a94591d81e3ae0bd9ec06366f5afb8994
+        env:
+          RUSTFLAGS: ${{ matrix.os == 'macos-latest' && '-C link-arg=-s' || '-C target-cpu=native -C link-arg=-s' }}
+          AWS_LC_SYS_CMAKE_CFLAGS: ${{ matrix.os == 'windows-latest' && '/std:c11' || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_OPTIONS: --max-old-space-size=6000
+          ENABLE_CODE_SIGNING: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Pipedash - ${{ github.ref_name }}"
+          releaseBody: "See the assets to download this version and install."
+          releaseDraft: true
+          prerelease: false
+          updaterJsonKeepUniversal: true
+          assetNamePattern: ${{ matrix.asset_name_pattern || '' }}
+          args: ${{ matrix.tauri_args }}
+
+  merge-linux-updater-json:
+    needs: [update-release]
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+
+      - name: Setup Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.x'
+
+      - name: Fix updater JSON for multi-glibc support
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/fix_updater_json.py ${{ github.ref_name }}
+
+
+  update-release:
+    needs: [pipedash, create-release-draft]
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    if: |
+      startsWith(github.ref, 'refs/tags/v') &&
+      !contains(github.ref, '-beta') &&
+      !contains(github.ref, '-alpha')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@104a6cf3c9aa0fdfe4eab129f9c1900e1eb8f7fd
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update release notes
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: ${{ needs.create-release-draft.outputs.release_id }},
+                body: `${{ steps.git-cliff.outputs.content }}`,
+                tag_name: process.env.GITHUB_REF_NAME,
+                name: `Pipedash - ${process.env.GITHUB_REF_NAME}`
+              });
+            } catch (error) {
+              console.error('Failed to update release notes:', error);
+              if (error.status === 404) {
+                console.log('Release not found, retrying after short delay...');
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                await github.rest.repos.updateRelease({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: ${{ needs.create-release-draft.outputs.release_id }},
+                  body: `${{ steps.git-cliff.outputs.content }}`,
+                  tag_name: process.env.GITHUB_REF_NAME,
+                  name: `Pipedash - ${process.env.GITHUB_REF_NAME}`
+                });
+              } else {
+                throw error;
+              }
+            }
+
+      - name: Publish release
+        uses: eregon/publish-release@70a6784870e7313347f6aa7fa7783786f2c1692f
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          release_id: ${{ needs.create-release-draft.outputs.release_id }}
+
