@@ -1,20 +1,19 @@
 [tools]
 "rust" = { version = "nightly", components = "rust-src,llvm-tools" }
-cargo = "latest"
 node = "24"
 bun = "latest"
-"cargo:cargo-llvm-cov" = "latest"
-"cargo:cargo-nextest" = "latest"
-"cargo:cargo-insta" = "latest"
-"cargo:tauri-cli" = "latest"
 
 [tasks.install]
 description = "Install all dependencies"
-depends = ["install:front"]
+depends = ["install:front", "install:back"]
 
 [tasks."install:front"]
 description = "Install frontend dependencies"
 run = "bun install"
+
+[tasks."install:back"]
+description = "Install backend cargo tools"
+run = "cargo install tauri-cli --locked"
 
 [tasks.dev]
 description = "Start full Tauri development mode"
