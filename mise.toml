@@ -1,5 +1,5 @@
 [tools]
-"rust" = { version = "nightly", components = "rust-src,llvm-tools" }
+"rust" = { version = "nightly", components = "rust-src,llvm-tools,clippy,rustfmt" }
 node = "24"
 bun = "latest"
 
