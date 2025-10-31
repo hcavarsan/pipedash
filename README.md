@@ -189,23 +189,23 @@ The existing GitHub, Buildkite, and Jenkins plugins serve as reference implement
 
 ## Roadmap
 
-Potential additions being considered:
-
 **Additional Providers**
-- GitLab CI/CD
-- CircleCI
-- Azure Pipelines
-- Travis CI
-- Drone CI
+- [ ] GitLab CI/CD
+- [ ] CircleCI
+- [ ] Azure Pipelines
+- [ ] Travis CI
+- [ ] Drone CI
 
 **Features**
-- Desktop notifications for status changes
-- Filtering and search improvements
-- Build duration analytics
-- Log viewing within the app (currently opens external links)
+- [ ] Desktop notifications for status changes
+- [ ] Filtering and search improvements
+- [ ] Build duration analytics
+- [ ] Log viewing within the app (currently opens external links)
+- [ ] Auto-updater for releases
 
 **Platforms**
-- iOS app – tested locally in simulator, works but needs more focus before considering any store release
+- [ ] iOS app (tested locally in simulator, needs polish for store release)
+- [ ] Android app
 
 No timeline on these. They'll happen if there's need for them and time to implement.
 
