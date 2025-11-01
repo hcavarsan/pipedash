@@ -208,7 +208,7 @@ mise run release
 - [ ] iOS app (tested locally in simulator, needs polish for store release), current state:
 <p align="center">
 <div align="center">
-<img src="./public/pipedashios.png" width="50%" alt="Pipedash ios Screenshot"/>
+<img src="./public/pipedashios.png" width="30%" alt="Pipedash ios Screenshot"/>
 </div>
 </p>
 
