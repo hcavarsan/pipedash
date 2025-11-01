@@ -30,6 +30,7 @@ use crate::domain::{
 pub struct Repository {
     conn: Arc<Mutex<Connection>>,
     keyring_lock: Arc<Mutex<()>>,
+    token_cache: Arc<Mutex<Option<HashMap<String, String>>>>,
 }
 
 impl Repository {
@@ -37,6 +38,7 @@ impl Repository {
         Self {
             conn: Arc::new(Mutex::new(conn)),
             keyring_lock: Arc::new(Mutex::new(())),
+            token_cache: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -322,16 +324,29 @@ impl Repository {
     }
 
     fn get_all_tokens(&self) -> DomainResult<HashMap<String, String>> {
+        let mut cache = self.token_cache.lock().map_err(|e| {
+            DomainError::DatabaseError(format!("Failed to acquire token cache lock: {}", e))
+        })?;
+
+        if let Some(cached_tokens) = cache.as_ref() {
+            return Ok(cached_tokens.clone());
+        }
+
         let entry = self.keyring_entry()?;
-        match entry.get_password() {
+        let tokens = match entry.get_password() {
             Ok(json) => serde_json::from_str(&json).map_err(|e| {
                 DomainError::DatabaseError(format!("Failed to parse tokens JSON: {e}"))
-            }),
-            Err(keyring::Error::NoEntry) => Ok(HashMap::new()),
-            Err(e) => Err(DomainError::DatabaseError(format!(
-                "Failed to get tokens from keyring: {e}"
-            ))),
-        }
+            })?,
+            Err(keyring::Error::NoEntry) => HashMap::new(),
+            Err(e) => {
+                return Err(DomainError::DatabaseError(format!(
+                    "Failed to get tokens from keyring: {e}"
+                )))
+            }
+        };
+
+        *cache = Some(tokens.clone());
+        Ok(tokens)
     }
 
     fn save_all_tokens(&self, tokens: &HashMap<String, String>) -> DomainResult<()> {
@@ -348,7 +363,15 @@ impl Repository {
                  - Windows: Ensure Credential Manager is accessible",
                 e
             ))
-        })
+        })?;
+
+        // Update cache
+        let mut cache = self.token_cache.lock().map_err(|e| {
+            DomainError::DatabaseError(format!("Failed to acquire token cache lock: {}", e))
+        })?;
+        *cache = Some(tokens.clone());
+
+        Ok(())
     }
 
     fn store_token_in_keyring(&self, provider_id: i64, token: &str) -> DomainResult<()> {
