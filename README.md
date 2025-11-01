@@ -1,7 +1,6 @@
 <div align="center">
   <br>
   <img src="./app-icon.png" width="102px" alt="Pipedash Logo" />
-  <br>
   <h1>Pipedash</h1>
   <p>A desktop app for managing CI/CD pipelines from multiple providers </p>
   <br>
