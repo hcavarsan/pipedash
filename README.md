@@ -3,11 +3,7 @@
   <img src="./app-icon.png" width="102px" alt="Pipedash Logo" />
   <h1>Pipedash</h1>
   <p>A desktop app for managing CI/CD pipelines from multiple providers </p>
-  <br>
-  <a href="https://github.com/hcavarsan/pipedash">
-    <img src="https://img.shields.io/github/v/release/hcavarsan/pipedash?style=for-the-badge" alt="Latest Release">
-  </a>
-  <br><br>
+
 </div>
 
 <p align="center">
