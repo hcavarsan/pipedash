@@ -12,7 +12,7 @@
 
 <p align="center">
 <div align="center">
-<img src="./public/pipedashs.png" alt="Pipedash Screenshot" width="85%" style="box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); border-radius: 8px;"/>
+<img src="./public/pipedashbg.png" alt="Pipedash Screenshot" style="box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); border-radius: 8px;"/>
 </div>
 </p>
 
