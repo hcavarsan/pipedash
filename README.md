@@ -204,7 +204,10 @@ mise run release
 - [ ] Log viewing within the app (currently opens external links)
 - [ ] Auto-updater for releases
 
+
 **Platforms** (maybe)
+
+- [ ] Android app
 - [ ] iOS app (tested locally in simulator, needs polish for store release), current state:
 <p align="center">
 <div align="center">
@@ -212,7 +215,7 @@ mise run release
 </div>
 </p>
 
-- [ ] Android app
+
 
 No timeline on these. They'll happen if there's need for them and time to implement.
 
