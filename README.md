@@ -205,7 +205,13 @@ mise run release
 - [ ] Auto-updater for releases
 
 **Platforms** (maybe)
-- [ ] iOS app (tested locally in simulator, needs polish for store release)
+- [ ] iOS app (tested locally in simulator, needs polish for store release), current state:
+<p align="center">
+<div align="center">
+<img src="./public/pipedashios.png" width="70%" alt="Pipedash ios Screenshot"/>
+</div>
+</p>
+
 - [ ] Android app
 
 No timeline on these. They'll happen if there's need for them and time to implement.

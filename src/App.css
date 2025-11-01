@@ -66,7 +66,7 @@ select {
   }
 
   .mantine-AppShell-main {
-    padding-bottom: calc(52px + env(safe-area-inset-bottom)) !important;
+    padding-bottom: calc(36px + env(safe-area-inset-bottom)) !important;
     overflow-y: auto !important;
   }
 }

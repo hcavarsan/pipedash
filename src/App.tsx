@@ -180,7 +180,7 @@ function App() {
           onLoadingChange={setRunHistoryLoading}
         />
       ) : (
-        <Container size="100%" pt={{ base: 'xs', sm: 'md' }} pb={{ base: 'xl', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }}>
+        <Container size="100%" pt={{ base: 'xs', sm: 'md' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }}>
           <UnifiedPipelinesView
             pipelines={filteredPipelines}
             providers={providers}

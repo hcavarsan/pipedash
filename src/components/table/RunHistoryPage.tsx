@@ -418,7 +418,7 @@ bVal = ''
   }
 
   return (
-    <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xl', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
+    <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
       <PageHeader
         title="Run History"
         badge={pipeline.name}
