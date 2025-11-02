@@ -7,6 +7,7 @@ import { IconExternalLink, IconPlayerPlay, IconRefresh, IconReload, IconSquare }
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import { tauriService } from '../../services/tauri'
 import type { PipelineRun } from '../../types'
+import { formatDuration } from '../../utils/formatDuration'
 import { CopyButton } from '../atoms/CopyButton'
 import { StandardModal } from '../common/StandardModal'
 import { StatusBadge } from '../common/StatusBadge'
@@ -106,25 +107,6 @@ return () => clearTimeout(timeoutId)
 
   const isRunning = runDetails?.status === 'running' || runDetails?.status === 'pending'
   const isPending = runDetails?.status === 'pending'
-
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) {
-return 'N/A'
-}
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    const secs = seconds % 60
-
-
-    if (hours > 0) {
-return `${hours}h ${minutes}m ${secs}s`
-}
-    if (minutes > 0) {
-return `${minutes}m ${secs}s`
-}
-
-return `${secs}s`
-  }
 
   const handleRerun = async () => {
     if (!runDetails) {

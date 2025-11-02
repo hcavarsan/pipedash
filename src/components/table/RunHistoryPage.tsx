@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DataTableSortStatus } from 'mantine-datatable'
 
-import { ActionIcon, Box, Card, Center, Container, Group, Loader, Stack, Text } from '@mantine/core'
-import { IconCalendar, IconClock, IconFileText, IconGitBranch, IconRefresh, IconSquare, IconUser } from '@tabler/icons-react'
+import { ActionIcon, Box, Card, Center, Container, Group, Loader, Stack, Tabs, Text } from '@mantine/core'
+import { IconCalendar, IconChartLine, IconClock, IconFileText, IconGitBranch, IconHistory, IconRefresh, IconSquare, IconUser } from '@tabler/icons-react'
+import { listen } from '@tauri-apps/api/event'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import { tauriService } from '../../services/tauri'
 import type { Pipeline, PipelineRun } from '../../types'
+import { formatDuration } from '../../utils/formatDuration'
 import { TableCells } from '../../utils/tableCells'
 import { COLUMN_PRESETS } from '../../utils/tableColumns'
 import { FilterBar } from '../common/FilterBar'
 import { PageHeader } from '../common/PageHeader'
 import { StandardTable } from '../common/StandardTable'
+import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
 
 interface RunHistoryPageProps {
   pipeline: Pipeline | null;
@@ -21,6 +24,7 @@ interface RunHistoryPageProps {
   onCancel?: (pipeline: Pipeline, run: PipelineRun) => void;
   refreshTrigger?: number;
   onLoadingChange?: (loading: boolean) => void;
+  initialTab?: 'history' | 'metrics';
 }
 
 export const RunHistoryPage = ({
@@ -31,6 +35,7 @@ export const RunHistoryPage = ({
   onCancel,
   refreshTrigger,
   onLoadingChange,
+  initialTab = 'history',
 }: RunHistoryPageProps) => {
   const isMobile = useIsMobile()
   const [runs, setRuns] = useState<PipelineRun[]>([])
@@ -52,20 +57,9 @@ export const RunHistoryPage = ({
     columnAccessor: 'run_number',
     direction: 'desc',
   })
+  const [activeTab, setActiveTab] = useState<string>(initialTab)
 
   const PAGE_SIZE = 20
-
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) {
-return '-'
-}
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-
-
-
-return `${mins}m ${secs}s`
-  }
 
   // Extract unique values for filters
   const branches = useMemo(() => {
@@ -156,6 +150,40 @@ onLoadingChange(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page])
+
+  useEffect(() => {
+    if (!pipeline) {
+return
+}
+
+    const unlistenPromises: Promise<() => void>[] = []
+
+    unlistenPromises.push(
+      listen<string>('run-triggered', (event) => {
+        if (event.payload === pipeline.id) {
+          console.log('[RunHistory] Detected new run for pipeline:', pipeline.id)
+          setPage(1)
+          loadRuns(false, 1)
+        }
+      })
+    )
+
+    unlistenPromises.push(
+      listen<string>('run-cancelled', (event) => {
+        if (event.payload === pipeline.id) {
+          console.log('[RunHistory] Detected cancelled run for pipeline:', pipeline.id)
+          loadRuns(false, page)
+        }
+      })
+    )
+
+    return () => {
+      Promise.all(unlistenPromises).then((unlisteners) => {
+        unlisteners.forEach((unlisten) => unlisten())
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipeline?.id])
 
   const handleCancelRun = async (pipeline: Pipeline, run: PipelineRun) => {
     setCancellingRunNumber(run.run_number)
@@ -414,24 +442,40 @@ bVal = ''
   }
 
   if (!pipeline) {
-    return null
+    return (
+      <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }}>
+        <Center py="xl">
+          <Loader size="lg" />
+        </Center>
+      </Container>
+    )
   }
 
   return (
     <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
       <PageHeader
-        title="Run History"
-        badge={pipeline.name}
+        title={pipeline.name}
         onBack={onBack}
       />
 
-      {loading ? (
-        <Center py="xl">
-          <Loader size="lg" />
-        </Center>
-      ) : (
-        <>
-          <FilterBar
+      <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'history')}>
+        <Tabs.List mb="md">
+          <Tabs.Tab value="history" leftSection={<IconHistory size={16} />}>
+            Run History
+          </Tabs.Tab>
+          <Tabs.Tab value="metrics" leftSection={<IconChartLine size={16} />}>
+            Metrics
+          </Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panel value="history">
+          {loading ? (
+            <Center py="xl">
+              <Loader size="lg" />
+            </Center>
+          ) : (
+            <>
+              <FilterBar
             filters={{
               search: {
                 value: search,
@@ -603,8 +647,20 @@ bVal = ''
             }
           />
           )}
-        </>
-      )}
+            </>
+          )}
+        </Tabs.Panel>
+
+        <Tabs.Panel value="metrics">
+          <PipelineMetricsView
+            pipelineId={pipeline.id}
+            pipelineName={pipeline.name}
+            repository={pipeline.repository}
+            refreshTrigger={refreshTrigger}
+          />
+        </Tabs.Panel>
+      </Tabs>
+
       <style>{`
         @keyframes spin {
           from {

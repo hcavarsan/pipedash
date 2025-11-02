@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { notifications } from '@mantine/notifications'
 import { listen } from '@tauri-apps/api/event'
 
 import { tauriService } from '../services/tauri'
@@ -30,13 +29,6 @@ export const usePipelines = (providerId?: number) => {
 
 
         setError(errorMsg)
-        if (!showLoading) {
-          notifications.show({
-            title: 'Error',
-            message: errorMsg,
-            color: 'red',
-          })
-        }
       } finally {
         setLoading(false)
       }

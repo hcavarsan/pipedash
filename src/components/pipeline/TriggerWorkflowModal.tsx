@@ -47,11 +47,16 @@ export const TriggerWorkflowModal = ({
   }, [opened, pipeline.id])
 
   useEffect(() => {
-    if (initialInputs !== undefined && isPreparingRerun) {
-      setIsPreparingRerun(false)
+    if (initialInputs !== undefined) {
+      if (isPreparingRerun) {
+        setIsPreparingRerun(false)
+      }
+      if (parameters.length > 0) {
+        initializeParamValues(parameters)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialInputs])
+  }, [initialInputs, parameters])
 
   const initializeParamValues = (params: WorkflowParameter[]) => {
     const initialValues: Record<string, any> = {}

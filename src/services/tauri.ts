@@ -2,7 +2,15 @@ import { invoke } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 
 import type {
+  AggregatedMetrics,
+  AggregationPeriod,
+  AggregationType,
   AvailablePipeline,
+  GlobalMetricsConfig,
+  MetricEntry,
+  MetricsConfig,
+  MetricsStats,
+  MetricType,
   PaginatedRunHistory,
   Pipeline,
   PipelineRun,
@@ -128,5 +136,106 @@ return { ...config, id }
 
   clearRunHistoryCache: async (pipelineId: string): Promise<void> => {
     return invoke<void>('clear_run_history_cache', { pipelineId })
+  },
+
+  getGlobalMetricsConfig: async (): Promise<GlobalMetricsConfig> => {
+    return invoke<GlobalMetricsConfig>('get_global_metrics_config')
+  },
+
+  updateGlobalMetricsConfig: async (
+    enabled: boolean,
+    defaultRetentionDays: number
+  ): Promise<void> => {
+    return invoke<void>('update_global_metrics_config', {
+      enabled,
+      defaultRetentionDays,
+    })
+  },
+
+  getPipelineMetricsConfig: async (pipelineId: string): Promise<MetricsConfig> => {
+    return invoke<MetricsConfig>('get_pipeline_metrics_config', { pipelineId })
+  },
+
+  updatePipelineMetricsConfig: async (
+    pipelineId: string,
+    enabled: boolean,
+    retentionDays: number
+  ): Promise<void> => {
+    return invoke<void>('update_pipeline_metrics_config', {
+      pipelineId,
+      enabled,
+      retentionDays,
+    })
+  },
+
+  queryPipelineMetrics: async (
+    pipelineId?: string,
+    metricType?: MetricType,
+    startDate?: string,
+    endDate?: string,
+    limit?: number
+  ): Promise<MetricEntry[]> => {
+    return invoke<MetricEntry[]>('query_pipeline_metrics', {
+      pipelineId: pipelineId ?? null,
+      metricType: metricType ?? null,
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+      limit: limit ?? null,
+    })
+  },
+
+  queryAggregatedMetrics: async (
+    metricType: MetricType,
+    aggregationPeriod: AggregationPeriod,
+    aggregationType?: AggregationType,
+    pipelineId?: string,
+    startDate?: string,
+    endDate?: string,
+    limit?: number
+  ): Promise<AggregatedMetrics> => {
+    return invoke<AggregatedMetrics>('query_aggregated_metrics', {
+      pipelineId: pipelineId ?? null,
+      metricType,
+      aggregationPeriod,
+      aggregationType: aggregationType ?? null,
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+      limit: limit ?? null,
+    })
+  },
+
+  getMetricsStorageStats: async (): Promise<MetricsStats> => {
+    return invoke<MetricsStats>('get_metrics_storage_stats')
+  },
+
+  flushPipelineMetrics: async (pipelineId?: string): Promise<number> => {
+    return invoke<number>('flush_pipeline_metrics', {
+      pipelineId: pipelineId ?? null,
+    })
+  },
+
+  getCacheStats: async (): Promise<{
+    pipelines_count: number
+    run_history_count: number
+    workflow_params_count: number
+    metrics_count: number
+  }> => {
+    return invoke('get_cache_stats')
+  },
+
+  clearPipelinesCache: async (): Promise<number> => {
+    return invoke<number>('clear_pipelines_cache')
+  },
+
+  clearAllRunHistoryCaches: async (): Promise<void> => {
+    return invoke<void>('clear_all_run_history_caches')
+  },
+
+  clearWorkflowParamsCache: async (): Promise<void> => {
+    return invoke<void>('clear_workflow_params_cache')
+  },
+
+  clearAllCaches: async (): Promise<void> => {
+    return invoke<void>('clear_all_caches')
   },
 }

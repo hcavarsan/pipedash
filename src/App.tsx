@@ -19,6 +19,7 @@ function App() {
   const [selectedProviderId, setSelectedProviderId] = useState<number | undefined>(undefined)
   const [currentView, setCurrentView] = useState<View>('pipelines')
   const [historyPipeline, setHistoryPipeline] = useState<Pipeline | null>(null)
+  const [initialHistoryTab, setInitialHistoryTab] = useState<'history' | 'metrics'>('history')
   const [triggerPipeline, setTriggerPipeline] = useState<Pipeline | null>(null)
   const [triggerInputs, setTriggerInputs] = useState<Record<string, any> | undefined>(undefined)
   const [logsModal, setLogsModal] = useState<{ opened: boolean; pipelineId: string; runNumber: number }>({
@@ -52,11 +53,19 @@ function App() {
 
   const handleViewHistory = (pipeline: Pipeline) => {
     setHistoryPipeline(pipeline)
+    setInitialHistoryTab('history')
+    setCurrentView('run-history')
+  }
+
+  const handleViewMetrics = (pipeline: Pipeline) => {
+    setHistoryPipeline(pipeline)
+    setInitialHistoryTab('metrics')
     setCurrentView('run-history')
   }
 
   const handleBackFromHistory = () => {
     setHistoryPipeline(null)
+    setInitialHistoryTab('history')
     setCurrentView('pipelines')
   }
 
@@ -78,14 +87,8 @@ function App() {
 
       const inputs = runDetails.inputs || {}
 
-      if (run.branch) {
-        if (!inputs.branch && !inputs.ref) {
-          inputs.ref = run.branch
-        } else if (inputs.ref) {
-          inputs.ref = run.branch
-        } else if (inputs.branch) {
-          inputs.branch = run.branch
-        }
+      if (run.branch && !inputs.branch && !inputs.ref) {
+        inputs.ref = run.branch
       }
 
       setTriggerInputs(inputs)
@@ -178,6 +181,7 @@ function App() {
           onCancel={handleCancel}
           refreshTrigger={refreshTrigger}
           onLoadingChange={setRunHistoryLoading}
+          initialTab={initialHistoryTab}
         />
       ) : (
         <Container size="100%" pt={{ base: 'xs', sm: 'md' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }}>
@@ -186,6 +190,7 @@ function App() {
             providers={providers}
             loading={providersLoading}
             onViewHistory={handleViewHistory}
+            onViewMetrics={handleViewMetrics}
             onTrigger={setTriggerPipeline}
           />
         </Container>

@@ -48,7 +48,9 @@ Main capabilities:
 
 When triggering or re-running a workflow, the app fetches available parameters directly from the provider plugin (workflow inputs for GitHub Actions, build parameters for Jenkins, etc.) and displays them in a form.
 
-API tokens are stored in the system keyring (Keychain on macOS, Credential Manager on Windows, Secret Service on Linux). Pipeline data is cached locally in SQLite.
+**Privacy First**
+
+Everything runs locally on the machine. The app only connects to configured CI/CD providers – no analytics, telemetry, or third-party services. Pipeline data is stored in a local SQLite database and API tokens are encrypted in the system keyring.
 
 ## Installation
 
@@ -116,78 +118,64 @@ mise run dev
 
 **Initial Setup** (first time only):
 
-1. Install OS-specific Tauri prerequisites (see above)
-2. `mise install` installs development tools: Rust nightly (with clippy, rustfmt), Node 24, Bun
-3. `mise run install` installs project dependencies: npm packages including @tauri-apps/cli
-4. Ready to develop
+-  Install OS-specific Tauri prerequisites (see https://tauri.app/start/prerequisites/#system-dependencies)
+-  `mise install` installs development tools: Rust nightly (with clippy, rustfmt), Node 24, Bun
+-  `mise run install` installs project dependencies: npm packages including @tauri-apps/cli
+-  Ready to develop
+- `mise run dev` starts the app with hot reload enabled
 
-**Daily Development Loop**:
-
-1. `mise run dev` starts the app with hot reload enabled
-2. Edit frontend code in `src/` - changes appear instantly in the running app
-3. Edit backend code in `crates/` - Tauri rebuilds and restarts automatically
-4. App window updates live as you code
-
-**Before Committing**:
-
-```bash
-mise run format
-mise run lint
-mise run check
-```
-
-This formats code, checks for issues, and validates types across frontend and backend.
 
 **Available Commands**:
 
 ```bash
+
+# runs full desktop app with hot reload
 mise run dev
+
+# runs only ui in dev mode, just here for convenience
 mise run ui
 
+# runs tauri in ios emulator
 mise run dev:ios
+
+# runs tauri in android emulator
 mise run dev:android
 
+# build tauri artifacts
 mise run build
+
+# build only frontend
 mise run build:front
+
+# build  cargo
 mise run build:back
+
+# build ios artifacts
 mise run build:ios
+
+#
 mise run build:android
 
+# format code
 mise run format
 mise run format:front
 mise run format:back
 
+# lint code
 mise run lint
 mise run lint:front
 mise run lint:back
 
+
+# run lint and fmt checks
 mise run check
 mise run check:front
 mise run check:back
 
+# run checks and build of tauri
 mise run release
 ```
 
-**Command Reference**:
-
-- `dev` runs full desktop app with hot reload (recommended)
-- `ui` runs frontend dev server only (no Tauri)
-- `dev:ios` runs iOS simulator (requires setup above)
-- `dev:android` runs Android emulator (requires setup above)
-- `build` creates production desktop binary
-- `build:ios` creates iOS app bundle
-- `build:android` creates Android APK
-- `format` auto-fixes code style issues
-- `lint` checks code quality and patterns
-- `check` validates TypeScript types and Rust compilation
-- `release` runs full CI checks locally (format, lint, check, build)
-
-
-## Tech Stack
-
-**Frontend**: React 19, TypeScript, Mantine UI, Vite, Bun
-
-**Backend**: Rust, Tauri 2, Tokio, SQLite, Reqwest, Octocrab (for GitHub API)
 
 ## Roadmap
 

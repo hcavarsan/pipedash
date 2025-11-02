@@ -6,15 +6,27 @@ use serde::{
     Deserialize,
     Serialize,
 };
-use tauri::State;
+use tauri::{
+    Emitter,
+    State,
+};
 
 use crate::application::services::{
+    MetricsService,
     PipelineService,
     ProviderService,
 };
 use crate::application::RefreshManager;
 use crate::domain::{
+    AggregatedMetrics,
+    AggregationPeriod,
+    AggregationType,
     AvailablePipeline,
+    GlobalMetricsConfig,
+    MetricType,
+    MetricsConfig,
+    MetricsQuery,
+    MetricsStats,
     Pipeline,
     PipelineRun,
     ProviderConfig,
@@ -38,7 +50,9 @@ impl From<crate::domain::DomainError> for ErrorResponse {
 pub struct AppState {
     pub provider_service: Arc<ProviderService>,
     pub pipeline_service: Arc<PipelineService>,
+    pub metrics_service: Option<Arc<MetricsService>>,
     pub refresh_manager: Arc<RefreshManager>,
+    pub app: tauri::AppHandle,
 }
 
 #[tauri::command]
@@ -151,7 +165,7 @@ pub async fn fetch_run_history(
 
     state
         .pipeline_service
-        .fetch_run_history_paginated(&pipeline_id, page, page_size)
+        .fetch_run_history_paginated(&pipeline_id, page, page_size, Some(state.app.clone()))
         .await
         .map_err(ErrorResponse::from)
 }
@@ -160,11 +174,20 @@ pub async fn fetch_run_history(
 pub async fn trigger_pipeline(
     state: State<'_, AppState>, params: TriggerParams,
 ) -> Result<String, ErrorResponse> {
-    state
+    let workflow_id = params.workflow_id.clone();
+    let result = state
         .pipeline_service
         .trigger_pipeline(params)
         .await
-        .map_err(Into::into)
+        .map_err(ErrorResponse::from)?;
+
+    state
+        .pipeline_service
+        .invalidate_run_cache(&workflow_id)
+        .await;
+    let _ = state.app.emit("run-triggered", &workflow_id);
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -252,6 +275,12 @@ pub async fn cancel_pipeline_run(
         .cancel_run(&pipeline_id, run_number)
         .await
         .map_err(ErrorResponse::from)?;
+
+    state
+        .pipeline_service
+        .invalidate_run_cache(&pipeline_id)
+        .await;
+    let _ = state.app.emit("run-cancelled", &pipeline_id);
 
     eprintln!("[COMMAND] Run cancellation requested successfully");
     Ok(())
@@ -359,4 +388,317 @@ pub async fn get_workflow_parameters(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to fetch workflow parameters: {e}"),
         })
+}
+
+#[tauri::command]
+pub async fn get_global_metrics_config(
+    state: State<'_, AppState>,
+) -> Result<GlobalMetricsConfig, ErrorResponse> {
+    let metrics_service = state
+        .metrics_service
+        .as_ref()
+        .ok_or_else(|| ErrorResponse {
+            error: "Metrics service not available".to_string(),
+        })?;
+
+    metrics_service
+        .get_global_config()
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn update_global_metrics_config(
+    state: State<'_, AppState>, app_handle: tauri::AppHandle, enabled: bool,
+    default_retention_days: i64,
+) -> Result<(), ErrorResponse> {
+    let metrics_service = state
+        .metrics_service
+        .as_ref()
+        .ok_or_else(|| ErrorResponse {
+            error: "Metrics service not available".to_string(),
+        })?;
+
+    metrics_service
+        .update_global_config(enabled, default_retention_days)
+        .await
+        .map_err(ErrorResponse::from)?;
+
+    let _ = app_handle.emit("metrics-global-config-changed", ());
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_pipeline_metrics_config(
+    state: State<'_, AppState>, pipeline_id: String,
+) -> Result<MetricsConfig, ErrorResponse> {
+    let metrics_service = state
+        .metrics_service
+        .as_ref()
+        .ok_or_else(|| ErrorResponse {
+            error: "Metrics service not available".to_string(),
+        })?;
+
+    metrics_service
+        .get_pipeline_config(&pipeline_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn update_pipeline_metrics_config(
+    state: State<'_, AppState>, app_handle: tauri::AppHandle, pipeline_id: String, enabled: bool,
+    retention_days: i64,
+) -> Result<(), ErrorResponse> {
+    let metrics_service = state
+        .metrics_service
+        .as_ref()
+        .ok_or_else(|| ErrorResponse {
+            error: "Metrics service not available".to_string(),
+        })?;
+
+    metrics_service
+        .update_pipeline_config(&pipeline_id, enabled, retention_days)
+        .await
+        .map_err(ErrorResponse::from)?;
+
+    let _ = app_handle.emit("metrics-config-changed", &pipeline_id);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn query_pipeline_metrics(
+    state: State<'_, AppState>, pipeline_id: Option<String>, metric_type: Option<String>,
+    start_date: Option<String>, end_date: Option<String>, limit: Option<usize>,
+) -> Result<Vec<crate::domain::MetricEntry>, ErrorResponse> {
+    let metrics_service = state
+        .metrics_service
+        .as_ref()
+        .ok_or_else(|| ErrorResponse {
+            error: "Metrics service not available".to_string(),
+        })?;
+
+    let parsed_metric_type = metric_type.and_then(|t| MetricType::from_str(&t));
+    let parsed_start_date = start_date
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+    let parsed_end_date = end_date
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+
+    let query = MetricsQuery {
+        pipeline_id,
+        metric_type: parsed_metric_type,
+        start_date: parsed_start_date,
+        end_date: parsed_end_date,
+        aggregation_period: None,
+        aggregation_type: None,
+        limit,
+    };
+
+    metrics_service
+        .query_metrics(query)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn query_aggregated_metrics(
+    state: State<'_, AppState>, pipeline_id: Option<String>, metric_type: String,
+    aggregation_period: String, aggregation_type: Option<String>, start_date: Option<String>,
+    end_date: Option<String>, limit: Option<usize>,
+) -> Result<AggregatedMetrics, ErrorResponse> {
+    let metrics_service = state
+        .metrics_service
+        .as_ref()
+        .ok_or_else(|| ErrorResponse {
+            error: "Metrics service not available".to_string(),
+        })?;
+
+    let parsed_metric_type = MetricType::from_str(&metric_type).ok_or_else(|| ErrorResponse {
+        error: format!("Invalid metric type: {}", metric_type),
+    })?;
+
+    let parsed_aggregation = match aggregation_period.as_str() {
+        "hourly" => AggregationPeriod::Hourly,
+        "daily" => AggregationPeriod::Daily,
+        "weekly" => AggregationPeriod::Weekly,
+        "monthly" => AggregationPeriod::Monthly,
+        _ => {
+            return Err(ErrorResponse {
+                error: format!("Invalid aggregation period: {}", aggregation_period),
+            })
+        }
+    };
+
+    let parsed_aggregation_type = aggregation_type
+        .as_ref()
+        .map(|s| match s.as_str() {
+            "avg" => Ok(AggregationType::Avg),
+            "sum" => Ok(AggregationType::Sum),
+            "min" => Ok(AggregationType::Min),
+            "max" => Ok(AggregationType::Max),
+            "p95" => Ok(AggregationType::P95),
+            "p99" => Ok(AggregationType::P99),
+            _ => Err(ErrorResponse {
+                error: format!("Invalid aggregation type: {}", s),
+            }),
+        })
+        .transpose()?;
+
+    let parsed_start_date = start_date
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+    let parsed_end_date = end_date
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+
+    let query = MetricsQuery {
+        pipeline_id,
+        metric_type: Some(parsed_metric_type),
+        start_date: parsed_start_date,
+        end_date: parsed_end_date,
+        aggregation_period: Some(parsed_aggregation),
+        aggregation_type: parsed_aggregation_type,
+        limit,
+    };
+
+    metrics_service
+        .query_aggregated_metrics(query)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_metrics_storage_stats(
+    state: State<'_, AppState>,
+) -> Result<MetricsStats, ErrorResponse> {
+    let metrics_service = state
+        .metrics_service
+        .as_ref()
+        .ok_or_else(|| ErrorResponse {
+            error: "Metrics service not available".to_string(),
+        })?;
+
+    metrics_service
+        .get_storage_stats()
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn flush_pipeline_metrics(
+    state: State<'_, AppState>, app_handle: tauri::AppHandle, pipeline_id: Option<String>,
+) -> Result<usize, ErrorResponse> {
+    let metrics_service = state
+        .metrics_service
+        .as_ref()
+        .ok_or_else(|| ErrorResponse {
+            error: "Metrics service not available".to_string(),
+        })?;
+
+    let deleted = metrics_service
+        .flush_metrics(pipeline_id.clone())
+        .await
+        .map_err(ErrorResponse::from)?;
+
+    let _ = app_handle.emit("metrics-flushed", &pipeline_id);
+
+    Ok(deleted)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CacheStats {
+    pub pipelines_count: i64,
+    pub run_history_count: i64,
+    pub workflow_params_count: i64,
+    pub metrics_count: i64,
+}
+
+#[tauri::command]
+pub async fn get_cache_stats(state: State<'_, AppState>) -> Result<CacheStats, ErrorResponse> {
+    let pipelines_count = state
+        .pipeline_service
+        .get_pipelines_cache_count()
+        .await
+        .unwrap_or(0);
+
+    let run_history_count = state
+        .pipeline_service
+        .get_run_history_cache_count()
+        .await
+        .unwrap_or(0);
+
+    let workflow_params_count = state
+        .pipeline_service
+        .get_workflow_params_cache_count()
+        .await
+        .unwrap_or(0);
+
+    let metrics_count = if let Some(metrics_service) = &state.metrics_service {
+        metrics_service
+            .get_storage_stats()
+            .await
+            .map(|stats| stats.total_metrics_count)
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    Ok(CacheStats {
+        pipelines_count,
+        run_history_count,
+        workflow_params_count,
+        metrics_count,
+    })
+}
+
+#[tauri::command]
+pub async fn clear_pipelines_cache(state: State<'_, AppState>) -> Result<usize, ErrorResponse> {
+    state
+        .pipeline_service
+        .clear_pipelines_cache()
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn clear_all_run_history_caches(state: State<'_, AppState>) -> Result<(), ErrorResponse> {
+    state.pipeline_service.clear_all_run_history_caches().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn clear_workflow_params_cache(state: State<'_, AppState>) -> Result<(), ErrorResponse> {
+    state
+        .pipeline_service
+        .clear_workflow_params_cache()
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn clear_all_caches(state: State<'_, AppState>) -> Result<(), ErrorResponse> {
+    state.pipeline_service.clear_all_run_history_caches().await;
+
+    state
+        .pipeline_service
+        .clear_pipelines_cache()
+        .await
+        .map_err(|e| ErrorResponse {
+            error: e.to_string(),
+        })?;
+
+    state
+        .pipeline_service
+        .clear_workflow_params_cache()
+        .await
+        .map_err(|e| ErrorResponse {
+            error: e.to_string(),
+        })?;
+
+    Ok(())
 }

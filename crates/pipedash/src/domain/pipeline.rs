@@ -38,6 +38,17 @@ impl PipelineStatus {
                 | PipelineStatus::Skipped
         )
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PipelineStatus::Success => "success",
+            PipelineStatus::Failed => "failed",
+            PipelineStatus::Running => "running",
+            PipelineStatus::Pending => "pending",
+            PipelineStatus::Cancelled => "cancelled",
+            PipelineStatus::Skipped => "skipped",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

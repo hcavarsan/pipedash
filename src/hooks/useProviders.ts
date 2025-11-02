@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { notifications } from '@mantine/notifications'
-
 import { tauriService } from '../services/tauri'
 import type { ProviderConfig, ProviderSummary } from '../types'
 
@@ -23,11 +21,6 @@ export const useProviders = () => {
 
 
       setError(errorMsg)
-      notifications.show({
-        title: 'Error',
-        message: errorMsg,
-        color: 'red',
-      })
     } finally {
       setLoading(false)
     }
@@ -42,20 +35,11 @@ export const useProviders = () => {
 
         await tauriService.fetchPipelines(providerId)
         await loadProviders()
-        notifications.show({
-          title: 'Success',
-          message: `Provider "${config.name}" added successfully`,
-          color: 'green',
-        })
       } catch (err: any) {
         const errorMsg = err?.error || err?.message || 'Failed to add provider'
 
 
-        notifications.show({
-          title: 'Error',
-          message: errorMsg,
-          color: 'red',
-        })
+        setError(errorMsg)
         throw err
       } finally {
         setLoading(false)
@@ -71,20 +55,11 @@ export const useProviders = () => {
         await tauriService.updateProvider(id, config)
         await tauriService.fetchPipelines(id)
         await loadProviders()
-        notifications.show({
-          title: 'Success',
-          message: `Provider "${config.name}" updated successfully`,
-          color: 'green',
-        })
       } catch (err: any) {
         const errorMsg = err?.error || err?.message || 'Failed to update provider'
 
 
-        notifications.show({
-          title: 'Error',
-          message: errorMsg,
-          color: 'red',
-        })
+        setError(errorMsg)
         throw err
       } finally {
         setLoading(false)
@@ -94,25 +69,16 @@ export const useProviders = () => {
   )
 
   const removeProvider = useCallback(
-    async (id: number, name: string) => {
+    async (id: number, _name: string) => {
       try {
         setLoading(true)
         await tauriService.removeProvider(id)
         await loadProviders()
-        notifications.show({
-          title: 'Success',
-          message: `Provider "${name}" removed successfully`,
-          color: 'green',
-        })
       } catch (err: any) {
         const errorMsg = err?.error || err?.message || 'Failed to remove provider'
 
 
-        notifications.show({
-          title: 'Error',
-          message: errorMsg,
-          color: 'red',
-        })
+        setError(errorMsg)
         throw err
       } finally {
         setLoading(false)

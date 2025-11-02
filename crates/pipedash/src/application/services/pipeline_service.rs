@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{
-    Duration,
-    Instant,
+
+use tauri::Emitter;
+
+use crate::application::services::{
+    MetricsService,
+    ProviderService,
 };
-
-use tokio::sync::RwLock;
-
-use crate::application::services::ProviderService;
 use crate::domain::{
     DomainResult,
     PaginatedRunHistory,
@@ -16,41 +15,37 @@ use crate::domain::{
     TriggerParams,
 };
 use crate::infrastructure::database::Repository;
-
-#[derive(Clone)]
-struct CachedRunHistory {
-    runs: Vec<PipelineRun>,
-    fetched_at: Instant,
-    is_complete: bool,
-}
-
-impl CachedRunHistory {
-    fn is_fresh(&self, ttl: Duration) -> bool {
-        self.fetched_at.elapsed() < ttl
-    }
-}
+use crate::infrastructure::deduplication::{
+    hash_request,
+    RequestDeduplicator,
+};
 
 pub struct PipelineService {
     repository: Arc<Repository>,
     provider_service: Arc<ProviderService>,
-    run_history_cache: Arc<RwLock<HashMap<String, CachedRunHistory>>>,
-    cache_ttl: Duration,
+    metrics_service: Option<Arc<MetricsService>>,
+    deduplicator: Arc<RequestDeduplicator<Vec<Pipeline>>>,
+    run_deduplicator: Arc<RequestDeduplicator<Vec<PipelineRun>>>,
 }
 
 impl PipelineService {
-    pub fn new(repository: Arc<Repository>, provider_service: Arc<ProviderService>) -> Self {
+    pub fn new(
+        repository: Arc<Repository>, provider_service: Arc<ProviderService>,
+        metrics_service: Option<Arc<MetricsService>>,
+    ) -> Self {
         Self {
             repository,
             provider_service,
-            run_history_cache: Arc::new(RwLock::new(HashMap::new())),
-            cache_ttl: Duration::from_secs(120), // 2 minutes
+            metrics_service,
+            deduplicator: Arc::new(RequestDeduplicator::new()),
+            run_deduplicator: Arc::new(RequestDeduplicator::new()),
         }
     }
 
     pub async fn fetch_pipelines(&self, provider_id: Option<i64>) -> DomainResult<Vec<Pipeline>> {
         let start = std::time::Instant::now();
 
-        if let Err(e) = self.repository.clear_workflow_parameters_cache() {
+        if let Err(e) = self.repository.clear_workflow_parameters_cache().await {
             eprintln!("[WARN] Failed to clear workflow parameters cache: {e}");
         }
 
@@ -69,8 +64,10 @@ impl PipelineService {
             );
 
             let cache_start = std::time::Instant::now();
-            self.repository.cache_pipelines(pid, &pipelines)?;
-            eprintln!("[PERF] Cached pipelines in {:?}", cache_start.elapsed());
+            self.repository
+                .update_pipelines_cache(pid, &pipelines)
+                .await?;
+            eprintln!("[PERF] Updated cache in {:?}", cache_start.elapsed());
 
             eprintln!("[PERF] Total fetch_pipelines time: {:?}", start.elapsed());
             Ok(pipelines)
@@ -89,12 +86,20 @@ impl PipelineService {
                 .into_iter()
                 .map(|summary| {
                     let provider_service = self.provider_service.clone();
+                    let deduplicator = self.deduplicator.clone();
                     let provider_id = summary.id;
                     let provider_name = summary.name.clone();
                     async move {
+                        let request_id = hash_request(provider_id, "fetch_pipelines");
                         let fetch_start = std::time::Instant::now();
-                        let provider = provider_service.get_provider(provider_id).await?;
-                        let pipelines = provider.fetch_pipelines().await?;
+
+                        let pipelines = deduplicator
+                            .deduplicate(request_id, || async {
+                                let provider = provider_service.get_provider(provider_id).await?;
+                                provider.fetch_pipelines().await
+                            })
+                            .await?;
+
                         eprintln!(
                             "[PERF] Provider '{}' fetched {} pipelines in {:?}",
                             provider_name,
@@ -120,7 +125,9 @@ impl PipelineService {
             for result in results {
                 match result {
                     Ok((provider_id, pipelines)) => {
-                        self.repository.cache_pipelines(provider_id, &pipelines)?;
+                        self.repository
+                            .update_pipelines_cache(provider_id, &pipelines)
+                            .await?;
                         all_pipelines.extend(pipelines);
                     }
                     Err(e) => {
@@ -129,7 +136,7 @@ impl PipelineService {
                 }
             }
             eprintln!(
-                "[PERF] Cached all {} pipelines in {:?}",
+                "[PERF] Updated cache for {} pipelines in {:?}",
                 all_pipelines.len(),
                 cache_start.elapsed()
             );
@@ -142,81 +149,144 @@ impl PipelineService {
     pub async fn get_cached_pipelines(
         &self, provider_id: Option<i64>,
     ) -> DomainResult<Vec<Pipeline>> {
-        self.repository.get_cached_pipelines(provider_id)
+        self.repository.get_cached_pipelines(provider_id).await
     }
 
     pub async fn fetch_run_history(
         &self, pipeline_id: &str, limit: usize,
     ) -> DomainResult<Vec<PipelineRun>> {
-        let cached_pipelines = self.repository.get_cached_pipelines(None)?;
+        let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
         let pipeline = cached_pipelines
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| crate::domain::DomainError::PipelineNotFound(pipeline_id.to_string()))?;
 
-        let provider = self
-            .provider_service
-            .get_provider(pipeline.provider_id)
+        let provider_id = pipeline.provider_id;
+        let pipeline_id_owned = pipeline_id.to_string();
+
+        let request_id = hash_request(
+            provider_id,
+            &format!("fetch_runs_{}_{}", pipeline_id, limit),
+        );
+
+        let provider_service = self.provider_service.clone();
+        let run_deduplicator = self.run_deduplicator.clone();
+
+        let api_runs = run_deduplicator
+            .deduplicate(request_id, || async move {
+                let provider = provider_service.get_provider(provider_id).await?;
+                provider.fetch_run_history(&pipeline_id_owned, limit).await
+            })
             .await?;
-        provider.fetch_run_history(pipeline_id, limit).await
+
+        let cached_with_hashes = self
+            .repository
+            .get_cached_runs_with_hashes(pipeline_id)
+            .await?;
+
+        let mut api_map: HashMap<i64, (PipelineRun, String)> = HashMap::new();
+        for run in &api_runs {
+            let status_str = run.status.as_str();
+            let hash = crate::infrastructure::deduplication::hash_pipeline_run(
+                run.run_number,
+                status_str,
+                &run.branch,
+                &run.started_at.to_rfc3339(),
+                run.duration_seconds,
+                &run.commit_sha,
+            );
+            api_map.insert(run.run_number, (run.clone(), hash));
+        }
+
+        let mut new_runs = Vec::new();
+        let mut changed_runs = Vec::new();
+        let mut deleted_run_numbers = Vec::new();
+
+        for (run_number, (run, api_hash)) in &api_map {
+            if let Some((_, cached_hash)) = cached_with_hashes.get(run_number) {
+                if api_hash != cached_hash {
+                    changed_runs.push(run.clone());
+                }
+            } else {
+                new_runs.push(run.clone());
+            }
+        }
+
+        let min_api_run_number = api_runs
+            .iter()
+            .map(|r| r.run_number)
+            .min()
+            .unwrap_or(i64::MAX);
+        for run_number in cached_with_hashes.keys() {
+            if *run_number >= min_api_run_number && !api_map.contains_key(run_number) {
+                deleted_run_numbers.push(*run_number);
+            }
+        }
+
+        if !new_runs.is_empty() || !changed_runs.is_empty() || !deleted_run_numbers.is_empty() {
+            self.repository
+                .merge_run_cache(pipeline_id, new_runs, changed_runs, deleted_run_numbers)
+                .await?;
+        } else {
+            eprintln!(
+                "[CACHE] No incremental changes detected for {}",
+                pipeline_id
+            );
+        }
+
+        Ok(api_runs)
     }
 
     pub async fn fetch_run_history_paginated(
         &self, pipeline_id: &str, page: usize, page_size: usize,
+        app_handle: Option<tauri::AppHandle>,
     ) -> DomainResult<PaginatedRunHistory> {
-        let start = Instant::now();
+        let start = std::time::Instant::now();
         let start_idx = (page - 1) * page_size;
         let end_idx = start_idx + page_size;
 
-        // Check cache first
-        let cache = self.run_history_cache.read().await;
-        if let Some(cached) = cache.get(pipeline_id) {
-            if cached.is_fresh(self.cache_ttl) {
-                let cached_count = cached.runs.len();
+        let db_cached_all = self
+            .repository
+            .get_cached_run_history(pipeline_id, 10000)
+            .await?;
 
-                // If cache has enough runs for this page, use it
-                if start_idx < cached_count || cached.is_complete {
-                    eprintln!(
-                        "[CACHE HIT] Page {}: using {} cached runs (fetched {:?} ago)",
-                        page,
-                        cached_count,
-                        cached.fetched_at.elapsed()
-                    );
+        if !db_cached_all.is_empty() {
+            eprintln!("[DB CACHE HIT] Loaded {} runs from DB", db_cached_all.len());
 
-                    let runs = if start_idx < cached_count {
-                        let end = end_idx.min(cached_count);
-                        cached.runs[start_idx..end].to_vec()
-                    } else {
-                        Vec::new()
-                    };
-
-                    // If not complete, add phantom page to allow navigation
-                    let total_pages = if cached.is_complete {
-                        cached_count.div_ceil(page_size)
-                    } else {
-                        cached_count.div_ceil(page_size) + 1
-                    };
-
-                    return Ok(PaginatedRunHistory {
-                        runs,
-                        total_count: cached_count,
-                        has_more: !cached.is_complete,
-                        is_complete: cached.is_complete,
-                        page,
-                        page_size,
-                        total_pages,
-                    });
-                }
+            let total_count = db_cached_all.len();
+            let runs = if start_idx < total_count {
+                let end = end_idx.min(total_count);
+                db_cached_all[start_idx..end].to_vec()
             } else {
-                eprintln!("[CACHE EXPIRED] Clearing stale cache for {}", pipeline_id);
-            }
-        }
-        drop(cache); // Release read lock
+                Vec::new()
+            };
 
-        // Cache miss or insufficient data - fetch from provider
-        // Fetch in 100-run chunks (matches provider API page size)
-        let fetch_limit = end_idx.div_ceil(100) * 100;
-        let fetch_limit = fetch_limit.min(1000); // Cap at 1000 total
+            let is_complete = total_count < 1000;
+            let total_pages = if is_complete {
+                total_count.div_ceil(page_size)
+            } else {
+                // Allow fetching next page to get more
+                total_count.div_ceil(page_size) + 1
+            };
+
+            eprintln!(
+                "[PERF] Returned {} runs from cache in {:?}",
+                runs.len(),
+                start.elapsed()
+            );
+
+            return Ok(PaginatedRunHistory {
+                runs,
+                total_count,
+                has_more: !is_complete,
+                is_complete,
+                page,
+                page_size,
+                total_pages,
+            });
+        }
+        let fetch_limit = end_idx.max(100);
+        let fetch_limit = fetch_limit.min(1000);
 
         eprintln!(
             "[CACHE MISS] Page {}: fetching {} runs from API",
@@ -225,26 +295,63 @@ impl PipelineService {
 
         let all_runs = self.fetch_run_history(pipeline_id, fetch_limit).await?;
         let total_count = all_runs.len();
-        let is_complete = total_count < fetch_limit; // If we got less than requested, that's all
+        let is_complete = total_count < fetch_limit;
 
-        // If not complete, add phantom page to allow navigation
-        let total_pages = if is_complete {
-            total_count.div_ceil(page_size)
-        } else {
-            // Show at least one more page to allow fetching more
-            total_count.div_ceil(page_size) + 1
-        };
+        let repository = self.repository.clone();
+        let pipeline_id_owned = pipeline_id.to_string();
+        let runs_to_cache = all_runs.clone();
+        tokio::spawn(async move {
+            if let Err(e) = repository
+                .cache_run_history(&pipeline_id_owned, &runs_to_cache)
+                .await
+            {
+                eprintln!("[WARN] Failed to persist run history: {e:?}");
+            }
+        });
 
-        // Update cache
-        let cached = CachedRunHistory {
-            runs: all_runs.clone(),
-            fetched_at: Instant::now(),
-            is_complete,
-        };
+        if let Some(metrics_service) = &self.metrics_service {
+            let pipeline_id_clone = pipeline_id.to_string();
+            let runs_clone = all_runs.clone();
+            let metrics_service_clone = metrics_service.clone();
+            let app_handle_clone = app_handle.clone();
 
-        let mut cache = self.run_history_cache.write().await;
-        cache.insert(pipeline_id.to_string(), cached);
-        drop(cache); // Release write lock
+            tokio::spawn(async move {
+                eprintln!(
+                    "[METRICS] Background task started for {}",
+                    pipeline_id_clone
+                );
+
+                match metrics_service_clone
+                    .extract_and_store_metrics(&pipeline_id_clone, &runs_clone)
+                    .await
+                {
+                    Ok(count) if count > 0 => {
+                        eprintln!(
+                            "[METRICS] ✓ Stored {} metrics for {}",
+                            count, pipeline_id_clone
+                        );
+
+                        if let Some(handle) = app_handle_clone {
+                            let _ = handle.emit("metrics-generated", &pipeline_id_clone);
+                        }
+                    }
+                    Ok(_) => {
+                        eprintln!(
+                            "[METRICS] ✓ No new metrics for {} (disabled or already processed)",
+                            pipeline_id_clone
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("[METRICS] ✗ Failed for {}: {:?}", pipeline_id_clone, e);
+                    }
+                }
+
+                eprintln!(
+                    "[METRICS] Background task completed for {}",
+                    pipeline_id_clone
+                );
+            });
+        }
 
         // Slice to requested page
         let runs = if start_idx < total_count {
@@ -254,8 +361,14 @@ impl PipelineService {
             Vec::new()
         };
 
+        let total_pages = if is_complete {
+            total_count.div_ceil(page_size)
+        } else {
+            total_count.div_ceil(page_size) + 1
+        };
+
         eprintln!(
-            "[PERF] Returned {} runs (of {} total, complete: {}, showing page {} of {})",
+            "[PERF] Returned {} runs (of {} total, complete: {}, page {} of {})",
             runs.len(),
             total_count,
             is_complete,
@@ -279,7 +392,7 @@ impl PipelineService {
         &self, pipeline_id: &str, run_number: i64,
     ) -> DomainResult<PipelineRun> {
         // Find the pipeline in cache to get the provider_id
-        let cached_pipelines = self.repository.get_cached_pipelines(None)?;
+        let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
         let pipeline = cached_pipelines
             .iter()
             .find(|p| p.id == pipeline_id)
@@ -293,7 +406,7 @@ impl PipelineService {
     }
 
     pub async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<String> {
-        let cached_pipelines = self.repository.get_cached_pipelines(None)?;
+        let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
         let pipeline = cached_pipelines
             .iter()
             .find(|p| p.id == params.workflow_id)
@@ -310,7 +423,7 @@ impl PipelineService {
 
     pub async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
         // Find the pipeline in cache to get the provider_id
-        let cached_pipelines = self.repository.get_cached_pipelines(None)?;
+        let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
         let pipeline = cached_pipelines
             .iter()
             .find(|p| p.id == pipeline_id)
@@ -330,17 +443,61 @@ impl PipelineService {
 
     /// Clear run history cache for a specific pipeline (used on manual refresh)
     pub async fn clear_run_history_cache(&self, pipeline_id: &str) {
-        let mut cache = self.run_history_cache.write().await;
-        if cache.remove(pipeline_id).is_some() {
+        if let Err(e) = self.repository.clear_cached_run_history(pipeline_id).await {
+            eprintln!(
+                "[CACHE] Failed to clear DB cache for {}: {:?}",
+                pipeline_id, e
+            );
+        } else {
             eprintln!("[CACHE] Cleared cache for pipeline: {}", pipeline_id);
         }
     }
 
-    /// Clear all run history caches
     pub async fn clear_all_run_history_caches(&self) {
-        let mut cache = self.run_history_cache.write().await;
-        let count = cache.len();
-        cache.clear();
-        eprintln!("[CACHE] Cleared {} cached run histories", count);
+        // Clear all run history from DB
+        match self.repository.get_run_history_cache_count().await {
+            Ok(count) => {
+                // Delete all run_history_cache entries
+                if let Err(e) = self.repository.clear_all_run_history_cache().await {
+                    eprintln!("[CACHE] Failed to clear all run history caches: {:?}", e);
+                } else {
+                    eprintln!("[CACHE] Cleared {} cached run histories", count);
+                }
+            }
+            Err(e) => {
+                eprintln!("[CACHE] Failed to get run history count: {:?}", e);
+            }
+        }
+    }
+
+    pub async fn get_pipelines_cache_count(&self) -> DomainResult<i64> {
+        self.repository.get_pipelines_cache_count().await
+    }
+
+    pub async fn get_run_history_cache_count(&self) -> DomainResult<i64> {
+        self.repository.get_run_history_cache_count().await
+    }
+
+    pub async fn get_workflow_params_cache_count(&self) -> DomainResult<i64> {
+        self.repository.get_workflow_params_cache_count().await
+    }
+
+    pub async fn clear_pipelines_cache(&self) -> DomainResult<usize> {
+        self.repository.clear_pipelines_cache().await
+    }
+
+    pub async fn clear_workflow_params_cache(&self) -> DomainResult<()> {
+        self.repository.clear_workflow_parameters_cache().await
+    }
+
+    pub async fn invalidate_run_cache(&self, pipeline_id: &str) {
+        if let Err(e) = self.repository.clear_cached_run_history(pipeline_id).await {
+            eprintln!(
+                "[CACHE] Failed to clear DB cache for {}: {:?}",
+                pipeline_id, e
+            );
+        } else {
+            eprintln!("[CACHE] Invalidated run history (DB) for {}", pipeline_id);
+        }
     }
 }

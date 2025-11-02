@@ -85,7 +85,7 @@ export default defineConfig({
     strictPort: true,
     open: false,
     watch: {
-      ignored: ['!**/node_modules/**']
+      ignored: ['**/node_modules/**', '**/.git/**', '**/target/**', '**/crates/**']
     }
   },
 

@@ -18,6 +18,9 @@
     "core:window:allow-inner-size",
     "core:window:allow-outer-size",
     "core:window:allow-scale-factor",
-    "opener:default"
+    "opener:default",
+    "dialog:allow-save",
+    "fs:allow-write-text-file",
+    "fs:allow-write-file"
   ]
 }

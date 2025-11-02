@@ -1,8 +1,6 @@
 use std::collections::HashMap;
-use std::sync::{
-    Arc,
-    Mutex,
-};
+use std::sync::Arc;
+use std::time::Duration;
 
 use base64::{
     engine::general_purpose,
@@ -13,48 +11,76 @@ use chrono::{
     Utc,
 };
 use keyring::Entry;
-use rusqlite::{
-    params,
-    Connection,
-    Row,
+use sqlx::{
+    Row as SqlxRow,
+    SqlitePool,
 };
+use tokio::sync::Mutex;
+use tokio::time::sleep;
 
 use crate::domain::{
     DomainError,
     DomainResult,
     Pipeline,
+    PipelineRun,
     PipelineStatus,
     ProviderConfig,
 };
 
+async fn retry_on_busy<F, Fut, T>(operation: F) -> DomainResult<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = DomainResult<T>>,
+{
+    const MAX_RETRIES: u32 = 5;
+    const INITIAL_DELAY_MS: u64 = 10;
+
+    let mut attempt = 0;
+    loop {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(DomainError::DatabaseError(ref msg))
+                if (msg.contains("database is locked")
+                    || msg.contains("SQLITE_BUSY")
+                    || msg.contains("locked"))
+                    && attempt < MAX_RETRIES =>
+            {
+                attempt += 1;
+                let delay = INITIAL_DELAY_MS * 2_u64.pow(attempt - 1);
+                eprintln!(
+                    "[DB_RETRY] Attempt {}/{}: {}. Retrying in {}ms",
+                    attempt, MAX_RETRIES, msg, delay
+                );
+                sleep(Duration::from_millis(delay)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 pub struct Repository {
-    conn: Arc<Mutex<Connection>>,
+    pool: SqlitePool,
     keyring_lock: Arc<Mutex<()>>,
     token_cache: Arc<Mutex<Option<HashMap<String, String>>>>,
 }
 
 impl Repository {
-    pub fn new(conn: Connection) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self {
-            conn: Arc::new(Mutex::new(conn)),
+            pool,
             keyring_lock: Arc::new(Mutex::new(())),
             token_cache: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub fn add_provider(&self, config: &ProviderConfig) -> DomainResult<i64> {
-        let conn = self
-            .conn
-            .lock()
+    pub async fn add_provider(&self, config: &ProviderConfig) -> DomainResult<i64> {
+        let existing = sqlx::query_scalar::<_, i64>("SELECT id FROM providers WHERE name = ?")
+            .bind(&config.name)
+            .fetch_optional(&self.pool)
+            .await
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        let existing: Result<i64, _> = conn.query_row(
-            "SELECT id FROM providers WHERE name = ?1",
-            params![&config.name],
-            |row| row.get(0),
-        );
-
-        if existing.is_ok() {
+        if existing.is_some() {
             return Err(DomainError::InvalidConfig(format!(
                 "A provider with the name '{}' already exists",
                 config.name
@@ -64,69 +90,65 @@ impl Repository {
         let config_json = serde_json::to_string(&config.config)
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        conn.execute(
-            "INSERT INTO providers (name, provider_type, token_encrypted, config_json, refresh_interval) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![config.name, &config.provider_type, "", config_json, config.refresh_interval],
+        let result = sqlx::query(
+            "INSERT INTO providers (name, provider_type, token_encrypted, config_json, refresh_interval) VALUES (?, ?, ?, ?, ?)"
         )
+        .bind(&config.name)
+        .bind(&config.provider_type)
+        .bind("")
+        .bind(&config_json)
+        .bind(config.refresh_interval)
+        .execute(&self.pool)
+        .await
         .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        let provider_id = conn.last_insert_rowid();
+        let provider_id = result.last_insert_rowid();
 
         self.store_token_in_keyring(provider_id, &config.token)?;
 
         Ok(provider_id)
     }
 
-    pub fn get_provider(&self, id: i64) -> DomainResult<ProviderConfig> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-        conn.query_row(
-            "SELECT id, name, provider_type, token_encrypted, config_json, refresh_interval FROM providers WHERE id = ?1",
-            params![id],
-            |row| self.provider_from_row(row),
+    pub async fn get_provider(&self, id: i64) -> DomainResult<ProviderConfig> {
+        let row = sqlx::query(
+            "SELECT id, name, provider_type, token_encrypted, config_json, refresh_interval FROM providers WHERE id = ?"
         )
-        .map_err(|_| DomainError::ProviderNotFound(id.to_string()))
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| DomainError::ProviderNotFound(id.to_string()))?;
+
+        self.provider_from_row(&row)
     }
 
-    pub fn list_providers(&self) -> DomainResult<Vec<ProviderConfig>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+    pub async fn list_providers(&self) -> DomainResult<Vec<ProviderConfig>> {
+        let rows = sqlx::query(
+            "SELECT id, name, provider_type, token_encrypted, config_json, refresh_interval FROM providers"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        let mut stmt = conn
-            .prepare("SELECT id, name, provider_type, token_encrypted, config_json, refresh_interval FROM providers")
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-        let providers = stmt
-            .query_map([], |row| self.provider_from_row(row))
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-        Ok(providers)
+        rows.iter().map(|row| self.provider_from_row(row)).collect()
     }
 
-    pub fn update_provider(&self, id: i64, config: &ProviderConfig) -> DomainResult<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
+    pub async fn update_provider(&self, id: i64, config: &ProviderConfig) -> DomainResult<()> {
         let config_json = serde_json::to_string(&config.config)
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        let rows_affected = conn
-            .execute(
-                "UPDATE providers SET name = ?1, token_encrypted = ?2, config_json = ?3, refresh_interval = ?4 WHERE id = ?5",
-                params![config.name, "", config_json, config.refresh_interval, id],
-            )
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let result = sqlx::query(
+            "UPDATE providers SET name = ?, token_encrypted = ?, config_json = ?, refresh_interval = ? WHERE id = ?"
+        )
+        .bind(&config.name)
+        .bind("")
+        .bind(&config_json)
+        .bind(config.refresh_interval)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        if rows_affected == 0 {
+        if result.rows_affected() == 0 {
             return Err(DomainError::ProviderNotFound(id.to_string()));
         }
 
@@ -135,17 +157,14 @@ impl Repository {
         Ok(())
     }
 
-    pub fn remove_provider(&self, id: i64) -> DomainResult<()> {
-        let conn = self
-            .conn
-            .lock()
+    pub async fn remove_provider(&self, id: i64) -> DomainResult<()> {
+        let result = sqlx::query("DELETE FROM providers WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        let rows_affected = conn
-            .execute("DELETE FROM providers WHERE id = ?1", params![id])
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-        if rows_affected == 0 {
+        if result.rows_affected() == 0 {
             return Err(DomainError::ProviderNotFound(id.to_string()));
         }
 
@@ -154,101 +173,60 @@ impl Repository {
         Ok(())
     }
 
-    pub fn cache_pipelines(&self, provider_id: i64, pipelines: &[Pipeline]) -> DomainResult<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-        conn.execute(
-            "DELETE FROM pipelines_cache WHERE provider_id = ?1",
-            params![provider_id],
-        )
-        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-        for pipeline in pipelines {
-            let last_run = pipeline.last_run.map(|dt| dt.to_rfc3339());
-            let status_json = serde_json::to_string(&pipeline.status)
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-            conn.execute(
-                "INSERT INTO pipelines_cache
-                (id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, metadata_json)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![
-                    pipeline.id,
-                    provider_id,
-                    pipeline.name,
-                    status_json,
-                    pipeline.repository,
-                    pipeline.branch,
-                    pipeline.workflow_file,
-                    last_run,
-                    pipeline.last_updated.to_rfc3339(),
-                    "{}",
-                ],
+    pub async fn get_cached_pipelines(
+        &self, provider_id: Option<i64>,
+    ) -> DomainResult<Vec<Pipeline>> {
+        let rows = if let Some(pid) = provider_id {
+            sqlx::query(
+                "SELECT pc.id, pc.provider_id, pc.name, pc.status, pc.repository, pc.branch, pc.workflow_file, pc.last_run, pc.last_updated, p.provider_type
+                FROM pipelines_cache pc
+                JOIN providers p ON pc.provider_id = p.id
+                WHERE pc.provider_id = ?"
             )
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-        }
-
-        Ok(())
-    }
-
-    pub fn get_cached_pipelines(&self, provider_id: Option<i64>) -> DomainResult<Vec<Pipeline>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-        if let Some(pid) = provider_id {
-            let mut stmt = conn
-                .prepare(
-                    "SELECT pc.id, pc.provider_id, pc.name, pc.status, pc.repository, pc.branch, pc.workflow_file, pc.last_run, pc.last_updated, p.provider_type
-                    FROM pipelines_cache pc
-                    JOIN providers p ON pc.provider_id = p.id
-                    WHERE pc.provider_id = ?1"
-                )
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-            let pipelines = stmt
-                .query_map([pid], |row| self.pipeline_from_row(row))
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-            Ok(pipelines)
+            .bind(pid)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?
         } else {
-            let mut stmt = conn
-                .prepare(
-                    "SELECT pc.id, pc.provider_id, pc.name, pc.status, pc.repository, pc.branch, pc.workflow_file, pc.last_run, pc.last_updated, p.provider_type
-                    FROM pipelines_cache pc
-                    JOIN providers p ON pc.provider_id = p.id"
-                )
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            sqlx::query(
+                "SELECT pc.id, pc.provider_id, pc.name, pc.status, pc.repository, pc.branch, pc.workflow_file, pc.last_run, pc.last_updated, p.provider_type
+                FROM pipelines_cache pc
+                JOIN providers p ON pc.provider_id = p.id"
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?
+        };
 
-            let pipelines = stmt
-                .query_map([], |row| self.pipeline_from_row(row))
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-            Ok(pipelines)
-        }
+        rows.iter().map(|row| self.pipeline_from_row(row)).collect()
     }
 
-    fn provider_from_row(&self, row: &Row) -> rusqlite::Result<ProviderConfig> {
-        let id: i64 = row.get(0)?;
-        let name: String = row.get(1)?;
-        let provider_type: String = row.get(2)?;
-        let token_encrypted: String = row.get(3)?;
-        let config_json: String = row.get(4)?;
-        let refresh_interval: i64 = row.get(5)?;
+    fn provider_from_row(&self, row: &sqlx::sqlite::SqliteRow) -> DomainResult<ProviderConfig> {
+        let id: i64 = row
+            .try_get(0)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let name: String = row
+            .try_get(1)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let provider_type: String = row
+            .try_get(2)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let token_encrypted: String = row
+            .try_get(3)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let config_json: String = row
+            .try_get(4)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let refresh_interval: i64 = row
+            .try_get(5)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
         let token = if !token_encrypted.is_empty() {
             let decoded = general_purpose::STANDARD
                 .decode(&token_encrypted)
-                .map_err(|_| rusqlite::Error::InvalidQuery)?;
-            let token = String::from_utf8(decoded).map_err(|_| rusqlite::Error::InvalidQuery)?;
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            let token = String::from_utf8(decoded)
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
             if let Err(e) = self.store_token_in_keyring(id, &token) {
                 eprintln!("[WARN] Could not migrate token {} to keyring: {}", id, e);
@@ -261,17 +239,16 @@ impl Repository {
             match self.get_token_from_keyring(id) {
                 Ok(token) => token,
                 Err(e) => {
-                    eprintln!(
-                        "[ERROR] Failed to get token from keyring for provider {}: {}",
+                    return Err(DomainError::DatabaseError(format!(
+                        "Failed to get token from keyring for provider {}: {}",
                         id, e
-                    );
-                    return Err(rusqlite::Error::InvalidQuery);
+                    )));
                 }
             }
         };
 
-        let config: HashMap<String, String> =
-            serde_json::from_str(&config_json).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let config: HashMap<String, String> = serde_json::from_str(&config_json)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
         Ok(ProviderConfig {
             id: Some(id),
@@ -283,25 +260,50 @@ impl Repository {
         })
     }
 
-    fn pipeline_from_row(&self, row: &Row) -> rusqlite::Result<Pipeline> {
-        let id: String = row.get(0)?;
-        let provider_id: i64 = row.get(1)?;
-        let name: String = row.get(2)?;
-        let status_str: String = row.get(3)?;
-        let repository: String = row.get(4)?;
-        let branch: Option<String> = row.get(5)?;
-        let workflow_file: Option<String> = row.get(6)?;
-        let last_run_str: Option<String> = row.get(7)?;
-        let last_updated_str: String = row.get(8)?;
-        let provider_type: String = row.get(9)?;
+    fn pipeline_from_row(&self, row: &sqlx::sqlite::SqliteRow) -> DomainResult<Pipeline> {
+        let id: String = row
+            .try_get(0)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let provider_id: i64 = row
+            .try_get(1)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let name: String = row
+            .try_get(2)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let status_str: String = row
+            .try_get(3)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let repository: String = row
+            .try_get(4)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let branch: Option<String> = row
+            .try_get(5)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let workflow_file: Option<String> = row
+            .try_get(6)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let last_run_str: Option<String> = row
+            .try_get(7)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let last_updated_str: String = row
+            .try_get(8)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let provider_type: String = row
+            .try_get(9)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        let status: PipelineStatus =
-            serde_json::from_str(&status_str).map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let status: PipelineStatus = if status_str.starts_with('"') {
+            serde_json::from_str(&status_str)
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?
+        } else {
+            let quoted = format!("\"{}\"", status_str);
+            serde_json::from_str(&quoted).map_err(|e| DomainError::DatabaseError(e.to_string()))?
+        };
         let last_run = last_run_str
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
             .map(|dt| dt.with_timezone(&Utc));
         let last_updated = DateTime::parse_from_rfc3339(&last_updated_str)
-            .map_err(|_| rusqlite::Error::InvalidQuery)?
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?
             .with_timezone(&Utc);
 
         Ok(Pipeline {
@@ -324,11 +326,9 @@ impl Repository {
     }
 
     fn get_all_tokens(&self) -> DomainResult<HashMap<String, String>> {
-        let mut cache = self.token_cache.lock().map_err(|e| {
-            DomainError::DatabaseError(format!("Failed to acquire token cache lock: {}", e))
-        })?;
+        let mut cache = futures::executor::block_on(self.token_cache.lock());
 
-        if let Some(cached_tokens) = cache.as_ref() {
+        if let Some(ref cached_tokens) = *cache {
             return Ok(cached_tokens.clone());
         }
 
@@ -366,18 +366,14 @@ impl Repository {
         })?;
 
         // Update cache
-        let mut cache = self.token_cache.lock().map_err(|e| {
-            DomainError::DatabaseError(format!("Failed to acquire token cache lock: {}", e))
-        })?;
+        let mut cache = futures::executor::block_on(self.token_cache.lock());
         *cache = Some(tokens.clone());
 
         Ok(())
     }
 
     fn store_token_in_keyring(&self, provider_id: i64, token: &str) -> DomainResult<()> {
-        let _lock = self.keyring_lock.lock().map_err(|e| {
-            DomainError::DatabaseError(format!("Failed to acquire keyring lock: {}", e))
-        })?;
+        let _lock = futures::executor::block_on(self.keyring_lock.lock());
 
         let mut tokens = self.get_all_tokens()?;
         tokens.insert(provider_id.to_string(), token.to_string());
@@ -385,9 +381,7 @@ impl Repository {
     }
 
     fn get_token_from_keyring(&self, provider_id: i64) -> DomainResult<String> {
-        let _lock = self.keyring_lock.lock().map_err(|e| {
-            DomainError::DatabaseError(format!("Failed to acquire keyring lock: {}", e))
-        })?;
+        let _lock = futures::executor::block_on(self.keyring_lock.lock());
 
         let mut tokens = self.get_all_tokens()?;
 
@@ -420,9 +414,7 @@ impl Repository {
     }
 
     fn delete_token_from_keyring(&self, provider_id: i64) -> DomainResult<()> {
-        let _lock = self.keyring_lock.lock().map_err(|e| {
-            DomainError::DatabaseError(format!("Failed to acquire keyring lock: {}", e))
-        })?;
+        let _lock = futures::executor::block_on(self.keyring_lock.lock());
 
         let mut tokens = self.get_all_tokens()?;
         tokens.remove(&provider_id.to_string());
@@ -437,65 +429,434 @@ impl Repository {
         }
     }
 
-    pub fn cache_workflow_parameters(
+    pub async fn cache_workflow_parameters(
         &self, workflow_id: &str, parameters: &[pipedash_plugin_api::WorkflowParameter],
     ) -> DomainResult<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
         let parameters_json = serde_json::to_string(parameters)
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        conn.execute(
+        sqlx::query(
             "INSERT OR REPLACE INTO workflow_parameters_cache (workflow_id, parameters_json, cached_at)
-             VALUES (?1, ?2, datetime('now'))",
-            params![workflow_id, parameters_json],
+             VALUES (?, ?, datetime('now'))"
         )
+        .bind(workflow_id)
+        .bind(&parameters_json)
+        .execute(&self.pool)
+        .await
         .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
         Ok(())
     }
 
-    pub fn get_cached_workflow_parameters(
+    pub async fn get_cached_workflow_parameters(
         &self, workflow_id: &str,
     ) -> DomainResult<Option<Vec<pipedash_plugin_api::WorkflowParameter>>> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-        let result = conn.query_row(
-            "SELECT parameters_json FROM workflow_parameters_cache WHERE workflow_id = ?1",
-            params![workflow_id],
-            |row| {
-                let json: String = row.get(0)?;
-                Ok(json)
-            },
-        );
+        let result = sqlx::query_scalar::<_, String>(
+            "SELECT parameters_json FROM workflow_parameters_cache WHERE workflow_id = ?",
+        )
+        .bind(workflow_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
         match result {
-            Ok(json) => {
+            Some(json) => {
                 let parameters: Vec<pipedash_plugin_api::WorkflowParameter> =
                     serde_json::from_str(&json)
                         .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                 Ok(Some(parameters))
             }
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(DomainError::DatabaseError(e.to_string())),
+            None => Ok(None),
         }
     }
 
-    pub fn clear_workflow_parameters_cache(&self) -> DomainResult<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-        conn.execute("DELETE FROM workflow_parameters_cache", [])
+    pub async fn clear_workflow_parameters_cache(&self) -> DomainResult<()> {
+        sqlx::query("DELETE FROM workflow_parameters_cache")
+            .execute(&self.pool)
+            .await
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
         Ok(())
+    }
+
+    pub async fn cache_run_history(
+        &self, pipeline_id: &str, runs: &[PipelineRun],
+    ) -> DomainResult<()> {
+        if runs.is_empty() {
+            return Ok(());
+        }
+
+        let pipeline_id_str = pipeline_id.to_string();
+        let runs_vec = runs.to_vec();
+        let pool = self.pool.clone();
+
+        retry_on_busy(|| {
+            let pipeline_id_clone = pipeline_id_str.clone();
+            let runs_clone = runs_vec.clone();
+            let pool_clone = pool.clone();
+            async move {
+                let mut tx = pool_clone.begin()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                for run in &runs_clone {
+                    let run_data = serde_json::to_string(run)
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                    let status_str = match run.status {
+                        crate::domain::PipelineStatus::Success => "success",
+                        crate::domain::PipelineStatus::Failed => "failed",
+                        crate::domain::PipelineStatus::Running => "running",
+                        crate::domain::PipelineStatus::Pending => "pending",
+                        crate::domain::PipelineStatus::Cancelled => "cancelled",
+                        crate::domain::PipelineStatus::Skipped => "skipped",
+                    };
+
+                    let run_hash = crate::infrastructure::deduplication::hash_pipeline_run(
+                        run.run_number,
+                        status_str,
+                        &run.branch,
+                        &run.started_at.to_rfc3339(),
+                        run.duration_seconds,
+                        &run.commit_sha,
+                    );
+
+                    sqlx::query(
+                        "INSERT OR REPLACE INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash)
+                         VALUES (?, ?, ?, datetime('now'), ?)"
+                    )
+                    .bind(&pipeline_id_clone)
+                    .bind(run.run_number)
+                    .bind(&run_data)
+                    .bind(&run_hash)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                }
+
+                tx.commit()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                Ok(())
+            }
+        })
+        .await
+    }
+
+    pub async fn get_cached_run_history(
+        &self, pipeline_id: &str, limit: usize,
+    ) -> DomainResult<Vec<PipelineRun>> {
+        let rows = sqlx::query_scalar::<_, String>(
+            "SELECT run_data FROM run_history_cache
+             WHERE pipeline_id = ?
+             ORDER BY run_number DESC
+             LIMIT ?",
+        )
+        .bind(pipeline_id)
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+        let runs: Vec<PipelineRun> = rows
+            .iter()
+            .filter_map(|json| serde_json::from_str(json).ok())
+            .collect();
+
+        Ok(runs)
+    }
+
+    pub async fn clear_cached_run_history(&self, pipeline_id: &str) -> DomainResult<()> {
+        sqlx::query("DELETE FROM run_history_cache WHERE pipeline_id = ?")
+            .bind(pipeline_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub async fn clear_all_run_history_cache(&self) -> DomainResult<()> {
+        sqlx::query("DELETE FROM run_history_cache")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub async fn get_cached_runs_with_hashes(
+        &self, pipeline_id: &str,
+    ) -> DomainResult<HashMap<i64, (PipelineRun, String)>> {
+        let rows = sqlx::query(
+            "SELECT run_number, run_data, run_hash FROM run_history_cache WHERE pipeline_id = ?",
+        )
+        .bind(pipeline_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+        let mut result = HashMap::new();
+        for row in rows {
+            let run_number: i64 = row
+                .try_get(0)
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            let run_data: String = row
+                .try_get(1)
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            let run_hash: String = row
+                .try_get(2)
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+            if let Ok(run) = serde_json::from_str::<PipelineRun>(&run_data) {
+                result.insert(run_number, (run, run_hash));
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn merge_run_cache(
+        &self, pipeline_id: &str, new_runs: Vec<PipelineRun>, changed_runs: Vec<PipelineRun>,
+        deleted_run_numbers: Vec<i64>,
+    ) -> DomainResult<()> {
+        let pipeline_id_str = pipeline_id.to_string();
+        let pool = self.pool.clone();
+
+        let new_count = new_runs.len();
+        let changed_count = changed_runs.len();
+        let deleted_count = deleted_run_numbers.len();
+
+        retry_on_busy(move || {
+            let pipeline_id_clone = pipeline_id_str.clone();
+            let new_runs_clone = new_runs.clone();
+            let changed_runs_clone = changed_runs.clone();
+            let deleted_clone = deleted_run_numbers.clone();
+            let pool_clone = pool.clone();
+
+            async move {
+                let mut tx = pool_clone
+                    .begin()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                for run in new_runs_clone.iter().chain(changed_runs_clone.iter()) {
+                    let run_data = serde_json::to_string(run)
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                    let status_str = run.status.as_str();
+                    let run_hash = crate::infrastructure::deduplication::hash_pipeline_run(
+                        run.run_number,
+                        status_str,
+                        &run.branch,
+                        &run.started_at.to_rfc3339(),
+                        run.duration_seconds,
+                        &run.commit_sha,
+                    );
+
+                    sqlx::query(
+                        "INSERT OR REPLACE INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash)
+                         VALUES (?, ?, ?, datetime('now'), ?)"
+                    )
+                    .bind(&pipeline_id_clone)
+                    .bind(run.run_number)
+                    .bind(&run_data)
+                    .bind(&run_hash)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                }
+
+                for run_number in &deleted_clone {
+                    sqlx::query("DELETE FROM run_history_cache WHERE pipeline_id = ? AND run_number = ?")
+                        .bind(&pipeline_id_clone)
+                        .bind(run_number)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                }
+
+                tx.commit()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                Ok(())
+            }
+        })
+        .await?;
+
+        eprintln!(
+            "[CACHE] Merged incremental update: {} new, {} changed, {} deleted",
+            new_count, changed_count, deleted_count
+        );
+
+        Ok(())
+    }
+
+    pub async fn update_pipelines_cache(
+        &self, provider_id: i64, new_pipelines: &[Pipeline],
+    ) -> DomainResult<()> {
+        let new_pipelines_vec = new_pipelines.to_vec();
+        let pool = self.pool.clone();
+
+        retry_on_busy(move || {
+            let new_pipelines_clone = new_pipelines_vec.clone();
+            let pool_clone = pool.clone();
+            async move {
+                let mut tx = pool_clone.begin()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                let existing_rows = sqlx::query(
+                    "SELECT pc.id, pc.provider_id, pc.name, pc.status, pc.repository, pc.branch, pc.workflow_file, pc.last_run, pc.last_updated, p.provider_type
+                    FROM pipelines_cache pc
+                    JOIN providers p ON pc.provider_id = p.id
+                    WHERE pc.provider_id = ?"
+                )
+                .bind(provider_id)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                let mut existing: HashMap<String, Pipeline> = HashMap::new();
+                for row in existing_rows.iter() {
+                    let id: String = row.try_get(0).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let provider_id_val: i64 = row.try_get(1).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let name: String = row.try_get(2).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let status_str: String = row.try_get(3).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let repository: String = row.try_get(4).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let branch: Option<String> = row.try_get(5).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let workflow_file: Option<String> = row.try_get(6).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let last_run_str: Option<String> = row.try_get(7).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let last_updated_str: String = row.try_get(8).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let provider_type: String = row.try_get(9).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                    let status: PipelineStatus = serde_json::from_str(&status_str)
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let last_run = last_run_str
+                        .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                        .map(|dt| dt.with_timezone(&Utc));
+                    let last_updated = DateTime::parse_from_rfc3339(&last_updated_str)
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?
+                        .with_timezone(&Utc);
+
+                    existing.insert(id.clone(), Pipeline {
+                        id,
+                        provider_id: provider_id_val,
+                        provider_type,
+                        name,
+                        status,
+                        last_run,
+                        last_updated,
+                        repository,
+                        branch,
+                        workflow_file,
+                    });
+                }
+
+                let new_ids: HashMap<String, &Pipeline> =
+                    new_pipelines_clone.iter().map(|p| (p.id.clone(), p)).collect();
+
+                for pipeline in &new_pipelines_clone {
+                    if let Some(old) = existing.get(&pipeline.id) {
+                        if old.status != pipeline.status
+                            || old.last_run != pipeline.last_run
+                            || old.name != pipeline.name
+                        {
+                            sqlx::query(
+                                "UPDATE pipelines_cache
+                                 SET name = ?, status = ?, repository = ?, branch = ?,
+                                     workflow_file = ?, last_run = ?, last_updated = ?, metadata_json = ?
+                                 WHERE id = ?"
+                            )
+                            .bind(&pipeline.name)
+                            .bind(pipeline.status.as_str())
+                            .bind(&pipeline.repository)
+                            .bind(&pipeline.branch)
+                            .bind(&pipeline.workflow_file)
+                            .bind(pipeline.last_run.as_ref().map(|dt| dt.to_rfc3339()))
+                            .bind(Utc::now().to_rfc3339())
+                            .bind("{}")
+                            .bind(&pipeline.id)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                        }
+                    } else {
+                        sqlx::query(
+                            "INSERT INTO pipelines_cache
+                             (id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, metadata_json)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        )
+                        .bind(&pipeline.id)
+                        .bind(provider_id)
+                        .bind(&pipeline.name)
+                        .bind(pipeline.status.as_str())
+                        .bind(&pipeline.repository)
+                        .bind(&pipeline.branch)
+                        .bind(&pipeline.workflow_file)
+                        .bind(pipeline.last_run.as_ref().map(|dt| dt.to_rfc3339()))
+                        .bind(Utc::now().to_rfc3339())
+                        .bind("{}")
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    }
+                }
+
+                for (old_id, _) in existing.iter() {
+                    if !new_ids.contains_key(old_id) {
+                        sqlx::query("DELETE FROM pipelines_cache WHERE id = ?")
+                            .bind(old_id)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    }
+                }
+
+                tx.commit()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                Ok(())
+            }
+        })
+        .await
+    }
+
+    pub async fn get_pipelines_cache_count(&self) -> DomainResult<i64> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM pipelines_cache")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        Ok(count)
+    }
+
+    pub async fn get_run_history_cache_count(&self) -> DomainResult<i64> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM run_history_cache")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        Ok(count)
+    }
+
+    pub async fn get_workflow_params_cache_count(&self) -> DomainResult<i64> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM workflow_parameters_cache")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        Ok(count)
+    }
+
+    pub async fn clear_pipelines_cache(&self) -> DomainResult<usize> {
+        let result = sqlx::query("DELETE FROM pipelines_cache")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+        let deleted = result.rows_affected() as usize;
+        eprintln!("[CACHE] Cleared {} pipelines from cache", deleted);
+        Ok(deleted)
     }
 }

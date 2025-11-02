@@ -64,7 +64,7 @@ impl ProviderService {
             )));
         }
 
-        let id = self.repository.add_provider(&config)?;
+        let id = self.repository.add_provider(&config).await?;
 
         let mut config_with_id = config.clone();
         config_with_id.id = Some(id);
@@ -77,15 +77,15 @@ impl ProviderService {
     }
 
     pub async fn get_provider_config(&self, id: i64) -> DomainResult<ProviderConfig> {
-        self.repository.get_provider(id)
+        self.repository.get_provider(id).await
     }
 
     pub async fn list_providers(&self) -> DomainResult<Vec<ProviderSummary>> {
-        let configs = self.repository.list_providers()?;
+        let configs = self.repository.list_providers().await?;
         let mut summaries = Vec::new();
 
         for config in configs {
-            let cached_pipelines = self.repository.get_cached_pipelines(config.id)?;
+            let cached_pipelines = self.repository.get_cached_pipelines(config.id).await?;
             let pipeline_count = cached_pipelines.len();
             let last_updated = cached_pipelines.iter().map(|p| p.last_updated).max();
 
@@ -114,7 +114,7 @@ impl ProviderService {
         provider.validate_credentials().await?;
 
         // Update in database
-        self.repository.update_provider(id, &config)?;
+        self.repository.update_provider(id, &config).await?;
 
         // Update in memory
         let mut config_with_id = config.clone();
@@ -130,17 +130,17 @@ impl ProviderService {
     pub async fn update_provider_refresh_interval(
         &self, id: i64, refresh_interval: i64,
     ) -> DomainResult<()> {
-        let mut config = self.repository.get_provider(id)?;
+        let mut config = self.repository.get_provider(id).await?;
 
         config.refresh_interval = refresh_interval;
 
-        self.repository.update_provider(id, &config)?;
+        self.repository.update_provider(id, &config).await?;
 
         Ok(())
     }
 
     pub async fn remove_provider(&self, id: i64) -> DomainResult<()> {
-        self.repository.remove_provider(id)?;
+        self.repository.remove_provider(id).await?;
         let mut providers = self.providers.write().await;
         providers.remove(&id);
         Ok(())
@@ -155,7 +155,7 @@ impl ProviderService {
 
         drop(providers);
 
-        let config = self.repository.get_provider(id)?;
+        let config = self.repository.get_provider(id).await?;
         let provider = self.create_provider(&config)?;
 
         let mut providers = self.providers.write().await;
@@ -165,7 +165,7 @@ impl ProviderService {
     }
 
     pub async fn load_all_providers(&self) -> DomainResult<()> {
-        let configs = self.repository.list_providers()?;
+        let configs = self.repository.list_providers().await?;
 
         for config in configs {
             if let Some(id) = config.id {
@@ -223,7 +223,11 @@ impl ProviderService {
     ) -> DomainResult<Vec<pipedash_plugin_api::WorkflowParameter>> {
         let start = std::time::Instant::now();
 
-        if let Ok(Some(cached)) = self.repository.get_cached_workflow_parameters(workflow_id) {
+        if let Ok(Some(cached)) = self
+            .repository
+            .get_cached_workflow_parameters(workflow_id)
+            .await
+        {
             eprintln!(
                 "[PERF] Got workflow parameters from cache for {} in {:?}",
                 workflow_id,
@@ -245,7 +249,11 @@ impl ProviderService {
         let _guard = fetch_lock.lock().await;
         eprintln!("[PERF] Acquired fetch lock for {workflow_id}");
 
-        if let Ok(Some(cached)) = self.repository.get_cached_workflow_parameters(workflow_id) {
+        if let Ok(Some(cached)) = self
+            .repository
+            .get_cached_workflow_parameters(workflow_id)
+            .await
+        {
             eprintln!(
                 "[PERF] Got workflow parameters from cache (after lock) for {} in {:?}",
                 workflow_id,
@@ -281,6 +289,7 @@ impl ProviderService {
         if let Err(e) = self
             .repository
             .cache_workflow_parameters(workflow_id, &parameters)
+            .await
         {
             eprintln!("[WARN] Failed to cache workflow parameters: {e}");
         }

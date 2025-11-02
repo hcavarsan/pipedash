@@ -1,4 +1,4 @@
-import { Badge, Box, Button, Group, Stack, Text, Title } from '@mantine/core'
+import { ActionIcon, Badge, Box, Group, Stack, Text, Title } from '@mantine/core'
 import { IconArrowLeft } from '@tabler/icons-react'
 
 interface PageHeaderProps {
@@ -18,35 +18,36 @@ export const PageHeader = ({
   backLabel = 'Back',
 }: PageHeaderProps) => {
   return (
-    <Box mb="sm" pt={0} pb="xs" style={{ minHeight: 52 }}>
-      <Group justify="space-between" align="center" h={52}>
-        <Stack gap={2}>
+    <Box mb="xs" pt={0} pb={0} style={{ minHeight: 40 }}>
+      <Group gap="xs" align="center" h={40}>
+        {onBack && (
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="md"
+            onClick={onBack}
+            title={backLabel}
+          >
+            <IconArrowLeft size={18} />
+          </ActionIcon>
+        )}
+        <Stack gap={2} style={{ flex: 1 }}>
           <Group gap="xs" align="center">
-            <Title order={3} fw={600} size="h3">
+            <Title order={3} fw={600} size="h4">
               {title}
             </Title>
             {badge && (
-              <Badge variant="light" size="md">
+              <Badge variant="light" size="sm">
                 {badge}
               </Badge>
             )}
           </Group>
           {subtitle && (
-            <Text size="sm" c="dimmed">
+            <Text size="xs" c="dimmed">
               {subtitle}
             </Text>
           )}
         </Stack>
-        {onBack && (
-          <Button
-            variant="subtle"
-            size="sm"
-            leftSection={<IconArrowLeft size={14} />}
-            onClick={onBack}
-          >
-            {backLabel}
-          </Button>
-        )}
       </Group>
     </Box>
   )

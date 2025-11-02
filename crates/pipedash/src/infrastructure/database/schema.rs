@@ -1,139 +1,155 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{
     Context,
     Result,
 };
-use rusqlite::{
-    Connection,
-    OpenFlags,
+use sqlx::{
+    sqlite::{
+        SqliteConnectOptions,
+        SqliteJournalMode,
+        SqlitePoolOptions,
+        SqliteSynchronous,
+    },
+    SqlitePool,
 };
 
-const SCHEMA_VERSION: i32 = 3;
+pub async fn init_database(db_path: PathBuf) -> Result<SqlitePool> {
+    let options = SqliteConnectOptions::new()
+        .filename(db_path)
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(10));
 
-pub fn init_database(db_path: PathBuf) -> Result<Connection> {
-    let conn = Connection::open_with_flags(
-        &db_path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    let pool = SqlitePoolOptions::new()
+        .max_connections(3)
+        .connect_with(options)
+        .await
+        .context("Failed to create database pool")?;
+
+    sqlx::query("PRAGMA cache_size=-64000")
+        .execute(&pool)
+        .await
+        .context("Failed to set cache_size")?;
+
+    sqlx::query("PRAGMA temp_store=MEMORY")
+        .execute(&pool)
+        .await
+        .context("Failed to set temp_store")?;
+
+    sqlx::query("PRAGMA wal_autocheckpoint=1000")
+        .execute(&pool)
+        .await
+        .context("Failed to set wal_autocheckpoint")?;
+
+    mark_old_migrations_as_applied(&pool).await?;
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .context("Failed to run migrations")?;
+
+    Ok(pool)
+}
+
+async fn mark_old_migrations_as_applied(pool: &SqlitePool) -> Result<()> {
+    let has_old_schema: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='schema_version'",
     )
-    .context("Failed to open database connection")?;
+    .fetch_one(pool)
+    .await?;
 
-    conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA synchronous=NORMAL;
-         PRAGMA busy_timeout=10000;
-         PRAGMA cache_size=-64000;
-         PRAGMA temp_store=MEMORY;",
+    if !has_old_schema {
+        return Ok(());
+    }
+
+    let old_version: i32 =
+        sqlx::query_scalar("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or(0);
+
+    if old_version == 0 {
+        return Ok(());
+    }
+
+    let has_sqlx_migrations: bool = sqlx::query_scalar(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'",
     )
-    .context("Failed to set database pragmas")?;
+    .fetch_one(pool)
+    .await?;
 
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER PRIMARY KEY
+    if has_sqlx_migrations {
+        return Ok(());
+    }
+
+    eprintln!(
+        "[MIGRATION] Detected old rusqlite schema (version {}), marking sqlx migrations as applied",
+        old_version
+    );
+
+    sqlx::query(
+        "CREATE TABLE _sqlx_migrations (
+            version BIGINT PRIMARY KEY,
+            description TEXT NOT NULL,
+            installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            success BOOLEAN NOT NULL,
+            checksum BLOB NOT NULL,
+            execution_time BIGINT NOT NULL
         )",
-        [],
     )
-    .context("Failed to create schema_version table")?;
+    .execute(pool)
+    .await?;
 
-    let current_version: i32 = conn
-        .query_row(
-            "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1",
-            [],
-            |row| row.get(0),
+    let migrations: Vec<(i64, &str, &[u8])> = vec![
+        (
+            20250101000001i64,
+            "initial_schema",
+            include_bytes!("../../../migrations/20250101000001_initial_schema.sql"),
+        ),
+        (
+            20250101000002i64,
+            "workflow_parameters",
+            include_bytes!("../../../migrations/20250101000002_workflow_parameters.sql"),
+        ),
+        (
+            20250101000003i64,
+            "refresh_interval",
+            include_bytes!("../../../migrations/20250101000003_refresh_interval.sql"),
+        ),
+        (
+            20250101000004i64,
+            "run_history",
+            include_bytes!("../../../migrations/20250101000004_run_history.sql"),
+        ),
+    ];
+
+    for (version_num, description, sql_bytes) in migrations.iter().take(old_version as usize) {
+        use sha2::{
+            Digest,
+            Sha384,
+        };
+        let mut hasher = Sha384::new();
+        hasher.update(sql_bytes);
+        let checksum = hasher.finalize();
+
+        sqlx::query(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+             VALUES (?, ?, 1, ?, 0)",
         )
-        .unwrap_or(0);
-
-    if current_version < SCHEMA_VERSION {
-        migrate(&conn, current_version)?;
+        .bind(version_num)
+        .bind(description)
+        .bind(&checksum[..])
+        .execute(pool)
+        .await?;
     }
 
-    Ok(conn)
-}
-
-fn migrate(conn: &Connection, from_version: i32) -> Result<()> {
-    if from_version < 1 {
-        apply_migration_v1(conn)?;
-    }
-
-    if from_version < 2 {
-        apply_migration_v2(conn)?;
-    }
-
-    if from_version < 3 {
-        apply_migration_v3(conn)?;
-    }
-
-    conn.execute(
-        "INSERT OR REPLACE INTO schema_version (version) VALUES (?1)",
-        [SCHEMA_VERSION],
-    )
-    .context("Failed to update schema version")?;
-
-    Ok(())
-}
-
-fn apply_migration_v1(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS providers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            provider_type TEXT NOT NULL,
-            token_encrypted TEXT NOT NULL,
-            config_json TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS pipelines_cache (
-            id TEXT PRIMARY KEY,
-            provider_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            status TEXT NOT NULL,
-            repository TEXT NOT NULL,
-            branch TEXT,
-            workflow_file TEXT,
-            last_run TEXT,
-            last_updated TEXT NOT NULL,
-            metadata_json TEXT NOT NULL DEFAULT '{}',
-            FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_pipelines_provider ON pipelines_cache(provider_id);
-        CREATE INDEX IF NOT EXISTS idx_pipelines_status ON pipelines_cache(status);
-        ",
-    )
-    .context("Failed to apply migration v1")?;
-
-    Ok(())
-}
-
-fn apply_migration_v2(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS workflow_parameters_cache (
-            workflow_id TEXT PRIMARY KEY,
-            parameters_json TEXT NOT NULL,
-            cached_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_workflow_params_cached_at ON workflow_parameters_cache(cached_at);
-        ",
-    )
-    .context("Failed to apply migration v2")?;
-
-    Ok(())
-}
-
-fn apply_migration_v3(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        "
-        ALTER TABLE providers ADD COLUMN refresh_interval INTEGER NOT NULL DEFAULT 30;
-        ",
-    )
-    .context("Failed to apply migration v3")?;
+    eprintln!(
+        "[MIGRATION] Marked {} migrations as applied from old schema",
+        old_version
+    );
 
     Ok(())
 }

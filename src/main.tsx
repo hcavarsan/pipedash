@@ -19,8 +19,8 @@ import './App.css'
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <MantineProvider theme={theme} defaultColorScheme="dark">
+    <MantineProvider theme={theme} defaultColorScheme="dark">
+      <ErrorBoundary>
         <ModalsProvider>
           <MediaQueryProvider>
             <PluginProvider>
@@ -29,7 +29,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
             </PluginProvider>
           </MediaQueryProvider>
         </ModalsProvider>
-      </MantineProvider>
-    </ErrorBoundary>
+      </ErrorBoundary>
+    </MantineProvider>
   </React.StrictMode>
 )

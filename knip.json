@@ -7,5 +7,5 @@
     "**/node_modules/**",
     "src/components/atoms/index.ts"
   ],
-  "ignoreBinaries": ["rustup"]
+  "ignoreExportsUsedInFile": true
 }

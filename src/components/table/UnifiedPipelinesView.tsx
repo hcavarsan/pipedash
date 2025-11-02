@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { DataTableSortStatus } from 'mantine-datatable'
 
 import { ActionIcon, Box, Card, Center, Group, Loader, Stack, Text, Tooltip } from '@mantine/core'
-import { IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
+import { IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import type { Pipeline, ProviderSummary } from '../../types'
@@ -36,6 +36,7 @@ interface UnifiedPipelinesViewProps {
   loading?: boolean;
   onViewHistory: (pipeline: Pipeline) => void;
   onTrigger: (pipeline: Pipeline) => void;
+  onViewMetrics?: (pipeline: Pipeline) => void;
 }
 
 export const UnifiedPipelinesView = ({
@@ -44,6 +45,7 @@ export const UnifiedPipelinesView = ({
   loading = false,
   onViewHistory,
   onTrigger,
+  onViewMetrics,
 }: UnifiedPipelinesViewProps) => {
   const isMobile = useIsMobile()
   const [search, setSearch] = useState('')
@@ -162,7 +164,6 @@ return
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipelines, expandedRepos])
 
-  // Apply filters
   const filteredRows = useMemo(() => {
     let result = tableRows
 
@@ -318,7 +319,6 @@ return Array.from(providerIdSet)
 
   const repositoryCount = tableRows.filter(r => r.type === 'repository').length
 
-  // Mobile card view
   const renderMobileCards = () => {
     return (
       <Stack gap="sm">
@@ -402,7 +402,7 @@ return newSet
 
                     <Box>
                       <Text size="xs" c="dimmed" mb={4}>Providers</Text>
-                      <Group gap={8}>
+                      <Stack gap={(row.providerIds?.size || 0) > 1 ? 8 : 0}>
                         {Array.from(row.providerIds || []).map((providerId) => {
                           const provider = getProvider(providerId)
 
@@ -418,7 +418,7 @@ return (
                             </div>
                           )
                         })}
-                      </Group>
+                      </Stack>
                     </Box>
                   </Stack>
                 </Card>
@@ -451,6 +451,20 @@ return (
                         >
                           <div>{TableCells.status(row.pipeline.status)}</div>
                         </Tooltip>
+                        {onViewMetrics && (
+                          <ActionIcon
+                            variant="subtle"
+                            color="violet"
+                            size="md"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onViewMetrics(row.pipeline!)
+                            }}
+                            title="View metrics"
+                          >
+                            <IconChartLine size={18} />
+                          </ActionIcon>
+                        )}
                         <ActionIcon
                           variant="subtle"
                           color="blue"
@@ -459,6 +473,7 @@ return (
                             e.stopPropagation()
                             onTrigger(row.pipeline!)
                           }}
+                          title="Trigger workflow"
                         >
                           <IconPlayerPlayFilled size={18} />
                         </ActionIcon>
@@ -676,8 +691,12 @@ return null
             textAlign: 'left' as const,
             render: (row) => {
               if (row.type === 'repository' && row.providerIds) {
-                return (
-                  <Group gap={8} wrap="nowrap">
+                const providerCount = row.providerIds.size
+
+
+                
+return (
+                  <Stack gap={providerCount > 1 ? 8 : 0}>
                     {Array.from(row.providerIds).map((providerId) => {
                       const provider = getProvider(providerId)
 
@@ -693,7 +712,7 @@ return (
                         </div>
                       )
                     })}
-                  </Group>
+                  </Stack>
                 )
               } else if (row.pipeline) {
                 const provider = getProvider(row.pipeline.provider_id)
@@ -713,24 +732,40 @@ return null
           {
             accessor: 'actions',
             title: 'Actions',
-            width: 100,
+            width: onViewMetrics ? 120 : 100,
             textAlign: 'center' as const,
             render: (row) => {
               if (row.type === 'workflow' && row.pipeline) {
                 return (
-                  <Box style={{ display: 'flex', justifyContent: 'center' }}>
-                    <ActionIcon
-                      variant="subtle"
-                      color="blue"
-                      size="md"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onTrigger(row.pipeline!)
-                      }}
-                      title="Trigger workflow"
-                    >
-                      <IconPlayerPlayFilled size={18} />
-                    </ActionIcon>
+                  <Box style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
+                    {onViewMetrics && (
+                      <Tooltip label="View metrics" withArrow>
+                        <ActionIcon
+                          variant="subtle"
+                          color="violet"
+                          size="md"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onViewMetrics(row.pipeline!)
+                          }}
+                        >
+                          <IconChartLine size={18} />
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
+                    <Tooltip label="Trigger workflow" withArrow>
+                      <ActionIcon
+                        variant="subtle"
+                        color="blue"
+                        size="md"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onTrigger(row.pipeline!)
+                        }}
+                      >
+                        <IconPlayerPlayFilled size={18} />
+                      </ActionIcon>
+                    </Tooltip>
                   </Box>
                 )
               }
