@@ -1,0 +1,1 @@
+ALTER TABLE providers ADD COLUMN refresh_interval INTEGER NOT NULL DEFAULT 30;
