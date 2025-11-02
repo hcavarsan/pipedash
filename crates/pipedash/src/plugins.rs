@@ -27,5 +27,6 @@ macro_rules! define_plugins {
 define_plugins![
     ("github", pipedash_plugin_github::GitHubPlugin),
     ("buildkite", pipedash_plugin_buildkite::BuildkitePlugin),
+    ("gitlab", pipedash_plugin_gitlab::GitLabPlugin),
     ("jenkins", pipedash_plugin_jenkins::JenkinsPlugin),
 ];

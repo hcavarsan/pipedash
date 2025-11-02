@@ -3228,6 +3228,7 @@ dependencies = [
  "pipedash-plugin-api",
  "pipedash-plugin-buildkite",
  "pipedash-plugin-github",
+ "pipedash-plugin-gitlab",
  "pipedash-plugin-jenkins",
  "reqwest",
  "serde",
@@ -3278,6 +3279,20 @@ dependencies = [
  "chrono",
  "futures",
  "octocrab",
+ "pipedash-plugin-api",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pipedash-plugin-gitlab"
+version = "0.0.2"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
  "pipedash-plugin-api",
  "reqwest",
  "serde",

@@ -5,6 +5,7 @@ members = [
   "crates/pipedash-plugin-api",
   "crates/pipedash-plugin-buildkite",
   "crates/pipedash-plugin-github",
+  "crates/pipedash-plugin-gitlab",
   "crates/pipedash-plugin-jenkins",
 ]
 
@@ -29,6 +30,7 @@ octocrab = "0.47.0"
 pipedash-plugin-api = { path = "crates/pipedash-plugin-api" }
 pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
 pipedash-plugin-github = { path = "crates/pipedash-plugin-github" }
+pipedash-plugin-gitlab = { path = "crates/pipedash-plugin-gitlab" }
 pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
 # HTTP Client
 reqwest = { version = "0.12", features = ["json"] }

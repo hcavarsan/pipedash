@@ -19,6 +19,7 @@ keyring.workspace = true
 pipedash-plugin-api.workspace = true
 pipedash-plugin-buildkite.workspace = true
 pipedash-plugin-github.workspace = true
+pipedash-plugin-gitlab.workspace = true
 pipedash-plugin-jenkins.workspace = true
 reqwest.workspace = true
 sqlx.workspace = true
