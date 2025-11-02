@@ -41,7 +41,8 @@ export const usePipelines = (providerId?: number) => {
   }, [loadPipelines])
 
   useEffect(() => {
-    let unlistenFn: (() => void) | null = null
+    let unlistenPipelines: (() => void) | null = null
+    let unlistenProviders: (() => void) | null = null
     let isMounted = true
 
     const setup = async () => {
@@ -50,27 +51,34 @@ export const usePipelines = (providerId?: number) => {
         setInitialLoad(false)
       }
 
-      // Set up event listener
-      const unlisten = await listen<Pipeline[]>('pipelines-updated', (event) => {
+      const unlistenPipelinesUpdated = await listen<Pipeline[]>('pipelines-updated', (event) => {
         if (isMounted) {
           setPipelines(event.payload)
         }
       })
 
+      const unlistenProvidersChanged = await listen('providers-changed', async () => {
+        if (isMounted) {
+          await loadPipelines(true, false)
+        }
+      })
 
-      unlistenFn = unlisten
+      unlistenPipelines = unlistenPipelinesUpdated
+      unlistenProviders = unlistenProvidersChanged
     }
 
     setup()
 
     return () => {
       isMounted = false
-      if (unlistenFn) {
-        unlistenFn()
+      if (unlistenPipelines) {
+        unlistenPipelines()
+      }
+      if (unlistenProviders) {
+        unlistenProviders()
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providerId])
+  }, [providerId, loadPipelines, initialLoad, pipelines.length])
 
   return {
     pipelines,

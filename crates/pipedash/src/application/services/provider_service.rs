@@ -30,7 +30,7 @@ pub struct ProviderService {
 
 impl ProviderService {
     pub fn new(repository: Arc<Repository>) -> Self {
-        let plugin_registry = Self::init_plugin_registry();
+        let plugin_registry = crate::plugins::init_registry();
 
         Self {
             repository,
@@ -40,15 +40,25 @@ impl ProviderService {
         }
     }
 
-    fn init_plugin_registry() -> PluginRegistry {
-        let mut registry = PluginRegistry::new();
+    pub fn list_available_plugins(&self) -> Vec<pipedash_plugin_api::PluginMetadata> {
+        let mut metadata_list = Vec::new();
+        for provider_type in self.plugin_registry.provider_types() {
+            if let Some(plugin) = self.plugin_registry.get(&provider_type) {
+                metadata_list.push(plugin.metadata().clone());
+            }
+        }
+        metadata_list
+    }
 
-        // Register all available plugins
-        pipedash_plugin_github::register(&mut registry);
-        pipedash_plugin_buildkite::register(&mut registry);
-        pipedash_plugin_jenkins::register(&mut registry);
-
-        registry
+    pub fn create_uninitialized_plugin(
+        &self, provider_type: &str,
+    ) -> DomainResult<Box<dyn PluginTrait>> {
+        crate::plugins::create_instance(provider_type).ok_or_else(|| {
+            crate::domain::DomainError::InvalidProviderType(format!(
+                "Unknown provider type: {}",
+                provider_type
+            ))
+        })
     }
 
     pub async fn add_provider(&self, config: ProviderConfig) -> DomainResult<i64> {
@@ -186,18 +196,7 @@ impl ProviderService {
             )));
         }
 
-        let mut plugin: Box<dyn PluginTrait> = if config.provider_type == "github" {
-            Box::new(pipedash_plugin_github::GitHubPlugin::new())
-        } else if config.provider_type == "buildkite" {
-            Box::new(pipedash_plugin_buildkite::BuildkitePlugin::new())
-        } else if config.provider_type == "jenkins" {
-            Box::new(pipedash_plugin_jenkins::JenkinsPlugin::new())
-        } else {
-            return Err(crate::domain::DomainError::InvalidProviderType(format!(
-                "Unknown provider type: {}",
-                config.provider_type
-            )));
-        };
+        let mut plugin = self.create_uninitialized_plugin(&config.provider_type)?;
 
         let provider_id = config.id.unwrap_or(0);
         let mut plugin_config = config.config.clone();

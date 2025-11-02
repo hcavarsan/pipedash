@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use pipedash_plugin_api::Plugin as PluginTrait;
 use serde::{
     Deserialize,
     Serialize,
@@ -67,6 +66,8 @@ pub async fn add_provider(
 
     let _ = state.pipeline_service.fetch_pipelines(Some(id)).await;
 
+    let _ = state.app.emit("providers-changed", ());
+
     Ok(id)
 }
 
@@ -74,22 +75,24 @@ pub async fn add_provider(
 pub async fn list_providers(
     state: State<'_, AppState>,
 ) -> Result<Vec<ProviderSummary>, ErrorResponse> {
-    state
+    let result = state
         .provider_service
         .list_providers()
         .await
-        .map_err(Into::into)
+        .map_err(ErrorResponse::from)?;
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn get_provider(
     state: State<'_, AppState>, id: i64,
 ) -> Result<ProviderConfig, ErrorResponse> {
-    state
+    let result = state
         .provider_service
         .get_provider_config(id)
         .await
-        .map_err(Into::into)
+        .map_err(ErrorResponse::from)?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -100,7 +103,11 @@ pub async fn update_provider(
         .provider_service
         .update_provider(id, config)
         .await
-        .map_err(Into::into)
+        .map_err(ErrorResponse::from)?;
+
+    let _ = state.app.emit("providers-changed", ());
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -117,7 +124,11 @@ pub async fn update_provider_refresh_interval(
         .provider_service
         .update_provider_refresh_interval(id, refresh_interval)
         .await
-        .map_err(Into::into)
+        .map_err(ErrorResponse::from)?;
+
+    let _ = state.app.emit("providers-changed", ());
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -126,7 +137,11 @@ pub async fn remove_provider(state: State<'_, AppState>, id: i64) -> Result<(), 
         .provider_service
         .remove_provider(id)
         .await
-        .map_err(Into::into)
+        .map_err(ErrorResponse::from)?;
+
+    let _ = state.app.emit("providers-changed", ());
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -288,40 +303,20 @@ pub async fn cancel_pipeline_run(
 
 #[tauri::command]
 pub async fn get_available_plugins(
+    state: State<'_, AppState>,
 ) -> Result<Vec<pipedash_plugin_api::PluginMetadata>, ErrorResponse> {
-    let mut registry = pipedash_plugin_api::PluginRegistry::new();
-
-    pipedash_plugin_github::register(&mut registry);
-    pipedash_plugin_buildkite::register(&mut registry);
-    pipedash_plugin_jenkins::register(&mut registry);
-
-    // Collect metadata from all registered plugins
-    let mut metadata_list = Vec::new();
-    for provider_type in registry.provider_types() {
-        if let Some(plugin) = registry.get(&provider_type) {
-            metadata_list.push(plugin.metadata().clone());
-        }
-    }
-
-    Ok(metadata_list)
+    Ok(state.provider_service.list_available_plugins())
 }
 
 #[tauri::command]
 pub async fn preview_provider_pipelines(
     provider_type: String, token: String, config: HashMap<String, String>,
+    state: State<'_, AppState>,
 ) -> Result<Vec<AvailablePipeline>, ErrorResponse> {
-    // Create a new plugin instance based on provider type
-    let mut plugin: Box<dyn PluginTrait> = if provider_type == "github" {
-        Box::new(pipedash_plugin_github::GitHubPlugin::new())
-    } else if provider_type == "buildkite" {
-        Box::new(pipedash_plugin_buildkite::BuildkitePlugin::new())
-    } else if provider_type == "jenkins" {
-        Box::new(pipedash_plugin_jenkins::JenkinsPlugin::new())
-    } else {
-        return Err(ErrorResponse {
-            error: format!("Unknown provider type: {provider_type}"),
-        });
-    };
+    let mut plugin = state
+        .provider_service
+        .create_uninitialized_plugin(&provider_type)
+        .map_err(ErrorResponse::from)?;
 
     let mut plugin_config = config.clone();
     plugin_config.insert("token".to_string(), token);
@@ -381,13 +376,15 @@ pub async fn get_workflow_parameters(
         ),
     })?;
 
-    state
+    let result = state
         .provider_service
         .get_workflow_parameters(provider_id, &workflow_id)
         .await
         .map_err(|e| ErrorResponse {
             error: format!("Failed to fetch workflow parameters: {e}"),
-        })
+        })?;
+
+    Ok(result)
 }
 
 #[tauri::command]

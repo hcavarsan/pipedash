@@ -247,8 +247,16 @@ impl Repository {
             }
         };
 
-        let config: HashMap<String, String> = serde_json::from_str(&config_json)
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let config: HashMap<String, String> = if config_json.trim().is_empty() {
+            HashMap::new()
+        } else {
+            serde_json::from_str(&config_json).map_err(|e| {
+                DomainError::DatabaseError(format!(
+                    "Failed to parse config JSON '{}': {}",
+                    config_json, e
+                ))
+            })?
+        };
 
         Ok(ProviderConfig {
             id: Some(id),
@@ -292,12 +300,32 @@ impl Repository {
             .try_get(9)
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        let status: PipelineStatus = if status_str.starts_with('"') {
-            serde_json::from_str(&status_str)
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?
+        let status: PipelineStatus = if status_str.trim().is_empty() {
+            eprintln!("[DB] Empty status string, defaulting to Pending");
+            PipelineStatus::Pending
+        } else if status_str.starts_with('"') {
+            serde_json::from_str(&status_str).map_err(|e| {
+                eprintln!(
+                    "[DB] Failed to parse status_str (quoted): '{}', error: {}",
+                    status_str, e
+                );
+                DomainError::DatabaseError(format!(
+                    "Failed to parse status '{}': {}",
+                    status_str, e
+                ))
+            })?
         } else {
             let quoted = format!("\"{}\"", status_str);
-            serde_json::from_str(&quoted).map_err(|e| DomainError::DatabaseError(e.to_string()))?
+            serde_json::from_str(&quoted).map_err(|e| {
+                eprintln!(
+                    "[DB] Failed to parse status_str (unquoted): '{}', error: {}",
+                    status_str, e
+                );
+                DomainError::DatabaseError(format!(
+                    "Failed to parse status '{}': {}",
+                    status_str, e
+                ))
+            })?
         };
         let last_run = last_run_str
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
@@ -334,9 +362,17 @@ impl Repository {
 
         let entry = self.keyring_entry()?;
         let tokens = match entry.get_password() {
-            Ok(json) => serde_json::from_str(&json).map_err(|e| {
-                DomainError::DatabaseError(format!("Failed to parse tokens JSON: {e}"))
-            })?,
+            Ok(json) => {
+                if json.trim().is_empty() {
+                    eprintln!("[DB] Empty tokens JSON in keyring, using empty HashMap");
+                    HashMap::new()
+                } else {
+                    serde_json::from_str(&json).map_err(|e| {
+                        eprintln!("[DB] Failed to parse tokens JSON: '{}', error: {}", json, e);
+                        DomainError::DatabaseError(format!("Failed to parse tokens JSON: {e}"))
+                    })?
+                }
+            }
             Err(keyring::Error::NoEntry) => HashMap::new(),
             Err(e) => {
                 return Err(DomainError::DatabaseError(format!(
@@ -435,6 +471,11 @@ impl Repository {
         let parameters_json = serde_json::to_string(parameters)
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
+        eprintln!(
+            "[DB] Caching workflow parameters for '{}': '{}'",
+            workflow_id, parameters_json
+        );
+
         sqlx::query(
             "INSERT OR REPLACE INTO workflow_parameters_cache (workflow_id, parameters_json, cached_at)
              VALUES (?, ?, datetime('now'))"
@@ -461,10 +502,23 @@ impl Repository {
 
         match result {
             Some(json) => {
-                let parameters: Vec<pipedash_plugin_api::WorkflowParameter> =
-                    serde_json::from_str(&json)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                Ok(Some(parameters))
+                if json.trim().is_empty() {
+                    eprintln!("[DB] Empty workflow parameters JSON, returning empty vec");
+                    Ok(Some(vec![]))
+                } else {
+                    let parameters: Vec<pipedash_plugin_api::WorkflowParameter> =
+                        serde_json::from_str(&json).map_err(|e| {
+                            eprintln!(
+                                "[DB] Failed to parse workflow parameters JSON: '{}', error: {}",
+                                json, e
+                            );
+                            DomainError::DatabaseError(format!(
+                                "Failed to parse workflow parameters: {}",
+                                e
+                            ))
+                        })?;
+                    Ok(Some(parameters))
+                }
             }
             None => Ok(None),
         }
@@ -732,8 +786,22 @@ impl Repository {
                     let last_updated_str: String = row.try_get(8).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                     let provider_type: String = row.try_get(9).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-                    let status: PipelineStatus = serde_json::from_str(&status_str)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let status: PipelineStatus = if status_str.trim().is_empty() {
+                        eprintln!("[DB] Empty status string in update_pipelines_cache, defaulting to Pending");
+                        PipelineStatus::Pending
+                    } else if status_str.starts_with('"') {
+                        serde_json::from_str(&status_str)
+                            .map_err(|e| {
+                                eprintln!("[DB] Failed to parse status_str in update_pipelines_cache (quoted): '{}', error: {}", status_str, e);
+                                DomainError::DatabaseError(format!("Failed to parse status '{}': {}", status_str, e))
+                            })?
+                    } else {
+                        let quoted = format!("\"{}\"", status_str);
+                        serde_json::from_str(&quoted).map_err(|e| {
+                            eprintln!("[DB] Failed to parse status_str in update_pipelines_cache (unquoted): '{}', error: {}", status_str, e);
+                            DomainError::DatabaseError(format!("Failed to parse status '{}': {}", status_str, e))
+                        })?
+                    };
                     let last_run = last_run_str
                         .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
                         .map(|dt| dt.with_timezone(&Utc));

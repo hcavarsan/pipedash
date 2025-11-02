@@ -1,6 +1,7 @@
 mod application;
 mod domain;
 mod infrastructure;
+mod plugins;
 
 use std::sync::Arc;
 

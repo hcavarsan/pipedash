@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { listen } from '@tauri-apps/api/event'
+
 import { tauriService } from '../services/tauri'
 import type { ProviderConfig, ProviderSummary } from '../types'
 
@@ -89,8 +91,28 @@ export const useProviders = () => {
 
   useEffect(() => {
     loadProviders()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadProviders])
+
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null
+
+    const setup = async () => {
+      const unlisten = await listen('providers-changed', () => {
+        loadProviders()
+      })
+
+
+      unlistenFn = unlisten
+    }
+
+    setup()
+
+    return () => {
+      if (unlistenFn) {
+        unlistenFn()
+      }
+    }
+  }, [loadProviders])
 
   return {
     providers,
