@@ -180,7 +180,7 @@ mise run release
 ## Roadmap
 
 **Additional Providers**
-- [ ] GitLab CI/CD
+- [x] GitLab CI
 - [ ] CircleCI
 - [ ] Azure Pipelines
 - [ ] Travis CI
@@ -188,7 +188,7 @@ mise run release
 - [ ] ArgoCD
 
 **Features**
-- [ ] Build duration metrics
+- [x] Build duration metrics
 - [ ] Log viewing within the app (currently opens external links)
 - [ ] Auto-updater for releases
 
