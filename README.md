@@ -133,7 +133,7 @@ mise run dev
 mise run dev
 
 # runs only ui in dev mode, just here for convenience
-mise run ui
+mise run dev:front
 
 # runs tauri in ios emulator
 mise run dev:ios

@@ -4,10 +4,13 @@
   "version": "0.0.2",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --debug hmr",
     "build": "tsc && vite build",
+    "build:tauri": "tauri build -- --features custom-protocol",
     "preview": "vite preview",
     "tauri": "tauri",
+	"eslint": "eslint .",
+	"eslint:fix": "eslint . --fix",
     "taze": "taze major -I",
     "taze:minor": "taze minor -w",
     "knip": "knip"

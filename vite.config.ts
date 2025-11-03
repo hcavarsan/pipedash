@@ -10,19 +10,16 @@ import react from '@vitejs/plugin-react-swc'
 const asPlugin = (p: any) => p as Plugin
 
 const terserConfig = {
+  mangle: true,
+  output: { comments: false },
   compress: {
     drop_console: true,
     drop_debugger: true,
     pure_funcs: ['console.info', 'console.debug', 'console.warn'],
     passes: 2
-  },
-  mangle: {
-    safari10: true
-  },
-  output: {
-    comments: false
   }
 }
+
 
 const createManualChunks = (id: string) => {
   if (!id.includes('node_modules')) {
@@ -52,10 +49,11 @@ const createManualChunks = (id: string) => {
   return 'vendor'
 }
 
+const host = process.env.TAURI_DEV_HOST
+
 export default defineConfig({
   resolve: {
-    alias: { '@': path.resolve(__dirname, 'src') },
-    dedupe: ['react', 'react-dom']
+    alias: { '@': path.resolve(__dirname, 'src') }
   },
 
   plugins: [
@@ -83,36 +81,42 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
-    open: false,
+    open: process.env.TAURI_ARCH === undefined,
+    // if the host Tauri is expecting is set, use it
+    host: host || '127.0.0.1',
+    hmr: host
+      ? {
+          protocol: 'ws',
+          host,
+          port: 1421,
+        }
+      : undefined,
     watch: {
-      ignored: ['**/node_modules/**', '**/.git/**', '**/target/**', '**/crates/**']
-    }
+      // tell vite to ignore watching Rust source and build directories
+      ignored: ['**/src-tauri/**', '**/crates/**', '**/target/**'],
+    },
   },
 
-  envPrefix: ['VITE_', 'TAURI_'],
+  envPrefix: ['VITE_', 'TAURI_ENV_*'],
 
   build: {
     outDir: 'dist',
-    emptyOutDir: true,
-    emptyOutDirExceptions: ['.gitkeep'],
+	emptyOutDir: false,
     chunkSizeWarningLimit: 500,
-    target: process.env.TAURI_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
-    minify: !process.env.TAURI_DEBUG ? 'terser' : false,
-    sourcemap: !!process.env.TAURI_DEBUG,
-    commonjsOptions: {
-      include: [/node_modules/],
-      transformMixedEsModules: true
-    },
+    // Tauri uses Chromium on Windows and WebKit on macOS and Linux
+    target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
+    minify: !process.env.TAURI_ENV_DEBUG ? 'terser' : false,
+    sourcemap: !!process.env.TAURI_ENV_DEBUG,
     rollupOptions: {
       output: {
+        manualChunks: createManualChunks,
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: 'assets/[name]-[hash].[ext]',
-        manualChunks: createManualChunks
+        assetFileNames: 'assets/[name]-[hash].[ext]'
       },
       treeshake: {
-        moduleSideEffects: true,
-        propertyReadSideEffects: true,
+        moduleSideEffects: 'no-external',
+        propertyReadSideEffects: false,
         tryCatchDeoptimization: false
       }
     }

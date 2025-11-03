@@ -19,9 +19,9 @@ run = "bun run tauri android init"
 description = "Start full Tauri development mode"
 run = "bun run tauri dev"
 
-[tasks.ui]
+[tasks."dev:front"]
 description = "Start frontend development server only"
-run = "bunx vite"
+run = "bun run dev"
 
 [tasks."dev:ios"]
 description = "Start iOS development mode"
@@ -33,7 +33,7 @@ run = "bun run tauri android dev"
 
 [tasks.build]
 description = "Build full Tauri application for production"
-run = "bun run tauri build"
+run = "bun run tauri build -- --features custom-protocol"
 
 [tasks."build:ios"]
 description = "Build iOS application"
@@ -45,7 +45,7 @@ run = "bun run tauri android build"
 
 [tasks."build:front"]
 description = "Build frontend only"
-run = "bunx tsc && bunx vite build"
+run = "bun run build"
 
 [tasks."build:back"]
 description = "Build backend only"
@@ -53,7 +53,7 @@ run = "cargo build --release --workspace"
 
 [tasks."build:analyze"]
 description = "Build frontend with bundle analysis"
-run = "ANALYZE=true bunx tsc && bunx vite build"
+run = "ANALYZE=true bun run build"
 
 [tasks.check]
 description = "Run all type and syntax checking"
@@ -61,7 +61,7 @@ depends = ["check:front", "check:back"]
 
 [tasks."check:front"]
 description = "Run frontend TypeScript type checking"
-run = "bunx tsc --noEmit"
+run = "bun run tsc --noEmit && bun run eslint"
 
 [tasks."check:back"]
 description = "Run backend cargo check"
@@ -73,7 +73,7 @@ depends = ["lint:front", "lint:back"]
 
 [tasks."lint:front"]
 description = "Lint frontend code with ESLint"
-run = "bunx eslint . --fix"
+run = "bun run eslint:fix"
 
 [tasks."lint:back"]
 description = "Lint backend code with Clippy"
@@ -85,7 +85,7 @@ depends = ["format:front", "format:back"]
 
 [tasks."format:front"]
 description = "Format frontend code with ESLint"
-run = "bunx eslint . --fix"
+run = "bun run eslint:fix"
 
 [tasks."format:back"]
 description = "Format backend code with rustfmt"
@@ -97,7 +97,7 @@ depends = ["format:front:check", "format:back:check"]
 
 [tasks."format:front:check"]
 description = "Check frontend formatting"
-run = "bunx eslint ."
+run = "bun run eslint"
 
 [tasks."format:back:check"]
 description = "Check backend formatting"
@@ -105,7 +105,7 @@ run = "cargo +nightly fmt --all -- --check"
 
 [tasks.knip]
 description = "Detect unused exports and dependencies"
-run = "bunx knip"
+run = "bun run knip"
 
 [tasks."bump:patch"]
 description = "Bump patch version and commit"
@@ -156,6 +156,7 @@ depends = ["format:back:check", "lint:back", "check:back"]
 description = "Run pre-commit checks"
 run = [
   "mise run format",
-  "mise run check:back",
-  "git add -u"
+  "mise run lint",
+  "mise run check",
+  "git add ."
 ]

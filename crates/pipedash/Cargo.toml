@@ -26,13 +26,16 @@ sqlx.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tauri.workspace = true
+tauri = { workspace = true, default-features = true }
 tauri-plugin-dialog.workspace = true
 tauri-plugin-fs.workspace = true
 tauri-plugin-opener.workspace = true
 tauri-plugin-os.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
 tauri-build.workspace = true
