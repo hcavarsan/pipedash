@@ -190,10 +190,10 @@ impl PipelineService {
             let hash = crate::infrastructure::deduplication::hash_pipeline_run(
                 run.run_number,
                 status_str,
-                &run.branch,
+                run.branch.as_deref(),
                 &run.started_at.to_rfc3339(),
                 run.duration_seconds,
-                &run.commit_sha,
+                run.commit_sha.as_deref(),
             );
             api_map.insert(run.run_number, (run.clone(), hash));
         }

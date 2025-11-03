@@ -185,17 +185,17 @@ impl MetricsService {
             let run_hash = hash_pipeline_run(
                 run.run_number,
                 status_str,
-                &run.branch,
+                run.branch.as_deref(),
                 &run.started_at.to_rfc3339(),
                 run.duration_seconds,
-                &run.commit_sha,
+                run.commit_sha.as_deref(),
             );
 
             let metadata = MetricMetadata {
                 status: Some(status_str.to_string()),
-                branch: Some(run.branch.clone()),
+                branch: run.branch.clone(),
                 repository: None,
-                actor: Some(run.actor.clone()),
+                actor: run.actor.clone(),
             };
 
             if let Some(duration_seconds) = run.duration_seconds {

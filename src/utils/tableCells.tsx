@@ -80,13 +80,13 @@ export const TableCells = {
   ),
 
   // Truncated dimmed text
-  truncatedDimmed: (value: string) => (
+  truncatedDimmed: (value: string | null | undefined) => (
     <TruncatedText
       size={TABLE_CELL_STYLES.text.size}
       c={TABLE_CELL_STYLES.text.color.dimmed}
       fw={TABLE_CELL_STYLES.text.weight.medium}
     >
-      {value}
+      {value || '—'}
     </TruncatedText>
   ),
 
@@ -107,13 +107,19 @@ export const TableCells = {
     </Badge>
   ),
 
-  commit: (sha: string) => (
-    <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
-      <Code fz={TABLE_CELL_STYLES.code.size} fw={TABLE_CELL_STYLES.code.weight}>
-        {sha.substring(0, 7)}
-      </Code>
-      <CopyButton value={sha} size="sm" />
-    </Group>
+  commit: (sha: string | null | undefined) => (
+    sha ? (
+      <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
+        <Code fz={TABLE_CELL_STYLES.code.size} fw={TABLE_CELL_STYLES.code.weight}>
+          {sha.substring(0, 7)}
+        </Code>
+        <CopyButton value={sha} size="sm" />
+      </Group>
+    ) : (
+      <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>
+        —
+      </Text>
+    )
   ),
 
   timestamp: (date: string | null) => (

@@ -7,6 +7,7 @@ members = [
   "crates/pipedash-plugin-github",
   "crates/pipedash-plugin-gitlab",
   "crates/pipedash-plugin-jenkins",
+  "crates/pipedash-plugin-tekton",
 ]
 
 [workspace.package]
@@ -32,6 +33,7 @@ pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
 pipedash-plugin-github = { path = "crates/pipedash-plugin-github" }
 pipedash-plugin-gitlab = { path = "crates/pipedash-plugin-gitlab" }
 pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
+pipedash-plugin-tekton = { path = "crates/pipedash-plugin-tekton" }
 # HTTP Client
 reqwest = { version = "0.12", features = ["json"] }
 # Database (only for main app)

@@ -52,12 +52,22 @@ return { ...config, id }
 
   previewProviderPipelines: async (
     providerType: string,
-    token: string,
     config: Record<string, string>
   ): Promise<AvailablePipeline[]> => {
     return invoke<AvailablePipeline[]>('preview_provider_pipelines', {
       providerType,
-      token,
+      config,
+    })
+  },
+
+  getProviderFieldOptions: async (
+    providerType: string,
+    fieldKey: string,
+    config: Record<string, string>
+  ): Promise<string[]> => {
+    return invoke<string[]>('get_provider_field_options', {
+      providerType,
+      fieldKey,
       config,
     })
   },

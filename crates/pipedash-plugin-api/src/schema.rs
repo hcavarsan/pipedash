@@ -5,7 +5,6 @@ use serde::{
 
 /// Configuration field type for schema-based UI generation
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum ConfigFieldType {
     /// Single-line text input
     Text,

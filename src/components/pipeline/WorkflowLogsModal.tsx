@@ -326,22 +326,26 @@ return
                     <StatusBadge status={runDetails.status} size={isMobile ? 'sm' : 'md'} withIcon={true} />
                   </Box>
 
-                  <Box>
-                    <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Commit SHA</Text>
-                    <Group gap="xs">
-                      <Code style={{ fontSize: isMobile ? '0.75rem' : undefined }}>
-                        {runDetails.commit_sha.substring(0, 7)}
-                      </Code>
-                      <CopyButton value={runDetails.commit_sha} size="xs" />
-                    </Group>
-                  </Box>
+                  {runDetails.commit_sha && (
+                    <Box>
+                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Commit SHA</Text>
+                      <Group gap="xs">
+                        <Code style={{ fontSize: isMobile ? '0.75rem' : undefined }}>
+                          {runDetails.commit_sha.substring(0, 7)}
+                        </Code>
+                        <CopyButton value={runDetails.commit_sha} size="xs" />
+                      </Group>
+                    </Box>
+                  )}
 
-                  <Box>
-                    <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Branch</Text>
-                    <Badge variant="light" color="blue" size={isMobile ? 'sm' : 'md'}>
-                      {runDetails.branch || <Text span c="dimmed">UNKNOWN</Text>}
-                    </Badge>
-                  </Box>
+                  {runDetails.branch && (
+                    <Box>
+                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Branch</Text>
+                      <Badge variant="light" color="blue" size={isMobile ? 'sm' : 'md'}>
+                        {runDetails.branch}
+                      </Badge>
+                    </Box>
+                  )}
 
                   <Box>
                     <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Duration</Text>
@@ -372,13 +376,15 @@ return
                     </Box>
                   )}
 
-                  <Box>
-                    <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Actor</Text>
-                    <Group gap="xs">
-                      <Avatar size="sm" radius="xl" />
-                      <Text fw={500}>{runDetails.actor || <Text span c="dimmed">UNKNOWN</Text>}</Text>
-                    </Group>
-                  </Box>
+                  {runDetails.actor && (
+                    <Box>
+                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Actor</Text>
+                      <Group gap="xs">
+                        <Avatar size="sm" radius="xl" />
+                        <Text fw={500}>{runDetails.actor}</Text>
+                      </Group>
+                    </Box>
+                  )}
                 </Stack>
               </SimpleGrid>
 

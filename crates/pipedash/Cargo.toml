@@ -21,6 +21,7 @@ pipedash-plugin-buildkite.workspace = true
 pipedash-plugin-github.workspace = true
 pipedash-plugin-gitlab.workspace = true
 pipedash-plugin-jenkins.workspace = true
+pipedash-plugin-tekton.workspace = true
 reqwest.workspace = true
 sqlx.workspace = true
 serde.workspace = true

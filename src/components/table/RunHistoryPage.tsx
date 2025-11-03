@@ -63,11 +63,11 @@ export const RunHistoryPage = ({
 
   // Extract unique values for filters
   const branches = useMemo(() => {
-    return Array.from(new Set(runs.map((r) => r.branch)))
+    return Array.from(new Set(runs.map((r) => r.branch).filter((b): b is string => !!b)))
   }, [runs])
 
   const actors = useMemo(() => {
-    return Array.from(new Set(runs.map((r) => r.actor)))
+    return Array.from(new Set(runs.map((r) => r.actor).filter((a): a is string => !!a)))
   }, [runs])
 
   const loadRuns = async (showLoading = true, targetPage = page, clearCache = false) => {
@@ -235,10 +235,10 @@ return runs
     if (search) {
       result = result.filter(
         (run) =>
-          run.branch.toLowerCase().includes(search.toLowerCase()) ||
-          run.commit_sha.toLowerCase().includes(search.toLowerCase()) ||
+          (run.branch && run.branch.toLowerCase().includes(search.toLowerCase())) ||
+          (run.commit_sha && run.commit_sha.toLowerCase().includes(search.toLowerCase())) ||
           (run.commit_message && run.commit_message.toLowerCase().includes(search.toLowerCase())) ||
-          run.actor.toLowerCase().includes(search.toLowerCase())
+          (run.actor && run.actor.toLowerCase().includes(search.toLowerCase()))
       )
     }
 
@@ -374,14 +374,14 @@ bVal = ''
                       <IconGitBranch size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
                       <Text size="xs" c="dimmed">Branch</Text>
                     </Group>
-                    <Text size="sm" truncate>{run.branch}</Text>
+                    <Text size="sm" truncate>{run.branch || '—'}</Text>
                   </Box>
                   <Box style={{ flex: 1, minWidth: 0 }}>
                     <Group gap={4} wrap="nowrap">
                       <IconUser size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
                       <Text size="xs" c="dimmed">Actor</Text>
                     </Group>
-                    <Text size="sm" truncate>{run.actor}</Text>
+                    <Text size="sm" truncate>{run.actor || '—'}</Text>
                   </Box>
                 </Group>
 

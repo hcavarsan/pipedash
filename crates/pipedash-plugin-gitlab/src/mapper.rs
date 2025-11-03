@@ -64,14 +64,10 @@ pub(crate) fn map_pipeline_run(
         concluded_at: pipeline.finished_at,
         duration_seconds: duration,
         logs_url: pipeline.web_url.clone(),
-        commit_sha: pipeline.sha.clone(),
+        commit_sha: Some(pipeline.sha.clone()),
         commit_message: None,
-        branch: pipeline.ref_name.clone(),
-        actor: pipeline
-            .user
-            .as_ref()
-            .map(|u| u.username.clone())
-            .unwrap_or_else(|| "unknown".to_string()),
+        branch: Some(pipeline.ref_name.clone()),
+        actor: pipeline.user.as_ref().map(|u| u.username.clone()),
         inputs: None,
     }
 }

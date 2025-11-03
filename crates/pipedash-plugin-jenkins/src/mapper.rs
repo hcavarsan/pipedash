@@ -55,9 +55,9 @@ pub(crate) fn build_to_pipeline_run(
         None
     };
 
-    let mut commit_sha = String::from("unknown");
-    let mut branch = String::from("unknown");
-    let mut actor = String::from("unknown");
+    let mut commit_sha: Option<String> = None;
+    let mut branch: Option<String> = None;
+    let mut actor: Option<String> = None;
     let mut inputs: Option<serde_json::Value> = None;
 
     eprintln!(
@@ -77,13 +77,13 @@ pub(crate) fn build_to_pipeline_run(
 
         if let Some(ref revision) = action.last_built_revision {
             if let Some(first_branch) = revision.branch.first() {
-                commit_sha = first_branch.sha1.clone();
-                branch = first_branch.name.clone();
+                commit_sha = Some(first_branch.sha1.clone());
+                branch = Some(first_branch.name.clone());
             }
         }
         if let Some(first_cause) = action.causes.first() {
             if let Some(ref user) = first_cause.user_name {
-                actor = user.clone();
+                actor = Some(user.clone());
             }
         }
         // Extract parameters from ParametersAction

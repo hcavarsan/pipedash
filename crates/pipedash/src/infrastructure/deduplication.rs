@@ -76,8 +76,8 @@ pub fn hash_request(provider_id: i64, endpoint: &str) -> RequestId {
 }
 
 pub fn hash_pipeline_run(
-    run_number: i64, status: &str, branch: &str, started_at: &str, duration_seconds: Option<i64>,
-    commit_sha: &str,
+    run_number: i64, status: &str, branch: Option<&str>, started_at: &str,
+    duration_seconds: Option<i64>, commit_sha: Option<&str>,
 ) -> String {
     use sha2::{
         Digest,
@@ -87,12 +87,12 @@ pub fn hash_pipeline_run(
     let mut hasher = Sha256::new();
     hasher.update(run_number.to_string().as_bytes());
     hasher.update(status.as_bytes());
-    hasher.update(branch.as_bytes());
+    hasher.update(branch.unwrap_or("").as_bytes());
     hasher.update(started_at.as_bytes());
     if let Some(duration) = duration_seconds {
         hasher.update(duration.to_string().as_bytes());
     }
-    hasher.update(commit_sha.as_bytes());
+    hasher.update(commit_sha.unwrap_or("").as_bytes());
 
     let result = hasher.finalize();
     format!("{:x}", result)

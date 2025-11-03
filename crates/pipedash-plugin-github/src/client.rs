@@ -314,10 +314,10 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
         concluded_at: Some(run.updated_at.with_timezone(&Utc)),
         duration_seconds,
         logs_url: run.html_url.to_string(),
-        commit_sha: run.head_sha.clone(),
+        commit_sha: Some(run.head_sha.clone()),
         commit_message: Some(run.head_commit.message.clone()),
-        branch: run.head_branch.clone(),
-        actor: run.head_commit.author.name.clone(),
+        branch: Some(run.head_branch.clone()),
+        actor: Some(run.head_commit.author.name.clone()),
         inputs,
     }
 }

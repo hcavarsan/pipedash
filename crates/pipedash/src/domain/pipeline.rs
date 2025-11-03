@@ -75,10 +75,10 @@ pub struct PipelineRun {
     pub concluded_at: Option<DateTime<Utc>>,
     pub duration_seconds: Option<i64>,
     pub logs_url: String,
-    pub commit_sha: String,
+    pub commit_sha: Option<String>,
     pub commit_message: Option<String>,
-    pub branch: String,
-    pub actor: String,
+    pub branch: Option<String>,
+    pub actor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inputs: Option<serde_json::Value>,
 }

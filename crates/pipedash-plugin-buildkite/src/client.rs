@@ -407,17 +407,13 @@ pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> P
         duration_seconds,
         logs_url: build.web_url.clone(),
         commit_sha: if build.commit.is_empty() {
-            "unknown".to_string()
+            None
         } else {
-            build.commit.clone()
+            Some(build.commit.clone())
         },
         commit_message: build.message.clone(),
-        branch: branch_value,
-        actor: build
-            .author
-            .as_ref()
-            .map(|a| a.name.clone())
-            .unwrap_or_else(|| "unknown".to_string()),
+        branch: Some(branch_value),
+        actor: build.author.as_ref().map(|a| a.name.clone()),
         inputs,
     }
 }

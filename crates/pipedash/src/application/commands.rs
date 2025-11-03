@@ -309,8 +309,28 @@ pub async fn get_available_plugins(
 }
 
 #[tauri::command]
+pub async fn get_provider_field_options(
+    provider_type: String, field_key: String, config: HashMap<String, String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, ErrorResponse> {
+    let plugin = state
+        .provider_service
+        .create_uninitialized_plugin(&provider_type)
+        .map_err(ErrorResponse::from)?;
+
+    let options = plugin
+        .get_field_options(&field_key, &config)
+        .await
+        .map_err(|e| ErrorResponse {
+            error: format!("Failed to fetch field options: {e}"),
+        })?;
+
+    Ok(options)
+}
+
+#[tauri::command]
 pub async fn preview_provider_pipelines(
-    provider_type: String, token: String, config: HashMap<String, String>,
+    provider_type: String, config: HashMap<String, String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<AvailablePipeline>, ErrorResponse> {
     let mut plugin = state
@@ -318,11 +338,8 @@ pub async fn preview_provider_pipelines(
         .create_uninitialized_plugin(&provider_type)
         .map_err(ErrorResponse::from)?;
 
-    let mut plugin_config = config.clone();
-    plugin_config.insert("token".to_string(), token);
-
     plugin
-        .initialize(0, plugin_config)
+        .initialize(0, config)
         .map_err(|e| ErrorResponse {
             error: format!("Failed to initialize plugin: {e}"),
         })?;

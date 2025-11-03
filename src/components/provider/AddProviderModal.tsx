@@ -22,7 +22,7 @@ import {
   TextInput,
   Tooltip,
 } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconKey, IconList, IconSearch } from '@tabler/icons-react'
+import { IconAlertCircle, IconCheck, IconInfoCircle, IconKey, IconList, IconSearch } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import { usePlugins } from '../../contexts/PluginContext'
@@ -54,7 +54,6 @@ export const AddProviderModal = ({
   const [step, setStep] = useState<Step>('credentials')
   const [selectedPlugin, setSelectedPlugin] = useState<PluginMetadata | null>(null)
   const [providerName, setProviderName] = useState('')
-  const [token, setToken] = useState('')
   const [configValues, setConfigValues] = useState<Record<string, string>>({})
   const [availableOrganizations, setAvailableOrganizations] = useState<string[]>([])
   const [selectedOrganization, setSelectedOrganization] = useState<string>('')
@@ -67,13 +66,13 @@ export const AddProviderModal = ({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [dynamicOptions, setDynamicOptions] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     if (!opened) {
       setStep('credentials')
       setSelectedPlugin(null)
       setProviderName('')
-      setToken('')
       setConfigValues({})
       setAvailableOrganizations([])
       setSelectedOrganization('')
@@ -83,6 +82,7 @@ export const AddProviderModal = ({
       setRepositorySearch('')
       setError(null)
       setFieldErrors({})
+      setDynamicOptions({})
     } else if (opened && editMode && existingProvider) {
       const plugin = plugins.find((p) => p.provider_type === existingProvider.provider_type)
 
@@ -90,8 +90,11 @@ export const AddProviderModal = ({
       if (plugin) {
         setSelectedPlugin(plugin)
         setProviderName(existingProvider.name)
-        setToken(existingProvider.token)
-        setConfigValues(existingProvider.config)
+        const initialConfig = { ...existingProvider.config }
+        if (existingProvider.token) {
+          initialConfig.token = existingProvider.token
+        }
+        setConfigValues(initialConfig)
       }
     }
   }, [opened, editMode, existingProvider, plugins])
@@ -101,7 +104,8 @@ export const AddProviderModal = ({
       setSelectedPlugin(null)
       setConfigValues({})
       setProviderName('')
-      
+      setDynamicOptions({})
+
 return
     }
 
@@ -119,7 +123,10 @@ return
 
       plugin.config_schema.fields.forEach((field) => {
         if (field.default_value) {
-          initialConfig[field.key] = field.default_value
+          const defaultVal = typeof field.default_value === 'string'
+            ? field.default_value
+            : String(field.default_value)
+          initialConfig[field.key] = defaultVal
         }
       })
       setConfigValues(initialConfig)
@@ -133,15 +140,62 @@ return
     }))
   }
 
+  useEffect(() => {
+    if (!selectedPlugin) return
+
+    const loadDynamicOptions = async () => {
+      const newDynamicOptions: Record<string, string[]> = {}
+
+      for (const field of selectedPlugin.config_schema.fields) {
+        if (field.field_type === 'Select' && (!field.options || field.options.length === 0)) {
+          try {
+            const options = await tauriService.getProviderFieldOptions(
+              selectedPlugin.provider_type,
+              field.key,
+              configValues
+            )
+            if (options.length > 0) {
+              newDynamicOptions[field.key] = options
+            }
+          } catch (err) {
+            console.error(`Failed to load options for ${field.key}:`, err)
+          }
+        }
+      }
+
+      if (Object.keys(newDynamicOptions).length > 0) {
+        setDynamicOptions(newDynamicOptions)
+      }
+    }
+
+    loadDynamicOptions()
+  }, [selectedPlugin, JSON.stringify(configValues)])
+
+  const renderFieldLabel = (label: string, description: string | null, required: boolean) => {
+    return (
+      <Group gap={4} wrap="nowrap">
+        <Text size="sm" fw={500}>
+          {label}
+          {required && <Text component="span" c="red"> *</Text>}
+        </Text>
+        {description && (
+          <Tooltip label={description} multiline w={300} withArrow>
+            <Box style={{ display: 'flex', alignItems: 'center', cursor: 'help' }}>
+              <IconInfoCircle size={14} style={{ opacity: 0.6 }} />
+            </Box>
+          </Tooltip>
+        )}
+      </Group>
+    )
+  }
+
   const renderConfigField = (field: ConfigField) => {
     const value = configValues[field.key] || ''
     const commonProps = {
-      key: field.key,
-      label: field.label,
-      description: field.description || undefined,
-      required: field.required,
+      label: renderFieldLabel(field.label, field.description, field.required),
       value,
       error: fieldErrors[field.key],
+      withAsterisk: false,
       onChange: (e: any) => {
         const newValue = e?.currentTarget?.value ?? e
 
@@ -159,12 +213,13 @@ return
 
     switch (field.field_type) {
       case 'TextArea':
-        return <Textarea {...commonProps} rows={4} />
+        return <Textarea key={field.key} {...commonProps} rows={4} />
       case 'Password':
-        return <PasswordInput {...commonProps} />
+        return <PasswordInput key={field.key} {...commonProps} />
       case 'Number':
         return (
           <NumberInput
+            key={field.key}
             {...commonProps}
             onChange={(val) => handleConfigChange(field.key, String(val || ''))}
           />
@@ -172,16 +227,21 @@ return
       case 'Select':
         return (
           <Select
+            key={field.key}
             {...commonProps}
-            data={field.options || []}
+            data={dynamicOptions[field.key] || field.options || []}
             onChange={(val) => handleConfigChange(field.key, val || '')}
+            searchable
+            clearable
           />
         )
       case 'Checkbox':
         return (
           <MantineCheckbox
-            {...commonProps}
+            key={field.key}
+            label={renderFieldLabel(field.label, field.description, field.required)}
             checked={value === 'true'}
+            error={fieldErrors[field.key]}
             onChange={(e) =>
               handleConfigChange(field.key, String(e.currentTarget.checked))
             }
@@ -189,7 +249,7 @@ return
         )
       case 'Text':
       default:
-        return <TextInput {...commonProps} />
+        return <TextInput key={field.key} {...commonProps} />
     }
   }
 
@@ -215,10 +275,6 @@ return
 
     if (!providerName.trim()) {
       errors.providerName = 'Provider name is required'
-    }
-
-    if (!token.trim()) {
-      errors.token = 'API token is required'
     }
 
     if (!selectedPlugin) {
@@ -258,7 +314,6 @@ return false
 
       const pipelines = await tauriService.previewProviderPipelines(
         selectedPlugin.provider_type,
-        token,
         configValues
       )
 
@@ -380,7 +435,7 @@ return availablePipelines.filter((pipeline) => {
   const handleSubmit = async () => {
     if (!selectedPlugin || selectedPipelines.size === 0) {
       setError('Please select at least one pipeline')
-      
+
 return
     }
 
@@ -389,7 +444,8 @@ return
       setError(null)
 
       const finalConfig = { ...configValues }
-
+      const token = finalConfig.token || ''
+      delete finalConfig.token
 
       finalConfig.selected_items = Array.from(selectedPipelines).join(',')
 
@@ -538,7 +594,7 @@ return (
 
                         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={isMobile ? 'xs' : 'md'}>
                           <TextInput
-                            label="Provider Name"
+                            label={renderFieldLabel('Provider Name', 'A friendly name to identify this provider', true)}
                             placeholder="My Provider"
                             value={providerName}
                             onChange={(e) => {
@@ -550,29 +606,9 @@ return (
                                 setFieldErrors(newErrors)
                               }
                             }}
-                            required
                             disabled={submitting}
-                            description="A friendly name to identify this provider"
                             error={fieldErrors.providerName}
-                          />
-
-                          <PasswordInput
-                            label="API Token"
-                            placeholder="Enter your API token"
-                            value={token}
-                            onChange={(e) => {
-                              setToken(e.currentTarget.value)
-                              if (fieldErrors.token) {
-                                const newErrors = { ...fieldErrors }
-
-                                delete newErrors.token
-                                setFieldErrors(newErrors)
-                              }
-                            }}
-                            required
-                            disabled={submitting}
-                            description="Your API token for authentication"
-                            error={fieldErrors.token}
+                            withAsterisk={false}
                           />
 
                           {selectedPlugin.config_schema.fields.map((field) =>
@@ -613,7 +649,7 @@ return (
                       size="sm"
                       onClick={handleNext}
                       loading={loadingOrganizations}
-                      disabled={!selectedPlugin || !providerName.trim() || !token.trim()}
+                      disabled={!selectedPlugin || !providerName.trim()}
                     >
                       {isMobile ? 'Next' : 'Next: Select Pipelines'}
                     </Button>

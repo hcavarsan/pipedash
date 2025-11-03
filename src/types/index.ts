@@ -36,10 +36,10 @@ export interface PipelineRun {
   concluded_at: string | null;
   duration_seconds: number | null;
   logs_url: string;
-  commit_sha: string;
+  commit_sha: string | null;
   commit_message: string | null;
-  branch: string;
-  actor: string;
+  branch: string | null;
+  actor: string | null;
   inputs?: Record<string, any>;
 }
 

@@ -83,13 +83,13 @@ pub struct PipelineRun {
     /// URL to view logs
     pub logs_url: String,
     /// Commit SHA
-    pub commit_sha: String,
+    pub commit_sha: Option<String>,
     /// Commit message
     pub commit_message: Option<String>,
     /// Branch name
-    pub branch: String,
+    pub branch: Option<String>,
     /// Actor who triggered the run
-    pub actor: String,
+    pub actor: Option<String>,
     /// Input parameters used for this run
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inputs: Option<serde_json::Value>,

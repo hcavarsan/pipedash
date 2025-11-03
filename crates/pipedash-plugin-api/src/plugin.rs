@@ -128,4 +128,12 @@ pub trait Plugin: Send + Sync {
     fn provider_type(&self) -> &str {
         &self.metadata().provider_type
     }
+
+    async fn get_field_options(
+        &self,
+        _field_key: &str,
+        _config: &HashMap<String, String>,
+    ) -> PluginResult<Vec<String>> {
+        Ok(Vec::new())
+    }
 }

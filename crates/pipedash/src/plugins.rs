@@ -29,4 +29,5 @@ define_plugins![
     ("buildkite", pipedash_plugin_buildkite::BuildkitePlugin),
     ("gitlab", pipedash_plugin_gitlab::GitLabPlugin),
     ("jenkins", pipedash_plugin_jenkins::JenkinsPlugin),
+    ("tekton", pipedash_plugin_tekton::TektonPlugin),
 ];
