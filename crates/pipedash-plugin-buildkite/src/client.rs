@@ -1,17 +1,18 @@
 //! HTTP client and API methods for Buildkite
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use chrono::Utc;
-use futures::future::join_all;
 use pipedash_plugin_api::{
     AvailablePipeline,
     BuildArtifact,
+    PaginatedResponse,
+    PaginationParams,
     Pipeline,
     PipelineRun,
     PluginError,
     PluginResult,
+    RetryPolicy,
 };
 use reqwest::Client;
 
@@ -23,171 +24,158 @@ use crate::{
 
 const BASE_URL: &str = "https://api.buildkite.com/v2";
 
-/// Buildkite API client with retry logic
 pub(crate) struct BuildkiteClient {
     client: Client,
+    retry_policy: RetryPolicy,
 }
 
 impl BuildkiteClient {
     pub fn new(client: Client) -> Self {
-        Self { client }
-    }
-
-    /// Retries a request operation with exponential backoff
-    async fn retry_request<F, Fut, T>(&self, operation: F) -> PluginResult<T>
-    where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = PluginResult<T>>,
-    {
-        let max_retries = 3;
-        let mut delay = Duration::from_millis(100);
-        let mut last_error = None;
-
-        for attempt in 0..max_retries {
-            match operation().await {
-                Ok(result) => return Ok(result),
-                Err(e) if attempt < max_retries - 1 => match &e {
-                    PluginError::NetworkError(_) | PluginError::ApiError(_) => {
-                        last_error = Some(e);
-                        tokio::time::sleep(delay).await;
-                        delay *= 2;
-                        continue;
-                    }
-                    _ => return Err(e),
-                },
-                Err(e) => {
-                    last_error = Some(e);
-                }
-            }
+        Self {
+            client,
+            retry_policy: RetryPolicy::default(),
         }
-
-        Err(last_error
-            .unwrap_or_else(|| PluginError::NetworkError("Max retries exceeded".to_string())))
     }
 
     /// Fetches all organizations the user has access to
     pub async fn fetch_organizations(&self) -> PluginResult<Vec<types::Organization>> {
-        let url = format!("{BASE_URL}/organizations");
+        self.retry_policy
+            .retry(|| async {
+                let url = format!("{BASE_URL}/organizations");
 
-        let orgs = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch organizations: {e}")))?
-            .json()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to parse organizations: {e}")))?;
+                let orgs = self
+                    .client
+                    .get(&url)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        PluginError::ApiError(format!("Failed to fetch organizations: {e}"))
+                    })?
+                    .json()
+                    .await
+                    .map_err(|e| {
+                        PluginError::ApiError(format!("Failed to parse organizations: {e}"))
+                    })?;
 
-        Ok(orgs)
+                Ok(orgs)
+            })
+            .await
     }
 
     /// Fetches all pipelines for a given organization
     pub async fn fetch_org_pipelines(
-        &self, org_slug: String,
+        &self, org_slug: String, page: usize, per_page: usize,
     ) -> PluginResult<Vec<AvailablePipeline>> {
-        self.retry_request(|| async {
-            let url = format!("{BASE_URL}/organizations/{org_slug}/pipelines?per_page=100");
+        self.retry_policy
+            .retry(|| async {
+                let url = format!(
+                    "{BASE_URL}/organizations/{org_slug}/pipelines?per_page={per_page}&page={page}"
+                );
 
-            let pipelines: Vec<types::Pipeline> = self
-                .client
-                .get(&url)
-                .send()
-                .await
-                .map_err(|e| {
-                    PluginError::ApiError(format!("Failed to fetch pipelines for {org_slug}: {e}"))
-                })?
-                .json()
-                .await
-                .map_err(|e| {
-                    PluginError::ApiError(format!("Failed to parse pipelines for {org_slug}: {e}"))
-                })?;
+                let pipelines: Vec<types::Pipeline> = self
+                    .client
+                    .get(&url)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        PluginError::ApiError(format!(
+                            "Failed to fetch pipelines for {org_slug}: {e}"
+                        ))
+                    })?
+                    .json()
+                    .await
+                    .map_err(|e| {
+                        PluginError::ApiError(format!(
+                            "Failed to parse pipelines for {org_slug}: {e}"
+                        ))
+                    })?;
 
-            Ok(pipelines
-                .into_iter()
-                .map(|pipeline| {
-                    let repo_name = config::parse_repository_name(&pipeline.repository);
-                    AvailablePipeline {
-                        id: format!("{org_slug}/{}", pipeline.name),
-                        name: pipeline.name,
-                        description: Some(repo_name.clone()),
-                        organization: Some(org_slug.clone()),
-                        repository: Some(repo_name),
-                    }
-                })
-                .collect())
-        })
-        .await
+                Ok(pipelines
+                    .into_iter()
+                    .map(|pipeline| {
+                        let repo_name = config::parse_repository_name(&pipeline.repository);
+                        AvailablePipeline {
+                            id: format!("{org_slug}/{}", pipeline.name),
+                            name: pipeline.name,
+                            description: Some(repo_name.clone()),
+                            organization: Some(org_slug.clone()),
+                            repository: Some(repo_name),
+                        }
+                    })
+                    .collect())
+            })
+            .await
     }
 
     /// Fetches a single pipeline with its latest build
     pub async fn fetch_pipeline(
         &self, provider_id: i64, org: String, slug: String,
     ) -> PluginResult<Pipeline> {
-        self.retry_request(|| async {
-            let pipeline_url = format!("{BASE_URL}/organizations/{org}/pipelines/{slug}");
+        self.retry_policy
+            .retry(|| async {
+                let pipeline_url = format!("{BASE_URL}/organizations/{org}/pipelines/{slug}");
 
-            let pipeline: types::Pipeline = self
-                .client
-                .get(&pipeline_url)
-                .send()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch pipeline: {e}")))?
-                .json()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to parse pipeline: {e}")))?;
+                let pipeline: types::Pipeline = self
+                    .client
+                    .get(&pipeline_url)
+                    .send()
+                    .await
+                    .map_err(|e| PluginError::ApiError(format!("Failed to fetch pipeline: {e}")))?
+                    .json()
+                    .await
+                    .map_err(|e| PluginError::ApiError(format!("Failed to parse pipeline: {e}")))?;
 
-            let builds_url =
-                format!("{BASE_URL}/organizations/{org}/pipelines/{slug}/builds?per_page=1");
+                let builds_url =
+                    format!("{BASE_URL}/organizations/{org}/pipelines/{slug}/builds?per_page=1");
 
-            let builds: Vec<types::Build> = self
-                .client
-                .get(&builds_url)
-                .send()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))?
-                .json()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to parse builds: {e}")))?;
+                let builds: Vec<types::Build> = self
+                    .client
+                    .get(&builds_url)
+                    .send()
+                    .await
+                    .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))?
+                    .json()
+                    .await
+                    .map_err(|e| PluginError::ApiError(format!("Failed to parse builds: {e}")))?;
 
-            let latest_build = builds.first();
-            let status = latest_build
-                .map(|build| mapper::map_build_state(&build.state))
-                .unwrap_or(pipedash_plugin_api::PipelineStatus::Pending);
+                let latest_build = builds.first();
+                let status = latest_build
+                    .map(|build| mapper::map_build_state(&build.state))
+                    .unwrap_or(pipedash_plugin_api::PipelineStatus::Pending);
 
-            let last_run = latest_build.and_then(|build| {
-                chrono::DateTime::parse_from_rfc3339(&build.created_at)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&Utc))
-            });
+                let last_run = latest_build.and_then(|build| {
+                    chrono::DateTime::parse_from_rfc3339(&build.created_at)
+                        .ok()
+                        .map(|dt| dt.with_timezone(&Utc))
+                });
 
-            let mut metadata = HashMap::new();
-            metadata.insert(
-                "organization_slug".to_string(),
-                serde_json::json!(org.clone()),
-            );
+                let mut metadata = HashMap::new();
+                metadata.insert(
+                    "organization_slug".to_string(),
+                    serde_json::json!(org.clone()),
+                );
 
-            Ok(Pipeline {
-                id: format!("buildkite__{provider_id}__{org}__{slug}"),
-                provider_id,
-                provider_type: "buildkite".to_string(),
-                name: pipeline.name,
-                status,
-                last_run,
-                last_updated: Utc::now(),
-                repository: config::parse_repository_name(&pipeline.repository),
-                branch: latest_build.and_then(|b| {
-                    if b.branch.is_empty() {
-                        None
-                    } else {
-                        Some(b.branch.clone())
-                    }
-                }),
-                workflow_file: None,
-                metadata,
+                Ok(Pipeline {
+                    id: format!("buildkite__{provider_id}__{org}__{slug}"),
+                    provider_id,
+                    provider_type: "buildkite".to_string(),
+                    name: pipeline.name,
+                    status,
+                    last_run,
+                    last_updated: Utc::now(),
+                    repository: config::parse_repository_name(&pipeline.repository),
+                    branch: latest_build.and_then(|b| {
+                        if b.branch.is_empty() {
+                            None
+                        } else {
+                            Some(b.branch.clone())
+                        }
+                    }),
+                    workflow_file: None,
+                    metadata,
+                })
             })
-        })
-        .await
+            .await
     }
 
     /// Fetches build history for a pipeline
@@ -233,48 +221,55 @@ impl BuildkiteClient {
     pub async fn trigger_build(
         &self, org: &str, slug: &str, branch: String, inputs: Option<serde_json::Value>,
     ) -> PluginResult<types::Build> {
-        let url = format!("{BASE_URL}/organizations/{org}/pipelines/{slug}/builds");
+        let org = org.to_string();
+        let slug = slug.to_string();
 
-        let mut body = serde_json::json!({
-            "branch": branch,
-            "commit": "HEAD",
-        });
+        self.retry_policy
+            .retry(|| async {
+                let url = format!("{BASE_URL}/organizations/{org}/pipelines/{slug}/builds");
 
-        if let Some(inputs) = inputs {
-            if let Some(obj) = inputs.as_object() {
-                if let Some(message) = obj.get("message") {
-                    body["message"] = message.clone();
+                let mut body = serde_json::json!({
+                    "branch": branch.clone(),
+                    "commit": "HEAD",
+                });
+
+                if let Some(ref inputs) = inputs {
+                    if let Some(obj) = inputs.as_object() {
+                        if let Some(message) = obj.get("message") {
+                            body["message"] = message.clone();
+                        }
+                        if let Some(env) = obj.get("env") {
+                            body["env"] = env.clone();
+                        }
+                    }
                 }
-                if let Some(env) = obj.get("env") {
-                    body["env"] = env.clone();
+
+                let response = self
+                    .client
+                    .post(&url)
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| PluginError::ApiError(format!("Failed to trigger build: {e}")))?;
+
+                if !response.status().is_success() {
+                    let error_text = response
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "Unknown error".to_string());
+                    return Err(PluginError::ApiError(format!(
+                        "Failed to trigger build: {error_text}"
+                    )));
                 }
-            }
-        }
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
+                let build = response
+                    .json()
+                    .await
+                    .map_err(|e| PluginError::ApiError(format!("Failed to parse response: {e}")))?;
+
+                Ok(build)
+            })
             .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to trigger build: {e}")))?;
-
-        if !response.status().is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(PluginError::ApiError(format!(
-                "Failed to trigger build: {error_text}"
-            )));
-        }
-
-        let build = response
-            .json()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to parse response: {e}")))?;
-
-        Ok(build)
     }
 
     /// Fetches agents for an organization
@@ -317,33 +312,38 @@ impl BuildkiteClient {
     pub async fn cancel_build(
         &self, org: &str, pipeline_slug: &str, build_number: i64,
     ) -> PluginResult<()> {
-        let url = format!(
-            "{BASE_URL}/organizations/{org}/pipelines/{pipeline_slug}/builds/{build_number}/cancel"
-        );
+        let org = org.to_string();
+        let pipeline_slug = pipeline_slug.to_string();
 
-        eprintln!(
-            "[BUILDKITE] Cancelling build #{build_number} for pipeline {org}/{pipeline_slug}"
-        );
+        self.retry_policy.retry(|| async {
+            let url = format!(
+                "{BASE_URL}/organizations/{org}/pipelines/{pipeline_slug}/builds/{build_number}/cancel"
+            );
 
-        let response = self
-            .client
-            .put(&url)
-            .send()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to cancel build: {e}")))?;
+            eprintln!(
+                "[BUILDKITE] Cancelling build #{build_number} for pipeline {org}/{pipeline_slug}"
+            );
 
-        if !response.status().is_success() {
-            let error_text = response
-                .text()
+            let response = self
+                .client
+                .put(&url)
+                .send()
                 .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(PluginError::ApiError(format!(
-                "Failed to cancel build: {error_text}"
-            )));
-        }
+                .map_err(|e| PluginError::ApiError(format!("Failed to cancel build: {e}")))?;
 
-        eprintln!("[BUILDKITE] Build #{build_number} cancelled successfully");
-        Ok(())
+            if !response.status().is_success() {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+                return Err(PluginError::ApiError(format!(
+                    "Failed to cancel build: {error_text}"
+                )));
+            }
+
+            eprintln!("[BUILDKITE] Build #{build_number} cancelled successfully");
+            Ok(())
+        }).await
     }
 }
 
@@ -440,25 +440,135 @@ pub(crate) fn artifact_to_build_artifact(artifact: types::Artifact, run_id: &str
     }
 }
 
-/// Fetches available pipelines from all accessible organizations
 pub(crate) async fn fetch_all_available_pipelines(
-    client: &BuildkiteClient,
-) -> PluginResult<Vec<AvailablePipeline>> {
+    client: &BuildkiteClient, params: Option<PaginationParams>,
+) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+    let params = params.unwrap_or_default();
     let organizations = client.fetch_organizations().await?;
 
-    let futures = organizations
-        .into_iter()
-        .map(|org| client.fetch_org_pipelines(org.slug));
-
-    let results = join_all(futures).await;
-
     let mut all_available_pipelines = Vec::new();
-    for result in results {
-        match result {
-            Ok(mut pipelines) => all_available_pipelines.append(&mut pipelines),
-            Err(_) => continue,
+
+    for org in organizations {
+        let mut page = 1;
+        loop {
+            let pipelines = client
+                .fetch_org_pipelines(org.slug.clone(), page, 100)
+                .await;
+            match pipelines {
+                Ok(p) => {
+                    if p.is_empty() {
+                        break;
+                    }
+                    let is_last_page = p.len() < 100;
+                    all_available_pipelines.extend(p);
+                    if is_last_page {
+                        break;
+                    }
+                    page += 1;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[BUILDKITE] Failed to fetch pipelines for org {}: {}",
+                        org.slug, e
+                    );
+                    break;
+                }
+            }
         }
     }
 
-    Ok(all_available_pipelines)
+    let total_count = all_available_pipelines.len();
+    let start = params.calculate_offset().unwrap_or(0).min(total_count);
+    let end = (start + params.page_size).min(total_count);
+    let items = all_available_pipelines[start..end].to_vec();
+
+    Ok(PaginatedResponse::new(
+        items,
+        params.page,
+        params.page_size,
+        total_count,
+    ))
+}
+
+pub(crate) async fn fetch_available_pipelines_filtered(
+    client: &BuildkiteClient, org: Option<String>, search: Option<String>,
+    params: Option<PaginationParams>,
+) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+    let params = params.unwrap_or_default();
+
+    let mut all_pipelines = if let Some(org_slug) = org {
+        let mut all_from_org = Vec::new();
+        let mut page = 1;
+        loop {
+            let pipelines = client
+                .fetch_org_pipelines(org_slug.clone(), page, 100)
+                .await?;
+            if pipelines.is_empty() {
+                break;
+            }
+            let is_last_page = pipelines.len() < 100;
+            all_from_org.extend(pipelines);
+            if is_last_page {
+                break;
+            }
+            page += 1;
+        }
+        all_from_org
+    } else {
+        let organizations = client.fetch_organizations().await?;
+        let mut all_available_pipelines = Vec::new();
+
+        for org in organizations {
+            let mut page = 1;
+            loop {
+                let pipelines = client
+                    .fetch_org_pipelines(org.slug.clone(), page, 100)
+                    .await;
+                match pipelines {
+                    Ok(p) => {
+                        if p.is_empty() {
+                            break;
+                        }
+                        let is_last_page = p.len() < 100;
+                        all_available_pipelines.extend(p);
+                        if is_last_page {
+                            break;
+                        }
+                        page += 1;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[BUILDKITE] Failed to fetch pipelines for org {}: {}",
+                            org.slug, e
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+        all_available_pipelines
+    };
+
+    if let Some(search_term) = search {
+        let search_lower = search_term.to_lowercase();
+        all_pipelines.retain(|p| {
+            p.name.to_lowercase().contains(&search_lower)
+                || p.id.to_lowercase().contains(&search_lower)
+                || p.description
+                    .as_ref()
+                    .is_some_and(|d| d.to_lowercase().contains(&search_lower))
+        });
+    }
+
+    let total_count = all_pipelines.len();
+    let start = params.calculate_offset().unwrap_or(0).min(total_count);
+    let end = (start + params.page_size).min(total_count);
+    let items = all_pipelines[start..end].to_vec();
+
+    Ok(PaginatedResponse::new(
+        items,
+        params.page,
+        params.page_size,
+        total_count,
+    ))
 }

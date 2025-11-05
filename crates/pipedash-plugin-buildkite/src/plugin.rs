@@ -87,21 +87,37 @@ impl Plugin for BuildkitePlugin {
     async fn validate_credentials(&self) -> PluginResult<bool> {
         let client = self.client()?;
 
-        // Validate by trying to list organizations the user has access to
-        let organizations = client.fetch_organizations().await?;
+        client.fetch_organizations().await?;
 
-        if organizations.is_empty() {
-            Err(PluginError::AuthenticationFailed(
-                "No organizations accessible with this token".to_string(),
-            ))
-        } else {
-            Ok(true)
-        }
+        Ok(true)
     }
 
-    async fn fetch_available_pipelines(&self) -> PluginResult<Vec<AvailablePipeline>> {
+    async fn fetch_available_pipelines(
+        &self, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
         let client = self.client()?;
-        client::fetch_all_available_pipelines(client).await
+        client::fetch_all_available_pipelines(client, params).await
+    }
+
+    async fn fetch_organizations(&self) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
+        let client = self.client()?;
+        let orgs = client.fetch_organizations().await?;
+
+        Ok(orgs
+            .into_iter()
+            .map(|org| pipedash_plugin_api::Organization {
+                id: org.slug.clone(),
+                name: org.name,
+                description: org.description,
+            })
+            .collect())
+    }
+
+    async fn fetch_available_pipelines_filtered(
+        &self, org: Option<String>, search: Option<String>, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+        let client = self.client()?;
+        client::fetch_available_pipelines_filtered(client, org, search, params).await
     }
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {

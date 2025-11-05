@@ -86,28 +86,48 @@ impl Plugin for GitHubPlugin {
     async fn validate_credentials(&self) -> PluginResult<bool> {
         let client = self.client()?;
 
-        // Try to fetch current user to validate credentials
-        let result = client.octocrab.current().user().await;
+        client
+            .retry_policy
+            .retry(|| async {
+                let result = client.octocrab.current().user().await;
 
-        match result {
-            Ok(_) => Ok(true),
-            Err(e) => {
-                if e.to_string().contains("401") {
-                    Err(PluginError::AuthenticationFailed(
-                        "Invalid GitHub token".to_string(),
-                    ))
-                } else {
-                    Err(PluginError::ApiError(format!(
-                        "Failed to validate credentials: {e}"
-                    )))
+                match result {
+                    Ok(_) => Ok(true),
+                    Err(e) => {
+                        if e.to_string().contains("401") {
+                            Err(PluginError::AuthenticationFailed(
+                                "Invalid GitHub token".to_string(),
+                            ))
+                        } else {
+                            Err(PluginError::ApiError(format!(
+                                "Failed to validate credentials: {e}"
+                            )))
+                        }
+                    }
                 }
-            }
-        }
+            })
+            .await
     }
 
-    async fn fetch_available_pipelines(&self) -> PluginResult<Vec<AvailablePipeline>> {
+    async fn fetch_available_pipelines(
+        &self, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
         let client = self.client()?;
-        client.fetch_all_repositories().await
+        client.fetch_all_repositories(params).await
+    }
+
+    async fn fetch_organizations(&self) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
+        let client = self.client()?;
+        client.fetch_organizations().await
+    }
+
+    async fn fetch_available_pipelines_filtered(
+        &self, org: Option<String>, search: Option<String>, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+        let client = self.client()?;
+        client
+            .fetch_available_pipelines_filtered(org, search, params)
+            .await
     }
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {

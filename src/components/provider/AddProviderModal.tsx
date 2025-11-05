@@ -27,7 +27,7 @@ import { IconAlertCircle, IconCheck, IconInfoCircle, IconKey, IconList, IconSear
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import { usePlugins } from '../../contexts/PluginContext'
 import { tauriService } from '../../services/tauri'
-import type { AvailablePipeline, ConfigField, PluginMetadata, ProviderConfig } from '../../types'
+import type { AvailablePipeline, ConfigField, Organization, PaginatedAvailablePipelines, PluginMetadata, ProviderConfig } from '../../types'
 import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { StandardModal } from '../common/StandardModal'
 
@@ -42,6 +42,7 @@ interface AddProviderModalProps {
 
 type Step = 'credentials' | 'pipelines';
 
+ 
 export const AddProviderModal = ({
   opened,
   onClose,
@@ -56,14 +57,20 @@ export const AddProviderModal = ({
   const [selectedPlugin, setSelectedPlugin] = useState<PluginMetadata | null>(null)
   const [providerName, setProviderName] = useState('')
   const [configValues, setConfigValues] = useState<Record<string, string>>({})
-  const [availableOrganizations, setAvailableOrganizations] = useState<string[]>([])
+  const [availableOrganizations, setAvailableOrganizations] = useState<Organization[]>([])
   const [selectedOrganization, setSelectedOrganization] = useState<string>('')
-  const [allPipelines, setAllPipelines] = useState<AvailablePipeline[]>([])
+  const [pipelineCache, setPipelineCache] = useState<Map<string, PaginatedAvailablePipelines>>(new Map())
+  const [allPipelines, setAllPipelines] = useState<PaginatedAvailablePipelines | null>(null)
   const [availablePipelines, setAvailablePipelines] = useState<AvailablePipeline[]>([])
   const [selectedPipelines, setSelectedPipelines] = useState<Set<string>>(new Set())
   const [loadingOrganizations, setLoadingOrganizations] = useState(false)
   const [loadingPipelines, setLoadingPipelines] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [searchingPipelines, setSearchingPipelines] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pipelinesPerPage] = useState(100)
   const [repositorySearch, setRepositorySearch] = useState<string>('')
+  const [searchDebounceTimer, setSearchDebounceTimer] = useState<NodeJS.Timeout | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -77,13 +84,24 @@ export const AddProviderModal = ({
       setConfigValues({})
       setAvailableOrganizations([])
       setSelectedOrganization('')
-      setAllPipelines([])
+      setPipelineCache(new Map())
+      setAllPipelines(null)
       setAvailablePipelines([])
       setSelectedPipelines(new Set())
       setRepositorySearch('')
+      setSearchingPipelines(false)
+      setSearchDebounceTimer((prev) => {
+        if (prev) {
+clearTimeout(prev)
+}
+
+return null
+      })
       setError(null)
       setFieldErrors({})
       setDynamicOptions({})
+      setCurrentPage(1)
+      setLoadingMore(false)
     } else if (opened && editMode && existingProvider) {
       const plugin = plugins.find((p) => p.provider_type === existingProvider.provider_type)
 
@@ -323,43 +341,30 @@ return false
       setLoadingOrganizations(true)
       setError(null)
 
-      const pipelines = await tauriService.previewProviderPipelines(
+      const orgs = await tauriService.fetchProviderOrganizations(
         selectedPlugin.provider_type,
         configValues
       )
 
-      setAllPipelines(pipelines)
-
-      const orgs = Array.from(
-        new Set(pipelines.map((p) => p.organization).filter((org): org is string => !!org))
-      ).sort()
-
       setAvailableOrganizations(orgs)
 
       if (orgs.length === 1) {
-        setSelectedOrganization(orgs[0])
-        const orgPipelines = pipelines.filter((p) => p.organization === orgs[0])
+        setSelectedOrganization(orgs[0].id)
+        await loadPipelinesForOrg(orgs[0].id)
+      } else if (orgs.length === 0) {
+        const response = await tauriService.previewProviderPipelines(
+          selectedPlugin.provider_type,
+          configValues,
+          undefined,
+          undefined,
+          1,
+          pipelinesPerPage
+        )
 
 
-        setAvailablePipelines(orgPipelines)
-
-        if (editMode && existingProvider) {
-          const existingPipelineIds = new Set<string>()
-          const selectedItems = existingProvider.config.selected_items || ''
-
-
-          if (selectedItems) {
-            selectedItems.split(',').forEach((id) => {
-              const trimmed = id.trim()
-
-
-              if (trimmed) {
-                existingPipelineIds.add(trimmed)
-              }
-            })
-          }
-          setSelectedPipelines(existingPipelineIds)
-        }
+        setAllPipelines(response)
+        setAvailablePipelines(response.items)
+        setCurrentPage(1)
       }
 
       setStep('pipelines')
@@ -370,25 +375,36 @@ return false
     }
   }
 
-  const handleOrganizationSelect = (org: string | null) => {
-    if (!org) {
-      return
+  const loadPipelinesForOrg = async (orgId: string) => {
+    if (pipelineCache.has(orgId)) {
+      const cached = pipelineCache.get(orgId)!
+
+
+      setAllPipelines(cached)
+      setAvailablePipelines(cached.items)
+      
+return
     }
 
-    setSelectedOrganization(org)
-    setRepositorySearch('')
     setLoadingPipelines(true)
+    try {
+      const response = await tauriService.previewProviderPipelines(
+        selectedPlugin!.provider_type,
+        configValues,
+        orgId,
+        undefined,
+        1,
+        pipelinesPerPage
+      )
 
-    setTimeout(() => {
-      const orgPipelines = allPipelines.filter((p) => p.organization === org)
-
-
-      setAvailablePipelines(orgPipelines)
+      setPipelineCache((prev) => new Map(prev).set(orgId, response))
+      setAllPipelines(response)
+      setAvailablePipelines(response.items)
+      setCurrentPage(1)
 
       if (editMode && existingProvider) {
         const existingPipelineIds = new Set<string>()
         const selectedItems = existingProvider.config.selected_items || ''
-
 
         if (selectedItems) {
           selectedItems.split(',').forEach((id) => {
@@ -402,9 +418,98 @@ return false
         }
         setSelectedPipelines(existingPipelineIds)
       }
-
+    } catch (err: any) {
+      setError(err?.error || err?.message || 'Failed to fetch pipelines')
+    } finally {
       setLoadingPipelines(false)
-    }, 0)
+    }
+  }
+
+  const handleOrganizationSelect = (org: string | null) => {
+    if (!org || !selectedPlugin) {
+      return
+    }
+
+    setSelectedOrganization(org)
+    setRepositorySearch('')
+    loadPipelinesForOrg(org)
+  }
+
+  const handleSearchChange = (value: string) => {
+    setRepositorySearch(value)
+
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer)
+    }
+
+    if (value.length > 0 && value.length < 2) {
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      if (!selectedOrganization || !selectedPlugin) {
+        return
+      }
+
+      setSearchingPipelines(true)
+      try {
+        const response = await tauriService.previewProviderPipelines(
+          selectedPlugin.provider_type,
+          configValues,
+          selectedOrganization,
+          value || undefined,
+          1,
+          pipelinesPerPage
+        )
+
+        setAllPipelines(response)
+        setAvailablePipelines(response.items)
+        setCurrentPage(1)
+      } catch (err: any) {
+        setError(err?.error || err?.message || 'Failed to search pipelines')
+      } finally {
+        setSearchingPipelines(false)
+      }
+    }, 300)
+
+    setSearchDebounceTimer(timer)
+  }
+
+  const handleLoadMore = async () => {
+    if (!selectedPlugin || !allPipelines || !allPipelines.has_more || loadingMore) {
+      return
+    }
+
+    try {
+      setLoadingMore(true)
+      const nextPage = currentPage + 1
+
+      const paginatedResponse = await tauriService.previewProviderPipelines(
+        selectedPlugin.provider_type,
+        configValues,
+        selectedOrganization || undefined,
+        repositorySearch || undefined,
+        nextPage,
+        pipelinesPerPage
+      )
+
+      const combinedItems = [...allPipelines.items, ...paginatedResponse.items]
+
+      setAllPipelines({
+        items: combinedItems,
+        page: nextPage,
+        page_size: paginatedResponse.page_size,
+        total_count: allPipelines.total_count,
+        total_pages: allPipelines.total_pages,
+        has_more: paginatedResponse.has_more,
+      })
+      setAvailablePipelines(combinedItems)
+      setCurrentPage(nextPage)
+    } catch (err: any) {
+      setError(err?.error || err?.message || 'Failed to load more pipelines')
+    } finally {
+      setLoadingMore(false)
+    }
   }
 
   const handlePipelineToggle = (pipelineId: string) => {
@@ -735,7 +840,7 @@ return (
                             placeholder="Select organization"
                             value={selectedOrganization}
                             onChange={handleOrganizationSelect}
-                            data={availableOrganizations}
+                            data={availableOrganizations.map(org => ({ value: org.id, label: org.name }))}
                             searchable
                             disabled={loadingPipelines}
                             rightSection={loadingPipelines ? <Loader size="xs" /> : undefined}
@@ -751,9 +856,9 @@ return (
                         <TextInput
                           placeholder="Search repositories..."
                           value={repositorySearch}
-                          onChange={(e) => setRepositorySearch(e.currentTarget.value)}
-                          leftSection={<IconSearch size={16} />}
-                          disabled={!selectedOrganization || loadingPipelines}
+                          onChange={(e) => handleSearchChange(e.currentTarget.value)}
+                          leftSection={searchingPipelines ? <Loader size={16} /> : <IconSearch size={16} />}
+                          disabled={!selectedOrganization}
                           style={{ flex: 1 }}
                           styles={{
                             input: {
@@ -791,79 +896,96 @@ return (
                       {renderMobilePipelineCards()}
                     </ScrollArea>
                   ) : (
-                    <ScrollArea style={{ flex: 1 }} type="auto">
-                      <Table
-                        highlightOnHover
-                        verticalSpacing="xs"
-                        styles={{
-                          tr: {
-                            height: 44,
-                          },
-                        }}
-                      >
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th style={{ width: 50 }}>
-                              {filteredPipelines.length > 0 && (
-                                <MantineCheckbox
-                                  checked={selectedPipelines.size === filteredPipelines.length && filteredPipelines.length > 0}
-                                  indeterminate={selectedPipelines.size > 0 && selectedPipelines.size < filteredPipelines.length}
-                                  onChange={handleSelectAll}
-                                />
-                              )}
-                            </Table.Th>
-                            <Table.Th style={{ width: '25%' }}>Name</Table.Th>
-                            <Table.Th style={{ width: '15%' }}>Organization</Table.Th>
-                            <Table.Th style={{ width: '20%' }}>Repository</Table.Th>
-                            <Table.Th style={{ width: '40%' }}>Description</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {filteredPipelines.map((pipeline) => (
-                            <Table.Tr
-                              key={pipeline.id}
-                              onClick={() => handlePipelineToggle(pipeline.id)}
-                              style={{ cursor: 'pointer', height: 44 }}
-                            >
-                              <Table.Td onClick={(e) => e.stopPropagation()}>
-                                <MantineCheckbox
-                                  checked={selectedPipelines.has(pipeline.id)}
-                                  onChange={() => handlePipelineToggle(pipeline.id)}
-                                />
-                              </Table.Td>
-                              <Table.Td style={{ maxWidth: 0 }}>
-                                <Tooltip label={pipeline.name} openDelay={500}>
-                                  <Text size="sm" fw={500} truncate="end">
-                                    {pipeline.name}
-                                  </Text>
-                                </Tooltip>
-                              </Table.Td>
-                              <Table.Td style={{ maxWidth: 0 }}>
-                                <Tooltip label={pipeline.organization || '—'} openDelay={500}>
-                                  <Text size="sm" truncate="end">
-                                    {pipeline.organization || '—'}
-                                  </Text>
-                                </Tooltip>
-                              </Table.Td>
-                              <Table.Td style={{ maxWidth: 0 }}>
-                                <Tooltip label={pipeline.repository || '—'} openDelay={500}>
-                                  <Text size="sm" truncate="end">
-                                    {pipeline.repository || '—'}
-                                  </Text>
-                                </Tooltip>
-                              </Table.Td>
-                              <Table.Td style={{ maxWidth: 0 }}>
-                                <Tooltip label={pipeline.description || '—'} openDelay={500}>
-                                  <Text size="sm" c="dimmed" truncate="end">
-                                    {pipeline.description || '—'}
-                                  </Text>
-                                </Tooltip>
-                              </Table.Td>
+                    <>
+                      <ScrollArea style={{ flex: 1 }} type="auto">
+                        <Table
+                          highlightOnHover
+                          verticalSpacing="xs"
+                          styles={{
+                            tr: {
+                              height: 44,
+                            },
+                          }}
+                        >
+                          <Table.Thead>
+                            <Table.Tr>
+                              <Table.Th style={{ width: 50 }}>
+                                {filteredPipelines.length > 0 && (
+                                  <MantineCheckbox
+                                    checked={selectedPipelines.size === filteredPipelines.length && filteredPipelines.length > 0}
+                                    indeterminate={selectedPipelines.size > 0 && selectedPipelines.size < filteredPipelines.length}
+                                    onChange={handleSelectAll}
+                                  />
+                                )}
+                              </Table.Th>
+                              <Table.Th style={{ width: '25%' }}>Name</Table.Th>
+                              <Table.Th style={{ width: '15%' }}>Organization</Table.Th>
+                              <Table.Th style={{ width: '20%' }}>Repository</Table.Th>
+                              <Table.Th style={{ width: '40%' }}>Description</Table.Th>
                             </Table.Tr>
-                          ))}
-                        </Table.Tbody>
-                      </Table>
-                    </ScrollArea>
+                          </Table.Thead>
+                          <Table.Tbody>
+                            {filteredPipelines.map((pipeline) => (
+                              <Table.Tr
+                                key={pipeline.id}
+                                onClick={() => handlePipelineToggle(pipeline.id)}
+                                style={{ cursor: 'pointer', height: 44 }}
+                              >
+                                <Table.Td onClick={(e) => e.stopPropagation()}>
+                                  <MantineCheckbox
+                                    checked={selectedPipelines.has(pipeline.id)}
+                                    onChange={() => handlePipelineToggle(pipeline.id)}
+                                  />
+                                </Table.Td>
+                                <Table.Td style={{ maxWidth: 0 }}>
+                                  <Tooltip label={pipeline.name} openDelay={500}>
+                                    <Text size="sm" fw={500} truncate="end">
+                                      {pipeline.name}
+                                    </Text>
+                                  </Tooltip>
+                                </Table.Td>
+                                <Table.Td style={{ maxWidth: 0 }}>
+                                  <Tooltip label={pipeline.organization || '—'} openDelay={500}>
+                                    <Text size="sm" truncate="end">
+                                      {pipeline.organization || '—'}
+                                    </Text>
+                                  </Tooltip>
+                                </Table.Td>
+                                <Table.Td style={{ maxWidth: 0 }}>
+                                  <Tooltip label={pipeline.repository || '—'} openDelay={500}>
+                                    <Text size="sm" truncate="end">
+                                      {pipeline.repository || '—'}
+                                    </Text>
+                                  </Tooltip>
+                                </Table.Td>
+                                <Table.Td style={{ maxWidth: 0 }}>
+                                  <Tooltip label={pipeline.description || '—'} openDelay={500}>
+                                    <Text size="sm" c="dimmed" truncate="end">
+                                      {pipeline.description || '—'}
+                                    </Text>
+                                  </Tooltip>
+                                </Table.Td>
+                              </Table.Tr>
+                            ))}
+                          </Table.Tbody>
+                        </Table>
+                      </ScrollArea>
+
+                      {allPipelines && selectedOrganization && allPipelines.has_more && (
+                        <Group justify="center" pt={4}>
+                          <Button
+                            size="xs"
+                            variant="filled"
+                            color="dark.5"
+                            onClick={handleLoadMore}
+                            loading={loadingMore}
+                            disabled={loadingMore}
+                          >
+                            Load More
+                          </Button>
+                        </Group>
+                      )}
+                    </>
                   )}
                 </Stack>
 
@@ -885,9 +1007,9 @@ return (
                       >
                         Back
                       </Button>
-                      {selectedOrganization && (
+                      {selectedOrganization && selectedPipelines.size > 0 && (
                         <Text size="sm" c="dimmed">
-                          {selectedPipelines.size} of {filteredPipelines.length} selected
+                          {selectedPipelines.size} selected
                         </Text>
                       )}
                     </Group>

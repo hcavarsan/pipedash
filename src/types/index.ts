@@ -14,6 +14,12 @@ export interface AvailablePipeline {
   repository: string | null;
 }
 
+export interface Organization {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
 export interface Pipeline {
   id: string;
   provider_id: number;
@@ -44,6 +50,22 @@ export interface PipelineRun {
   inputs?: Record<string, any>;
   metadata?: Record<string, any>;
 }
+
+export interface PaginationParams {
+  page: number;
+  page_size: number;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  page: number;
+  page_size: number;
+  total_count: number;
+  total_pages: number;
+  has_more: boolean;
+}
+
+export type PaginatedAvailablePipelines = PaginatedResponse<AvailablePipeline>;
 
 export interface PaginatedRunHistory {
   runs: PipelineRun[];

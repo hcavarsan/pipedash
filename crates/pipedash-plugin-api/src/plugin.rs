@@ -69,8 +69,49 @@ pub trait Plugin: Send + Sync {
     async fn validate_credentials(&self) -> PluginResult<bool>;
 
     /// Fetch available pipelines for selection
-    async fn fetch_available_pipelines(&self) -> PluginResult<Vec<AvailablePipeline>> {
+    async fn fetch_available_pipelines(
+        &self, params: Option<crate::types::PaginationParams>,
+    ) -> PluginResult<crate::types::PaginatedAvailablePipelines> {
+        let _ = params;
+        Ok(crate::types::PaginatedResponse::empty())
+    }
+
+    async fn fetch_organizations(&self) -> PluginResult<Vec<crate::types::Organization>> {
         Ok(Vec::new())
+    }
+
+    async fn fetch_available_pipelines_filtered(
+        &self, org: Option<String>, search: Option<String>,
+        params: Option<crate::types::PaginationParams>,
+    ) -> PluginResult<crate::types::PaginatedAvailablePipelines> {
+        let response = self.fetch_available_pipelines(params.clone()).await?;
+
+        let mut filtered_items = response.items;
+
+        if let Some(org_filter) = org {
+            filtered_items.retain(|p| p.organization.as_ref() == Some(&org_filter));
+        }
+
+        if let Some(search_term) = search {
+            let search_lower = search_term.to_lowercase();
+            filtered_items.retain(|p| {
+                p.name.to_lowercase().contains(&search_lower)
+                    || p.id.to_lowercase().contains(&search_lower)
+                    || p.description
+                        .as_ref()
+                        .is_some_and(|d| d.to_lowercase().contains(&search_lower))
+            });
+        }
+
+        let total_count = filtered_items.len();
+        let params = params.unwrap_or_default();
+
+        Ok(crate::types::PaginatedResponse::new(
+            filtered_items,
+            params.page,
+            params.page_size,
+            total_count,
+        ))
     }
 
     /// Fetch all pipelines/workflows

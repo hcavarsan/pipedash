@@ -189,6 +189,7 @@ function App() {
           <UnifiedPipelinesView
             pipelines={filteredPipelines}
             providers={providers}
+            selectedProviderId={selectedProviderId}
             loading={providersLoading}
             onViewHistory={handleViewHistory}
             onViewMetrics={handleViewMetrics}

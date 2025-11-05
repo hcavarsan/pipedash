@@ -5,12 +5,13 @@ import type {
   AggregatedMetrics,
   AggregationPeriod,
   AggregationType,
-  AvailablePipeline,
   GlobalMetricsConfig,
   MetricEntry,
   MetricsConfig,
   MetricsStats,
   MetricType,
+  Organization,
+  PaginatedAvailablePipelines,
   PaginatedRunHistory,
   Pipeline,
   PipelineRun,
@@ -50,13 +51,31 @@ return { ...config, id }
     return invoke<void>('remove_provider', { id })
   },
 
-  previewProviderPipelines: async (
+  fetchProviderOrganizations: async (
     providerType: string,
     config: Record<string, string>
-  ): Promise<AvailablePipeline[]> => {
-    return invoke<AvailablePipeline[]>('preview_provider_pipelines', {
+  ): Promise<Organization[]> => {
+    return invoke<Organization[]>('fetch_provider_organizations', {
       providerType,
       config,
+    })
+  },
+
+  previewProviderPipelines: async (
+    providerType: string,
+    config: Record<string, string>,
+    org?: string,
+    search?: string,
+    page?: number,
+    pageSize?: number
+  ): Promise<PaginatedAvailablePipelines> => {
+    return invoke<PaginatedAvailablePipelines>('preview_provider_pipelines', {
+      providerType,
+      config,
+      org: org ?? null,
+      search: search ?? null,
+      page,
+      pageSize,
     })
   },
 

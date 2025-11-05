@@ -105,33 +105,52 @@ impl Plugin for JenkinsPlugin {
 
     async fn validate_credentials(&self) -> PluginResult<bool> {
         let client = self.client()?;
-        let url = format!("{}/api/json", client.server_url());
 
-        let response = client
-            .client
-            .get(&url)
-            .send()
+        client
+            .retry_policy
+            .retry(|| async {
+                let url = format!("{}/api/json", client.server_url());
+
+                let response =
+                    client.client.get(&url).send().await.map_err(|e| {
+                        PluginError::NetworkError(format!("Failed to connect: {e}"))
+                    })?;
+
+                if response.status().is_success() {
+                    Ok(true)
+                } else if response.status() == 401 || response.status() == 403 {
+                    Err(PluginError::AuthenticationFailed(
+                        "Invalid Jenkins credentials".to_string(),
+                    ))
+                } else {
+                    Err(PluginError::ApiError(format!(
+                        "API error: {}",
+                        response.status()
+                    )))
+                }
+            })
             .await
-            .map_err(|e| PluginError::NetworkError(format!("Failed to connect: {e}")))?;
-
-        if response.status().is_success() {
-            Ok(true)
-        } else if response.status() == 401 || response.status() == 403 {
-            Err(PluginError::AuthenticationFailed(
-                "Invalid Jenkins credentials".to_string(),
-            ))
-        } else {
-            Err(PluginError::ApiError(format!(
-                "API error: {}",
-                response.status()
-            )))
-        }
     }
 
-    async fn fetch_available_pipelines(&self) -> PluginResult<Vec<AvailablePipeline>> {
+    async fn fetch_available_pipelines(
+        &self, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+        let params = params.unwrap_or_default();
         let client = self.client()?;
         let all_jobs = client.discover_all_jobs().await?;
-        Ok(client.discovered_jobs_to_available_pipelines(all_jobs))
+        let all_pipelines = client.discovered_jobs_to_available_pipelines(all_jobs);
+
+        let total_count = all_pipelines.len();
+        let start = ((params.page - 1) * params.page_size).min(total_count);
+        let end = (start + params.page_size).min(total_count);
+        let items = all_pipelines[start..end].to_vec();
+
+        Ok(PaginatedResponse::new(
+            items,
+            params.page,
+            params.page_size,
+            total_count,
+        ))
     }
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
@@ -324,6 +343,46 @@ impl Plugin for JenkinsPlugin {
             start.elapsed()
         );
         Ok(parameters)
+    }
+
+    async fn fetch_organizations(&self) -> PluginResult<Vec<Organization>> {
+        Ok(vec![Organization {
+            id: "default".to_string(),
+            name: "Jenkins Server".to_string(),
+            description: Some("All accessible Jenkins jobs".to_string()),
+        }])
+    }
+
+    async fn fetch_available_pipelines_filtered(
+        &self, _org: Option<String>, search: Option<String>, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+        let params = params.unwrap_or_default();
+        let client = self.client()?;
+        let all_jobs = client.discover_all_jobs().await?;
+        let mut all_pipelines = client.discovered_jobs_to_available_pipelines(all_jobs);
+
+        if let Some(search_term) = search {
+            let search_lower = search_term.to_lowercase();
+            all_pipelines.retain(|p| {
+                p.name.to_lowercase().contains(&search_lower)
+                    || p.id.to_lowercase().contains(&search_lower)
+                    || p.description
+                        .as_ref()
+                        .is_some_and(|d| d.to_lowercase().contains(&search_lower))
+            });
+        }
+
+        let total_count = all_pipelines.len();
+        let start = ((params.page - 1) * params.page_size).min(total_count);
+        let end = (start + params.page_size).min(total_count);
+        let items = all_pipelines[start..end].to_vec();
+
+        Ok(PaginatedResponse::new(
+            items,
+            params.page,
+            params.page_size,
+            total_count,
+        ))
     }
 
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {

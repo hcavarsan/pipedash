@@ -9,6 +9,7 @@ use pipedash_plugin_api::{
     Pipeline,
     PluginError,
     PluginResult,
+    RetryPolicy,
 };
 use reqwest::Client;
 
@@ -18,56 +19,23 @@ use crate::{
     types,
 };
 
-/// Jenkins API client with retry logic
 pub(crate) struct JenkinsClient {
     pub(crate) client: Client,
     server_url: String,
+    pub(crate) retry_policy: RetryPolicy,
 }
 
 impl JenkinsClient {
     pub fn new(client: Client, server_url: String) -> Self {
-        Self { client, server_url }
+        Self {
+            client,
+            server_url,
+            retry_policy: RetryPolicy::default(),
+        }
     }
 
     pub fn server_url(&self) -> &str {
         &self.server_url
-    }
-
-    /// Retries a request operation with exponential backoff
-    pub(crate) async fn retry_request<F, Fut, T>(&self, operation: F) -> PluginResult<T>
-    where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = PluginResult<T>>,
-    {
-        let max_retries = 2;
-        let mut delay = Duration::from_millis(50);
-        let mut last_error = None;
-
-        for attempt in 0..max_retries {
-            match operation().await {
-                Ok(result) => return Ok(result),
-                Err(e) if attempt < max_retries - 1 => match &e {
-                    PluginError::NetworkError(_) | PluginError::ApiError(_) => {
-                        eprintln!(
-                            "[JENKINS] Retry attempt {} after error: {:?}",
-                            attempt + 1,
-                            e
-                        );
-                        last_error = Some(e);
-                        tokio::time::sleep(delay).await;
-                        delay *= 2;
-                        continue;
-                    }
-                    _ => return Err(e),
-                },
-                Err(e) => {
-                    last_error = Some(e);
-                }
-            }
-        }
-
-        Err(last_error
-            .unwrap_or_else(|| PluginError::NetworkError("Max retries exceeded".to_string())))
     }
 
     /// Discovers all jobs recursively
@@ -131,29 +99,32 @@ impl JenkinsClient {
     /// Fetches job details
     pub async fn fetch_job_details(&self, job_path: &str) -> PluginResult<types::Job> {
         let job_path = job_path.to_string();
-        self.retry_request(|| async {
-            let encoded_path = config::encode_job_name(&job_path);
-            let url = format!(
-                "{}/job/{}/api/json?tree=name,lastBuild[number]",
-                self.server_url, encoded_path
-            );
+        self.retry_policy
+            .retry(|| async {
+                let encoded_path = config::encode_job_name(&job_path);
+                let url = format!(
+                    "{}/job/{}/api/json?tree=name,lastBuild[number]",
+                    self.server_url, encoded_path
+                );
 
-            let job: types::Job = self
-                .client
-                .get(&url)
-                .timeout(Duration::from_secs(10))
-                .send()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch job {job_path}: {e}")))?
-                .json()
-                .await
-                .map_err(|e| {
-                    PluginError::ApiError(format!("Failed to parse job {job_path}: {e}"))
-                })?;
+                let job: types::Job = self
+                    .client
+                    .get(&url)
+                    .timeout(Duration::from_secs(10))
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        PluginError::ApiError(format!("Failed to fetch job {job_path}: {e}"))
+                    })?
+                    .json()
+                    .await
+                    .map_err(|e| {
+                        PluginError::ApiError(format!("Failed to parse job {job_path}: {e}"))
+                    })?;
 
-            Ok(job)
-        })
-        .await
+                Ok(job)
+            })
+            .await
     }
 
     /// Fetches build details (always fresh, no caching)
@@ -163,7 +134,7 @@ impl JenkinsClient {
         &self, job_path: &str, build_number: i64,
     ) -> PluginResult<types::Build> {
         let job_path = job_path.to_string();
-        self.retry_request(|| async {
+        self.retry_policy.retry(|| async {
             let encoded_path = config::encode_job_name(&job_path);
             let url = format!(
                 "{}/job/{}/{}/api/json?tree=number,result,building,timestamp,duration,url,fullDisplayName,actions[_class,causes[userName,shortDescription],lastBuiltRevision[SHA1,branch[SHA1,name]],parameters[name,value]]",
@@ -222,7 +193,7 @@ impl JenkinsClient {
     pub async fn fetch_job_parameters(
         &self, job_path: &str,
     ) -> PluginResult<types::JobWithParameters> {
-        self.retry_request(|| async {
+        self.retry_policy.retry(|| async {
             let encoded_path = config::encode_job_name(job_path);
             let url = format!(
                 "{}/job/{}/api/json?tree=property[parameterDefinitions[name,description,type,defaultParameterValue[value],choices],_class]",
@@ -251,81 +222,86 @@ impl JenkinsClient {
     pub async fn trigger_build(
         &self, job_path: &str, form_data: Vec<(String, String)>,
     ) -> PluginResult<()> {
-        let encoded_path = config::encode_job_name(job_path);
-        let has_params = !form_data.is_empty();
+        let job_path = job_path.to_string();
+        let form_data_clone = form_data.clone();
 
-        let url = if has_params {
-            format!(
-                "{}/job/{}/buildWithParameters",
-                self.server_url, encoded_path
-            )
-        } else {
-            format!("{}/job/{}/build", self.server_url, encoded_path)
-        };
+        self.retry_policy.retry(|| async {
+            let encoded_path = config::encode_job_name(&job_path);
+            let has_params = !form_data_clone.is_empty();
 
-        eprintln!("Triggering Jenkins build - URL: {url}");
-        eprintln!("Form data: {form_data:?}");
-
-        let response = self
-            .client
-            .post(&url)
-            .form(&form_data)
-            .send()
-            .await
-            .map_err(|e| {
-                let error_msg = format!("Failed to trigger build: {e}");
-                eprintln!("Network error: {error_msg}");
-                PluginError::ApiError(error_msg)
-            })?;
-
-        let status = response.status();
-
-        if status.is_success() || status == 201 {
-            eprintln!("Jenkins build triggered successfully");
-            Ok(())
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-
-            eprintln!("Jenkins trigger failed - Status: {status}, Error: {error_text}");
-
-            let params_info = form_data
-                .iter()
-                .map(|(k, v)| {
-                    format!(
-                        "{}={}",
-                        k,
-                        if v.len() > 50 {
-                            format!("{}...", &v[..50])
-                        } else {
-                            v.clone()
-                        }
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            let detailed_error = if error_text.contains("<!DOCTYPE html>")
-                || error_text.contains("<html")
-            {
+            let url = if has_params {
                 format!(
-                    "Jenkins returned HTTP {status} error. Check Jenkins console for details. Job: {job_path}, Parameters sent: [{params_info}]"
+                    "{}/job/{}/buildWithParameters",
+                    self.server_url, encoded_path
                 )
             } else {
-                let error_preview = if error_text.len() > 300 {
-                    format!("{}...", &error_text[..300])
-                } else {
-                    error_text
-                };
-                format!(
-                    "HTTP {status}: {error_preview} | Job: {job_path} | Parameters: [{params_info}]"
-                )
+                format!("{}/job/{}/build", self.server_url, encoded_path)
             };
 
-            Err(PluginError::ApiError(detailed_error))
-        }
+            eprintln!("Triggering Jenkins build - URL: {url}");
+            eprintln!("Form data: {form_data_clone:?}");
+
+            let response = self
+                .client
+                .post(&url)
+                .form(&form_data_clone)
+                .send()
+                .await
+                .map_err(|e| {
+                    let error_msg = format!("Failed to trigger build: {e}");
+                    eprintln!("Network error: {error_msg}");
+                    PluginError::ApiError(error_msg)
+                })?;
+
+            let status = response.status();
+
+            if status.is_success() || status == 201 {
+                eprintln!("Jenkins build triggered successfully");
+                Ok(())
+            } else {
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+
+                eprintln!("Jenkins trigger failed - Status: {status}, Error: {error_text}");
+
+                let params_info = form_data_clone
+                    .iter()
+                    .map(|(k, v)| {
+                        format!(
+                            "{}={}",
+                            k,
+                            if v.len() > 50 {
+                                format!("{}...", &v[..50])
+                            } else {
+                                v.clone()
+                            }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                let detailed_error = if error_text.contains("<!DOCTYPE html>")
+                    || error_text.contains("<html")
+                {
+                    format!(
+                        "Jenkins returned HTTP {status} error. Check Jenkins console for details. Job: {job_path}, Parameters sent: [{params_info}]"
+                    )
+                } else {
+                    let error_preview = if error_text.len() > 300 {
+                        format!("{}...", &error_text[..300])
+                    } else {
+                        error_text
+                    };
+                    format!(
+                        "HTTP {status}: {error_preview} | Job: {job_path} | Parameters: [{params_info}]"
+                    )
+                };
+
+                Err(PluginError::ApiError(detailed_error))
+            }
+        }).await
     }
 
     /// Fetches a single pipeline with its status
@@ -391,36 +367,40 @@ impl JenkinsClient {
 
     /// Cancels a running build
     pub async fn cancel_build(&self, job_path: &str, build_number: i64) -> PluginResult<()> {
-        let encoded_path = config::encode_job_name(job_path);
-        let url = format!(
-            "{}/job/{}/{}/stop",
-            self.server_url, encoded_path, build_number
-        );
+        let job_path = job_path.to_string();
 
-        eprintln!("[JENKINS] Cancelling build #{build_number} for job {job_path}");
+        self.retry_policy
+            .retry(|| async {
+                let encoded_path = config::encode_job_name(&job_path);
+                let url = format!(
+                    "{}/job/{}/{}/stop",
+                    self.server_url, encoded_path, build_number
+                );
 
-        let response = self
-            .client
-            .post(&url)
-            .send()
+                eprintln!("[JENKINS] Cancelling build #{build_number} for job {job_path}");
+
+                let response =
+                    self.client.post(&url).send().await.map_err(|e| {
+                        PluginError::ApiError(format!("Failed to cancel build: {e}"))
+                    })?;
+
+                let status = response.status();
+
+                if status.is_success() || status == 302 {
+                    eprintln!("[JENKINS] Build #{build_number} cancelled successfully");
+                    Ok(())
+                } else {
+                    let error_text = response
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "Unknown error".to_string());
+                    eprintln!("[JENKINS] Cancel failed - Status: {status}, Error: {error_text}");
+                    Err(PluginError::ApiError(format!(
+                        "Failed to cancel build: HTTP {status}"
+                    )))
+                }
+            })
             .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to cancel build: {e}")))?;
-
-        let status = response.status();
-
-        if status.is_success() || status == 302 {
-            eprintln!("[JENKINS] Build #{build_number} cancelled successfully");
-            Ok(())
-        } else {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            eprintln!("[JENKINS] Cancel failed - Status: {status}, Error: {error_text}");
-            Err(PluginError::ApiError(format!(
-                "Failed to cancel build: HTTP {status}"
-            )))
-        }
     }
 
     /// Converts discovered jobs to available pipelines

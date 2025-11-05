@@ -119,6 +119,8 @@ impl ProviderService {
                         .map(|item| {
                             if config.provider_type == "tekton" && item.contains("__") {
                                 item.replace("__", "/")
+                            } else if config.provider_type == "jenkins" && !item.contains('/') {
+                                format!("(root)/{}", item)
                             } else {
                                 item
                             }

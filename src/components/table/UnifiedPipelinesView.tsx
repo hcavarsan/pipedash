@@ -34,6 +34,7 @@ interface TableRow {
 interface UnifiedPipelinesViewProps {
   pipelines: Pipeline[];
   providers: ProviderSummary[];
+  selectedProviderId?: number;
   loading?: boolean;
   onViewHistory: (pipeline: Pipeline) => void;
   onTrigger: (pipeline: Pipeline) => void;
@@ -43,6 +44,7 @@ interface UnifiedPipelinesViewProps {
 export const UnifiedPipelinesView = ({
   pipelines,
   providers,
+  selectedProviderId,
   loading = false,
   onViewHistory,
   onTrigger,
@@ -111,6 +113,10 @@ return {
 return
 }
 
+      if (selectedProviderId !== undefined && pipeline.provider_id !== selectedProviderId) {
+        return
+      }
+
       const existing = repoMap.get(pipeline.repository)
 
 
@@ -134,6 +140,10 @@ return
     })
 
     providers.forEach((provider) => {
+      if (selectedProviderId !== undefined && provider.id !== selectedProviderId) {
+        return
+      }
+
       if (provider.configured_repositories && provider.configured_repositories.length > 0) {
         provider.configured_repositories.forEach((repoName) => {
           if (!repoMap.has(repoName)) {
@@ -189,7 +199,7 @@ return
 
     return rows
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelines, expandedRepos, providers])
+  }, [pipelines, expandedRepos, providers, selectedProviderId])
 
   const filteredRows = useMemo(() => {
     let result = tableRows

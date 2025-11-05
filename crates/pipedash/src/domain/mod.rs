@@ -22,8 +22,9 @@ pub use metrics::{
     PipelineMetricsStats,
 };
 pub use pipeline::{
-    AvailablePipeline,
+    PaginatedAvailablePipelines,
     PaginatedRunHistory,
+    PaginationParams,
     Pipeline,
     PipelineRun,
     PipelineStatus,

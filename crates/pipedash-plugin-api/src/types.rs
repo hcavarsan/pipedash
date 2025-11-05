@@ -161,6 +161,13 @@ pub struct BuildArtifact {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Organization {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
 /// Workflow parameter type
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -200,3 +207,84 @@ pub struct WorkflowParameter {
     #[serde(default)]
     pub required: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginationParams {
+    pub page: usize,
+    pub page_size: usize,
+}
+
+impl PaginationParams {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.page == 0 {
+            return Err("Page must be >= 1".to_string());
+        }
+        if self.page_size == 0 {
+            return Err("Page size must be >= 1".to_string());
+        }
+        if self.page_size > 200 {
+            return Err("Page size must be <= 200".to_string());
+        }
+        Ok(())
+    }
+
+    pub fn calculate_offset(&self) -> Result<usize, String> {
+        self.page
+            .checked_sub(1)
+            .and_then(|p| p.checked_mul(self.page_size))
+            .ok_or_else(|| "Pagination offset overflow".to_string())
+    }
+}
+
+impl Default for PaginationParams {
+    fn default() -> Self {
+        Self {
+            page: 1,
+            page_size: 100,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginatedResponse<T> {
+    pub items: Vec<T>,
+    pub page: usize,
+    pub page_size: usize,
+    pub total_count: usize,
+    pub total_pages: usize,
+    pub has_more: bool,
+}
+
+impl<T> PaginatedResponse<T> {
+    pub fn new(items: Vec<T>, page: usize, page_size: usize, total_count: usize) -> Self {
+        let items_count = items.len();
+        let total_pages = if page_size > 0 {
+            total_count.div_ceil(page_size)
+        } else {
+            1
+        };
+        let has_more = items_count == page_size;
+
+        Self {
+            items,
+            page,
+            page_size,
+            total_count,
+            total_pages,
+            has_more,
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            items: Vec::new(),
+            page: 1,
+            page_size: 100,
+            total_count: 0,
+            total_pages: 0,
+            has_more: false,
+        }
+    }
+}
+
+pub type PaginatedAvailablePipelines = PaginatedResponse<AvailablePipeline>;

@@ -79,4 +79,7 @@ pub(crate) struct Artifact {
 #[derive(Debug, Deserialize)]
 pub(crate) struct Organization {
     pub slug: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
 }

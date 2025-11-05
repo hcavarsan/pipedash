@@ -186,12 +186,27 @@ impl Plugin for TektonPlugin {
         Ok(true)
     }
 
-    async fn fetch_available_pipelines(&self) -> PluginResult<Vec<AvailablePipeline>> {
+    async fn fetch_available_pipelines(
+        &self, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+        let params = params.unwrap_or_default();
         let pipelines = self.fetch_all_pipelines_in_namespaces().await?;
-        Ok(pipelines
+        let all_pipelines: Vec<_> = pipelines
             .iter()
             .map(mapper::map_available_pipeline)
-            .collect())
+            .collect();
+
+        let total_count = all_pipelines.len();
+        let start = ((params.page - 1) * params.page_size).min(total_count);
+        let end = (start + params.page_size).min(total_count);
+        let items = all_pipelines[start..end].to_vec();
+
+        Ok(PaginatedResponse::new(
+            items,
+            params.page,
+            params.page_size,
+            total_count,
+        ))
     }
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
@@ -394,6 +409,48 @@ impl Plugin for TektonPlugin {
             .await?;
 
         Ok(())
+    }
+
+    async fn fetch_organizations(&self) -> PluginResult<Vec<Organization>> {
+        Ok(vec![Organization {
+            id: "default".to_string(),
+            name: "All Namespaces".to_string(),
+            description: Some("All accessible Kubernetes namespaces".to_string()),
+        }])
+    }
+
+    async fn fetch_available_pipelines_filtered(
+        &self, _org: Option<String>, search: Option<String>, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+        let params = params.unwrap_or_default();
+        let pipelines = self.fetch_all_pipelines_in_namespaces().await?;
+        let mut all_pipelines: Vec<_> = pipelines
+            .iter()
+            .map(mapper::map_available_pipeline)
+            .collect();
+
+        if let Some(search_term) = search {
+            let search_lower = search_term.to_lowercase();
+            all_pipelines.retain(|p| {
+                p.name.to_lowercase().contains(&search_lower)
+                    || p.id.to_lowercase().contains(&search_lower)
+                    || p.description
+                        .as_ref()
+                        .is_some_and(|d| d.to_lowercase().contains(&search_lower))
+            });
+        }
+
+        let total_count = all_pipelines.len();
+        let start = ((params.page - 1) * params.page_size).min(total_count);
+        let end = (start + params.page_size).min(total_count);
+        let items = all_pipelines[start..end].to_vec();
+
+        Ok(PaginatedResponse::new(
+            items,
+            params.page,
+            params.page_size,
+            total_count,
+        ))
     }
 
     async fn fetch_agents(&self) -> PluginResult<Vec<BuildAgent>> {

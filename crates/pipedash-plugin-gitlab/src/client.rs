@@ -1,8 +1,9 @@
-use std::time::Duration;
-
 use pipedash_plugin_api::{
+    PaginatedResponse,
+    PaginationParams,
     PluginError,
     PluginResult,
+    RetryPolicy,
 };
 use reqwest::StatusCode;
 
@@ -17,6 +18,7 @@ use crate::types::{
 pub struct GitLabClient {
     http_client: reqwest::Client,
     api_url: String,
+    retry_policy: RetryPolicy,
 }
 
 impl GitLabClient {
@@ -24,125 +26,239 @@ impl GitLabClient {
         Self {
             http_client,
             api_url: api_url.trim_end_matches('/').to_string(),
+            retry_policy: RetryPolicy::default(),
         }
     }
 
     pub async fn get_user(&self) -> PluginResult<User> {
-        self.retry_request(|| async {
-            let url = format!("{}/user", self.api_url);
-            let response = self
-                .http_client
-                .get(&url)
-                .send()
-                .await
-                .map_err(|e| PluginError::NetworkError(format!("Failed to get user: {}", e)))?;
+        self.retry_policy
+            .retry(|| async {
+                let url = format!("{}/user", self.api_url);
+                let response =
+                    self.http_client.get(&url).send().await.map_err(|e| {
+                        PluginError::NetworkError(format!("Failed to get user: {}", e))
+                    })?;
 
-            self.handle_response(response).await
-        })
-        .await
+                self.handle_response(response).await
+            })
+            .await
     }
 
-    pub async fn list_projects(&self, page: u32) -> PluginResult<Vec<Project>> {
-        self.retry_request(|| async {
-            let url = format!(
-                "{}/projects?membership=true&per_page=100&page={}",
-                self.api_url, page
-            );
-            let response = self.http_client.get(&url).send().await.map_err(|e| {
-                PluginError::NetworkError(format!("Failed to list projects: {}", e))
-            })?;
+    pub async fn list_groups(&self) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
+        let user = self.get_user().await?;
+        let mut orgs = vec![pipedash_plugin_api::Organization {
+            id: user.id.to_string(),
+            name: user.username.clone(),
+            description: Some(user.name.clone()),
+        }];
 
-            self.handle_response(response).await
-        })
-        .await
+        let groups_result = self
+            .retry_policy
+            .retry(|| async {
+                let url = format!("{}/groups?per_page=100", self.api_url);
+                let response = self.http_client.get(&url).send().await.map_err(|e| {
+                    PluginError::NetworkError(format!("Failed to list groups: {}", e))
+                })?;
+
+                let groups: Vec<serde_json::Value> = self.handle_response(response).await?;
+
+                Ok(groups
+                    .into_iter()
+                    .map(|g| pipedash_plugin_api::Organization {
+                        id: g["id"].as_i64().unwrap_or(0).to_string(),
+                        name: g["name"].as_str().unwrap_or("").to_string(),
+                        description: g["description"].as_str().map(|s| s.to_string()),
+                    })
+                    .collect::<Vec<_>>())
+            })
+            .await;
+
+        if let Ok(mut groups) = groups_result {
+            orgs.append(&mut groups);
+        }
+
+        Ok(orgs)
+    }
+
+    pub async fn list_projects(
+        &self, params: &PaginationParams,
+    ) -> PluginResult<PaginatedResponse<Project>> {
+        self.retry_policy
+            .retry(|| async {
+                let url = format!(
+                    "{}/projects?membership=true&per_page={}&page={}",
+                    self.api_url, params.page_size, params.page
+                );
+                let response = self.http_client.get(&url).send().await.map_err(|e| {
+                    PluginError::NetworkError(format!("Failed to list projects: {}", e))
+                })?;
+
+                let total_count = response
+                    .headers()
+                    .get("x-total")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<usize>().ok());
+
+                let items: Vec<Project> = self.handle_response(response).await?;
+                let count = total_count.unwrap_or(items.len());
+
+                Ok(PaginatedResponse::new(
+                    items,
+                    params.page,
+                    params.page_size,
+                    count,
+                ))
+            })
+            .await
+    }
+
+    pub async fn list_projects_filtered(
+        &self, group_id: Option<String>, search: Option<String>, params: &PaginationParams,
+    ) -> PluginResult<PaginatedResponse<Project>> {
+        let user = self.get_user().await?;
+        let is_personal_account = group_id
+            .as_ref()
+            .map(|gid| gid == &user.id.to_string())
+            .unwrap_or(false);
+
+        self.retry_policy
+            .retry(|| async {
+                let mut url = if let Some(gid) = &group_id {
+                    if is_personal_account {
+                        format!(
+                            "{}/users/{}/projects?per_page={}&page={}",
+                            self.api_url, user.id, params.page_size, params.page
+                        )
+                    } else {
+                        format!(
+                            "{}/groups/{}/projects?per_page={}&page={}",
+                            self.api_url, gid, params.page_size, params.page
+                        )
+                    }
+                } else {
+                    format!(
+                        "{}/projects?membership=true&per_page={}&page={}",
+                        self.api_url, params.page_size, params.page
+                    )
+                };
+
+                if let Some(search_term) = &search {
+                    let encoded = search_term.replace(" ", "%20").replace("&", "%26");
+                    url.push_str(&format!("&search={}", encoded));
+                }
+
+                let response = self.http_client.get(&url).send().await.map_err(|e| {
+                    PluginError::NetworkError(format!("Failed to list projects: {}", e))
+                })?;
+
+                let total_count = response
+                    .headers()
+                    .get("x-total")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<usize>().ok());
+
+                let items: Vec<Project> = self.handle_response(response).await?;
+                let count = total_count.unwrap_or(items.len());
+
+                Ok(PaginatedResponse::new(
+                    items,
+                    params.page,
+                    params.page_size,
+                    count,
+                ))
+            })
+            .await
     }
 
     pub async fn get_project(&self, project_id: i64) -> PluginResult<Project> {
-        self.retry_request(|| async {
-            let url = format!("{}/projects/{}", self.api_url, project_id);
-            let response =
-                self.http_client.get(&url).send().await.map_err(|e| {
+        self.retry_policy
+            .retry(|| async {
+                let url = format!("{}/projects/{}", self.api_url, project_id);
+                let response = self.http_client.get(&url).send().await.map_err(|e| {
                     PluginError::NetworkError(format!("Failed to get project: {}", e))
                 })?;
 
-            self.handle_response(response).await
-        })
-        .await
+                self.handle_response(response).await
+            })
+            .await
     }
 
     pub async fn get_project_pipelines(
         &self, project_id: i64, per_page: usize,
     ) -> PluginResult<Vec<Pipeline>> {
-        self.retry_request(|| async {
-            let url = format!(
-                "{}/projects/{}/pipelines?per_page={}&order_by=updated_at",
-                self.api_url, project_id, per_page
-            );
-            let response = self.http_client.get(&url).send().await.map_err(|e| {
-                PluginError::NetworkError(format!("Failed to get project pipelines: {}", e))
-            })?;
+        self.retry_policy
+            .retry(|| async {
+                let url = format!(
+                    "{}/projects/{}/pipelines?per_page={}&order_by=updated_at",
+                    self.api_url, project_id, per_page
+                );
+                let response = self.http_client.get(&url).send().await.map_err(|e| {
+                    PluginError::NetworkError(format!("Failed to get project pipelines: {}", e))
+                })?;
 
-            self.handle_response(response).await
-        })
-        .await
+                self.handle_response(response).await
+            })
+            .await
     }
 
     pub async fn get_pipeline(&self, project_id: i64, pipeline_id: i64) -> PluginResult<Pipeline> {
-        self.retry_request(|| async {
-            let url = format!(
-                "{}/projects/{}/pipelines/{}",
-                self.api_url, project_id, pipeline_id
-            );
-            let response =
-                self.http_client.get(&url).send().await.map_err(|e| {
+        self.retry_policy
+            .retry(|| async {
+                let url = format!(
+                    "{}/projects/{}/pipelines/{}",
+                    self.api_url, project_id, pipeline_id
+                );
+                let response = self.http_client.get(&url).send().await.map_err(|e| {
                     PluginError::NetworkError(format!("Failed to get pipeline: {}", e))
                 })?;
 
-            self.handle_response(response).await
-        })
-        .await
+                self.handle_response(response).await
+            })
+            .await
     }
 
     pub async fn trigger_pipeline(
         &self, project_id: i64, ref_name: String, variables: Option<Vec<PipelineVariable>>,
     ) -> PluginResult<Pipeline> {
-        self.retry_request(|| async {
-            let url = format!("{}/projects/{}/pipeline", self.api_url, project_id);
-            let request_body = TriggerPipelineRequest {
-                ref_name: ref_name.clone(),
-                variables: variables.clone(),
-            };
+        self.retry_policy
+            .retry(|| async {
+                let url = format!("{}/projects/{}/pipeline", self.api_url, project_id);
+                let request_body = TriggerPipelineRequest {
+                    ref_name: ref_name.clone(),
+                    variables: variables.clone(),
+                };
 
-            let response = self
-                .http_client
-                .post(&url)
-                .json(&request_body)
-                .send()
-                .await
-                .map_err(|e| {
-                    PluginError::NetworkError(format!("Failed to trigger pipeline: {}", e))
-                })?;
+                let response = self
+                    .http_client
+                    .post(&url)
+                    .json(&request_body)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        PluginError::NetworkError(format!("Failed to trigger pipeline: {}", e))
+                    })?;
 
-            self.handle_response(response).await
-        })
-        .await
+                self.handle_response(response).await
+            })
+            .await
     }
 
     pub async fn cancel_pipeline(
         &self, project_id: i64, pipeline_id: i64,
     ) -> PluginResult<Pipeline> {
-        self.retry_request(|| async {
-            let url = format!(
-                "{}/projects/{}/pipelines/{}/cancel",
-                self.api_url, project_id, pipeline_id
-            );
-            let response = self.http_client.post(&url).send().await.map_err(|e| {
-                PluginError::NetworkError(format!("Failed to cancel pipeline: {}", e))
-            })?;
+        self.retry_policy
+            .retry(|| async {
+                let url = format!(
+                    "{}/projects/{}/pipelines/{}/cancel",
+                    self.api_url, project_id, pipeline_id
+                );
+                let response = self.http_client.post(&url).send().await.map_err(|e| {
+                    PluginError::NetworkError(format!("Failed to cancel pipeline: {}", e))
+                })?;
 
-            self.handle_response(response).await
-        })
-        .await
+                self.handle_response(response).await
+            })
+            .await
     }
 
     async fn handle_response<T: serde::de::DeserializeOwned>(
@@ -181,31 +297,5 @@ impl GitLabClient {
         response.json::<T>().await.map_err(|e| {
             PluginError::ApiError(format!("Failed to parse GitLab API response: {}", e))
         })
-    }
-
-    async fn retry_request<F, Fut, T>(&self, operation: F) -> PluginResult<T>
-    where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = PluginResult<T>>,
-    {
-        let max_retries = 3;
-        let mut delay = Duration::from_millis(100);
-
-        for attempt in 0..max_retries {
-            match operation().await {
-                Ok(result) => return Ok(result),
-                Err(e) if attempt < max_retries - 1 => match &e {
-                    PluginError::NetworkError(_) | PluginError::ApiError(_) => {
-                        tokio::time::sleep(delay).await;
-                        delay *= 2;
-                        continue;
-                    }
-                    _ => return Err(e),
-                },
-                Err(e) => return Err(e),
-            }
-        }
-
-        unreachable!()
     }
 }

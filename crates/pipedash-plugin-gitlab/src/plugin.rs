@@ -52,16 +52,20 @@ impl GitLabPlugin {
         let mut page = 1;
 
         loop {
-            let projects = client.list_projects(page).await?;
-            if projects.is_empty() {
+            let params = PaginationParams {
+                page,
+                page_size: 100,
+            };
+            let response = client.list_projects(&params).await?;
+            if response.items.is_empty() {
                 break;
             }
-            all_projects.extend(projects);
-            page += 1;
+            all_projects.extend(response.items);
 
-            if page > 100 {
+            if !response.has_more || page > 100 {
                 break;
             }
+            page += 1;
         }
 
         if let Some(selected_paths) = config::parse_selected_items(&self.config) {
@@ -74,6 +78,33 @@ impl GitLabPlugin {
                 .collect())
         } else {
             Ok(all_projects)
+        }
+    }
+
+    async fn fetch_projects_paginated(
+        &self, params: &PaginationParams,
+    ) -> PluginResult<PaginatedResponse<types::Project>> {
+        let client = self.client()?;
+        let response = client.list_projects(params).await?;
+
+        if let Some(selected_paths) = config::parse_selected_items(&self.config) {
+            let filtered_items: Vec<_> = response
+                .items
+                .into_iter()
+                .filter(|p| {
+                    let normalized = p.name_with_namespace.replace(" ", "");
+                    selected_paths.contains(&normalized)
+                })
+                .collect();
+            let filtered_count = filtered_items.len();
+            Ok(PaginatedResponse::new(
+                filtered_items,
+                params.page,
+                params.page_size,
+                filtered_count,
+            ))
+        } else {
+            Ok(response)
         }
     }
 }
@@ -125,12 +156,50 @@ impl Plugin for GitLabPlugin {
         Ok(true)
     }
 
-    async fn fetch_available_pipelines(&self) -> PluginResult<Vec<AvailablePipeline>> {
-        let projects = self.fetch_all_projects().await?;
-        Ok(projects
+    async fn fetch_available_pipelines(
+        &self, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+        let params = params.unwrap_or_default();
+        let response = self.fetch_projects_paginated(&params).await?;
+
+        let available_pipelines = response
+            .items
             .iter()
             .map(mapper::map_available_pipeline)
-            .collect())
+            .collect();
+
+        Ok(PaginatedResponse::new(
+            available_pipelines,
+            response.page,
+            response.page_size,
+            response.total_count,
+        ))
+    }
+
+    async fn fetch_organizations(&self) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
+        let client = self.client()?;
+        client.list_groups().await
+    }
+
+    async fn fetch_available_pipelines_filtered(
+        &self, org: Option<String>, search: Option<String>, params: Option<PaginationParams>,
+    ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
+        let params = params.unwrap_or_default();
+        let client = self.client()?;
+        let response = client.list_projects_filtered(org, search, &params).await?;
+
+        let available_pipelines = response
+            .items
+            .iter()
+            .map(mapper::map_available_pipeline)
+            .collect();
+
+        Ok(PaginatedResponse::new(
+            available_pipelines,
+            response.page,
+            response.page_size,
+            response.total_count,
+        ))
     }
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {

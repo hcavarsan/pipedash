@@ -20,12 +20,13 @@ use crate::domain::{
     AggregatedMetrics,
     AggregationPeriod,
     AggregationType,
-    AvailablePipeline,
     GlobalMetricsConfig,
     MetricType,
     MetricsConfig,
     MetricsQuery,
     MetricsStats,
+    PaginatedAvailablePipelines,
+    PaginationParams,
     Pipeline,
     PipelineRun,
     ProviderConfig,
@@ -64,7 +65,18 @@ pub async fn add_provider(
         .await
         .map_err(ErrorResponse::from)?;
 
-    let _ = state.pipeline_service.fetch_pipelines(Some(id)).await;
+    let pipeline_service = state.pipeline_service.clone();
+    let app_handle = state.app.clone();
+    tokio::spawn(async move {
+        match pipeline_service.fetch_pipelines(Some(id)).await {
+            Ok(_) => {
+                let _ = app_handle.emit("pipelines-fetched", id);
+            }
+            Err(e) => {
+                let _ = app_handle.emit("pipelines-fetch-error", format!("{}", e));
+            }
+        }
+    });
 
     let _ = state.app.emit("providers-changed", ());
 
@@ -171,7 +183,7 @@ pub async fn fetch_run_history(
     state: State<'_, AppState>, pipeline_id: String, page: Option<usize>, page_size: Option<usize>,
 ) -> Result<crate::domain::PaginatedRunHistory, ErrorResponse> {
     let page = page.unwrap_or(1).max(1);
-    let page_size = page_size.unwrap_or(20).clamp(1, 100);
+    let page_size = page_size.unwrap_or(20).clamp(10, 100);
 
     eprintln!(
         "[COMMAND] fetch_run_history: pipeline={}, page={}, page_size={}",
@@ -329,9 +341,9 @@ pub async fn get_provider_field_options(
 }
 
 #[tauri::command]
-pub async fn preview_provider_pipelines(
+pub async fn fetch_provider_organizations(
     provider_type: String, config: HashMap<String, String>, state: State<'_, AppState>,
-) -> Result<Vec<AvailablePipeline>, ErrorResponse> {
+) -> Result<Vec<pipedash_plugin_api::Organization>, ErrorResponse> {
     let mut plugin = state
         .provider_service
         .create_uninitialized_plugin(&provider_type)
@@ -348,25 +360,57 @@ pub async fn preview_provider_pipelines(
             error: format!("Failed to validate credentials: {e}"),
         })?;
 
-    let plugin_pipelines = plugin
-        .fetch_available_pipelines()
+    let organizations = plugin
+        .fetch_organizations()
+        .await
+        .map_err(|e| ErrorResponse {
+            error: format!("Failed to fetch organizations: {e}"),
+        })?;
+
+    Ok(organizations)
+}
+
+#[tauri::command]
+pub async fn preview_provider_pipelines(
+    provider_type: String, config: HashMap<String, String>, org: Option<String>,
+    search: Option<String>, page: Option<usize>, page_size: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<PaginatedAvailablePipelines, ErrorResponse> {
+    let mut plugin = state
+        .provider_service
+        .create_uninitialized_plugin(&provider_type)
+        .map_err(ErrorResponse::from)?;
+
+    plugin.initialize(0, config).map_err(|e| ErrorResponse {
+        error: format!("Failed to initialize plugin: {e}"),
+    })?;
+
+    plugin
+        .validate_credentials()
+        .await
+        .map_err(|e| ErrorResponse {
+            error: format!("Failed to validate credentials: {e}"),
+        })?;
+
+    let params = PaginationParams {
+        page: page.unwrap_or(1).max(1),
+        page_size: page_size.unwrap_or(100).clamp(10, 200),
+    };
+
+    if let Err(validation_error) = params.validate() {
+        return Err(ErrorResponse {
+            error: validation_error,
+        });
+    }
+
+    let paginated_pipelines = plugin
+        .fetch_available_pipelines_filtered(org, search, Some(params))
         .await
         .map_err(|e| ErrorResponse {
             error: format!("Failed to fetch available pipelines: {e}"),
         })?;
 
-    let pipelines = plugin_pipelines
-        .into_iter()
-        .map(|p| AvailablePipeline {
-            id: p.id,
-            name: p.name,
-            description: p.description,
-            organization: p.organization,
-            repository: p.repository,
-        })
-        .collect();
-
-    Ok(pipelines)
+    Ok(paginated_pipelines)
 }
 
 #[tauri::command]

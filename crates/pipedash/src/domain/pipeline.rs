@@ -4,19 +4,14 @@ use chrono::{
     DateTime,
     Utc,
 };
+pub use pipedash_plugin_api::{
+    PaginatedAvailablePipelines,
+    PaginationParams,
+};
 use serde::{
     Deserialize,
     Serialize,
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AvailablePipeline {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub organization: Option<String>,
-    pub repository: Option<String>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
