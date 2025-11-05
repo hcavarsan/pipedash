@@ -10,6 +10,7 @@ export function StandardTable<T>(props: DataTableProps<T>) {
         {...props}
         withTableBorder={false}
         highlightOnHover={true}
+        withColumnBorders={false}
         scrollAreaProps={{
           type: 'auto',
           scrollbarSize: 10,
@@ -39,7 +40,7 @@ export function StandardTable<T>(props: DataTableProps<T>) {
           pagination: {
             paddingTop: '1rem',
             paddingBottom: '1rem',
-            marginBottom: '1.5rem',
+            marginBottom: '3rem',
             fontSize: 'var(--mantine-font-size-sm)',
             ...(props.styles?.pagination || {}),
           },

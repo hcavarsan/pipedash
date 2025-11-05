@@ -5,7 +5,13 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use pipedash_plugin_api::*;
 
-use crate::{client, config, mapper, types};
+use crate::{
+    client,
+    config,
+    mapper,
+    metadata,
+    types,
+};
 
 pub struct TektonPlugin {
     metadata: PluginMetadata,
@@ -22,60 +28,8 @@ impl Default for TektonPlugin {
 
 impl TektonPlugin {
     pub fn new() -> Self {
-        let default_kubeconfig = config::get_default_kubeconfig_path();
-
-        let config_schema = ConfigSchema::new()
-            .add_field(ConfigField {
-                key: "kubeconfig_path".to_string(),
-                label: "Kubeconfig Path".to_string(),
-                description: Some(
-                    "Path to your Kubernetes config file(s). Multiple paths can be separated by ':' (Unix) or ';' (Windows). Uses $KUBECONFIG env var if set."
-                        .to_string(),
-                ),
-                field_type: ConfigFieldType::Text,
-                required: false,
-                default_value: Some(serde_json::Value::String(default_kubeconfig)),
-                options: None,
-                validation_regex: None,
-                validation_message: None,
-            })
-            .add_field(ConfigField {
-                key: "context".to_string(),
-                label: "Kubernetes Context".to_string(),
-                description: Some(
-                    "Select a context from your kubeconfig. Leave empty to use current-context."
-                        .to_string(),
-                ),
-                field_type: ConfigFieldType::Select,
-                required: false,
-                default_value: None,
-                options: Some(Vec::new()),
-                validation_regex: None,
-                validation_message: None,
-            });
-
-        let metadata = PluginMetadata {
-            name: "Tekton CD".to_string(),
-            provider_type: "tekton".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Monitor and trigger Tekton CI/CD pipelines running on Kubernetes"
-                .to_string(),
-            author: Some("Pipedash Team".to_string()),
-            icon: Some("https://cdn.simpleicons.org/tekton/FD495C".to_string()),
-            config_schema,
-            capabilities: PluginCapabilities {
-                pipelines: true,
-                pipeline_runs: true,
-                trigger: true,
-                agents: false,
-                artifacts: false,
-                queues: false,
-                custom_tables: false,
-            },
-        };
-
         Self {
-            metadata,
+            metadata: metadata::create_metadata(),
             client: OnceLock::new(),
             provider_id: None,
             config: HashMap::new(),
@@ -90,18 +44,14 @@ impl TektonPlugin {
         let kubeconfig_path = config::get_kubeconfig_path(&self.config);
         let context = config::get_context(&self.config);
 
-        let new_client = client::TektonClient::from_kubeconfig(
-            kubeconfig_path.as_deref(),
-            context.as_deref(),
-        )
-        .await?;
+        let new_client =
+            client::TektonClient::from_kubeconfig(kubeconfig_path.as_deref(), context.as_deref())
+                .await?;
 
         Ok(self.client.get_or_init(|| new_client))
     }
 
-    async fn fetch_all_pipelines_in_namespaces(
-        &self,
-    ) -> PluginResult<Vec<types::TektonPipeline>> {
+    async fn fetch_all_pipelines_in_namespaces(&self) -> PluginResult<Vec<types::TektonPipeline>> {
         let client = self.client().await?;
 
         let selected_ids = config::get_selected_pipelines(&self.config);
@@ -123,17 +73,14 @@ impl TektonPlugin {
             unique_namespaces.into_iter().collect()
         };
 
-        let pipeline_futures = namespaces.iter().map(|namespace| async move {
-            client.list_pipelines(namespace).await.ok()
-        });
+        let pipeline_futures = namespaces
+            .iter()
+            .map(|namespace| async move { client.list_pipelines(namespace).await.ok() });
 
         let results: Vec<Option<Vec<types::TektonPipeline>>> = join_all(pipeline_futures).await;
 
-        let all_pipelines: Vec<types::TektonPipeline> = results
-            .into_iter()
-            .flatten()
-            .flatten()
-            .collect();
+        let all_pipelines: Vec<types::TektonPipeline> =
+            results.into_iter().flatten().flatten().collect();
 
         if selected_ids.is_empty() {
             Ok(all_pipelines)
@@ -149,9 +96,7 @@ impl TektonPlugin {
     }
 
     async fn fetch_latest_run_for_pipeline(
-        &self,
-        namespace: &str,
-        pipeline_name: &str,
+        &self, namespace: &str, pipeline_name: &str,
     ) -> Option<types::TektonPipelineRun> {
         let client = self.client().await.ok()?;
         let mut runs = client
@@ -220,9 +165,7 @@ impl Plugin for TektonPlugin {
     }
 
     fn initialize(
-        &mut self,
-        provider_id: i64,
-        config: HashMap<String, String>,
+        &mut self, provider_id: i64, config: HashMap<String, String>,
     ) -> PluginResult<()> {
         self.provider_id = Some(provider_id);
         self.config = config;
@@ -245,7 +188,10 @@ impl Plugin for TektonPlugin {
 
     async fn fetch_available_pipelines(&self) -> PluginResult<Vec<AvailablePipeline>> {
         let pipelines = self.fetch_all_pipelines_in_namespaces().await?;
-        Ok(pipelines.iter().map(mapper::map_available_pipeline).collect())
+        Ok(pipelines
+            .iter()
+            .map(mapper::map_available_pipeline)
+            .collect())
     }
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
@@ -270,9 +216,7 @@ impl Plugin for TektonPlugin {
     }
 
     async fn fetch_run_history(
-        &self,
-        pipeline_id: &str,
-        limit: usize,
+        &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>> {
         let (provider_id, namespace, pipeline_name) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client().await?;
@@ -287,8 +231,7 @@ impl Plugin for TektonPlugin {
             b_time.cmp(&a_time)
         });
 
-        let limited_runs: Vec<types::TektonPipelineRun> =
-            runs.into_iter().take(limit).collect();
+        let limited_runs: Vec<types::TektonPipelineRun> = runs.into_iter().take(limit).collect();
 
         Ok(limited_runs
             .iter()
@@ -297,9 +240,7 @@ impl Plugin for TektonPlugin {
     }
 
     async fn fetch_run_details(
-        &self,
-        pipeline_id: &str,
-        run_number: i64,
+        &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun> {
         let (provider_id, namespace, _pipeline_name) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client().await?;
@@ -309,20 +250,21 @@ impl Plugin for TektonPlugin {
         let run = runs
             .into_iter()
             .find(|r| {
-                types::parse_timestamp(&r.metadata.creation_timestamp)
-                    .map(|dt| dt.timestamp())
+                types::parse_timestamp(&r.metadata.creation_timestamp).map(|dt| dt.timestamp())
                     == Some(run_number)
             })
             .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!("PipelineRun with timestamp {} not found", run_number))
+                PluginError::PipelineNotFound(format!(
+                    "PipelineRun with timestamp {} not found",
+                    run_number
+                ))
             })?;
 
         Ok(mapper::map_pipeline_run(&run, provider_id))
     }
 
     async fn fetch_workflow_parameters(
-        &self,
-        workflow_id: &str,
+        &self, workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {
         let (_provider_id, namespace, pipeline_name) = config::parse_pipeline_id(workflow_id)?;
         let client = self.client().await?;
@@ -417,19 +359,30 @@ impl Plugin for TektonPlugin {
 
         let runs = client.list_pipelineruns(&namespace, None).await?;
 
-        let run = runs
+        let matching_runs: Vec<_> = runs
             .into_iter()
-            .find(|r| {
-                r.metadata
-                    .name
-                    .split('-')
-                    .last()
-                    .and_then(|s| s.parse::<i64>().ok())
+            .filter(|r| {
+                types::parse_timestamp(&r.metadata.creation_timestamp).map(|dt| dt.timestamp())
                     == Some(run_number)
             })
-            .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!("PipelineRun with number {} not found", run_number))
-            })?;
+            .collect();
+
+        if matching_runs.is_empty() {
+            return Err(PluginError::PipelineNotFound(format!(
+                "PipelineRun with timestamp {} not found",
+                run_number
+            )));
+        }
+
+        if matching_runs.len() > 1 {
+            eprintln!(
+                "[TEKTON WARNING] Multiple PipelineRuns found with timestamp {}. Cancelling the first one: {}",
+                run_number,
+                matching_runs[0].metadata.name
+            );
+        }
+
+        let run = &matching_runs[0];
 
         client
             .delete_pipelinerun(&namespace, &run.metadata.name)
@@ -461,9 +414,7 @@ impl Plugin for TektonPlugin {
     }
 
     async fn get_field_options(
-        &self,
-        field_key: &str,
-        config: &HashMap<String, String>,
+        &self, field_key: &str, config: &HashMap<String, String>,
     ) -> PluginResult<Vec<String>> {
         if field_key == "context" {
             let kubeconfig_path = config::get_kubeconfig_path(config);

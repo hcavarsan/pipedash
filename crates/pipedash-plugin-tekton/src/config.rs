@@ -1,10 +1,14 @@
-use pipedash_plugin_api::{PluginError, PluginResult};
 use std::collections::HashMap;
 
+use pipedash_plugin_api::{
+    PluginError,
+    PluginResult,
+};
+
 pub(crate) fn expand_path(path: &str) -> String {
-    if path.starts_with("~/") {
+    if let Some(stripped) = path.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
-            return home.join(&path[2..]).to_string_lossy().to_string();
+            return home.join(stripped).to_string_lossy().to_string();
         }
     }
 
@@ -32,7 +36,7 @@ pub(crate) fn split_kubeconfig_paths(path: &str) -> Vec<String> {
     path.split(separator)
         .map(|p| p.trim())
         .filter(|p| !p.is_empty())
-        .map(|p| expand_path(p))
+        .map(expand_path)
         .collect()
 }
 
@@ -73,9 +77,9 @@ pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, String, String)>
         )));
     }
 
-    let provider_id = parts[1]
-        .parse::<i64>()
-        .map_err(|_| PluginError::InvalidConfig(format!("Invalid provider ID in pipeline ID: {}", id)))?;
+    let provider_id = parts[1].parse::<i64>().map_err(|_| {
+        PluginError::InvalidConfig(format!("Invalid provider ID in pipeline ID: {}", id))
+    })?;
 
     let namespace = parts[2].to_string();
     let pipeline_name = parts[3..].join("__");

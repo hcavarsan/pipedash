@@ -16,6 +16,7 @@ use crate::{
     client,
     config,
     mapper,
+    metadata,
 };
 
 /// Jenkins plugin for monitoring jobs and builds
@@ -34,55 +35,8 @@ impl Default for JenkinsPlugin {
 
 impl JenkinsPlugin {
     pub fn new() -> Self {
-        let mut config_schema = ConfigSchema::new();
-
-        config_schema = config_schema.add_field(ConfigField {
-            key: "server_url".to_string(),
-            label: "Jenkins Server URL".to_string(),
-            description: Some(
-                "Your Jenkins server URL (e.g., https://jenkins.example.com)".to_string(),
-            ),
-            field_type: ConfigFieldType::Text,
-            required: true,
-            default_value: None,
-            options: None,
-            validation_regex: None,
-            validation_message: None,
-        });
-
-        config_schema = config_schema.add_field(ConfigField {
-            key: "username".to_string(),
-            label: "Username".to_string(),
-            description: Some("Your Jenkins username".to_string()),
-            field_type: ConfigFieldType::Text,
-            required: true,
-            default_value: None,
-            options: None,
-            validation_regex: None,
-            validation_message: None,
-        });
-
-        let metadata = PluginMetadata {
-            name: "Jenkins".to_string(),
-            provider_type: "jenkins".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Monitor Jenkins jobs, builds, and pipelines".to_string(),
-            author: Some("Pipedash Team".to_string()),
-            icon: Some("https://www.jenkins.io/favicon.ico".to_string()),
-            config_schema,
-            capabilities: PluginCapabilities {
-                pipelines: true,
-                pipeline_runs: true,
-                trigger: true,
-                agents: false,
-                artifacts: false,
-                queues: false,
-                custom_tables: false,
-            },
-        };
-
         Self {
-            metadata,
+            metadata: metadata::create_metadata(),
             client: None,
             provider_id: None,
             config: HashMap::new(),

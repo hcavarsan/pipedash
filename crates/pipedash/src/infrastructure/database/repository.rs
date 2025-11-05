@@ -158,6 +158,24 @@ impl Repository {
     }
 
     pub async fn remove_provider(&self, id: i64) -> DomainResult<()> {
+        let pipelines = self
+            .get_cached_pipelines(Some(id))
+            .await
+            .unwrap_or_default();
+        let pipeline_ids: Vec<String> = pipelines.iter().map(|p| p.id.clone()).collect();
+
+        let _ = sqlx::query("DELETE FROM run_history_cache WHERE pipeline_id IN (SELECT id FROM pipelines_cache WHERE provider_id = ?)")
+            .bind(id)
+            .execute(&self.pool)
+            .await;
+
+        for pipeline_id in pipeline_ids {
+            let _ = sqlx::query("DELETE FROM workflow_parameters_cache WHERE workflow_id LIKE ?")
+                .bind(format!("{}%", pipeline_id))
+                .execute(&self.pool)
+                .await;
+        }
+
         let result = sqlx::query("DELETE FROM providers WHERE id = ?")
             .bind(id)
             .execute(&self.pool)
@@ -345,6 +363,7 @@ impl Repository {
             repository,
             branch,
             workflow_file,
+            metadata: std::collections::HashMap::new(),
         })
     }
 
@@ -820,6 +839,7 @@ impl Repository {
                         repository,
                         branch,
                         workflow_file,
+                        metadata: std::collections::HashMap::new(),
                     });
                 }
 
@@ -926,5 +946,50 @@ impl Repository {
         let deleted = result.rows_affected() as usize;
         eprintln!("[CACHE] Cleared {} pipelines from cache", deleted);
         Ok(deleted)
+    }
+
+    pub async fn get_table_preferences(
+        &self, provider_id: i64, table_id: &str,
+    ) -> DomainResult<Option<String>> {
+        let result = sqlx::query_scalar::<_, String>(
+            "SELECT preferences_json FROM table_preferences WHERE provider_id = ? AND table_id = ?",
+        )
+        .bind(provider_id)
+        .bind(table_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+        Ok(result)
+    }
+
+    pub async fn upsert_table_preferences(
+        &self, provider_id: i64, table_id: &str, preferences_json: &str,
+    ) -> DomainResult<()> {
+        retry_on_busy(|| {
+            let provider_id_val = provider_id;
+            let table_id_val = table_id.to_string();
+            let preferences_val = preferences_json.to_string();
+            let pool = self.pool.clone();
+
+            async move {
+                sqlx::query(
+                    "INSERT INTO table_preferences (provider_id, table_id, preferences_json, created_at, updated_at)
+                     VALUES (?, ?, ?, datetime('now'), datetime('now'))
+                     ON CONFLICT(provider_id, table_id) DO UPDATE SET
+                     preferences_json = excluded.preferences_json,
+                     updated_at = datetime('now')"
+                )
+                .bind(provider_id_val)
+                .bind(&table_id_val)
+                .bind(&preferences_val)
+                .execute(&pool)
+                .await
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                Ok(())
+            }
+        })
+        .await
     }
 }

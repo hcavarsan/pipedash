@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::Utc;
 use pipedash_plugin_api::{
     AvailablePipeline,
@@ -30,6 +32,19 @@ pub(crate) fn map_pipeline(
 
     let repository_normalized = project.name_with_namespace.replace(" ", "");
 
+    let parts: Vec<&str> = project.name_with_namespace.split('/').collect();
+    let namespace = if parts.len() >= 2 {
+        parts[..parts.len() - 1].join("/")
+    } else {
+        String::new()
+    };
+
+    let mut metadata = HashMap::new();
+    metadata.insert("project_id".to_string(), serde_json::json!(project.id));
+    if !namespace.is_empty() {
+        metadata.insert("namespace".to_string(), serde_json::json!(namespace));
+    }
+
     Pipeline {
         id: format!("gitlab__{}__{}", provider_id, project.id),
         provider_id,
@@ -41,11 +56,12 @@ pub(crate) fn map_pipeline(
         repository: repository_normalized,
         branch,
         workflow_file: None,
+        metadata,
     }
 }
 
 pub(crate) fn map_pipeline_run(
-    pipeline: &types::Pipeline, project_id: i64, provider_id: i64,
+    pipeline: &types::Pipeline, project_id: i64, provider_id: i64, namespace: Option<&str>,
 ) -> PipelineRun {
     let duration = pipeline.duration.or_else(|| {
         pipeline.started_at.and_then(|started| {
@@ -54,6 +70,14 @@ pub(crate) fn map_pipeline_run(
                 .map(|finished| (finished - started).num_seconds())
         })
     });
+
+    let mut metadata = HashMap::new();
+    if let Some(ref source) = pipeline.source {
+        metadata.insert("source".to_string(), serde_json::json!(source));
+    }
+    if let Some(ns) = namespace {
+        metadata.insert("namespace".to_string(), serde_json::json!(ns));
+    }
 
     PipelineRun {
         id: format!("gitlab__{}__{}_{}", provider_id, project_id, pipeline.id),
@@ -69,6 +93,7 @@ pub(crate) fn map_pipeline_run(
         branch: Some(pipeline.ref_name.clone()),
         actor: pipeline.user.as_ref().map(|u| u.username.clone()),
         inputs: None,
+        metadata,
     }
 }
 

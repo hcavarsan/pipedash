@@ -13,6 +13,7 @@ use crate::{
     client,
     config,
     mapper,
+    metadata,
     types,
 };
 
@@ -31,41 +32,8 @@ impl Default for GitLabPlugin {
 
 impl GitLabPlugin {
     pub fn new() -> Self {
-        let config_schema = ConfigSchema::new().add_field(ConfigField {
-            key: "base_url".to_string(),
-            label: "GitLab Base URL (optional)".to_string(),
-            description: Some(
-                "Leave empty for GitLab.com, or enter your self-hosted GitLab URL (e.g., https://gitlab.example.com)".to_string(),
-            ),
-            field_type: ConfigFieldType::Text,
-            required: false,
-            default_value: None,
-            options: None,
-            validation_regex: None,
-            validation_message: None,
-        });
-
-        let metadata = PluginMetadata {
-            name: "GitLab CI".to_string(),
-            provider_type: "gitlab".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Monitor and trigger GitLab CI/CD pipelines".to_string(),
-            author: Some("Pipedash Team".to_string()),
-            icon: Some("https://cdn.simpleicons.org/gitlab/FC6D26".to_string()),
-            config_schema,
-            capabilities: PluginCapabilities {
-                pipelines: true,
-                pipeline_runs: true,
-                trigger: true,
-                agents: false,
-                artifacts: false,
-                queues: false,
-                custom_tables: false,
-            },
-        };
-
         Self {
-            metadata,
+            metadata: metadata::create_metadata(),
             client: None,
             provider_id: None,
             config: HashMap::new(),
@@ -189,11 +157,27 @@ impl Plugin for GitLabPlugin {
         let (provider_id, project_id) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
 
-        let pipelines = client.get_project_pipelines(project_id, limit).await?;
+        let project = client.get_project(project_id).await?;
 
-        Ok(pipelines
+        let pipeline_list = client.get_project_pipelines(project_id, limit).await?;
+
+        let parts: Vec<&str> = project.name_with_namespace.split('/').collect();
+        let namespace = if parts.len() >= 2 {
+            Some(parts[..parts.len() - 1].join("/"))
+        } else {
+            None
+        };
+
+        let detailed_pipeline_futures = pipeline_list
             .iter()
-            .map(|p| mapper::map_pipeline_run(p, project_id, provider_id))
+            .map(|p| async move { client.get_pipeline(project_id, p.id).await });
+
+        let detailed_pipelines = join_all(detailed_pipeline_futures).await;
+
+        Ok(detailed_pipelines
+            .into_iter()
+            .filter_map(|result| result.ok())
+            .map(|p| mapper::map_pipeline_run(&p, project_id, provider_id, namespace.as_deref()))
             .collect())
     }
 
@@ -203,8 +187,22 @@ impl Plugin for GitLabPlugin {
         let (provider_id, project_id) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
 
+        let project = client.get_project(project_id).await?;
         let pipeline = client.get_pipeline(project_id, run_number).await?;
-        Ok(mapper::map_pipeline_run(&pipeline, project_id, provider_id))
+
+        let parts: Vec<&str> = project.name_with_namespace.split('/').collect();
+        let namespace = if parts.len() >= 2 {
+            Some(parts[..parts.len() - 1].join("/"))
+        } else {
+            None
+        };
+
+        Ok(mapper::map_pipeline_run(
+            &pipeline,
+            project_id,
+            provider_id,
+            namespace.as_deref(),
+        ))
     }
 
     async fn fetch_workflow_parameters(

@@ -39,6 +39,8 @@ pub struct Pipeline {
     pub finished_at: Option<DateTime<Utc>>,
     pub duration: Option<i64>,
     pub user: Option<PipelineUser>,
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

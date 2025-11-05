@@ -7,7 +7,10 @@ use serde::{
 };
 
 use crate::error::PluginResult;
-use crate::schema::ConfigSchema;
+use crate::schema::{
+    ConfigSchema,
+    TableSchema,
+};
 use crate::types::*;
 
 /// Plugin metadata - describes the plugin
@@ -27,6 +30,8 @@ pub struct PluginMetadata {
     pub icon: Option<String>,
     /// Configuration schema for generic UI
     pub config_schema: ConfigSchema,
+    /// Table schema for dynamic tables and columns
+    pub table_schema: TableSchema,
     /// Plugin capabilities
     pub capabilities: PluginCapabilities,
 }
@@ -130,9 +135,7 @@ pub trait Plugin: Send + Sync {
     }
 
     async fn get_field_options(
-        &self,
-        _field_key: &str,
-        _config: &HashMap<String, String>,
+        &self, _field_key: &str, _config: &HashMap<String, String>,
     ) -> PluginResult<Vec<String>> {
         Ok(Vec::new())
     }

@@ -10,6 +10,7 @@ use pipedash_plugin_api::*;
 use crate::{
     client,
     config,
+    metadata,
 };
 
 /// GitHub Actions plugin for monitoring workflows and runs
@@ -28,30 +29,8 @@ impl Default for GitHubPlugin {
 
 impl GitHubPlugin {
     pub fn new() -> Self {
-        // No config fields needed - repositories are selected in the UI
-        let config_schema = ConfigSchema::new();
-
-        let metadata = PluginMetadata {
-            name: "GitHub Actions".to_string(),
-            provider_type: "github".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Monitor and trigger GitHub Actions workflows".to_string(),
-            author: Some("Pipedash Team".to_string()),
-            icon: Some("https://cdn.simpleicons.org/github/white".to_string()),
-            config_schema,
-            capabilities: PluginCapabilities {
-                pipelines: true,
-                pipeline_runs: true,
-                trigger: true,
-                agents: false,
-                artifacts: false,
-                queues: false,
-                custom_tables: false,
-            },
-        };
-
         Self {
-            metadata,
+            metadata: metadata::create_metadata(),
             client: None,
             provider_id: None,
             config: HashMap::new(),

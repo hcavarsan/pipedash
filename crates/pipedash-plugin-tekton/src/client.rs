@@ -1,7 +1,20 @@
-use crate::{config, types::{PipelineList, PipelineRunList, TektonPipeline, TektonPipelineRun}};
-use kube::Client;
-use pipedash_plugin_api::{PluginError, PluginResult};
 use std::path::PathBuf;
+
+use kube::Client;
+use pipedash_plugin_api::{
+    PluginError,
+    PluginResult,
+};
+
+use crate::{
+    config,
+    types::{
+        PipelineList,
+        PipelineRunList,
+        TektonPipeline,
+        TektonPipelineRun,
+    },
+};
 
 pub struct TektonClient {
     client: Client,
@@ -52,8 +65,7 @@ impl TektonClient {
     }
 
     pub async fn from_kubeconfig(
-        kubeconfig_path: Option<&str>,
-        context: Option<&str>,
+        kubeconfig_path: Option<&str>, context: Option<&str>,
     ) -> PluginResult<Self> {
         let kubeconfig = if let Some(path_str) = kubeconfig_path {
             let paths = config::split_kubeconfig_paths(path_str);
@@ -75,9 +87,7 @@ impl TektonClient {
 
         let config = kube::Config::from_custom_kubeconfig(kubeconfig, &options)
             .await
-            .map_err(|e| {
-                PluginError::InvalidConfig(format!("Failed to load kubeconfig: {}", e))
-            })?;
+            .map_err(|e| PluginError::InvalidConfig(format!("Failed to load kubeconfig: {}", e)))?;
 
         let client = Client::try_from(config).map_err(|e| {
             PluginError::InvalidConfig(format!("Failed to create Kubernetes client: {}", e))
@@ -87,9 +97,13 @@ impl TektonClient {
     }
 
     pub async fn list_namespaces(&self) -> PluginResult<Vec<String>> {
-        use kube::api::{Api, ListParams};
+        use kube::api::{
+            Api,
+            ListParams,
+        };
 
-        let namespaces_api: Api<k8s_openapi::api::core::v1::Namespace> = Api::all(self.client.clone());
+        let namespaces_api: Api<k8s_openapi::api::core::v1::Namespace> =
+            Api::all(self.client.clone());
 
         let namespaces = namespaces_api
             .list(&ListParams::default())
@@ -135,17 +149,17 @@ impl TektonClient {
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to make request: {}", e)))?;
 
-        serde_json::from_str(&response_body)
-            .map_err(|e| PluginError::SerializationError(format!("Failed to parse response: {}", e)))
+        serde_json::from_str(&response_body).map_err(|e| {
+            PluginError::SerializationError(format!("Failed to parse response: {}", e))
+        })
     }
 
     async fn post_json<T: serde::de::DeserializeOwned>(
-        &self,
-        url: &str,
-        body: &serde_json::Value,
+        &self, url: &str, body: &serde_json::Value,
     ) -> PluginResult<T> {
-        let body_bytes = serde_json::to_vec(body)
-            .map_err(|e| PluginError::SerializationError(format!("Failed to serialize request: {}", e)))?;
+        let body_bytes = serde_json::to_vec(body).map_err(|e| {
+            PluginError::SerializationError(format!("Failed to serialize request: {}", e))
+        })?;
 
         let request = http::Request::builder()
             .uri(url)
@@ -160,8 +174,9 @@ impl TektonClient {
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to make request: {}", e)))?;
 
-        serde_json::from_str(&response_body)
-            .map_err(|e| PluginError::SerializationError(format!("Failed to parse response: {}", e)))
+        serde_json::from_str(&response_body).map_err(|e| {
+            PluginError::SerializationError(format!("Failed to parse response: {}", e))
+        })
     }
 
     pub async fn list_pipelines(&self, namespace: &str) -> PluginResult<Vec<TektonPipeline>> {
@@ -170,19 +185,16 @@ impl TektonClient {
         Ok(pipeline_list.items)
     }
 
-    pub async fn get_pipeline(
-        &self,
-        namespace: &str,
-        name: &str,
-    ) -> PluginResult<TektonPipeline> {
-        let url = format!("/apis/tekton.dev/v1/namespaces/{}/pipelines/{}", namespace, name);
+    pub async fn get_pipeline(&self, namespace: &str, name: &str) -> PluginResult<TektonPipeline> {
+        let url = format!(
+            "/apis/tekton.dev/v1/namespaces/{}/pipelines/{}",
+            namespace, name
+        );
         self.request_json(&url).await
     }
 
     pub async fn list_pipelineruns(
-        &self,
-        namespace: &str,
-        pipeline_name: Option<&str>,
+        &self, namespace: &str, pipeline_name: Option<&str>,
     ) -> PluginResult<Vec<TektonPipelineRun>> {
         let url = if let Some(pipeline) = pipeline_name {
             format!(
@@ -198,19 +210,21 @@ impl TektonClient {
     }
 
     pub async fn create_pipelinerun(
-        &self,
-        namespace: &str,
-        pipelinerun: &TektonPipelineRun,
+        &self, namespace: &str, pipelinerun: &TektonPipelineRun,
     ) -> PluginResult<TektonPipelineRun> {
         let url = format!("/apis/tekton.dev/v1/namespaces/{}/pipelineruns", namespace);
-        let body = serde_json::to_value(pipelinerun)
-            .map_err(|e| PluginError::SerializationError(format!("Failed to serialize pipelinerun: {}", e)))?;
+        let body = serde_json::to_value(pipelinerun).map_err(|e| {
+            PluginError::SerializationError(format!("Failed to serialize pipelinerun: {}", e))
+        })?;
         self.post_json(&url, &body).await
     }
 
     pub async fn delete_pipelinerun(&self, namespace: &str, name: &str) -> PluginResult<()> {
         let request = http::Request::builder()
-            .uri(format!("/apis/tekton.dev/v1/namespaces/{}/pipelineruns/{}", namespace, name))
+            .uri(format!(
+                "/apis/tekton.dev/v1/namespaces/{}/pipelineruns/{}",
+                namespace, name
+            ))
             .method(http::Method::DELETE)
             .body(Vec::new())
             .map_err(|e| PluginError::Internal(format!("Failed to build request: {}", e)))?;

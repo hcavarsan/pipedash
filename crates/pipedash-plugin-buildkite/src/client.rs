@@ -1,5 +1,6 @@
 //! HTTP client and API methods for Buildkite
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -160,6 +161,12 @@ impl BuildkiteClient {
                     .map(|dt| dt.with_timezone(&Utc))
             });
 
+            let mut metadata = HashMap::new();
+            metadata.insert(
+                "organization_slug".to_string(),
+                serde_json::json!(org.clone()),
+            );
+
             Ok(Pipeline {
                 id: format!("buildkite__{provider_id}__{org}__{slug}"),
                 provider_id,
@@ -177,6 +184,7 @@ impl BuildkiteClient {
                     }
                 }),
                 workflow_file: None,
+                metadata,
             })
         })
         .await
@@ -415,6 +423,7 @@ pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> P
         branch: Some(branch_value),
         actor: build.author.as_ref().map(|a| a.name.clone()),
         inputs,
+        metadata: HashMap::new(), // No additional metadata for runs yet
     }
 }
 

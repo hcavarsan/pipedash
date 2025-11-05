@@ -1,6 +1,9 @@
 //! Data mapping utilities for Jenkins
 
-use std::collections::HashSet;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 
 use chrono::Utc;
 use pipedash_plugin_api::{
@@ -59,6 +62,7 @@ pub(crate) fn build_to_pipeline_run(
     let mut branch: Option<String> = None;
     let mut actor: Option<String> = None;
     let mut inputs: Option<serde_json::Value> = None;
+    let mut trigger_cause: Option<String> = None;
 
     eprintln!(
         "[MAPPER] Processing build #{} with {} actions",
@@ -85,6 +89,9 @@ pub(crate) fn build_to_pipeline_run(
             if let Some(ref user) = first_cause.user_name {
                 actor = Some(user.clone());
             }
+            if let Some(ref description) = first_cause.short_description {
+                trigger_cause = Some(description.clone());
+            }
         }
         // Extract parameters from ParametersAction
         if !action.parameters.is_empty() {
@@ -105,6 +112,12 @@ pub(crate) fn build_to_pipeline_run(
 
     eprintln!("[MAPPER] Final inputs: {inputs:?}");
 
+    // Populate Jenkins-specific metadata
+    let mut metadata = HashMap::new();
+    if let Some(cause) = trigger_cause {
+        metadata.insert("trigger_cause".to_string(), serde_json::json!(cause));
+    }
+
     PipelineRun {
         id: format!("jenkins-build-{}", build.number),
         pipeline_id: pipeline_id.to_string(),
@@ -122,6 +135,7 @@ pub(crate) fn build_to_pipeline_run(
         branch,
         actor,
         inputs,
+        metadata,
     }
 }
 

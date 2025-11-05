@@ -37,6 +37,7 @@ pub struct ProviderSummary {
     pub pipeline_count: usize,
     pub last_updated: Option<chrono::DateTime<chrono::Utc>>,
     pub refresh_interval: i64,
+    pub configured_repositories: Vec<String>,
 }
 
 #[async_trait]

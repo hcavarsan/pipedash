@@ -25,6 +25,7 @@ export interface Pipeline {
   repository: string;
   branch: string | null;
   workflow_file: string | null;
+  metadata?: Record<string, any>;
 }
 
 export interface PipelineRun {
@@ -41,6 +42,7 @@ export interface PipelineRun {
   branch: string | null;
   actor: string | null;
   inputs?: Record<string, any>;
+  metadata?: Record<string, any>;
 }
 
 export interface PaginatedRunHistory {
@@ -70,6 +72,7 @@ export interface ProviderSummary {
   pipeline_count: number;
   last_updated: string | null;
   refresh_interval: number;
+  configured_repositories: string[];
 }
 
 export interface TriggerParams {
@@ -105,6 +108,66 @@ interface ConfigSchema {
   fields: ConfigField[];
 }
 
+// Table Schema Types
+export type ColumnDataType =
+  | 'String'
+  | 'Number'
+  | 'DateTime'
+  | 'Duration'
+  | 'Status'
+  | 'Badge'
+  | 'Url'
+  | 'Json'
+  | 'Boolean'
+  | { Custom: string };
+
+export type CellRenderer =
+  | 'Text'
+  | 'Badge'
+  | 'DateTime'
+  | 'Duration'
+  | 'StatusBadge'
+  | 'Commit'
+  | 'Avatar'
+  | 'TruncatedText'
+  | 'Link'
+  | 'JsonViewer'
+  | { Custom: string };
+
+export type ColumnVisibility =
+  | 'Always'
+  | 'WhenPresent'
+  | { WhenCapability: string }
+  | { Conditional: { field: string; equals: any } };
+
+export interface ColumnDefinition {
+  id: string;
+  label: string;
+  description: string | null;
+  field_path: string;
+  data_type: ColumnDataType;
+  renderer: CellRenderer;
+  visibility: ColumnVisibility;
+  default_visible: boolean;
+  width: number | null;
+  sortable: boolean;
+  filterable: boolean;
+  align: string | null;
+}
+
+export interface TableDefinition {
+  id: string;
+  name: string;
+  description: string | null;
+  columns: ColumnDefinition[];
+  default_sort_column: string | null;
+  default_sort_direction: string | null;
+}
+
+export interface TableSchema {
+  tables: TableDefinition[];
+}
+
 export interface PluginMetadata {
   name: string;
   provider_type: string;
@@ -113,6 +176,7 @@ export interface PluginMetadata {
   author: string | null;
   icon: string | null;
   config_schema: ConfigSchema;
+  table_schema: TableSchema;
   capabilities: PluginCapabilities;
 }
 

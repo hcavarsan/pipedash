@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{
     DateTime,
     Utc,
@@ -63,6 +65,8 @@ pub struct Pipeline {
     pub repository: String,
     pub branch: Option<String>,
     pub workflow_file: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +85,8 @@ pub struct PipelineRun {
     pub actor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inputs: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

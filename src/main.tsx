@@ -8,6 +8,7 @@ import { Notifications } from '@mantine/notifications'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { MediaQueryProvider } from './contexts/MediaQueryContext'
 import { PluginProvider } from './contexts/PluginContext'
+import { TableSchemaProvider } from './contexts/TableSchemaContext'
 import App from './App'
 import { theme } from './theme'
 
@@ -24,8 +25,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
         <ModalsProvider>
           <MediaQueryProvider>
             <PluginProvider>
-              <Notifications position="top-right" />
-              <App />
+              <TableSchemaProvider>
+                <Notifications position="top-right" />
+                <App />
+              </TableSchemaProvider>
             </PluginProvider>
           </MediaQueryProvider>
         </ModalsProvider>

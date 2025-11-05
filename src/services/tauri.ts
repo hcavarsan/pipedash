@@ -248,4 +248,24 @@ return { ...config, id }
   clearAllCaches: async (): Promise<void> => {
     return invoke<void>('clear_all_caches')
   },
+
+  getTablePreferences: async (providerId: number, tableId: string): Promise<string | null> => {
+    return invoke<string | null>('get_table_preferences', { providerId, tableId })
+  },
+
+  saveTablePreferences: async (
+    providerId: number,
+    tableId: string,
+    preferencesJson: string
+  ): Promise<void> => {
+    return invoke<void>('save_table_preferences', {
+      providerId,
+      tableId,
+      preferencesJson,
+    })
+  },
+
+  getDefaultTablePreferences: async (providerId: number, tableId: string): Promise<string> => {
+    return invoke<string>('get_default_table_preferences', { providerId, tableId })
+  },
 }

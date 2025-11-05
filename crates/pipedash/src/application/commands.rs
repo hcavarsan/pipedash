@@ -330,19 +330,16 @@ pub async fn get_provider_field_options(
 
 #[tauri::command]
 pub async fn preview_provider_pipelines(
-    provider_type: String, config: HashMap<String, String>,
-    state: State<'_, AppState>,
+    provider_type: String, config: HashMap<String, String>, state: State<'_, AppState>,
 ) -> Result<Vec<AvailablePipeline>, ErrorResponse> {
     let mut plugin = state
         .provider_service
         .create_uninitialized_plugin(&provider_type)
         .map_err(ErrorResponse::from)?;
 
-    plugin
-        .initialize(0, config)
-        .map_err(|e| ErrorResponse {
-            error: format!("Failed to initialize plugin: {e}"),
-        })?;
+    plugin.initialize(0, config).map_err(|e| ErrorResponse {
+        error: format!("Failed to initialize plugin: {e}"),
+    })?;
 
     plugin
         .validate_credentials()
@@ -715,4 +712,113 @@ pub async fn clear_all_caches(state: State<'_, AppState>) -> Result<(), ErrorRes
         })?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn list_plugin_metadata(
+    state: State<'_, AppState>,
+) -> Result<Vec<pipedash_plugin_api::PluginMetadata>, ErrorResponse> {
+    Ok(state.provider_service.list_available_plugins())
+}
+
+#[tauri::command]
+pub async fn get_provider_table_schema(
+    state: State<'_, AppState>, provider_id: i64,
+) -> Result<pipedash_plugin_api::schema::TableSchema, ErrorResponse> {
+    let provider_config = state
+        .provider_service
+        .get_provider_config(provider_id)
+        .await
+        .map_err(ErrorResponse::from)?;
+
+    let metadata_list = state.provider_service.list_available_plugins();
+    let plugin_metadata = metadata_list
+        .iter()
+        .find(|m| m.provider_type == provider_config.provider_type)
+        .ok_or_else(|| ErrorResponse {
+            error: format!(
+                "Plugin not found for provider type: {}",
+                provider_config.provider_type
+            ),
+        })?;
+
+    Ok(plugin_metadata.table_schema.clone())
+}
+
+#[tauri::command]
+pub async fn get_table_preferences(
+    state: State<'_, AppState>, provider_id: i64, table_id: String,
+) -> Result<Option<String>, ErrorResponse> {
+    state
+        .provider_service
+        .repository()
+        .get_table_preferences(provider_id, &table_id)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn save_table_preferences(
+    state: State<'_, AppState>, provider_id: i64, table_id: String, preferences_json: String,
+) -> Result<(), ErrorResponse> {
+    state
+        .provider_service
+        .repository()
+        .upsert_table_preferences(provider_id, &table_id, &preferences_json)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn get_default_table_preferences(
+    state: State<'_, AppState>, provider_id: i64, table_id: String,
+) -> Result<String, ErrorResponse> {
+    let provider_config = state
+        .provider_service
+        .get_provider_config(provider_id)
+        .await
+        .map_err(ErrorResponse::from)?;
+
+    let metadata_list = state.provider_service.list_available_plugins();
+    let plugin_metadata = metadata_list
+        .iter()
+        .find(|m| m.provider_type == provider_config.provider_type)
+        .ok_or_else(|| ErrorResponse {
+            error: format!(
+                "Plugin not found for provider type: {}",
+                provider_config.provider_type
+            ),
+        })?;
+
+    let table = plugin_metadata
+        .table_schema
+        .get_table(&table_id)
+        .ok_or_else(|| ErrorResponse {
+            error: format!("Table '{}' not found in schema", table_id),
+        })?;
+
+    let column_visibility: std::collections::HashMap<String, bool> = table
+        .columns
+        .iter()
+        .map(|col| (col.id.clone(), col.default_visible))
+        .collect();
+
+    let column_order: Vec<String> = table.columns.iter().map(|col| col.id.clone()).collect();
+
+    #[derive(serde::Serialize)]
+    struct DefaultPreferences {
+        #[serde(rename = "columnOrder")]
+        column_order: Vec<String>,
+        #[serde(rename = "columnVisibility")]
+        column_visibility: std::collections::HashMap<String, bool>,
+    }
+
+    let prefs = DefaultPreferences {
+        column_order,
+        column_visibility,
+    };
+
+    serde_json::to_string(&prefs).map_err(|e| ErrorResponse {
+        error: format!("Failed to serialize default preferences: {}", e),
+    })
 }

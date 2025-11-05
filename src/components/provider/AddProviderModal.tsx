@@ -91,6 +91,8 @@ export const AddProviderModal = ({
         setSelectedPlugin(plugin)
         setProviderName(existingProvider.name)
         const initialConfig = { ...existingProvider.config }
+
+
         if (existingProvider.token) {
           initialConfig.token = existingProvider.token
         }
@@ -126,6 +128,8 @@ return
           const defaultVal = typeof field.default_value === 'string'
             ? field.default_value
             : String(field.default_value)
+
+
           initialConfig[field.key] = defaultVal
         }
       })
@@ -140,8 +144,12 @@ return
     }))
   }
 
+  const configValuesKey = useMemo(() => JSON.stringify(configValues), [configValues])
+
   useEffect(() => {
-    if (!selectedPlugin) return
+    if (!selectedPlugin) {
+return
+}
 
     const loadDynamicOptions = async () => {
       const newDynamicOptions: Record<string, string[]> = {}
@@ -154,6 +162,8 @@ return
               field.key,
               configValues
             )
+
+
             if (options.length > 0) {
               newDynamicOptions[field.key] = options
             }
@@ -169,7 +179,7 @@ return
     }
 
     loadDynamicOptions()
-  }, [selectedPlugin, JSON.stringify(configValues)])
+  }, [selectedPlugin, configValuesKey, configValues])
 
   const renderFieldLabel = (label: string, description: string | null, required: boolean) => {
     return (
@@ -445,6 +455,8 @@ return
 
       const finalConfig = { ...configValues }
       const token = finalConfig.token || ''
+
+
       delete finalConfig.token
 
       finalConfig.selected_items = Array.from(selectedPipelines).join(',')
@@ -634,7 +646,7 @@ return (
                     flexShrink: 0,
                   }}
                 >
-                  <Group justify="flex-end" gap="xs">
+                  <Group justify="space-between" gap="xs">
                     <Button
                       variant="light"
                       size="sm"
@@ -643,16 +655,62 @@ return (
                     >
                       Cancel
                     </Button>
-                    <Button
-                      variant="light"
-                      color="blue"
-                      size="sm"
-                      onClick={handleNext}
-                      loading={loadingOrganizations}
-                      disabled={!selectedPlugin || !providerName.trim()}
-                    >
-                      {isMobile ? 'Next' : 'Next: Select Pipelines'}
-                    </Button>
+                    <Group gap="xs">
+                      {editMode && (
+                        <Button
+                          variant="filled"
+                          color="blue"
+                          size="sm"
+                          onClick={async () => {
+                            if (!validateCredentials() || !selectedPlugin) {
+                              return
+                            }
+
+                            try {
+                              setSubmitting(true)
+                              setError(null)
+
+                              const finalConfig = { ...configValues }
+                              const token = finalConfig.token || ''
+
+                              delete finalConfig.token
+
+                              const providerConfig: ProviderConfig = {
+                                name: providerName,
+                                provider_type: selectedPlugin.provider_type,
+                                token,
+                                config: finalConfig,
+                                refresh_interval: 30,
+                              }
+
+                              if (existingProvider && onUpdate) {
+                                await onUpdate(existingProvider.id, providerConfig)
+                              }
+
+                              onClose()
+                            } catch (err: any) {
+                              setError(err?.error || err?.message || 'Failed to update provider')
+                            } finally {
+                              setSubmitting(false)
+                            }
+                          }}
+                          loading={submitting}
+                          disabled={!selectedPlugin || !providerName.trim()}
+                        >
+                          Save
+                        </Button>
+                      )}
+                      <Button
+                        variant="light"
+                        color="blue"
+                        size="sm"
+                        onClick={handleNext}
+                        loading={loadingOrganizations}
+                        disabled={!selectedPlugin || !providerName.trim()}
+                      >
+                        {isMobile ? 'Next' : 'Next: Select Pipelines'}
+                      </Button>
+                    </Group>
                   </Group>
                 </Box>
               </Box>

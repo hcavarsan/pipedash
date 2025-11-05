@@ -57,6 +57,19 @@ impl GitLabClient {
         .await
     }
 
+    pub async fn get_project(&self, project_id: i64) -> PluginResult<Project> {
+        self.retry_request(|| async {
+            let url = format!("{}/projects/{}", self.api_url, project_id);
+            let response =
+                self.http_client.get(&url).send().await.map_err(|e| {
+                    PluginError::NetworkError(format!("Failed to get project: {}", e))
+                })?;
+
+            self.handle_response(response).await
+        })
+        .await
+    }
+
     pub async fn get_project_pipelines(
         &self, project_id: i64, per_page: usize,
     ) -> PluginResult<Vec<Pipeline>> {

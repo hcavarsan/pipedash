@@ -16,21 +16,23 @@
 
 ## About
 
-Pipedash aggregates CI/CD pipelines from multiple providers into a single desktop interface. Instead of switching between GitHub Actions, Buildkite, and Jenkins dashboards, view everything in one place.
+Pipedash aggregates CI/CD pipelines from multiple providers into a single desktop interface. Instead of switching between GitHub Actions, GitLab CI, Buildkite, Jenkins, and Tekton dashboards, view everything in one place.
 
 Built with Tauri, Rust, React, and TypeScript.
 
 ## Why
 
-Most development teams use multiple CI/CD platforms over time. Open source projects often use GitHub Actions, internal services might run on Buildkite, and there's usually some Jenkins instance handling legacy systems. Checking everything means opening multiple tabs and manually refreshing.
+Most development teams use multiple CI/CD platforms over time. Open source projects often use GitHub Actions, internal services might run on GitLab CI or Buildkite, Kubernetes-native workloads use Tekton, and there's usually some Jenkins instance handling legacy systems. Checking everything means opening multiple tabs and manually refreshing.
 
 This tool pulls pipeline data from different providers and shows it together.
 
 ## Supported Providers
 
 - GitHub Actions
+- GitLab CI
 - Buildkite
 - Jenkins
+- Tekton CD
 
 The plugin architecture allows adding more providers.
 
@@ -46,7 +48,7 @@ Main capabilities:
 - Cancel running builds
 - Multiple instances of the same provider type
 
-When triggering or re-running a workflow, the app fetches available parameters directly from the provider plugin (workflow inputs for GitHub Actions, build parameters for Jenkins, etc.) and displays them in a form.
+When triggering or re-running a workflow, the app fetches available parameters directly from the provider plugin (workflow inputs for GitHub Actions, pipeline variables for GitLab CI, build parameters for Jenkins and Buildkite, etc.) and displays them in a form.
 
 **Privacy First**
 
@@ -64,9 +66,13 @@ Launch the app and add a provider via the sidebar. Each provider needs an API to
 
 **GitHub Actions**: Personal Access Token with `repo` and `workflow` scopes. Optionally set a custom base URL for GitHub Enterprise.
 
+**GitLab CI**: Personal Access Token with `api` scope. Supports both GitLab.com and self-hosted instances.
+
 **Buildkite**: API Access Token with read permissions and the organization slug.
 
 **Jenkins**: API token, username, and server URL.
+
+**Tekton CD**: Kubernetes config file path and context. Automatically detects namespaces with Tekton pipelines.
 
 After adding a provider, the app validates credentials and fetches available repositories. Select which ones to monitor and save. Pipelines will appear in the main view and refresh automatically.
 
@@ -82,7 +88,7 @@ Each provider has its own refresh interval (default: 30 seconds), adjustable bas
 
 **Plugin System**
 
-Each CI/CD provider is implemented as a plugin that exposes a common interface. The core application doesn't know the specifics of how GitHub or Buildkite work it just calls standard methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
+Each CI/CD provider is implemented as a plugin that exposes a common interface. The core application doesn't know the specifics of how GitHub Actions, GitLab CI, Buildkite, Jenkins, or Tekton work—it just calls standard methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
 
 Plugins are compiled into the application at build time, not loaded dynamically at runtime. This keeps things simpler and avoids the security concerns of runtime plugin loading.
 
@@ -92,9 +98,18 @@ When the app starts, it loads cached pipeline data from SQLite immediately. In t
 
 To add support for a new CI/CD platform, create a new crate in `crates/pipedash-plugin-{name}/` and implement the `Plugin` trait from `pipedash-plugin-api`. The trait defines methods for fetching pipelines, validating credentials, triggering builds, and retrieving run history.
 
+Each plugin should follow this structure:
+- `schema.rs` - Table and column definitions specific to the provider
+- `metadata.rs` - Plugin metadata, configuration schema, and capabilities
+- `plugin.rs` - Main plugin trait implementation
+- `client.rs` - API client for the provider
+- `mapper.rs` - Data transformation between provider API and domain models
+- `types.rs` - Provider-specific types
+- `config.rs` - Configuration parsing utilities
+
 After implementing the plugin, register it in the main application's plugin registry and add any provider-specific configuration UI in the frontend.
 
-The existing GitHub, Buildkite, and Jenkins plugins serve as reference implementations.
+The existing GitHub Actions, GitLab CI, Buildkite, Jenkins, and Tekton CD plugins serve as reference implementations.
 
 
 
@@ -179,18 +194,35 @@ mise run release
 
 ## Roadmap
 
-**Additional Providers**
+**Core Features**
+- [x] Local SQLite storage
+- [x] Encrypted token storage in system keyring
+- [x] Auto-refresh with configurable intervals
+- [x] Multiple provider instances support
+- [x] Build duration metrics
+- [x] Customizable table columns per provider
+- [x] Dynamic workflow parameters
+- [x] Re-run with same parameters
+- [x] Cancel running builds
+- [ ] Advanced filtering and search
+- [ ] Log viewing within the app (currently opens external links)
+- [ ] Build artifacts download
+- [ ] Build notifications
+- [ ] Auto-updater for releases
+
+**CI/CD Providers**
+- [x] GitHub Actions
 - [x] GitLab CI
+- [x] Buildkite
+- [x] Jenkins
+- [x] Tekton CD
 - [ ] CircleCI
 - [ ] Azure Pipelines
+- [ ] AWS CodePipeline
+- [ ] Google Cloud Build
 - [ ] Travis CI
 - [ ] Drone CI
 - [ ] ArgoCD
-
-**Features**
-- [x] Build duration metrics
-- [ ] Log viewing within the app (currently opens external links)
-- [ ] Auto-updater for releases
 
 
 **Platforms** (maybe)

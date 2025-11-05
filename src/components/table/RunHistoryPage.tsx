@@ -1,20 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { DataTableSortStatus } from 'mantine-datatable'
 
-import { ActionIcon, Box, Card, Center, Container, Group, Loader, Stack, Tabs, Text } from '@mantine/core'
-import { IconCalendar, IconChartLine, IconClock, IconFileText, IconGitBranch, IconHistory, IconRefresh, IconSquare, IconUser } from '@tabler/icons-react'
+import { ActionIcon, Box, Button, Card, Center, Container, Group, Loader, Stack, Tabs, Text } from '@mantine/core'
+import { IconAdjustments, IconCalendar, IconChartLine, IconClock, IconFileText, IconGitBranch, IconHistory, IconRefresh, IconSquare, IconUser } from '@tabler/icons-react'
 import { listen } from '@tauri-apps/api/event'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
+import { useTableColumns } from '../../hooks/useTableColumns'
 import { tauriService } from '../../services/tauri'
 import type { Pipeline, PipelineRun } from '../../types'
 import { formatDuration } from '../../utils/formatDuration'
 import { TableCells } from '../../utils/tableCells'
-import { COLUMN_PRESETS } from '../../utils/tableColumns'
 import { FilterBar } from '../common/FilterBar'
 import { PageHeader } from '../common/PageHeader'
 import { StandardTable } from '../common/StandardTable'
 import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
+
+import { TableCustomizationModal } from './TableCustomizationModal'
 
 interface RunHistoryPageProps {
   pipeline: Pipeline | null;
@@ -58,8 +60,204 @@ export const RunHistoryPage = ({
     direction: 'desc',
   })
   const [activeTab, setActiveTab] = useState<string>(initialTab)
+  const [customizeModalOpened, setCustomizeModalOpened] = useState(false)
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false)
+  const [columnPreferences, setColumnPreferences] = useState<{
+    columnOrder?: string[]
+    columnVisibility?: Record<string, boolean>
+  }>({})
 
   const PAGE_SIZE = 20
+
+  useEffect(() => {
+    const loadPreferences = async () => {
+      if (!pipeline?.provider_id) {
+        setPreferencesLoaded(false)
+        
+return
+      }
+
+      try {
+        let prefsJson = await tauriService.getTablePreferences(
+          pipeline.provider_id,
+          'pipeline_runs'
+        )
+
+        if (!prefsJson) {
+          prefsJson = await tauriService.getDefaultTablePreferences(
+            pipeline.provider_id,
+            'pipeline_runs'
+          )
+        }
+
+        if (prefsJson) {
+          const prefs = JSON.parse(prefsJson)
+
+
+          setColumnPreferences({
+            columnOrder: prefs.columnOrder,
+            columnVisibility: prefs.columnVisibility,
+          })
+        }
+        setPreferencesLoaded(true)
+      } catch (error) {
+        console.error('[loadPreferences] Error loading preferences:', error)
+        setPreferencesLoaded(true)
+      }
+    }
+
+    loadPreferences()
+  }, [pipeline?.provider_id])
+
+  const handleApplyCustomization = async (
+    newColumnOrder: string[],
+    newColumnVisibility: Record<string, boolean>
+  ) => {
+    if (!pipeline?.provider_id) {
+      console.error('[ApplyCustomization] No provider_id')
+      
+return
+    }
+
+    try {
+      const preferences = {
+        columnOrder: newColumnOrder,
+        columnVisibility: newColumnVisibility,
+      }
+
+      await tauriService.saveTablePreferences(
+        pipeline.provider_id,
+        'pipeline_runs',
+        JSON.stringify(preferences)
+      )
+
+      setColumnPreferences({
+        columnOrder: newColumnOrder,
+        columnVisibility: newColumnVisibility,
+      })
+    } catch (error) {
+      console.error('[ApplyCustomization] Failed to save:', error)
+    }
+  }
+
+  const handleCancelRun = useCallback(async (pipeline: Pipeline, run: PipelineRun) => {
+    setCancellingRunNumber(run.run_number)
+    try {
+      if (onCancel) {
+        await onCancel(pipeline, run)
+      }
+    } finally {
+      setCancellingRunNumber(null)
+    }
+  }, [onCancel])
+
+  // Build actions column - memoized to prevent infinite loops
+  const actionsColumn = useMemo(() => ({
+    accessor: 'actions' as keyof PipelineRun,
+    title: 'Actions',
+    width: 150,
+    textAlign: 'center' as const,
+    resizable: false,
+    toggleable: false,
+    draggable: false,
+    render: (run: PipelineRun) => {
+      const isRunning = run.status === 'running' || run.status === 'pending'
+      const isCancelling = cancellingRunNumber === run.run_number
+
+      return (
+        <div onClick={(e) => e.stopPropagation()}>
+          <Group gap={4} wrap="nowrap" justify="center">
+            {isRunning ? (
+              onCancel && (
+                <ActionIcon
+                  variant="subtle"
+                  color="red"
+                  size="md"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (pipeline) {
+handleCancelRun(pipeline, run)
+}
+                  }}
+                  title={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
+                  disabled={isCancelling || run.status === 'pending'}
+                  style={{
+                    backgroundColor: 'transparent',
+                    cursor: (isCancelling || run.status === 'pending') ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <IconSquare
+                    size={18}
+                    style={{
+                      animation: isCancelling ? 'spin 1s linear infinite' : 'none',
+                    }}
+                  />
+                </ActionIcon>
+              )
+            ) : (
+              onRerun && (
+                <ActionIcon
+                  variant="subtle"
+                  color="blue"
+                  size="md"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (pipeline) {
+onRerun(pipeline, run)
+}
+                  }}
+                  title="Rerun workflow"
+                >
+                  <IconRefresh size={18} />
+                </ActionIcon>
+              )
+            )}
+            <ActionIcon
+              variant="subtle"
+              color="blue"
+              size="md"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (pipeline) {
+onViewRun(pipeline.id, run.run_number)
+}
+              }}
+              title="View details"
+            >
+              <IconFileText size={18} />
+            </ActionIcon>
+          </Group>
+        </div>
+      )
+    },
+  }), [cancellingRunNumber, handleCancelRun, onCancel, onRerun, onViewRun, pipeline])
+
+  const additionalColumns = useMemo(() => [actionsColumn], [actionsColumn])
+
+  const headerActions = useMemo(() => {
+    if (isMobile || activeTab !== 'history') {
+      return undefined
+    }
+
+    return (
+      <Button
+        variant="light"
+        size="xs"
+        leftSection={<IconAdjustments size={14} />}
+        onClick={() => setCustomizeModalOpened(true)}
+      >
+        Customize Columns
+      </Button>
+    )
+  }, [isMobile, activeTab])
+
+  // Load columns from schema
+  const { columns, allColumns } = useTableColumns(
+    pipeline?.provider_id,
+    'pipeline_runs',
+    additionalColumns,
+    columnPreferences
+  )
 
   // Extract unique values for filters
   const branches = useMemo(() => {
@@ -184,17 +382,6 @@ return
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipeline?.id])
-
-  const handleCancelRun = async (pipeline: Pipeline, run: PipelineRun) => {
-    setCancellingRunNumber(run.run_number)
-    try {
-      if (onCancel) {
-        await onCancel(pipeline, run)
-      }
-    } finally {
-      setCancellingRunNumber(null)
-    }
-  }
 
   const dateFilteredRuns = useMemo(() => {
     if (!dateRange || !dateRange.trim()) {
@@ -456,10 +643,11 @@ bVal = ''
       <PageHeader
         title={pipeline.name}
         onBack={onBack}
+        actions={headerActions}
       />
 
       <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'history')}>
-        <Tabs.List mb="md">
+        <Tabs.List mb="xs">
           <Tabs.Tab value="history" leftSection={<IconHistory size={16} />}>
             Run History
           </Tabs.Tab>
@@ -469,7 +657,7 @@ bVal = ''
         </Tabs.List>
 
         <Tabs.Panel value="history">
-          {loading ? (
+          {loading || !preferencesLoaded ? (
             <Center py="xl">
               <Loader size="lg" />
             </Center>
@@ -507,145 +695,23 @@ bVal = ''
             renderMobileCards()
           ) : (
             <StandardTable<PipelineRun>
-            records={sortedRuns}
-            onRowClick={({ record }) => onViewRun(pipeline!.id, record.run_number)}
-            rowStyle={() => ({ cursor: 'pointer' })}
-            columns={[
-              {
-                accessor: 'run_number',
-                title: 'Run',
-                sortable: true,
-                ...COLUMN_PRESETS.identifier,
-                render: (run) => (
-                  <div
-                    style={{ cursor: 'pointer' }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      tauriService.openUrl(run.logs_url)
-                    }}
-                  >
-                    {TableCells.textBold(`#${run.run_number}`)}
-                  </div>
-                ),
-              },
-              {
-                accessor: 'status',
-                title: 'Status',
-                sortable: true,
-                ...COLUMN_PRESETS.status,
-                render: (run) => TableCells.status(run.status),
-              },
-              {
-                accessor: 'branch',
-                title: 'Branch',
-                sortable: true,
-                ...COLUMN_PRESETS.branch,
-                render: (run) => TableCells.truncatedDimmed(run.branch),
-              },
-              {
-                accessor: 'started_at',
-                title: 'Started',
-                sortable: true,
-                ...COLUMN_PRESETS.timestamp,
-                render: (run) => TableCells.timestamp(run.started_at),
-              },
-              {
-                accessor: 'duration_seconds',
-                title: 'Duration',
-                sortable: true,
-                ...COLUMN_PRESETS.duration,
-                render: (run) => TableCells.textBold(formatDuration(run.duration_seconds)),
-              },
-              {
-                accessor: 'commit_sha',
-                title: 'Commit',
-                ...COLUMN_PRESETS.commit,
-                render: (run) => TableCells.commit(run.commit_sha),
-              },
-              {
-                accessor: 'actions',
-                title: 'Actions',
-                width: 150,
-                textAlign: 'center' as const,
-                render: (run) => {
-                  const isRunning = run.status === 'running' || run.status === 'pending'
-                  const isCancelling = cancellingRunNumber === run.run_number
-
-                  return (
-                    <div onClick={(e) => e.stopPropagation()}>
-                      <Group gap={4} wrap="nowrap" justify="center">
-                        {isRunning ? (
-                          onCancel && (
-                            <ActionIcon
-                              variant="subtle"
-                              color="red"
-                              size="md"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleCancelRun(pipeline, run)
-                              }}
-                              title={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
-                              disabled={isCancelling || run.status === 'pending'}
-                              style={{
-                                backgroundColor: 'transparent',
-                                cursor: (isCancelling || run.status === 'pending') ? 'not-allowed' : 'pointer',
-                              }}
-                            >
-                              <IconSquare
-                                size={18}
-                                style={{
-                                  animation: isCancelling ? 'spin 1s linear infinite' : 'none',
-                                }}
-                              />
-                            </ActionIcon>
-                          )
-                        ) : (
-                          onRerun && (
-                            <ActionIcon
-                              variant="subtle"
-                              color="blue"
-                              size="md"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                onRerun(pipeline, run)
-                              }}
-                              title="Rerun workflow"
-                            >
-                              <IconRefresh size={18} />
-                            </ActionIcon>
-                          )
-                        )}
-                        <ActionIcon
-                          variant="subtle"
-                          color="blue"
-                          size="md"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onViewRun(pipeline.id, run.run_number)
-                          }}
-                          title="View details"
-                        >
-                          <IconFileText size={18} />
-                        </ActionIcon>
-                      </Group>
-                    </div>
-                  )
-                },
-              },
-            ]}
-            sortStatus={sortStatus}
-            onSortStatusChange={setSortStatus}
-            noRecordsText={runs.length === 0 ? 'No runs found' : 'No matching runs'}
-            totalRecords={totalPages * PAGE_SIZE}
-            recordsPerPage={PAGE_SIZE}
-            page={page}
-            onPageChange={setPage}
-            paginationText={({ from, to }) =>
-              pageLoading
-                ? 'Loading...'
-                : `Showing ${from}-${to} of ${isComplete ? totalCount : `${totalCount}+`} runs`
-            }
-          />
+              records={sortedRuns}
+              onRowClick={({ record }) => onViewRun(pipeline!.id, record.run_number)}
+              rowStyle={() => ({ cursor: 'pointer' })}
+              columns={columns}
+              sortStatus={sortStatus}
+              onSortStatusChange={setSortStatus}
+              noRecordsText={runs.length === 0 ? 'No runs found' : 'No matching runs'}
+              totalRecords={totalPages * PAGE_SIZE}
+              recordsPerPage={PAGE_SIZE}
+              page={page}
+              onPageChange={setPage}
+              paginationText={({ from, to }) =>
+                pageLoading
+                  ? 'Loading...'
+                  : `Showing ${from}-${to} of ${isComplete ? totalCount : `${totalCount}+`} runs`
+              }
+            />
           )}
             </>
           )}
@@ -660,6 +726,17 @@ bVal = ''
           />
         </Tabs.Panel>
       </Tabs>
+
+      {/* Table Customization Modal */}
+      <TableCustomizationModal
+        opened={customizeModalOpened}
+        onClose={() => setCustomizeModalOpened(false)}
+        columns={allColumns}
+        visibleColumns={columns}
+        currentOrder={columnPreferences.columnOrder}
+        currentVisibility={columnPreferences.columnVisibility}
+        onApply={handleApplyCustomization}
+      />
 
       <style>{`
         @keyframes spin {

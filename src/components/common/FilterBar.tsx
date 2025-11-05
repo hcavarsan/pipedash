@@ -96,7 +96,7 @@ export const FilterBar = ({ filters }: FilterBarProps) => {
   }
 
   return (
-    <Box mb="xs">
+    <Box mb={4}>
       <Group gap="xs" wrap="wrap" align="flex-start">
         {filters.search && (
           <TextInput

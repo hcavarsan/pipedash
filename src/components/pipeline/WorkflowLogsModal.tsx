@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 
-import { ActionIcon, Alert, Avatar, Badge, Box, Button, Code, Divider, Group, Loader, Paper, SimpleGrid, Stack, Text } from '@mantine/core'
+import { ActionIcon, Alert, Avatar, Badge, Box, Button, Code, Group, Loader, Paper, SimpleGrid, Stack, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconExternalLink, IconPlayerPlay, IconRefresh, IconReload, IconSquare } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
+import { useTableSchema } from '../../contexts/TableSchemaContext'
 import { tauriService } from '../../services/tauri'
-import type { PipelineRun } from '../../types'
+import type { ColumnDefinition, PipelineRun } from '../../types'
+import { filterVisibleColumns } from '../../utils/columnBuilder'
+import { DynamicRenderers } from '../../utils/dynamicRenderers'
 import { formatDuration } from '../../utils/formatDuration'
 import { CopyButton } from '../atoms/CopyButton'
 import { StandardModal } from '../common/StandardModal'
@@ -17,16 +20,18 @@ interface WorkflowLogsModalProps {
   onClose: () => void;
   pipelineId: string;
   runNumber: number;
+  providerId?: number;
   onRerunSuccess?: (pipelineId: string, newRunNumber: number) => void;
   onCancelSuccess?: () => void;
 }
 
-/* eslint-disable complexity */
+
 export const WorkflowLogsModal = ({
   opened,
   onClose,
   pipelineId,
   runNumber,
+  providerId,
   onRerunSuccess,
   onCancelSuccess,
 }: WorkflowLogsModalProps) => {
@@ -36,7 +41,9 @@ export const WorkflowLogsModal = ({
   const [rerunning, setRerunning] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [columnDefs, setColumnDefs] = useState<ColumnDefinition[]>([])
   const isMobile = useIsMobile()
+  const { getTableSchema } = useTableSchema()
 
   const fetchRunDetails = async (showRefreshLoader = false) => {
     try {
@@ -101,8 +108,49 @@ return () => clearTimeout(timeoutId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runDetails?.status, opened])
 
+  // Load column definitions from schema
+  useEffect(() => {
+    if (!opened || !providerId) {
+      return
+    }
+
+    const loadSchema = async () => {
+      try {
+        const tableSchema = await getTableSchema(providerId, 'pipeline_runs')
+
+
+        if (tableSchema) {
+          const visibleCols = filterVisibleColumns(tableSchema.columns)
+
+
+          setColumnDefs(visibleCols)
+        }
+      } catch (err) {
+        console.error('Failed to load table schema for modal:', err)
+      }
+    }
+
+    loadSchema()
+  }, [opened, providerId, getTableSchema])
+
   const handleManualRefresh = () => {
     fetchRunDetails(true)
+  }
+
+  // Helper to extract value by field path
+  const getValueByPath = (record: any, path: string): any => {
+    const parts = path.split('.')
+    let value: any = record
+
+
+    for (const part of parts) {
+      if (value === null || value === undefined) {
+return undefined
+}
+      value = value[part]
+    }
+
+return value
   }
 
   const isRunning = runDetails?.status === 'running' || runDetails?.status === 'pending'
@@ -311,91 +359,122 @@ return
             )}
 
             <Paper p={isMobile ? 'sm' : 'lg'} withBorder style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
-              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={isMobile ? 'sm' : 'lg'}>
-                <Stack gap={isMobile ? 'xs' : 'md'}>
-                  <Box>
-                    <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Run Number</Text>
-                    <Group gap="xs">
-                      <Text fw={500}>#{runDetails.run_number}</Text>
-                      <CopyButton value={runDetails.run_number.toString()} size="xs" />
-                    </Group>
-                  </Box>
+              {columnDefs.length > 0 ? (
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={isMobile ? 'sm' : 'lg'}>
+                  {columnDefs
+                    .filter(col => col.id !== 'actions')
+                    .map((col) => {
+                      const value = getValueByPath(runDetails, col.field_path)
 
-                  <Box>
-                    <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Status</Text>
-                    <StatusBadge status={runDetails.status} size={isMobile ? 'sm' : 'md'} withIcon={true} />
-                  </Box>
+                      if ((value === null || value === undefined) && col.id !== 'status' && col.id !== 'run_number') {
+                        return null
+                      }
 
-                  {runDetails.commit_sha && (
+                      return (
+                        <Box key={col.id}>
+                          <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>
+                            {col.label}
+                          </Text>
+                          {col.id === 'run_number' && value !== null && value !== undefined ? (
+                            <Group gap="xs">
+                              <Text fw={500}>#{value}</Text>
+                              <CopyButton value={value.toString()} size="xs" />
+                            </Group>
+                          ) : col.id === 'status' && value ? (
+                            <StatusBadge status={value} size={isMobile ? 'sm' : 'md'} withIcon={true} />
+                          ) : col.id === 'id' && value ? (
+                            <Group gap="xs">
+                              <Code style={{ wordBreak: 'break-all', fontSize: isMobile ? '0.7rem' : undefined }}>
+                                {value}
+                              </Code>
+                              <CopyButton value={value} size="xs" />
+                            </Group>
+                          ) : col.id === 'commit_sha' && value ? (
+                            <Group gap="xs">
+                              <Code style={{ fontSize: isMobile ? '0.75rem' : undefined }}>
+                                {value.substring(0, 7)}
+                              </Code>
+                              <CopyButton value={value} size="xs" />
+                            </Group>
+                          ) : col.id === 'branch' && value ? (
+                            <Badge variant="light" color="blue" size={isMobile ? 'sm' : 'md'}>
+                              {value}
+                            </Badge>
+                          ) : col.id === 'duration_seconds' && value !== null && value !== undefined ? (
+                            <Text fw={500} size={isMobile ? 'sm' : undefined}>{formatDuration(value)}</Text>
+                          ) : col.id === 'started_at' && value ? (
+                            <Text size={isMobile ? 'sm' : undefined}>{new Date(value).toLocaleString()}</Text>
+                          ) : col.id === 'concluded_at' && value ? (
+                            <Text size={isMobile ? 'sm' : undefined}>{new Date(value).toLocaleString()}</Text>
+                          ) : col.id === 'commit_message' && value ? (
+                            <Text size="sm">{value}</Text>
+                          ) : col.id === 'actor' && value ? (
+                            <Group gap="xs">
+                              <Avatar size="sm" radius="xl" />
+                              <Text fw={500}>{value}</Text>
+                            </Group>
+                          ) : (
+                            <Box>{DynamicRenderers.render(col.renderer, value)}</Box>
+                          )}
+                        </Box>
+                      )
+                    })}
+                </SimpleGrid>
+              ) : (
+                <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={isMobile ? 'sm' : 'lg'}>
+                  <Stack gap={isMobile ? 'xs' : 'md'}>
                     <Box>
-                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Commit SHA</Text>
+                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Run Number</Text>
                       <Group gap="xs">
-                        <Code style={{ fontSize: isMobile ? '0.75rem' : undefined }}>
-                          {runDetails.commit_sha.substring(0, 7)}
-                        </Code>
-                        <CopyButton value={runDetails.commit_sha} size="xs" />
+                        <Text fw={500}>#{runDetails.run_number}</Text>
+                        <CopyButton value={runDetails.run_number.toString()} size="xs" />
                       </Group>
                     </Box>
-                  )}
 
-                  {runDetails.branch && (
                     <Box>
-                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Branch</Text>
-                      <Badge variant="light" color="blue" size={isMobile ? 'sm' : 'md'}>
-                        {runDetails.branch}
-                      </Badge>
+                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Status</Text>
+                      <StatusBadge status={runDetails.status} size={isMobile ? 'sm' : 'md'} withIcon={true} />
                     </Box>
-                  )}
 
-                  <Box>
-                    <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Duration</Text>
-                    <Text fw={500} size={isMobile ? 'sm' : undefined}>{formatDuration(runDetails.duration_seconds)}</Text>
-                  </Box>
-                </Stack>
+                    {runDetails.branch && (
+                      <Box>
+                        <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Branch</Text>
+                        <Badge variant="light" color="blue" size={isMobile ? 'sm' : 'md'}>
+                          {runDetails.branch}
+                        </Badge>
+                      </Box>
+                    )}
 
-                <Stack gap={isMobile ? 'xs' : 'md'}>
-                  <Box>
-                    <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Run ID</Text>
-                    <Group gap="xs">
-                      <Code style={{ wordBreak: 'break-all', fontSize: isMobile ? '0.7rem' : undefined }}>
-                        {runDetails.id}
-                      </Code>
-                      <CopyButton value={runDetails.id} size="xs" />
-                    </Group>
-                  </Box>
-
-                  <Box>
-                    <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Started At</Text>
-                    <Text size={isMobile ? 'sm' : undefined}>{new Date(runDetails.started_at).toLocaleString()}</Text>
-                  </Box>
-
-                  {runDetails.concluded_at && (
                     <Box>
-                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Concluded At</Text>
-                      <Text size={isMobile ? 'sm' : undefined}>{new Date(runDetails.concluded_at).toLocaleString()}</Text>
+                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Duration</Text>
+                      <Text fw={500} size={isMobile ? 'sm' : undefined}>{formatDuration(runDetails.duration_seconds)}</Text>
                     </Box>
-                  )}
+                  </Stack>
 
-                  {runDetails.actor && (
+                  <Stack gap={isMobile ? 'xs' : 'md'}>
                     <Box>
-                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Actor</Text>
-                      <Group gap="xs">
-                        <Avatar size="sm" radius="xl" />
-                        <Text fw={500}>{runDetails.actor}</Text>
-                      </Group>
+                      <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Started At</Text>
+                      <Text size={isMobile ? 'sm' : undefined}>{new Date(runDetails.started_at).toLocaleString()}</Text>
                     </Box>
-                  )}
-                </Stack>
-              </SimpleGrid>
 
-              {runDetails.commit_message && (
-                <>
-                  <Divider my={isMobile ? 'xs' : 'md'} />
-                  <Box>
-                    <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Commit Message</Text>
-                    <Text size="sm">{runDetails.commit_message}</Text>
-                  </Box>
-                </>
+                    {runDetails.concluded_at && (
+                      <Box>
+                        <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Concluded At</Text>
+                        <Text size={isMobile ? 'sm' : undefined}>{new Date(runDetails.concluded_at).toLocaleString()}</Text>
+                      </Box>
+                    )}
+
+                    {runDetails.actor && (
+                      <Box>
+                        <Text size="xs" c="dimmed" tt="uppercase" mb={isMobile ? 2 : 4}>Actor</Text>
+                        <Group gap="xs">
+                          <Avatar size="sm" radius="xl" />
+                          <Text fw={500}>{runDetails.actor}</Text>
+                        </Group>
+                      </Box>
+                    )}
+                  </Stack>
+                </SimpleGrid>
               )}
             </Paper>
 

@@ -1,5 +1,6 @@
 //! GitHub API client and methods
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -161,6 +162,9 @@ impl GitHubClient {
 
                 let last_run = latest_run.map(|run| run.created_at.with_timezone(&Utc));
 
+                let mut metadata = HashMap::new();
+                metadata.insert("workflow_id".to_string(), serde_json::json!(workflow.id));
+
                 let pipeline = Pipeline {
                     id: format!(
                         "github__{}__{}__{}__{}",
@@ -175,6 +179,7 @@ impl GitHubClient {
                     repository: repo_full_name.clone(),
                     branch: latest_run.map(|run| run.head_branch.clone()),
                     workflow_file: Some(workflow.path),
+                    metadata,
                 };
 
                 pipelines.push(pipeline);
@@ -305,6 +310,16 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
 
     let inputs = Some(serde_json::Value::Object(inputs_map));
 
+    // Populate GitHub-specific metadata
+    let mut metadata = HashMap::new();
+    metadata.insert("event".to_string(), serde_json::json!(&run.event));
+    metadata.insert("run_id".to_string(), serde_json::json!(run.id.0));
+
+    // Extract owner from repository for organization column
+    if let Some(owner) = run.repository.owner.as_ref() {
+        metadata.insert("owner".to_string(), serde_json::json!(&owner.login));
+    }
+
     PipelineRun {
         id: format!("github-run-{}", run.id),
         pipeline_id: pipeline_id.to_string(),
@@ -319,5 +334,6 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
         branch: Some(run.head_branch.clone()),
         actor: Some(run.head_commit.author.name.clone()),
         inputs,
+        metadata,
     }
 }

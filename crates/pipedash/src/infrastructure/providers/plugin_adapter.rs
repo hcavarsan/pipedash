@@ -138,6 +138,7 @@ fn convert_pipeline(plugin_pipeline: pipedash_plugin_api::Pipeline) -> Pipeline 
         repository: plugin_pipeline.repository,
         branch: plugin_pipeline.branch,
         workflow_file: plugin_pipeline.workflow_file,
+        metadata: plugin_pipeline.metadata,
     }
 }
 
@@ -156,6 +157,7 @@ fn convert_pipeline_run(plugin_run: pipedash_plugin_api::PipelineRun) -> Pipelin
         branch: plugin_run.branch,
         actor: plugin_run.actor,
         inputs: plugin_run.inputs,
+        metadata: plugin_run.metadata,
     }
 }
 

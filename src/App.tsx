@@ -22,10 +22,11 @@ function App() {
   const [initialHistoryTab, setInitialHistoryTab] = useState<'history' | 'metrics'>('history')
   const [triggerPipeline, setTriggerPipeline] = useState<Pipeline | null>(null)
   const [triggerInputs, setTriggerInputs] = useState<Record<string, any> | undefined>(undefined)
-  const [logsModal, setLogsModal] = useState<{ opened: boolean; pipelineId: string; runNumber: number }>({
+  const [logsModal, setLogsModal] = useState<{ opened: boolean; pipelineId: string; runNumber: number; providerId?: number }>({
     opened: false,
     pipelineId: '',
     runNumber: 0,
+    providerId: undefined,
   })
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [runHistoryLoading, setRunHistoryLoading] = useState(false)
@@ -175,7 +176,7 @@ function App() {
           pipeline={historyPipeline}
           onBack={handleBackFromHistory}
           onViewRun={(pipelineId, runNumber) => {
-            setLogsModal({ opened: true, pipelineId, runNumber })
+            setLogsModal({ opened: true, pipelineId, runNumber, providerId: historyPipeline?.provider_id })
           }}
           onRerun={handleRerun}
           onCancel={handleCancel}
@@ -207,19 +208,20 @@ function App() {
             if (triggerPipeline) {
               handleViewHistory(triggerPipeline)
             }
-            setLogsModal({ opened: true, pipelineId, runNumber })
+            setLogsModal({ opened: true, pipelineId, runNumber, providerId: triggerPipeline?.provider_id })
           }}
         />
       )}
 
       <WorkflowLogsModal
         opened={logsModal.opened}
-        onClose={() => setLogsModal({ opened: false, pipelineId: '', runNumber: 0 })}
+        onClose={() => setLogsModal({ opened: false, pipelineId: '', runNumber: 0, providerId: undefined })}
         pipelineId={logsModal.pipelineId}
         runNumber={logsModal.runNumber}
+        providerId={logsModal.providerId}
         onRerunSuccess={async (pipelineId, newRunNumber) => {
           await handleRefreshAll()
-          setLogsModal({ opened: true, pipelineId, runNumber: newRunNumber })
+          setLogsModal({ opened: true, pipelineId, runNumber: newRunNumber, providerId: logsModal.providerId })
         }}
         onCancelSuccess={async () => {
           await handleRefreshAll()

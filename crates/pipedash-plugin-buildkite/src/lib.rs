@@ -11,6 +11,8 @@
 //!
 //! The plugin is organized into several modules:
 //! - `plugin` - Main plugin implementation
+//! - `metadata` - Plugin metadata and configuration schema
+//! - `schema` - Table and column definitions
 //! - `client` - HTTP client and API methods
 //! - `types` - API response types
 //! - `mapper` - Data mapping utilities
@@ -29,7 +31,9 @@
 mod client;
 mod config;
 mod mapper;
+mod metadata;
 mod plugin;
+mod schema;
 mod types;
 
 // Re-export the plugin struct

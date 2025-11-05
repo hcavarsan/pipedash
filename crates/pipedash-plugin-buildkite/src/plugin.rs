@@ -16,6 +16,7 @@ use crate::{
     client,
     config,
     mapper,
+    metadata,
 };
 
 /// Buildkite plugin for monitoring builds, agents, and artifacts
@@ -34,30 +35,8 @@ impl Default for BuildkitePlugin {
 
 impl BuildkitePlugin {
     pub fn new() -> Self {
-        // No config fields needed - organization and pipelines are auto-discovered
-        let config_schema = ConfigSchema::new();
-
-        let metadata = PluginMetadata {
-            name: "Buildkite".to_string(),
-            provider_type: "buildkite".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Monitor Buildkite builds, agents, and artifacts".to_string(),
-            author: Some("Pipedash Team".to_string()),
-            icon: Some("https://cdn.simpleicons.org/buildkite/14CC80".to_string()),
-            config_schema,
-            capabilities: PluginCapabilities {
-                pipelines: true,
-                pipeline_runs: true,
-                trigger: true,
-                agents: true,
-                artifacts: true,
-                queues: false,
-                custom_tables: false,
-            },
-        };
-
         Self {
-            metadata,
+            metadata: metadata::create_metadata(),
             client: None,
             provider_id: None,
             config: HashMap::new(),

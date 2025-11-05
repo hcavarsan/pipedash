@@ -3,6 +3,7 @@
 // This crate defines the plugin interface that all provider plugins must
 // implement. It includes common types, traits, and the plugin registry system.
 
+pub mod defaults;
 pub mod error;
 pub mod plugin;
 pub mod registry;

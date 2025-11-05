@@ -9,7 +9,7 @@
         "decorations": false,
         "height": 1000,
         "title": "Pipedash",
-        "width": 1500
+        "width": 1700
       }
     ]
   },
@@ -32,5 +32,5 @@
   },
   "identifier": "com.henrique.pipedash",
   "productName": "pipedash",
-  "version": "0.0.2"
+  "version": "0.0.3"
 }

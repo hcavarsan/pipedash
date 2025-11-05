@@ -132,8 +132,34 @@ return
       }
     })
 
+    providers.forEach((provider) => {
+      if (provider.configured_repositories && provider.configured_repositories.length > 0) {
+        provider.configured_repositories.forEach((repoName) => {
+          if (!repoMap.has(repoName)) {
+            const providerIds = new Set<number>()
+
+
+            providerIds.add(provider.id)
+            repoMap.set(repoName, {
+              pipelines: [],
+              providerIds,
+              lastUpdated: provider.last_updated || null,
+            })
+          } else {
+            const existing = repoMap.get(repoName)
+
+
+            if (existing) {
+              existing.providerIds.add(provider.id)
+            }
+          }
+        })
+      }
+    })
+
     Array.from(repoMap.entries()).forEach(([repoName, repoData]) => {
-      const providerId = repoData.pipelines[0]?.provider_id || 0
+      // Get provider ID from first pipeline, or from providerIds set if no pipelines
+      const providerId = repoData.pipelines[0]?.provider_id || Array.from(repoData.providerIds)[0] || 0
       const { organization, repository } = parseRepositoryName(repoName, providerId)
       const repoId = `repo-${repoName}`
 
@@ -162,7 +188,7 @@ return
 
     return rows
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelines, expandedRepos])
+  }, [pipelines, expandedRepos, providers])
 
   const filteredRows = useMemo(() => {
     let result = tableRows
@@ -323,10 +349,20 @@ return Array.from(providerIdSet)
     return (
       <Stack gap="sm">
         {filteredRows.length === 0 ? (
-          <Card padding="lg" withBorder>
-            <Text size="sm" c="dimmed" ta="center">
-              No repositories found
-            </Text>
+          <Card padding="xl" withBorder>
+            <Center>
+              <Stack align="center" gap="md">
+                <IconFolder size={48} color="var(--mantine-color-dimmed)" />
+                <Stack align="center" gap="xs">
+                  <Text size="lg" fw={500}>No workflows found</Text>
+                  <Text size="sm" c="dimmed" ta="center">
+                    {pipelines.length === 0
+                      ? 'This provider doesn\'t have any workflows configured yet.'
+                      : 'No workflows match your current filters'}
+                  </Text>
+                </Stack>
+              </Stack>
+            </Center>
           </Card>
         ) : (
           filteredRows.map((row) => {
@@ -562,6 +598,22 @@ return null
       {/* Render mobile cards on small screens, table on desktop */}
       {isMobile ? (
         renderMobileCards()
+      ) : filteredRows.length === 0 ? (
+        <Card padding="xl" withBorder mt="md">
+          <Center>
+            <Stack align="center" gap="md">
+              <IconFolder size={48} color="var(--mantine-color-dimmed)" />
+              <Stack align="center" gap="xs">
+                <Text size="lg" fw={500}>No workflows found</Text>
+                <Text size="sm" c="dimmed" ta="center">
+                  {pipelines.length === 0
+                    ? 'This provider doesn\'t have any workflows configured yet. Make sure the repository has GitHub Actions workflows in .github/workflows/'
+                    : 'No workflows match your current filters'}
+                </Text>
+              </Stack>
+            </Stack>
+          </Center>
+        </Card>
       ) : (
         <StandardTable<TableRow>
         records={filteredRows}
@@ -694,7 +746,7 @@ return null
                 const providerCount = row.providerIds.size
 
 
-                
+
 return (
                   <Stack gap={providerCount > 1 ? 8 : 0}>
                     {Array.from(row.providerIds).map((providerId) => {

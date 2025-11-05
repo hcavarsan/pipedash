@@ -61,6 +61,9 @@ pub struct Pipeline {
     pub branch: Option<String>,
     /// Workflow file path (optional)
     pub workflow_file: Option<String>,
+    /// Provider-specific metadata for custom columns/display
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 /// A single pipeline run/build
@@ -93,6 +96,9 @@ pub struct PipelineRun {
     /// Input parameters used for this run
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inputs: Option<serde_json::Value>,
+    /// Provider-specific metadata for custom columns/display
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
 }
 
 /// Parameters for triggering a pipeline

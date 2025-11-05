@@ -40,6 +40,10 @@ impl ProviderService {
         }
     }
 
+    pub fn repository(&self) -> &Arc<Repository> {
+        &self.repository
+    }
+
     pub fn list_available_plugins(&self) -> Vec<pipedash_plugin_api::PluginMetadata> {
         let mut metadata_list = Vec::new();
         for provider_type in self.plugin_registry.provider_types() {
@@ -104,6 +108,18 @@ impl ProviderService {
                 .get(&config.provider_type)
                 .and_then(|plugin| plugin.metadata().icon.clone());
 
+            let configured_repositories = config
+                .config
+                .get("selected_items")
+                .map(|items| {
+                    items
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+
             summaries.push(ProviderSummary {
                 id: config.id.unwrap(),
                 name: config.name,
@@ -112,6 +128,7 @@ impl ProviderService {
                 pipeline_count,
                 last_updated,
                 refresh_interval: config.refresh_interval,
+                configured_repositories,
             });
         }
 
@@ -150,9 +167,18 @@ impl ProviderService {
     }
 
     pub async fn remove_provider(&self, id: i64) -> DomainResult<()> {
+        let pipelines = self.repository.get_cached_pipelines(Some(id)).await?;
+
         self.repository.remove_provider(id).await?;
+
         let mut providers = self.providers.write().await;
         providers.remove(&id);
+
+        let mut fetches = self.parameter_fetches.lock().await;
+        for pipeline in pipelines {
+            fetches.remove(&pipeline.id);
+        }
+
         Ok(())
     }
 

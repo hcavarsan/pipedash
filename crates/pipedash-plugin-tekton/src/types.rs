@@ -1,6 +1,13 @@
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use chrono::{
+    DateTime,
+    Utc,
+};
+use serde::{
+    Deserialize,
+    Serialize,
+};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ObjectMeta {
@@ -82,7 +89,10 @@ pub struct WorkspaceBinding {
     pub name: String,
     #[serde(rename = "emptyDir", skip_serializing_if = "Option::is_none")]
     pub empty_dir: Option<serde_json::Value>,
-    #[serde(rename = "persistentVolumeClaim", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "persistentVolumeClaim",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub persistent_volume_claim: Option<PvcWorkspaceBinding>,
     #[serde(rename = "configMap", skip_serializing_if = "Option::is_none")]
     pub config_map: Option<ConfigMapWorkspaceBinding>,

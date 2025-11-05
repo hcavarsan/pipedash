@@ -1,7 +1,7 @@
 {
   "name": "pipedash",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "scripts": {
     "dev": "vite --debug hmr",
@@ -9,8 +9,8 @@
     "build:tauri": "tauri build -- --features custom-protocol",
     "preview": "vite preview",
     "tauri": "tauri",
-	"eslint": "eslint .",
-	"eslint:fix": "eslint . --fix",
+    "eslint": "eslint .",
+    "eslint:fix": "eslint . --fix",
     "taze": "taze major -I",
     "taze:minor": "taze minor -w",
     "knip": "knip"
