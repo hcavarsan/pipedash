@@ -16,6 +16,22 @@ use crate::types::{
     TektonPipelineRun,
 };
 
+fn parse_tasks_message(message: &str) -> Option<(usize, usize)> {
+    let completed_start = message.find("Tasks Completed: ")? + "Tasks Completed: ".len();
+    let completed_end = message[completed_start..].find(" ")?;
+    let completed = message[completed_start..completed_start + completed_end]
+        .parse::<usize>()
+        .ok()?;
+
+    let failed_start = message.find("Failed: ")? + "Failed: ".len();
+    let failed_end = message[failed_start..].find(",")?;
+    let failed = message[failed_start..failed_start + failed_end]
+        .parse::<usize>()
+        .ok()?;
+
+    Some((completed, failed))
+}
+
 pub(crate) fn map_status(conditions: &[types::Condition]) -> PipelineStatus {
     if let Some(succeeded_condition) = conditions.iter().find(|c| c.type_ == "Succeeded") {
         match succeeded_condition.status.as_str() {
@@ -118,7 +134,38 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> Pip
         .annotations
         .get("tekton.dev/triggeredBy")
         .or_else(|| run.metadata.annotations.get("triggered-by"))
-        .cloned();
+        .cloned()
+        .or_else(|| {
+            if run
+                .metadata
+                .labels
+                .contains_key("triggers.tekton.dev/eventlistener")
+            {
+                Some("EventListener".to_string())
+            } else if run
+                .metadata
+                .labels
+                .contains_key("triggers.tekton.dev/trigger")
+            {
+                Some("Trigger".to_string())
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            if run
+                .metadata
+                .annotations
+                .contains_key("kubectl.kubernetes.io/last-applied-configuration")
+            {
+                Some("kubectl".to_string())
+            } else {
+                run.metadata
+                    .labels
+                    .get("app.kubernetes.io/created-by")
+                    .cloned()
+            }
+        });
 
     let logs_url = run
         .metadata
@@ -126,6 +173,12 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> Pip
         .get("tekton.dev/url")
         .cloned()
         .unwrap_or_else(|| format!("/namespaces/{}/pipelineruns/{}", namespace, run_name));
+
+    let triggers_event_id = run
+        .metadata
+        .labels
+        .get("triggers.tekton.dev/triggers-eventid")
+        .cloned();
 
     let run_number = types::parse_timestamp(&run.metadata.creation_timestamp)
         .map(|dt| dt.timestamp())
@@ -143,7 +196,6 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> Pip
         None
     };
 
-    // Populate Tekton-specific metadata for custom columns
     let mut metadata = HashMap::new();
     metadata.insert("namespace".to_string(), serde_json::json!(namespace));
     metadata.insert(
@@ -151,6 +203,26 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> Pip
         serde_json::json!(pipeline_name),
     );
     metadata.insert("pipelinerun_name".to_string(), serde_json::json!(run_name));
+
+    let run_identifier = triggers_event_id
+        .as_ref()
+        .map(|id| {
+            let short_id: String = id
+                .chars()
+                .rev()
+                .take(12)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            format!("event-{}", short_id)
+        })
+        .unwrap_or_else(|| run_name.clone());
+
+    metadata.insert(
+        "run_identifier".to_string(),
+        serde_json::json!(run_identifier),
+    );
 
     // Add trigger info if available
     if let Some(trigger) = &actor {
@@ -165,6 +237,108 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> Pip
         .or_else(|| run.metadata.labels.get("tekton.dev/trigger"))
     {
         metadata.insert("event_type".to_string(), serde_json::json!(event_type));
+    }
+
+    if let Some(timeout) = &run.spec.timeout {
+        metadata.insert("timeout".to_string(), serde_json::json!(timeout));
+    }
+
+    // Add service account
+    if let Some(service_account) = run
+        .spec
+        .task_run_template
+        .as_ref()
+        .and_then(|trt| trt.service_account_name.as_ref())
+    {
+        metadata.insert(
+            "service_account".to_string(),
+            serde_json::json!(service_account),
+        );
+    }
+
+    let task_count = if !run.status.task_runs.is_empty() {
+        run.status.task_runs.len()
+    } else {
+        run.status
+            .child_references
+            .iter()
+            .filter(|cr| cr.kind == "TaskRun")
+            .count()
+    };
+
+    if task_count > 0 {
+        if !run.status.task_runs.is_empty() {
+            let successful_tasks = run
+                .status
+                .task_runs
+                .values()
+                .filter(|tr| {
+                    tr.status
+                        .as_ref()
+                        .and_then(|s| {
+                            s.conditions
+                                .iter()
+                                .find(|c| c.type_ == "Succeeded")
+                                .map(|c| c.status == "True")
+                        })
+                        .unwrap_or(false)
+                })
+                .count();
+
+            let task_summary = format!("{}/{}", successful_tasks, task_count);
+            metadata.insert("task_summary".to_string(), serde_json::json!(task_summary));
+        } else if let Some(succeeded_condition) = run
+            .status
+            .conditions
+            .iter()
+            .find(|c| c.type_ == "Succeeded")
+        {
+            if let Some((completed, failed)) = parse_tasks_message(&succeeded_condition.message) {
+                let successful = completed.saturating_sub(failed);
+                let task_summary = format!("{}/{}", successful, completed);
+                metadata.insert("task_summary".to_string(), serde_json::json!(task_summary));
+            }
+        }
+    }
+
+    if let Some(failed_condition) = run
+        .status
+        .conditions
+        .iter()
+        .find(|c| c.type_ == "Succeeded" && c.status == "False")
+    {
+        if !failed_condition.reason.is_empty() {
+            metadata.insert(
+                "failure_reason".to_string(),
+                serde_json::json!(failed_condition.reason),
+            );
+        }
+    }
+
+    if !run.spec.workspaces.is_empty() {
+        let workspace_types: Vec<String> = run
+            .spec
+            .workspaces
+            .iter()
+            .map(|ws| {
+                if ws.persistent_volume_claim.is_some() {
+                    "PVC".to_string()
+                } else if ws.empty_dir.is_some() {
+                    "EmptyDir".to_string()
+                } else if ws.config_map.is_some() {
+                    "ConfigMap".to_string()
+                } else if ws.secret.is_some() {
+                    "Secret".to_string()
+                } else {
+                    "Unknown".to_string()
+                }
+            })
+            .collect();
+
+        metadata.insert(
+            "workspace_types".to_string(),
+            serde_json::json!(workspace_types.join(", ")),
+        );
     }
 
     PipelineRun {
@@ -189,14 +363,17 @@ pub(crate) fn map_available_pipeline(tekton_pipeline: &TektonPipeline) -> Availa
     let namespace = &tekton_pipeline.metadata.namespace;
     let pipeline_name = &tekton_pipeline.metadata.name;
 
+    let description = tekton_pipeline
+        .metadata
+        .annotations
+        .get("description")
+        .cloned()
+        .or_else(|| Some(format!("{}/{}", namespace, pipeline_name)));
+
     AvailablePipeline {
         id: format!("{}__{}", namespace, pipeline_name),
         name: pipeline_name.clone(),
-        description: tekton_pipeline
-            .metadata
-            .annotations
-            .get("description")
-            .cloned(),
+        description,
         organization: Some(namespace.clone()),
         repository: Some(pipeline_name.clone()),
     }

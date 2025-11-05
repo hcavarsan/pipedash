@@ -319,6 +319,9 @@ impl Plugin for TektonPlugin {
 
         let run_name = format!("{}-{}", pipeline_name, chrono::Utc::now().timestamp());
 
+        let mut annotations = HashMap::new();
+        annotations.insert("tekton.dev/triggeredBy".to_string(), "pipedash".to_string());
+
         let pipelinerun = types::TektonPipelineRun {
             api_version: "tekton.dev/v1".to_string(),
             kind: "PipelineRun".to_string(),
@@ -327,7 +330,7 @@ impl Plugin for TektonPlugin {
                 namespace: namespace.clone(),
                 creation_timestamp: None,
                 labels: HashMap::new(),
-                annotations: HashMap::new(),
+                annotations,
             },
             spec: types::PipelineRunSpec {
                 pipeline_ref: Some(types::PipelineRef {
@@ -336,12 +339,14 @@ impl Plugin for TektonPlugin {
                 params: param_values,
                 workspaces,
                 timeout: None,
+                task_run_template: None,
             },
             status: types::PipelineRunStatus {
                 conditions: vec![],
                 start_time: None,
                 completion_time: None,
                 task_runs: HashMap::new(),
+                child_references: vec![],
             },
         };
 

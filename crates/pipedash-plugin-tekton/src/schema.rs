@@ -4,11 +4,6 @@
 
 use pipedash_plugin_api::*;
 
-/// Creates the complete table schema for Tekton plugin
-///
-/// This includes:
-/// - Pipeline runs table with extensive Tekton/Kubernetes-specific columns
-/// - Standard pipelines table
 pub fn create_table_schema() -> schema::TableSchema {
     schema::TableSchema::new()
         .add_table(create_pipeline_runs_table())
@@ -31,7 +26,7 @@ fn create_pipeline_runs_table() -> schema::TableDefinition {
         name: "Pipeline Runs".to_string(),
         description: Some("Tekton PipelineRun executions".to_string()),
         columns: vec![
-            create_run_number_column(),
+            create_run_identifier_column(),
             create_namespace_column(),
             create_status_column(),
             create_pipeline_column(),
@@ -42,25 +37,28 @@ fn create_pipeline_runs_table() -> schema::TableDefinition {
             create_trigger_column(),
             create_pipelinerun_column(),
             create_event_type_column(),
+            create_task_summary_column(),
+            create_concluded_at_column(),
+            create_service_account_column(),
         ],
         default_sort_column: Some("run_number".to_string()),
         default_sort_direction: Some("desc".to_string()),
     }
 }
 
-/// Creates the run_number column (timestamp-based)
-fn create_run_number_column() -> schema::ColumnDefinition {
+/// Creates the run_identifier column (event ID or PipelineRun name)
+fn create_run_identifier_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
-        id: "run_number".to_string(),
+        id: "run_identifier".to_string(),
         label: "Run".to_string(),
-        description: Some("Run number (timestamp-based)".to_string()),
-        field_path: "run_number".to_string(),
-        data_type: schema::ColumnDataType::Number,
-        renderer: schema::CellRenderer::Text,
+        description: Some("Run identifier (event ID or PipelineRun name)".to_string()),
+        field_path: "metadata.run_identifier".to_string(),
+        data_type: schema::ColumnDataType::String,
+        renderer: schema::CellRenderer::TruncatedText,
         visibility: schema::ColumnVisibility::Always,
         default_visible: true,
-        width: Some(100),
-        sortable: true,
+        width: Some(180),
+        sortable: false,
         filterable: false,
         align: Some("left".to_string()),
     }
@@ -76,7 +74,7 @@ fn create_namespace_column() -> schema::ColumnDefinition {
         data_type: schema::ColumnDataType::String,
         renderer: schema::CellRenderer::Badge,
         visibility: schema::ColumnVisibility::Always,
-        default_visible: true,
+        default_visible: false,
         width: Some(140),
         sortable: true,
         filterable: false,
@@ -130,7 +128,7 @@ fn create_branch_column() -> schema::ColumnDefinition {
         data_type: schema::ColumnDataType::String,
         renderer: schema::CellRenderer::TruncatedText,
         visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: true,
+        default_visible: false,
         width: Some(140),
         sortable: true,
         filterable: false,
@@ -148,7 +146,7 @@ fn create_started_at_column() -> schema::ColumnDefinition {
         data_type: schema::ColumnDataType::DateTime,
         renderer: schema::CellRenderer::DateTime,
         visibility: schema::ColumnVisibility::Always,
-        default_visible: true,
+        default_visible: false,
         width: Some(160),
         sortable: true,
         filterable: false,
@@ -202,7 +200,7 @@ fn create_trigger_column() -> schema::ColumnDefinition {
         data_type: schema::ColumnDataType::String,
         renderer: schema::CellRenderer::Badge,
         visibility: schema::ColumnVisibility::WhenPresent,
-        default_visible: false,
+        default_visible: true,
         width: Some(140),
         sortable: false,
         filterable: false,
@@ -240,6 +238,60 @@ fn create_event_type_column() -> schema::ColumnDefinition {
         visibility: schema::ColumnVisibility::WhenPresent,
         default_visible: false,
         width: Some(150),
+        sortable: false,
+        filterable: false,
+        align: None,
+    }
+}
+
+/// Creates the task_summary column
+fn create_task_summary_column() -> schema::ColumnDefinition {
+    schema::ColumnDefinition {
+        id: "task_summary".to_string(),
+        label: "Tasks".to_string(),
+        description: Some("Task completion summary (completed/total)".to_string()),
+        field_path: "metadata.task_summary".to_string(),
+        data_type: schema::ColumnDataType::String,
+        renderer: schema::CellRenderer::Text,
+        visibility: schema::ColumnVisibility::WhenPresent,
+        default_visible: false,
+        width: Some(80),
+        sortable: false,
+        filterable: false,
+        align: Some("center".to_string()),
+    }
+}
+
+/// Creates the concluded_at column (hidden by default)
+fn create_concluded_at_column() -> schema::ColumnDefinition {
+    schema::ColumnDefinition {
+        id: "concluded_at".to_string(),
+        label: "Concluded".to_string(),
+        description: Some("When the pipeline run completed or failed".to_string()),
+        field_path: "concluded_at".to_string(),
+        data_type: schema::ColumnDataType::DateTime,
+        renderer: schema::CellRenderer::DateTime,
+        visibility: schema::ColumnVisibility::WhenPresent,
+        default_visible: false,
+        width: Some(160),
+        sortable: true,
+        filterable: false,
+        align: None,
+    }
+}
+
+/// Creates the service_account column (hidden by default)
+fn create_service_account_column() -> schema::ColumnDefinition {
+    schema::ColumnDefinition {
+        id: "service_account".to_string(),
+        label: "Service Account".to_string(),
+        description: Some("Kubernetes ServiceAccount used for the run".to_string()),
+        field_path: "metadata.service_account".to_string(),
+        data_type: schema::ColumnDataType::String,
+        renderer: schema::CellRenderer::Badge,
+        visibility: schema::ColumnVisibility::WhenPresent,
+        default_visible: false,
+        width: Some(140),
         sortable: false,
         filterable: false,
         align: None,

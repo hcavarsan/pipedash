@@ -9,6 +9,7 @@ import { useIsMobile } from '../../contexts/MediaQueryContext'
 import { useTableColumns } from '../../hooks/useTableColumns'
 import { tauriService } from '../../services/tauri'
 import type { Pipeline, PipelineRun } from '../../types'
+import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { formatDuration } from '../../utils/formatDuration'
 import { TableCells } from '../../utils/tableCells'
 import { FilterBar } from '../common/FilterBar'
@@ -495,7 +496,7 @@ bVal = ''
               <Stack gap="xs">
                 <Group justify="space-between" wrap="nowrap">
                   <Group gap={8} wrap="nowrap">
-                    <Text size="sm" fw={600} c="blue">
+                    <Text size={THEME_TYPOGRAPHY.ITEM_TITLE.size} fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight}>
                       #{run.run_number}
                     </Text>
                     {TableCells.status(run.status)}
@@ -559,16 +560,16 @@ bVal = ''
                   <Box style={{ flex: 1, minWidth: 0 }}>
                     <Group gap={4} wrap="nowrap">
                       <IconGitBranch size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                      <Text size="xs" c="dimmed">Branch</Text>
+                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Branch</Text>
                     </Group>
-                    <Text size="sm" truncate>{run.branch || '—'}</Text>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT} truncate>{run.branch || '—'}</Text>
                   </Box>
                   <Box style={{ flex: 1, minWidth: 0 }}>
                     <Group gap={4} wrap="nowrap">
                       <IconUser size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                      <Text size="xs" c="dimmed">Actor</Text>
+                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Actor</Text>
                     </Group>
-                    <Text size="sm" truncate>{run.actor || '—'}</Text>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT} truncate>{run.actor || '—'}</Text>
                   </Box>
                 </Group>
 
@@ -576,16 +577,16 @@ bVal = ''
                   <Box style={{ flex: 1, minWidth: 0 }}>
                     <Group gap={4} wrap="nowrap">
                       <IconClock size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                      <Text size="xs" c="dimmed">Duration</Text>
+                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Duration</Text>
                     </Group>
-                    <Text size="sm">{formatDuration(run.duration_seconds)}</Text>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{formatDuration(run.duration_seconds)}</Text>
                   </Box>
                   <Box style={{ flex: 1, minWidth: 0 }}>
                     <Group gap={4} wrap="nowrap">
                       <IconCalendar size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                      <Text size="xs" c="dimmed">Started</Text>
+                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Started</Text>
                     </Group>
-                    <Text size="sm" truncate>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT} truncate>
                       {run.started_at ? new Date(run.started_at).toLocaleString() : '—'}
                     </Text>
                   </Box>
@@ -593,7 +594,7 @@ bVal = ''
 
                 {run.commit_sha && (
                   <Box>
-                    <Text size="xs" c="dimmed">Commit</Text>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Commit</Text>
                     {TableCells.commit(run.commit_sha)}
                   </Box>
                 )}
@@ -602,7 +603,7 @@ bVal = ''
           )
         })}
         {/* Mobile pagination info */}
-        <Text size="sm" c="dimmed" ta="center" py="sm">
+        <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center" py="sm">
           Page {page} of {totalPages} ({isComplete ? `${totalCount}` : `${totalCount}+`} runs)
         </Text>
         {totalPages > 1 && (

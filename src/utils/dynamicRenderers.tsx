@@ -1,17 +1,63 @@
-import { Badge, Text } from '@mantine/core'
+import { Text } from '@mantine/core'
 
 import { StatusBadge as StatusBadgeComponent } from '../components/atoms/StatusBadge'
 import type { CellRenderer, PipelineStatus } from '../types'
 
 import { formatDuration } from './formatDuration'
 
+export const THEME_COLORS = {
+  // Field labels (Organization, Branch, etc.)
+  FIELD_LABEL: 'gray.5',
+  // Field values (main text content)
+  VALUE_TEXT: 'dark.1',
+  // Helper/dimmed text (descriptions, placeholders, loading messages)
+  DIMMED: 'dimmed',
+  // Modal/Section titles
+  TITLE: 'gray.1',
+  // Emphasized/Link text
+  EMPHASIZED: 'blue',
+} as const
+
+export const THEME_TYPOGRAPHY = {
+  // Modal/Section titles (large, bold)
+  MODAL_TITLE: {
+    size: 'lg' as const,
+    weight: 600,
+  },
+  // Card/List item titles (repository names, workflow names, pipeline names)
+  ITEM_TITLE: {
+    size: 'sm' as const,
+    weight: 500,
+  },
+  // Field labels (Organization, Branch, Duration, etc.)
+  FIELD_LABEL: {
+    size: 'xs' as const,
+    weight: undefined,
+  },
+  // Field values (text content)
+  FIELD_VALUE: {
+    size: 'sm' as const,
+    weight: undefined,
+  },
+  // Small field values (for compact layouts)
+  FIELD_VALUE_SMALL: {
+    size: 'xs' as const,
+    weight: undefined,
+  },
+  // Helper/Description text
+  HELPER_TEXT: {
+    size: 'sm' as const,
+    weight: undefined,
+  },
+} as const
+
 /**
  * Dynamic cell renderers that map from schema CellRenderer enum to React components
  */
 export class DynamicRenderers {
-  static render(renderer: CellRenderer, value: any): React.ReactNode {
+  static render(renderer: CellRenderer, value: any, isMobile = false): React.ReactNode {
     if (value === null || value === undefined) {
-      return <Text size="sm" c="dimmed">—</Text>
+      return <Text size={isMobile ? 'sm' : 'md'} c="dimmed">—</Text>
     }
 
     // Handle enum variants
@@ -51,7 +97,7 @@ export class DynamicRenderers {
 
   private static text(value: any): React.ReactNode {
     return (
-      <Text size="sm" fw={600}>
+      <Text size="md" c={THEME_COLORS.VALUE_TEXT}>
         {String(value)}
       </Text>
     )
@@ -59,9 +105,9 @@ export class DynamicRenderers {
 
   private static badge(value: any): React.ReactNode {
     return (
-      <Badge variant="light" size="md">
+      <Text size="md" c={THEME_COLORS.VALUE_TEXT}>
         {String(value)}
-      </Badge>
+      </Text>
     )
   }
 
@@ -69,11 +115,11 @@ export class DynamicRenderers {
     const date = new Date(value)
 
     if (isNaN(date.getTime())) {
-      return <Text size="sm" c="dimmed">{String(value)}</Text>
+      return <Text size="md" c={THEME_COLORS.VALUE_TEXT}>{String(value)}</Text>
     }
 
     return (
-      <Text size="sm" c="dimmed">
+      <Text size="md" c={THEME_COLORS.VALUE_TEXT}>
         {date.toLocaleString()}
       </Text>
     )
@@ -81,17 +127,17 @@ export class DynamicRenderers {
 
   private static duration(value: any): React.ReactNode {
     if (value === null || value === undefined) {
-      return <Text size="sm" c="dimmed">—</Text>
+      return <Text size="md" c="dimmed">—</Text>
     }
 
     const duration = typeof value === 'number' ? value : Number.parseInt(String(value), 10)
 
     if (isNaN(duration)) {
-      return <Text size="sm" c="dimmed">—</Text>
+      return <Text size="md" c="dimmed">—</Text>
     }
 
     return (
-      <Text size="sm" fw={600}>
+      <Text size="md" c={THEME_COLORS.VALUE_TEXT}>
         {formatDuration(duration)}
       </Text>
     )
@@ -110,7 +156,18 @@ export class DynamicRenderers {
     const shortSha = sha.substring(0, 7)
 
     return (
-      <Text size="sm" c="dimmed" style={{ fontFamily: 'monospace' }}>
+      <Text
+        size="md"
+        c={THEME_COLORS.VALUE_TEXT}
+        style={{
+          fontFamily: 'monospace',
+          backgroundColor: 'var(--mantine-color-dark-7)',
+          padding: '4px 10px',
+          borderRadius: '6px',
+          border: '1px solid var(--mantine-color-dark-5)',
+          display: 'inline-block',
+        }}
+      >
         {shortSha}
       </Text>
     )
@@ -118,15 +175,15 @@ export class DynamicRenderers {
 
   private static avatar(value: any): React.ReactNode {
     return (
-      <Badge variant="light" size="sm" radius="xl">
-        {String(value).charAt(0).toUpperCase()}
-      </Badge>
+      <Text size="md" c={THEME_COLORS.VALUE_TEXT}>
+        {String(value)}
+      </Text>
     )
   }
 
   private static truncatedText(value: any): React.ReactNode {
     return (
-      <Text size="sm" c="dimmed" truncate title={String(value)}>
+      <Text size="md" c={THEME_COLORS.VALUE_TEXT} truncate title={String(value)}>
         {String(value)}
       </Text>
     )
@@ -135,7 +192,7 @@ export class DynamicRenderers {
   private static link(value: any): React.ReactNode {
     return (
       <Text
-        size="sm"
+        size="md"
         c="blue"
         style={{ textDecoration: 'underline', cursor: 'pointer' }}
       >
@@ -147,10 +204,8 @@ export class DynamicRenderers {
   private static jsonViewer(value: any): React.ReactNode {
     const jsonStr = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 
-
-
-return (
-      <Text size="xs" c="dimmed" style={{ fontFamily: 'monospace' }}>
+    return (
+      <Text size="md" c={THEME_COLORS.VALUE_TEXT} style={{ fontFamily: 'monospace' }}>
         {jsonStr}
       </Text>
     )

@@ -28,6 +28,7 @@ import { useIsMobile } from '../../contexts/MediaQueryContext'
 import { usePlugins } from '../../contexts/PluginContext'
 import { tauriService } from '../../services/tauri'
 import type { AvailablePipeline, ConfigField, PluginMetadata, ProviderConfig } from '../../types'
+import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { StandardModal } from '../common/StandardModal'
 
 interface AddProviderModalProps {
@@ -520,18 +521,18 @@ return (
 
                 <Group gap="xs" wrap="nowrap" align="flex-start">
                   <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Text size="xs" c="dimmed">Org</Text>
-                    <Text size="xs" truncate>{pipeline.organization || '—'}</Text>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Org</Text>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE_SMALL.size} c={THEME_COLORS.VALUE_TEXT} truncate>{pipeline.organization || '—'}</Text>
                   </Box>
                   <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Text size="xs" c="dimmed">Repo</Text>
-                    <Text size="xs" truncate>{pipeline.repository || '—'}</Text>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Repo</Text>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE_SMALL.size} c={THEME_COLORS.VALUE_TEXT} truncate>{pipeline.repository || '—'}</Text>
                   </Box>
                 </Group>
 
                 {pipeline.description && (
                   <Box>
-                    <Text size="xs" c="dimmed" lineClamp={1}>{pipeline.description}</Text>
+                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE_SMALL.size} c={THEME_COLORS.DIMMED} lineClamp={1}>{pipeline.description}</Text>
                   </Box>
                 )}
               </Stack>
@@ -724,7 +725,7 @@ return (
                       <Box py="lg">
                         <Stack align="center" gap="xs">
                           <Loader size="md" />
-                          <Text size="sm" c="dimmed">Loading organizations...</Text>
+                          <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>Loading organizations...</Text>
                         </Stack>
                       </Box>
                     ) : (
@@ -769,19 +770,19 @@ return (
                     <Box style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <Stack align="center" gap="xs">
                         <Loader size="md" />
-                        <Text size="sm" c="dimmed">Fetching organizations...</Text>
+                        <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>Fetching organizations...</Text>
                       </Stack>
                     </Box>
                   ) : loadingPipelines ? (
                     <Box style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <Stack align="center" gap="xs">
                         <Loader size="md" />
-                        <Text size="sm" c="dimmed">Loading pipelines...</Text>
+                        <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>Loading pipelines...</Text>
                       </Stack>
                     </Box>
                   ) : !selectedOrganization ? (
                     <Box style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Text size="sm" c="dimmed">
+                      <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>
                         {availableOrganizations.length > 1 ? 'Select organization above' : 'No organizations found'}
                       </Text>
                     </Box>

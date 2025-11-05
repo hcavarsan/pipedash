@@ -118,6 +118,12 @@ pub struct SecretWorkspaceBinding {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TaskRunTemplate {
+    #[serde(rename = "serviceAccountName", skip_serializing_if = "Option::is_none")]
+    pub service_account_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PipelineRunSpec {
     #[serde(rename = "pipelineRef", skip_serializing_if = "Option::is_none")]
     pub pipeline_ref: Option<PipelineRef>,
@@ -127,6 +133,8 @@ pub struct PipelineRunSpec {
     pub workspaces: Vec<WorkspaceBinding>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<String>,
+    #[serde(rename = "taskRunTemplate", skip_serializing_if = "Option::is_none")]
+    pub task_run_template: Option<TaskRunTemplate>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -147,6 +155,16 @@ pub struct TaskRunStatus {
     pub status: Option<TaskRunStatusFields>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ChildReference {
+    #[serde(rename = "apiVersion")]
+    pub api_version: String,
+    pub kind: String,
+    pub name: String,
+    #[serde(rename = "pipelineTaskName")]
+    pub pipeline_task_name: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct PipelineRunStatus {
     #[serde(default)]
@@ -157,6 +175,8 @@ pub struct PipelineRunStatus {
     pub completion_time: Option<String>,
     #[serde(rename = "taskRuns", default)]
     pub task_runs: HashMap<String, TaskRunStatus>,
+    #[serde(rename = "childReferences", default)]
+    pub child_references: Vec<ChildReference>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

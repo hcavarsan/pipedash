@@ -116,6 +116,13 @@ impl ProviderService {
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
+                        .map(|item| {
+                            if config.provider_type == "tekton" && item.contains("__") {
+                                item.replace("__", "/")
+                            } else {
+                                item
+                            }
+                        })
                         .collect()
                 })
                 .unwrap_or_default();

@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { DataTableSortStatus } from 'mantine-datatable'
 
-import { ActionIcon, Box, Card, Center, Group, Loader, Stack, Text, Tooltip } from '@mantine/core'
+import { ActionIcon, Box, Card, Center, Container, Group, Loader, Stack, Text, Tooltip } from '@mantine/core'
 import { IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import type { Pipeline, ProviderSummary } from '../../types'
+import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { TableCells } from '../../utils/tableCells'
 import { TableHeader } from '../atoms'
 import { FilterBar } from '../common/FilterBar'
@@ -354,8 +355,8 @@ return Array.from(providerIdSet)
               <Stack align="center" gap="md">
                 <IconFolder size={48} color="var(--mantine-color-dimmed)" />
                 <Stack align="center" gap="xs">
-                  <Text size="lg" fw={500}>No workflows found</Text>
-                  <Text size="sm" c="dimmed" ta="center">
+                  <Text size={THEME_TYPOGRAPHY.MODAL_TITLE.size} fw={THEME_TYPOGRAPHY.MODAL_TITLE.weight}>No workflows found</Text>
+                  <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center">
                     {pipelines.length === 0
                       ? 'This provider doesn\'t have any workflows configured yet.'
                       : 'No workflows match your current filters'}
@@ -411,7 +412,7 @@ return newSet
                           }}
                         />
                         <IconFolder size={18} color="var(--mantine-color-blue-5)" style={{ flexShrink: 0 }} />
-                        <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
+                        <Text size={THEME_TYPOGRAPHY.ITEM_TITLE.size} fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight} truncate style={{ flex: 1 }}>
                           {row.repository}
                         </Text>
                       </Group>
@@ -427,17 +428,17 @@ return newSet
 
                     <Group gap="md" wrap="wrap">
                       <Box style={{ flex: '1 1 auto' }}>
-                        <Text size="xs" c="dimmed">Organization</Text>
-                        <Text size="sm">{row.organization}</Text>
+                        <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Organization</Text>
+                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{row.organization}</Text>
                       </Box>
                       <Box style={{ flex: '1 1 auto' }}>
-                        <Text size="xs" c="dimmed">Pipelines</Text>
-                        <Text size="sm">{row.pipelineCount}</Text>
+                        <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Pipelines</Text>
+                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{row.pipelineCount}</Text>
                       </Box>
                     </Group>
 
                     <Box>
-                      <Text size="xs" c="dimmed" mb={4}>Providers</Text>
+                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL} mb={4}>Providers</Text>
                       <Stack gap={(row.providerIds?.size || 0) > 1 ? 8 : 0}>
                         {Array.from(row.providerIds || []).map((providerId) => {
                           const provider = getProvider(providerId)
@@ -476,7 +477,7 @@ return (
                     <Group justify="space-between" wrap="nowrap">
                       <Group gap={8} wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
                         <IconGitBranch size={16} color="var(--mantine-color-gray-6)" style={{ flexShrink: 0 }} />
-                        <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
+                        <Text size={THEME_TYPOGRAPHY.ITEM_TITLE.size} fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight} truncate style={{ flex: 1 }}>
                           {row.pipeline.name}
                         </Text>
                       </Group>
@@ -518,19 +519,19 @@ return (
 
                     <Group gap="md" wrap="wrap">
                       <Box style={{ flex: '1 1 auto' }}>
-                        <Text size="xs" c="dimmed">Organization</Text>
-                        <Text size="sm">{organization}</Text>
+                        <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Organization</Text>
+                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{organization}</Text>
                       </Box>
                       {row.pipeline.branch && (
                         <Box style={{ flex: '1 1 auto' }}>
-                          <Text size="xs" c="dimmed">Branch</Text>
-                          <Text size="sm">{row.pipeline.branch}</Text>
+                          <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Branch</Text>
+                          <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{row.pipeline.branch}</Text>
                         </Box>
                       )}
                     </Group>
 
                     <Box>
-                      <Text size="xs" c="dimmed" mb={4}>Provider</Text>
+                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL} mb={4}>Provider</Text>
                       {TableCells.avatarName(
                         provider?.icon || null,
                         provider?.name || 'Unknown',
@@ -551,20 +552,20 @@ return null
 
   if (loading) {
     return (
-      <Box>
+      <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
         <TableHeader title="Repositories & Workflows" count={repositoryCount} />
         <Center py="xl">
           <Stack align="center" gap="md">
             <Loader size="lg" />
-            <Text size="sm" c="dimmed">Loading pipelines...</Text>
+            <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>Loading pipelines...</Text>
           </Stack>
         </Center>
-      </Box>
+      </Container>
     )
   }
 
   return (
-    <Box>
+    <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
       <TableHeader title="Repositories & Workflows" count={repositoryCount} />
 
       <FilterBar
@@ -604,10 +605,10 @@ return null
             <Stack align="center" gap="md">
               <IconFolder size={48} color="var(--mantine-color-dimmed)" />
               <Stack align="center" gap="xs">
-                <Text size="lg" fw={500}>No workflows found</Text>
-                <Text size="sm" c="dimmed" ta="center">
+                <Text size={THEME_TYPOGRAPHY.MODAL_TITLE.size} fw={THEME_TYPOGRAPHY.MODAL_TITLE.weight}>No workflows found</Text>
+                <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center">
                   {pipelines.length === 0
-                    ? 'This provider doesn\'t have any workflows configured yet. Make sure the repository has GitHub Actions workflows in .github/workflows/'
+                    ? 'This provider doesn\'t have any workflows configured yet.'
                     : 'No workflows match your current filters'}
                 </Text>
               </Stack>
@@ -855,6 +856,6 @@ return newSet
         noRecordsText="No repositories found"
       />
       )}
-    </Box>
+    </Container>
   )
 }
