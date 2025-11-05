@@ -26,7 +26,7 @@ futures = "0.3"
 # Security (only for main app)
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 # Plugin-specific
-octocrab = "0.47.0"
+octocrab = "0.47.1"
 # Internal workspace crates
 pipedash-plugin-api = { path = "crates/pipedash-plugin-api" }
 pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
@@ -35,7 +35,7 @@ pipedash-plugin-gitlab = { path = "crates/pipedash-plugin-gitlab" }
 pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
 pipedash-plugin-tekton = { path = "crates/pipedash-plugin-tekton" }
 # HTTP Client
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # Database (only for main app)
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate"] }
 # Serialization
