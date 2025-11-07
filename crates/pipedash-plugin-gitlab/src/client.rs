@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use pipedash_plugin_api::{
     PaginatedResponse,
     PaginationParams,
@@ -19,6 +21,7 @@ pub struct GitLabClient {
     http_client: reqwest::Client,
     api_url: String,
     retry_policy: RetryPolicy,
+    user_cache: OnceLock<User>,
 }
 
 impl GitLabClient {
@@ -27,21 +30,29 @@ impl GitLabClient {
             http_client,
             api_url: api_url.trim_end_matches('/').to_string(),
             retry_policy: RetryPolicy::default(),
+            user_cache: OnceLock::new(),
         }
     }
 
     pub async fn get_user(&self) -> PluginResult<User> {
-        self.retry_policy
-            .retry(|| async {
-                let url = format!("{}/user", self.api_url);
-                let response =
-                    self.http_client.get(&url).send().await.map_err(|e| {
+        if let Some(user) = self.user_cache.get() {
+            return Ok(user.clone());
+        }
+
+        let user: User =
+            self.retry_policy
+                .retry(|| async {
+                    let url = format!("{}/user", self.api_url);
+                    let response = self.http_client.get(&url).send().await.map_err(|e| {
                         PluginError::NetworkError(format!("Failed to get user: {}", e))
                     })?;
 
-                self.handle_response(response).await
-            })
-            .await
+                    self.handle_response(response).await
+                })
+                .await?;
+
+        let _ = self.user_cache.set(user.clone());
+        Ok(user)
     }
 
     pub async fn list_groups(&self) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
@@ -265,6 +276,14 @@ impl GitLabClient {
         &self, response: reqwest::Response,
     ) -> PluginResult<T> {
         let status = response.status();
+        let url = response.url().clone();
+
+        // Log response details for debugging
+        let content_length = response.content_length();
+        eprintln!(
+            "[GITLAB DEBUG] Response from {}: status={}, content_length={:?}",
+            url, status, content_length
+        );
 
         if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
             let error_text = response
@@ -272,15 +291,16 @@ impl GitLabClient {
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(PluginError::AuthenticationFailed(format!(
-                "Authentication failed: {}",
-                error_text
+                "Authentication failed for {}: {}",
+                url, error_text
             )));
         }
 
         if status == StatusCode::NOT_FOUND {
-            return Err(PluginError::PipelineNotFound(
-                "Resource not found".to_string(),
-            ));
+            return Err(PluginError::PipelineNotFound(format!(
+                "Resource not found: {}",
+                url
+            )));
         }
 
         if !status.is_success() {
@@ -289,13 +309,18 @@ impl GitLabClient {
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(PluginError::ApiError(format!(
-                "GitLab API error ({}): {}",
-                status, error_text
+                "GitLab API error ({}) for {}: {}",
+                status, url, error_text
             )));
         }
 
+        // Attempt to deserialize with better error context
         response.json::<T>().await.map_err(|e| {
-            PluginError::ApiError(format!("Failed to parse GitLab API response: {}", e))
+            eprintln!("[GITLAB ERROR] Failed to deserialize response from {}: {}", url, e);
+            PluginError::ApiError(format!(
+                "Failed to parse GitLab API response from {}: {}. This may indicate a network issue or incompatible response format.",
+                url, e
+            ))
         })
     }
 }

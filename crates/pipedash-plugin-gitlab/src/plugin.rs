@@ -137,9 +137,12 @@ impl Plugin for GitLabPlugin {
         );
 
         let http_client = reqwest::Client::builder()
+            .use_rustls_tls()
+            .pool_max_idle_per_host(10)
             .default_headers(headers)
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
+            .tcp_keepalive(Duration::from_secs(60))
             .build()
             .map_err(|e| PluginError::Internal(format!("Failed to build HTTP client: {}", e)))?;
 
