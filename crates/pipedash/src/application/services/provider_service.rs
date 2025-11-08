@@ -112,6 +112,10 @@ impl ProviderService {
                 .config
                 .get("selected_items")
                 .map(|items| {
+                    if config.provider_type == "argocd" {
+                        return Vec::new();
+                    }
+
                     items
                         .split(',')
                         .map(|s| s.trim().to_string())

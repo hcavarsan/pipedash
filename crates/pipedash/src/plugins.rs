@@ -30,4 +30,5 @@ define_plugins![
     ("gitlab", pipedash_plugin_gitlab::GitLabPlugin),
     ("jenkins", pipedash_plugin_jenkins::JenkinsPlugin),
     ("tekton", pipedash_plugin_tekton::TektonPlugin),
+    ("argocd", pipedash_plugin_argocd::ArgocdPlugin),
 ];

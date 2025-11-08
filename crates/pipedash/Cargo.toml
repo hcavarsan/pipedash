@@ -22,6 +22,7 @@ pipedash-plugin-github.workspace = true
 pipedash-plugin-gitlab.workspace = true
 pipedash-plugin-jenkins.workspace = true
 pipedash-plugin-tekton.workspace = true
+pipedash-plugin-argocd.workspace = true
 reqwest.workspace = true
 sqlx.workspace = true
 serde.workspace = true
