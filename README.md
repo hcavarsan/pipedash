@@ -33,6 +33,7 @@ This tool pulls pipeline data from different providers and shows it together.
 - Buildkite
 - Jenkins
 - Tekton CD
+- ArgoCD
 
 The plugin architecture allows adding more providers.
 
@@ -74,6 +75,8 @@ Launch the app and add a provider via the sidebar. Each provider needs an API to
 
 **Tekton CD**: Kubernetes config file path and context. Automatically detects namespaces with Tekton pipelines.
 
+**ArgoCD**: Server URL and authentication token. Optionally filter by Git organizations. Monitors application sync status, health, and deployment history.
+
 After adding a provider, the app validates credentials and fetches available repositories. Select which ones to monitor and save. Pipelines will appear in the main view and refresh automatically.
 
 ## How It Works
@@ -88,7 +91,7 @@ Each provider has its own refresh interval (default: 30 seconds), adjustable bas
 
 **Plugin System**
 
-Each CI/CD provider is implemented as a plugin that exposes a common interface. The core application doesn't know the specifics of how GitHub Actions, GitLab CI, Buildkite, Jenkins, or Tekton work—it just calls standard methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
+Each CI/CD provider is implemented as a plugin that exposes a common interface. The core application doesn't know the specifics of how GitHub Actions, GitLab CI, Buildkite, Jenkins, Tekton, or ArgoCD work—it just calls standard methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
 
 Plugins are compiled into the application at build time, not loaded dynamically at runtime. This keeps things simpler and avoids the security concerns of runtime plugin loading.
 
@@ -109,7 +112,7 @@ Each plugin should follow this structure:
 
 After implementing the plugin, register it in the main application's plugin registry and add any provider-specific configuration UI in the frontend.
 
-The existing GitHub Actions, GitLab CI, Buildkite, Jenkins, and Tekton CD plugins serve as reference implementations.
+The existing GitHub Actions, GitLab CI, Buildkite, Jenkins, Tekton CD, and ArgoCD plugins serve as reference implementations.
 
 
 
@@ -216,13 +219,13 @@ mise run release
 - [x] Buildkite
 - [x] Jenkins
 - [x] Tekton CD
+- [x] ArgoCD
 - [ ] CircleCI
 - [ ] Azure Pipelines
 - [ ] AWS CodePipeline
 - [ ] Google Cloud Build
 - [ ] Travis CI
 - [ ] Drone CI
-- [ ] ArgoCD
 
 
 **Platforms** (maybe)
