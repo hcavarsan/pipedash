@@ -221,6 +221,7 @@ mise run release
 - [x] Tekton CD
 - [x] ArgoCD
 - [ ] CircleCI
+- [ ] Flux CD
 - [ ] Azure Pipelines
 - [ ] AWS CodePipeline
 - [ ] Google Cloud Build
