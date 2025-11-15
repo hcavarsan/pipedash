@@ -119,7 +119,10 @@ impl RefreshManager {
 
                     let old_cached = pipeline_service.get_cached_pipelines(None).await.ok();
 
-                    match pipeline_service.fetch_pipelines(None).await {
+                    match pipeline_service
+                        .fetch_pipelines(None, Some(app_handle.clone()))
+                        .await
+                    {
                         Ok(pipelines) => {
                             let _ = app_handle.emit("pipelines-updated", &pipelines);
 

@@ -17,6 +17,8 @@ interface AppLayoutProps {
   selectedProviderId?: number;
   onProviderSelect?: (id: number | undefined) => void;
   providers: ProviderSummary[];
+  providersLoading?: boolean;
+  providersError?: string | null;
   onAddProvider: (config: ProviderConfig) => Promise<void>;
   onUpdateProvider: (id: number, config: ProviderConfig) => Promise<void>;
   onRemoveProvider: (id: number, name: string) => Promise<void>;
@@ -30,6 +32,8 @@ export const AppLayout = ({
   selectedProviderId,
   onProviderSelect,
   providers,
+  providersLoading = false,
+  providersError = null,
   onAddProvider,
   onUpdateProvider,
   onRemoveProvider,
@@ -75,6 +79,8 @@ export const AppLayout = ({
           selectedProviderId={selectedProviderId}
           onProviderSelect={onProviderSelect}
           providers={providers}
+          loading={providersLoading}
+          error={providersError}
           onAddProvider={onAddProvider}
           onUpdateProvider={onUpdateProvider}
           onRemoveProvider={onRemoveProvider}
@@ -126,7 +132,10 @@ export const AppLayout = ({
         opened={settingsOpened}
         onClose={() => setSettingsOpened(false)}
         providers={providers}
+        loading={providersLoading}
+        error={providersError}
         onRemoveProvider={onRemoveProvider}
+        onUpdateProvider={onUpdateProvider}
         onRefresh={onRefreshProviders}
       />
 

@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { DataTableSortStatus } from 'mantine-datatable'
 
-import { ActionIcon, Box, Card, Center, Container, Group, Loader, Stack, Text, Tooltip } from '@mantine/core'
-import { IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
+import { ActionIcon, Alert, Box, Card, Center, Container, Group, Loader, Modal, Paper, Stack, Text, Tooltip } from '@mantine/core'
+import { IconAlertCircle, IconAlertTriangle, IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import type { Pipeline, ProviderSummary } from '../../types'
@@ -61,9 +61,31 @@ export const UnifiedPipelinesView = ({
     columnAccessor: 'repository',
     direction: 'asc',
   })
+  const [errorModalOpened, setErrorModalOpened] = useState(false)
+  const [selectedError, setSelectedError] = useState<{ providerName: string; error: string } | null>(null)
 
   const getProvider = (providerId: number): ProviderSummary | undefined => {
     return providers.find((p) => p.id === providerId)
+  }
+
+  const getRepositoryProviderErrors = (providerIds: Set<number>) => {
+    const errors: Array<{ id: number; name: string; error: string }> = []
+
+
+    providerIds.forEach(id => {
+      const provider = providers.find(p => p.id === id)
+
+
+      if (provider?.last_fetch_status === 'error' && provider.last_fetch_error) {
+        errors.push({
+          id: provider.id,
+          name: provider.name,
+          error: provider.last_fetch_error
+        })
+      }
+    })
+
+return errors
   }
 
   const parseRepositoryName = (fullName: string, providerId: number): { organization: string; repository: string } => {
@@ -638,6 +660,8 @@ return null
             render: (row) => {
               if (row.type === 'repository') {
                 const isExpanded = expandedRepos.has(row.id)
+                const providerErrors = row.providerIds ? getRepositoryProviderErrors(row.providerIds) : []
+                const hasErrors = providerErrors.length > 0
 
 
 
@@ -649,9 +673,17 @@ return (
                         transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                         transition: 'transform 200ms ease',
                         flexShrink: 0,
+                        opacity: hasErrors ? 0.3 : 1,
                       }}
                     />
-                    <IconFolder size={18} color="var(--mantine-color-blue-5)" style={{ flexShrink: 0 }} />
+                    <IconFolder
+                      size={18}
+                      color={hasErrors
+                        ? 'var(--mantine-color-gray-6)'
+                        : 'var(--mantine-color-blue-5)'
+                      }
+                      style={{ flexShrink: 0 }}
+                    />
                     {TableCells.truncated(row.repository || '')}
                   </Group>
                 )
@@ -798,7 +830,36 @@ return null
             width: onViewMetrics ? 120 : 100,
             textAlign: 'center' as const,
             render: (row) => {
-              if (row.type === 'workflow' && row.pipeline) {
+              if (row.type === 'repository') {
+                const providerErrors = row.providerIds ? getRepositoryProviderErrors(row.providerIds) : []
+
+                if (providerErrors.length > 0) {
+                  return (
+                    <Box style={{ display: 'flex', justifyContent: 'center' }}>
+                      <Tooltip label="Provider fetch error - Click to view details" withArrow>
+                        <ActionIcon
+                          size="sm"
+                          color="red"
+                          variant="subtle"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedError({
+                              providerName: providerErrors[0].name,
+                              error: providerErrors[0].error
+                            })
+                            setErrorModalOpened(true)
+                          }}
+                          style={{ backgroundColor: 'transparent' }}
+                        >
+                          <IconAlertTriangle size={18} color="var(--mantine-color-red-6)" />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Box>
+                  )
+                }
+
+                return null
+              } else if (row.type === 'workflow' && row.pipeline) {
                 return (
                   <Box style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
                     {onViewMetrics && (
@@ -841,18 +902,30 @@ return null
         onSortStatusChange={setSortStatus}
         onRowClick={({ record }) => {
           if (record.type === 'repository') {
-            setExpandedRepos((prev) => {
-              const newSet = new Set(prev)
+            const providerErrors = record.providerIds
+              ? getRepositoryProviderErrors(record.providerIds)
+              : []
+
+            if (providerErrors.length > 0) {
+              setSelectedError({
+                providerName: providerErrors[0].name,
+                error: providerErrors[0].error
+              })
+              setErrorModalOpened(true)
+            } else {
+              setExpandedRepos((prev) => {
+                const newSet = new Set(prev)
 
 
-              if (newSet.has(record.id)) {
-                newSet.delete(record.id)
-              } else {
-                newSet.add(record.id)
-              }
+                if (newSet.has(record.id)) {
+                  newSet.delete(record.id)
+                } else {
+                  newSet.add(record.id)
+                }
 
 return newSet
-            })
+              })
+            }
           } else if (record.type === 'workflow' && record.pipeline) {
             onViewHistory(record.pipeline)
           }
@@ -866,6 +939,56 @@ return newSet
         noRecordsText="No repositories found"
       />
       )}
+
+      <Modal
+        opened={errorModalOpened}
+        onClose={() => setErrorModalOpened(false)}
+        title="Provider Fetch Error"
+        size="md"
+        padding="lg"
+      >
+        {selectedError && (
+          <Stack gap="md">
+            <Alert
+              icon={<IconAlertCircle size={16} />}
+              color="red"
+              variant="light"
+              title={selectedError.providerName}
+            >
+              <Text size="sm" c="dimmed">
+                Failed to fetch pipelines from this provider
+              </Text>
+            </Alert>
+
+            <Box>
+              <Text size="xs" fw={500} c="dimmed" mb="xs" tt="uppercase">
+                Error Details
+              </Text>
+              <Paper
+                p="md"
+                withBorder
+                radius="md"
+                style={{
+                  backgroundColor: 'var(--mantine-color-dark-8)',
+                  borderColor: 'var(--mantine-color-dark-5)',
+                }}
+              >
+                <Text
+                  size="sm"
+                  c="red"
+                  style={{
+                    fontFamily: 'monospace',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {selectedError.error}
+                </Text>
+              </Paper>
+            </Box>
+          </Stack>
+        )}
+      </Modal>
     </Container>
   )
 }

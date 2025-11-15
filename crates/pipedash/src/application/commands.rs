@@ -68,7 +68,10 @@ pub async fn add_provider(
     let pipeline_service = state.pipeline_service.clone();
     let app_handle = state.app.clone();
     tokio::spawn(async move {
-        match pipeline_service.fetch_pipelines(Some(id)).await {
+        match pipeline_service
+            .fetch_pipelines(Some(id), Some(app_handle.clone()))
+            .await
+        {
             Ok(_) => {
                 let _ = app_handle.emit("pipelines-fetched", id);
             }
@@ -162,7 +165,7 @@ pub async fn fetch_pipelines(
 ) -> Result<Vec<Pipeline>, ErrorResponse> {
     state
         .pipeline_service
-        .fetch_pipelines(provider_id)
+        .fetch_pipelines(provider_id, Some(state.app.clone()))
         .await
         .map_err(Into::into)
 }
@@ -224,7 +227,7 @@ pub async fn refresh_all(state: State<'_, AppState>) -> Result<(), ErrorResponse
 
     state
         .pipeline_service
-        .refresh_all()
+        .refresh_all(Some(state.app.clone()))
         .await
         .map_err(Into::into)
 }

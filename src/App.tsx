@@ -33,7 +33,7 @@ function App() {
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const { pipelines, loading: pipelinesLoading, refresh: refreshPipelines } = usePipelines(selectedProviderId)
-  const { providers, loading: providersLoading, addProvider, updateProvider, removeProvider, refresh: refreshProviders } = useProviders()
+  const { providers, loading: providersLoading, error: providersError, addProvider, updateProvider, removeProvider, refresh: refreshProviders } = useProviders()
 
   const handleRefreshAll = async () => {
     setIsRefreshing(true)
@@ -164,6 +164,8 @@ function App() {
       selectedProviderId={selectedProviderId}
       onProviderSelect={handleProviderSelect}
       providers={providers}
+      providersLoading={providersLoading}
+      providersError={providersError}
       onAddProvider={addProvider}
       onUpdateProvider={updateProvider}
       onRemoveProvider={removeProvider}

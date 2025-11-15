@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { notifications } from '@mantine/notifications'
 import { listen } from '@tauri-apps/api/event'
 
 import { tauriService } from '../services/tauri'
@@ -16,13 +17,18 @@ export const useProviders = () => {
       setError(null)
       const data = await tauriService.listProviders()
 
-
       setProviders(data)
     } catch (err: any) {
       const errorMsg = err?.error || err?.message || 'Failed to load providers'
 
 
       setError(errorMsg)
+
+      notifications.show({
+        title: 'Error Loading Providers',
+        message: errorMsg,
+        color: 'red',
+      })
     } finally {
       setLoading(false)
     }
@@ -34,12 +40,10 @@ export const useProviders = () => {
         setLoading(true)
         const providerId = await tauriService.addProvider(config)
 
-
         await tauriService.fetchPipelines(providerId)
         await loadProviders()
       } catch (err: any) {
         const errorMsg = err?.error || err?.message || 'Failed to add provider'
-
 
         setError(errorMsg)
         throw err
@@ -61,7 +65,7 @@ export const useProviders = () => {
         const errorMsg = err?.error || err?.message || 'Failed to update provider'
 
 
-        setError(errorMsg)
+		setError(errorMsg)
         throw err
       } finally {
         setLoading(false)
@@ -78,7 +82,6 @@ export const useProviders = () => {
         await loadProviders()
       } catch (err: any) {
         const errorMsg = err?.error || err?.message || 'Failed to remove provider'
-
 
         setError(errorMsg)
         throw err
@@ -100,7 +103,6 @@ export const useProviders = () => {
       const unlisten = await listen('providers-changed', () => {
         loadProviders()
       })
-
 
       unlistenFn = unlisten
     }

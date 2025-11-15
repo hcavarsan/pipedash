@@ -133,15 +133,42 @@ impl ProviderService {
                 })
                 .unwrap_or_default();
 
+            // Get fetch status from repository
+            let provider_id = config.id.unwrap();
+            const FETCH_STATUS_SUCCESS: &str = "success";
+            const FETCH_STATUS_ERROR: &str = "error";
+            const FETCH_STATUS_NEVER: &str = "never";
+
+            let (fetch_status, last_fetch_error, last_fetch_at) = self
+                .repository
+                .get_provider_fetch_status(provider_id)
+                .await
+                .unwrap_or_else(|_| (FETCH_STATUS_NEVER.to_string(), None, None));
+
+            let fetch_status_enum = match fetch_status.as_str() {
+                FETCH_STATUS_SUCCESS => crate::domain::FetchStatus::Success,
+                FETCH_STATUS_ERROR => crate::domain::FetchStatus::Error,
+                _ => crate::domain::FetchStatus::Never,
+            };
+
+            let last_fetch_at_parsed = last_fetch_at.and_then(|s| {
+                chrono::DateTime::parse_from_rfc3339(&s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+            });
+
             summaries.push(ProviderSummary {
-                id: config.id.unwrap(),
-                name: config.name,
+                id: provider_id,
+                name: config.name.clone(),
                 provider_type: config.provider_type,
                 icon,
                 pipeline_count,
                 last_updated,
                 refresh_interval: config.refresh_interval,
                 configured_repositories,
+                last_fetch_status: fetch_status_enum,
+                last_fetch_error,
+                last_fetch_at: last_fetch_at_parsed,
             });
         }
 
@@ -240,12 +267,6 @@ impl ProviderService {
         let provider_id = config.id.unwrap_or(0);
         let mut plugin_config = config.config.clone();
 
-        eprintln!(
-            "[PROVIDER_SERVICE] Provider {} token length: {}",
-            provider_id,
-            config.token.len()
-        );
-
         plugin_config.insert("token".to_string(), config.token.clone());
 
         plugin.initialize(provider_id, plugin_config).map_err(|e| {
@@ -259,22 +280,13 @@ impl ProviderService {
     pub async fn get_workflow_parameters(
         &self, provider_id: i64, workflow_id: &str,
     ) -> DomainResult<Vec<pipedash_plugin_api::WorkflowParameter>> {
-        let start = std::time::Instant::now();
-
         if let Ok(Some(cached)) = self
             .repository
             .get_cached_workflow_parameters(workflow_id)
             .await
         {
-            eprintln!(
-                "[PERF] Got workflow parameters from cache for {} in {:?}",
-                workflow_id,
-                start.elapsed()
-            );
             return Ok(cached);
         }
-
-        eprintln!("[PERF] Cache miss for workflow parameters {workflow_id}, fetching from API");
 
         let fetch_lock = {
             let mut fetches = self.parameter_fetches.lock().await;
@@ -285,22 +297,14 @@ impl ProviderService {
         };
 
         let _guard = fetch_lock.lock().await;
-        eprintln!("[PERF] Acquired fetch lock for {workflow_id}");
 
         if let Ok(Some(cached)) = self
             .repository
             .get_cached_workflow_parameters(workflow_id)
             .await
         {
-            eprintln!(
-                "[PERF] Got workflow parameters from cache (after lock) for {} in {:?}",
-                workflow_id,
-                start.elapsed()
-            );
             return Ok(cached);
         }
-
-        let fetch_start = std::time::Instant::now();
 
         let providers = self.providers.read().await;
         let provider = providers.get(&provider_id).ok_or_else(|| {
@@ -318,29 +322,16 @@ impl ProviderService {
                 ))
             })?;
 
-        eprintln!(
-            "[PERF] Fetched {} parameters from API in {:?}",
-            parameters.len(),
-            fetch_start.elapsed()
-        );
-
-        if let Err(e) = self
+        let _ = self
             .repository
             .cache_workflow_parameters(workflow_id, &parameters)
-            .await
-        {
-            eprintln!("[WARN] Failed to cache workflow parameters: {e}");
-        }
+            .await;
 
         {
             let mut fetches = self.parameter_fetches.lock().await;
             fetches.remove(workflow_id);
         }
 
-        eprintln!(
-            "[PERF] Total get_workflow_parameters time: {:?}",
-            start.elapsed()
-        );
         Ok(parameters)
     }
 }

@@ -1,25 +1,31 @@
 import { useEffect, useState } from 'react'
 
 import {
+  ActionIcon,
   Badge,
   Box,
   Button,
   Divider,
   Group,
+  Loader,
   NumberInput,
   Select,
   Stack,
   Switch,
   Text,
+  Tooltip,
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
+import { IconEdit, IconTrash } from '@tabler/icons-react'
 
 import { usePlugins } from '../../contexts/PluginContext'
 import { useMetrics } from '../../hooks/useMetrics'
 import { tauriService } from '../../services/tauri'
-import type { ProviderSummary } from '../../types'
+import type { ProviderConfig, ProviderSummary } from '../../types'
 import { StandardModal } from '../common/StandardModal'
+
+import { AddProviderModal } from './AddProviderModal'
 
 const RETENTION_OPTIONS = [
   { value: '7', label: '7 days (1 week)' },
@@ -34,7 +40,10 @@ interface SettingsModalProps {
   opened: boolean;
   onClose: () => void;
   providers: ProviderSummary[];
+  loading?: boolean;
+  error?: string | null;
   onRemoveProvider: (id: number, name: string) => Promise<void>;
+  onUpdateProvider?: (id: number, config: any) => Promise<void>;
   onRefresh?: () => Promise<void>;
 }
 
@@ -42,7 +51,10 @@ export const SettingsModal = ({
   opened,
   onClose,
   providers,
+  loading = false,
+  error = null,
   onRemoveProvider,
+  onUpdateProvider,
   onRefresh,
 }: SettingsModalProps) => {
   const { getPluginDisplayName } = usePlugins()
@@ -50,6 +62,8 @@ export const SettingsModal = ({
   const [editingId, setEditingId] = useState<number | null>(null)
   const [refreshValues, setRefreshValues] = useState<Record<number, number>>({})
   const [saving, setSaving] = useState(false)
+  const [editModalOpened, setEditModalOpened] = useState(false)
+  const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
   const [metricsEnabled, setMetricsEnabled] = useState(false)
   const [metricsRetention, setMetricsRetention] = useState(7)
   const [metricsRetentionMode, setMetricsRetentionMode] = useState<'preset' | 'custom'>('preset')
@@ -169,6 +183,23 @@ export const SettingsModal = ({
     })
   }
 
+  const handleEdit = async (id: number) => {
+    try {
+      const providerConfig = await tauriService.getProvider(id)
+
+
+      setEditingProvider(providerConfig)
+      setEditModalOpened(true)
+    } catch (error) {
+      console.error('Failed to load provider:', error)
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to load provider configuration',
+        color: 'red',
+      })
+    }
+  }
+
   const handleRemove = (id: number, name: string) => {
     modals.openConfirmModal({
       title: 'Remove Provider',
@@ -241,6 +272,7 @@ return
   }
 
   return (
+    <>
     <StandardModal
       opened={opened}
       onClose={onClose}
@@ -252,7 +284,23 @@ return
             Providers
           </Text>
 
-          {providers.length === 0 ? (
+          {loading ? (
+            <Box ta="center" py="lg">
+              <Loader size="sm" />
+              <Text size="sm" c="dimmed" mt="xs">
+                Loading providers...
+              </Text>
+            </Box>
+          ) : error ? (
+            <Box ta="center" py="lg">
+              <Text size="sm" c="red" fw={500}>
+                Error loading providers
+              </Text>
+              <Text size="xs" c="dimmed" mt={4}>
+                {error}
+              </Text>
+            </Box>
+          ) : providers.length === 0 ? (
             <Text size="sm" c="dimmed" ta="center" py="lg">
               No providers configured
             </Text>
@@ -275,23 +323,47 @@ return
                     <Stack gap="sm">
                       <Group justify="space-between" align="flex-start" wrap="wrap">
                         <Box style={{ flex: 1 }}>
-                          <Text fw={600} size="md" mb={4}>
-                            {provider.name}
-                          </Text>
+                          <Group gap={8} align="center">
+                            <Text fw={600} size="md">
+                              {provider.name}
+                            </Text>
+                            {provider.last_fetch_status === 'error' && (
+                              <Tooltip
+                                label={provider.last_fetch_error || 'Failed to fetch pipelines'}
+                                multiline
+                                w={400}
+                                withArrow
+                              >
+                                <Badge color="red" size="sm" variant="light" style={{ cursor: 'help' }}>
+                                  Error
+                                </Badge>
+                              </Tooltip>
+                            )}
+                          </Group>
                           <Text size="sm" c="dimmed">
-                            {getPluginDisplayName(provider.provider_type)} · {provider.pipeline_count} pipeline{provider.pipeline_count !== 1 ? 's' : ''}
+                            {`${getPluginDisplayName(provider.provider_type)} · ${provider.pipeline_count} pipeline${provider.pipeline_count !== 1 ? 's' : ''}`}
                           </Text>
                         </Box>
 
                         {!isEditing && (
-                          <Button
-                            size="xs"
-                            color="red"
-                            variant="subtle"
-                            onClick={() => handleRemove(provider.id, provider.name)}
-                          >
-                            Remove
-                          </Button>
+                          <Group gap={4}>
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              color="gray"
+                              onClick={() => handleEdit(provider.id)}
+                            >
+                              <IconEdit size={14} />
+                            </ActionIcon>
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              color="red"
+                              onClick={() => handleRemove(provider.id, provider.name)}
+                            >
+                              <IconTrash size={14} />
+                            </ActionIcon>
+                          </Group>
                         )}
                       </Group>
 
@@ -584,5 +656,19 @@ return
         </Box>
       </Stack>
     </StandardModal>
+
+    {editingProvider && editingProvider.id && onUpdateProvider && (
+      <AddProviderModal
+        opened={editModalOpened}
+        onClose={() => {
+          setEditModalOpened(false)
+          setEditingProvider(null)
+        }}
+        onUpdate={onUpdateProvider}
+        editMode={true}
+        existingProvider={editingProvider as ProviderConfig & { id: number }}
+      />
+    )}
+  </>
   )
 }
