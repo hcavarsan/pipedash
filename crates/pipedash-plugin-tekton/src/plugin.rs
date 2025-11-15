@@ -189,21 +189,21 @@ impl Plugin for TektonPlugin {
                     ));
                 }
 
-                client.validate_namespaces_have_pipelines(&manual_namespaces).await?
+                client
+                    .validate_namespaces_have_pipelines(&manual_namespaces)
+                    .await?
             }
-            config::NamespaceMode::All => {
-                match client.try_list_namespaces_cluster_wide().await {
-                    Ok(all_namespaces) => {
-                        if all_namespaces.is_empty() {
-                            return Err(PluginError::InvalidConfig(
+            config::NamespaceMode::All => match client.try_list_namespaces_cluster_wide().await {
+                Ok(all_namespaces) => {
+                    if all_namespaces.is_empty() {
+                        return Err(PluginError::InvalidConfig(
                                 "No namespaces found in the cluster. Please verify your cluster connection and permissions.".to_string(),
                             ));
-                        }
-                        client.list_namespaces_with_pipelines().await?
                     }
-                    Err(e) => return Err(e),
+                    client.list_namespaces_with_pipelines().await?
                 }
-            }
+                Err(e) => return Err(e),
+            },
         };
 
         if namespaces.is_empty() {
@@ -212,9 +212,10 @@ impl Plugin for TektonPlugin {
                 config::NamespaceMode::All => "Try switching to 'custom' namespace mode and manually specify the namespaces containing your Tekton pipelines.",
             };
 
-            return Err(PluginError::InvalidConfig(
-                format!("No Tekton pipelines found in any accessible namespace. {}", hint)
-            ));
+            return Err(PluginError::InvalidConfig(format!(
+                "No Tekton pipelines found in any accessible namespace. {}",
+                hint
+            )));
         }
 
         Ok(true)
@@ -517,22 +518,32 @@ impl Plugin for TektonPlugin {
             let contexts = self.get_available_contexts(kubeconfig_path.as_deref())?;
             Ok(contexts)
         } else if field_key == "namespaces" {
-            // Try namespace discovery for autocomplete. On failure (perms, etc), return empty for manual input.
+            // Try namespace discovery for autocomplete. On failure (perms, etc), return
+            // empty for manual input.
             let kubeconfig_path = config::get_kubeconfig_path(config);
             let context = config::get_context(config);
 
-            match client::TektonClient::from_kubeconfig(kubeconfig_path.as_deref(), context.as_deref()).await {
-                Ok(temp_client) => {
-                    match temp_client.try_list_namespaces_cluster_wide().await {
-                        Ok(namespaces) => Ok(namespaces),
-                        Err(e) => {
-                            eprintln!("[TEKTON] Failed to fetch namespaces for autocomplete: {}", e);
-                            Ok(Vec::new())
-                        }
+            match client::TektonClient::from_kubeconfig(
+                kubeconfig_path.as_deref(),
+                context.as_deref(),
+            )
+            .await
+            {
+                Ok(temp_client) => match temp_client.try_list_namespaces_cluster_wide().await {
+                    Ok(namespaces) => Ok(namespaces),
+                    Err(e) => {
+                        eprintln!(
+                            "[TEKTON] Failed to fetch namespaces for autocomplete: {}",
+                            e
+                        );
+                        Ok(Vec::new())
                     }
-                }
+                },
                 Err(e) => {
-                    eprintln!("[TEKTON] Failed to create client for namespace autocomplete: {}", e);
+                    eprintln!(
+                        "[TEKTON] Failed to create client for namespace autocomplete: {}",
+                        e
+                    );
                     Ok(Vec::new())
                 }
             }

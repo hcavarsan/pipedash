@@ -1,5 +1,6 @@
 //! K8s client for Tekton resources. Supports two namespace discovery modes:
-//! - "all": lists cluster namespaces, filters for ones with pipelines (needs cluster-wide perms)
+//! - "all": lists cluster namespaces, filters for ones with pipelines (needs
+//!   cluster-wide perms)
 //! - "custom": uses manually specified namespaces (works with limited perms)
 
 use std::path::PathBuf;
@@ -157,7 +158,10 @@ impl TektonClient {
                         ));
                     }
                 }
-                Err(PluginError::ApiError(format!("Failed to list namespaces: {}", e)))
+                Err(PluginError::ApiError(format!(
+                    "Failed to list namespaces: {}",
+                    e
+                )))
             }
         }
     }
@@ -190,7 +194,9 @@ impl TektonClient {
         Ok(self.filter_namespaces_with_pipelines(&all_namespaces).await)
     }
 
-    pub async fn validate_namespaces_have_pipelines(&self, namespaces: &[String]) -> PluginResult<Vec<String>> {
+    pub async fn validate_namespaces_have_pipelines(
+        &self, namespaces: &[String],
+    ) -> PluginResult<Vec<String>> {
         use futures::future::join_all;
 
         if namespaces.is_empty() {
@@ -210,7 +216,7 @@ impl TektonClient {
                             Ok(None)
                         }
                     }
-                    Err(e) => Err(format!("Failed to access namespace '{}': {}", ns, e))
+                    Err(e) => Err(format!("Failed to access namespace '{}': {}", ns, e)),
                 }
             }
         });
@@ -223,7 +229,7 @@ impl TektonClient {
         for result in results {
             match result {
                 Ok(Some(ns)) => valid_namespaces.push(ns),
-                Ok(None) => {},
+                Ok(None) => {}
                 Err(e) => errors.push(e),
             }
         }
@@ -234,9 +240,10 @@ impl TektonClient {
                     format!("No Tekton pipelines found in any of the specified namespaces: {:?}. Verify that Tekton is installed and pipelines exist in these namespaces.", namespaces)
                 ));
             } else {
-                return Err(PluginError::InvalidConfig(
-                    format!("Failed to validate namespaces. Errors: {}", errors.join("; "))
-                ));
+                return Err(PluginError::InvalidConfig(format!(
+                    "Failed to validate namespaces. Errors: {}",
+                    errors.join("; ")
+                )));
             }
         }
 

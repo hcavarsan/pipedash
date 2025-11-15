@@ -17,7 +17,6 @@ pub(crate) enum NamespaceMode {
     /// Manually specify namespaces to monitor.
     ///
     /// Only needs namespaced perms (not cluster-wide), so works without admin.
-    ///
     Custom,
 }
 

@@ -11,7 +11,8 @@ use crate::{
 };
 
 /// Validates comma-separated K8s namespace names
-const NAMESPACE_LIST_REGEX: &str = r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\s*,\s*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$";
+const NAMESPACE_LIST_REGEX: &str =
+    r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\s*,\s*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$";
 
 /// Creates the plugin metadata for Tekton CD
 ///
