@@ -52,10 +52,10 @@ pub(crate) fn map_status(conditions: &[types::Condition]) -> PipelineStatus {
 }
 
 pub(crate) fn map_pipeline(
-    tekton_pipeline: &TektonPipeline, latest_run: Option<&TektonPipelineRun>, provider_id: i64,
+    pipeline: &TektonPipeline, latest_run: Option<&TektonPipelineRun>, provider_id: i64,
 ) -> Pipeline {
-    let namespace = &tekton_pipeline.metadata.namespace;
-    let pipeline_name = &tekton_pipeline.metadata.name;
+    let namespace = &pipeline.metadata.namespace;
+    let pipeline_name = &pipeline.metadata.name;
 
     let status = latest_run
         .map(|run| map_status(&run.status.conditions))
@@ -359,11 +359,11 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> Pip
     }
 }
 
-pub(crate) fn map_available_pipeline(tekton_pipeline: &TektonPipeline) -> AvailablePipeline {
-    let namespace = &tekton_pipeline.metadata.namespace;
-    let pipeline_name = &tekton_pipeline.metadata.name;
+pub(crate) fn map_available_pipeline(pipeline: &TektonPipeline) -> AvailablePipeline {
+    let namespace = &pipeline.metadata.namespace;
+    let pipeline_name = &pipeline.metadata.name;
 
-    let description = tekton_pipeline
+    let description = pipeline
         .metadata
         .annotations
         .get("description")
@@ -379,8 +379,8 @@ pub(crate) fn map_available_pipeline(tekton_pipeline: &TektonPipeline) -> Availa
     }
 }
 
-pub(crate) fn map_workflow_parameters(tekton_pipeline: &TektonPipeline) -> Vec<WorkflowParameter> {
-    tekton_pipeline
+pub(crate) fn map_workflow_parameters(pipeline: &TektonPipeline) -> Vec<WorkflowParameter> {
+    pipeline
         .spec
         .params
         .iter()

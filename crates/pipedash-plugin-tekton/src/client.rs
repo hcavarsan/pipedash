@@ -1,3 +1,8 @@
+//! K8s client for Tekton resources. Supports two namespace discovery modes:
+//! - "all": lists cluster namespaces, filters for ones with pipelines (needs
+//!   cluster-wide perms)
+//! - "custom": uses manually specified namespaces (works with limited perms)
+
 use std::path::PathBuf;
 
 use kube::Client;
@@ -129,22 +134,123 @@ impl TektonClient {
             .await
     }
 
-    pub async fn list_namespaces_with_tekton(&self) -> PluginResult<Vec<String>> {
-        let all_namespaces = self.list_namespaces().await?;
-        let mut tekton_namespaces = Vec::new();
+    /// Lists namespaces cluster-wide
+    pub async fn try_list_namespaces_cluster_wide(&self) -> PluginResult<Vec<String>> {
+        use kube::api::{
+            Api,
+            ListParams,
+        };
 
-        for namespace in all_namespaces {
-            if let Ok(pipelines) = self.list_pipelines(&namespace).await {
-                if !pipelines.is_empty() || self.has_tekton_crds(&namespace).await {
-                    tekton_namespaces.push(namespace);
+        let namespaces_api: Api<k8s_openapi::api::core::v1::Namespace> =
+            Api::all(self.client.clone());
+
+        match namespaces_api.list(&ListParams::default()).await {
+            Ok(namespaces) => Ok(namespaces
+                .items
+                .into_iter()
+                .filter_map(|ns| ns.metadata.name)
+                .collect()),
+            Err(e) => {
+                if let kube::Error::Api(api_error) = &e {
+                    if api_error.code == 403 {
+                        return Err(PluginError::ApiError(
+                            "Missing cluster-wide namespace permissions. Please use 'custom' mode and specify namespaces manually in the configuration.".to_string()
+                        ));
+                    }
                 }
+                Err(PluginError::ApiError(format!(
+                    "Failed to list namespaces: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Filters namespaces to ones with pipelines
+    async fn filter_namespaces_with_pipelines(&self, namespaces: &[String]) -> Vec<String> {
+        use futures::future::join_all;
+
+        let check_futures = namespaces.iter().map(|namespace| {
+            let ns = namespace.clone();
+            async move {
+                if let Ok(pipelines) = self.list_pipelines(&ns).await {
+                    if !pipelines.is_empty() || self.has_pipelines(&ns).await {
+                        return Some(ns);
+                    }
+                }
+                None
+            }
+        });
+
+        join_all(check_futures)
+            .await
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
+    pub async fn list_namespaces_with_pipelines(&self) -> PluginResult<Vec<String>> {
+        let all_namespaces = self.list_namespaces().await?;
+        Ok(self.filter_namespaces_with_pipelines(&all_namespaces).await)
+    }
+
+    pub async fn validate_namespaces_have_pipelines(
+        &self, namespaces: &[String],
+    ) -> PluginResult<Vec<String>> {
+        use futures::future::join_all;
+
+        if namespaces.is_empty() {
+            return Err(PluginError::InvalidConfig(
+                "No namespaces specified. Please provide at least one namespace in the 'namespaces' field.".to_string()
+            ));
+        }
+
+        let validation_futures = namespaces.iter().map(|namespace| {
+            let ns = namespace.clone();
+            async move {
+                match self.list_pipelines(&ns).await {
+                    Ok(pipelines) => {
+                        if !pipelines.is_empty() {
+                            Ok(Some(ns))
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                    Err(e) => Err(format!("Failed to access namespace '{}': {}", ns, e)),
+                }
+            }
+        });
+
+        let results = join_all(validation_futures).await;
+
+        let mut valid_namespaces = Vec::new();
+        let mut errors = Vec::new();
+
+        for result in results {
+            match result {
+                Ok(Some(ns)) => valid_namespaces.push(ns),
+                Ok(None) => {}
+                Err(e) => errors.push(e),
             }
         }
 
-        Ok(tekton_namespaces)
+        if valid_namespaces.is_empty() {
+            if errors.is_empty() {
+                return Err(PluginError::InvalidConfig(
+                    format!("No Tekton pipelines found in any of the specified namespaces: {:?}. Verify that Tekton is installed and pipelines exist in these namespaces.", namespaces)
+                ));
+            } else {
+                return Err(PluginError::InvalidConfig(format!(
+                    "Failed to validate namespaces. Errors: {}",
+                    errors.join("; ")
+                )));
+            }
+        }
+
+        Ok(valid_namespaces)
     }
 
-    async fn has_tekton_crds(&self, namespace: &str) -> bool {
+    async fn has_pipelines(&self, namespace: &str) -> bool {
         self.list_pipelines(namespace).await.is_ok()
     }
 

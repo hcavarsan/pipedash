@@ -51,23 +51,26 @@ impl TektonPlugin {
         Ok(self.client.get_or_init(|| new_client))
     }
 
+    /// Fetches pipelines
     async fn fetch_all_pipelines_in_namespaces(&self) -> PluginResult<Vec<types::TektonPipeline>> {
         let client = self.client().await?;
 
         let selected_ids = config::get_selected_pipelines(&self.config);
 
         let namespaces = if selected_ids.is_empty() {
-            client.list_namespaces_with_tekton().await?
+            let namespace_mode = config::get_namespace_mode(&self.config);
+
+            match namespace_mode {
+                config::NamespaceMode::Custom => config::get_namespaces(&self.config),
+                config::NamespaceMode::All => client.list_namespaces_with_pipelines().await?,
+            }
         } else {
             let unique_namespaces: std::collections::HashSet<String> = selected_ids
                 .iter()
                 .filter_map(|id| {
-                    let parts: Vec<&str> = id.split("__").collect();
-                    if parts.len() >= 2 {
-                        Some(parts[0].to_string())
-                    } else {
-                        None
-                    }
+                    config::parse_pipeline_id(id)
+                        .ok()
+                        .map(|(_provider_id, namespace, _pipeline_name)| namespace)
                 })
                 .collect();
             unique_namespaces.into_iter().collect()
@@ -174,13 +177,45 @@ impl Plugin for TektonPlugin {
 
     async fn validate_credentials(&self) -> PluginResult<bool> {
         let client = self.client().await?;
+        let namespace_mode = config::get_namespace_mode(&self.config);
 
-        let namespaces = client.list_namespaces_with_tekton().await?;
+        let namespaces = match namespace_mode {
+            config::NamespaceMode::Custom => {
+                let manual_namespaces = config::get_namespaces(&self.config);
+
+                if manual_namespaces.is_empty() {
+                    return Err(PluginError::InvalidConfig(
+                        "Namespace mode is set to 'custom' but no namespaces are specified. Please provide at least one namespace in the 'namespaces' field (e.g., 'default,tekton-pipelines').".to_string(),
+                    ));
+                }
+
+                client
+                    .validate_namespaces_have_pipelines(&manual_namespaces)
+                    .await?
+            }
+            config::NamespaceMode::All => match client.try_list_namespaces_cluster_wide().await {
+                Ok(all_namespaces) => {
+                    if all_namespaces.is_empty() {
+                        return Err(PluginError::InvalidConfig(
+                                "No namespaces found in the cluster. Please verify your cluster connection and permissions.".to_string(),
+                            ));
+                    }
+                    client.list_namespaces_with_pipelines().await?
+                }
+                Err(e) => return Err(e),
+            },
+        };
 
         if namespaces.is_empty() {
-            return Err(PluginError::InvalidConfig(
-                "No Tekton pipelines found in any accessible namespace".to_string(),
-            ));
+            let hint = match namespace_mode {
+                config::NamespaceMode::Custom => "Verify that the specified namespaces exist and contain Tekton pipelines, and that you have permissions to access them.",
+                config::NamespaceMode::All => "Try switching to 'custom' namespace mode and manually specify the namespaces containing your Tekton pipelines.",
+            };
+
+            return Err(PluginError::InvalidConfig(format!(
+                "No Tekton pipelines found in any accessible namespace. {}",
+                hint
+            )));
         }
 
         Ok(true)
@@ -482,6 +517,36 @@ impl Plugin for TektonPlugin {
             let kubeconfig_path = config::get_kubeconfig_path(config);
             let contexts = self.get_available_contexts(kubeconfig_path.as_deref())?;
             Ok(contexts)
+        } else if field_key == "namespaces" {
+            // Try namespace discovery for autocomplete. On failure (perms, etc), return
+            // empty for manual input.
+            let kubeconfig_path = config::get_kubeconfig_path(config);
+            let context = config::get_context(config);
+
+            match client::TektonClient::from_kubeconfig(
+                kubeconfig_path.as_deref(),
+                context.as_deref(),
+            )
+            .await
+            {
+                Ok(temp_client) => match temp_client.try_list_namespaces_cluster_wide().await {
+                    Ok(namespaces) => Ok(namespaces),
+                    Err(e) => {
+                        eprintln!(
+                            "[TEKTON] Failed to fetch namespaces for autocomplete: {}",
+                            e
+                        );
+                        Ok(Vec::new())
+                    }
+                },
+                Err(e) => {
+                    eprintln!(
+                        "[TEKTON] Failed to create client for namespace autocomplete: {}",
+                        e
+                    );
+                    Ok(Vec::new())
+                }
+            }
         } else {
             Ok(Vec::new())
         }
