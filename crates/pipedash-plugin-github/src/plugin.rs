@@ -76,7 +76,7 @@ impl Plugin for GitHubPlugin {
                 PluginError::InvalidConfig(format!("Failed to build GitHub client: {e}"))
             })?;
 
-        self.client = Some(client::GitHubClient::new(octocrab));
+        self.client = Some(client::GitHubClient::new(octocrab, token.clone()));
         self.provider_id = Some(provider_id);
         self.config = config;
 
@@ -414,5 +414,9 @@ impl Plugin for GitHubPlugin {
         // Now cancel using the run ID (convert RunId to u64)
         let run_id_u64: u64 = run.id.0;
         client.cancel_run(owner, repo, run_id_u64).await
+    }
+    async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
+        let client = self.client()?;
+        client.check_token_permissions().await
     }
 }

@@ -12,6 +12,7 @@
 //! - `metadata` - Plugin metadata and configuration schema
 //! - `schema` - Table and column definitions
 //! - `client` - GitHub API client methods
+//! - `permissions` - Token permission checking logic
 //! - `types` - Type re-exports from octocrab
 //! - `mapper` - Data mapping utilities
 //! - `config` - Configuration parsing
@@ -30,6 +31,7 @@ mod client;
 mod config;
 mod mapper;
 mod metadata;
+mod permissions;
 mod plugin;
 mod schema;
 mod types;

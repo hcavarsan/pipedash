@@ -9,29 +9,37 @@ use pipedash_plugin_api::{
     AvailablePipeline,
     PaginatedResponse,
     PaginationParams,
+    PermissionStatus,
     Pipeline,
     PipelineRun,
     PluginError,
     PluginResult,
     RetryPolicy,
 };
+use tracing::debug;
 
 use crate::{
     config,
     mapper,
+    permissions::PermissionChecker,
     types,
 };
 
 pub(crate) struct GitHubClient {
     pub(crate) octocrab: Octocrab,
     pub(crate) retry_policy: RetryPolicy,
+    permission_checker: PermissionChecker,
 }
 
 impl GitHubClient {
-    pub fn new(octocrab: Octocrab) -> Self {
+    pub fn new(octocrab: Octocrab, token: String) -> Self {
+        let token_secret = token.into();
+        let permission_checker = PermissionChecker::new(octocrab.clone(), token_secret);
+
         Self {
             octocrab,
             retry_policy: RetryPolicy::default(),
+            permission_checker,
         }
     }
 
@@ -52,23 +60,34 @@ impl GitHubClient {
                     description: user.name.clone(),
                 });
 
-                let organizations = self
+                // Try to fetch organization memberships
+                // This requires 'read:org' permission - if missing, we gracefully fall back to user repos only
+                let org_result = self
                     .octocrab
                     .current()
                     .list_org_memberships_for_authenticated_user()
                     .per_page(100)
                     .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::ApiError(format!("Failed to fetch organizations: {e}"))
-                    })?;
+                    .await;
 
-                for org in organizations.items {
-                    orgs.push(pipedash_plugin_api::Organization {
-                        id: org.organization.login.clone(),
-                        name: org.organization.login.clone(),
-                        description: org.organization.description.clone(),
-                    });
+                match org_result {
+                    Ok(organizations) => {
+                        for org in organizations.items {
+                            orgs.push(pipedash_plugin_api::Organization {
+                                id: org.organization.login.clone(),
+                                name: org.organization.login.clone(),
+                                description: org.organization.description.clone(),
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        // Log warning but don't fail - user can still access personal repos
+                        tracing::warn!(
+                            "Cannot fetch organization memberships (read:org permission may be missing): {}. \
+                            Only personal repositories will be available.",
+                            e
+                        );
+                    }
                 }
 
                 Ok(orgs)
@@ -434,7 +453,7 @@ impl GitHubClient {
 
         self.retry_policy
             .retry(|| async {
-                eprintln!("[GITHUB] Cancelling run {run_id} for {owner}/{repo}");
+                debug!("Cancelling run {run_id} for {owner}/{repo}");
 
                 let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/cancel");
 
@@ -443,16 +462,20 @@ impl GitHubClient {
 
                 match response {
                     Ok(_) => {
-                        eprintln!("[GITHUB] Run {run_id} cancelled successfully");
+                        debug!("Run {run_id} cancelled successfully");
                         Ok(())
                     }
                     Err(e) => {
-                        eprintln!("[GITHUB] Cancel failed: {e}");
+                        debug!("Cancel failed: {e}");
                         Err(PluginError::ApiError(format!("Failed to cancel run: {e}")))
                     }
                 }
             })
             .await
+    }
+
+    pub async fn check_token_permissions(&self) -> PluginResult<PermissionStatus> {
+        self.permission_checker.check_token_permissions().await
     }
 }
 
@@ -477,8 +500,8 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
         serde_json::Value::String(run.head_branch.clone()),
     );
 
-    eprintln!(
-        "[GITHUB] Run #{}: branch={}, event={:?}",
+    debug!(
+        "Run #{}: branch={}, event={:?}",
         run.run_number, run.head_branch, run.event
     );
 
