@@ -86,6 +86,8 @@ export interface ProviderConfig {
   refresh_interval: number;
 }
 
+export type FetchStatus = 'success' | 'error' | 'never';
+
 export interface ProviderSummary {
   id: number;
   name: string;
@@ -95,6 +97,9 @@ export interface ProviderSummary {
   last_updated: string | null;
   refresh_interval: number;
   configured_repositories: string[];
+  last_fetch_status: FetchStatus;
+  last_fetch_error: string | null;
+  last_fetch_at: string | null;
 }
 
 export interface TriggerParams {

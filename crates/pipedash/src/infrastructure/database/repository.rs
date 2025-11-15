@@ -27,6 +27,10 @@ use crate::domain::{
     ProviderConfig,
 };
 
+const FETCH_STATUS_SUCCESS: &str = "success";
+const FETCH_STATUS_ERROR: &str = "error";
+const FETCH_STATUS_NEVER: &str = "never";
+
 async fn retry_on_busy<F, Fut, T>(operation: F) -> DomainResult<T>
 where
     F: Fn() -> Fut,
@@ -47,10 +51,6 @@ where
             {
                 attempt += 1;
                 let delay = INITIAL_DELAY_MS * 2_u64.pow(attempt - 1);
-                eprintln!(
-                    "[DB_RETRY] Attempt {}/{}: {}. Retrying in {}ms",
-                    attempt, MAX_RETRIES, msg, delay
-                );
                 sleep(Duration::from_millis(delay)).await;
             }
             Err(e) => return Err(e),
@@ -129,7 +129,20 @@ impl Repository {
         .await
         .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        rows.iter().map(|row| self.provider_from_row(row)).collect()
+        // Process providers individually, logging errors but continuing
+        let mut providers = Vec::new();
+        for row in rows.iter() {
+            match self.provider_from_row(row) {
+                Ok(provider) => {
+                    providers.push(provider);
+                }
+                Err(_e) => {
+                    // Skip providers that fail to load
+                }
+            }
+        }
+
+        Ok(providers)
     }
 
     pub async fn update_provider(&self, id: i64, config: &ProviderConfig) -> DomainResult<()> {
@@ -191,6 +204,50 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn update_provider_fetch_status(
+        &self, provider_id: i64, success: bool, error: Option<String>,
+    ) -> DomainResult<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let status = if success {
+            FETCH_STATUS_SUCCESS
+        } else {
+            FETCH_STATUS_ERROR
+        };
+
+        sqlx::query(
+            "UPDATE providers SET last_fetch_at = ?, last_fetch_status = ?, last_fetch_error = ? WHERE id = ?"
+        )
+        .bind(&now)
+        .bind(status)
+        .bind(error.as_ref())
+        .bind(provider_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub async fn get_provider_fetch_status(
+        &self, provider_id: i64,
+    ) -> DomainResult<(String, Option<String>, Option<String>)> {
+        let row = sqlx::query(
+            "SELECT last_fetch_status, last_fetch_error, last_fetch_at FROM providers WHERE id = ?",
+        )
+        .bind(provider_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_e| DomainError::ProviderNotFound(provider_id.to_string()))?;
+
+        let status: String = row
+            .try_get(0)
+            .unwrap_or_else(|_| FETCH_STATUS_NEVER.to_string());
+        let error: Option<String> = row.try_get(1).ok().flatten();
+        let fetch_at: Option<String> = row.try_get(2).ok().flatten();
+
+        Ok((status, error, fetch_at))
+    }
+
     pub async fn get_cached_pipelines(
         &self, provider_id: Option<i64>,
     ) -> DomainResult<Vec<Pipeline>> {
@@ -246,11 +303,7 @@ impl Repository {
             let token = String::from_utf8(decoded)
                 .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-            if let Err(e) = self.store_token_in_keyring(id, &token) {
-                eprintln!("[WARN] Could not migrate token {} to keyring: {}", id, e);
-            } else {
-                eprintln!("[INFO] Migrated token {} to keyring", id);
-            }
+            let _ = self.store_token_in_keyring(id, &token);
 
             token
         } else {
@@ -319,14 +372,9 @@ impl Repository {
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
         let status: PipelineStatus = if status_str.trim().is_empty() {
-            eprintln!("[DB] Empty status string, defaulting to Pending");
             PipelineStatus::Pending
         } else if status_str.starts_with('"') {
             serde_json::from_str(&status_str).map_err(|e| {
-                eprintln!(
-                    "[DB] Failed to parse status_str (quoted): '{}', error: {}",
-                    status_str, e
-                );
                 DomainError::DatabaseError(format!(
                     "Failed to parse status '{}': {}",
                     status_str, e
@@ -335,10 +383,6 @@ impl Repository {
         } else {
             let quoted = format!("\"{}\"", status_str);
             serde_json::from_str(&quoted).map_err(|e| {
-                eprintln!(
-                    "[DB] Failed to parse status_str (unquoted): '{}', error: {}",
-                    status_str, e
-                );
                 DomainError::DatabaseError(format!(
                     "Failed to parse status '{}': {}",
                     status_str, e
@@ -383,11 +427,9 @@ impl Repository {
         let tokens = match entry.get_password() {
             Ok(json) => {
                 if json.trim().is_empty() {
-                    eprintln!("[DB] Empty tokens JSON in keyring, using empty HashMap");
                     HashMap::new()
                 } else {
                     serde_json::from_str(&json).map_err(|e| {
-                        eprintln!("[DB] Failed to parse tokens JSON: '{}', error: {}", json, e);
                         DomainError::DatabaseError(format!("Failed to parse tokens JSON: {e}"))
                     })?
                 }
@@ -450,10 +492,6 @@ impl Repository {
             })?;
 
         if let Ok(token) = old_entry.get_password() {
-            eprintln!(
-                "[INFO] Migrating provider {} from old keyring format",
-                provider_id
-            );
             tokens.insert(provider_id.to_string(), token.clone());
             self.save_all_tokens(&tokens)?;
 
@@ -490,11 +528,6 @@ impl Repository {
         let parameters_json = serde_json::to_string(parameters)
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        eprintln!(
-            "[DB] Caching workflow parameters for '{}': '{}'",
-            workflow_id, parameters_json
-        );
-
         sqlx::query(
             "INSERT OR REPLACE INTO workflow_parameters_cache (workflow_id, parameters_json, cached_at)
              VALUES (?, ?, datetime('now'))"
@@ -522,15 +555,10 @@ impl Repository {
         match result {
             Some(json) => {
                 if json.trim().is_empty() {
-                    eprintln!("[DB] Empty workflow parameters JSON, returning empty vec");
                     Ok(Some(vec![]))
                 } else {
                     let parameters: Vec<pipedash_plugin_api::WorkflowParameter> =
                         serde_json::from_str(&json).map_err(|e| {
-                            eprintln!(
-                                "[DB] Failed to parse workflow parameters JSON: '{}', error: {}",
-                                json, e
-                            );
                             DomainError::DatabaseError(format!(
                                 "Failed to parse workflow parameters: {}",
                                 e
@@ -697,10 +725,6 @@ impl Repository {
         let pipeline_id_str = pipeline_id.to_string();
         let pool = self.pool.clone();
 
-        let new_count = new_runs.len();
-        let changed_count = changed_runs.len();
-        let deleted_count = deleted_run_numbers.len();
-
         retry_on_busy(move || {
             let pipeline_id_clone = pipeline_id_str.clone();
             let new_runs_clone = new_runs.clone();
@@ -759,11 +783,6 @@ impl Repository {
         })
         .await?;
 
-        eprintln!(
-            "[CACHE] Merged incremental update: {} new, {} changed, {} deleted",
-            new_count, changed_count, deleted_count
-        );
-
         Ok(())
     }
 
@@ -806,18 +825,15 @@ impl Repository {
                     let provider_type: String = row.try_get(9).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
                     let status: PipelineStatus = if status_str.trim().is_empty() {
-                        eprintln!("[DB] Empty status string in update_pipelines_cache, defaulting to Pending");
                         PipelineStatus::Pending
                     } else if status_str.starts_with('"') {
                         serde_json::from_str(&status_str)
                             .map_err(|e| {
-                                eprintln!("[DB] Failed to parse status_str in update_pipelines_cache (quoted): '{}', error: {}", status_str, e);
                                 DomainError::DatabaseError(format!("Failed to parse status '{}': {}", status_str, e))
                             })?
                     } else {
                         let quoted = format!("\"{}\"", status_str);
                         serde_json::from_str(&quoted).map_err(|e| {
-                            eprintln!("[DB] Failed to parse status_str in update_pipelines_cache (unquoted): '{}', error: {}", status_str, e);
                             DomainError::DatabaseError(format!("Failed to parse status '{}': {}", status_str, e))
                         })?
                     };
@@ -943,9 +959,7 @@ impl Repository {
             .await
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-        let deleted = result.rows_affected() as usize;
-        eprintln!("[CACHE] Cleared {} pipelines from cache", deleted);
-        Ok(deleted)
+        Ok(result.rows_affected() as usize)
     }
 
     pub async fn get_table_preferences(

@@ -31,6 +31,7 @@ pub use pipeline::{
     TriggerParams,
 };
 pub use provider::{
+    FetchStatus,
     Provider,
     ProviderConfig,
     ProviderSummary,

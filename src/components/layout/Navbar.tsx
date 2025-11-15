@@ -8,6 +8,7 @@ import {
   Divider,
   Group,
   Image,
+  Loader,
   NavLink,
   ScrollArea,
   Stack,
@@ -17,6 +18,7 @@ import {
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import {
+  IconAlertTriangle,
   IconChevronsLeft,
   IconEdit,
   IconPlugConnected,
@@ -33,6 +35,8 @@ interface NavbarProps {
   selectedProviderId?: number;
   onProviderSelect?: (id: number | undefined) => void;
   providers: ProviderSummary[];
+  loading?: boolean;
+  error?: string | null;
   onAddProvider: (config: ProviderConfig) => Promise<void>;
   onUpdateProvider: (id: number, config: ProviderConfig) => Promise<void>;
   onRemoveProvider: (id: number, name: string) => Promise<void>;
@@ -44,6 +48,8 @@ export const Navbar = ({
   selectedProviderId,
   onProviderSelect,
   providers,
+  loading = false,
+  error = null,
   onAddProvider,
   onUpdateProvider,
   onRemoveProvider,
@@ -180,7 +186,23 @@ export const Navbar = ({
             variant="subtle"
           />
 
-          {providers.length === 0 ? (
+          {loading ? (
+            <Box ta="center" py="md">
+              <Loader size="sm" />
+              <Text size="sm" c="dimmed" mt="xs">
+                Loading providers...
+              </Text>
+            </Box>
+          ) : error ? (
+            <Box ta="center" py="md">
+              <Text size="sm" c="red" fw={500}>
+                Error loading providers
+              </Text>
+              <Text size="xs" c="dimmed" mt={4}>
+                {error}
+              </Text>
+            </Box>
+          ) : providers.length === 0 ? (
             <Text size="sm" c="dimmed" ta="center" py="md">
               No providers configured
             </Text>
@@ -216,8 +238,22 @@ return (
                 label={
                   <Group justify="space-between" wrap="nowrap" w="100%">
                     <Box style={{ flex: 1, overflow: 'hidden' }}>
-                      <Text size="sm" truncate>{provider.name}</Text>
-                      <Text size="xs" c="dimmed">{provider.pipeline_count} pipelines</Text>
+                      <Group gap={4} wrap="nowrap">
+                        <Text size="sm" truncate>{provider.name}</Text>
+                        {provider.last_fetch_status === 'error' && (
+                          <Tooltip
+                            label={provider.last_fetch_error || 'Failed to fetch pipelines'}
+                            multiline
+                            w={300}
+                            withArrow
+                          >
+                            <IconAlertTriangle size={14} color="var(--mantine-color-red-6)" />
+                          </Tooltip>
+                        )}
+                      </Group>
+                      <Text size="xs" c="dimmed">
+                        {`${provider.pipeline_count} pipelines`}
+                      </Text>
                     </Box>
                     <Group gap={4}>
                       <ActionIcon

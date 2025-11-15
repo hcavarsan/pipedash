@@ -29,6 +29,14 @@ fn default_refresh_interval() -> i64 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FetchStatus {
+    Success,
+    Error,
+    Never,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderSummary {
     pub id: i64,
     pub name: String,
@@ -38,6 +46,9 @@ pub struct ProviderSummary {
     pub last_updated: Option<chrono::DateTime<chrono::Utc>>,
     pub refresh_interval: i64,
     pub configured_repositories: Vec<String>,
+    pub last_fetch_status: FetchStatus,
+    pub last_fetch_error: Option<String>,
+    pub last_fetch_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[async_trait]
