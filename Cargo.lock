@@ -3565,11 +3565,9 @@ dependencies = [
  "octocrab",
  "pipedash-plugin-api",
  "reqwest",
- "secrecy",
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
