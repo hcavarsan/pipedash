@@ -8,6 +8,7 @@ use std::sync::Arc;
 use application::commands::{
     add_provider,
     cancel_pipeline_run,
+    check_provider_permissions,
     clear_all_caches,
     clear_all_run_history_caches,
     clear_pipelines_cache,
@@ -25,7 +26,9 @@ use application::commands::{
     get_metrics_storage_stats,
     get_pipeline_metrics_config,
     get_provider,
+    get_provider_features,
     get_provider_field_options,
+    get_provider_permissions,
     get_provider_table_schema,
     get_refresh_mode,
     get_table_preferences,
@@ -45,6 +48,7 @@ use application::commands::{
     update_pipeline_metrics_config,
     update_provider,
     update_provider_refresh_interval,
+    validate_provider_credentials,
     AppState,
 };
 use application::services::{
@@ -166,6 +170,10 @@ pub fn run() {
             clear_all_caches,
             list_plugin_metadata,
             get_provider_table_schema,
+            get_provider_permissions,
+            get_provider_features,
+            validate_provider_credentials,
+            check_provider_permissions,
             get_table_preferences,
             save_table_preferences,
             get_default_table_preferences,

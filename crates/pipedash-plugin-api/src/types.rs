@@ -288,3 +288,61 @@ impl<T> PaginatedResponse<T> {
 }
 
 pub type PaginatedAvailablePipelines = PaginatedResponse<AvailablePipeline>;
+
+/// Permission required by a provider
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Permission {
+    /// Permission name (e.g., "repo", "workflow", "read:org")
+    pub name: String,
+    /// Human-readable description of what this permission allows
+    pub description: String,
+    /// Whether this permission is strictly required for basic functionality
+    pub required: bool,
+}
+
+/// Permission check result for a single permission
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionCheck {
+    /// The permission being checked
+    pub permission: Permission,
+    /// Whether the token has this permission
+    pub granted: bool,
+}
+
+/// Overall permission status for a provider
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionStatus {
+    /// Individual permission check results
+    pub permissions: Vec<PermissionCheck>,
+    /// Whether all required permissions are granted
+    pub all_granted: bool,
+    /// When these permissions were last checked
+    pub checked_at: DateTime<Utc>,
+    /// Plugin-specific metadata (e.g., token type, additional context)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, String>,
+}
+
+/// Feature provided by a plugin
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Feature {
+    /// Feature identifier (e.g., "trigger_workflow", "view_logs")
+    pub id: String,
+    /// Human-readable feature name
+    pub name: String,
+    /// Description of what this feature does
+    pub description: String,
+    /// Permissions required for this feature to work
+    pub required_permissions: Vec<String>,
+}
+
+/// Feature availability based on granted permissions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureAvailability {
+    /// The feature being checked
+    pub feature: Feature,
+    /// Whether this feature is available (all required permissions granted)
+    pub available: bool,
+    /// List of missing permissions (if not available)
+    pub missing_permissions: Vec<String>,
+}

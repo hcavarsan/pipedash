@@ -18,6 +18,7 @@ use crate::domain::{
 
 pub struct PluginAdapter {
     plugin: Arc<Mutex<Box<dyn PluginTrait>>>,
+    #[allow(dead_code)]
     provider_type: String,
 }
 

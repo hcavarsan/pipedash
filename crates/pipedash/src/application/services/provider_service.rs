@@ -66,11 +66,22 @@ impl ProviderService {
     }
 
     pub async fn add_provider(&self, config: ProviderConfig) -> DomainResult<i64> {
-        let provider = self.create_provider(&config)?;
+        // Create plugin instance for validation and permission checking
+        let mut plugin = self.create_uninitialized_plugin(&config.provider_type)?;
 
-        provider.validate_credentials().await?;
+        let mut plugin_config = config.config.clone();
+        plugin_config.insert("token".to_string(), config.token.clone());
 
-        let provider_type = provider.provider_type();
+        plugin.initialize(0, plugin_config.clone()).map_err(|e| {
+            crate::domain::DomainError::InvalidConfig(format!("Failed to initialize plugin: {e}"))
+        })?;
+
+        // Validate credentials
+        plugin.validate_credentials().await.map_err(|e| {
+            crate::domain::DomainError::InvalidConfig(format!("Credential validation failed: {e}"))
+        })?;
+
+        let provider_type = plugin.provider_type();
         if provider_type != config.provider_type {
             return Err(crate::domain::DomainError::InvalidConfig(format!(
                 "Provider type mismatch: expected '{}', got '{}'",
@@ -78,7 +89,18 @@ impl ProviderService {
             )));
         }
 
+        // Check permissions after validation
+        let permission_status = plugin.check_permissions().await.ok();
+
         let id = self.repository.add_provider(&config).await?;
+
+        // Store permission status if available
+        if let Some(ref status) = permission_status {
+            if let Err(e) = self.repository.store_provider_permissions(id, status).await {
+                eprintln!("[PROVIDER_SERVICE] Failed to store permissions: {}", e);
+                // Don't fail the entire operation if permission storage fails
+            }
+        }
 
         let mut config_with_id = config.clone();
         config_with_id.id = Some(id);
@@ -176,12 +198,34 @@ impl ProviderService {
     }
 
     pub async fn update_provider(&self, id: i64, config: ProviderConfig) -> DomainResult<()> {
-        // Validate the new configuration
-        let provider = self.create_provider(&config)?;
-        provider.validate_credentials().await?;
+        // Create plugin instance for validation and permission checking
+        let mut plugin = self.create_uninitialized_plugin(&config.provider_type)?;
+
+        let mut plugin_config = config.config.clone();
+        plugin_config.insert("token".to_string(), config.token.clone());
+
+        plugin.initialize(id, plugin_config.clone()).map_err(|e| {
+            crate::domain::DomainError::InvalidConfig(format!("Failed to initialize plugin: {e}"))
+        })?;
+
+        // Validate credentials
+        plugin.validate_credentials().await.map_err(|e| {
+            crate::domain::DomainError::InvalidConfig(format!("Credential validation failed: {e}"))
+        })?;
+
+        // Check permissions after validation
+        let permission_status = plugin.check_permissions().await.ok();
 
         // Update in database
         self.repository.update_provider(id, &config).await?;
+
+        // Store permission status if available
+        if let Some(ref status) = permission_status {
+            if let Err(e) = self.repository.store_provider_permissions(id, status).await {
+                eprintln!("[PROVIDER_SERVICE] Failed to store permissions: {}", e);
+                // Don't fail the entire operation if permission storage fails
+            }
+        }
 
         // Update in memory
         let mut config_with_id = config.clone();
