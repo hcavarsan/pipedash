@@ -10,6 +10,9 @@ use crate::{
     schema,
 };
 
+/// Validates comma-separated K8s namespace names
+const NAMESPACE_LIST_REGEX: &str = r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\s*,\s*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$";
+
 /// Creates the plugin metadata for Tekton CD
 ///
 /// This includes:
@@ -68,6 +71,39 @@ fn create_config_schema() -> ConfigSchema {
             options: Some(Vec::new()),
             validation_regex: None,
             validation_message: None,
+        })
+        .add_field(ConfigField {
+            key: "namespace_mode".to_string(),
+            label: "Namespace Discovery Mode".to_string(),
+            description: Some(
+                "How to discover namespaces containing Tekton pipelines:\n• 'all' - Automatically discover all namespaces (requires cluster-wide namespace list permissions)\n• 'custom' - Manually specify namespaces (recommended for users without admin permissions or on OpenShift/RHOS)\n\nIf you see a '403 Forbidden' error during validation, switch to 'custom' mode and specify namespaces manually."
+                    .to_string(),
+            ),
+            field_type: ConfigFieldType::Select,
+            required: false,
+            default_value: Some(serde_json::Value::String("all".to_string())),
+            options: Some(vec![
+                "all".to_string(),
+                "custom".to_string(),
+            ]),
+            validation_regex: None,
+            validation_message: None,
+        })
+        .add_field(ConfigField {
+            key: "namespaces".to_string(),
+            label: "Namespaces".to_string(),
+            description: Some(
+                "Comma-separated list of namespaces to monitor (e.g., 'default,prod,staging'). Required when namespace mode is 'custom'. Leave empty when mode is 'all' to auto-discover. Each namespace must be a valid Kubernetes namespace name (lowercase alphanumeric, hyphens, max 63 chars)."
+                    .to_string(),
+            ),
+            field_type: ConfigFieldType::Text,
+            required: false,
+            default_value: None,
+            options: None,
+            validation_regex: Some(NAMESPACE_LIST_REGEX.to_string()),
+            validation_message: Some(
+                "Invalid namespace format. Each namespace must: start and end with alphanumeric, contain only lowercase letters, numbers, and hyphens, be max 63 characters. Separate multiple namespaces with commas.".to_string(),
+            ),
         })
 }
 
