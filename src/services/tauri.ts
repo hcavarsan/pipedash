@@ -5,6 +5,7 @@ import type {
   AggregatedMetrics,
   AggregationPeriod,
   AggregationType,
+  FeatureAvailability,
   GlobalMetricsConfig,
   MetricEntry,
   MetricsConfig,
@@ -13,12 +14,15 @@ import type {
   Organization,
   PaginatedAvailablePipelines,
   PaginatedRunHistory,
+  PermissionCheckResult,
+  PermissionStatus,
   Pipeline,
   PipelineRun,
   PluginMetadata,
   ProviderConfig,
   ProviderSummary,
   TriggerParams,
+  ValidationResult,
   WorkflowParameter,
 } from '../types'
 
@@ -87,6 +91,34 @@ return { ...config, id }
     return invoke<string[]>('get_provider_field_options', {
       providerType,
       fieldKey,
+      config,
+    })
+  },
+
+  getProviderPermissions: async (providerId: number): Promise<PermissionStatus | null> => {
+    return invoke<PermissionStatus | null>('get_provider_permissions', { providerId })
+  },
+
+  getProviderFeatures: async (providerId: number): Promise<FeatureAvailability[]> => {
+    return invoke<FeatureAvailability[]>('get_provider_features', { providerId })
+  },
+
+  validateProviderCredentials: async (
+    providerType: string,
+    config: Record<string, string>
+  ): Promise<ValidationResult> => {
+    return invoke<ValidationResult>('validate_provider_credentials', {
+      providerType,
+      config,
+    })
+  },
+
+  checkProviderPermissions: async (
+    providerType: string,
+    config: Record<string, string>
+  ): Promise<PermissionCheckResult> => {
+    return invoke<PermissionCheckResult>('check_provider_permissions', {
+      providerType,
       config,
     })
   },

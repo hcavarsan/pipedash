@@ -34,6 +34,12 @@ pub struct PluginMetadata {
     pub table_schema: TableSchema,
     /// Plugin capabilities
     pub capabilities: PluginCapabilities,
+    /// Required permissions for this provider
+    #[serde(default)]
+    pub required_permissions: Vec<Permission>,
+    /// Features provided by this provider
+    #[serde(default)]
+    pub features: Vec<Feature>,
 }
 
 /// Plugin capabilities - what features the plugin supports
@@ -179,5 +185,55 @@ pub trait Plugin: Send + Sync {
         &self, _field_key: &str, _config: &HashMap<String, String>,
     ) -> PluginResult<Vec<String>> {
         Ok(Vec::new())
+    }
+
+    /// Check provider token permissions
+    /// Default implementation returns all permissions granted (for backward
+    /// compatibility)
+    async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
+        let required_permissions = &self.metadata().required_permissions;
+        let permissions = required_permissions
+            .iter()
+            .map(|p| PermissionCheck {
+                permission: p.clone(),
+                granted: true,
+            })
+            .collect();
+
+        Ok(PermissionStatus {
+            permissions,
+            all_granted: true,
+            checked_at: chrono::Utc::now(),
+            metadata: std::collections::HashMap::new(),
+        })
+    }
+
+    /// Calculate feature availability based on permission status
+    fn get_feature_availability(&self, status: &PermissionStatus) -> Vec<FeatureAvailability> {
+        let features = &self.metadata().features;
+        let granted_perms: std::collections::HashSet<String> = status
+            .permissions
+            .iter()
+            .filter(|p| p.granted)
+            .map(|p| p.permission.name.clone())
+            .collect();
+
+        features
+            .iter()
+            .map(|feature| {
+                let missing: Vec<String> = feature
+                    .required_permissions
+                    .iter()
+                    .filter(|p| !granted_perms.contains(*p))
+                    .cloned()
+                    .collect();
+
+                FeatureAvailability {
+                    feature: feature.clone(),
+                    available: missing.is_empty(),
+                    missing_permissions: missing,
+                }
+            })
+            .collect()
     }
 }

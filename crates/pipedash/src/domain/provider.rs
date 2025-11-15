@@ -71,7 +71,9 @@ pub trait Provider: Send + Sync {
         &self, workflow_id: &str,
     ) -> DomainResult<Vec<pipedash_plugin_api::WorkflowParameter>>;
 
+    #[allow(dead_code)]
     async fn validate_credentials(&self) -> DomainResult<bool>;
 
+    #[allow(dead_code)]
     fn provider_type(&self) -> &str;
 }

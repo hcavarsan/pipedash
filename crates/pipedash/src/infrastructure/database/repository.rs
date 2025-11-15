@@ -1006,4 +1006,108 @@ impl Repository {
         })
         .await
     }
+
+    /// Store provider permission status in the database
+    pub async fn store_provider_permissions(
+        &self, provider_id: i64, status: &pipedash_plugin_api::PermissionStatus,
+    ) -> DomainResult<()> {
+        retry_on_busy(|| {
+            let provider_id_val = provider_id;
+            let permissions = status.permissions.clone();
+            let checked_at = status.checked_at.to_rfc3339();
+            let pool = self.pool.clone();
+
+            async move {
+                // Delete existing permissions for this provider
+                sqlx::query("DELETE FROM provider_permissions WHERE provider_id = ?")
+                    .bind(provider_id_val)
+                    .execute(&pool)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                // Insert new permissions
+                for perm_check in permissions {
+                    sqlx::query(
+                        "INSERT INTO provider_permissions (provider_id, permission_name, granted, checked_at)
+                         VALUES (?, ?, ?, ?)"
+                    )
+                    .bind(provider_id_val)
+                    .bind(&perm_check.permission.name)
+                    .bind(perm_check.granted)
+                    .bind(&checked_at)
+                    .execute(&pool)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                }
+
+                Ok(())
+            }
+        })
+        .await
+    }
+
+    /// Retrieve provider permission status from the database
+    pub async fn get_provider_permissions(
+        &self, provider_id: i64,
+    ) -> DomainResult<Option<pipedash_plugin_api::PermissionStatus>> {
+        let rows = sqlx::query(
+            "SELECT permission_name, granted, checked_at
+             FROM provider_permissions
+             WHERE provider_id = ?
+             ORDER BY permission_name",
+        )
+        .bind(provider_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        // Get checked_at from first row (they're all the same)
+        let checked_at_str: String = rows[0]
+            .try_get("checked_at")
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let checked_at = DateTime::parse_from_rfc3339(&checked_at_str)
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?
+            .with_timezone(&Utc);
+
+        let mut permissions = Vec::new();
+        let mut all_required_granted = true;
+
+        for row in rows {
+            let permission_name: String = row
+                .try_get("permission_name")
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            let granted: bool = row
+                .try_get("granted")
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+            // We don't have the full permission details (description, required)
+            // stored in the database We create a minimal Permission object here
+            // In practice, the application will use metadata from the plugin
+            let permission = pipedash_plugin_api::Permission {
+                name: permission_name,
+                description: String::new(),
+                required: false,
+            };
+
+            permissions.push(pipedash_plugin_api::PermissionCheck {
+                permission,
+                granted,
+            });
+
+            if !granted {
+                all_required_granted = false;
+            }
+        }
+
+        Ok(Some(pipedash_plugin_api::PermissionStatus {
+            permissions,
+            all_granted: all_required_granted,
+            checked_at,
+            metadata: std::collections::HashMap::new(),
+        }))
+    }
 }

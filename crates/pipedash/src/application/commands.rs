@@ -47,6 +47,12 @@ impl From<crate::domain::DomainError> for ErrorResponse {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct ValidationResult {
+    pub valid: bool,
+    pub error: Option<String>,
+}
+
 pub struct AppState {
     pub provider_service: Arc<ProviderService>,
     pub pipeline_service: Arc<PipelineService>,
@@ -790,6 +796,234 @@ pub async fn get_provider_table_schema(
         })?;
 
     Ok(plugin_metadata.table_schema.clone())
+}
+
+#[tauri::command]
+pub async fn get_provider_permissions(
+    state: State<'_, AppState>, provider_id: i64,
+) -> Result<Option<pipedash_plugin_api::PermissionStatus>, ErrorResponse> {
+    state
+        .provider_service
+        .repository()
+        .get_provider_permissions(provider_id)
+        .await
+        .map_err(ErrorResponse::from)
+}
+
+#[tauri::command]
+pub async fn get_provider_features(
+    state: State<'_, AppState>, provider_id: i64,
+) -> Result<Vec<pipedash_plugin_api::FeatureAvailability>, ErrorResponse> {
+    // Get provider config to find plugin metadata
+    let provider_config = state
+        .provider_service
+        .get_provider_config(provider_id)
+        .await
+        .map_err(ErrorResponse::from)?;
+
+    // Get plugin metadata
+    let metadata_list = state.provider_service.list_available_plugins();
+    let plugin_metadata = metadata_list
+        .iter()
+        .find(|m| m.provider_type == provider_config.provider_type)
+        .ok_or_else(|| ErrorResponse {
+            error: format!(
+                "Plugin not found for provider type: {}",
+                provider_config.provider_type
+            ),
+        })?;
+
+    // Get stored permission status
+    let permission_status = state
+        .provider_service
+        .repository()
+        .get_provider_permissions(provider_id)
+        .await
+        .map_err(ErrorResponse::from)?;
+
+    // If no permission status stored, return empty features with unknown
+    // availability
+    let permission_status = match permission_status {
+        Some(status) => status,
+        None => {
+            // Return all features as unavailable if no permission check has been done
+            return Ok(plugin_metadata
+                .features
+                .iter()
+                .map(|f| pipedash_plugin_api::FeatureAvailability {
+                    feature: f.clone(),
+                    available: false,
+                    missing_permissions: f.required_permissions.clone(),
+                })
+                .collect());
+        }
+    };
+
+    // Calculate feature availability based on granted permissions
+    let granted_perms: std::collections::HashSet<String> = permission_status
+        .permissions
+        .iter()
+        .filter(|p| p.granted)
+        .map(|p| p.permission.name.clone())
+        .collect();
+
+    let features = plugin_metadata
+        .features
+        .iter()
+        .map(|feature| {
+            let missing: Vec<String> = feature
+                .required_permissions
+                .iter()
+                .filter(|p| !granted_perms.contains(*p))
+                .cloned()
+                .collect();
+
+            pipedash_plugin_api::FeatureAvailability {
+                feature: feature.clone(),
+                available: missing.is_empty(),
+                missing_permissions: missing,
+            }
+        })
+        .collect();
+
+    Ok(features)
+}
+
+#[tauri::command]
+pub async fn validate_provider_credentials(
+    state: State<'_, AppState>, provider_type: String, config: HashMap<String, String>,
+) -> Result<ValidationResult, ErrorResponse> {
+    eprintln!(
+        "[VALIDATE] Starting validation for provider_type: {}",
+        provider_type
+    );
+
+    // Create a temporary plugin instance to validate credentials and check
+    // permissions
+    let mut plugin = state
+        .provider_service
+        .create_uninitialized_plugin(&provider_type)
+        .map_err(ErrorResponse::from)?;
+
+    eprintln!("[VALIDATE] Plugin created, initializing...");
+
+    // Initialize the plugin with the provided config (including token)
+    plugin
+        .initialize(0, config.clone())
+        .map_err(|e| ErrorResponse {
+            error: format!("Failed to initialize plugin: {}", e),
+        })?;
+
+    eprintln!("[VALIDATE] Plugin initialized, validating credentials...");
+
+    // Validate credentials
+    let validation_result = plugin.validate_credentials().await;
+
+    eprintln!(
+        "[VALIDATE] Credentials validation result: {:?}",
+        validation_result.is_ok()
+    );
+
+    match validation_result {
+        Ok(valid) if valid => {
+            eprintln!("[VALIDATE] Credentials valid");
+            Ok(ValidationResult {
+                valid: true,
+                error: None,
+            })
+        }
+        Ok(_) => Ok(ValidationResult {
+            valid: false,
+            error: Some("Invalid credentials".to_string()),
+        }),
+        Err(e) => Ok(ValidationResult {
+            valid: false,
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct PermissionCheckResult {
+    pub permission_status: Option<pipedash_plugin_api::PermissionStatus>,
+    pub features: Vec<pipedash_plugin_api::FeatureAvailability>,
+}
+
+#[tauri::command]
+pub async fn check_provider_permissions(
+    state: State<'_, AppState>, provider_type: String, config: HashMap<String, String>,
+) -> Result<PermissionCheckResult, ErrorResponse> {
+    eprintln!(
+        "[CHECK_PERMISSIONS] Starting permission check for provider type: {}",
+        provider_type
+    );
+
+    let mut plugin = state
+        .provider_service
+        .create_uninitialized_plugin(&provider_type)
+        .map_err(ErrorResponse::from)?;
+
+    plugin
+        .initialize(0, config.clone())
+        .map_err(|e| ErrorResponse {
+            error: format!("Failed to initialize plugin: {}", e),
+        })?;
+
+    eprintln!("[CHECK_PERMISSIONS] Plugin initialized, checking permissions...");
+
+    let permission_result = plugin.check_permissions().await;
+
+    let permission_status = match permission_result {
+        Ok(status) => {
+            eprintln!("[CHECK_PERMISSIONS] Permission check succeeded");
+            Some(status)
+        }
+        Err(e) => {
+            eprintln!("[CHECK_PERMISSIONS] Permission check failed: {}", e);
+            None
+        }
+    };
+
+    let metadata_list = state.provider_service.list_available_plugins();
+    let plugin_metadata = metadata_list
+        .iter()
+        .find(|m| m.provider_type == provider_type)
+        .cloned();
+
+    let features = if let (Some(status), Some(metadata)) = (&permission_status, &plugin_metadata) {
+        let granted_perms: std::collections::HashSet<String> = status
+            .permissions
+            .iter()
+            .filter(|p| p.granted)
+            .map(|p| p.permission.name.clone())
+            .collect();
+
+        metadata
+            .features
+            .iter()
+            .map(|feature| {
+                let missing: Vec<String> = feature
+                    .required_permissions
+                    .iter()
+                    .filter(|p| !granted_perms.contains(*p))
+                    .cloned()
+                    .collect();
+
+                pipedash_plugin_api::FeatureAvailability {
+                    feature: feature.clone(),
+                    available: missing.is_empty(),
+                    missing_permissions: missing,
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(PermissionCheckResult {
+        permission_status,
+        features,
+    })
 }
 
 #[tauri::command]

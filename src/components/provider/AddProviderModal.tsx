@@ -27,9 +27,12 @@ import { IconAlertCircle, IconCheck, IconInfoCircle, IconKey, IconList, IconSear
 import { useIsMobile } from '../../contexts/MediaQueryContext'
 import { usePlugins } from '../../contexts/PluginContext'
 import { tauriService } from '../../services/tauri'
-import type { AvailablePipeline, ConfigField, Organization, PaginatedAvailablePipelines, PluginMetadata, ProviderConfig } from '../../types'
+import type { AvailablePipeline, ConfigField, FeatureAvailability, Organization, PaginatedAvailablePipelines, PermissionStatus, PluginMetadata, ProviderConfig } from '../../types'
 import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { StandardModal } from '../common/StandardModal'
+
+import { PermissionCheckButton } from './PermissionCheckButton'
+import { PermissionCheckModal } from './PermissionCheckModal'
 
 interface AddProviderModalProps {
   opened: boolean;
@@ -42,7 +45,7 @@ interface AddProviderModalProps {
 
 type Step = 'credentials' | 'pipelines';
 
- 
+// eslint-disable-next-line max-lines-per-function, max-statements
 export const AddProviderModal = ({
   opened,
   onClose,
@@ -75,6 +78,13 @@ export const AddProviderModal = ({
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [dynamicOptions, setDynamicOptions] = useState<Record<string, string[]>>({})
+
+  // Permission check state
+  const [permissionModalOpen, setPermissionModalOpen] = useState(false)
+  const [permissionStatus, setPermissionStatus] = useState<PermissionStatus | null>(null)
+  const [permissionFeatures, setPermissionFeatures] = useState<FeatureAvailability[]>([])
+  const [checkingPermissions, setCheckingPermissions] = useState(false)
+  const [permissionError, setPermissionError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!opened) {
@@ -475,6 +485,33 @@ return
     setSearchDebounceTimer(timer)
   }
 
+  const handleCheckPermissions = async () => {
+    if (!selectedPlugin) {
+      return
+    }
+
+    setCheckingPermissions(true)
+    setPermissionModalOpen(true)
+    setPermissionError(null)
+    setPermissionStatus(null)
+    setPermissionFeatures([])
+
+    try {
+      const config = { ...configValues }
+      const result = await tauriService.checkProviderPermissions(
+        selectedPlugin.provider_type,
+        config
+      )
+
+      setPermissionStatus(result.permission_status)
+      setPermissionFeatures(result.features)
+    } catch (err: any) {
+      setPermissionError(err?.error || err?.message || 'Failed to check permissions')
+    } finally {
+      setCheckingPermissions(false)
+    }
+  }
+
   const handleLoadMore = async () => {
     if (!selectedPlugin || !allPipelines || !allPipelines.has_more || loadingMore) {
       return
@@ -753,15 +790,27 @@ return (
                   }}
                 >
                   <Group justify="space-between" gap="xs">
-                    <Button
-                      variant="light"
-                      size="sm"
-                      onClick={onClose}
-                      disabled={submitting}
-                    >
-                      Cancel
-                    </Button>
+                    {/* Left side: Permission check button */}
                     <Group gap="xs">
+                      {selectedPlugin && selectedPlugin.required_permissions.length > 0 && (
+                        <PermissionCheckButton
+                          onClick={handleCheckPermissions}
+                          disabled={!configValues.token || submitting}
+                          loading={checkingPermissions}
+                        />
+                      )}
+                    </Group>
+
+                    {/* Right side: Cancel and Next buttons */}
+                    <Group gap="xs">
+                      <Button
+                        variant="light"
+                        size="sm"
+                        onClick={onClose}
+                        disabled={submitting}
+                      >
+                        Cancel
+                      </Button>
                       {editMode && (
                         <Button
                           variant="filled"
@@ -1040,6 +1089,17 @@ return (
           </>
         )}
       </Stack>
+
+      {/* Permission Check Modal */}
+      <PermissionCheckModal
+        opened={permissionModalOpen}
+        onClose={() => setPermissionModalOpen(false)}
+        metadata={selectedPlugin}
+        status={permissionStatus}
+        features={permissionFeatures}
+        loading={checkingPermissions}
+        error={permissionError}
+      />
     </StandardModal>
   )
 }

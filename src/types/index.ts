@@ -51,11 +51,6 @@ export interface PipelineRun {
   metadata?: Record<string, any>;
 }
 
-export interface PaginationParams {
-  page: number;
-  page_size: number;
-}
-
 export interface PaginatedResponse<T> {
   items: T[];
   page: number;
@@ -205,6 +200,50 @@ export interface PluginMetadata {
   config_schema: ConfigSchema;
   table_schema: TableSchema;
   capabilities: PluginCapabilities;
+  required_permissions: Permission[];
+  features: Feature[];
+}
+
+// Permission Types
+export interface Permission {
+  name: string;
+  description: string;
+  required: boolean;
+}
+
+export interface PermissionCheck {
+  permission: Permission;
+  granted: boolean;
+}
+
+export interface PermissionStatus {
+  permissions: PermissionCheck[];
+  all_granted: boolean;
+  checked_at: string;
+  metadata?: Record<string, string>;
+}
+
+export interface Feature {
+  id: string;
+  name: string;
+  description: string;
+  required_permissions: string[];
+}
+
+export interface FeatureAvailability {
+  feature: Feature;
+  available: boolean;
+  missing_permissions: string[];
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  error: string | null;
+}
+
+export interface PermissionCheckResult {
+  permission_status: PermissionStatus | null;
+  features: FeatureAvailability[];
 }
 
 export interface WorkflowParameter {

@@ -32,6 +32,8 @@ pub fn create_metadata() -> PluginMetadata {
         config_schema: create_config_schema(),
         table_schema: schema::create_table_schema(),
         capabilities: create_capabilities(),
+        required_permissions: Vec::new(),
+        features: Vec::new(),
     }
 }
 
