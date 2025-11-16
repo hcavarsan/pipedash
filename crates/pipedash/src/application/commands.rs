@@ -984,38 +984,8 @@ pub async fn check_provider_permissions(
         }
     };
 
-    let metadata_list = state.provider_service.list_available_plugins();
-    let plugin_metadata = metadata_list
-        .iter()
-        .find(|m| m.provider_type == provider_type)
-        .cloned();
-
-    let features = if let (Some(status), Some(metadata)) = (&permission_status, &plugin_metadata) {
-        let granted_perms: std::collections::HashSet<String> = status
-            .permissions
-            .iter()
-            .filter(|p| p.granted)
-            .map(|p| p.permission.name.clone())
-            .collect();
-
-        metadata
-            .features
-            .iter()
-            .map(|feature| {
-                let missing: Vec<String> = feature
-                    .required_permissions
-                    .iter()
-                    .filter(|p| !granted_perms.contains(*p))
-                    .cloned()
-                    .collect();
-
-                pipedash_plugin_api::FeatureAvailability {
-                    feature: feature.clone(),
-                    available: missing.is_empty(),
-                    missing_permissions: missing,
-                }
-            })
-            .collect()
+    let features = if let Some(status) = &permission_status {
+        plugin.get_feature_availability(status)
     } else {
         Vec::new()
     };

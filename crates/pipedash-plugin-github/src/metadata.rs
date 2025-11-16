@@ -170,5 +170,11 @@ fn create_features() -> Vec<Feature> {
             description: "List and filter repositories by organization. Without this permission, you can still access all your personal repositories.".to_string(),
             required_permissions: vec!["read:org".to_string()],
         },
+        Feature {
+            id: "access_org_repos".to_string(),
+            name: "Access organization repositories".to_string(),
+            description: "View and select repositories from organizations. Without this permission, only your personal repositories will be shown in the pipeline selection.".to_string(),
+            required_permissions: vec!["read:org".to_string()],
+        },
     ]
 }

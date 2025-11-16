@@ -43,6 +43,51 @@ impl GitHubClient {
         }
     }
 
+    async fn detect_organizations_from_repos(
+        &self,
+    ) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
+        use std::collections::HashMap;
+
+        tracing::debug!("Detecting organizations from accessible repositories");
+
+        // Fetch repositories the token has access to
+        let repos = self
+            .octocrab
+            .current()
+            .list_repos_for_authenticated_user()
+            .per_page(100)
+            .send()
+            .await
+            .map_err(|e| {
+                PluginError::ApiError(format!("Failed to fetch accessible repositories: {e}"))
+            })?;
+
+        let mut org_map: HashMap<String, pipedash_plugin_api::Organization> = HashMap::new();
+
+        for repo in repos.items {
+            if let Some(owner) = repo.owner {
+                if !org_map.contains_key(&owner.login) {
+                    org_map.insert(
+                        owner.login.clone(),
+                        pipedash_plugin_api::Organization {
+                            id: owner.login.clone(),
+                            name: owner.login,
+                            description: None,
+                        },
+                    );
+                }
+            }
+        }
+
+        let organizations: Vec<_> = org_map.into_values().collect();
+        tracing::debug!(
+            "Detected {} organizations from repositories",
+            organizations.len()
+        );
+
+        Ok(organizations)
+    }
+
     pub async fn fetch_organizations(
         &self,
     ) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
@@ -61,7 +106,6 @@ impl GitHubClient {
                 });
 
                 // Try to fetch organization memberships
-                // This requires 'read:org' permission - if missing, we gracefully fall back to user repos only
                 let org_result = self
                     .octocrab
                     .current()
@@ -72,6 +116,7 @@ impl GitHubClient {
 
                 match org_result {
                     Ok(organizations) => {
+                        tracing::debug!("Successfully fetched organization memberships");
                         for org in organizations.items {
                             orgs.push(pipedash_plugin_api::Organization {
                                 id: org.organization.login.clone(),
@@ -81,12 +126,28 @@ impl GitHubClient {
                         }
                     }
                     Err(e) => {
-                        // Log warning but don't fail - user can still access personal repos
                         tracing::warn!(
-                            "Cannot fetch organization memberships (read:org permission may be missing): {}. \
-                            Only personal repositories will be available.",
+                            "Cannot fetch organization memberships ({}). Falling back to repository-based detection.",
                             e
                         );
+
+                        match self.detect_organizations_from_repos().await {
+                            Ok(detected_orgs) => {
+                                tracing::debug!("Successfully detected organizations from repositories");
+                                for org in detected_orgs {
+                                    if org.id != user.login {
+                                        orgs.push(org);
+                                    }
+                                }
+                            }
+                            Err(detect_err) => {
+                                tracing::warn!(
+                                    "Failed to detect organizations from repositories: {}. \
+                                    Only personal account will be available.",
+                                    detect_err
+                                );
+                            }
+                        }
                     }
                 }
 

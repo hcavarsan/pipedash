@@ -19,8 +19,6 @@ use tracing::{
     warn,
 };
 
-use crate::config;
-
 type ScopeSet = HashSet<String>;
 
 pub(crate) struct PermissionChecker {
@@ -101,8 +99,13 @@ impl PermissionChecker {
         vec![
             Permission {
                 name: "Repository Metadata".to_string(),
-                description: "Read repository metadata (name, description, visibility)".to_string(),
+                description: "Read repository metadata (name, description, visibility). Required as a base permission to access repository data.".to_string(),
                 required: true,
+            },
+            Permission {
+                name: "Organization members and teams (Read)".to_string(),
+                description: "List organization members and teams. Required to access organization repositories. Without this, only your personal repositories will be available.".to_string(),
+                required: false,
             },
             Permission {
                 name: "Actions (Read)".to_string(),
@@ -112,11 +115,6 @@ impl PermissionChecker {
             Permission {
                 name: "Actions (Write)".to_string(),
                 description: "Trigger workflow dispatches and cancel running workflows".to_string(),
-                required: false,
-            },
-            Permission {
-                name: "Organization Members".to_string(),
-                description: "List organizations for filtering repositories".to_string(),
                 required: false,
             },
         ]
@@ -269,23 +267,28 @@ impl PermissionChecker {
         if self.test_repository_access().await {
             debug!("Repository metadata: granted");
             capabilities.push("Repository Metadata".to_string());
-            capabilities.push("Actions (Read)".to_string());
         } else {
             debug!("Repository metadata: denied");
         }
 
-        debug!("Testing workflow write access");
-        if self.test_workflow_access().await {
-            debug!("Actions write: granted");
-            capabilities.push("Actions (Write)".to_string());
-        } else {
-            debug!("Actions write: denied");
-        }
+        // NOTE: Actions (Read) and Actions (Write) permissions are NOT checked for
+        // fine-grained tokens.
+        //
+        // Why: Fine-grained tokens can have different Actions permissions per
+        // repository. To accurately detect these permissions, we would need to
+        // test every repository the token has access to, which is impractical:
+        // - Causes excessive API calls (rate limiting issues)
+        // - Slow permission checks (bad UX)
+        // - Still gives false results if we only test a subset
+        //
+        // Instead: Users will see actual errors when using Actions features if
+        // permissions are missing. This is better than showing unreliable
+        // "permission granted/denied" status that doesn't reflect reality.
 
         debug!("Testing org access");
         if self.test_org_access().await {
             debug!("Organization members: granted");
-            capabilities.push("Organization Members".to_string());
+            capabilities.push("Organization members and teams (Read)".to_string());
         } else {
             debug!("Organization members: denied");
         }
@@ -314,58 +317,6 @@ impl PermissionChecker {
                 false
             }
         }
-    }
-
-    async fn test_workflow_access(&self) -> bool {
-        let repos = match tokio::time::timeout(
-            Self::api_timeout(),
-            self.octocrab
-                .current()
-                .list_repos_for_authenticated_user()
-                .per_page(1)
-                .send(),
-        )
-        .await
-        {
-            Ok(Ok(r)) => r,
-            Ok(Err(e)) => {
-                debug!("Workflow test - repo fetch failed: {}", e);
-                return false;
-            }
-            Err(_) => {
-                debug!("Workflow test - repo fetch timed out");
-                return false;
-            }
-        };
-
-        if let Some(repo) = repos.items.first() {
-            if let Some(full_name) = &repo.full_name {
-                if let Some((owner, repo_name)) = config::parse_repo(full_name) {
-                    return match tokio::time::timeout(
-                        Self::api_timeout(),
-                        self.octocrab
-                            .workflows(&owner, &repo_name)
-                            .list()
-                            .per_page(1)
-                            .send(),
-                    )
-                    .await
-                    {
-                        Ok(Ok(_)) => true,
-                        Ok(Err(e)) => {
-                            debug!("Workflow list failed: {}", e);
-                            false
-                        }
-                        Err(_) => {
-                            debug!("Workflow list timed out");
-                            false
-                        }
-                    };
-                }
-            }
-        }
-
-        false
     }
 
     async fn test_org_access(&self) -> bool {
