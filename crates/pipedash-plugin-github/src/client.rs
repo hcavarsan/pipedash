@@ -9,30 +9,83 @@ use pipedash_plugin_api::{
     AvailablePipeline,
     PaginatedResponse,
     PaginationParams,
+    PermissionStatus,
     Pipeline,
     PipelineRun,
     PluginError,
     PluginResult,
     RetryPolicy,
 };
+use tracing::debug;
 
 use crate::{
     config,
     mapper,
+    permissions::PermissionChecker,
     types,
 };
 
 pub(crate) struct GitHubClient {
     pub(crate) octocrab: Octocrab,
     pub(crate) retry_policy: RetryPolicy,
+    permission_checker: PermissionChecker,
 }
 
 impl GitHubClient {
-    pub fn new(octocrab: Octocrab) -> Self {
+    pub fn new(octocrab: Octocrab, token: String) -> Self {
+        let token_secret = token.into();
+        let permission_checker = PermissionChecker::new(octocrab.clone(), token_secret);
+
         Self {
             octocrab,
             retry_policy: RetryPolicy::default(),
+            permission_checker,
         }
+    }
+
+    async fn detect_organizations_from_repos(
+        &self,
+    ) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
+        use std::collections::HashMap;
+
+        tracing::debug!("Detecting organizations from accessible repositories");
+
+        // Fetch repositories the token has access to
+        let repos = self
+            .octocrab
+            .current()
+            .list_repos_for_authenticated_user()
+            .per_page(100)
+            .send()
+            .await
+            .map_err(|e| {
+                PluginError::ApiError(format!("Failed to fetch accessible repositories: {e}"))
+            })?;
+
+        let mut org_map: HashMap<String, pipedash_plugin_api::Organization> = HashMap::new();
+
+        for repo in repos.items {
+            if let Some(owner) = repo.owner {
+                if !org_map.contains_key(&owner.login) {
+                    org_map.insert(
+                        owner.login.clone(),
+                        pipedash_plugin_api::Organization {
+                            id: owner.login.clone(),
+                            name: owner.login,
+                            description: None,
+                        },
+                    );
+                }
+            }
+        }
+
+        let organizations: Vec<_> = org_map.into_values().collect();
+        tracing::debug!(
+            "Detected {} organizations from repositories",
+            organizations.len()
+        );
+
+        Ok(organizations)
     }
 
     pub async fn fetch_organizations(
@@ -52,23 +105,50 @@ impl GitHubClient {
                     description: user.name.clone(),
                 });
 
-                let organizations = self
+                // Try to fetch organization memberships
+                let org_result = self
                     .octocrab
                     .current()
                     .list_org_memberships_for_authenticated_user()
                     .per_page(100)
                     .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::ApiError(format!("Failed to fetch organizations: {e}"))
-                    })?;
+                    .await;
 
-                for org in organizations.items {
-                    orgs.push(pipedash_plugin_api::Organization {
-                        id: org.organization.login.clone(),
-                        name: org.organization.login.clone(),
-                        description: org.organization.description.clone(),
-                    });
+                match org_result {
+                    Ok(organizations) => {
+                        tracing::debug!("Successfully fetched organization memberships");
+                        for org in organizations.items {
+                            orgs.push(pipedash_plugin_api::Organization {
+                                id: org.organization.login.clone(),
+                                name: org.organization.login.clone(),
+                                description: org.organization.description.clone(),
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Cannot fetch organization memberships ({}). Falling back to repository-based detection.",
+                            e
+                        );
+
+                        match self.detect_organizations_from_repos().await {
+                            Ok(detected_orgs) => {
+                                tracing::debug!("Successfully detected organizations from repositories");
+                                for org in detected_orgs {
+                                    if org.id != user.login {
+                                        orgs.push(org);
+                                    }
+                                }
+                            }
+                            Err(detect_err) => {
+                                tracing::warn!(
+                                    "Failed to detect organizations from repositories: {}. \
+                                    Only personal account will be available.",
+                                    detect_err
+                                );
+                            }
+                        }
+                    }
                 }
 
                 Ok(orgs)
@@ -434,7 +514,7 @@ impl GitHubClient {
 
         self.retry_policy
             .retry(|| async {
-                eprintln!("[GITHUB] Cancelling run {run_id} for {owner}/{repo}");
+                debug!("Cancelling run {run_id} for {owner}/{repo}");
 
                 let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/cancel");
 
@@ -443,16 +523,20 @@ impl GitHubClient {
 
                 match response {
                     Ok(_) => {
-                        eprintln!("[GITHUB] Run {run_id} cancelled successfully");
+                        debug!("Run {run_id} cancelled successfully");
                         Ok(())
                     }
                     Err(e) => {
-                        eprintln!("[GITHUB] Cancel failed: {e}");
+                        debug!("Cancel failed: {e}");
                         Err(PluginError::ApiError(format!("Failed to cancel run: {e}")))
                     }
                 }
             })
             .await
+    }
+
+    pub async fn check_token_permissions(&self) -> PluginResult<PermissionStatus> {
+        self.permission_checker.check_token_permissions().await
     }
 }
 
@@ -477,8 +561,8 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
         serde_json::Value::String(run.head_branch.clone()),
     );
 
-    eprintln!(
-        "[GITHUB] Run #{}: branch={}, event={:?}",
+    debug!(
+        "Run #{}: branch={}, event={:?}",
         run.run_number, run.head_branch, run.event
     );
 

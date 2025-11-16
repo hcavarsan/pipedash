@@ -27,6 +27,44 @@ impl Default for GitHubPlugin {
     }
 }
 
+/// Permission mapping configuration for different token types
+/// This allows declarative permission mapping between
+/// Classic PAT and Fine-Grained token permission models
+mod permission_mapping {
+
+    pub const FINE_GRAINED_FEATURE_MAPPINGS: &[(&str, &str)] = &[
+        ("list_monitor_workflows", "Repository Metadata"),
+        ("view_run_history", "Repository Metadata"),
+        ("monitor_status", "Actions (Read)"),
+        ("trigger_dispatch", "Actions (Write)"),
+        ("cancel_workflows", "Actions (Write)"),
+        ("access_org_repos", "Organization members and teams (Read)"),
+    ];
+
+    /// Maps a feature's required permissions for the specified token type
+    ///
+    /// # Arguments
+    /// * `token_type` - The type of token ("classic_pat" or "fine_grained")
+    /// * `feature_id` - The ID of the feature
+    /// * `classic_permissions` - The Classic PAT permission names from feature
+    ///   definition
+    ///
+    /// # Returns
+    /// Vector of permission names for the specified token type
+    pub fn map_feature_permissions(
+        token_type: &str, feature_id: &str, classic_permissions: &[String],
+    ) -> Vec<String> {
+        match token_type {
+            "fine_grained" => FINE_GRAINED_FEATURE_MAPPINGS
+                .iter()
+                .find(|(id, _)| *id == feature_id)
+                .map(|(_, perm)| vec![perm.to_string()])
+                .unwrap_or_default(),
+            _ => classic_permissions.to_vec(),
+        }
+    }
+}
+
 impl GitHubPlugin {
     pub fn new() -> Self {
         Self {
@@ -76,7 +114,7 @@ impl Plugin for GitHubPlugin {
                 PluginError::InvalidConfig(format!("Failed to build GitHub client: {e}"))
             })?;
 
-        self.client = Some(client::GitHubClient::new(octocrab));
+        self.client = Some(client::GitHubClient::new(octocrab, token.clone()));
         self.provider_id = Some(provider_id);
         self.config = config;
 
@@ -414,5 +452,55 @@ impl Plugin for GitHubPlugin {
         // Now cancel using the run ID (convert RunId to u64)
         let run_id_u64: u64 = run.id.0;
         client.cancel_run(owner, repo, run_id_u64).await
+    }
+    async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
+        let client = self.client()?;
+        client.check_token_permissions().await
+    }
+
+    fn get_feature_availability(&self, status: &PermissionStatus) -> Vec<FeatureAvailability> {
+        use permission_mapping::map_feature_permissions;
+
+        let features = &self.metadata().features;
+
+        let token_type = status
+            .metadata
+            .get("token_type")
+            .map(|s| s.as_str())
+            .unwrap_or("classic_pat");
+
+        let granted_perms: std::collections::HashSet<String> = status
+            .permissions
+            .iter()
+            .filter(|p| p.granted)
+            .map(|p| p.permission.name.clone())
+            .collect();
+
+        features
+            .iter()
+            .map(|feature| {
+                let mapped_required =
+                    map_feature_permissions(token_type, &feature.id, &feature.required_permissions);
+
+                let missing: Vec<String> = mapped_required
+                    .iter()
+                    .filter(|perm| !granted_perms.contains(*perm))
+                    .cloned()
+                    .collect();
+
+                let transformed_feature = Feature {
+                    id: feature.id.clone(),
+                    name: feature.name.clone(),
+                    description: feature.description.clone(),
+                    required_permissions: mapped_required,
+                };
+
+                FeatureAvailability {
+                    feature: transformed_feature,
+                    available: missing.is_empty(),
+                    missing_permissions: missing,
+                }
+            })
+            .collect()
     }
 }

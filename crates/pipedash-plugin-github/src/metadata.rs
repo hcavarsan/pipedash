@@ -14,6 +14,8 @@ use crate::schema;
 /// - Configuration schema (API token field)
 /// - Table schema (from schema module)
 /// - Plugin capabilities
+/// - Required permissions
+/// - Available features
 pub fn create_metadata() -> PluginMetadata {
     PluginMetadata {
         name: "GitHub Actions".to_string(),
@@ -25,8 +27,8 @@ pub fn create_metadata() -> PluginMetadata {
         config_schema: create_config_schema(),
         table_schema: schema::create_table_schema(),
         capabilities: create_capabilities(),
-        required_permissions: Vec::new(),
-        features: Vec::new(),
+        required_permissions: create_required_permissions(),
+        features: create_features(),
     }
 }
 
@@ -67,4 +69,112 @@ fn create_capabilities() -> PluginCapabilities {
         queues: false,
         custom_tables: false,
     }
+}
+
+/// Creates the required permissions for GitHub Actions
+///
+/// **Required (Base Level):**
+/// - `repo` OR `public_repo`: Repository access for viewing workflows and runs
+///   - `repo`: Full access to private and public repositories
+///   - `public_repo`: Access to public repositories only
+///
+/// **Optional (Enhanced Features):**
+/// - `workflow`: Enables triggering and canceling workflows (write access)
+/// - `read:org`: Enables organization filtering (without it, only personal
+///   repos available)
+///
+/// For classic Personal Access Tokens:
+/// - `repo` or `public_repo`: Required for workflow viewing
+///   - `repo` gives full access (private + public repos)
+///   - `public_repo` gives public-only access
+/// - `workflow`: Optional, only for trigger/cancel features
+/// - `read:org`: Optional, only for organization filtering
+///
+/// For fine-grained tokens:
+/// - Repository: Metadata (Read) - required
+/// - Actions: Read - required for viewing
+/// - Actions: Write - optional, only for trigger/cancel
+/// - Organization: Members (Read) - optional, only for org filtering
+///
+/// Note: The permission checker accepts higher-level scopes.
+/// For example, `admin:org` satisfies the `read:org` requirement.
+fn create_required_permissions() -> Vec<Permission> {
+    vec![
+        Permission {
+            name: "repo".to_string(),
+            description: "Repository access - 'repo' scope for private repositories, or 'public_repo' scope for public repositories only".to_string(),
+            required: true,
+        },
+        Permission {
+            name: "workflow".to_string(),
+            description: "Write to GitHub Actions API - dispatch workflow events & cancel runs. Optional for read-only.".to_string(),
+            required: false,
+        },
+        Permission {
+            name: "read:org".to_string(),
+            description: "List organizations - for filtering repos by org. Optional, only needed for org features.".to_string(),
+            required: false,
+        },
+    ]
+}
+
+/// Creates the feature list for GitHub Actions
+///
+/// Features are mapped to specific permission combinations:
+///
+/// **Base Features (repo only):**
+/// - View workflows: List all workflows in configured repositories
+/// - View runs: See workflow run history, status, and details
+///
+/// **Enhanced Features (repo + workflow):**
+/// - Trigger workflows: Manually start workflow runs with parameters
+/// - Cancel runs: Stop running or queued workflows
+///
+/// **Organization Feature (read:org):**
+/// - Filter by organization: View and filter repositories by org membership
+fn create_features() -> Vec<Feature> {
+    vec![
+        Feature {
+            id: "list_monitor_workflows".to_string(),
+            name: "List & monitor workflows".to_string(),
+            description: "GET /repos/{owner}/{repo}/actions/workflows - View all workflows in your repos".to_string(),
+            required_permissions: vec!["repo".to_string()],
+        },
+        Feature {
+            id: "view_run_history".to_string(),
+            name: "View run history & logs".to_string(),
+            description: "GET /repos/{owner}/{repo}/actions/workflows/{id}/runs - See run status, logs, commit info".to_string(),
+            required_permissions: vec!["repo".to_string()],
+        },
+        Feature {
+            id: "monitor_status".to_string(),
+            name: "Monitor pipeline status".to_string(),
+            description: "Real-time status updates for workflow runs in your dashboard".to_string(),
+            required_permissions: vec!["repo".to_string()],
+        },
+        Feature {
+            id: "trigger_dispatch".to_string(),
+            name: "Trigger workflow dispatch".to_string(),
+            description: "POST /repos/{owner}/{repo}/actions/workflows/{id}/dispatches - Start workflows manually".to_string(),
+            required_permissions: vec!["workflow".to_string()],
+        },
+        Feature {
+            id: "cancel_workflows".to_string(),
+            name: "Cancel running workflows".to_string(),
+            description: "POST /repos/{owner}/{repo}/actions/runs/{id}/cancel - Stop queued or running workflows".to_string(),
+            required_permissions: vec!["workflow".to_string()],
+        },
+        Feature {
+            id: "filter_by_org".to_string(),
+            name: "Filter repos by organization".to_string(),
+            description: "List and filter repositories by organization. Without this permission, you can still access all your personal repositories.".to_string(),
+            required_permissions: vec!["read:org".to_string()],
+        },
+        Feature {
+            id: "access_org_repos".to_string(),
+            name: "Access organization repositories".to_string(),
+            description: "View and select repositories from organizations. Without this permission, only your personal repositories will be shown in the pipeline selection.".to_string(),
+            required_permissions: vec!["read:org".to_string()],
+        },
+    ]
 }

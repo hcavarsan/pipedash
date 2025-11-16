@@ -84,7 +84,19 @@ export const PermissionCheckModal = ({
   )
 
   return (
-    <Modal opened={opened} onClose={onClose} title={modalTitle} size="lg" yOffset="10vh">
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title={modalTitle}
+      size="lg"
+      yOffset="10vh"
+      styles={{
+        body: {
+          maxHeight: '60vh',
+          overflowY: 'auto',
+        },
+      }}
+    >
       {loading ? (
         <Group justify="center" py="xl">
           <Loader size="sm" />
@@ -138,7 +150,7 @@ export const PermissionCheckModal = ({
                       <Badge
                         size="xs"
                         variant="light"
-                        color={check.permission.required ? 'red' : 'blue'}
+                        color="blue"
                       >
                         {check.permission.required ? 'Required' : 'Optional'}
                       </Badge>
