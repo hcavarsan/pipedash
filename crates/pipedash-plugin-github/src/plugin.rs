@@ -115,9 +115,7 @@ impl Plugin for GitHubPlugin {
         let octocrab = Octocrab::builder()
             .personal_token(token.clone())
             .base_uri(&api_url)
-            .map_err(|e| {
-                PluginError::InvalidConfig(format!("Failed to set base URI: {e}"))
-            })?
+            .map_err(|e| PluginError::InvalidConfig(format!("Failed to set base URI: {e}")))?
             .build()
             .map_err(|e| {
                 PluginError::InvalidConfig(format!("Failed to build GitHub client: {e}"))
@@ -349,9 +347,8 @@ impl Plugin for GitHubPlugin {
         let base_url = config::get_base_url(&self.config);
         let api_url = config::build_api_url(&base_url);
 
-        let url = format!(
-            "{api_url}/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches"
-        );
+        let url =
+            format!("{api_url}/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches");
 
         let http_client = reqwest::Client::new();
         let response = http_client

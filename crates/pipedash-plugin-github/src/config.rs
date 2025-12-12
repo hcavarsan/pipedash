@@ -83,11 +83,17 @@ mod tests {
         assert_eq!(get_base_url(&config), "https://github.com");
 
         // Custom URL
-        config.insert("base_url".to_string(), "https://github.enterprise.com".to_string());
+        config.insert(
+            "base_url".to_string(),
+            "https://github.enterprise.com".to_string(),
+        );
         assert_eq!(get_base_url(&config), "https://github.enterprise.com");
 
         // Trim trailing slash
-        config.insert("base_url".to_string(), "https://github.enterprise.com/".to_string());
+        config.insert(
+            "base_url".to_string(),
+            "https://github.enterprise.com/".to_string(),
+        );
         assert_eq!(get_base_url(&config), "https://github.enterprise.com");
 
         // Empty string should use default
@@ -98,7 +104,10 @@ mod tests {
     #[test]
     fn test_build_api_url() {
         // GitHub.com should use api.github.com
-        assert_eq!(build_api_url("https://github.com"), "https://api.github.com");
+        assert_eq!(
+            build_api_url("https://github.com"),
+            "https://api.github.com"
+        );
 
         // Enterprise should append /api/v3
         assert_eq!(
