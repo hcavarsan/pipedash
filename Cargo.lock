@@ -3494,6 +3494,7 @@ dependencies = [
  "keyring",
  "pipedash-plugin-api",
  "pipedash-plugin-argocd",
+ "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
  "pipedash-plugin-github",
  "pipedash-plugin-gitlab",
@@ -3539,6 +3540,22 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-bitbucket"
+version = "0.0.8"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "futures",
+ "pipedash-plugin-api",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "urlencoding",
 ]
 
 [[package]]
@@ -6053,6 +6070,12 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
+
+[[package]]
+name = "urlencoding"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "urlpattern"
