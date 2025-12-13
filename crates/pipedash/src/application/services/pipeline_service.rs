@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::Emitter;
+use tokio::time::timeout;
 
 use crate::application::services::{
     MetricsService,
@@ -102,15 +104,20 @@ impl PipelineService {
                     async move {
                         let request_id = hash_request(provider_id, "fetch_pipelines");
 
-                        let result = deduplicator
-                            .deduplicate(request_id, || async {
+                        // Add 30 second timeout per provider to prevent hanging
+                        // when a provider is disconnected or unresponsive
+                        let result = timeout(
+                            Duration::from_secs(30),
+                            deduplicator.deduplicate(request_id, || async {
                                 let provider = provider_service.get_provider(provider_id).await?;
                                 provider.fetch_pipelines().await
-                            })
-                            .await;
+                            }),
+                        )
+                        .await;
 
                         match result {
-                            Ok(pipelines) => {
+                            Ok(Ok(pipelines)) => {
+                                // Success - update status and return pipelines
                                 if repository
                                     .update_provider_fetch_status(provider_id, true, None)
                                     .await
@@ -123,7 +130,8 @@ impl PipelineService {
 
                                 Ok((provider_id, pipelines))
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
+                                // Provider returned an error
                                 let error_msg = format!("{e}");
                                 if repository
                                     .update_provider_fetch_status(
@@ -140,6 +148,26 @@ impl PipelineService {
                                 }
 
                                 Err(e)
+                            }
+                            Err(_elapsed) => {
+                                // Timeout - provider took too long to respond
+                                let error_msg =
+                                    "Connection timeout - provider did not respond".to_string();
+                                if repository
+                                    .update_provider_fetch_status(
+                                        provider_id,
+                                        false,
+                                        Some(error_msg.clone()),
+                                    )
+                                    .await
+                                    .is_ok()
+                                {
+                                    if let Some(ref handle) = app_handle {
+                                        let _ = handle.emit("providers-changed", ());
+                                    }
+                                }
+
+                                Err(crate::domain::DomainError::ProviderError(error_msg))
                             }
                         }
                     }
