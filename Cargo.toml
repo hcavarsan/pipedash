@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/pipedash",
   "crates/pipedash-plugin-api",
+  "crates/pipedash-plugin-bitbucket",
   "crates/pipedash-plugin-buildkite",
   "crates/pipedash-plugin-github",
   "crates/pipedash-plugin-gitlab",
@@ -30,6 +31,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "linux-
 octocrab = "0.47.1"
 # Internal workspace crates
 pipedash-plugin-api = { path = "crates/pipedash-plugin-api" }
+pipedash-plugin-bitbucket = { path = "crates/pipedash-plugin-bitbucket" }
 pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
 pipedash-plugin-github = { path = "crates/pipedash-plugin-github" }
 pipedash-plugin-gitlab = { path = "crates/pipedash-plugin-gitlab" }
@@ -54,5 +56,7 @@ tauri-plugin-os = "2"
 # Error Handling
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }
+# URL encoding
+urlencoding = "2.1"
 # Logging
 tracing = "0.1"

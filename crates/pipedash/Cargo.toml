@@ -17,6 +17,7 @@ chrono.workspace = true
 futures.workspace = true
 keyring.workspace = true
 pipedash-plugin-api.workspace = true
+pipedash-plugin-bitbucket.workspace = true
 pipedash-plugin-buildkite.workspace = true
 pipedash-plugin-github.workspace = true
 pipedash-plugin-gitlab.workspace = true
