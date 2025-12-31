@@ -2,7 +2,7 @@
   <br>
   <img src="./app-icon.png" width="102px" alt="Pipedash Logo" />
   <h1>Pipedash</h1>
-  <p>A desktop app for managing CI/CD pipelines from multiple providers </p>
+  <p>Manage CI/CD pipelines from multiple providers (self hosted and desktop app) </p>
 
 </div>
 
