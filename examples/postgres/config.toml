@@ -22,44 +22,43 @@ refresh_interval = 60
 base_url = "https://github.com"
 selected_items = "hcavarsan/pipedash,hcavarsan/kftray"
 
-
-#[providers.github-work]
-#name = "GitHub Work"
-#type = "github"
-#token = "${GITHUB_TOKEN}"
-#refresh_interval = 30
+# [providers.github-work]
+# name = "GitHub Work"
+# type = "github"
+# token = "${GITHUB_TOKEN}"
+# refresh_interval = 30
 #
-#[providers.github-work.config]
-#base_url = "https://github.com"
-#selected_items = "org/repo"
+# [providers.github-work.config]
+# base_url = "https://github.com"
+# selected_items = "org/repo"
 #
-#[providers.gitlab-internal]
-#name = "GitLab Internal"
-#type = "gitlab"
-#token = "${GITLAB_TOKEN}"
-#refresh_interval = 30
+# [providers.gitlab-internal]
+# name = "GitLab Internal"
+# type = "gitlab"
+# token = "${GITLAB_TOKEN}"
+# refresh_interval = 30
 #
-#[providers.gitlab-internal.config]
-#base_url = "https://gitlab.company.com"
-#selected_items = "platform/backend,platform/frontend,infra/terraform"
+# [providers.gitlab-internal.config]
+# base_url = "https://gitlab.company.com"
+# selected_items = "platform/backend,platform/frontend,infra/terraform"
 #
-#[providers.buildkite-ci]
-#name = "Buildkite CI"
-#type = "buildkite"
-#token = "${BUILDKITE_TOKEN}"
-#refresh_interval = 15
+# [providers.buildkite-ci]
+# name = "Buildkite CI"
+# type = "buildkite"
+# token = "${BUILDKITE_TOKEN}"
+# refresh_interval = 15
 #
-#[providers.buildkite-ci.config]
-#organization = "mycompany"
-#selected_items = "deploy-pipeline,test-pipeline,release-pipeline"
+# [providers.buildkite-ci.config]
+# organization = "mycompany"
+# selected_items = "deploy-pipeline,test-pipeline,release-pipeline"
 #
-#[providers.jenkins-legacy]
-#name = "Jenkins Legacy"
-#type = "jenkins"
-#token = "${JENKINS_TOKEN}"
-#refresh_interval = 60
+# [providers.jenkins-legacy]
+# name = "Jenkins Legacy"
+# type = "jenkins"
+# token = "${JENKINS_TOKEN}"
+# refresh_interval = 60
 #
-#[providers.jenkins-legacy.config]
-#base_url = "https://jenkins.company.com"
-#username = "${JENKINS_USER}"
-#selected_items = "legacy-app-build,legacy-app-deploy"
+# [providers.jenkins-legacy.config]
+# base_url = "https://jenkins.company.com"
+# username = "${JENKINS_USER}"
+# selected_items = "legacy-app-build,legacy-app-deploy"

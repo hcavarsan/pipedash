@@ -4,8 +4,8 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 description = "Tekton CD plugin for Pipedash"
-license = "GPL-3.0"
 repository = "https://github.com/hcavarsan/pipedash"
+license = "GPL-3.0"
 
 [dependencies]
 async-trait.workspace = true
@@ -16,9 +16,9 @@ http.workspace = true
 k8s-openapi.workspace = true
 kube.workspace = true
 pipedash-plugin-api.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shellexpand.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-reqwest.workspace = true

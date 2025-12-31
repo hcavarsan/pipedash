@@ -19,38 +19,42 @@ base64.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 futures.workspace = true
-keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
-tauri = { version = "2", default-features = true , features = [] }
-tauri-plugin-dialog = { version = "2", default-features = true }
-tauri-plugin-fs = { version = "2", default-features = true }
-tauri-plugin-opener = { version = "2", default-features = true }
-tauri-plugin-os = { version = "2", default-features = true }
-
+keyring = { version = "3", features = [
+  "apple-native",
+  "linux-native",
+  "windows-native",
+] }
 pipedash-core.workspace = true
-rand.workspace = true
 pipedash-plugin-api.workspace = true
-tracing.workspace = true
+pipedash-plugin-argocd.workspace = true
 pipedash-plugin-bitbucket.workspace = true
 pipedash-plugin-buildkite.workspace = true
 pipedash-plugin-github.workspace = true
 pipedash-plugin-gitlab.workspace = true
 pipedash-plugin-jenkins.workspace = true
 pipedash-plugin-tekton.workspace = true
-pipedash-plugin-argocd.workspace = true
+rand.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
-sqlx.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-toml.workspace = true
 sha2.workspace = true
+sqlx.workspace = true
+tauri = { version = "2", default-features = true, features = [] }
+tauri-plugin-dialog = { version = "2", default-features = true }
+tauri-plugin-fs = { version = "2", default-features = true }
+tauri-plugin-opener = { version = "2", default-features = true }
+tauri-plugin-os = { version = "2", default-features = true }
 thiserror.workspace = true
 tokio.workspace = true
-[features]
-default = ["postgres"]
-postgres = ["pipedash-core/postgres"]
-custom-protocol = ["tauri/custom-protocol"]
-devtools = ["tauri/devtools"]
+toml.workspace = true
+tracing.workspace = true
 
 [build-dependencies]
-tauri-build = { version = "2", default-features = true , features = [] }
+tauri-build = { version = "2", default-features = true, features = [] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+default = ["postgres"]
+devtools = ["tauri/devtools"]
+postgres = ["pipedash-core/postgres"]

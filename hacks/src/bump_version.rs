@@ -5,6 +5,7 @@ use std::{
     process::{Command, ExitCode},
 };
 
+use glob::glob;
 use regex::Regex;
 use serde_json::Value;
 
@@ -53,22 +54,45 @@ fn bump_version(bump_type: &str) -> io::Result<String> {
         .to_string();
 
     update_workspace_version(&root.join("Cargo.toml"), &version)?;
-    update_json_version(&root.join("crates/pipedash/tauri.conf.json"), &version)?;
+
+    // Dynamically find and update all tauri.conf.json files
+    let pattern = root.join("**/tauri.conf.json");
+    let pattern_str = pattern.to_string_lossy();
+    for entry in glob(&pattern_str).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))? {
+        match entry {
+            Ok(path) => {
+                println!("  ✓ {}", path.strip_prefix(&root).unwrap_or(&path).display());
+                update_json_version(&path, &version)?;
+            }
+            Err(e) => eprintln!("  ⚠ Warning: {}", e),
+        }
+    }
 
     Ok(version)
 }
 
 fn update_workspace_version(path: &std::path::Path, version: &str) -> io::Result<()> {
     let content = fs::read_to_string(path)?;
-    let re = Regex::new(r"(?m)^\[workspace\.package\][\s\S]*?^version = .+$")
+
+    // Update [workspace.package] version
+    let workspace_re = Regex::new(r"(?m)^\[workspace\.package\][\s\S]*?^version = .+$")
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    let updated = re.replace(&content, |caps: &regex::Captures| {
+    let updated = workspace_re.replace(&content, |caps: &regex::Captures| {
         caps[0].replacen(
             &caps[0].lines().last().unwrap(),
             &format!(r#"version = "{}""#, version),
             1,
         )
+    });
+
+    // Update all pipedash-* workspace dependencies
+    // Matches: pipedash-xxx = { version = "x.y.z", path = "..." }
+    let deps_re = Regex::new(r#"(pipedash-[\w-]+\s*=\s*\{\s*version\s*=\s*)"[^"]+""#)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+
+    let updated = deps_re.replace_all(&updated, |caps: &regex::Captures| {
+        format!(r#"{}"{}""#, &caps[1], version)
     });
 
     fs::write(path, updated.as_ref())
