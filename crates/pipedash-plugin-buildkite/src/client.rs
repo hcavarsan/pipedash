@@ -1,5 +1,3 @@
-//! HTTP client and API methods for Buildkite
-
 use std::collections::HashMap;
 
 use chrono::Utc;
@@ -25,27 +23,32 @@ use crate::{
 const BASE_URL: &str = "https://api.buildkite.com/v2";
 
 pub(crate) struct BuildkiteClient {
-    client: Client,
+    http_client: std::sync::Arc<Client>,
+    token: String,
     retry_policy: RetryPolicy,
 }
 
 impl BuildkiteClient {
-    pub fn new(client: Client) -> Self {
+    pub fn new(http_client: std::sync::Arc<Client>, token: String) -> Self {
         Self {
-            client,
+            http_client,
+            token,
             retry_policy: RetryPolicy::default(),
         }
     }
 
-    /// Fetches all organizations the user has access to
     pub async fn fetch_organizations(&self) -> PluginResult<Vec<types::Organization>> {
         self.retry_policy
             .retry(|| async {
                 let url = format!("{BASE_URL}/organizations");
 
                 let orgs = self
-                    .client
+                    .http_client
                     .get(&url)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", self.token),
+                    )
                     .send()
                     .await
                     .map_err(|e| {
@@ -62,7 +65,6 @@ impl BuildkiteClient {
             .await
     }
 
-    /// Fetches all pipelines for a given organization
     pub async fn fetch_org_pipelines(
         &self, org_slug: String, page: usize, per_page: usize,
     ) -> PluginResult<Vec<AvailablePipeline>> {
@@ -73,8 +75,12 @@ impl BuildkiteClient {
                 );
 
                 let pipelines: Vec<types::Pipeline> = self
-                    .client
+                    .http_client
                     .get(&url)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", self.token),
+                    )
                     .send()
                     .await
                     .map_err(|e| {
@@ -107,7 +113,6 @@ impl BuildkiteClient {
             .await
     }
 
-    /// Fetches a single pipeline with its latest build
     pub async fn fetch_pipeline(
         &self, provider_id: i64, org: String, slug: String,
     ) -> PluginResult<Pipeline> {
@@ -116,8 +121,12 @@ impl BuildkiteClient {
                 let pipeline_url = format!("{BASE_URL}/organizations/{org}/pipelines/{slug}");
 
                 let pipeline: types::Pipeline = self
-                    .client
+                    .http_client
                     .get(&pipeline_url)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", self.token),
+                    )
                     .send()
                     .await
                     .map_err(|e| PluginError::ApiError(format!("Failed to fetch pipeline: {e}")))?
@@ -129,8 +138,12 @@ impl BuildkiteClient {
                     format!("{BASE_URL}/organizations/{org}/pipelines/{slug}/builds?per_page=1");
 
                 let builds: Vec<types::Build> = self
-                    .client
+                    .http_client
                     .get(&builds_url)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", self.token),
+                    )
                     .send()
                     .await
                     .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))?
@@ -178,7 +191,6 @@ impl BuildkiteClient {
             .await
     }
 
-    /// Fetches build history for a pipeline
     pub async fn fetch_builds(
         &self, org: &str, slug: &str, limit: usize,
     ) -> PluginResult<Vec<types::Build>> {
@@ -193,8 +205,12 @@ impl BuildkiteClient {
             );
 
             let builds: Vec<types::Build> = self
-                .client
+                .http_client
                 .get(&url)
+                .header(
+                    reqwest::header::AUTHORIZATION,
+                    format!("Bearer {}", self.token),
+                )
                 .send()
                 .await
                 .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))?
@@ -217,7 +233,6 @@ impl BuildkiteClient {
         Ok(all_builds)
     }
 
-    /// Triggers a new build for a pipeline
     pub async fn trigger_build(
         &self, org: &str, slug: &str, branch: String, inputs: Option<serde_json::Value>,
     ) -> PluginResult<types::Build> {
@@ -245,8 +260,12 @@ impl BuildkiteClient {
                 }
 
                 let response = self
-                    .client
+                    .http_client
                     .post(&url)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", self.token),
+                    )
                     .json(&body)
                     .send()
                     .await
@@ -272,13 +291,16 @@ impl BuildkiteClient {
             .await
     }
 
-    /// Fetches agents for an organization
     pub async fn fetch_agents(&self, org: &str) -> PluginResult<Vec<types::Agent>> {
         let url = format!("{BASE_URL}/organizations/{org}/agents");
 
         let agents = self
-            .client
+            .http_client
             .get(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", self.token),
+            )
             .send()
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to fetch agents: {e}")))?
@@ -289,15 +311,18 @@ impl BuildkiteClient {
         Ok(agents)
     }
 
-    /// Fetches artifacts for a build
     pub async fn fetch_artifacts(
         &self, org: &str, build_id: &str,
     ) -> PluginResult<Vec<types::Artifact>> {
         let url = format!("{BASE_URL}/organizations/{org}/builds/{build_id}/artifacts");
 
         let artifacts = self
-            .client
+            .http_client
             .get(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                format!("Bearer {}", self.token),
+            )
             .send()
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to fetch artifacts: {e}")))?
@@ -308,7 +333,6 @@ impl BuildkiteClient {
         Ok(artifacts)
     }
 
-    /// Cancels a running build
     pub async fn cancel_build(
         &self, org: &str, pipeline_slug: &str, build_number: i64,
     ) -> PluginResult<()> {
@@ -320,13 +344,17 @@ impl BuildkiteClient {
                 "{BASE_URL}/organizations/{org}/pipelines/{pipeline_slug}/builds/{build_number}/cancel"
             );
 
-            eprintln!(
-                "[BUILDKITE] Cancelling build #{build_number} for pipeline {org}/{pipeline_slug}"
+            tracing::info!(
+                build_number = build_number,
+                org = %org,
+                pipeline = %pipeline_slug,
+                "Cancelling Buildkite build"
             );
 
             let response = self
-                .client
+                .http_client
                 .put(&url)
+                .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", self.token))
                 .send()
                 .await
                 .map_err(|e| PluginError::ApiError(format!("Failed to cancel build: {e}")))?;
@@ -341,13 +369,12 @@ impl BuildkiteClient {
                 )));
             }
 
-            eprintln!("[BUILDKITE] Build #{build_number} cancelled successfully");
+            tracing::info!(build_number = build_number, "Buildkite build cancelled successfully");
             Ok(())
         }).await
     }
 }
 
-/// Converts Buildkite Build to PipelineRun
 pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> PipelineRun {
     let status = mapper::map_build_state(&build.state);
 
@@ -379,8 +406,6 @@ pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> P
         None
     };
 
-    // Extract inputs for replay functionality
-    // For Buildkite, include branch and commit as inputs for replay
     let mut inputs_map = serde_json::Map::new();
 
     let branch_value = if build.branch.is_empty() {
@@ -398,9 +423,11 @@ pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> P
         serde_json::Value::String(build.commit.clone()),
     );
 
-    eprintln!(
-        "[BUILDKITE] Build #{}: branch={}, commit={}",
-        build.number, branch_value, build.commit
+    tracing::debug!(
+        build_number = build.number,
+        branch = %branch_value,
+        commit = %build.commit,
+        "Processing Buildkite build"
     );
 
     let inputs = Some(serde_json::Value::Object(inputs_map));
@@ -427,7 +454,6 @@ pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> P
     }
 }
 
-/// Converts Buildkite Artifact to BuildArtifact
 pub(crate) fn artifact_to_build_artifact(artifact: types::Artifact, run_id: &str) -> BuildArtifact {
     BuildArtifact {
         id: artifact.id,
@@ -467,10 +493,7 @@ pub(crate) async fn fetch_all_available_pipelines(
                     page += 1;
                 }
                 Err(e) => {
-                    eprintln!(
-                        "[BUILDKITE] Failed to fetch pipelines for org {}: {}",
-                        org.slug, e
-                    );
+                    tracing::warn!(org = %org.slug, error = %e, "Failed to fetch Buildkite pipelines for org");
                     break;
                 }
             }

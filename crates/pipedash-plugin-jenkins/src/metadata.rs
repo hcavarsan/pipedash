@@ -1,19 +1,7 @@
-//! Jenkins plugin metadata
-//!
-//! This module contains plugin metadata, configuration schema, and
-//! capabilities.
-
 use pipedash_plugin_api::*;
 
 use crate::schema;
 
-/// Creates the plugin metadata for Jenkins
-///
-/// This includes:
-/// - Basic plugin information (name, version, description)
-/// - Configuration schema (server URL, username, API token)
-/// - Table schema (from schema module)
-/// - Plugin capabilities
 pub fn create_metadata() -> PluginMetadata {
     PluginMetadata {
         name: "Jenkins".to_string(),
@@ -30,12 +18,6 @@ pub fn create_metadata() -> PluginMetadata {
     }
 }
 
-/// Creates the configuration schema for Jenkins
-///
-/// Defines three required fields:
-/// - `server_url`: Jenkins server URL
-/// - `username`: Jenkins username
-/// - `token`: Jenkins API token
 fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
@@ -75,12 +57,6 @@ fn create_config_schema() -> ConfigSchema {
         })
 }
 
-/// Creates the plugin capabilities
-///
-/// Jenkins supports:
-/// - Pipelines (jobs)
-/// - Pipeline runs (builds)
-/// - Triggering builds
 fn create_capabilities() -> PluginCapabilities {
     PluginCapabilities {
         pipelines: true,

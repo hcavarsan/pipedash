@@ -5,8 +5,14 @@ import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import { IconCheck, IconTrash } from '@tabler/icons-react'
 
-import { useMetrics } from '../../hooks/useMetrics'
-import type { MetricsStats } from '../../types'
+import {
+  useFlushMetrics,
+  useGlobalMetricsConfig,
+  useMetricsStorageStats,
+  usePipelineMetricsConfig,
+  useUpdateGlobalMetricsConfig,
+  useUpdatePipelineMetricsConfig,
+} from '../../queries/useMetricsQueries'
 import { StandardModal } from '../common/StandardModal'
 
 const RETENTION_OPTIONS = [
@@ -33,71 +39,36 @@ export const MetricsConfigModal = ({
   pipelineName,
   onConfigChange,
 }: MetricsConfigModalProps) => {
-  const { configLoading, flushLoading, getGlobalConfig, updateGlobalConfig, getPipelineConfig, updatePipelineConfig, flushMetrics, getStorageStats } =
-    useMetrics()
+  const globalConfig = useGlobalMetricsConfig()
+  const pipelineConfig = usePipelineMetricsConfig(pipelineId || '')
+  const stats = useMetricsStorageStats()
+  const updateGlobal = useUpdateGlobalMetricsConfig()
+  const updatePipeline = useUpdatePipelineMetricsConfig()
+  const flushMutation = useFlushMetrics()
+
   const [enabled, setEnabled] = useState(false)
   const [initialEnabled, setInitialEnabled] = useState(false)
   const [retentionDays, setRetentionDays] = useState(7)
   const [retentionMode, setRetentionMode] = useState<'preset' | 'custom'>('preset')
-  const [stats, setStats] = useState<MetricsStats | null>(null)
-  const [loadingInitial, setLoadingInitial] = useState(true)
+
+  const config = pipelineId ? pipelineConfig.data : globalConfig.data
+  const configLoading = pipelineId ? pipelineConfig.isLoading : globalConfig.isLoading
 
   useEffect(() => {
-    if (opened) {
-      setLoadingInitial(true)
-      Promise.all([loadConfig(), loadStats()]).finally(() => setLoadingInitial(false))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened, pipelineId])
+    if (config) {
+      const retention = 'retention_days' in config ? config.retention_days : config.default_retention_days
 
-  const loadConfig = async () => {
-    if (pipelineId) {
-      const config = await getPipelineConfig(pipelineId)
+      setEnabled(config.enabled)
+      setInitialEnabled(config.enabled)
+      setRetentionDays(retention)
 
-      if (config) {
-        setEnabled(config.enabled)
-        setInitialEnabled(config.enabled)
-
-        const retention = config.retention_days
-
-
-        setRetentionDays(retention)
-
-        // Determine if it's a preset value or custom
-        if ([7, 14, 30, 60, 90].includes(retention)) {
-          setRetentionMode('preset')
-        } else {
-          setRetentionMode('custom')
-        }
-      }
-    } else {
-      const config = await getGlobalConfig()
-
-      if (config) {
-        setEnabled(config.enabled)
-        setInitialEnabled(config.enabled)
-
-        const retention = config.default_retention_days
-
-
-        setRetentionDays(retention)
-
-        // Determine if it's a preset value or custom
-        if ([7, 14, 30, 60, 90].includes(retention)) {
-          setRetentionMode('preset')
-        } else {
-          setRetentionMode('custom')
-        }
+      if ([7, 14, 30, 60, 90].includes(retention)) {
+        setRetentionMode('preset')
+      } else {
+        setRetentionMode('custom')
       }
     }
-  }
-
-  const loadStats = async () => {
-    const data = await getStorageStats()
-
-
-    setStats(data)
-  }
+  }, [config])
 
   const handleFlush = () => {
     modals.openConfirmModal({
@@ -111,11 +82,9 @@ export const MetricsConfigModal = ({
       labels: { confirm: 'Delete', cancel: 'Cancel' },
       confirmProps: { color: 'red' },
       onConfirm: async () => {
-        await flushMetrics(pipelineId)
-
-        await loadStats()
+        await flushMutation.mutateAsync(pipelineId)
+        stats.refetch()
         onConfigChange?.()
-
       },
     })
   }
@@ -151,47 +120,72 @@ export const MetricsConfigModal = ({
   const performSave = async (shouldFlush: boolean) => {
     try {
       if (shouldFlush) {
-        await flushMetrics(pipelineId)
-
-        await loadStats()
-
+        await flushMutation.mutateAsync(pipelineId)
+        stats.refetch()
       }
 
-      const success = pipelineId
-        ? await updatePipelineConfig(pipelineId, enabled, retentionDays)
-        : await updateGlobalConfig(enabled, retentionDays)
-
-      if (success) {
-        notifications.show({
-          title: 'Configuration Saved',
-          message: enabled
-            ? initialEnabled
-              ? 'Metrics updated successfully'
-              : 'Metrics enabled! Collecting data from your pipeline runs...'
-            : 'Metrics disabled successfully',
-          color: 'green',
-          icon: <IconCheck size={18} />,
+      if (pipelineId) {
+        await updatePipeline.mutateAsync({
+          pipelineId,
+          enabled,
+          retentionDays,
         })
-
-        onConfigChange?.()
-        onClose()
+      } else {
+        await updateGlobal.mutateAsync({ enabled, retentionDays })
       }
+
+      notifications.show({
+        title: 'Configuration Saved',
+        message: enabled
+          ? initialEnabled
+            ? 'Metrics updated successfully'
+            : 'Metrics enabled! Collecting data from your pipeline runs...'
+          : 'Metrics disabled successfully',
+        color: 'green',
+        icon: <IconCheck size={18} />,
+      })
+
+      onConfigChange?.()
+      onClose()
     } catch (error) {
       console.error('Failed to save metrics config:', error)
     }
   }
 
-  const pipelineStats = pipelineId && stats
-    ? stats.by_pipeline.find((p) => p.pipeline_id === pipelineId)
+  const pipelineStats = pipelineId && stats.data
+    ? stats.data.by_pipeline.find((p) => p.pipeline_id === pipelineId)
     : null
-  const metricsCount = pipelineStats ? pipelineStats.metrics_count : stats?.total_metrics_count || 0
-  const sizeMB = stats?.estimated_size_mb || 0
+  const metricsCount = pipelineStats ? pipelineStats.metrics_count : stats.data?.total_metrics_count || 0
+  const sizeMB = stats.data?.estimated_size_mb || 0
+
+  const loadingInitial = configLoading || stats.isLoading
+  const isSaving = updateGlobal.isPending || updatePipeline.isPending
+
+  const footer = (
+    <Group justify="flex-end" gap="xs">
+      <Button
+        variant="subtle"
+        onClick={onClose}
+        disabled={isSaving || flushMutation.isPending}
+      >
+        Cancel
+      </Button>
+      <Button
+        onClick={handleSave}
+        loading={isSaving}
+        disabled={loadingInitial}
+      >
+        Save
+      </Button>
+    </Group>
+  )
 
   return (
     <StandardModal
       opened={opened}
       onClose={onClose}
       title={pipelineId ? `Configure Metrics: ${pipelineName}` : 'Global Metrics Configuration'}
+      footer={footer}
     >
       <Stack gap="sm">
         <Card p="sm" withBorder>
@@ -208,6 +202,7 @@ export const MetricsConfigModal = ({
               }
               checked={enabled}
               onChange={(e) => setEnabled(e.currentTarget.checked)}
+              disabled={isSaving || loadingInitial}
             />
 
             <Select
@@ -223,7 +218,7 @@ export const MetricsConfigModal = ({
                 }
               }}
               data={RETENTION_OPTIONS}
-              disabled={!enabled}
+              disabled={!enabled || isSaving || loadingInitial}
             />
 
             {retentionMode === 'custom' && (
@@ -234,7 +229,7 @@ export const MetricsConfigModal = ({
                 onChange={(val) => setRetentionDays(Number(val) || 7)}
                 min={1}
                 max={90}
-                disabled={!enabled}
+                disabled={!enabled || isSaving || loadingInitial}
               />
             )}
 
@@ -247,7 +242,7 @@ export const MetricsConfigModal = ({
           </Stack>
         </Card>
 
-        {stats && (
+        {stats.data && (
           <Card p="sm" withBorder>
             <Stack gap="xs">
               <Group justify="space-between">
@@ -265,7 +260,7 @@ export const MetricsConfigModal = ({
                   color="red"
                   leftSection={<IconTrash size={14} />}
                   onClick={handleFlush}
-                  loading={flushLoading}
+                  loading={flushMutation.isPending}
                   disabled={loadingInitial}
                 >
                   Flush
@@ -274,31 +269,14 @@ export const MetricsConfigModal = ({
 
               <Progress value={Math.min((sizeMB / 100) * 100, 100)} size="sm" />
 
-              {stats.last_cleanup_at && (
+              {stats.data.last_cleanup_at && (
                 <Text size="xs" c="dimmed">
-                  Last cleanup: {new Date(stats.last_cleanup_at).toLocaleString()}
+                  Last cleanup: {new Date(stats.data.last_cleanup_at).toLocaleString()}
                 </Text>
               )}
             </Stack>
           </Card>
         )}
-
-        <Group justify="flex-end" mt="md">
-          <Button
-            variant="subtle"
-            onClick={onClose}
-            disabled={configLoading || flushLoading}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            loading={configLoading}
-            disabled={loadingInitial}
-          >
-            Save
-          </Button>
-        </Group>
       </Stack>
     </StandardModal>
   )

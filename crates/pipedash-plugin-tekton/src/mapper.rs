@@ -71,7 +71,6 @@ pub(crate) fn map_pipeline(
             .cloned()
     });
 
-    // Populate Tekton-specific metadata
     let mut metadata = HashMap::new();
     metadata.insert("namespace".to_string(), serde_json::json!(namespace));
     metadata.insert(
@@ -224,12 +223,10 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> Pip
         serde_json::json!(run_identifier),
     );
 
-    // Add trigger info if available
     if let Some(trigger) = &actor {
         metadata.insert("trigger".to_string(), serde_json::json!(trigger));
     }
 
-    // Add event type from labels if available
     if let Some(event_type) = run
         .metadata
         .labels
@@ -243,7 +240,6 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> Pip
         metadata.insert("timeout".to_string(), serde_json::json!(timeout));
     }
 
-    // Add service account
     if let Some(service_account) = run
         .spec
         .task_run_template

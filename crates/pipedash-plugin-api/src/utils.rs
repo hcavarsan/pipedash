@@ -1,5 +1,3 @@
-//! Common utilities for plugin implementations
-
 use std::time::Duration;
 
 use crate::{
@@ -7,13 +5,9 @@ use crate::{
     PluginResult,
 };
 
-/// Retry policy configuration
 pub struct RetryPolicy {
-    /// Maximum number of retry attempts
     pub max_retries: usize,
-    /// Initial delay between retries
     pub initial_delay: Duration,
-    /// Whether to use exponential backoff
     pub exponential_backoff: bool,
 }
 
@@ -28,7 +22,6 @@ impl Default for RetryPolicy {
 }
 
 impl RetryPolicy {
-    /// Creates a new retry policy with custom settings
     pub fn new(max_retries: usize, initial_delay: Duration, exponential_backoff: bool) -> Self {
         Self {
             max_retries,
@@ -37,19 +30,6 @@ impl RetryPolicy {
         }
     }
 
-    /// Executes an operation with retry logic
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use pipedash_plugin_api::utils::RetryPolicy;
-    ///
-    /// let policy = RetryPolicy::default();
-    /// let result = policy.retry(|| async {
-    ///     // Your async operation here
-    ///     Ok(())
-    /// }).await?;
-    /// ```
     pub async fn retry<F, Fut, T>(&self, operation: F) -> PluginResult<T>
     where
         F: Fn() -> Fut,
@@ -61,20 +41,17 @@ impl RetryPolicy {
         for attempt in 0..self.max_retries {
             match operation().await {
                 Ok(result) => return Ok(result),
-                Err(e) if attempt < self.max_retries - 1 => {
-                    // Only retry on network and API errors
-                    match &e {
-                        PluginError::NetworkError(_) | PluginError::ApiError(_) => {
-                            last_error = Some(e);
-                            tokio::time::sleep(delay).await;
-                            if self.exponential_backoff {
-                                delay *= 2;
-                            }
-                            continue;
+                Err(e) if attempt < self.max_retries - 1 => match &e {
+                    PluginError::NetworkError(_) | PluginError::ApiError(_) => {
+                        last_error = Some(e);
+                        tokio::time::sleep(delay).await;
+                        if self.exponential_backoff {
+                            delay *= 2;
                         }
-                        _ => return Err(e),
+                        continue;
                     }
-                }
+                    _ => return Err(e),
+                },
                 Err(e) => {
                     last_error = Some(e);
                 }

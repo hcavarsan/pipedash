@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-/// Plugin error types
 #[derive(Error, Debug)]
 pub enum PluginError {
     #[error("Authentication failed: {0}")]
@@ -36,7 +35,6 @@ pub enum PluginError {
 
 pub type PluginResult<T> = Result<T, PluginError>;
 
-// Conversion from serde_json errors
 impl From<serde_json::Error> for PluginError {
     fn from(err: serde_json::Error) -> Self {
         PluginError::SerializationError(err.to_string())

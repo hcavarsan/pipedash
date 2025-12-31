@@ -3,11 +3,13 @@ name = "pipedash-plugin-argocd"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+description = "ArgoCD plugin for Pipedash"
+license = "GPL-3.0"
+repository = "https://github.com/hcavarsan/pipedash"
 
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
-futures.workspace = true
 pipedash-plugin-api.workspace = true
 reqwest.workspace = true
 serde.workspace = true

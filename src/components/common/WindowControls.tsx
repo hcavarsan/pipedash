@@ -138,7 +138,6 @@ return
           WebkitAppRegion: 'no-drag',
         }}
       >
-        {/* Close - Red */}
         <MacOSButton
           color="#FF5F57"
           hoverColor="#FF4136"
@@ -146,7 +145,6 @@ return
           icon={<span style={{ fontSize: 9 }}>✕</span>}
         />
 
-        {/* Minimize - Yellow */}
         <MacOSButton
           color="#FEBC2E"
           hoverColor="#F0A000"
@@ -154,7 +152,6 @@ return
           icon={<span style={{ fontSize: 9, marginBottom: 2 }}>−</span>}
         />
 
-        {/* Maximize - Green */}
         <MacOSButton
           color="#28C840"
           hoverColor="#1FB032"
@@ -185,7 +182,6 @@ return
         WebkitAppRegion: 'no-drag',
       }}
     >
-      {/* Minimize */}
       <ActionIcon
         variant="subtle"
         color="gray"
@@ -204,7 +200,6 @@ return
         <IconMinus size={14} stroke={1.5} />
       </ActionIcon>
 
-      {/* Maximize/Restore */}
       <ActionIcon
         variant="subtle"
         color="gray"
@@ -227,7 +222,6 @@ return
         )}
       </ActionIcon>
 
-      {/* Close */}
       <ActionIcon
         variant="subtle"
         color="gray"

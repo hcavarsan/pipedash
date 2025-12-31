@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: pipedash
+      POSTGRES_PASSWORD: change-me-to-a-secure-password
+      POSTGRES_DB: pipedash
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pipedash -d pipedash"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  pipedash:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      platforms:
+        - linux/amd64
+    platform: linux/amd64
+    ports:
+      - "8080:8080"
+    environment:
+      PIPEDASH_BIND_ADDR: 0.0.0.0:8080
+      PIPEDASH_DATA_DIR: /data
+      PIPEDASH_METRICS_ENABLED: "true"
+      PIPEDASH_EMBEDDED_FRONTEND: "true"
+      PIPEDASH_CONFIG_PATH: /config/config.toml
+      PIPEDASH_VAULT_PASSWORD: vaultpassword@123
+      PIPEDASH_POSTGRES_URL: postgres://pipedash:change-me-to-a-secure-password@postgres:5432/pipedash
+      GITHUB_TOKEN: your-github-token-here
+    volumes:
+      - ./config.toml:/config/config.toml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

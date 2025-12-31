@@ -1,8 +1,3 @@
-// Core plugin API for Pipedash
-//
-// This crate defines the plugin interface that all provider plugins must
-// implement. It includes common types, traits, and the plugin registry system.
-
 pub mod defaults;
 pub mod error;
 pub mod plugin;
@@ -11,7 +6,6 @@ pub mod schema;
 pub mod types;
 pub mod utils;
 
-// Re-export main types for convenience
 pub use error::{
     PluginError,
     PluginResult,
@@ -50,14 +44,6 @@ pub use types::{
 };
 pub use utils::RetryPolicy;
 
-/// Macro for registering plugins
-///
-/// Usage:
-/// ```ignore
-/// use pipedash_plugin_api::register_plugin;
-///
-/// register_plugin!(MyPlugin);
-/// ```
 #[macro_export]
 macro_rules! register_plugin {
     ($plugin_type:ty) => {

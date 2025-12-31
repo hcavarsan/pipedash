@@ -3,6 +3,9 @@ name = "pipedash-plugin-gitlab"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+description = "GitLab CI/CD plugin for Pipedash"
+license = "GPL-3.0"
+repository = "https://github.com/hcavarsan/pipedash"
 
 [dependencies]
 async-trait.workspace = true
@@ -13,3 +16,4 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+tracing.workspace = true

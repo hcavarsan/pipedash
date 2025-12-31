@@ -51,7 +51,6 @@ impl TektonPlugin {
         Ok(self.client.get_or_init(|| new_client))
     }
 
-    /// Fetches pipelines
     async fn fetch_all_pipelines_in_namespaces(&self) -> PluginResult<Vec<types::TektonPipeline>> {
         let client = self.client().await?;
 
@@ -169,6 +168,7 @@ impl Plugin for TektonPlugin {
 
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
+        _http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
         self.provider_id = Some(provider_id);
         self.config = config;
@@ -430,10 +430,11 @@ impl Plugin for TektonPlugin {
         }
 
         if matching_runs.len() > 1 {
-            eprintln!(
-                "[TEKTON WARNING] Multiple PipelineRuns found with timestamp {}. Cancelling the first one: {}",
-                run_number,
-                matching_runs[0].metadata.name
+            tracing::warn!(
+                run_number = run_number,
+                run_name = %matching_runs[0].metadata.name,
+                count = matching_runs.len(),
+                "Multiple PipelineRuns found with same timestamp, cancelling first one"
             );
         }
 
@@ -518,8 +519,6 @@ impl Plugin for TektonPlugin {
             let contexts = self.get_available_contexts(kubeconfig_path.as_deref())?;
             Ok(contexts)
         } else if field_key == "namespaces" {
-            // Try namespace discovery for autocomplete. On failure (perms, etc), return
-            // empty for manual input.
             let kubeconfig_path = config::get_kubeconfig_path(config);
             let context = config::get_context(config);
 
@@ -532,18 +531,12 @@ impl Plugin for TektonPlugin {
                 Ok(temp_client) => match temp_client.try_list_namespaces_cluster_wide().await {
                     Ok(namespaces) => Ok(namespaces),
                     Err(e) => {
-                        eprintln!(
-                            "[TEKTON] Failed to fetch namespaces for autocomplete: {}",
-                            e
-                        );
+                        tracing::warn!(error = %e, "Failed to fetch namespaces for Tekton autocomplete");
                         Ok(Vec::new())
                     }
                 },
                 Err(e) => {
-                    eprintln!(
-                        "[TEKTON] Failed to create client for namespace autocomplete: {}",
-                        e
-                    );
+                    tracing::warn!(error = %e, "Failed to create Tekton client for namespace autocomplete");
                     Ok(Vec::new())
                 }
             }

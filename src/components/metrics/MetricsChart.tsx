@@ -12,9 +12,10 @@ import {
   YAxis,
 } from 'recharts'
 
-import { Badge, Card, Grid, Group, Paper, Skeleton, Stack, Text, ThemeIcon } from '@mantine/core'
+import { Badge, Card, Grid, Group, Paper, SimpleGrid, Skeleton, Stack, Text, ThemeIcon } from '@mantine/core'
 import { IconActivity, IconChartLine, IconClock } from '@tabler/icons-react'
 
+import { useIsMobile } from '../../hooks/useIsMobile'
 import type { AggregatedMetrics, MetricType } from '../../types'
 import { formatDuration } from '../../utils/formatDuration'
 
@@ -30,7 +31,7 @@ interface MetricsChartProps {
 
 interface CustomTooltipProps {
   label?: string | number
-  payload?: any[]
+  payload?: readonly any[]
   metricType: MetricType
 }
 
@@ -119,7 +120,8 @@ return value.toFixed(0)
 }
 
 export const MetricsChart = ({ data, loading, compact = false, selectedIndex, onDataPointClick, chartTitle, chartRef }: MetricsChartProps) => {
-  const chartHeight = compact ? 150 : 450
+  const { isMobile } = useIsMobile()
+  const chartHeight = compact ? 150 : (isMobile ? 300 : 450)
 
   if (loading) {
     return (
@@ -272,12 +274,12 @@ return value.toFixed(0)
   }
 
   const StatCard = ({ label, value, suffix = '' }: { label: string; value: number; suffix?: string }) => (
-    <Card p="sm" withBorder>
-      <Stack gap={4}>
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+    <Card p={isMobile ? 'xs' : 'sm'} withBorder>
+      <Stack gap={isMobile ? 2 : 4}>
+        <Text size="xs" c="dimmed" tt="uppercase" fw={600} truncate>
           {label}
         </Text>
-        <Text size="lg" fw={700}>
+        <Text size={isMobile ? 'sm' : 'lg'} fw={700} truncate>
           {data.metric_type === 'run_duration' ? formatValue(value, data.metric_type) : `${value.toFixed(2)}${suffix}`}
         </Text>
       </Stack>
@@ -288,19 +290,13 @@ return value.toFixed(0)
     const selectedDataPoint = selectedIndex !== null && selectedIndex !== undefined ? chartData[selectedIndex] : null
 
     return (
-      <Stack gap="md">
+      <Stack gap={isMobile ? 'xs' : 'md'}>
         {!compact && (
-          <Grid gutter="sm">
-            <Grid.Col span={{ base: 12, sm: 4 }}>
-              <StatCard label="Average" value={stats.avg} />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, sm: 4 }}>
-              <StatCard label="Latest" value={stats.latest} />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, sm: 4 }}>
-              <StatCard label="Max Duration" value={stats.max} />
-            </Grid.Col>
-          </Grid>
+          <SimpleGrid cols={3} spacing={isMobile ? 'xs' : 'sm'}>
+            <StatCard label="Average" value={stats.avg} />
+            <StatCard label="Latest" value={stats.latest} />
+            <StatCard label="Max" value={stats.max} />
+          </SimpleGrid>
         )}
 
         <Paper p="md" withBorder ref={chartRef}>
@@ -398,19 +394,13 @@ return value.toFixed(0)
     const selectedDataPoint = selectedIndex !== null && selectedIndex !== undefined ? chartData[selectedIndex] : null
 
     return (
-      <Stack gap="md">
+      <Stack gap={isMobile ? 'xs' : 'md'}>
         {!compact && (
-          <Grid gutter="sm">
-            <Grid.Col span={{ base: 12, sm: 4 }}>
-              <StatCard label="Average" value={stats.avg} suffix="%" />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, sm: 4 }}>
-              <StatCard label="Latest" value={stats.latest} suffix="%" />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, sm: 4 }}>
-              <StatCard label="Peak Rate" value={stats.max} suffix="%" />
-            </Grid.Col>
-          </Grid>
+          <SimpleGrid cols={3} spacing={isMobile ? 'xs' : 'sm'}>
+            <StatCard label="Average" value={stats.avg} suffix="%" />
+            <StatCard label="Latest" value={stats.latest} suffix="%" />
+            <StatCard label="Peak" value={stats.max} suffix="%" />
+          </SimpleGrid>
         )}
 
         <Paper p="md" withBorder ref={chartRef}>
@@ -508,19 +498,13 @@ return value.toFixed(0)
   const selectedDataPoint = selectedIndex !== null && selectedIndex !== undefined ? chartData[selectedIndex] : null
 
   return (
-    <Stack gap="md">
+    <Stack gap={isMobile ? 'xs' : 'md'}>
       {!compact && (
-        <Grid gutter="sm">
-          <Grid.Col span={{ base: 12, sm: 4 }}>
-            <StatCard label="Average" value={stats.avg} suffix=" runs" />
-          </Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 4 }}>
-            <StatCard label="Latest" value={stats.latest} suffix=" runs" />
-          </Grid.Col>
-          <Grid.Col span={{ base: 12, sm: 4 }}>
-            <StatCard label="Peak Activity" value={stats.max} suffix=" runs" />
-          </Grid.Col>
-        </Grid>
+        <SimpleGrid cols={3} spacing={isMobile ? 'xs' : 'sm'}>
+          <StatCard label="Average" value={stats.avg} suffix=" runs" />
+          <StatCard label="Latest" value={stats.latest} suffix=" runs" />
+          <StatCard label="Peak" value={stats.max} suffix=" runs" />
+        </SimpleGrid>
       )}
 
       <Paper p="md" withBorder>

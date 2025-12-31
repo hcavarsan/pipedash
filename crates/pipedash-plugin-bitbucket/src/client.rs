@@ -20,17 +20,21 @@ use crate::types::{
 };
 
 pub struct BitbucketClient {
-    http_client: reqwest::Client,
+    http_client: std::sync::Arc<reqwest::Client>,
     api_url: String,
+    auth_value: String,
     retry_policy: RetryPolicy,
     user_cache: OnceLock<User>,
 }
 
 impl BitbucketClient {
-    pub fn new(http_client: reqwest::Client, api_url: String) -> Self {
+    pub fn new(
+        http_client: std::sync::Arc<reqwest::Client>, api_url: String, auth_value: String,
+    ) -> Self {
         Self {
             http_client,
             api_url: api_url.trim_end_matches('/').to_string(),
+            auth_value,
             retry_policy: RetryPolicy::default(),
             user_cache: OnceLock::new(),
         }
@@ -41,17 +45,21 @@ impl BitbucketClient {
             return Ok(user.clone());
         }
 
-        let user: User =
-            self.retry_policy
-                .retry(|| async {
-                    let url = format!("{}/user", self.api_url);
-                    let response = self.http_client.get(&url).send().await.map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to get user: {}", e))
-                    })?;
+        let user: User = self
+            .retry_policy
+            .retry(|| async {
+                let url = format!("{}/user", self.api_url);
+                let response = self
+                    .http_client
+                    .get(&url)
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                    .send()
+                    .await
+                    .map_err(|e| PluginError::NetworkError(format!("Failed to get user: {}", e)))?;
 
-                    self.handle_response(response).await
-                })
-                .await?;
+                self.handle_response(response).await
+            })
+            .await?;
 
         let _ = self.user_cache.set(user.clone());
         Ok(user)
@@ -71,9 +79,15 @@ impl BitbucketClient {
             let paginated: BitbucketPaginatedResponse<Workspace> = self
                 .retry_policy
                 .retry(|| async {
-                    let response = self.http_client.get(&url).send().await.map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to list workspaces: {}", e))
-                    })?;
+                    let response = self
+                        .http_client
+                        .get(&url)
+                        .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                        .send()
+                        .await
+                        .map_err(|e| {
+                            PluginError::NetworkError(format!("Failed to list workspaces: {}", e))
+                        })?;
                     self.handle_response(response).await
                 })
                 .await?;
@@ -95,9 +109,15 @@ impl BitbucketClient {
                     "{}/repositories/{}?pagelen={}&page={}",
                     self.api_url, workspace, params.page_size, params.page
                 );
-                let response = self.http_client.get(&url).send().await.map_err(|e| {
-                    PluginError::NetworkError(format!("Failed to list repositories: {}", e))
-                })?;
+                let response = self
+                    .http_client
+                    .get(&url)
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        PluginError::NetworkError(format!("Failed to list repositories: {}", e))
+                    })?;
 
                 let paginated: BitbucketPaginatedResponse<Repository> =
                     self.handle_response(response).await?;
@@ -122,9 +142,15 @@ impl BitbucketClient {
                     "{}/repositories?role=member&pagelen={}&page={}",
                     self.api_url, params.page_size, params.page
                 );
-                let response = self.http_client.get(&url).send().await.map_err(|e| {
-                    PluginError::NetworkError(format!("Failed to list repositories: {}", e))
-                })?;
+                let response = self
+                    .http_client
+                    .get(&url)
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        PluginError::NetworkError(format!("Failed to list repositories: {}", e))
+                    })?;
 
                 let paginated: BitbucketPaginatedResponse<Repository> =
                     self.handle_response(response).await?;
@@ -140,7 +166,6 @@ impl BitbucketClient {
             .await
     }
 
-    /// Bitbucket API max pagelen is 100
     pub async fn list_pipelines(
         &self, workspace: &str, repo_slug: &str, limit: usize,
     ) -> PluginResult<Vec<Pipeline>> {
@@ -151,9 +176,15 @@ impl BitbucketClient {
                     "{}/repositories/{}/{}/pipelines?pagelen={}&sort=-created_on",
                     self.api_url, workspace, repo_slug, pagelen
                 );
-                let response = self.http_client.get(&url).send().await.map_err(|e| {
-                    PluginError::NetworkError(format!("Failed to list pipelines: {}", e))
-                })?;
+                let response = self
+                    .http_client
+                    .get(&url)
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        PluginError::NetworkError(format!("Failed to list pipelines: {}", e))
+                    })?;
 
                 let paginated: BitbucketPaginatedResponse<Pipeline> =
                     self.handle_response(response).await?;
@@ -165,7 +196,6 @@ impl BitbucketClient {
     pub async fn list_steps(
         &self, workspace: &str, repo_slug: &str, pipeline_uuid: &str,
     ) -> PluginResult<Vec<PipelineStep>> {
-        // Bitbucket UUIDs have curly braces that need URL encoding
         let uuid_with_braces = if pipeline_uuid.starts_with('{') {
             pipeline_uuid.to_string()
         } else {
@@ -179,9 +209,15 @@ impl BitbucketClient {
                     "{}/repositories/{}/{}/pipelines/{}/steps",
                     self.api_url, workspace, repo_slug, encoded_uuid
                 );
-                let response = self.http_client.get(&url).send().await.map_err(|e| {
-                    PluginError::NetworkError(format!("Failed to list pipeline steps: {}", e))
-                })?;
+                let response = self
+                    .http_client
+                    .get(&url)
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        PluginError::NetworkError(format!("Failed to list pipeline steps: {}", e))
+                    })?;
 
                 let paginated: BitbucketPaginatedResponse<PipelineStep> =
                     self.handle_response(response).await?;
@@ -202,6 +238,7 @@ impl BitbucketClient {
                 let response = self
                     .http_client
                     .post(&url)
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
                     .json(&request)
                     .send()
                     .await
@@ -217,7 +254,6 @@ impl BitbucketClient {
     pub async fn stop_pipeline(
         &self, workspace: &str, repo_slug: &str, pipeline_uuid: &str,
     ) -> PluginResult<()> {
-        // Bitbucket UUIDs have curly braces that need URL encoding
         let uuid_with_braces = if pipeline_uuid.starts_with('{') {
             pipeline_uuid.to_string()
         } else {
@@ -231,9 +267,15 @@ impl BitbucketClient {
                     "{}/repositories/{}/{}/pipelines/{}/stopPipeline",
                     self.api_url, workspace, repo_slug, encoded_uuid
                 );
-                let response = self.http_client.post(&url).send().await.map_err(|e| {
-                    PluginError::NetworkError(format!("Failed to stop pipeline: {}", e))
-                })?;
+                let response = self
+                    .http_client
+                    .post(&url)
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        PluginError::NetworkError(format!("Failed to stop pipeline: {}", e))
+                    })?;
 
                 let status = response.status();
                 if status.is_success() {

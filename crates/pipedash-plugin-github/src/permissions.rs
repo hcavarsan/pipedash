@@ -24,10 +24,11 @@ type ScopeSet = HashSet<String>;
 pub(crate) struct PermissionChecker {
     octocrab: Octocrab,
     token: SecretString,
+    http_client: reqwest::Client, // Reuse across all permission checks
 }
 
 impl PermissionChecker {
-    const API_TIMEOUT_SECS: u64 = 10;
+    const API_TIMEOUT_SECS: u64 = 5; // GitHub API responds in <1s normally
 
     const SCOPE_HIERARCHIES: &'static [(&'static str, &'static [&'static str])] = &[
         ("admin:org", &["admin:org"]),
@@ -59,8 +60,13 @@ impl PermissionChecker {
         ("workflow", &["workflow"]),
     ];
 
-    pub fn new(octocrab: Octocrab, token: SecretString) -> Self {
-        Self { octocrab, token }
+    pub fn new(octocrab: Octocrab, token: SecretString) -> PluginResult<Self> {
+        let http_client = Self::build_http_client()?;
+        Ok(Self {
+            octocrab,
+            token,
+            http_client,
+        })
     }
 
     fn api_timeout() -> Duration {
@@ -218,8 +224,8 @@ impl PermissionChecker {
     }
 
     async fn check_classic_token_scopes(&self) -> PluginResult<PermissionStatus> {
-        let client = Self::build_http_client()?;
-        let response = client
+        let response = self
+            .http_client
             .get("https://api.github.com/user")
             .header(
                 "Authorization",
@@ -270,20 +276,6 @@ impl PermissionChecker {
         } else {
             debug!("Repository metadata: denied");
         }
-
-        // NOTE: Actions (Read) and Actions (Write) permissions are NOT checked for
-        // fine-grained tokens.
-        //
-        // Why: Fine-grained tokens can have different Actions permissions per
-        // repository. To accurately detect these permissions, we would need to
-        // test every repository the token has access to, which is impractical:
-        // - Causes excessive API calls (rate limiting issues)
-        // - Slow permission checks (bad UX)
-        // - Still gives false results if we only test a subset
-        //
-        // Instead: Users will see actual errors when using Actions features if
-        // permissions are missing. This is better than showing unreliable
-        // "permission granted/denied" status that doesn't reflect reality.
 
         debug!("Testing org access");
         if self.test_org_access().await {

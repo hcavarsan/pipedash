@@ -1,0 +1,25 @@
+services:
+  pipedash:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      platforms:
+        - linux/amd64
+    platform: linux/amd64
+    ports:
+      - "8080:8080"
+    environment:
+      PIPEDASH_BIND_ADDR: 0.0.0.0:8080
+      PIPEDASH_DATA_DIR: /data
+      PIPEDASH_METRICS_ENABLED: "true"
+      PIPEDASH_EMBEDDED_FRONTEND: "true"
+      PIPEDASH_CONFIG_PATH: /config/config.toml
+      PIPEDASH_VAULT_PASSWORD: vaultpassword@123
+      GITHUB_TOKEN: your-github-token-here
+    volumes:
+      - ./config.toml:/config/config.toml:ro
+      - pipedash-data:/data
+    restart: unless-stopped
+
+volumes:
+  pipedash-data:

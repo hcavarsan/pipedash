@@ -1,7 +1,3 @@
-//! Tekton CD table schema definitions
-//!
-//! This module contains all table and column definitions specific to Tekton.
-
 use pipedash_plugin_api::*;
 
 pub fn create_table_schema() -> schema::TableSchema {
@@ -10,14 +6,6 @@ pub fn create_table_schema() -> schema::TableSchema {
         .add_table(pipedash_plugin_api::defaults::default_pipelines_table())
 }
 
-/// Creates the pipeline_runs table with Tekton-specific columns
-///
-/// Tekton has extensive metadata that's important for Kubernetes users:
-/// - `namespace`: Kubernetes namespace
-/// - `pipeline_name`: Tekton Pipeline template name
-/// - `pipelinerun_name`: Kubernetes PipelineRun resource name (for kubectl)
-/// - `trigger`: User or system that triggered the run
-/// - `event_type`: Tekton EventListener or Trigger name
 fn create_pipeline_runs_table() -> schema::TableDefinition {
     use schema::*;
 
@@ -46,7 +34,6 @@ fn create_pipeline_runs_table() -> schema::TableDefinition {
     }
 }
 
-/// Creates the run_identifier column (event ID or PipelineRun name)
 fn create_run_identifier_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "run_identifier".to_string(),
@@ -64,7 +51,6 @@ fn create_run_identifier_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the namespace column (critical for K8s users)
 fn create_namespace_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "namespace".to_string(),
@@ -82,7 +68,6 @@ fn create_namespace_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the status column
 fn create_status_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "status".to_string(),
@@ -100,7 +85,6 @@ fn create_status_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the pipeline column (the template being run)
 fn create_pipeline_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "pipeline".to_string(),
@@ -118,7 +102,6 @@ fn create_pipeline_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the branch column
 fn create_branch_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "branch".to_string(),
@@ -136,7 +119,6 @@ fn create_branch_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the started_at column
 fn create_started_at_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "started_at".to_string(),
@@ -154,7 +136,6 @@ fn create_started_at_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the duration column
 fn create_duration_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "duration_seconds".to_string(),
@@ -172,7 +153,6 @@ fn create_duration_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the commit_sha column
 fn create_commit_sha_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "commit_sha".to_string(),
@@ -190,7 +170,6 @@ fn create_commit_sha_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the trigger column
 fn create_trigger_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "trigger".to_string(),
@@ -208,7 +187,6 @@ fn create_trigger_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the pipelinerun column (for kubectl commands)
 fn create_pipelinerun_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "pipelinerun".to_string(),
@@ -226,7 +204,6 @@ fn create_pipelinerun_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the event_type column
 fn create_event_type_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "event_type".to_string(),
@@ -244,7 +221,6 @@ fn create_event_type_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the task_summary column
 fn create_task_summary_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "task_summary".to_string(),
@@ -262,7 +238,6 @@ fn create_task_summary_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the concluded_at column (hidden by default)
 fn create_concluded_at_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "concluded_at".to_string(),
@@ -280,7 +255,6 @@ fn create_concluded_at_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the service_account column (hidden by default)
 fn create_service_account_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "service_account".to_string(),

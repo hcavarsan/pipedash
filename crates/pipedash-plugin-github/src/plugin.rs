@@ -1,5 +1,3 @@
-//! GitHub Actions plugin implementation
-
 use std::collections::HashMap;
 
 use async_trait::async_trait;
@@ -13,7 +11,6 @@ use crate::{
     metadata,
 };
 
-/// GitHub Actions plugin for monitoring workflows and runs
 pub struct GitHubPlugin {
     metadata: PluginMetadata,
     client: Option<client::GitHubClient>,
@@ -27,9 +24,6 @@ impl Default for GitHubPlugin {
     }
 }
 
-/// Permission mapping configuration for different token types
-/// This allows declarative permission mapping between
-/// Classic PAT and Fine-Grained token permission models
 mod permission_mapping {
 
     pub const FINE_GRAINED_FEATURE_MAPPINGS: &[(&str, &str)] = &[
@@ -41,16 +35,6 @@ mod permission_mapping {
         ("access_org_repos", "Organization members and teams (Read)"),
     ];
 
-    /// Maps a feature's required permissions for the specified token type
-    ///
-    /// # Arguments
-    /// * `token_type` - The type of token ("classic_pat" or "fine_grained")
-    /// * `feature_id` - The ID of the feature
-    /// * `classic_permissions` - The Classic PAT permission names from feature
-    ///   definition
-    ///
-    /// # Returns
-    /// Vector of permission names for the specified token type
     pub fn map_feature_permissions(
         token_type: &str, feature_id: &str, classic_permissions: &[String],
     ) -> Vec<String> {
@@ -90,27 +74,25 @@ impl Plugin for GitHubPlugin {
 
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
+        _http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
         let token = config
             .get("token")
             .ok_or_else(|| PluginError::InvalidConfig("Missing GitHub token".to_string()))?;
 
         if token.is_empty() {
-            eprintln!(
-                "[GITHUB] ERROR: Token is empty for provider {}",
-                provider_id
-            );
+            tracing::error!(provider_id = provider_id, "GitHub token is empty");
             return Err(PluginError::InvalidConfig(
                 "GitHub token is empty. Please check keyring permissions.".to_string(),
             ));
         }
 
-        eprintln!("[GITHUB] Initializing with token length: {}", token.len());
+        tracing::debug!(token_length = token.len(), "Initializing GitHub plugin");
 
         let base_url = config::get_base_url(&config);
         let api_url = config::build_api_url(&base_url);
 
-        eprintln!("[GITHUB] Using API URL: {}", api_url);
+        tracing::debug!(api_url = %api_url, "Using GitHub API URL");
 
         let octocrab = Octocrab::builder()
             .personal_token(token.clone())
@@ -121,7 +103,8 @@ impl Plugin for GitHubPlugin {
                 PluginError::InvalidConfig(format!("Failed to build GitHub client: {e}"))
             })?;
 
-        self.client = Some(client::GitHubClient::new(octocrab, token.clone()));
+        let github_client = client::GitHubClient::new(octocrab, token.clone())?;
+        self.client = Some(github_client);
         self.provider_id = Some(provider_id);
         self.config = config;
 
@@ -181,7 +164,7 @@ impl Plugin for GitHubPlugin {
             .ok_or_else(|| PluginError::Internal("Provider ID not set".to_string()))?;
 
         let repositories = config::get_repositories(&self.config);
-        eprintln!("[GITHUB] Configured repositories: {repositories:?}");
+        tracing::debug!(repositories = ?repositories, "Configured GitHub repositories");
 
         if repositories.is_empty() {
             return Err(PluginError::InvalidConfig(
@@ -202,22 +185,23 @@ impl Plugin for GitHubPlugin {
         for result in results {
             match result {
                 Ok(mut pipelines) => {
-                    eprintln!("[GITHUB] Repo returned {} workflows", pipelines.len());
+                    tracing::debug!(count = pipelines.len(), "GitHub repo returned workflows");
                     all_pipelines.append(&mut pipelines);
                 }
                 Err(e) => errors.push(e),
             }
         }
 
-        eprintln!(
-            "[GITHUB] Total unique pipeline IDs: {}",
-            all_pipelines
-                .iter()
-                .map(|p| &p.id)
-                .collect::<std::collections::HashSet<_>>()
-                .len()
+        let unique_count = all_pipelines
+            .iter()
+            .map(|p| &p.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        tracing::debug!(
+            unique_pipelines = unique_count,
+            total_pipelines = all_pipelines.len(),
+            "GitHub pipeline fetch complete"
         );
-        eprintln!("[GITHUB] Total pipelines: {}", all_pipelines.len());
 
         if !errors.is_empty() && all_pipelines.is_empty() {
             return Err(errors.into_iter().next().unwrap());
@@ -313,11 +297,6 @@ impl Plugin for GitHubPlugin {
         let repo = parts[3];
         let workflow_id = parts[4];
 
-        let token = self
-            .config
-            .get("token")
-            .ok_or_else(|| PluginError::Internal("Token not found".to_string()))?;
-
         let ref_value = params
             .inputs
             .as_ref()
@@ -344,34 +323,18 @@ impl Plugin for GitHubPlugin {
             }
         }
 
-        let base_url = config::get_base_url(&self.config);
-        let api_url = config::build_api_url(&base_url);
+        let client = self.client()?;
+        let url = format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches");
 
-        let url =
-            format!("{api_url}/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches");
+        let response: Result<serde_json::Value, octocrab::Error> =
+            client.octocrab.post(url, Some(&body)).await;
 
-        let http_client = reqwest::Client::new();
-        let response = http_client
-            .post(&url)
-            .header("Authorization", format!("Bearer {token}"))
-            .header("User-Agent", "pipedash")
-            .header("Accept", "application/vnd.github.v3+json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to trigger workflow: {e}")))?;
-
-        if !response.status().is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
+        if let Err(e) = response {
             return Err(PluginError::ApiError(format!(
-                "Failed to trigger workflow: {error_text}"
+                "Failed to trigger workflow: {e}"
             )));
         }
 
-        let client = self.client()?;
         let workflow_id_u64: u64 = workflow_id.parse().map_err(|_| {
             PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id}"))
         })?;
@@ -396,9 +359,10 @@ impl Plugin for GitHubPlugin {
                     && run.head_branch == ref_value
                     && run.created_at.with_timezone(&chrono::Utc) >= trigger_time
                 {
-                    eprintln!(
-                        "[GITHUB] Found new run #{} after {} attempts",
-                        run.run_number, attempt
+                    tracing::debug!(
+                        run_number = run.run_number,
+                        attempt = attempt,
+                        "Found new GitHub run"
                     );
                     new_run = Some(run);
                     break;
@@ -409,13 +373,16 @@ impl Plugin for GitHubPlugin {
                 break;
             }
 
-            eprintln!("[GITHUB] Attempt {attempt}/10: Waiting for new run to appear...");
+            tracing::debug!(
+                attempt = attempt,
+                max_attempts = 10,
+                "Waiting for new GitHub run to appear"
+            );
         }
 
         let (logs_url, run_number) = if let Some(run) = new_run {
             (run.html_url.to_string(), run.run_number)
         } else {
-            // Fallback: return the latest run we found
             let runs = client
                 .fetch_run_history(owner, repo, workflow_id_u64, 1)
                 .await?;
@@ -452,13 +419,11 @@ impl Plugin for GitHubPlugin {
             PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id_str}"))
         })?;
 
-        // First, fetch the run to get its ID
         let client = self.client()?;
         let run = client
             .fetch_run_by_number(owner, repo, workflow_id, run_number)
             .await?;
 
-        // Now cancel using the run ID (convert RunId to u64)
         let run_id_u64: u64 = run.id.0;
         client.cancel_run(owner, repo, run_id_u64).await
     }

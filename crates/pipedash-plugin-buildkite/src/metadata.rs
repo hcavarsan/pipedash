@@ -1,19 +1,7 @@
-//! Buildkite plugin metadata
-//!
-//! This module contains plugin metadata, configuration schema, and
-//! capabilities.
-
 use pipedash_plugin_api::*;
 
 use crate::schema;
 
-/// Creates the plugin metadata for Buildkite
-///
-/// This includes:
-/// - Basic plugin information (name, version, description)
-/// - Configuration schema (API token field)
-/// - Table schema (from schema module)
-/// - Plugin capabilities
 pub fn create_metadata() -> PluginMetadata {
     PluginMetadata {
         name: "Buildkite".to_string(),
@@ -30,10 +18,6 @@ pub fn create_metadata() -> PluginMetadata {
     }
 }
 
-/// Creates the configuration schema for Buildkite
-///
-/// Defines a single required field:
-/// - `token`: Buildkite API Access Token
 fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new().add_field(ConfigField {
         key: "token".to_string(),
@@ -51,14 +35,6 @@ fn create_config_schema() -> ConfigSchema {
     })
 }
 
-/// Creates the plugin capabilities
-///
-/// Buildkite supports:
-/// - Pipelines
-/// - Pipeline runs
-/// - Triggering builds
-/// - Agents monitoring
-/// - Artifacts access
 fn create_capabilities() -> PluginCapabilities {
     PluginCapabilities {
         pipelines: true,

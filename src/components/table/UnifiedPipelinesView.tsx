@@ -1,16 +1,23 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { DataTableSortStatus } from 'mantine-datatable'
 
-import { ActionIcon, Alert, Box, Card, Center, Container, Group, Loader, Modal, Paper, Stack, Text, Tooltip } from '@mantine/core'
+import { ActionIcon, Alert, Box, Card, Center, Group, Loader, Modal, Paper, Stack, Text, Tooltip } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
+import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconAlertTriangle, IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
 
-import { useIsMobile } from '../../contexts/MediaQueryContext'
+import { useIsMobile } from '../../hooks/useIsMobile'
+import { usePipelineFilters } from '../../hooks/useUrlState'
+import { logger } from '../../lib/logger'
 import type { Pipeline, ProviderSummary } from '../../types'
 import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { TableCells } from '../../utils/tableCells'
 import { TableHeader } from '../atoms'
 import { FilterBar } from '../common/FilterBar'
+import { LoadingState } from '../common/LoadingState'
 import { StandardTable } from '../common/StandardTable'
+
+import { MobilePipelineCards } from './MobilePipelineCards'
 
 type TableRowType = 'repository' | 'workflow';
 
@@ -50,23 +57,24 @@ export const UnifiedPipelinesView = ({
   onTrigger,
   onViewMetrics,
 }: UnifiedPipelinesViewProps) => {
-  const isMobile = useIsMobile()
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string | null>(null)
-  const [providerFilter, setProviderFilter] = useState<string | null>(null)
-  const [organizationFilter, setOrganizationFilter] = useState<string | null>(null)
-  const [dateRange, setDateRange] = useState<string | null>(null)
+  const orphanedPipelines = useRef<Set<string>>(new Set())
+
+  const { isMobile, isDesktop } = useIsMobile()
+
+  const { filters, setFilter, clearFilters } = usePipelineFilters()
+  const { search, status: statusFilter, provider: providerFilter, organization: organizationFilter, dateRange } = filters
+
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set())
   const [sortStatus, setSortStatus] = useState<DataTableSortStatus<TableRow>>({
     columnAccessor: 'repository',
     direction: 'asc',
   })
-  const [errorModalOpened, setErrorModalOpened] = useState(false)
+  const [errorModalOpened, { open: openErrorModal, close: closeErrorModal }] = useDisclosure(false)
   const [selectedError, setSelectedError] = useState<{ providerName: string; error: string } | null>(null)
 
-  const getProvider = (providerId: number): ProviderSummary | undefined => {
+  const getProvider = useCallback((providerId: number): ProviderSummary | undefined => {
     return providers.find((p) => p.id === providerId)
-  }
+  }, [providers])
 
   const getRepositoryProviderErrors = (providerIds: Set<number>) => {
     const errors: Array<{ id: number; name: string; error: string }> = []
@@ -88,7 +96,7 @@ export const UnifiedPipelinesView = ({
 return errors
   }
 
-  const parseRepositoryName = (fullName: string, providerId: number): { organization: string; repository: string } => {
+  const parseRepositoryName = useCallback((fullName: string, providerId: number): { organization: string; repository: string } => {
     const parts = fullName.split('/')
 
 
@@ -120,7 +128,7 @@ return {
       organization: provider?.name || 'Unknown',
       repository: fullName,
     }
-  }
+  }, [getProvider])
 
   const tableRows = useMemo(() => {
     const rows: TableRow[] = []
@@ -134,6 +142,47 @@ return {
       if (!pipeline.repository) {
 return
 }
+
+      if (pipeline.provider_id === 0 || pipeline.provider_id === null || pipeline.provider_id === undefined) {
+        if (!orphanedPipelines.current.has(pipeline.id)) {
+          orphanedPipelines.current.add(pipeline.id)
+
+          logger.error('UnifiedPipelinesView', 'Orphaned pipeline detected', {
+            pipeline_id: pipeline.id,
+            pipeline_name: pipeline.name,
+            provider_id: pipeline.provider_id,
+          })
+
+          if (import.meta.env.DEV) {
+            notifications.show({
+              title: 'Data Inconsistency Detected',
+              message: `Pipeline "${pipeline.name}" has invalid provider reference`,
+              color: 'red',
+              autoClose: false,
+            })
+          }
+        }
+
+return
+      }
+
+      const provider = getProvider(pipeline.provider_id)
+
+      if (!provider) {
+        if (!orphanedPipelines.current.has(pipeline.id)) {
+          orphanedPipelines.current.add(pipeline.id)
+
+          logger.warn('UnifiedPipelinesView', 'Pipeline references non-existent provider', {
+            pipeline_id: pipeline.id,
+            pipeline_name: pipeline.name,
+            provider_id: pipeline.provider_id,
+          })
+        }
+
+return
+      }
+
+      orphanedPipelines.current.delete(pipeline.id)
 
       if (selectedProviderId !== undefined && pipeline.provider_id !== selectedProviderId) {
         return
@@ -191,7 +240,6 @@ return
     })
 
     Array.from(repoMap.entries()).forEach(([repoName, repoData]) => {
-      // Get provider ID from first pipeline, or from providerIds set if no pipelines
       const providerId = repoData.pipelines[0]?.provider_id || Array.from(repoData.providerIds)[0] || 0
       const { organization, repository } = parseRepositoryName(repoName, providerId)
       const repoId = `repo-${repoName}`
@@ -220,8 +268,7 @@ return
     })
 
     return rows
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelines, expandedRepos, providers, selectedProviderId])
+  }, [pipelines, expandedRepos, providers, selectedProviderId, getProvider, parseRepositoryName])
 
   const filteredRows = useMemo(() => {
     let result = tableRows
@@ -301,12 +348,23 @@ return false
     }
 
     if (statusFilter) {
+      // Build set of repo IDs with workflows matching status
+      const reposWithMatchingStatus = new Set<string>()
+
+      pipelines.forEach((pipeline) => {
+        if (pipeline.status === statusFilter && pipeline.repository) {
+          reposWithMatchingStatus.add(`repo-${pipeline.repository}`)
+        }
+      })
+
       result = result.filter((row) => {
-        if (row.type === 'workflow' && row.pipeline) {
+        if (row.type === 'repository') {
+          return reposWithMatchingStatus.has(row.id)
+        } else if (row.type === 'workflow' && row.pipeline) {
           return row.pipeline.status === statusFilter
         }
 
-return true
+        return false
       })
     }
 
@@ -346,7 +404,7 @@ return false
     }
 
     return result
-  }, [tableRows, search, organizationFilter, providerFilter, statusFilter, dateRange, providers])
+  }, [tableRows, search, organizationFilter, providerFilter, statusFilter, dateRange, providers, pipelines])
 
   const uniqueOrganizations = useMemo(() => {
     return Array.from(new Set(
@@ -373,264 +431,124 @@ return Array.from(providerIdSet)
       .map((id) => getProvider(id)?.name)
       .filter((name): name is string => !!name)
       .sort()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableRows, providers])
+  }, [tableRows, getProvider])
 
   const repositoryCount = tableRows.filter(r => r.type === 'repository').length
 
-  const renderMobileCards = () => {
+  if (!loading && providers.length === 0) {
     return (
-      <Stack gap="sm">
-        {filteredRows.length === 0 ? (
-          <Card padding="xl" withBorder>
-            <Center>
-              <Stack align="center" gap="md">
-                <IconFolder size={48} color="var(--mantine-color-dimmed)" />
-                <Stack align="center" gap="xs">
-                  <Text size={THEME_TYPOGRAPHY.MODAL_TITLE.size} fw={THEME_TYPOGRAPHY.MODAL_TITLE.weight}>No workflows found</Text>
-                  <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center">
-                    {pipelines.length === 0
-                      ? 'This provider doesn\'t have any workflows configured yet.'
-                      : 'No workflows match your current filters'}
-                  </Text>
-                </Stack>
+      <Box
+        pt={{ base: 0, sm: 'sm' }}
+        pb={{ base: 0, sm: '2xl' }}
+        px={{ base: 'xs', sm: 'xl' }}
+        style={{
+          width: '100%',
+          maxWidth: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minHeight: 0,
+          background: 'var(--mantine-color-body)',
+        }}
+      >
+        <TableHeader title="Repositories & Workflows" count={0} />
+        <Card padding="xl" withBorder mt="md">
+          <Center>
+            <Stack align="center" gap="md">
+              <IconPlugConnected size={48} color="var(--mantine-color-dimmed)" />
+              <Stack align="center" gap="xs">
+                <Text size={THEME_TYPOGRAPHY.MODAL_TITLE.size} fw={THEME_TYPOGRAPHY.MODAL_TITLE.weight}>No providers configured</Text>
+                <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center">
+                  Add a CI/CD provider to start monitoring your pipelines and workflows.
+                </Text>
               </Stack>
-            </Center>
-          </Card>
-        ) : (
-          filteredRows.map((row) => {
-            if (row.type === 'repository') {
-              const isExpanded = expandedRepos.has(row.id)
-              const repoPipelines = pipelines.filter(p => p.repository === row.repositoryFullName)
-              const latestPipeline = repoPipelines.sort((a, b) => {
-                const aTime = a.last_run ? new Date(a.last_run).getTime() : 0
-                const bTime = b.last_run ? new Date(b.last_run).getTime() : 0
-
-
-
-return bTime - aTime
-              })[0]
-
-              return (
-                <Card
-                  key={row.id}
-                  padding="md"
-                  withBorder
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => {
-                    setExpandedRepos((prev) => {
-                      const newSet = new Set(prev)
-
-
-                      if (newSet.has(row.id)) {
-                        newSet.delete(row.id)
-                      } else {
-                        newSet.add(row.id)
-                      }
-
-return newSet
-                    })
-                  }}
-                >
-                  <Stack gap="xs">
-                    <Group justify="space-between" wrap="nowrap">
-                      <Group gap={8} wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
-                        <IconChevronRight
-                          size={16}
-                          style={{
-                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                            transition: 'transform 200ms ease',
-                            flexShrink: 0,
-                          }}
-                        />
-                        <IconFolder size={18} color="var(--mantine-color-blue-5)" style={{ flexShrink: 0 }} />
-                        <Text size={THEME_TYPOGRAPHY.ITEM_TITLE.size} fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight} truncate style={{ flex: 1 }}>
-                          {row.repository}
-                        </Text>
-                      </Group>
-                      {latestPipeline && (
-                        <Tooltip
-                          label={`Last activity: ${latestPipeline.last_run ? new Date(latestPipeline.last_run).toLocaleString() : 'Never'}`}
-                          withArrow
-                        >
-                          <div>{TableCells.status(latestPipeline.status)}</div>
-                        </Tooltip>
-                      )}
-                    </Group>
-
-                    <Group gap="md" wrap="wrap">
-                      <Box style={{ flex: '1 1 auto' }}>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Organization</Text>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{row.organization}</Text>
-                      </Box>
-                      <Box style={{ flex: '1 1 auto' }}>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Pipelines</Text>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{row.pipelineCount}</Text>
-                      </Box>
-                    </Group>
-
-                    <Box>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL} mb={4}>Providers</Text>
-                      <Stack gap={(row.providerIds?.size || 0) > 1 ? 8 : 0}>
-                        {Array.from(row.providerIds || []).map((providerId) => {
-                          const provider = getProvider(providerId)
-
-
-
-return (
-                            <div key={providerId}>
-                              {TableCells.avatarName(
-                                provider?.icon || null,
-                                provider?.name || 'Unknown',
-                                <IconPlugConnected size={14} />
-                              )}
-                            </div>
-                          )
-                        })}
-                      </Stack>
-                    </Box>
-                  </Stack>
-                </Card>
-              )
-            } else if (row.type === 'workflow' && row.pipeline) {
-              const provider = getProvider(row.pipeline.provider_id)
-              const { organization } = parseRepositoryName(row.pipeline.repository, row.pipeline.provider_id)
-
-              return (
-                <Card
-                  key={row.id}
-                  padding="md"
-                  withBorder
-                  ml="xl"
-                  style={{ cursor: 'pointer', backgroundColor: 'var(--mantine-color-dark-8)' }}
-                  onClick={() => onViewHistory(row.pipeline!)}
-                >
-                  <Stack gap="xs">
-                    <Group justify="space-between" wrap="nowrap">
-                      <Group gap={8} wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
-                        <IconGitBranch size={16} color="var(--mantine-color-gray-6)" style={{ flexShrink: 0 }} />
-                        <Text size={THEME_TYPOGRAPHY.ITEM_TITLE.size} fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight} truncate style={{ flex: 1 }}>
-                          {row.pipeline.name}
-                        </Text>
-                      </Group>
-                      <Group gap={8}>
-                        <Tooltip
-                          label={`Last activity: ${row.pipeline.last_run ? new Date(row.pipeline.last_run).toLocaleString() : 'Never'}`}
-                          withArrow
-                        >
-                          <div>{TableCells.status(row.pipeline.status)}</div>
-                        </Tooltip>
-                        {onViewMetrics && (
-                          <ActionIcon
-                            variant="subtle"
-                            color="violet"
-                            size="md"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onViewMetrics(row.pipeline!)
-                            }}
-                            title="View metrics"
-                          >
-                            <IconChartLine size={18} />
-                          </ActionIcon>
-                        )}
-                        <ActionIcon
-                          variant="subtle"
-                          color="blue"
-                          size="md"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onTrigger(row.pipeline!)
-                          }}
-                          title="Trigger workflow"
-                        >
-                          <IconPlayerPlayFilled size={18} />
-                        </ActionIcon>
-                      </Group>
-                    </Group>
-
-                    <Group gap="md" wrap="wrap">
-                      <Box style={{ flex: '1 1 auto' }}>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Organization</Text>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{organization}</Text>
-                      </Box>
-                      {row.pipeline.branch && (
-                        <Box style={{ flex: '1 1 auto' }}>
-                          <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Branch</Text>
-                          <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{row.pipeline.branch}</Text>
-                        </Box>
-                      )}
-                    </Group>
-
-                    <Box>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL} mb={4}>Provider</Text>
-                      {TableCells.avatarName(
-                        provider?.icon || null,
-                        provider?.name || 'Unknown',
-                        <IconPlugConnected size={14} />
-                      )}
-                    </Box>
-                  </Stack>
-                </Card>
-              )
-            }
-
-return null
-          })
-        )}
-      </Stack>
+            </Stack>
+          </Center>
+        </Card>
+      </Box>
     )
   }
 
   if (loading) {
     return (
-      <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
+      <Box
+        pt={{ base: 0, sm: 'sm' }}
+        pb={{ base: 0, sm: '2xl' }}
+        px={{ base: 'xs', sm: 'xl' }}
+        style={{
+          width: '100%',
+          maxWidth: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          minHeight: 0,
+          background: 'var(--mantine-color-body)',
+        }}
+      >
         <TableHeader title="Repositories & Workflows" count={repositoryCount} />
-        <Center py="xl">
-          <Stack align="center" gap="md">
-            <Loader size="lg" />
-            <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>Loading pipelines...</Text>
-          </Stack>
-        </Center>
-      </Container>
+        <LoadingState variant="page" message="Loading pipelines..." />
+      </Box>
     )
   }
 
   return (
-    <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
+    <Box
+      pt={{ base: 0, sm: 'sm' }}
+      pb={{ base: 0, sm: '2xl' }}
+      px={{ base: 'xs', sm: 'xl' }}
+      style={{
+        width: '100%',
+        maxWidth: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
+        background: 'var(--mantine-color-body)',
+      }}
+    >
       <TableHeader title="Repositories & Workflows" count={repositoryCount} />
 
       <FilterBar
         filters={{
           search: {
             value: search,
-            onChange: setSearch,
+            onChange: (value) => setFilter('search', value),
             placeholder: 'Search repositories, workflows...',
           },
           status: {
             value: statusFilter,
-            onChange: setStatusFilter,
+            onChange: (value) => setFilter('status', value),
           },
           provider: {
             value: providerFilter,
-            onChange: setProviderFilter,
+            onChange: (value) => setFilter('provider', value),
             options: uniqueProviderNames,
           },
           organization: {
             value: organizationFilter,
-            onChange: setOrganizationFilter,
+            onChange: (value) => setFilter('organization', value),
             options: uniqueOrganizations,
           },
           dateRange: {
             value: dateRange,
-            onChange: setDateRange,
+            onChange: (value) => setFilter('dateRange', value),
           },
         }}
+        onClearAll={clearFilters}
       />
 
-      {/* Render mobile cards on small screens, table on desktop */}
       {isMobile ? (
-        renderMobileCards()
+        <MobilePipelineCards
+          filteredRows={filteredRows}
+          pipelines={pipelines}
+          expandedRepos={expandedRepos}
+          setExpandedRepos={setExpandedRepos}
+          getProvider={getProvider}
+          parseRepositoryName={parseRepositoryName}
+          onViewHistory={onViewHistory}
+          onTrigger={onTrigger}
+          onViewMetrics={onViewMetrics}
+        />
       ) : filteredRows.length === 0 ? (
         <Card padding="xl" withBorder mt="md">
           <Center>
@@ -640,15 +558,20 @@ return null
                 <Text size={THEME_TYPOGRAPHY.MODAL_TITLE.size} fw={THEME_TYPOGRAPHY.MODAL_TITLE.weight}>No workflows found</Text>
                 <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center">
                   {pipelines.length === 0
-                    ? 'This provider doesn\'t have any workflows configured yet.'
-                    : 'No workflows match your current filters'}
+                    ? 'No workflows found for this provider. Workflows will appear after they run.'
+                    : 'No workflows match your current filters. Try adjusting your search or filters.'}
                 </Text>
               </Stack>
             </Stack>
           </Center>
         </Card>
       ) : (
-        <StandardTable<TableRow>
+        <Box style={{
+          height: 'calc(100vh - var(--app-shell-header-height, 70px) - 250px)',
+          minHeight: 'clamp(300px, 40vh, 500px)',
+          position: 'relative'
+        }}>
+          <StandardTable<TableRow>
         records={filteredRows}
         columns={[
           {
@@ -741,12 +664,10 @@ return (
                   </Box>
                 )
               } else if (row.type === 'repository' && row.repositoryFullName) {
-                // Show aggregate status for repository (most recent status from ALL pipelines)
                 const repoPipelines = pipelines.filter(p => p.repository === row.repositoryFullName)
 
 
                 if (repoPipelines.length > 0) {
-                  // Get the most recent pipeline status
                   const latestPipeline = repoPipelines
                     .sort((a, b) => {
                       const aTime = a.last_run ? new Date(a.last_run).getTime() : 0
@@ -788,14 +709,10 @@ return null
               if (row.type === 'repository' && row.providerIds) {
                 const providerCount = row.providerIds.size
 
-
-
 return (
                   <Stack gap={providerCount > 1 ? 8 : 0}>
                     {Array.from(row.providerIds).map((providerId) => {
                       const provider = getProvider(providerId)
-
-
 
 return (
                         <div key={providerId}>
@@ -831,6 +748,24 @@ return null
             textAlign: 'center' as const,
             render: (row) => {
               if (row.type === 'repository') {
+                const hasPendingFetch = Array.from(row.providerIds || []).some((id) => {
+                  const provider = getProvider(id)
+
+
+
+return provider?.last_fetch_status === 'never'
+                })
+
+                if (hasPendingFetch) {
+                  return (
+                    <Box style={{ display: 'flex', justifyContent: 'center' }}>
+                      <Tooltip label="Loading pipelines..." withArrow>
+                        <Loader size="sm" />
+                      </Tooltip>
+                    </Box>
+                  )
+                }
+
                 const providerErrors = row.providerIds ? getRepositoryProviderErrors(row.providerIds) : []
 
                 if (providerErrors.length > 0) {
@@ -847,9 +782,10 @@ return null
                               providerName: providerErrors[0].name,
                               error: providerErrors[0].error
                             })
-                            setErrorModalOpened(true)
+                            openErrorModal()
                           }}
                           style={{ backgroundColor: 'transparent' }}
+                          aria-label="View provider fetch error details"
                         >
                           <IconAlertTriangle size={18} color="var(--mantine-color-red-6)" />
                         </ActionIcon>
@@ -872,6 +808,7 @@ return null
                             e.stopPropagation()
                             onViewMetrics(row.pipeline!)
                           }}
+                          aria-label="View metrics"
                         >
                           <IconChartLine size={18} />
                         </ActionIcon>
@@ -886,6 +823,7 @@ return null
                           e.stopPropagation()
                           onTrigger(row.pipeline!)
                         }}
+                        aria-label="Trigger workflow"
                       >
                         <IconPlayerPlayFilled size={18} />
                       </ActionIcon>
@@ -911,7 +849,7 @@ return null
                 providerName: providerErrors[0].name,
                 error: providerErrors[0].error
               })
-              setErrorModalOpened(true)
+              openErrorModal()
             } else {
               setExpandedRepos((prev) => {
                 const newSet = new Set(prev)
@@ -938,14 +876,24 @@ return newSet
         })}
         noRecordsText="No repositories found"
       />
+        </Box>
       )}
 
       <Modal
         opened={errorModalOpened}
-        onClose={() => setErrorModalOpened(false)}
+        onClose={closeErrorModal}
         title="Provider Fetch Error"
-        size="md"
+        size={isDesktop ? 'min(80vh, 80vw)' : 'md'}
+        centered
         padding="lg"
+        zIndex={300}
+        styles={{
+          content: isDesktop ? {
+            aspectRatio: '1 / 1',
+            maxHeight: '80vh',
+            maxWidth: '80vw',
+          } : {},
+        }}
       >
         {selectedError && (
           <Stack gap="md">
@@ -989,6 +937,6 @@ return newSet
           </Stack>
         )}
       </Modal>
-    </Container>
+    </Box>
   )
 }

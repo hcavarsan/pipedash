@@ -5,7 +5,6 @@ use pipedash_plugin_api::{
     PluginResult,
 };
 
-/// Format: bitbucket__{provider_id}__{workspace}__{repo_slug}
 pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, String, String)> {
     let parts: Vec<&str> = id.split("__").collect();
 
@@ -36,12 +35,10 @@ pub(crate) fn parse_selected_items(config: &HashMap<String, String>) -> Option<V
     })
 }
 
-/// Only Bitbucket Cloud supported (Data Center has different API, no Pipelines)
 pub(crate) fn get_api_url() -> String {
     "https://api.bitbucket.org/2.0".to_string()
 }
 
-/// API tokens replaced app passwords Sept 2025 (disabled June 2026)
 pub(crate) fn get_auth(config: &HashMap<String, String>) -> PluginResult<(String, String)> {
     let email = config
         .get("email")

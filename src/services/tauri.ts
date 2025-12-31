@@ -1,65 +1,156 @@
 import { invoke } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 
-import type {
-  AggregatedMetrics,
-  AggregationPeriod,
-  AggregationType,
-  FeatureAvailability,
-  GlobalMetricsConfig,
-  MetricEntry,
-  MetricsConfig,
-  MetricsStats,
-  MetricType,
-  Organization,
-  PaginatedAvailablePipelines,
-  PaginatedRunHistory,
-  PermissionCheckResult,
-  PermissionStatus,
-  Pipeline,
-  PipelineRun,
-  PluginMetadata,
-  ProviderConfig,
-  ProviderSummary,
-  TriggerParams,
-  ValidationResult,
-  WorkflowParameter,
+import {
+  type AggregatedMetrics,
+  type AggregationPeriod,
+  type AggregationType,
+  type ConfigAnalysisResponse,
+  type ConfigContentResponse,
+  createError,
+  type FeatureAvailability,
+  type GlobalMetricsConfig,
+  type MetricEntry,
+  type MetricsConfig,
+  type MetricsStats,
+  type MetricType,
+  type MigrationOptions,
+  type MigrationPlan,
+  type MigrationResult,
+  type Organization,
+  type PaginatedAvailablePipelines,
+  type PaginatedRunHistory,
+  type PermissionCheckResult,
+  type PermissionStatus,
+  type PipedashConfig,
+  type Pipeline,
+  type PipelineRun,
+  type PluginMetadata,
+  type ProviderConfig,
+  type ProviderSummary,
+  type SetupStatus,
+  type StorageConfigResponse,
+  type StoragePathsResponse,
+  toPipedashError,
+  type TriggerParams,
+  type UnlockVaultResponse,
+  type ValidationResult,
+  type VaultStatusResponse,
+  type WorkflowParameter,
 } from '../types'
+import { DEFAULT_RETRY_CONFIG, shouldRetry, withRetry } from '../utils/retryLogic'
+
+const TAURI_COMMAND_TIMEOUTS: Record<string, number> = {
+  factory_reset: 120000,
+  list_pipelines: 90000,
+  get_cached_pipelines: 90000,
+  fetch_pipelines: 90000,
+  preview_provider_pipelines: 60000,
+  fetch_provider_organizations: 60000,
+  add_provider: 120000,
+  default: 45000,
+}
+
+async function invokeWithTimeout<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+  customTimeout?: number,
+  enableRetry = true
+): Promise<T> {
+  const timeout = customTimeout ?? TAURI_COMMAND_TIMEOUTS[cmd] ?? TAURI_COMMAND_TIMEOUTS.default
+
+  const executeCommand = async () => {
+    try {
+      return await Promise.race([
+        invoke<T>(cmd, args),
+        new Promise<T>((_, reject) =>
+          setTimeout(
+            () => reject(createError('timeout', `Command '${cmd}' timeout`, { timeoutMs: timeout })),
+            timeout
+          )
+        ),
+      ])
+    } catch (error) {
+      throw toPipedashError(error)
+    }
+  }
+
+  if (enableRetry) {
+    return withRetry(executeCommand, {
+      ...DEFAULT_RETRY_CONFIG,
+      shouldRetry: (error: Error) => {
+        return shouldRetry(error, 1, DEFAULT_RETRY_CONFIG)
+      },
+    })
+  }
+
+  return executeCommand()
+}
 
 export const tauriService = {
   addProvider: async (config: ProviderConfig): Promise<number> => {
-    return invoke<number>('add_provider', { config })
+    return invokeWithTimeout<number>('add_provider', { config })
   },
 
   listProviders: async (): Promise<ProviderSummary[]> => {
-    return invoke<ProviderSummary[]>('list_providers')
+    console.debug('[tauriService] Invoking list_providers...')
+
+    return withRetry(
+      async () => {
+        try {
+          const result = await invoke<ProviderSummary[]>('list_providers')
+
+          console.debug('[tauriService] list_providers returned:', result?.length ?? 0, 'items')
+
+          return result
+        } catch (err) {
+          console.error('[tauriService] list_providers error:', err)
+          throw toPipedashError(err)
+        }
+      },
+      DEFAULT_RETRY_CONFIG
+    )
   },
 
   getProvider: async (id: number): Promise<ProviderConfig & { id: number }> => {
-    const config = await invoke<ProviderConfig>('get_provider', { id })
+    try {
+      const config = await invoke<ProviderConfig>('get_provider', { id })
 
-
-    
 return { ...config, id }
+    } catch (error) {
+      throw toPipedashError(error)
+    }
   },
 
   updateProvider: async (id: number, config: ProviderConfig): Promise<void> => {
-    return invoke<void>('update_provider', { id, config })
+    try {
+      return await invoke<void>('update_provider', { id, config })
+    } catch (error) {
+      throw toPipedashError(error)
+    }
   },
 
   updateProviderRefreshInterval: async (id: number, refreshInterval: number): Promise<void> => {
-    return invoke<void>('update_provider_refresh_interval', { id, refreshInterval })
+    try {
+      return await invoke<void>('update_provider_refresh_interval', { id, refreshInterval })
+    } catch (error) {
+      throw toPipedashError(error)
+    }
   },
 
   removeProvider: async (id: number): Promise<void> => {
-    return invoke<void>('remove_provider', { id })
+    try {
+      return await invoke<void>('remove_provider', { id })
+    } catch (error) {
+      throw toPipedashError(error)
+    }
   },
 
   fetchProviderOrganizations: async (
     providerType: string,
     config: Record<string, string>
   ): Promise<Organization[]> => {
-    return invoke<Organization[]>('fetch_provider_organizations', {
+    return invokeWithTimeout<Organization[]>('fetch_provider_organizations', {
       providerType,
       config,
     })
@@ -73,7 +164,7 @@ return { ...config, id }
     page?: number,
     pageSize?: number
   ): Promise<PaginatedAvailablePipelines> => {
-    return invoke<PaginatedAvailablePipelines>('preview_provider_pipelines', {
+    return invokeWithTimeout<PaginatedAvailablePipelines>('preview_provider_pipelines', {
       providerType,
       config,
       org: org ?? null,
@@ -88,51 +179,111 @@ return { ...config, id }
     fieldKey: string,
     config: Record<string, string>
   ): Promise<string[]> => {
-    return invoke<string[]>('get_provider_field_options', {
-      providerType,
-      fieldKey,
-      config,
-    })
+    try {
+      return await invoke<string[]>('get_provider_field_options', {
+        providerType,
+        fieldKey,
+        config,
+      })
+    } catch (error) {
+      throw toPipedashError(error)
+    }
   },
 
   getProviderPermissions: async (providerId: number): Promise<PermissionStatus | null> => {
-    return invoke<PermissionStatus | null>('get_provider_permissions', { providerId })
+    try {
+      return await invoke<PermissionStatus | null>('get_provider_permissions', { providerId })
+    } catch (error) {
+      throw toPipedashError(error)
+    }
   },
 
   getProviderFeatures: async (providerId: number): Promise<FeatureAvailability[]> => {
-    return invoke<FeatureAvailability[]>('get_provider_features', { providerId })
+    try {
+      return await invoke<FeatureAvailability[]>('get_provider_features', { providerId })
+    } catch (error) {
+      throw toPipedashError(error)
+    }
+  },
+
+  getProviderTableSchema: async (providerId: number): Promise<any> => {
+    try {
+      return await invoke('get_provider_table_schema', { providerId })
+    } catch (error) {
+      throw toPipedashError(error)
+    }
   },
 
   validateProviderCredentials: async (
     providerType: string,
     config: Record<string, string>
   ): Promise<ValidationResult> => {
-    return invoke<ValidationResult>('validate_provider_credentials', {
-      providerType,
-      config,
-    })
+    try {
+      return await invoke<ValidationResult>('validate_provider_credentials', {
+        providerType,
+        config,
+      })
+    } catch (error) {
+      throw toPipedashError(error)
+    }
   },
 
   checkProviderPermissions: async (
     providerType: string,
     config: Record<string, string>
   ): Promise<PermissionCheckResult> => {
-    return invoke<PermissionCheckResult>('check_provider_permissions', {
-      providerType,
-      config,
-    })
+    try {
+      return await invoke<PermissionCheckResult>('check_provider_permissions', {
+        providerType,
+        config,
+      })
+    } catch (error) {
+      throw toPipedashError(error)
+    }
   },
 
   fetchPipelines: async (providerId?: number): Promise<Pipeline[]> => {
-    return invoke<Pipeline[]>('fetch_pipelines', {
-      providerId: providerId ?? null,
-    })
+    console.debug('[tauriService] Invoking fetch_pipelines...', { providerId })
+
+    return withRetry(
+      async () => {
+        try {
+          const result = await invoke<Pipeline[]>('fetch_pipelines', {
+            providerId: providerId ?? null,
+          })
+
+          console.debug('[tauriService] fetch_pipelines returned:', result?.length ?? 0, 'items')
+
+          return result
+        } catch (err) {
+          console.error('[tauriService] fetch_pipelines error:', err)
+          throw err
+        }
+      },
+      DEFAULT_RETRY_CONFIG
+    )
   },
 
   getCachedPipelines: async (providerId?: number): Promise<Pipeline[]> => {
-    return invoke<Pipeline[]>('get_cached_pipelines', {
-      providerId: providerId ?? null,
-    })
+    console.debug('[tauriService] Invoking get_cached_pipelines...', { providerId })
+
+    return withRetry(
+      async () => {
+        try {
+          const result = await invokeWithTimeout<Pipeline[]>('get_cached_pipelines', {
+            providerId: providerId ?? null,
+          })
+
+          console.debug('[tauriService] get_cached_pipelines returned:', result?.length ?? 0, 'items')
+
+          return result
+        } catch (err) {
+          console.error('[tauriService] get_cached_pipelines error:', err)
+          throw err
+        }
+      },
+      DEFAULT_RETRY_CONFIG
+    )
   },
 
   fetchRunHistory: async (
@@ -318,5 +469,112 @@ return { ...config, id }
 
   getDefaultTablePreferences: async (providerId: number, tableId: string): Promise<string> => {
     return invoke<string>('get_default_table_preferences', { providerId, tableId })
+  },
+
+  checkSetupStatus: async (): Promise<SetupStatus> => {
+    return invoke<SetupStatus>('check_setup_status')
+  },
+
+  createInitialConfig: async (
+    config: PipedashConfig,
+    vaultPassword?: string
+  ): Promise<void> => {
+    return invoke<void>('create_initial_config', { config, vaultPassword })
+  },
+
+  bootstrapApp: async (): Promise<void> => {
+    return invoke<void>('bootstrap_app')
+  },
+
+  getStorageConfig: async (): Promise<StorageConfigResponse> => {
+    return invoke<StorageConfigResponse>('get_storage_config')
+  },
+
+  getVaultPasswordStatus: async (): Promise<{ is_set: boolean; env_var_name: string }> => {
+    return invoke<{ is_set: boolean; env_var_name: string }>('get_vault_password_status')
+  },
+
+  getVaultStatus: async (): Promise<VaultStatusResponse> => {
+    return invoke('get_vault_status')
+  },
+
+  unlockVault: async (password: string): Promise<UnlockVaultResponse> => {
+    return invoke('unlock_vault', { password })
+  },
+
+  lockVault: async (): Promise<UnlockVaultResponse> => {
+    return invoke('lock_vault')
+  },
+
+  getConfigContent: async (): Promise<ConfigContentResponse> => {
+    return invoke<ConfigContentResponse>('get_config_content')
+  },
+
+  saveConfigContent: async (content: string): Promise<void> => {
+    return invoke<void>('save_config_content', { content })
+  },
+
+  analyzeConfig: async (content: string): Promise<ConfigAnalysisResponse> => {
+    return invoke<ConfigAnalysisResponse>('analyze_config', { content })
+  },
+
+  getStoragePaths: async (): Promise<StoragePathsResponse> => {
+    return invoke<StoragePathsResponse>('get_storage_paths')
+  },
+
+  getDefaultDataDir: async (): Promise<string> => {
+    return invoke<string>('get_default_data_dir')
+  },
+
+  getEffectiveDataDir: async (config: PipedashConfig): Promise<string> => {
+    return invoke<string>('get_effective_data_dir', { config })
+  },
+
+  checkDatabaseExists: async (config: PipedashConfig): Promise<{ exists: boolean; path: string }> => {
+    return invoke<{ exists: boolean; path: string }>('check_database_exists', { config })
+  },
+
+  saveStorageConfig: async (config: PipedashConfig, tokenPassword?: string): Promise<void> => {
+    return invoke<void>('save_storage_config', { config, tokenPassword })
+  },
+
+  testStorageConnection: async (config: PipedashConfig): Promise<{
+    success: boolean
+    message: string
+  }> => {
+    return invoke<{ success: boolean; message: string }>('test_storage_connection', { config })
+  },
+
+  planStorageMigration: async (
+    targetConfig: PipedashConfig,
+    options?: MigrationOptions
+  ): Promise<MigrationPlan> => {
+    return invoke<MigrationPlan>('plan_storage_migration', {
+      targetConfig,
+      options: options ?? {},
+    })
+  },
+
+  executeMigration: async (
+    plan: MigrationPlan,
+    options?: MigrationOptions
+  ): Promise<MigrationResult> => {
+    return invoke<MigrationResult>('execute_storage_migration', {
+      plan,
+      options: options ?? {},
+    })
+  },
+
+  factoryReset: async (): Promise<{
+    providers_removed: number
+    caches_cleared: boolean
+    tokens_cleared: boolean
+    metrics_cleared: boolean
+  }> => {
+    return invokeWithTimeout('factory_reset')
+  },
+
+  restartApp: async (): Promise<void> => {
+    return invoke<void>('restart_app')
   },
 }

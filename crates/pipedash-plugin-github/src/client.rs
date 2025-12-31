@@ -1,5 +1,3 @@
-//! GitHub API client and methods
-
 use std::collections::HashMap;
 
 use chrono::Utc;
@@ -32,15 +30,15 @@ pub(crate) struct GitHubClient {
 }
 
 impl GitHubClient {
-    pub fn new(octocrab: Octocrab, token: String) -> Self {
+    pub fn new(octocrab: Octocrab, token: String) -> PluginResult<Self> {
         let token_secret = token.into();
-        let permission_checker = PermissionChecker::new(octocrab.clone(), token_secret);
+        let permission_checker = PermissionChecker::new(octocrab.clone(), token_secret)?;
 
-        Self {
+        Ok(Self {
             octocrab,
             retry_policy: RetryPolicy::default(),
             permission_checker,
-        }
+        })
     }
 
     async fn detect_organizations_from_repos(
@@ -50,7 +48,6 @@ impl GitHubClient {
 
         tracing::debug!("Detecting organizations from accessible repositories");
 
-        // Fetch repositories the token has access to
         let repos = self
             .octocrab
             .current()
@@ -105,7 +102,6 @@ impl GitHubClient {
                     description: user.name.clone(),
                 });
 
-                // Try to fetch organization memberships
                 let org_result = self
                     .octocrab
                     .current()
@@ -156,7 +152,6 @@ impl GitHubClient {
             .await
     }
 
-    /// Fetches all repositories the authenticated user has access to
     pub async fn fetch_all_repositories(
         &self, params: Option<PaginationParams>,
     ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
@@ -354,7 +349,6 @@ impl GitHubClient {
         ))
     }
 
-    /// Fetches all workflows for a repository
     pub async fn fetch_repo_workflows(
         &self, provider_id: i64, repo_full_name: String,
     ) -> PluginResult<Vec<Pipeline>> {
@@ -377,7 +371,6 @@ impl GitHubClient {
                         PluginError::ApiError(format!("Failed to fetch workflows: {e}"))
                     })?;
 
-                // Fetch latest run for each workflow in parallel
                 let fetch_runs_futures = workflows.items.iter().map(|workflow| {
                     let octocrab = self.octocrab.clone();
                     let owner = owner.clone();
@@ -440,41 +433,58 @@ impl GitHubClient {
             .await
     }
 
-    /// Fetches run history for a workflow
     pub async fn fetch_run_history(
         &self, owner: &str, repo: &str, workflow_id: u64, limit: usize,
     ) -> PluginResult<Vec<types::Run>> {
+        use std::sync::Arc;
+
+        use tokio::sync::Semaphore;
+
         let per_page = 100u8;
-        let total_pages = limit.div_ceil(100);
+        let total_pages = limit.div_ceil(100).min(10);
+
+        const MAX_CONCURRENT: usize = 5;
+        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
+
+        let page_futures: Vec<_> = (1..=total_pages)
+            .map(|page| {
+                let octocrab = self.octocrab.clone();
+                let owner = owner.to_string();
+                let repo = repo.to_string();
+                let workflow_id_str = workflow_id.to_string();
+                let semaphore = semaphore.clone();
+
+                async move {
+                    let _permit = semaphore.acquire().await.unwrap();
+
+                    octocrab
+                        .workflows(&owner, &repo)
+                        .list_runs(workflow_id_str)
+                        .per_page(per_page)
+                        .page(page as u8)
+                        .send()
+                        .await
+                        .map(|response| response.items)
+                        .map_err(|e| {
+                            PluginError::ApiError(format!(
+                                "Failed to fetch run history page {page}: {e}"
+                            ))
+                        })
+                }
+            })
+            .collect();
+
+        let results = join_all(page_futures).await;
+
         let mut all_runs = Vec::new();
-
-        for page in 1..=total_pages.min(10) {
-            let runs = self
-                .octocrab
-                .workflows(owner, repo)
-                .list_runs(workflow_id.to_string())
-                .per_page(per_page)
-                .page(page as u8)
-                .send()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch run history: {e}")))?;
-
-            if runs.items.is_empty() {
-                break;
-            }
-
-            all_runs.extend(runs.items);
-
-            if all_runs.len() >= limit {
-                break;
-            }
+        for result in results {
+            all_runs.extend(result?);
         }
 
         all_runs.truncate(limit);
         Ok(all_runs)
     }
 
-    /// Fetches a specific run by number
     pub async fn fetch_run_by_number(
         &self, owner: &str, repo: &str, workflow_id: u64, run_number: i64,
     ) -> PluginResult<types::Run> {
@@ -507,7 +517,6 @@ impl GitHubClient {
         )))
     }
 
-    /// Cancels a workflow run
     pub async fn cancel_run(&self, owner: &str, repo: &str, run_id: u64) -> PluginResult<()> {
         let owner = owner.to_string();
         let repo = repo.to_string();
@@ -540,7 +549,6 @@ impl GitHubClient {
     }
 }
 
-/// Converts GitHub Actions Run to PipelineRun
 pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> PipelineRun {
     let status = mapper::map_status(run.status.as_str(), run.conclusion.as_deref());
 
@@ -550,12 +558,8 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
         Some((concluded - started).num_seconds())
     };
 
-    // Extract inputs for replay functionality
-    // For GitHub Actions, the most important input is the ref (branch/tag/commit)
-    // We always include this so replays can rerun on the same branch
     let mut inputs_map = serde_json::Map::new();
 
-    // Always include the ref (branch/tag) used in the original run
     inputs_map.insert(
         "ref".to_string(),
         serde_json::Value::String(run.head_branch.clone()),
@@ -568,12 +572,10 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
 
     let inputs = Some(serde_json::Value::Object(inputs_map));
 
-    // Populate GitHub-specific metadata
     let mut metadata = HashMap::new();
     metadata.insert("event".to_string(), serde_json::json!(&run.event));
     metadata.insert("run_id".to_string(), serde_json::json!(run.id.0));
 
-    // Extract owner from repository for organization column
     if let Some(owner) = run.repository.owner.as_ref() {
         metadata.insert("owner".to_string(), serde_json::json!(&owner.login));
     }

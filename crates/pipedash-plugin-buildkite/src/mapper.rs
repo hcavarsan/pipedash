@@ -1,5 +1,3 @@
-//! Data mapping utilities for converting Buildkite API data to common types
-
 use std::collections::HashMap;
 
 use chrono::Utc;
@@ -10,7 +8,6 @@ use pipedash_plugin_api::{
 
 use crate::types;
 
-/// Maps Buildkite build state to PipelineStatus
 pub(crate) fn map_build_state(state: &str) -> PipelineStatus {
     match state {
         "passed" => PipelineStatus::Success,
@@ -24,7 +21,6 @@ pub(crate) fn map_build_state(state: &str) -> PipelineStatus {
     }
 }
 
-/// Converts Buildkite Agent to BuildAgent
 pub(crate) fn map_agent(agent: types::Agent) -> BuildAgent {
     let status = if agent.connected {
         if agent.job.is_some() {

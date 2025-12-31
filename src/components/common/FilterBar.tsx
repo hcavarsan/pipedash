@@ -1,5 +1,10 @@
-import { ActionIcon, Box, Group, Select, TextInput } from '@mantine/core'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { ActionIcon, Box, Button, Group, Select, TextInput } from '@mantine/core'
 import { IconFilter, IconSearch, IconX } from '@tabler/icons-react'
+
+import { DEBOUNCE_DELAYS } from '../../constants/intervals'
+import { useDebounce } from '../../hooks/useDebounce'
 
 interface FilterConfig {
   search?: {
@@ -49,6 +54,7 @@ interface FilterConfig {
 
 interface FilterBarProps {
   filters: FilterConfig;
+  onClearAll?: () => void;
 }
 
 const statusOptions = [
@@ -71,19 +77,147 @@ const dateRangeOptions = [
   { value: '90d', label: 'Last 90 Days' },
 ]
 
-export const FilterBar = ({ filters }: FilterBarProps) => {
-  const hasActiveFilters =
-    (filters.search && filters.search.value) ||
-    (filters.status && filters.status.value) ||
-    (filters.provider && filters.provider.value) ||
-    (filters.organization && filters.organization.value) ||
-    (filters.repository && filters.repository.value) ||
-    (filters.workflow && filters.workflow.value) ||
-    (filters.branch && filters.branch.value) ||
-    (filters.actor && filters.actor.value) ||
-    (filters.dateRange && filters.dateRange.value)
+export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
+  const [localSearchValue, setLocalSearchValue] = useState(filters.search?.value || '')
+  const debouncedSearchValue = useDebounce(localSearchValue, DEBOUNCE_DELAYS.FILTER)
 
-  const clearAllFilters = () => {
+  const syncStateRef = useRef<{
+    lastSentToParent: string
+    lastReceivedFromParent: string
+  }>({
+    lastSentToParent: filters.search?.value || '',
+    lastReceivedFromParent: filters.search?.value || '',
+  })
+
+  useEffect(() => {
+    const searchFilter = filters.search
+
+
+    if (!searchFilter) {
+return
+}
+
+    const externalValue = searchFilter.value ?? ''
+    const syncState = syncStateRef.current
+
+    if (externalValue !== syncState.lastReceivedFromParent) {
+      syncState.lastReceivedFromParent = externalValue
+
+      if (externalValue !== localSearchValue && externalValue !== debouncedSearchValue) {
+        setLocalSearchValue(externalValue)
+        syncState.lastSentToParent = externalValue
+      }
+      
+return
+    }
+
+    if (debouncedSearchValue !== syncState.lastSentToParent) {
+      syncState.lastSentToParent = debouncedSearchValue
+      syncState.lastReceivedFromParent = debouncedSearchValue
+      searchFilter.onChange(debouncedSearchValue)
+    }
+  }, [debouncedSearchValue, filters.search, localSearchValue])
+
+  const providerOptions = useMemo(
+    () =>
+      filters.provider?.options.length
+        ? [
+            { value: '', label: 'All Providers' },
+            ...filters.provider.options.map((p) => ({ value: p, label: p })),
+          ]
+        : [],
+    [filters.provider?.options]
+  )
+
+  const organizationOptions = useMemo(
+    () =>
+      filters.organization?.options.length
+        ? [
+            { value: '', label: 'All Organizations' },
+            ...filters.organization.options.map((o) => ({ value: o, label: o })),
+          ]
+        : [],
+    [filters.organization?.options]
+  )
+
+  const repositoryOptions = useMemo(
+    () =>
+      filters.repository?.options.length
+        ? [
+            { value: '', label: 'All Repositories' },
+            ...filters.repository.options.map((r) => ({ value: r, label: r })),
+          ]
+        : [],
+    [filters.repository?.options]
+  )
+
+  const workflowOptions = useMemo(
+    () =>
+      filters.workflow?.options.length
+        ? [
+            { value: '', label: 'All Workflows' },
+            ...filters.workflow.options.map((w) => ({ value: w, label: w })),
+          ]
+        : [],
+    [filters.workflow?.options]
+  )
+
+  const branchOptions = useMemo(
+    () =>
+      filters.branch?.options.length
+        ? [
+            { value: '', label: 'All Branches' },
+            ...filters.branch.options.map((b) => ({ value: b, label: b })),
+          ]
+        : [],
+    [filters.branch?.options]
+  )
+
+  const actorOptions = useMemo(
+    () =>
+      filters.actor?.options.length
+        ? [
+            { value: '', label: 'All Actors' },
+            ...filters.actor.options.map((a) => ({ value: a, label: a })),
+          ]
+        : [],
+    [filters.actor?.options]
+  )
+
+  const hasActiveFilters = useMemo(
+    () =>
+      !!(
+        (filters.search && filters.search.value) ||
+        (filters.status && filters.status.value) ||
+        (filters.provider && filters.provider.value) ||
+        (filters.organization && filters.organization.value) ||
+        (filters.repository && filters.repository.value) ||
+        (filters.workflow && filters.workflow.value) ||
+        (filters.branch && filters.branch.value) ||
+        (filters.actor && filters.actor.value) ||
+        (filters.dateRange && filters.dateRange.value)
+      ),
+    [
+      filters.search,
+      filters.status,
+      filters.provider,
+      filters.organization,
+      filters.repository,
+      filters.workflow,
+      filters.branch,
+      filters.actor,
+      filters.dateRange,
+    ]
+  )
+
+  const clearAllFilters = useCallback(() => {
+    setLocalSearchValue('')
+    if (onClearAll) {
+      onClearAll()
+
+      return
+    }
+    // Fallback: clear individually
     filters.search?.onChange('')
     filters.status?.onChange(null)
     filters.provider?.onChange(null)
@@ -93,28 +227,28 @@ export const FilterBar = ({ filters }: FilterBarProps) => {
     filters.branch?.onChange(null)
     filters.actor?.onChange(null)
     filters.dateRange?.onChange(null)
-  }
+  }, [filters, onClearAll])
 
   return (
-    <Box mb={4}>
-      <Group gap="xs" wrap="wrap" align="flex-start">
+    <Box mb="md">
+      <Group gap="sm" wrap="wrap" align="flex-start">
         {filters.search && (
           <TextInput
             placeholder={filters.search.placeholder || 'Search...'}
             leftSection={<IconSearch size={14} />}
             rightSection={
-              filters.search.value && (
+              localSearchValue && (
                 <ActionIcon
                   size="xs"
                   variant="transparent"
-                  onClick={() => filters.search!.onChange('')}
+                  onClick={() => setLocalSearchValue('')}
                 >
                   <IconX size={12} />
                 </ActionIcon>
               )
             }
-            value={filters.search.value}
-            onChange={(e) => filters.search!.onChange(e.currentTarget.value)}
+            value={localSearchValue}
+            onChange={(e) => setLocalSearchValue(e.currentTarget.value)}
             style={{ minWidth: 200, flex: 1, maxWidth: '100%' }}
             size="xs"
           />
@@ -133,13 +267,10 @@ export const FilterBar = ({ filters }: FilterBarProps) => {
           />
         )}
 
-        {filters.provider && filters.provider.options.length > 0 && (
+        {filters.provider && providerOptions.length > 0 && (
           <Select
             placeholder="Provider"
-            data={[
-              { value: '', label: 'All Providers' },
-              ...filters.provider.options.map((p) => ({ value: p, label: p })),
-            ]}
+            data={providerOptions}
             value={filters.provider.value}
             onChange={filters.provider.onChange}
             clearable
@@ -149,13 +280,10 @@ export const FilterBar = ({ filters }: FilterBarProps) => {
           />
         )}
 
-        {filters.organization && filters.organization.options.length > 0 && (
+        {filters.organization && organizationOptions.length > 0 && (
           <Select
             placeholder="Organization"
-            data={[
-              { value: '', label: 'All Organizations' },
-              ...filters.organization.options.map((o) => ({ value: o, label: o })),
-            ]}
+            data={organizationOptions}
             value={filters.organization.value}
             onChange={filters.organization.onChange}
             clearable
@@ -165,13 +293,10 @@ export const FilterBar = ({ filters }: FilterBarProps) => {
           />
         )}
 
-        {filters.repository && filters.repository.options.length > 0 && (
+        {filters.repository && repositoryOptions.length > 0 && (
           <Select
             placeholder="Repository"
-            data={[
-              { value: '', label: 'All Repositories' },
-              ...filters.repository.options.map((r) => ({ value: r, label: r })),
-            ]}
+            data={repositoryOptions}
             value={filters.repository.value}
             onChange={filters.repository.onChange}
             clearable
@@ -181,13 +306,10 @@ export const FilterBar = ({ filters }: FilterBarProps) => {
           />
         )}
 
-        {filters.workflow && filters.workflow.options.length > 0 && (
+        {filters.workflow && workflowOptions.length > 0 && (
           <Select
             placeholder="Workflow"
-            data={[
-              { value: '', label: 'All Workflows' },
-              ...filters.workflow.options.map((w) => ({ value: w, label: w })),
-            ]}
+            data={workflowOptions}
             value={filters.workflow.value}
             onChange={filters.workflow.onChange}
             clearable
@@ -197,13 +319,10 @@ export const FilterBar = ({ filters }: FilterBarProps) => {
           />
         )}
 
-        {filters.branch && filters.branch.options.length > 0 && (
+        {filters.branch && branchOptions.length > 0 && (
           <Select
             placeholder="Branch"
-            data={[
-              { value: '', label: 'All Branches' },
-              ...filters.branch.options.map((b) => ({ value: b, label: b })),
-            ]}
+            data={branchOptions}
             value={filters.branch.value}
             onChange={filters.branch.onChange}
             clearable
@@ -213,13 +332,10 @@ export const FilterBar = ({ filters }: FilterBarProps) => {
           />
         )}
 
-        {filters.actor && filters.actor.options.length > 0 && (
+        {filters.actor && actorOptions.length > 0 && (
           <Select
             placeholder="Actor"
-            data={[
-              { value: '', label: 'All Actors' },
-              ...filters.actor.options.map((a) => ({ value: a, label: a })),
-            ]}
+            data={actorOptions}
             value={filters.actor.value}
             onChange={filters.actor.onChange}
             clearable
@@ -242,15 +358,16 @@ export const FilterBar = ({ filters }: FilterBarProps) => {
         )}
 
         {hasActiveFilters && (
-          <ActionIcon
+          <Button
             variant="subtle"
             color="gray"
             onClick={clearAllFilters}
             title="Clear all filters"
-            size="md"
+            size="xs"
+            leftSection={<IconX size={14} />}
           >
-            <IconX size={16} />
-          </ActionIcon>
+            Clear Filters
+          </Button>
         )}
       </Group>
     </Box>

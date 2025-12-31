@@ -1,0 +1,32 @@
+
+export const REFRESH_INTERVALS = {
+  CACHE_STATS: 30000,
+
+  PIPELINE_STATUS: 30000,
+
+  METRICS: 60000,
+
+  HEALTH_CHECK: 300000,
+} as const
+
+export const DEBOUNCE_DELAYS = {
+  SEARCH: 500,
+
+  FILTER: 300,
+
+  RESIZE: 250,
+
+  AUTO_SAVE: 1000,
+
+  VALIDATION: 300,
+} as const
+
+export const RETRY_INTERVALS = {
+  INITIAL: 1000,
+
+  STANDARD: 2000,
+
+  LONG: 5000,
+
+  MAX_BACKOFF: 30000,
+} as const

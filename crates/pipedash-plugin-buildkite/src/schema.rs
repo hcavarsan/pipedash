@@ -1,31 +1,15 @@
-//! Buildkite table schema definitions
-//!
-//! This module contains all table and column definitions specific to Buildkite.
-
 use pipedash_plugin_api::*;
 
-/// Creates the complete table schema for Buildkite plugin
-///
-/// This includes:
-/// - Standard pipeline runs table
-/// - Pipelines table with Buildkite-specific organization column
 pub fn create_table_schema() -> schema::TableSchema {
     schema::TableSchema::new()
         .add_table(create_pipeline_runs_table())
         .add_table(create_pipelines_table())
 }
 
-/// Creates the pipeline_runs table for Buildkite
-///
-/// Uses the standard default columns without modifications.
 fn create_pipeline_runs_table() -> schema::TableDefinition {
     pipedash_plugin_api::defaults::default_pipeline_runs_table()
 }
 
-/// Creates the pipelines table with Buildkite-specific columns
-///
-/// Extends the standard pipelines table with:
-/// - `organization`: Buildkite organization slug
 fn create_pipelines_table() -> schema::TableDefinition {
     use schema::*;
 
@@ -44,7 +28,6 @@ fn create_pipelines_table() -> schema::TableDefinition {
     }
 }
 
-/// Creates the name column for pipelines table
 fn create_name_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "name".to_string(),
@@ -62,9 +45,6 @@ fn create_name_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the organization column for pipelines table
-///
-/// Displays the Buildkite organization slug from metadata.
 fn create_organization_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "organization".to_string(),
@@ -82,7 +62,6 @@ fn create_organization_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the status column for pipelines table
 fn create_status_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "status".to_string(),
@@ -100,7 +79,6 @@ fn create_status_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the repository column for pipelines table
 fn create_repository_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "repository".to_string(),

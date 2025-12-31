@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import {
   ActionIcon,
@@ -19,309 +20,308 @@ import {
 import { modals } from '@mantine/modals'
 import {
   IconAlertTriangle,
-  IconChevronsLeft,
   IconEdit,
   IconPlugConnected,
   IconPlus,
   IconTrash,
 } from '@tabler/icons-react'
 
-import { useIsMobile } from '../../contexts/MediaQueryContext'
-import { tauriService } from '../../services/tauri'
-import type { ProviderConfig, ProviderSummary } from '../../types'
+import { useIsMobile } from '../../hooks/useIsMobile'
+import { useProviderDetails } from '../../queries/useProviderDetailsQuery'
+import {
+  useAddProvider,
+  useProviders,
+  useRemoveProvider,
+  useUpdateProvider,
+} from '../../queries/useProvidersQueries'
+import { useFilterStore } from '../../stores/filterStore'
+import { useProviderStore } from '../../stores/providerStore'
 import { AddProviderModal } from '../provider/AddProviderModal'
 
 interface NavbarProps {
-  selectedProviderId?: number;
-  onProviderSelect?: (id: number | undefined) => void;
-  providers: ProviderSummary[];
-  loading?: boolean;
-  error?: string | null;
-  onAddProvider: (config: ProviderConfig) => Promise<void>;
-  onUpdateProvider: (id: number, config: ProviderConfig) => Promise<void>;
-  onRemoveProvider: (id: number, name: string) => Promise<void>;
-  onToggleSidebar?: () => void;
-  sidebarOpened?: boolean;
+  onToggleSidebar?: () => void
+  sidebarOpened?: boolean
 }
 
 export const Navbar = ({
-  selectedProviderId,
-  onProviderSelect,
-  providers,
-  loading = false,
-  error = null,
-  onAddProvider,
-  onUpdateProvider,
-  onRemoveProvider,
   onToggleSidebar,
   sidebarOpened = true,
 }: NavbarProps) => {
-  const isMobile = useIsMobile()
-  const [addModalOpened, setAddModalOpened] = useState(false)
-  const [editModalOpened, setEditModalOpened] = useState(false)
-  const [editingProvider, setEditingProvider] = useState<(ProviderConfig & { id: number }) | null>(null)
+  const navigate = useNavigate()
+  const { isMobile } = useIsMobile()
 
-  const handleProviderSelect = (id: number | undefined) => {
-    if (onProviderSelect) {
-      onProviderSelect(id)
-    }
-    if (isMobile && onToggleSidebar && sidebarOpened) {
-      onToggleSidebar()
-    }
-  }
+  const selectedProviderId = useFilterStore((s) => s.selectedProviderId)
+  const setSelectedProviderId = useFilterStore((s) => s.setSelectedProviderId)
 
-  const handleEdit = async (e: React.MouseEvent, id: number) => {
+  const addProviderModal = useProviderStore((s) => s.addProviderModal)
+  const editProviderModal = useProviderStore((s) => s.editProviderModal)
+  const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
+  const closeAddProviderModal = useProviderStore((s) => s.closeAddProviderModal)
+  const openEditProviderModal = useProviderStore((s) => s.openEditProviderModal)
+  const closeEditProviderModal = useProviderStore((s) => s.closeEditProviderModal)
+
+  const {
+    data: providers = [],
+    isLoading: loading,
+    error: providersError,
+    refetch: refetchProviders,
+  } = useProviders()
+
+  const { mutateAsync: addProviderMutation } = useAddProvider()
+  const { mutateAsync: updateProviderMutation } = useUpdateProvider()
+  const { mutateAsync: removeProviderMutation } = useRemoveProvider()
+
+  const error = providersError ? (providersError as Error).message : null
+
+  const [selectedEditId, setSelectedEditId] = useState<number | null>(null)
+  const { data: providerDetails } = useProviderDetails(selectedEditId)
+
+  useEffect(() => {
+    if (providerDetails && selectedEditId) {
+      openEditProviderModal(providerDetails)
+      setSelectedEditId(null)
+    }
+  }, [providerDetails, selectedEditId, openEditProviderModal])
+
+  const handleProviderSelect = useCallback(
+    (id: number | undefined) => {
+      setSelectedProviderId(id)
+      navigate(id ? `/pipelines?provider=${id}` : '/pipelines')
+
+      if (isMobile && onToggleSidebar && sidebarOpened) {
+        onToggleSidebar()
+      }
+    },
+    [setSelectedProviderId, navigate, isMobile, onToggleSidebar, sidebarOpened]
+  )
+
+  const handleEdit = useCallback((e: React.MouseEvent, id: number) => {
     e.stopPropagation()
-    try {
-      const providerConfig = await tauriService.getProvider(id)
+    setSelectedEditId(id)
+  }, [])
 
+  const handleRemove = useCallback(
+    (e: React.MouseEvent, id: number, name: string) => {
+      e.stopPropagation()
+      modals.openConfirmModal({
+        title: 'Remove Provider',
+        children: (
+          <Text size="md">
+            Are you sure you want to remove provider &quot;{name}&quot;? This action cannot be
+            undone.
+          </Text>
+        ),
+        labels: { confirm: 'Remove', cancel: 'Cancel' },
+        confirmProps: { color: 'red' },
+        onConfirm: async () => {
+          try {
+            await removeProviderMutation(id)
+          } catch (err) {
+            console.error('Failed to remove provider:', err)
+          }
+        },
+      })
+    },
+    [removeProviderMutation]
+  )
 
-      setEditingProvider(providerConfig)
-      setEditModalOpened(true)
-    } catch (error) {
-      console.error('Failed to load provider:', error)
-    }
-  }
+  const handleUpdateProvider = useCallback(
+    async (id: number, config: import('../../types').ProviderConfig) => {
+      await updateProviderMutation({ id, config })
+    },
+    [updateProviderMutation]
+  )
 
-  const handleRemove = (e: React.MouseEvent, id: number, name: string) => {
-    e.stopPropagation()
-    modals.openConfirmModal({
-      title: 'Remove Provider',
-      children: (
-        <Text size="md">
-          Are you sure you want to remove provider &quot;{name}&quot;? This action cannot be undone.
-        </Text>
-      ),
-      labels: { confirm: 'Remove', cancel: 'Cancel' },
-      confirmProps: { color: 'red' },
-      onConfirm: async () => {
-        try {
-          await onRemoveProvider(id, name)
-        } catch (error) {
-          console.error('Failed to remove provider:', error)
-        }
-      },
-    })
-  }
+  const handleAddProvider = useCallback(
+    async (config: import('../../types').ProviderConfig) => {
+      await addProviderMutation(config)
+    },
+    [addProviderMutation]
+  )
+
+  const handleCloseAddModal = useCallback(() => {
+    closeAddProviderModal()
+    refetchProviders()
+  }, [closeAddProviderModal, refetchProviders])
 
   return (
-    <Stack h="100%" gap={0} style={{ position: 'relative' }}>
-      {onToggleSidebar && sidebarOpened && !isMobile && (
-        <Tooltip label="Hide sidebar" position="right" withArrow>
-          <Box
-            onClick={onToggleSidebar}
-            style={{
-              position: 'absolute',
-              top: 4,
-              right: -14,
-              zIndex: 100,
-              width: 28,
-              height: 28,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'var(--mantine-color-body)',
-              border: '1px solid var(--mantine-color-default-border)',
-              borderRadius: 6,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.08)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--mantine-color-gray-0)'
-              e.currentTarget.style.transform = 'scale(1.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--mantine-color-body)'
-              e.currentTarget.style.transform = 'scale(1)'
-            }}
-          >
-            <IconChevronsLeft size={14} style={{ color: 'var(--mantine-color-dimmed)' }} />
-          </Box>
-        </Tooltip>
-      )}
+    <>
+      <Stack h="100%" gap={0}>
+        <Box p="md" pb={0}>
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
+            Navigation
+          </Text>
+        </Box>
 
-      <Box p="md" pb={0}>
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
-          Navigation
-        </Text>
-      </Box>
-
-      <ScrollArea flex={1} px="md" pb="md">
-        <Stack gap="xs">
-          <NavLink
-            leftSection={
-              <Box
-                style={{
-                  width: 20,
-                  height: 20,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Image
-                  src="/app-icon.png"
-                  alt="All Providers"
-                  h={28}
-                  w={28}
-                  fit="contain"
-                  style={{ borderRadius: 4 }}
-                />
-              </Box>
-            }
-            label={
-              <Group justify="space-between" wrap="nowrap" w="100%">
-                <Box style={{ flex: 1, overflow: 'hidden' }}>
-                  <Text size="sm" truncate>All Providers</Text>
-                  <Text size="xs" c="dimmed">
-                    {providers.reduce((sum, p) => sum + p.pipeline_count, 0)} pipelines total
-                  </Text>
+        <ScrollArea flex={1} px="md" pb="md">
+          <Stack gap="xs">
+            <NavLink
+              leftSection={
+                <Box
+                  style={{
+                    width: 20,
+                    height: 20,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Image
+                    src="/app-icon.png"
+                    alt="All Providers"
+                    h={28}
+                    w={28}
+                    fit="contain"
+                    style={{ borderRadius: 4 }}
+                  />
                 </Box>
-              </Group>
-            }
-            active={selectedProviderId === undefined}
-            onClick={() => handleProviderSelect(undefined)}
-            color="blue"
-            variant="subtle"
-          />
-
-          {loading ? (
-            <Box ta="center" py="md">
-              <Loader size="sm" />
-              <Text size="sm" c="dimmed" mt="xs">
-                Loading providers...
-              </Text>
-            </Box>
-          ) : error ? (
-            <Box ta="center" py="md">
-              <Text size="sm" c="red" fw={500}>
-                Error loading providers
-              </Text>
-              <Text size="xs" c="dimmed" mt={4}>
-                {error}
-              </Text>
-            </Box>
-          ) : providers.length === 0 ? (
-            <Text size="sm" c="dimmed" ta="center" py="md">
-              No providers configured
-            </Text>
-          ) : (
-            providers.map((provider) => {
-              const isActive = selectedProviderId === provider.id
-
-
-
-return (
-              <NavLink
-                key={provider.id}
-                leftSection={
-                  provider.icon ? (
-                    <Avatar
-                      src={provider.icon}
-                      size={20}
-                      radius="xs"
-                    >
-                      <IconPlugConnected size={14} />
-                    </Avatar>
-                  ) : (
-                    <ThemeIcon
-                      size={20}
-                      radius="xs"
-                      variant="light"
-                      color="gray"
-                    >
-                      <IconPlugConnected size={14} />
-                    </ThemeIcon>
-                  )
-                }
-                label={
-                  <Group justify="space-between" wrap="nowrap" w="100%">
-                    <Box style={{ flex: 1, overflow: 'hidden' }}>
-                      <Group gap={4} wrap="nowrap">
-                        <Text size="sm" truncate>{provider.name}</Text>
-                        {provider.last_fetch_status === 'error' && (
-                          <Tooltip
-                            label={provider.last_fetch_error || 'Failed to fetch pipelines'}
-                            multiline
-                            w={300}
-                            withArrow
-                          >
-                            <IconAlertTriangle size={14} color="var(--mantine-color-red-6)" />
-                          </Tooltip>
-                        )}
-                      </Group>
-                      <Text size="xs" c="dimmed">
-                        {`${provider.pipeline_count} pipelines`}
-                      </Text>
-                    </Box>
-                    <Group gap={4}>
-                      <ActionIcon
-                        size="sm"
-                        variant="subtle"
-                        color="gray"
-                        onClick={(e) => handleEdit(e, provider.id)}
-                      >
-                        <IconEdit size={14} />
-                      </ActionIcon>
-                      <ActionIcon
-                        size="sm"
-                        variant="subtle"
-                        color="red"
-                        onClick={(e) => handleRemove(e, provider.id, provider.name)}
-                      >
-                        <IconTrash size={14} />
-                      </ActionIcon>
-                    </Group>
-                  </Group>
-                }
-                active={isActive}
-                onClick={() => handleProviderSelect(provider.id)}
-                color="blue"
-                variant="subtle"
-              />
-            )
-            })
-          )}
-        </Stack>
-      </ScrollArea>
-
-      {!isMobile && (
-        <>
-          <Divider />
-          <Box p="md">
-            <Button
-              leftSection={<IconPlus size={14} />}
-              variant="light"
+              }
+              label={
+                <Group justify="space-between" wrap="nowrap" w="100%">
+                  <Box style={{ flex: 1, overflow: 'hidden' }}>
+                    <Text size="sm" truncate>
+                      All Providers
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      {providers.reduce((sum, p) => sum + p.pipeline_count, 0)} pipelines total
+                    </Text>
+                  </Box>
+                </Group>
+              }
+              active={selectedProviderId === undefined}
+              onClick={() => handleProviderSelect(undefined)}
               color="blue"
-              size="sm"
-              fullWidth
-              onClick={() => setAddModalOpened(true)}
-            >
-              Add Provider
-            </Button>
-          </Box>
-        </>
-      )}
+              variant="subtle"
+            />
 
-      <AddProviderModal
-        opened={addModalOpened}
-        onClose={() => setAddModalOpened(false)}
-        onAdd={onAddProvider}
-      />
+            {loading ? (
+              <Box ta="center" py="md">
+                <Loader size="sm" />
+                <Text size="sm" c="dimmed" mt="xs">
+                  Loading providers...
+                </Text>
+              </Box>
+            ) : error ? (
+              <Box ta="center" py="md">
+                <Text size="sm" c="red" fw={500}>
+                  Error loading providers
+                </Text>
+                <Text size="xs" c="dimmed" mt={4}>
+                  {error}
+                </Text>
+              </Box>
+            ) : providers.length === 0 ? (
+              <Text size="sm" c="dimmed" ta="center" py="md">
+                No providers configured
+              </Text>
+            ) : (
+              providers.map((provider) => {
+                const isActive = selectedProviderId === provider.id
 
-      {editingProvider && (
+                return (
+                  <NavLink
+                    key={provider.id}
+                    leftSection={
+                      provider.icon ? (
+                        <Avatar src={provider.icon} size={20} radius="xs">
+                          <IconPlugConnected size={14} />
+                        </Avatar>
+                      ) : (
+                        <ThemeIcon size={20} radius="xs" variant="light" color="gray">
+                          <IconPlugConnected size={14} />
+                        </ThemeIcon>
+                      )
+                    }
+                    label={
+                      <Group justify="space-between" wrap="nowrap" w="100%">
+                        <Box style={{ flex: 1, overflow: 'hidden' }}>
+                          <Group gap={4} wrap="nowrap">
+                            <Text size="sm" truncate>
+                              {provider.name}
+                            </Text>
+                            {provider.last_fetch_status === 'error' && (
+                              <Tooltip
+                                label={provider.last_fetch_error || 'Failed to fetch pipelines'}
+                                multiline
+                                w={300}
+                                withArrow
+                              >
+                                <IconAlertTriangle
+                                  size={14}
+                                  color="var(--mantine-color-red-6)"
+                                />
+                              </Tooltip>
+                            )}
+                          </Group>
+                          <Text size="xs" c="dimmed">
+                            {`${provider.pipeline_count} pipelines`}
+                          </Text>
+                        </Box>
+                        <Group gap={4}>
+                          <ActionIcon
+                            size="sm"
+                            variant="subtle"
+                            color="gray"
+                            onClick={(e) => handleEdit(e, provider.id)}
+                          >
+                            <IconEdit size={14} />
+                          </ActionIcon>
+                          <ActionIcon
+                            size="sm"
+                            variant="subtle"
+                            color="red"
+                            onClick={(e) => handleRemove(e, provider.id, provider.name)}
+                          >
+                            <IconTrash size={14} />
+                          </ActionIcon>
+                        </Group>
+                      </Group>
+                    }
+                    active={isActive}
+                    onClick={() => handleProviderSelect(provider.id)}
+                    color="blue"
+                    variant="subtle"
+                  />
+                )
+              })
+            )}
+          </Stack>
+        </ScrollArea>
+
+        {!isMobile && (
+          <>
+            <Divider />
+            <Box p="md">
+              <Button
+                leftSection={<IconPlus size={14} />}
+                variant="light"
+                color="blue"
+                size="sm"
+                fullWidth
+                onClick={openAddProviderModal}
+              >
+                Add Provider
+              </Button>
+            </Box>
+          </>
+        )}
+
         <AddProviderModal
-          opened={editModalOpened}
-          onClose={() => {
-            setEditModalOpened(false)
-            setEditingProvider(null)
-          }}
-          onUpdate={onUpdateProvider}
-          editMode={true}
-          existingProvider={editingProvider}
+          opened={addProviderModal.open}
+          onClose={handleCloseAddModal}
+          onAdd={handleAddProvider}
         />
-      )}
-    </Stack>
+
+        {editProviderModal.provider && (
+          <AddProviderModal
+            opened={editProviderModal.open}
+            onClose={closeEditProviderModal}
+            onUpdate={handleUpdateProvider}
+            editMode
+            existingProvider={editProviderModal.provider}
+          />
+        )}
+      </Stack>
+    </>
   )
 }

@@ -1,5 +1,3 @@
-//! Default table schemas for standard pipeline tables
-
 use crate::schema::*;
 
 pub fn default_table_schema() -> TableSchema {
@@ -118,7 +116,6 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
     }
 }
 
-/// Default schema for pipelines table with standard columns
 pub fn default_pipelines_table() -> TableDefinition {
     TableDefinition {
         id: "pipelines".to_string(),

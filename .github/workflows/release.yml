@@ -216,8 +216,142 @@ jobs:
           prerelease: false
           args: ${{ matrix.tauri_args }}
 
+  docker-publish:
+    needs: [create-release-draft]
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/pipedash-web
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            type=raw,value=latest,enable=${{ !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          platforms: linux/amd64,linux/arm64
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish-cargo-crates:
+    needs: [create-release-draft]
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    if: |
+      startsWith(github.ref, 'refs/tags/v') &&
+      !contains(github.ref, '-beta') &&
+      !contains(github.ref, '-alpha')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Publish crates to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          publish_crate() {
+            local crate_path="$1"
+            local crate_name=$(basename "$crate_path")
+            local max_retries=3
+            local retry_delay=30
+
+            echo "Publishing $crate_name..."
+            cd "$crate_path"
+
+            for attempt in $(seq 1 $max_retries); do
+              echo "Attempt $attempt/$max_retries for $crate_name"
+
+              if cargo publish --token $CARGO_REGISTRY_TOKEN; then
+                echo "Successfully published $crate_name"
+                cd - > /dev/null
+                return 0
+              fi
+
+              # Check if already published
+              if cargo publish --dry-run 2>&1 | grep -q "already uploaded\|already exists"; then
+                echo "$crate_name already published, skipping"
+                cd - > /dev/null
+                return 0
+              fi
+
+              if [ $attempt -lt $max_retries ]; then
+                echo "Retrying $crate_name in ${retry_delay}s..."
+                sleep $retry_delay
+                retry_delay=$((retry_delay * 2))
+              else
+                echo "Failed to publish $crate_name after $max_retries attempts"
+                cd - > /dev/null
+                return 1
+              fi
+            done
+          }
+
+          # Publish in dependency order with rate limiting
+          crates=(
+            "crates/pipedash-plugin-api"
+            "crates/pipedash-plugin-github"
+            "crates/pipedash-plugin-gitlab"
+            "crates/pipedash-plugin-bitbucket"
+            "crates/pipedash-plugin-buildkite"
+            "crates/pipedash-plugin-jenkins"
+            "crates/pipedash-plugin-tekton"
+            "crates/pipedash-plugin-argocd"
+            "crates/pipedash-core"
+            "crates/pipedash-web"
+          )
+
+          for crate in "${crates[@]}"; do
+            publish_crate "$crate"
+            # Wait 60s between publishes to avoid rate limiting
+            if [ "$crate" != "crates/pipedash-web" ]; then
+              echo "Waiting 60s to avoid rate limiting..."
+              sleep 60
+            fi
+          done
+
+          echo "All crates published successfully!"
 
   update-release:
     needs: [pipedash, create-release-draft]

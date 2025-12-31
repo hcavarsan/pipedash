@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { Group, Paper, ScrollArea, Stack, Table, Text } from '@mantine/core'
+import { Group, Paper, Stack, Table, Text } from '@mantine/core'
 import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react'
 
 import type { AggregatedMetrics } from '../../types'
@@ -58,8 +58,8 @@ return sortDirection === 'asc' ? <IconChevronUp size={14} /> : <IconChevronDown 
 
   if (sortField && sortDirection) {
     sortedMetrics.sort((a, b) => {
-      let aVal: any
-      let bVal: any
+      let aVal: number
+      let bVal: number
 
       switch (sortField) {
         case 'timestamp':
@@ -71,8 +71,8 @@ return sortDirection === 'asc' ? <IconChevronUp size={14} /> : <IconChevronDown 
           bVal = b.value
           break
         case 'count':
-          aVal = a.count
-          bVal = b.count
+          aVal = a.count ?? 0
+          bVal = b.count ?? 0
           break
         case 'min':
           aVal = a.min ?? -Infinity
@@ -82,13 +82,17 @@ return sortDirection === 'asc' ? <IconChevronUp size={14} /> : <IconChevronDown 
           aVal = a.max ?? -Infinity
           bVal = b.max ?? -Infinity
           break
+        default:
+          aVal = 0
+          bVal = 0
       }
 
       if (sortDirection === 'asc') {
         return aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-      } else {
-        return aVal > bVal ? -1 : aVal < bVal ? 1 : 0
       }
+
+return aVal > bVal ? -1 : aVal < bVal ? 1 : 0
+      
     })
   }
 
@@ -120,8 +124,7 @@ return value.toFixed(0)
         <Text size="sm" fw={600} p="md" pb="xs">
           Data Points ({data.metrics.length} total)
         </Text>
-        <ScrollArea h={400}>
-          <Table striped highlightOnHover>
+        <Table striped highlightOnHover>
             <Table.Thead>
             <Table.Tr>
               <Table.Th
@@ -200,7 +203,6 @@ return (
             })}
           </Table.Tbody>
         </Table>
-        </ScrollArea>
       </Stack>
     </Paper>
   )

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.github.com https://*.gitlab.com https://*.bitbucket.org https://*.circleci.com https://dev.azure.com"
+    },
+    "windows": [
+      {
+        "decorations": false,
+        "height": 1000,
+        "title": "Pipedash",
+        "width": 1700
+      }
+    ]
+  },
+  "build": {
+    "beforeBuildCommand": "mise run build:front",
+    "beforeDevCommand": "mise run dev:front",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../../dist"
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "targets": "all"
+  },
+  "identifier": "com.henrique.pipedash",
+  "productName": "pipedash",
+  "version": "0.0.8"
+}

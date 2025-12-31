@@ -1,6 +1,5 @@
 import { createTheme, type MantineColorsTuple } from '@mantine/core'
 
-// Brand color palettes
 const modernBlue: MantineColorsTuple = [
   '#EBF3FF',
   '#D6E7FF',

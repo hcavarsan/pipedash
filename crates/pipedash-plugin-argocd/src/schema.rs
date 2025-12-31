@@ -1,30 +1,14 @@
-//! ArgoCD table schema definitions
-//!
-//! This module contains all table and column definitions specific to ArgoCD.
-
 use pipedash_plugin_api::*;
 
-/// Creates the complete table schema for ArgoCD plugin
-///
-/// This includes:
-/// - Pipeline runs table with ArgoCD-specific columns
-/// - Pipelines table with ArgoCD-specific columns (sync status, health,
-///   destination, etc.)
 pub fn create_table_schema() -> schema::TableSchema {
     schema::TableSchema::new()
         .add_table(create_pipeline_runs_table())
         .add_table(create_pipelines_table())
 }
 
-/// Creates the pipelines table with ArgoCD-specific columns
-///
-/// Extends the default pipelines table with GitOps-focused columns for better
-/// operational insights. Visible columns provide drift detection, resource
-/// health, sync timing, and deployment type visibility.
 fn create_pipelines_table() -> schema::TableDefinition {
     let mut table = pipedash_plugin_api::defaults::default_pipelines_table();
 
-    // Find the status column index to insert ArgoCD columns in the right order
     let status_index = table
         .columns
         .iter()
@@ -73,9 +57,6 @@ fn create_pipelines_table() -> schema::TableDefinition {
     table
 }
 
-/// Creates the pipeline_runs table with ArgoCD-specific columns
-///
-/// Extends the default pipeline_runs table with GitOps sync insights
 fn create_pipeline_runs_table() -> schema::TableDefinition {
     let mut table = pipedash_plugin_api::defaults::default_pipeline_runs_table();
 
@@ -104,9 +85,6 @@ fn create_pipeline_runs_table() -> schema::TableDefinition {
     table
 }
 
-/// Creates the sync_status column definition
-///
-/// Displays the ArgoCD sync status (Synced, OutOfSync, Unknown)
 fn create_sync_status_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "sync_status".to_string(),
@@ -124,9 +102,6 @@ fn create_sync_status_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the health_status column definition
-///
-/// Displays the ArgoCD health status (Healthy, Progressing, Degraded, etc.)
 fn create_health_status_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "health_status".to_string(),
@@ -146,9 +121,6 @@ fn create_health_status_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the destination column definition
-///
-/// Displays where the application is deployed (cluster/namespace)
 fn create_destination_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "destination".to_string(),
@@ -166,9 +138,6 @@ fn create_destination_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the target_revision column definition
-///
-/// Displays the target Git branch/tag/commit
 fn create_target_revision_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "target_revision".to_string(),
@@ -186,9 +155,6 @@ fn create_target_revision_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the auto_sync column definition
-///
-/// Displays whether automated sync is enabled
 fn create_auto_sync_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "auto_sync".to_string(),
@@ -206,9 +172,6 @@ fn create_auto_sync_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the sync_revision column definition for pipeline runs
-///
-/// Displays the Git revision that was synced in this run
 fn create_sync_revision_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "sync_revision".to_string(),
@@ -226,9 +189,6 @@ fn create_sync_revision_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the current_revision column definition
-///
-/// Displays the actual deployed Git revision (vs target revision)
 fn create_current_revision_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "current_revision".to_string(),
@@ -246,9 +206,6 @@ fn create_current_revision_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the source_path column definition
-///
-/// Displays the path in the Git repository
 fn create_source_path_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "source_path".to_string(),
@@ -266,9 +223,6 @@ fn create_source_path_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the repository_url column definition
-///
-/// Displays the full Git repository URL
 fn create_repository_url_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "repository_url".to_string(),
@@ -286,9 +240,6 @@ fn create_repository_url_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the cluster_server column definition
-///
-/// Displays the Kubernetes cluster server URL
 fn create_cluster_server_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "cluster_server".to_string(),
@@ -306,9 +257,6 @@ fn create_cluster_server_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the prune_enabled column definition
-///
-/// Displays whether auto-sync prunes orphaned resources
 fn create_prune_enabled_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "prune_enabled".to_string(),
@@ -326,9 +274,6 @@ fn create_prune_enabled_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the self_heal_enabled column definition
-///
-/// Displays whether auto-sync self-heals manual changes
 fn create_self_heal_enabled_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "self_heal_enabled".to_string(),
@@ -346,9 +291,6 @@ fn create_self_heal_enabled_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the health_message column definition
-///
-/// Displays details about health status
 fn create_health_message_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "health_message".to_string(),
@@ -366,9 +308,6 @@ fn create_health_message_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the out_of_sync_count column definition
-///
-/// Displays number of resources out of sync
 fn create_out_of_sync_count_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "out_of_sync_count".to_string(),
@@ -386,9 +325,6 @@ fn create_out_of_sync_count_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the project column definition
-///
-/// Displays the ArgoCD project
 fn create_project_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "project".to_string(),
@@ -406,9 +342,6 @@ fn create_project_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the resource_health_summary column definition
-///
-/// Displays healthy resource count vs total (e.g., "5/7 healthy")
 fn create_resource_health_summary_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "resource_health_summary".to_string(),
@@ -426,9 +359,6 @@ fn create_resource_health_summary_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the last_sync_time column definition
-///
-/// Displays when the application was last successfully synced
 fn create_last_sync_time_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "last_sync_time".to_string(),
@@ -446,9 +376,6 @@ fn create_last_sync_time_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the source_type column definition
-///
-/// Displays the deployment type (Helm, Kustomize, Plain)
 fn create_source_type_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "source_type".to_string(),
@@ -466,11 +393,6 @@ fn create_source_type_column() -> schema::ColumnDefinition {
     }
 }
 
-// ========== Pipeline Runs Columns ==========
-
-/// Creates the source_type column for runs
-///
-/// Displays what type of manifests were synced (Helm, Kustomize, Plain)
 fn create_run_source_type_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "source_type".to_string(),
@@ -488,9 +410,6 @@ fn create_run_source_type_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the destination column for runs
-///
-/// Displays which namespace was synced to
 fn create_run_destination_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "destination".to_string(),
@@ -508,9 +427,6 @@ fn create_run_destination_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the source_path column for runs
-///
-/// Displays the path in Git that was synced
 fn create_run_source_path_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "source_path".to_string(),
@@ -528,11 +444,6 @@ fn create_run_source_path_column() -> schema::ColumnDefinition {
     }
 }
 
-// ========== Pipeline Runs Hidden Columns ==========
-
-/// Creates the operation_message column definition for pipeline runs
-///
-/// Displays sync operation status/error message
 fn create_operation_message_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "operation_message".to_string(),
@@ -550,9 +461,6 @@ fn create_operation_message_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the app_sync_status column for runs
-///
-/// Shows current app sync status (context)
 fn create_run_app_sync_status_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "app_sync_status".to_string(),
@@ -570,9 +478,6 @@ fn create_run_app_sync_status_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the app_health_status column for runs
-///
-/// Shows current app health status (context)
 fn create_run_app_health_status_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "app_health_status".to_string(),
@@ -590,9 +495,6 @@ fn create_run_app_health_status_column() -> schema::ColumnDefinition {
     }
 }
 
-/// Creates the helm_chart column for runs
-///
-/// Displays Helm chart name if applicable
 fn create_helm_chart_column() -> schema::ColumnDefinition {
     schema::ColumnDefinition {
         id: "helm_chart".to_string(),

@@ -56,6 +56,10 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, 'src') }
   },
 
+  define: {
+    global: 'window',
+  },
+
   plugins: [
     asPlugin(react()),
     asPlugin(tsconfigPaths()),
@@ -94,6 +98,16 @@ export default defineConfig({
     watch: {
       // tell vite to ignore watching Rust source and build directories
       ignored: ['**/src-tauri/**', '**/crates/**', '**/target/**'],
+    },
+    // Only enable proxy in web mode (not in Tauri mode)
+    // In Tauri mode, frontend uses IPC instead of HTTP API
+    proxy: process.env.TAURI_ARCH !== undefined ? undefined : {
+      '/api': {
+        target: 'http://127.0.0.1:8080',
+        changeOrigin: true,
+        // WebSocket support for real-time updates
+        ws: true,
+      },
     },
   },
 

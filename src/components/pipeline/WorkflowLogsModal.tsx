@@ -1,16 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Alert, Avatar, Box, Button, Code, Group, Loader, Paper, Stack, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconExternalLink, IconPlayerPlay, IconRefresh, IconSquare } from '@tabler/icons-react'
 
-import { useIsMobile } from '../../contexts/MediaQueryContext'
-import { useTableSchema } from '../../contexts/TableSchemaContext'
-import { tauriService } from '../../services/tauri'
-import type { ColumnDefinition, PipelineRun } from '../../types'
+import { useIsMobile } from '../../hooks/useIsMobile'
+import { useRerunWorkflow, useRunDetails } from '../../queries/useRunDetailsQuery'
+import { useTableDefinition } from '../../queries/useTableSchemaQueries'
+import { service } from '../../services'
+import type { PipelineStatus } from '../../types'
 import { filterVisibleColumns } from '../../utils/columnBuilder'
 import { DynamicRenderers, THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { formatDuration } from '../../utils/formatDuration'
+import { getValueByPath } from '../../utils/objectPath'
 import { CopyButton } from '../atoms/CopyButton'
 import { StandardModal } from '../common/StandardModal'
 import { StatusBadge } from '../common/StatusBadge'
@@ -35,112 +37,48 @@ export const WorkflowLogsModal = ({
   onRerunSuccess,
   onCancelSuccess,
 }: WorkflowLogsModalProps) => {
-  const [runDetails, setRunDetails] = useState<PipelineRun | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [rerunning, setRerunning] = useState(false)
   const [cancelling, setCancelling] = useState(false)
-  const [columnDefs, setColumnDefs] = useState<ColumnDefinition[]>([])
-  const isMobile = useIsMobile()
-  const { getTableSchema } = useTableSchema()
+  const { isMobile } = useIsMobile()
+  const abortRef = useRef(false)
 
-  const fetchRunDetails = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const details = await tauriService.getWorkflowRunDetails(pipelineId, runNumber)
-
-
-      setRunDetails(details)
-    } catch (err: any) {
-      const errorMsg = err?.error || err?.message || 'Failed to fetch run details'
-
-
-      setError(errorMsg)
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    return () => {
+      abortRef.current = true
     }
+  }, [])
+
+  const {
+    data: runDetails,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useRunDetails(pipelineId, runNumber, opened)
+
+  const rerunMutation = useRerunWorkflow()
+
+  const { data: tableSchema } = useTableDefinition(providerId ?? 0, 'pipeline_runs')
+
+  const columnDefs = useMemo(() => {
+    if (!tableSchema) {
+      return []
+    }
+
+    return filterVisibleColumns(tableSchema.columns)
+  }, [tableSchema])
+
+  const error = queryError instanceof Error ? queryError.message : null
+
+  const isPipelineStatus = (value: unknown): value is PipelineStatus => {
+    return typeof value === 'string' &&
+      ['success', 'failed', 'running', 'pending', 'cancelled', 'skipped'].includes(value)
   }
 
-  useEffect(() => {
-    if (!opened) {
-      setRunDetails(null)
-      setLoading(true)
-      setError(null)
-
-return
+  const isValidDateValue = (value: unknown): value is string | number | Date => {
+    if (typeof value === 'string' || typeof value === 'number' || value instanceof Date) {
+      return true
     }
-
-    fetchRunDetails()
-
-    const interval = setInterval(() => {
-      if (runDetails && (runDetails.status === 'running' || runDetails.status === 'pending')) {
-        fetchRunDetails()
-      }
-    }, 5000)
-
-    return () => clearInterval(interval)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened, pipelineId, runNumber])
-
-  useEffect(() => {
-    if (!opened || !runDetails) {
-return
-}
-
-    const isRunning = runDetails.status === 'running' || runDetails.status === 'pending'
-
-    if (!isRunning) {
-      const timeoutId = setTimeout(() => {
-        fetchRunDetails()
-      }, 1000)
-
-
-
-return () => clearTimeout(timeoutId)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runDetails?.status, opened])
-
-  // Load column definitions from schema
-  useEffect(() => {
-    if (!opened || !providerId) {
-      return
-    }
-
-    const loadSchema = async () => {
-      try {
-        const tableSchema = await getTableSchema(providerId, 'pipeline_runs')
-
-
-        if (tableSchema) {
-          const visibleCols = filterVisibleColumns(tableSchema.columns)
-
-
-          setColumnDefs(visibleCols)
-        }
-      } catch (err) {
-        console.error('Failed to load table schema for modal:', err)
-      }
-    }
-
-    loadSchema()
-  }, [opened, providerId, getTableSchema])
-
-  // Helper to extract value by field path
-  const getValueByPath = (record: any, path: string): any => {
-    const parts = path.split('.')
-    let value: any = record
-
-
-    for (const part of parts) {
-      if (value === null || value === undefined) {
-return undefined
-}
-      value = value[part]
-    }
-
-return value
+    
+return false
   }
 
   const isRunning = runDetails?.status === 'running' || runDetails?.status === 'pending'
@@ -148,132 +86,77 @@ return value
 
   const handleRerun = async () => {
     if (!runDetails) {
-return
-}
-
-    setRerunning(true)
+      return
+    }
 
     try {
       console.log('[WorkflowLogs] Re-running workflow with inputs:', runDetails.inputs)
 
-      const result = await tauriService.triggerPipeline({
-        workflow_id: pipelineId,
+      const result = await rerunMutation.mutateAsync({
+        pipelineId,
         inputs: runDetails.inputs,
       })
 
-      console.log('[WorkflowLogs] Trigger response:', result)
-
-      let newRunNumber = 0
-
-      try {
-        const parsed = JSON.parse(result)
-
-
-        newRunNumber = parsed.run_number || parsed.build_number || parsed.number || 0
-      } catch {
-        console.warn('[WorkflowLogs] Could not parse trigger response')
-      }
-
-
-      if (onRerunSuccess && newRunNumber > 0) {
-        console.log('[WorkflowLogs] Polling for new run #', newRunNumber)
-
-        let retries = 10
-        let newRunReady = false
-
-        while (retries > 0 && !newRunReady) {
-          await new Promise(resolve => setTimeout(resolve, 1000))
-
-          try {
-            const newRunDetails = await tauriService.getWorkflowRunDetails(pipelineId, newRunNumber)
-
-            if (newRunDetails && newRunDetails.status) {
-              newRunReady = true
-              console.log(`[WorkflowLogs] New run ready with status: ${newRunDetails.status}`)
-            } else {
-              console.log(`[WorkflowLogs] Run exists but no status yet, retrying... (${retries} attempts left)`)
-            }
-          } catch {
-            console.log(`[WorkflowLogs] Run not ready yet, retrying... (${retries} attempts left)`)
-          }
-
-          retries--
-        }
-
+      if (onRerunSuccess && result.newRunNumber > 0) {
         onClose()
-        if (onRerunSuccess) {
-          await onRerunSuccess(pipelineId, newRunNumber)
-        }
-
-        setTimeout(() => setRerunning(false), 100)
+        await onRerunSuccess(pipelineId, result.newRunNumber)
       } else {
         onClose()
-        setRerunning(false)
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[WorkflowLogs] Failed to re-run workflow:', error)
-      const errorMsg = error?.error || error?.message || 'Failed to re-run workflow'
-
-
-      notifications.show({
-        title: 'Error',
-        message: errorMsg,
-        color: 'red',
-      })
-      setRerunning(false)
     }
   }
 
   const handleCancel = async () => {
     if (!runDetails) {
-return
-}
+      return
+    }
 
     setCancelling(true)
 
     try {
-      console.log('[WorkflowLogs] Cancelling run #', runNumber)
-
-      await tauriService.cancelPipelineRun(pipelineId, runNumber)
-
-      console.log('[WorkflowLogs] Cancel request sent, waiting for confirmation...')
+      await service.cancelPipelineRun(pipelineId, runNumber)
 
       const maxAttempts = 10
       let attempt = 0
       let statusChanged = false
 
-      while (attempt < maxAttempts && !statusChanged) {
-        await new Promise(resolve => setTimeout(resolve, 1000))
+      while (attempt < maxAttempts && !statusChanged && !abortRef.current) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+
+        if (abortRef.current) {
+break
+}
 
         try {
-          const freshDetails = await tauriService.getWorkflowRunDetails(pipelineId, runNumber)
+          const { data: freshDetails } = await refetch()
 
-          setRunDetails(freshDetails)
-
-          if (freshDetails && (freshDetails.status === 'cancelled' as any)) {
+          if (freshDetails && freshDetails.status === 'cancelled') {
             statusChanged = true
-            console.log(`[WorkflowLogs] Cancel confirmed after ${attempt + 1} seconds - status: ${freshDetails.status}`)
-          } else if (freshDetails) {
-            console.log(`[WorkflowLogs] Attempt ${attempt + 1}: status still ${freshDetails.status}`)
           }
-        } catch (error) {
-          console.warn(`[WorkflowLogs] Failed to fetch run details on attempt ${attempt + 1}:`, error)
-        }
+        } catch { /* refetch may fail during polling */ }
 
         attempt++
       }
 
+      if (abortRef.current) {
+return
+}
+
       if (!statusChanged) {
-        console.warn('[WorkflowLogs] Cancel timeout - status not updated after 10s')
-        await fetchRunDetails()
+        await refetch()
       }
 
       if (onCancelSuccess) {
         await onCancelSuccess()
       }
-    } catch (error: any) {
-      console.error('[WorkflowLogs] Failed to cancel run:', error)
-      const errorMsg = error?.error || error?.message || 'Failed to cancel run'
+    } catch (error: unknown) {
+      if (abortRef.current) {
+return
+}
+
+      const errorMsg = error instanceof Error ? error.message : 'Failed to cancel run'
 
       notifications.show({
         title: 'Error',
@@ -281,51 +164,109 @@ return
         color: 'red',
       })
     } finally {
-      setCancelling(false)
+      if (!abortRef.current) {
+        setCancelling(false)
+      }
     }
   }
+
+  const footer = runDetails ? (
+    <Group justify="flex-end" gap="xs" wrap="wrap">
+      {isRunning ? (
+        <Button
+          variant="light"
+          color="red"
+          size="sm"
+          style={{ flex: isMobile ? 1 : undefined }}
+          leftSection={
+            <IconSquare
+              size={14}
+              style={{
+                animation: cancelling ? 'spin 1s linear infinite' : 'none',
+              }}
+            />
+          }
+          onClick={handleCancel}
+          disabled={cancelling || isPending}
+          title={isPending ? 'Cannot cancel pending workflow' : 'Stop the running workflow'}
+        >
+          {isMobile ? 'Stop' : 'Stop Workflow'}
+        </Button>
+      ) : (
+        <Button
+          variant="light"
+          color="blue"
+          size="sm"
+          style={{ flex: isMobile ? 1 : undefined }}
+          leftSection={
+            <IconPlayerPlay
+              size={14}
+              style={{
+                animation: rerunMutation.isPending ? 'spin 1s linear infinite' : 'none',
+              }}
+            />
+          }
+          onClick={handleRerun}
+          disabled={rerunMutation.isPending || isPending}
+          title={isPending ? 'Workflow is pending' : 'Re-run workflow with same parameters'}
+        >
+          {isMobile ? 'Re-run' : 'Re-run Workflow'}
+        </Button>
+      )}
+      <Button
+        component="a"
+        href={runDetails.logs_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        variant="light"
+        color="blue"
+        size="sm"
+        style={{ flex: isMobile ? 1 : undefined }}
+        rightSection={<IconExternalLink size={14} />}
+      >
+        {isMobile ? 'Logs' : 'View Full Logs'}
+      </Button>
+    </Group>
+  ) : null
 
   return (
     <StandardModal
       opened={opened}
       onClose={onClose}
       title="Run Details"
+      footer={footer}
+      contentPadding={false}
     >
-      <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {loading && !runDetails ? (
-          <Box py={isMobile ? 'md' : 'xl'}>
-            <Group justify="center" gap="xs">
-              <Loader size="sm" />
-              <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>Loading run details...</Text>
-            </Group>
-          </Box>
-        ) : error ? (
-          <Alert color="red" title="Error">
-            <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size}>{error}</Text>
-          </Alert>
-        ) : runDetails ? (
-          <>
-            {isRunning && !isMobile && (
-              <Alert color="blue" icon={<IconRefresh size={16} />} title="Build in Progress" style={{ flexShrink: 0 }}>
-                <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size}>
-                  Details will automatically update every 5 seconds.
-                </Text>
-              </Alert>
-            )}
+      {loading && !runDetails ? (
+        <Box py={isMobile ? 'md' : 'xl'}>
+          <Group justify="center" gap="xs">
+            <Loader size="sm" />
+            <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>Loading run details...</Text>
+          </Group>
+        </Box>
+      ) : error ? (
+        <Alert color="red" title="Error">
+          <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size}>{error}</Text>
+        </Alert>
+      ) : runDetails ? (
+        <Stack gap={isMobile ? 'xs' : 'md'} p="md">
+          {isRunning && !isMobile && (
+            <Alert color="blue" icon={<IconRefresh size={16} />} title="Build in Progress">
+              <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size}>
+                Details will automatically update every 5 seconds.
+              </Text>
+            </Alert>
+          )}
 
-            <Paper
-              p={isMobile ? 'md' : 'lg'}
-              withBorder
-              radius="md"
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'auto',
-                backgroundColor: 'var(--mantine-color-dark-8)',
-                borderColor: 'var(--mantine-color-dark-5)',
-              }}
-            >
+          <Paper
+            p={isMobile ? 'md' : 'lg'}
+            withBorder
+            radius="md"
+            style={{
+              backgroundColor: 'var(--mantine-color-dark-8)',
+              borderColor: 'var(--mantine-color-dark-5)',
+            }}
+          >
               {columnDefs.length > 0 ? (
                 <Stack gap={0}>
                   {columnDefs
@@ -361,12 +302,12 @@ return
                             <Box style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', overflow: 'hidden' }}>
                               {col.id === 'run_number' && value !== null && value !== undefined ? (
                                 <Group gap="sm" wrap="nowrap">
-                                  <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>#{value}</Text>
-                                  <CopyButton value={value.toString()} size="sm" />
+                                  <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>#{String(value)}</Text>
+                                  <CopyButton value={String(value)} size="sm" />
                                 </Group>
-                              ) : col.id === 'status' && value ? (
-                                <StatusBadge status={value} size="md" withIcon={true} />
-                              ) : col.id === 'id' && value ? (
+                              ) : col.id === 'status' && isPipelineStatus(value) ? (
+                                <StatusBadge status={value} size="md" withIcon />
+                              ) : col.id === 'id' && typeof value === 'string' ? (
                                 <Group gap="sm" wrap="nowrap">
                                   <Code
                                     c={THEME_COLORS.VALUE_TEXT}
@@ -383,7 +324,7 @@ return
                                   </Code>
                                   <CopyButton value={value} size="sm" />
                                 </Group>
-                              ) : col.id === 'commit_sha' && value ? (
+                              ) : col.id === 'commit_sha' && typeof value === 'string' ? (
                                 <Group gap="sm" wrap="nowrap">
                                   <Code
                                     c={THEME_COLORS.VALUE_TEXT}
@@ -399,23 +340,23 @@ return
                                   </Code>
                                   <CopyButton value={value} size="sm" />
                                 </Group>
-                              ) : col.id === 'branch' && value ? (
+                              ) : col.id === 'branch' && typeof value === 'string' ? (
                                 <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{value}</Text>
-                              ) : col.id === 'duration_seconds' && value !== null && value !== undefined ? (
+                              ) : col.id === 'duration_seconds' && typeof value === 'number' ? (
                                 <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{formatDuration(value)}</Text>
-                              ) : col.id === 'started_at' && value ? (
+                              ) : col.id === 'started_at' && isValidDateValue(value) ? (
                                 <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{new Date(value).toLocaleString()}</Text>
-                              ) : col.id === 'concluded_at' && value ? (
+                              ) : col.id === 'concluded_at' && isValidDateValue(value) ? (
                                 <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{new Date(value).toLocaleString()}</Text>
-                              ) : col.id === 'commit_message' && value ? (
+                              ) : col.id === 'commit_message' && typeof value === 'string' ? (
                                 <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT} style={{ textAlign: 'right' }} lineClamp={2}>{value}</Text>
-                              ) : col.id === 'actor' && value ? (
+                              ) : col.id === 'actor' && typeof value === 'string' ? (
                                 <Group gap="sm" wrap="nowrap">
                                   <Avatar size="sm" radius="xl" color="blue" />
                                   <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{value}</Text>
                                 </Group>
                               ) : (
-                                <Box style={{ textAlign: 'right' }}>{DynamicRenderers.render(col.renderer, value, isMobile)}</Box>
+                                <Box style={{ textAlign: 'right' }}>{DynamicRenderers.render(col.renderer, value as import('../../utils/dynamicRenderers').CellValue, isMobile)}</Box>
                               )}
                             </Box>
                           </Group>
@@ -452,7 +393,7 @@ return
                       <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.FIELD_LABEL} style={{ minWidth: isMobile ? '90px' : '130px', flexShrink: 0 }}>
                         Status
                       </Text>
-                      <StatusBadge status={runDetails.status} size="md" withIcon={true} />
+                      <StatusBadge status={runDetails.status} size="md" withIcon />
                     </Group>
                   </Box>
 
@@ -534,76 +475,8 @@ return
                 </Stack>
               )}
             </Paper>
-
-            {/* Sticky footer */}
-            <Box
-              style={{
-                borderTop: '1px solid var(--mantine-color-default-border)',
-                paddingTop: isMobile ? 8 : 12,
-                marginTop: 0,
-                flexShrink: 0,
-              }}
-            >
-              <Group justify="flex-end" gap="xs" wrap="wrap">
-                {isRunning ? (
-                  <Button
-                    variant="light"
-                    color="red"
-                    size="sm"
-                    style={{ flex: isMobile ? 1 : undefined }}
-                    leftSection={
-                      <IconSquare
-                        size={14}
-                        style={{
-                          animation: cancelling ? 'spin 1s linear infinite' : 'none',
-                        }}
-                      />
-                    }
-                    onClick={handleCancel}
-                    disabled={cancelling || isPending}
-                    title={isPending ? 'Cannot cancel pending workflow' : 'Stop the running workflow'}
-                  >
-                    {isMobile ? 'Stop' : 'Stop Workflow'}
-                  </Button>
-                ) : (
-                  <Button
-                    variant="light"
-                    color="blue"
-                    size="sm"
-                    style={{ flex: isMobile ? 1 : undefined }}
-                    leftSection={
-                      <IconPlayerPlay
-                        size={14}
-                        style={{
-                          animation: rerunning ? 'spin 1s linear infinite' : 'none',
-                        }}
-                      />
-                    }
-                    onClick={handleRerun}
-                    disabled={rerunning || isPending}
-                    title={isPending ? 'Workflow is pending' : 'Re-run workflow with same parameters'}
-                  >
-                    {isMobile ? 'Re-run' : 'Re-run Workflow'}
-                  </Button>
-                )}
-                <Button
-                  component="a"
-                  href={runDetails.logs_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  variant="light"
-                  color="blue"
-                  size="sm"
-                  style={{ flex: isMobile ? 1 : undefined }}
-                  rightSection={<IconExternalLink size={14} />}
-                >
-                  {isMobile ? 'Logs' : 'View Full Logs'}
-                </Button>
-              </Group>
-            </Box>
-          </>
+          </Stack>
         ) : null}
-      </Stack>
       <style>{`
         @keyframes spin {
           from {

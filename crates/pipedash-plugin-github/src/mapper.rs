@@ -1,8 +1,5 @@
-//! Data mapping utilities for GitHub Actions
-
 use pipedash_plugin_api::PipelineStatus;
 
-/// Maps GitHub Actions workflow status and conclusion to PipelineStatus
 pub(crate) fn map_status(status: &str, conclusion: Option<&str>) -> PipelineStatus {
     match (status, conclusion) {
         ("completed", Some("success")) => PipelineStatus::Success,

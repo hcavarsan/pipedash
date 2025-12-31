@@ -1,21 +1,7 @@
-//! GitHub Actions plugin metadata
-//!
-//! This module contains plugin metadata, configuration schema, and
-//! capabilities.
-
 use pipedash_plugin_api::*;
 
 use crate::schema;
 
-/// Creates the plugin metadata for GitHub Actions
-///
-/// This includes:
-/// - Basic plugin information (name, version, description)
-/// - Configuration schema (API token field)
-/// - Table schema (from schema module)
-/// - Plugin capabilities
-/// - Required permissions
-/// - Available features
 pub fn create_metadata() -> PluginMetadata {
     PluginMetadata {
         name: "GitHub Actions".to_string(),
@@ -32,10 +18,6 @@ pub fn create_metadata() -> PluginMetadata {
     }
 }
 
-/// Creates the configuration schema for GitHub Actions
-///
-/// Defines a single required field:
-/// - `token`: GitHub Personal Access Token or Fine-grained token
 fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new().add_field(ConfigField {
         key: "token".to_string(),
@@ -53,12 +35,6 @@ fn create_config_schema() -> ConfigSchema {
     })
 }
 
-/// Creates the plugin capabilities
-///
-/// GitHub Actions supports:
-/// - Pipelines (workflows)
-/// - Pipeline runs (workflow runs)
-/// - Triggering workflows
 fn create_capabilities() -> PluginCapabilities {
     PluginCapabilities {
         pipelines: true,
@@ -71,33 +47,6 @@ fn create_capabilities() -> PluginCapabilities {
     }
 }
 
-/// Creates the required permissions for GitHub Actions
-///
-/// **Required (Base Level):**
-/// - `repo` OR `public_repo`: Repository access for viewing workflows and runs
-///   - `repo`: Full access to private and public repositories
-///   - `public_repo`: Access to public repositories only
-///
-/// **Optional (Enhanced Features):**
-/// - `workflow`: Enables triggering and canceling workflows (write access)
-/// - `read:org`: Enables organization filtering (without it, only personal
-///   repos available)
-///
-/// For classic Personal Access Tokens:
-/// - `repo` or `public_repo`: Required for workflow viewing
-///   - `repo` gives full access (private + public repos)
-///   - `public_repo` gives public-only access
-/// - `workflow`: Optional, only for trigger/cancel features
-/// - `read:org`: Optional, only for organization filtering
-///
-/// For fine-grained tokens:
-/// - Repository: Metadata (Read) - required
-/// - Actions: Read - required for viewing
-/// - Actions: Write - optional, only for trigger/cancel
-/// - Organization: Members (Read) - optional, only for org filtering
-///
-/// Note: The permission checker accepts higher-level scopes.
-/// For example, `admin:org` satisfies the `read:org` requirement.
 fn create_required_permissions() -> Vec<Permission> {
     vec![
         Permission {
@@ -118,20 +67,6 @@ fn create_required_permissions() -> Vec<Permission> {
     ]
 }
 
-/// Creates the feature list for GitHub Actions
-///
-/// Features are mapped to specific permission combinations:
-///
-/// **Base Features (repo only):**
-/// - View workflows: List all workflows in configured repositories
-/// - View runs: See workflow run history, status, and details
-///
-/// **Enhanced Features (repo + workflow):**
-/// - Trigger workflows: Manually start workflow runs with parameters
-/// - Cancel runs: Stop running or queued workflows
-///
-/// **Organization Feature (read:org):**
-/// - Filter by organization: View and filter repositories by org membership
 fn create_features() -> Vec<Feature> {
     vec![
         Feature {

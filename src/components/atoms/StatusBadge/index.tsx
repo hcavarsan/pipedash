@@ -67,6 +67,7 @@ export const StatusBadge = ({
       variant="light"
       color={STATUS_COLORS[status]}
       size={size}
+      fw={500}
       leftSection={
         withIcon ? (
           <Box component="span" style={{ display: 'flex', alignItems: 'center' }}>
@@ -74,6 +75,11 @@ export const StatusBadge = ({
           </Box>
         ) : undefined
       }
+      styles={{
+        label: {
+          textTransform: 'none',
+        },
+      }}
     >
       {config.label}
     </Badge>

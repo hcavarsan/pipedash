@@ -1,0 +1,56 @@
+[package]
+name = "pipedash-desktop"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "A Tauri App"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib", "staticlib"]
+name = "pipedash_desktop_lib"
+
+[dependencies]
+aes-gcm.workspace = true
+anyhow.workspace = true
+argon2.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+futures.workspace = true
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
+tauri = { version = "2", default-features = true , features = [] }
+tauri-plugin-dialog = { version = "2", default-features = true }
+tauri-plugin-fs = { version = "2", default-features = true }
+tauri-plugin-opener = { version = "2", default-features = true }
+tauri-plugin-os = { version = "2", default-features = true }
+
+pipedash-core.workspace = true
+rand.workspace = true
+pipedash-plugin-api.workspace = true
+tracing.workspace = true
+pipedash-plugin-bitbucket.workspace = true
+pipedash-plugin-buildkite.workspace = true
+pipedash-plugin-github.workspace = true
+pipedash-plugin-gitlab.workspace = true
+pipedash-plugin-jenkins.workspace = true
+pipedash-plugin-tekton.workspace = true
+pipedash-plugin-argocd.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+[features]
+default = ["postgres"]
+postgres = ["pipedash-core/postgres"]
+custom-protocol = ["tauri/custom-protocol"]
+devtools = ["tauri/devtools"]
+
+[build-dependencies]
+tauri-build = { version = "2", default-features = true , features = [] }

@@ -3,17 +3,22 @@ name = "pipedash-plugin-tekton"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+description = "Tekton CD plugin for Pipedash"
+license = "GPL-3.0"
+repository = "https://github.com/hcavarsan/pipedash"
 
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
-dirs = "5.0"
+dirs.workspace = true
 futures.workspace = true
-http = "1.0"
-k8s-openapi = { version = "0.23", features = ["v1_31"] }
-kube = { version = "0.96", features = ["client", "config", "runtime"] }
+http.workspace = true
+k8s-openapi.workspace = true
+kube.workspace = true
 pipedash-plugin-api.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-shellexpand = "3.1"
+shellexpand.workspace = true
 tokio.workspace = true
+tracing.workspace = true
+reqwest.workspace = true

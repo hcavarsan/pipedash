@@ -1,0 +1,16 @@
+
+export const PAGE_SIZES = {
+  RUN_HISTORY: 20,
+
+  PIPELINES: 50,
+
+  PROVIDERS: 50,
+
+  METRICS: 30,
+
+  PIPELINE_PREVIEW: 100,
+
+  SEARCH_RESULTS: 25,
+
+  LOGS: 100,
+} as const

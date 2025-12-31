@@ -4,10 +4,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::future::join_all;
 use pipedash_plugin_api::*;
-use reqwest::header::{
-    HeaderMap,
-    HeaderValue,
-};
 
 use crate::{
     client,
@@ -121,32 +117,30 @@ impl Plugin for GitLabPlugin {
 
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
+        http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
         let token = config
             .get("token")
-            .ok_or_else(|| PluginError::InvalidConfig("Missing GitLab access token".to_string()))?;
+            .ok_or_else(|| PluginError::InvalidConfig("Missing GitLab access token".to_string()))?
+            .to_string();
 
         let base_url = config::get_base_url(&config);
         let api_url = config::build_api_url(&base_url);
 
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "PRIVATE-TOKEN",
-            HeaderValue::from_str(token)
-                .map_err(|e| PluginError::InvalidConfig(format!("Invalid token format: {}", e)))?,
-        );
+        let client = http_client.unwrap_or_else(|| {
+            std::sync::Arc::new(
+                reqwest::Client::builder()
+                    .use_rustls_tls()
+                    .pool_max_idle_per_host(10)
+                    .timeout(Duration::from_secs(30))
+                    .connect_timeout(Duration::from_secs(10))
+                    .tcp_keepalive(Duration::from_secs(60))
+                    .build()
+                    .expect("Failed to build HTTP client"),
+            )
+        });
 
-        let http_client = reqwest::Client::builder()
-            .use_rustls_tls()
-            .pool_max_idle_per_host(10)
-            .default_headers(headers)
-            .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(10))
-            .tcp_keepalive(Duration::from_secs(60))
-            .build()
-            .map_err(|e| PluginError::Internal(format!("Failed to build HTTP client: {}", e)))?;
-
-        self.client = Some(client::GitLabClient::new(http_client, api_url));
+        self.client = Some(client::GitLabClient::new(client, api_url, token));
         self.provider_id = Some(provider_id);
         self.config = config;
 

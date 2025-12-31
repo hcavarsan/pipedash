@@ -1,19 +1,7 @@
-//! ArgoCD plugin metadata
-//!
-//! This module contains plugin metadata, configuration schema, and
-//! capabilities.
-
 use pipedash_plugin_api::*;
 
 use crate::schema;
 
-/// Creates the plugin metadata for ArgoCD
-///
-/// This includes:
-/// - Basic plugin information (name, version, description)
-/// - Configuration schema (server URL, token, insecure, projects filter)
-/// - Table schema (from schema module)
-/// - Plugin capabilities
 pub fn create_metadata() -> PluginMetadata {
     PluginMetadata {
         name: "ArgoCD".to_string(),
@@ -30,14 +18,6 @@ pub fn create_metadata() -> PluginMetadata {
     }
 }
 
-/// Creates the configuration schema for ArgoCD
-///
-/// Defines four fields:
-/// - `server_url`: ArgoCD server URL (required)
-/// - `token`: ArgoCD authentication token (required)
-/// - `insecure`: Skip TLS verification (optional)
-/// - `organizations`: Multi-select list of Git organizations to filter
-///   (optional)
 fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
@@ -96,13 +76,6 @@ fn create_config_schema() -> ConfigSchema {
         })
 }
 
-/// Creates the plugin capabilities
-///
-/// ArgoCD supports:
-/// - Pipelines (applications)
-/// - Pipeline runs (sync history)
-/// - Triggering (sync operations)
-/// - Canceling runs (terminate operations)
 fn create_capabilities() -> PluginCapabilities {
     PluginCapabilities {
         pipelines: true,

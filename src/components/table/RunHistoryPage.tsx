@@ -1,13 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DataTableSortStatus } from 'mantine-datatable'
 
-import { ActionIcon, Box, Button, Card, Center, Container, Group, Loader, Stack, Tabs, Text } from '@mantine/core'
+import { ActionIcon, Box, Button, Card, Center, Group, Loader, Skeleton, Stack, Tabs, Text } from '@mantine/core'
+import { useDisclosure, useIntersection } from '@mantine/hooks'
+import { modals } from '@mantine/modals'
 import { IconAdjustments, IconCalendar, IconChartLine, IconClock, IconFileText, IconGitBranch, IconHistory, IconRefresh, IconSquare, IconUser } from '@tabler/icons-react'
-import { listen } from '@tauri-apps/api/event'
 
-import { useIsMobile } from '../../contexts/MediaQueryContext'
+import { PAGE_SIZES } from '../../constants/pagination'
+import { useIsMobile } from '../../hooks/useIsMobile'
 import { useTableColumns } from '../../hooks/useTableColumns'
-import { tauriService } from '../../services/tauri'
+import { useRunHistoryFilters } from '../../hooks/useUrlState'
+import {
+  useClearRunHistoryCache,
+  useRunHistory,
+  useSaveTablePreferences,
+  useTablePreferences,
+} from '../../queries/useRunHistoryQueries'
+import { events } from '../../services'
+import { useModalStore } from '../../stores/modalStore'
 import type { Pipeline, PipelineRun } from '../../types'
 import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { formatDuration } from '../../utils/formatDuration'
@@ -28,6 +38,7 @@ interface RunHistoryPageProps {
   refreshTrigger?: number;
   onLoadingChange?: (loading: boolean) => void;
   initialTab?: 'history' | 'metrics';
+  isLoadingPipeline?: boolean;
 }
 
 export const RunHistoryPage = ({
@@ -39,124 +50,168 @@ export const RunHistoryPage = ({
   refreshTrigger,
   onLoadingChange,
   initialTab = 'history',
+  isLoadingPipeline = false,
 }: RunHistoryPageProps) => {
-  const isMobile = useIsMobile()
-  const [runs, setRuns] = useState<PipelineRun[]>([])
-  const [totalCount, setTotalCount] = useState(0)
-  const [totalPages, setTotalPages] = useState(0)
-  const [_hasMore, setHasMore] = useState(false)
-  const [isComplete, setIsComplete] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [pageLoading, setPageLoading] = useState(false)
-  const [initialLoad, setInitialLoad] = useState(true)
+  const { isMobile } = useIsMobile()
+
+  const { filters, setFilter, clearFilters: _clearFilters } = useRunHistoryFilters()
+  const { search, status: statusFilter, branch: branchFilter, actor: actorFilter, dateRange, page } = filters
+
   const [cancellingRunNumber, setCancellingRunNumber] = useState<number | null>(null)
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string | null>(null)
-  const [branchFilter, setBranchFilter] = useState<string | null>(null)
-  const [actorFilter, setActorFilter] = useState<string | null>(null)
-  const [dateRange, setDateRange] = useState<string | null>(null)
-  const [page, setPage] = useState(1)
   const [sortStatus, setSortStatus] = useState<DataTableSortStatus<PipelineRun>>({
     columnAccessor: 'run_number',
     direction: 'desc',
   })
   const [activeTab, setActiveTab] = useState<string>(initialTab)
-  const [customizeModalOpened, setCustomizeModalOpened] = useState(false)
-  const [preferencesLoaded, setPreferencesLoaded] = useState(false)
-  const [columnPreferences, setColumnPreferences] = useState<{
-    columnOrder?: string[]
-    columnVisibility?: Record<string, boolean>
-  }>({})
+  const [customizeModalOpened, { open: openCustomizeModal, close: closeCustomizeModal }] =
+    useDisclosure(false)
+  const [accumulatedRuns, setAccumulatedRuns] = useState<PipelineRun[]>([])
+  const { ref: loadMoreRef, entry } = useIntersection({ threshold: 0.5 })
 
-  const PAGE_SIZE = 20
+  const PAGE_SIZE = PAGE_SIZES.RUN_HISTORY
+
+  const refreshCounterRef = useRef(0)
+  const lastKnownPaginationRef = useRef<{ totalRecords: number; maxPage: number }>({ totalRecords: PAGE_SIZE, maxPage: 1 })
+
+  const {
+    data: runHistoryData,
+    isLoading: loading,
+    isFetching: pageLoading,
+    isError,
+    refetch: refetchRuns,
+  } = useRunHistory(pipeline?.id || '', page, PAGE_SIZE)
+
+  const {
+    data: tablePreferences,
+    isLoading: preferencesLoading,
+  } = useTablePreferences(pipeline?.provider_id ?? 0, 'pipeline_runs')
+
+  const saveTablePreferencesMutation = useSaveTablePreferences()
+  const clearCacheMutation = useClearRunHistoryCache()
+
+  const runs = useMemo(() => runHistoryData?.runs ?? [], [runHistoryData?.runs])
+  const totalCount = runHistoryData?.total_count ?? 0
+  const isComplete = runHistoryData?.is_complete ?? false
+  const hasMore = runHistoryData?.has_more ?? false
+  const preferencesLoaded = !preferencesLoading
 
   useEffect(() => {
-    const loadPreferences = async () => {
-      if (!pipeline?.provider_id) {
-        setPreferencesLoaded(false)
-        
-return
-      }
-
-      try {
-        let prefsJson = await tauriService.getTablePreferences(
-          pipeline.provider_id,
-          'pipeline_runs'
-        )
-
-        if (!prefsJson) {
-          prefsJson = await tauriService.getDefaultTablePreferences(
-            pipeline.provider_id,
-            'pipeline_runs'
-          )
-        }
-
-        if (prefsJson) {
-          const prefs = JSON.parse(prefsJson)
+    if (!isError && !pageLoading && totalCount > 0) {
+      const calculatedTotal = hasMore
+        ? Math.max((page + 4) * PAGE_SIZE, totalCount)
+        : totalCount
 
 
-          setColumnPreferences({
-            columnOrder: prefs.columnOrder,
-            columnVisibility: prefs.columnVisibility,
-          })
-        }
-        setPreferencesLoaded(true)
-      } catch (error) {
-        console.error('[loadPreferences] Error loading preferences:', error)
-        setPreferencesLoaded(true)
+      lastKnownPaginationRef.current = {
+        totalRecords: Math.max(lastKnownPaginationRef.current.totalRecords, calculatedTotal),
+        maxPage: Math.max(lastKnownPaginationRef.current.maxPage, page),
       }
     }
+  }, [isError, pageLoading, totalCount, hasMore, page, PAGE_SIZE])
 
-    loadPreferences()
-  }, [pipeline?.provider_id])
+  const effectiveTotalRecords = useMemo(() => {
+    if (isError || (pageLoading && totalCount === 0)) {
+      const minFromCurrentPage = Math.max(page * PAGE_SIZE, PAGE_SIZE)
+
+
+      
+return Math.max(lastKnownPaginationRef.current.totalRecords, minFromCurrentPage)
+    }
+
+    const calculated = hasMore
+      ? Math.max((page + 4) * PAGE_SIZE, totalCount)
+      : Math.max(totalCount, PAGE_SIZE)
+
+    return calculated
+  }, [pageLoading, isError, totalCount, hasMore, page, PAGE_SIZE])
+
+  useEffect(() => {
+    if (!isMobile || runs.length === 0) {
+return
+}
+
+    if (page === 1) {
+      setAccumulatedRuns(runs)
+    } else {
+      setAccumulatedRuns(prev => {
+        const existingIds = new Set(prev.map(r => r.run_number))
+        const newRuns = runs.filter(r => !existingIds.has(r.run_number))
+
+
+        
+return [...prev, ...newRuns]
+      })
+    }
+  }, [runs, page, isMobile])
+
+  useEffect(() => {
+    if (!isMobile || !entry?.isIntersecting || pageLoading || !hasMore) {
+return
+}
+    setFilter('page', page + 1)
+  }, [entry?.isIntersecting, isMobile, pageLoading, hasMore, page, setFilter])
+
+  const columnPreferences = useMemo(
+    () => ({
+      columnOrder: tablePreferences?.columnOrder,
+      columnVisibility: tablePreferences?.columnVisibility,
+    }),
+    [tablePreferences]
+  )
+
+  useEffect(() => {
+    if (onLoadingChange) {
+      onLoadingChange(loading || pageLoading)
+    }
+  }, [loading, pageLoading, onLoadingChange])
 
   const handleApplyCustomization = async (
     newColumnOrder: string[],
     newColumnVisibility: Record<string, boolean>
   ) => {
     if (!pipeline?.provider_id) {
-      console.error('[ApplyCustomization] No provider_id')
-      
-return
+      return
     }
 
-    try {
-      const preferences = {
+    await saveTablePreferencesMutation.mutateAsync({
+      providerId: pipeline.provider_id,
+      tableId: 'pipeline_runs',
+      preferences: {
         columnOrder: newColumnOrder,
         columnVisibility: newColumnVisibility,
-      }
-
-      await tauriService.saveTablePreferences(
-        pipeline.provider_id,
-        'pipeline_runs',
-        JSON.stringify(preferences)
-      )
-
-      setColumnPreferences({
-        columnOrder: newColumnOrder,
-        columnVisibility: newColumnVisibility,
-      })
-    } catch (error) {
-      console.error('[ApplyCustomization] Failed to save:', error)
-    }
+      },
+    })
   }
 
-  const handleCancelRun = useCallback(async (pipeline: Pipeline, run: PipelineRun) => {
-    setCancellingRunNumber(run.run_number)
-    try {
-      if (onCancel) {
-        await onCancel(pipeline, run)
-      }
-    } finally {
-      setCancellingRunNumber(null)
-    }
+  const handleCancelRun = useCallback((pipeline: Pipeline, run: PipelineRun) => {
+    modals.openConfirmModal({
+      title: 'Cancel Run',
+      children: (
+        <Text size="sm">
+          Are you sure you want to cancel run #{run.run_number}? This action cannot be undone.
+        </Text>
+      ),
+      labels: { confirm: 'Cancel Run', cancel: 'Keep Running' },
+      confirmProps: { color: 'red' },
+      onConfirm: async () => {
+        setCancellingRunNumber(run.run_number)
+        try {
+          if (onCancel) {
+            await onCancel(pipeline, run)
+          }
+        } finally {
+          setCancellingRunNumber(null)
+        }
+      },
+    })
   }, [onCancel])
 
-  // Build actions column - memoized to prevent infinite loops
+  const rerunLoading = useModalStore((s) => s.rerunLoading)
+
   const actionsColumn = useMemo(() => ({
     accessor: 'actions' as keyof PipelineRun,
     title: 'Actions',
-    width: 150,
+    width: '120px',
     textAlign: 'center' as const,
     resizable: false,
     toggleable: false,
@@ -164,10 +219,10 @@ return
     render: (run: PipelineRun) => {
       const isRunning = run.status === 'running' || run.status === 'pending'
       const isCancelling = cancellingRunNumber === run.run_number
+      const isRerunning = rerunLoading?.pipelineId === pipeline?.id && rerunLoading?.runNumber === run.run_number
 
       return (
-        <div onClick={(e) => e.stopPropagation()}>
-          <Group gap={4} wrap="nowrap" justify="center">
+        <Group gap={6} wrap="nowrap" justify="center" onClick={(e) => e.stopPropagation()}>
             {isRunning ? (
               onCancel && (
                 <ActionIcon
@@ -177,10 +232,11 @@ return
                   onClick={(e) => {
                     e.stopPropagation()
                     if (pipeline) {
-handleCancelRun(pipeline, run)
-}
+                      handleCancelRun(pipeline, run)
+                    }
                   }}
                   title={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
+                  aria-label={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
                   disabled={isCancelling || run.status === 'pending'}
                   style={{
                     backgroundColor: 'transparent',
@@ -204,10 +260,13 @@ handleCancelRun(pipeline, run)
                   onClick={(e) => {
                     e.stopPropagation()
                     if (pipeline) {
-onRerun(pipeline, run)
-}
+                      onRerun(pipeline, run)
+                    }
                   }}
                   title="Rerun workflow"
+                  aria-label="Rerun workflow"
+                  loading={isRerunning}
+                  disabled={isRerunning}
                 >
                   <IconRefresh size={18} />
                 </ActionIcon>
@@ -220,39 +279,54 @@ onRerun(pipeline, run)
               onClick={(e) => {
                 e.stopPropagation()
                 if (pipeline) {
-onViewRun(pipeline.id, run.run_number)
-}
+                  onViewRun(pipeline.id, run.run_number)
+                }
               }}
               title="View details"
+              aria-label="View details"
             >
               <IconFileText size={18} />
             </ActionIcon>
           </Group>
-        </div>
       )
     },
-  }), [cancellingRunNumber, handleCancelRun, onCancel, onRerun, onViewRun, pipeline])
+  }), [cancellingRunNumber, handleCancelRun, onCancel, onRerun, onViewRun, pipeline, rerunLoading])
 
   const additionalColumns = useMemo(() => [actionsColumn], [actionsColumn])
 
   const headerActions = useMemo(() => {
-    if (isMobile || activeTab !== 'history') {
-      return undefined
+    const shouldShow = !isMobile && activeTab === 'history'
+    const isLoading = isLoadingPipeline || !pipeline
+
+    if (isLoading && shouldShow) {
+      return (
+        <Box style={{ minWidth: 'fit-content' }}>
+          <Skeleton height="1.75rem" width="144px" radius="sm" />
+        </Box>
+      )
     }
 
     return (
-      <Button
-        variant="light"
-        size="xs"
-        leftSection={<IconAdjustments size={14} />}
-        onClick={() => setCustomizeModalOpened(true)}
+      <Box
+        style={{
+          visibility: shouldShow ? 'visible' : 'hidden',
+          minWidth: 'fit-content',
+        }}
       >
-        Customize Columns
-      </Button>
+        <Button
+          variant="light"
+          size="xs"
+          leftSection={<IconAdjustments size={14} />}
+          onClick={openCustomizeModal}
+          disabled={!shouldShow}
+          tabIndex={shouldShow ? 0 : -1}
+        >
+          Customize Columns
+        </Button>
+      </Box>
     )
-  }, [isMobile, activeTab])
+  }, [isMobile, activeTab, openCustomizeModal, isLoadingPipeline, pipeline])
 
-  // Load columns from schema
   const { columns, allColumns } = useTableColumns(
     pipeline?.provider_id,
     'pipeline_runs',
@@ -260,133 +334,115 @@ onViewRun(pipeline.id, run.run_number)
     columnPreferences
   )
 
-  // Extract unique values for filters
-  const branches = useMemo(() => {
-    return Array.from(new Set(runs.map((r) => r.branch).filter((b): b is string => !!b)))
+  const safeRuns = useMemo(() => {
+    return runs && Array.isArray(runs) ? runs : []
   }, [runs])
+
+  const branches = useMemo(() => {
+    if (!safeRuns || !Array.isArray(safeRuns)) {
+return []
+}
+    
+return Array.from(new Set(safeRuns.map((r) => r.branch).filter((b): b is string => !!b)))
+  }, [safeRuns])
 
   const actors = useMemo(() => {
-    return Array.from(new Set(runs.map((r) => r.actor).filter((a): a is string => !!a)))
-  }, [runs])
-
-  const loadRuns = async (showLoading = true, targetPage = page, clearCache = false) => {
-    if (!pipeline) {
-      setRuns([])
-      setTotalCount(0)
-      setTotalPages(0)
-      setHasMore(false)
-      setIsComplete(false)
-
-return
-    }
-
-    try {
-      // Clear cache if requested (for manual refresh)
-      if (clearCache) {
-        await tauriService.clearRunHistoryCache(pipeline.id)
-      }
-
-      // Show full loading only on initial load
-      if (showLoading && initialLoad) {
-        setLoading(true)
-        if (onLoadingChange) {
-onLoadingChange(true)
+    if (!safeRuns || !Array.isArray(safeRuns)) {
+return []
 }
-      } else if (showLoading) {
-        // Show small page loading indicator for page changes
-        setPageLoading(true)
-        if (onLoadingChange) {
-onLoadingChange(true)
-}
-      }
+    
+return Array.from(new Set(safeRuns.map((r) => r.actor).filter((a): a is string => !!a)))
+  }, [safeRuns])
 
-      const data = await tauriService.fetchRunHistory(pipeline.id, targetPage, PAGE_SIZE)
+  const previousPipelineIdRef = useRef<string | null>(null)
 
-      setRuns(data.runs)
-      setTotalCount(data.total_count)
-      setTotalPages(data.total_pages)
-      setHasMore(data.has_more)
-      setIsComplete(data.is_complete)
-    } catch (error: any) {
-      const errorMsg = error?.error || error?.message || 'Failed to load run history'
-
-      console.error('Failed to load run history:', errorMsg)
-      setRuns([])
-      setTotalCount(0)
-      setTotalPages(0)
-      setHasMore(false)
-      setIsComplete(false)
-    } finally {
-      setLoading(false)
-      setPageLoading(false)
-      if (onLoadingChange) {
-onLoadingChange(false)
-}
-      if (initialLoad) {
-        setInitialLoad(false)
-      }
-    }
-  }
 
   useEffect(() => {
-    setInitialLoad(true)
-    setPage(1)
-    loadRuns(true, 1)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipeline])
+    const pipelineChanged = previousPipelineIdRef.current !== null &&
+                           previousPipelineIdRef.current !== pipeline?.id
+
+    if (pipelineChanged) {
+      setAccumulatedRuns([])
+      if (page !== 1) {
+        setFilter('page', 1)
+      }
+    }
+
+    previousPipelineIdRef.current = pipeline?.id || null
+  }, [pipeline?.id, page, setFilter])
 
   useEffect(() => {
-    if (refreshTrigger !== undefined && refreshTrigger > 0) {
-      loadRuns(true, page, true)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshTrigger])
+    if (refreshTrigger !== undefined && refreshTrigger > 0 && pipeline?.id) {
+      const currentRefresh = refreshCounterRef.current
 
-  // Fetch data when page changes
-  useEffect(() => {
-    if (!initialLoad && pipeline) {
-      loadRuns(false)
+      if (refreshTrigger > currentRefresh) {
+        refreshCounterRef.current = refreshTrigger
+        clearCacheMutation.mutateAsync(pipeline.id).then(() => {
+          refetchRuns()
+        })
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page])
+  }, [refreshTrigger, pipeline?.id, clearCacheMutation, refetchRuns])
 
   useEffect(() => {
     if (!pipeline) {
+      return
+    }
+
+    let mounted = true
+    const unlisteners: Array<() => void> = []
+
+    const setupListeners = async () => {
+      const unlisten1 = await events.listen<string>('run-triggered', (payload) => {
+        if (mounted && payload === pipeline.id) {
+          setFilter('page', 1)
+          refetchRuns()
+        }
+      })
+
+      if (!mounted) {
+        try {
+ unlisten1() 
+} catch { /* listener already removed */ }
+        
 return
-}
+      }
+      unlisteners.push(unlisten1)
 
-    const unlistenPromises: Promise<() => void>[] = []
-
-    unlistenPromises.push(
-      listen<string>('run-triggered', (event) => {
-        if (event.payload === pipeline.id) {
-          console.log('[RunHistory] Detected new run for pipeline:', pipeline.id)
-          setPage(1)
-          loadRuns(false, 1)
+      const unlisten2 = await events.listen<string>('run-cancelled', (payload) => {
+        if (mounted && payload === pipeline.id) {
+          refetchRuns()
         }
       })
-    )
 
-    unlistenPromises.push(
-      listen<string>('run-cancelled', (event) => {
-        if (event.payload === pipeline.id) {
-          console.log('[RunHistory] Detected cancelled run for pipeline:', pipeline.id)
-          loadRuns(false, page)
-        }
-      })
-    )
+      if (!mounted) {
+        try {
+ unlisten2() 
+} catch { /* listener already removed */ }
+        
+return
+      }
+      unlisteners.push(unlisten2)
+    }
+
+    setupListeners()
 
     return () => {
-      Promise.all(unlistenPromises).then((unlisteners) => {
-        unlisteners.forEach((unlisten) => unlisten())
+      mounted = false
+      unlisteners.forEach((unlisten) => {
+        try {
+          unlisten()
+        } catch { /* listener may already be removed */ }
       })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipeline?.id])
+  }, [pipeline, refetchRuns, setFilter])
 
   const dateFilteredRuns = useMemo(() => {
+    if (!safeRuns || !Array.isArray(safeRuns)) {
+return []
+}
     if (!dateRange || !dateRange.trim()) {
-return runs
+return safeRuns
 }
 
     const now = new Date()
@@ -409,13 +465,13 @@ return runs
         cutoffDate.setDate(now.getDate() - 90)
         break
       default:
-        return runs
+        return safeRuns
     }
 
-    return runs.filter((run) =>
+    return safeRuns.filter((run) =>
       run.started_at ? new Date(run.started_at) >= cutoffDate : false
     )
-  }, [runs, dateRange])
+  }, [safeRuns, dateRange])
 
   const filteredRuns = useMemo(() => {
     let result = dateFilteredRuns
@@ -445,52 +501,123 @@ return runs
     return result
   }, [dateFilteredRuns, search, statusFilter, branchFilter, actorFilter])
 
-  // Note: Server already sorts by run_number desc, client-side sorting/filtering works on current page only
   const sortedRuns = useMemo(() => {
+    if (!filteredRuns || !Array.isArray(filteredRuns)) {
+return []
+}
     const sorted = [...filteredRuns]
     const { columnAccessor, direction } = sortStatus
 
     sorted.sort((a, b) => {
-      let aVal: any = a[columnAccessor as keyof PipelineRun]
-      let bVal: any = b[columnAccessor as keyof PipelineRun]
+      let aVal: unknown = a[columnAccessor as keyof PipelineRun]
+      let bVal: unknown = b[columnAccessor as keyof PipelineRun]
 
       if (columnAccessor === 'started_at' || columnAccessor === 'concluded_at') {
-        aVal = aVal ? new Date(aVal).getTime() : 0
-        bVal = bVal ? new Date(bVal).getTime() : 0
+        aVal = aVal ? new Date(aVal as string | number | Date).getTime() : 0
+        bVal = bVal ? new Date(bVal as string | number | Date).getTime() : 0
       }
 
       if (aVal === null || aVal === undefined) {
-aVal = ''
-}
+        aVal = ''
+      }
       if (bVal === null || bVal === undefined) {
-bVal = ''
-}
+        bVal = ''
+      }
 
-      if (typeof aVal === 'string') {
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
         return direction === 'asc'
           ? aVal.localeCompare(bVal)
           : bVal.localeCompare(aVal)
       }
 
-      return direction === 'asc' ? aVal - bVal : bVal - aVal
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return direction === 'asc' ? aVal - bVal : bVal - aVal
+      }
+
+      return 0
     })
 
     return sorted
   }, [filteredRuns, sortStatus])
 
+  const mobileRuns = useMemo(() => {
+    if (!isMobile) {
+return sortedRuns
+}
+
+    let result = [...accumulatedRuns]
+
+    if (dateRange && dateRange.trim()) {
+      const now = new Date()
+      const cutoffDate = new Date()
+
+
+      switch (dateRange) {
+        case 'today':
+          cutoffDate.setHours(0, 0, 0, 0)
+          break
+        case '24h':
+          cutoffDate.setHours(now.getHours() - 24)
+          break
+        case '7d':
+          cutoffDate.setDate(now.getDate() - 7)
+          break
+        case '30d':
+          cutoffDate.setDate(now.getDate() - 30)
+          break
+        case '90d':
+          cutoffDate.setDate(now.getDate() - 90)
+          break
+      }
+      result = result.filter(run => run.started_at ? new Date(run.started_at) >= cutoffDate : false)
+    }
+
+    if (search) {
+      result = result.filter(run =>
+        run.branch?.toLowerCase().includes(search.toLowerCase()) ||
+        run.commit_sha?.toLowerCase().includes(search.toLowerCase()) ||
+        run.commit_message?.toLowerCase().includes(search.toLowerCase()) ||
+        run.actor?.toLowerCase().includes(search.toLowerCase())
+      )
+    }
+
+    if (statusFilter) {
+result = result.filter(run => run.status === statusFilter)
+}
+    if (branchFilter) {
+result = result.filter(run => run.branch === branchFilter)
+}
+    if (actorFilter) {
+result = result.filter(run => run.actor === actorFilter)
+}
+
+    return result
+  }, [isMobile, accumulatedRuns, sortedRuns, search, statusFilter, branchFilter, actorFilter, dateRange])
+
   const renderMobileCards = () => {
     return (
-      <Stack gap="sm">
-        {sortedRuns.map((run) => {
+      <Stack gap="md">
+        {mobileRuns.map((run) => {
           const isRunning = run.status === 'running' || run.status === 'pending'
           const isCancelling = cancellingRunNumber === run.run_number
 
           return (
             <Card
               key={run.run_number}
-              padding="md"
+              padding="lg"
               withBorder
-              style={{ cursor: 'pointer' }}
+              style={{
+                cursor: 'pointer',
+                transition: 'all 150ms ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)'
+                e.currentTarget.style.transform = 'translateY(-2px)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = ''
+                e.currentTarget.style.transform = ''
+              }}
               onClick={() => onViewRun(pipeline!.id, run.run_number)}
             >
               <Stack gap="xs">
@@ -514,6 +641,7 @@ bVal = ''
                           }}
                           disabled={isCancelling || run.status === 'pending'}
                           title={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
+                          aria-label={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
                           style={{
                             backgroundColor: 'transparent',
                             cursor: (isCancelling || run.status === 'pending') ? 'not-allowed' : 'pointer',
@@ -537,6 +665,8 @@ bVal = ''
                             e.stopPropagation()
                             onRerun(pipeline!, run)
                           }}
+                          title="Rerun workflow"
+                          aria-label="Rerun workflow"
                         >
                           <IconRefresh size={18} />
                         </ActionIcon>
@@ -550,13 +680,15 @@ bVal = ''
                         e.stopPropagation()
                         onViewRun(pipeline!.id, run.run_number)
                       }}
+                      title="View details"
+                      aria-label="View details"
                     >
                       <IconFileText size={18} />
                     </ActionIcon>
                   </Group>
                 </Group>
 
-                <Group gap="md" wrap="nowrap" align="flex-start">
+                <Group gap="lg" wrap="nowrap" align="flex-start">
                   <Box style={{ flex: 1, minWidth: 0 }}>
                     <Group gap={4} wrap="nowrap">
                       <IconGitBranch size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
@@ -573,7 +705,7 @@ bVal = ''
                   </Box>
                 </Group>
 
-                <Group gap="md" wrap="nowrap" align="flex-start">
+                <Group gap="lg" wrap="nowrap" align="flex-start">
                   <Box style={{ flex: 1, minWidth: 0 }}>
                     <Group gap={4} wrap="nowrap">
                       <IconClock size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
@@ -602,53 +734,49 @@ bVal = ''
             </Card>
           )
         })}
-        {/* Mobile pagination info */}
-        <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center" py="sm">
-          Page {page} of {totalPages} ({isComplete ? `${totalCount}` : `${totalCount}+`} runs)
-        </Text>
-        {totalPages > 1 && (
-          <Group justify="center" gap="sm">
-            <ActionIcon
-              variant="light"
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1 || pageLoading}
-            >
-              ←
-            </ActionIcon>
-            <Text size="sm">{page}</Text>
-            <ActionIcon
-              variant="light"
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages || pageLoading}
-            >
-              →
-            </ActionIcon>
-          </Group>
-        )}
+        <Box ref={loadMoreRef} py="md">
+          {pageLoading && hasMore && (
+            <Center><Loader size="sm" /></Center>
+          )}
+          {!hasMore && mobileRuns.length > 0 && (
+            <Text size="sm" c="dimmed" ta="center">
+              {isComplete ? `All ${totalCount} runs` : `${totalCount}+ runs`}
+            </Text>
+          )}
+        </Box>
       </Stack>
     )
   }
 
-  if (!pipeline) {
-    return (
-      <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }}>
-        <Center py="xl">
-          <Loader size="lg" />
-        </Center>
-      </Container>
-    )
-  }
-
   return (
-    <Container size="100%" pt={{ base: 'xs', sm: 'sm' }} pb={{ base: 'xs', sm: '2xl' }} px={{ base: 'xs', sm: 'xl' }} style={{ maxWidth: '100%' }}>
+    <Box
+      pt={{ base: 0, sm: 'sm' }}
+      pb={{ base: 0, sm: 'md' }}
+      px={{ base: 'xs', sm: 'xl' }}
+      style={{
+        width: '100%',
+        maxWidth: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        minHeight: 0,
+        background: 'var(--mantine-color-body)',
+      }}
+    >
       <PageHeader
-        title={pipeline.name}
+        title={
+          !isLoadingPipeline && pipeline?.name ? (
+            pipeline.name
+          ) : (
+            <Skeleton height="1.5rem" width="min(250px, 60vw)" />
+          )
+        }
         onBack={onBack}
         actions={headerActions}
       />
 
       <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'history')}>
-        <Tabs.List mb="xs">
+        <Tabs.List mb="md" style={{ minHeight: '2.5rem' }}>
           <Tabs.Tab value="history" leftSection={<IconHistory size={16} />}>
             Run History
           </Tabs.Tab>
@@ -657,81 +785,118 @@ bVal = ''
           </Tabs.Tab>
         </Tabs.List>
 
-        <Tabs.Panel value="history">
-          {loading || !preferencesLoaded ? (
+        <Tabs.Panel value="history" style={{ width: '100%', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          {isLoadingPipeline || loading || !preferencesLoaded || !pipeline?.id ? (
             <Center py="xl">
               <Loader size="lg" />
             </Center>
           ) : (
             <>
-              <FilterBar
-            filters={{
-              search: {
-                value: search,
-                onChange: setSearch,
-                placeholder: 'Search runs...',
-              },
-              status: {
-                value: statusFilter,
-                onChange: setStatusFilter,
-              },
-              branch: {
-                value: branchFilter,
-                onChange: setBranchFilter,
-                options: branches,
-              },
-              actor: {
-                value: actorFilter,
-                onChange: setActorFilter,
-                options: actors,
-              },
-              dateRange: {
-                value: dateRange,
-                onChange: setDateRange,
-              },
-            }}
-          />
+              <Group justify="space-between" align="flex-start" wrap="nowrap">
+                <FilterBar
+                  filters={{
+                    search: {
+                      value: search,
+                      onChange: (value) => setFilter('search', value),
+                      placeholder: 'Search runs...',
+                    },
+                    status: {
+                      value: statusFilter,
+                      onChange: (value) => setFilter('status', value),
+                    },
+                    branch: {
+                      value: branchFilter,
+                      onChange: (value) => setFilter('branch', value),
+                      options: branches,
+                    },
+                    actor: {
+                      value: actorFilter,
+                      onChange: (value) => setFilter('actor', value),
+                      options: actors,
+                    },
+                    dateRange: {
+                      value: dateRange,
+                      onChange: (value) => setFilter('dateRange', value),
+                    },
+                  }}
+                />
+                {isError && (
+                  <Button
+                    size="xs"
+                    variant="light"
+                    color="red"
+                    leftSection={<IconRefresh size={14} />}
+                    onClick={() => refetchRuns()}
+                  >
+                    Retry
+                  </Button>
+                )}
+              </Group>
 
           {isMobile ? (
             renderMobileCards()
           ) : (
-            <StandardTable<PipelineRun>
+            <Box style={{
+              height: 'calc(100vh - var(--app-shell-header-height, 70px) - 220px)',
+              minHeight: '400px',
+              position: 'relative'
+            }}>
+              <StandardTable<PipelineRun>
               records={sortedRuns}
               onRowClick={({ record }) => onViewRun(pipeline!.id, record.run_number)}
               rowStyle={() => ({ cursor: 'pointer' })}
               columns={columns}
               sortStatus={sortStatus}
               onSortStatusChange={setSortStatus}
-              noRecordsText={runs.length === 0 ? 'No runs found' : 'No matching runs'}
-              totalRecords={totalPages * PAGE_SIZE}
+              fetching={pageLoading}
+              noRecordsText={
+                pageLoading
+                  ? ''
+                  : isError
+                    ? 'Failed to load runs. Click refresh to retry.'
+                    : safeRuns.length === 0
+                      ? 'No runs found'
+                      : 'No matching runs'
+              }
+              totalRecords={effectiveTotalRecords}
               recordsPerPage={PAGE_SIZE}
               page={page}
-              onPageChange={setPage}
+              onPageChange={(p) => setFilter('page', p)}
               paginationText={({ from, to }) =>
                 pageLoading
                   ? 'Loading...'
-                  : `Showing ${from}-${to} of ${isComplete ? totalCount : `${totalCount}+`} runs`
+                  : isError
+                    ? 'Error loading runs - use pagination to retry'
+                    : isComplete
+                      ? `Showing ${from}-${to} of ${totalCount} runs`
+                      : `Showing ${from}-${to} runs`
               }
             />
+            </Box>
           )}
             </>
           )}
         </Tabs.Panel>
 
-        <Tabs.Panel value="metrics">
-          <PipelineMetricsView
-            pipelineId={pipeline.id}
-            pipelineName={pipeline.name}
-            repository={pipeline.repository}
-            refreshTrigger={refreshTrigger}
-          />
+        <Tabs.Panel value="metrics" style={{ width: '100%' }}>
+          {isLoadingPipeline || !pipeline ? (
+            <Center py="xl">
+              <Loader size="lg" />
+            </Center>
+          ) : (
+            <PipelineMetricsView
+              pipelineId={pipeline.id}
+              pipelineName={pipeline.name}
+              repository={pipeline.repository}
+              refreshTrigger={refreshTrigger}
+            />
+          )}
         </Tabs.Panel>
       </Tabs>
 
-      {/* Table Customization Modal */}
       <TableCustomizationModal
         opened={customizeModalOpened}
-        onClose={() => setCustomizeModalOpened(false)}
+        onClose={closeCustomizeModal}
         columns={allColumns}
         visibleColumns={columns}
         currentOrder={columnPreferences.columnOrder}
@@ -749,6 +914,6 @@ bVal = ''
           }
         }
       `}</style>
-    </Container>
+    </Box>
   )
 }

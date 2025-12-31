@@ -9,7 +9,6 @@ pub fn create_table_schema() -> schema::TableSchema {
 fn create_pipeline_runs_table() -> schema::TableDefinition {
     let mut table = pipedash_plugin_api::defaults::default_pipeline_runs_table();
 
-    // Insert at index 1 to show workspace early (after pipeline_id)
     table.columns.insert(1, create_workspace_column());
     table.columns.push(create_selector_column());
 

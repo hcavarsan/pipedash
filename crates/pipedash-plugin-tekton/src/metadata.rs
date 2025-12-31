@@ -1,8 +1,3 @@
-//! Tekton CD plugin metadata
-//!
-//! This module contains plugin metadata, configuration schema, and
-//! capabilities.
-
 use pipedash_plugin_api::*;
 
 use crate::{
@@ -10,17 +5,9 @@ use crate::{
     schema,
 };
 
-/// Validates comma-separated K8s namespace names
 const NAMESPACE_LIST_REGEX: &str =
     r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\s*,\s*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$";
 
-/// Creates the plugin metadata for Tekton CD
-///
-/// This includes:
-/// - Basic plugin information (name, version, description)
-/// - Configuration schema (kubeconfig path and context)
-/// - Table schema (from schema module)
-/// - Plugin capabilities
 pub fn create_metadata() -> PluginMetadata {
     PluginMetadata {
         name: "Tekton CD".to_string(),
@@ -37,12 +24,6 @@ pub fn create_metadata() -> PluginMetadata {
     }
 }
 
-/// Creates the configuration schema for Tekton CD
-///
-/// Defines two fields:
-/// - `kubeconfig_path`: Path to Kubernetes config file(s) (optional, uses
-///   $KUBECONFIG)
-/// - `context`: Kubernetes context to use (optional, uses current-context)
 fn create_config_schema() -> ConfigSchema {
     let default_kubeconfig = config::get_default_kubeconfig_path();
 
@@ -110,12 +91,6 @@ fn create_config_schema() -> ConfigSchema {
         })
 }
 
-/// Creates the plugin capabilities
-///
-/// Tekton supports:
-/// - Pipelines
-/// - Pipeline runs
-/// - Triggering pipeline runs
 fn create_capabilities() -> PluginCapabilities {
     PluginCapabilities {
         pipelines: true,

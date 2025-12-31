@@ -72,7 +72,6 @@ pub struct PipelineState {
     pub name: String,
     #[serde(default)]
     pub result: Option<PipelineResult>,
-    /// Present when IN_PROGRESS but paused for manual approval
     #[serde(default)]
     pub stage: Option<PipelineStateStage>,
 }
@@ -135,7 +134,6 @@ pub struct PipelineStep {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineStepState {
     pub name: String,
-    /// Present when PENDING and waiting for manual trigger
     #[serde(default)]
     pub stage: Option<PipelineStepStage>,
 }

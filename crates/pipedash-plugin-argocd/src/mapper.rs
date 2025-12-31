@@ -13,7 +13,6 @@ use crate::{
     types,
 };
 
-/// Map ArgoCD sync and health status to PipelineStatus
 pub(crate) fn map_status(
     sync_status: &str, health_status: &str, operation_phase: Option<&str>,
 ) -> PipelineStatus {
@@ -38,7 +37,6 @@ pub(crate) fn map_status(
     }
 }
 
-/// Map ArgoCD Application to Pipedash Pipeline
 pub(crate) fn map_application_to_pipeline(
     app: &types::Application, provider_id: i64, _server_url: &str,
 ) -> Pipeline {
@@ -67,7 +65,6 @@ pub(crate) fn map_application_to_pipeline(
         .and_then(|op| op.finished_at)
         .or(app.metadata.creation_timestamp);
 
-    // Build metadata with ArgoCD-specific fields
     let mut metadata = HashMap::new();
     metadata.insert(
         "sync_status".to_string(),
@@ -136,7 +133,6 @@ pub(crate) fn map_application_to_pipeline(
         metadata.insert("health_message".to_string(), serde_json::json!(health_msg));
     }
 
-    // Count out of sync resources
     let out_of_sync_count = app
         .status
         .resources
@@ -152,7 +148,6 @@ pub(crate) fn map_application_to_pipeline(
         serde_json::json!(out_of_sync_count),
     );
 
-    // Calculate resource health summary (e.g., "5/7 healthy")
     let total_resources = app.status.resources.len();
     let healthy_resources = app
         .status
@@ -169,7 +164,6 @@ pub(crate) fn map_application_to_pipeline(
         serde_json::json!(format!("{}/{} healthy", healthy_resources, total_resources)),
     );
 
-    // Last sync time from most recent history entry
     if let Some(history) = app.status.history.as_ref() {
         if let Some(last_sync) = history.first() {
             metadata.insert(
@@ -179,7 +173,6 @@ pub(crate) fn map_application_to_pipeline(
         }
     }
 
-    // Detect source type (Helm, Kustomize, or Plain manifests)
     let source_type = if app.spec.source.chart.is_some() {
         "Helm"
     } else if let Some(ref path) = app.spec.source.path {
@@ -193,7 +186,6 @@ pub(crate) fn map_application_to_pipeline(
     };
     metadata.insert("source_type".to_string(), serde_json::json!(source_type));
 
-    // Parse repository URL to get org/repo format
     let repository = config::parse_repository_name(&app.spec.source.repo_url);
 
     Pipeline {
@@ -211,7 +203,6 @@ pub(crate) fn map_application_to_pipeline(
     }
 }
 
-/// Map ArgoCD RevisionHistory to PipelineRun
 pub(crate) fn map_history_to_run(
     history: &types::RevisionHistory, app: &types::Application, provider_id: i64, server_url: &str,
 ) -> PipelineRun {
@@ -271,7 +262,6 @@ pub(crate) fn map_history_to_run(
         serde_json::json!(app.status.health.status),
     );
 
-    // Destination information
     metadata.insert(
         "destination_namespace".to_string(),
         serde_json::json!(app.spec.destination.namespace),
@@ -362,19 +352,15 @@ pub(crate) fn map_operation_to_run(
         serde_json::json!(app.status.health.status),
     );
 
-    // Destination
     metadata.insert(
         "destination_namespace".to_string(),
         serde_json::json!(app.spec.destination.namespace),
     );
 
-    // Source path
     if let Some(ref path) = app.spec.source.path {
         metadata.insert("source_path".to_string(), serde_json::json!(path));
     }
 
-    // Use timestamp as run_number for consistent sorting with history
-    // Current operations use started_at timestamp to sort chronologically
     let run_number = operation_state.started_at.timestamp();
 
     Some(PipelineRun {
@@ -395,7 +381,6 @@ pub(crate) fn map_operation_to_run(
     })
 }
 
-/// Map Application to AvailablePipeline (for pipeline discovery)
 pub(crate) fn map_available_pipeline(app: &types::Application) -> AvailablePipeline {
     let app_name = app.metadata.name.clone();
     let project_name = app.spec.project.clone();

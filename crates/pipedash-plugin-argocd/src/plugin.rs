@@ -69,6 +69,7 @@ impl Plugin for ArgocdPlugin {
 
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
+        http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
         info!(provider_id, "Initializing ArgoCD plugin");
         debug!(config_keys = ?config.keys().collect::<Vec<_>>());
@@ -84,12 +85,10 @@ impl Plugin for ArgocdPlugin {
             warn!("Insecure TLS mode enabled - certificate verification disabled");
         }
 
-        // Parse Git organizations filter if present
         let organizations_filter = config::parse_organizations_filter(&config);
         debug!(?organizations_filter, "Organizations filter configured");
 
-        // Create the ArgoCD client
-        let client = client::ArgocdClient::new(server_url.clone(), token, insecure)?;
+        let client = client::ArgocdClient::new(http_client, server_url.clone(), token, insecure)?;
         debug!("ArgoCD client created successfully");
 
         self.client = Some(client);
@@ -548,7 +547,7 @@ impl Plugin for ArgocdPlugin {
             let token = config::get_token(config)?;
             let insecure = config::is_insecure(config);
 
-            let temp_client = client::ArgocdClient::new(server_url, token, insecure)?;
+            let temp_client = client::ArgocdClient::new(None, server_url, token, insecure)?;
 
             let apps = temp_client.list_applications(None).await?;
 

@@ -1,8 +1,3 @@
-//! K8s client for Tekton resources. Supports two namespace discovery modes:
-//! - "all": lists cluster namespaces, filters for ones with pipelines (needs
-//!   cluster-wide perms)
-//! - "custom": uses manually specified namespaces (works with limited perms)
-
 use std::path::PathBuf;
 
 use kube::Client;
@@ -134,7 +129,6 @@ impl TektonClient {
             .await
     }
 
-    /// Lists namespaces cluster-wide
     pub async fn try_list_namespaces_cluster_wide(&self) -> PluginResult<Vec<String>> {
         use kube::api::{
             Api,
@@ -166,7 +160,6 @@ impl TektonClient {
         }
     }
 
-    /// Filters namespaces to ones with pipelines
     async fn filter_namespaces_with_pipelines(&self, namespaces: &[String]) -> Vec<String> {
         use futures::future::join_all;
 

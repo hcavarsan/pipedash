@@ -1,0 +1,13 @@
+
+export const API_TIMEOUTS = {
+  DEFAULT: 30000,
+
+  SHORT: 10000,
+
+  LONG: 90000,
+
+  EXTENDED: 120000,
+
+  UPLOAD: 60000,
+} as const
+

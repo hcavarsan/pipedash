@@ -3,6 +3,9 @@ name = "pipedash-plugin-api"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+description = "Plugin API for Pipedash - CI/CD pipeline dashboard"
+license = "GPL-3.0"
+repository = "https://github.com/hcavarsan/pipedash"
 
 [dependencies]
 async-trait.workspace = true
@@ -11,3 +14,4 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
+reqwest = { workspace = true, features = ["json"] }

@@ -1,5 +1,3 @@
-//! Configuration parsing for Jenkins plugin
-
 use std::collections::HashMap;
 
 use pipedash_plugin_api::{
@@ -7,7 +5,6 @@ use pipedash_plugin_api::{
     PluginResult,
 };
 
-/// Parses the selected items from config
 pub(crate) fn parse_selected_items(config: &HashMap<String, String>) -> PluginResult<Vec<String>> {
     let selected_items = config
         .get("selected_items")
@@ -20,14 +17,10 @@ pub(crate) fn parse_selected_items(config: &HashMap<String, String>) -> PluginRe
         .collect())
 }
 
-/// Encodes job name for Jenkins URL format
-///
-/// Jenkins uses `/job/` separators in URLs for nested jobs
 pub(crate) fn encode_job_name(name: &str) -> String {
     name.replace('/', "/job/")
 }
 
-/// Splits job path into organization and repository
 pub(crate) fn split_job_path(job_path: &str) -> (String, String) {
     if let Some(slash_pos) = job_path.find('/') {
         let org = &job_path[..slash_pos];

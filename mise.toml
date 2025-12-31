@@ -1,162 +1,207 @@
 [tools]
-"rust" = { version = "nightly", components = "rust-src,llvm-tools,clippy,rustfmt" }
+rust = { version = "nightly", components = "rust-src,llvm-tools,clippy,rustfmt,rustc-dev" }
 node = "24"
 bun = "latest"
 
-[tasks.install]
-description = "Install all dependencies"
-run = "bun install"
+[env]
+RUST_LOG = "debug"
 
-[tasks."install:ios"]
-description = "Initialize iOS development (requires Xcode)"
-run = "bun run tauri ios init"
-
-[tasks."install:android"]
-description = "Initialize Android development (requires Android SDK)"
-run = "bun run tauri android init"
+# ------------------------------------------------------------------------------
+# Development
+# ------------------------------------------------------------------------------
 
 [tasks.dev]
-description = "Start full Tauri development mode"
-run = "bun run tauri dev"
+description = "Full-stack with hot reload"
+run = """
+bunx concurrently --kill-others --names 'BACK,FRONT' -c 'magenta,cyan' \
+  'cargo watch -w crates -x \"run -p pipedash-web\"' \
+  'bunx wait-on http://localhost:8080/api/health --timeout 120000 && bun run dev'
+"""
 
 [tasks."dev:front"]
-description = "Start frontend development server only"
+description = "Frontend only"
 run = "bun run dev"
 
+[tasks."dev:back"]
+description = "Backend only"
+run = "cargo watch -w crates -x 'run -p pipedash-web'"
+
+[tasks."dev:tauri"]
+description = "Desktop app"
+run = "bun run tauri dev"
+
 [tasks."dev:ios"]
-description = "Start iOS development mode"
+description = "iOS app"
 run = "bun run tauri ios dev"
 
 [tasks."dev:android"]
-description = "Start Android development mode"
+description = "Android app"
 run = "bun run tauri android dev"
 
+# ------------------------------------------------------------------------------
+# Build
+# ------------------------------------------------------------------------------
+
 [tasks.build]
-description = "Build full Tauri application for production"
-run = "bun run tauri build -- --features custom-protocol"
+description = "Production binary with embedded frontend"
+depends = ["build:front"]
+run = "cargo build --release -p pipedash-web"
+
+[tasks."build:front"]
+description = "Frontend assets"
+run = "bun run build"
+
+[tasks."build:tauri"]
+description = "Desktop app"
+run = "bun run tauri build"
 
 [tasks."build:ios"]
-description = "Build iOS application"
+description = "iOS app"
 run = "bun run tauri ios build"
 
 [tasks."build:android"]
-description = "Build Android application"
+description = "Android app"
 run = "bun run tauri android build"
 
-[tasks."build:front"]
-description = "Build frontend only"
-run = "bun run build"
-
-[tasks."build:back"]
-description = "Build backend only"
-run = "cargo build --release --workspace"
-
 [tasks."build:analyze"]
-description = "Build frontend with bundle analysis"
+description = "Frontend with bundle analysis"
 run = "ANALYZE=true bun run build"
 
+# ------------------------------------------------------------------------------
+# Code Quality
+# ------------------------------------------------------------------------------
+
 [tasks.check]
-description = "Run all type and syntax checking"
+description = "Type check all"
 depends = ["check:front", "check:back"]
 
 [tasks."check:front"]
-description = "Run frontend TypeScript type checking"
-run = "bun run tsc --noEmit && bun run eslint"
+run = "bun run tsc --noEmit"
 
 [tasks."check:back"]
-description = "Run backend cargo check"
 run = "cargo check --workspace --all-targets --all-features"
 
 [tasks.lint]
-description = "Lint frontend and backend code"
+description = "Lint all"
 depends = ["lint:front", "lint:back"]
 
 [tasks."lint:front"]
-description = "Lint frontend code with ESLint"
-run = "bun run eslint:fix"
-
-[tasks."lint:back"]
-description = "Lint backend code with Clippy"
-run = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
-
-[tasks.format]
-description = "Format frontend and backend code"
-depends = ["format:front", "format:back"]
-
-[tasks."format:front"]
-description = "Format frontend code with ESLint"
-run = "bun run eslint:fix"
-
-[tasks."format:back"]
-description = "Format backend code with rustfmt"
-run = "rustup run nightly cargo fmt --all"
-
-[tasks."format:check"]
-description = "Check formatting without fixing"
-depends = ["format:front:check", "format:back:check"]
-
-[tasks."format:front:check"]
-description = "Check frontend formatting"
 run = "bun run eslint"
 
-[tasks."format:back:check"]
-description = "Check backend formatting"
+[tasks."lint:back"]
+run = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+
+[tasks.fix]
+description = "Auto-fix lint issues"
+depends = ["fix:front", "fix:back"]
+
+[tasks."fix:front"]
+run = "bun run eslint --fix"
+
+[tasks."fix:back"]
+run = "cargo clippy --workspace --all-targets --all-features --fix --allow-dirty"
+
+[tasks.fmt]
+description = "Format all"
+depends = ["fmt:front", "fmt:back"]
+
+[tasks."fmt:front"]
+run = "bun run eslint --fix"
+
+[tasks."fmt:back"]
+run = "cargo +nightly fmt --all"
+
+[tasks."fmt:check"]
+description = "Check formatting"
+depends = ["fmt:front:check", "fmt:back:check"]
+
+[tasks."fmt:front:check"]
+run = "bun run eslint"
+
+[tasks."fmt:back:check"]
 run = "cargo +nightly fmt --all -- --check"
 
-[tasks.knip]
-description = "Detect unused exports and dependencies"
-run = "bun run knip"
-
-[tasks."bump:patch"]
-description = "Bump patch version and commit"
-run = "cd hacks && cargo run --bin bump_version patch && cd .. && cargo update --workspace && git add . && git commit -m 'chore: bump version'"
-
-[tasks."bump:minor"]
-description = "Bump minor version and commit"
-run = "cd hacks && cargo run --bin bump_version minor && cd .. && cargo update --workspace && git add . && git commit -m 'chore: bump version'"
-
-[tasks."bump:major"]
-description = "Bump major version and commit"
-run = "cd hacks && cargo run --bin bump_version major && cd .. && cargo update --workspace && git add . && git commit -m 'chore: bump version'"
-
-[tasks.release]
-description = "Full release workflow"
-run = [
-  "mise run format:check",
-  "mise run lint",
-  "mise run check",
-  "mise run build"
-]
-
-[tasks.icons]
-description = "Generate application icons"
-run = "cargo run --bin generate_icons"
-
-[tasks.deps]
-description = "Update dependencies to latest major versions"
-run = "bunx taze major -I"
-
-[tasks."deps:minor"]
-description = "Update dependencies to latest minor versions"
-run = "bunx taze minor -w"
+# ------------------------------------------------------------------------------
+# CI / Release
+# ------------------------------------------------------------------------------
 
 [tasks.ci]
 description = "Run all CI checks"
-depends = ["format:check", "lint", "check"]
-
-[tasks."ci:front"]
-description = "Run frontend CI checks"
-depends = ["format:front:check", "lint:front", "check:front"]
-
-[tasks."ci:back"]
-description = "Run backend CI checks"
-depends = ["format:back:check", "lint:back", "check:back"]
+depends = ["fmt:check", "lint", "check"]
 
 [tasks.precommit]
-description = "Run pre-commit checks"
-run = [
-  "mise run format",
-  "mise run lint",
-  "mise run check",
-  "git add ."
-]
+description = "Pre-commit hook"
+run = "mise run fmt && mise run lint && mise run check"
+
+[tasks.release]
+description = "Full release build"
+depends = ["ci", "build"]
+
+[tasks."bump:patch"]
+run = "cd hacks && cargo run --bin bump_version patch && cd .. && cargo update --workspace"
+
+[tasks."bump:minor"]
+run = "cd hacks && cargo run --bin bump_version minor && cd .. && cargo update --workspace"
+
+[tasks."bump:major"]
+run = "cd hacks && cargo run --bin bump_version major && cd .. && cargo update --workspace"
+
+# ------------------------------------------------------------------------------
+# Setup
+# ------------------------------------------------------------------------------
+
+[tasks.install]
+description = "Install dependencies"
+run = "bun install"
+
+[tasks."install:ios"]
+description = "Initialize iOS"
+run = "bun run tauri ios init"
+
+[tasks."install:android"]
+description = "Initialize Android"
+run = "bun run tauri android init"
+
+# ------------------------------------------------------------------------------
+# Examples
+# ------------------------------------------------------------------------------
+
+[tasks."examples:sqlite:up"]
+description = "Start SQLite example"
+run = "DOCKER_BUILDKIT=1 docker compose -f examples/sqlite/docker-compose.yml build --progress=plain && docker compose -f examples/sqlite/docker-compose.yml up"
+
+[tasks."examples:sqlite:down"]
+description = "Stop SQLite example"
+run = "docker compose -f examples/sqlite/docker-compose.yml down -v"
+
+[tasks."examples:postgres:up"]
+description = "Start PostgreSQL example"
+run = "DOCKER_BUILDKIT=1 docker compose -f examples/postgres/docker-compose.yml build --progress=plain && docker compose -f examples/postgres/docker-compose.yml up"
+
+[tasks."examples:postgres:down"]
+description = "Stop PostgreSQL example"
+run = "docker compose -f examples/postgres/docker-compose.yml down -v"
+
+# ------------------------------------------------------------------------------
+# Utils
+# ------------------------------------------------------------------------------
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = "cargo clean && rm -rf dist node_modules/.vite"
+
+[tasks.knip]
+description = "Find unused code"
+run = "bun run knip"
+
+[tasks.icons]
+description = "Generate app icons"
+run = "cargo run --bin generate_icons"
+
+[tasks.deps]
+description = "Update dependencies (major)"
+run = "bunx taze major -I"
+
+[tasks."deps:minor"]
+description = "Update dependencies (minor)"
+run = "bunx taze minor -w"

@@ -1,16 +1,9 @@
-//! Jenkins plugin implementation
-
 use std::collections::HashMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::future::join_all;
 use pipedash_plugin_api::*;
-use reqwest::header::{
-    HeaderMap,
-    HeaderValue,
-    AUTHORIZATION,
-};
 
 use crate::{
     client,
@@ -19,7 +12,6 @@ use crate::{
     metadata,
 };
 
-/// Jenkins plugin for monitoring jobs and builds
 pub struct JenkinsPlugin {
     metadata: PluginMetadata,
     client: Option<client::JenkinsClient>,
@@ -58,6 +50,7 @@ impl Plugin for JenkinsPlugin {
 
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
+        http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
         let token = config
             .get("token")
@@ -76,27 +69,26 @@ impl Plugin for JenkinsPlugin {
             )
         );
 
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&auth_header)
-                .map_err(|e| PluginError::InvalidConfig(format!("Invalid auth format: {e}")))?,
-        );
-
         let server_url = config
             .get("server_url")
             .ok_or_else(|| PluginError::InvalidConfig("Missing server_url".to_string()))?
             .trim_end_matches('/')
             .to_string();
 
-        let http_client = reqwest::Client::builder()
-            .default_headers(headers)
-            .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(10))
-            .build()
-            .map_err(|e| PluginError::Internal(format!("Failed to build HTTP client: {e}")))?;
+        let client = http_client.unwrap_or_else(|| {
+            std::sync::Arc::new(
+                reqwest::Client::builder()
+                    .use_rustls_tls()
+                    .pool_max_idle_per_host(10)
+                    .timeout(Duration::from_secs(30))
+                    .connect_timeout(Duration::from_secs(10))
+                    .tcp_keepalive(Duration::from_secs(60))
+                    .build()
+                    .expect("Failed to build HTTP client"),
+            )
+        });
 
-        self.client = Some(client::JenkinsClient::new(http_client, server_url));
+        self.client = Some(client::JenkinsClient::new(client, server_url, auth_header));
         self.provider_id = Some(provider_id);
         self.config = config;
 
@@ -106,30 +98,8 @@ impl Plugin for JenkinsPlugin {
     async fn validate_credentials(&self) -> PluginResult<bool> {
         let client = self.client()?;
 
-        client
-            .retry_policy
-            .retry(|| async {
-                let url = format!("{}/api/json", client.server_url());
-
-                let response =
-                    client.client.get(&url).send().await.map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to connect: {e}"))
-                    })?;
-
-                if response.status().is_success() {
-                    Ok(true)
-                } else if response.status() == 401 || response.status() == 403 {
-                    Err(PluginError::AuthenticationFailed(
-                        "Invalid Jenkins credentials".to_string(),
-                    ))
-                } else {
-                    Err(PluginError::ApiError(format!(
-                        "API error: {}",
-                        response.status()
-                    )))
-                }
-            })
-            .await
+        client.discover_all_jobs().await?;
+        Ok(true)
     }
 
     async fn fetch_available_pipelines(
@@ -307,7 +277,7 @@ impl Plugin for JenkinsPlugin {
         &self, workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {
         let start = std::time::Instant::now();
-        eprintln!("[JENKINS] Fetching parameters for workflow: {workflow_id}");
+        tracing::debug!(workflow_id = %workflow_id, "Fetching Jenkins workflow parameters");
 
         let parts: Vec<&str> = workflow_id.split("__").collect();
         if parts.len() != 3 {
@@ -337,10 +307,10 @@ impl Plugin for JenkinsPlugin {
 
         let parameters = mapper::parameter_definitions_to_workflow_parameters(param_definitions);
 
-        eprintln!(
-            "[JENKINS] Processed {} parameters in {:?}",
-            parameters.len(),
-            start.elapsed()
+        tracing::debug!(
+            count = parameters.len(),
+            elapsed = ?start.elapsed(),
+            "Processed Jenkins workflow parameters"
         );
         Ok(parameters)
     }

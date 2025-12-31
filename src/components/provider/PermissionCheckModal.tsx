@@ -8,7 +8,6 @@ import {
   Divider,
   Group,
   Loader,
-  Modal,
   Stack,
   Text,
   ThemeIcon,
@@ -21,10 +20,8 @@ import {
 } from '@tabler/icons-react'
 
 import type { FeatureAvailability, PermissionStatus, PluginMetadata } from '../../types'
+import { StandardModal } from '../common/StandardModal'
 
-// Helper function to format permission descriptions
-// Converts text like: "Some text 'repo' more text 'workflow' end"
-// Into: ["Some text ", <Code>repo</Code>, " more text ", <Code>workflow</Code>, " end"]
 const formatPermissionDescription = (description: string) => {
   const parts: (string | React.ReactNode)[] = []
   const regex = /'([^']+)'/g
@@ -32,11 +29,9 @@ const formatPermissionDescription = (description: string) => {
   let match
 
   while ((match = regex.exec(description)) !== null) {
-    // Add text before the match
     if (match.index > lastIndex) {
       parts.push(description.substring(lastIndex, match.index))
     }
-    // Add the matched text wrapped in Code component
     parts.push(
       <Code key={`code-${match.index}`} fz="xs">
         {match[1]}
@@ -45,7 +40,6 @@ const formatPermissionDescription = (description: string) => {
     lastIndex = regex.lastIndex
   }
 
-  // Add remaining text after last match
   if (lastIndex < description.length) {
     parts.push(description.substring(lastIndex))
   }
@@ -84,18 +78,11 @@ export const PermissionCheckModal = ({
   )
 
   return (
-    <Modal
+    <StandardModal
       opened={opened}
       onClose={onClose}
       title={modalTitle}
-      size="lg"
-      yOffset="10vh"
-      styles={{
-        body: {
-          maxHeight: '60vh',
-          overflowY: 'auto',
-        },
-      }}
+      loading={loading}
     >
       {loading ? (
         <Group justify="center" py="xl">
@@ -110,10 +97,8 @@ export const PermissionCheckModal = ({
         </Alert>
       ) : status ? (
         <Stack gap="md">
-          {/* Permission List */}
           <Stack gap="sm">
             {status.permissions.map((check) => {
-              // Get features that require this permission
               const featuresForPermission = features.filter((f) =>
                 f.feature.required_permissions.includes(check.permission.name)
               )
@@ -129,7 +114,6 @@ export const PermissionCheckModal = ({
                   }}
                 >
                   <Stack gap="sm">
-                    {/* Permission Header */}
                     <Group justify="space-between" align="flex-start">
                       <Group gap="xs">
                         <Tooltip
@@ -156,15 +140,12 @@ export const PermissionCheckModal = ({
                       </Badge>
                     </Group>
 
-                    {/* Permission Description */}
                     <Text size="xs" c="dimmed">
                       {formatPermissionDescription(check.permission.description)}
                     </Text>
 
-                    {/* Divider before features */}
                     {featuresForPermission.length > 0 && <Divider />}
 
-                    {/* Feature List */}
                     {featuresForPermission.length > 0 && (
                       <Box>
                         <Text size="xs" fw={500} mb={4} c="dimmed">
@@ -189,7 +170,6 @@ export const PermissionCheckModal = ({
               )
             })}
           </Stack>
-
         </Stack>
       ) : !loading && !error ? (
         <Alert icon={<IconAlertCircle size={16} />} color="blue" variant="light">
@@ -209,6 +189,6 @@ export const PermissionCheckModal = ({
           </Stack>
         </Alert>
       ) : null}
-    </Modal>
+    </StandardModal>
   )
 }

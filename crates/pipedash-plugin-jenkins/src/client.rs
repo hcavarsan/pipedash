@@ -1,5 +1,3 @@
-//! Jenkins API client and methods
-
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -20,16 +18,20 @@ use crate::{
 };
 
 pub(crate) struct JenkinsClient {
-    pub(crate) client: Client,
+    http_client: std::sync::Arc<Client>,
     server_url: String,
+    auth_header: String,
     pub(crate) retry_policy: RetryPolicy,
 }
 
 impl JenkinsClient {
-    pub fn new(client: Client, server_url: String) -> Self {
+    pub fn new(
+        http_client: std::sync::Arc<Client>, server_url: String, auth_header: String,
+    ) -> Self {
         Self {
-            client,
+            http_client,
             server_url,
+            auth_header,
             retry_policy: RetryPolicy::default(),
         }
     }
@@ -38,7 +40,6 @@ impl JenkinsClient {
         &self.server_url
     }
 
-    /// Discovers all jobs recursively
     pub async fn discover_all_jobs(&self) -> PluginResult<Vec<types::DiscoveredJob>> {
         let mut all_jobs = Vec::new();
         let mut queue = vec![String::new()];
@@ -71,7 +72,6 @@ impl JenkinsClient {
         Ok(all_jobs)
     }
 
-    /// Fetches jobs in a specific folder
     async fn fetch_jobs_in_folder(&self, folder_path: &str) -> PluginResult<Vec<types::JobItem>> {
         let url = if folder_path.is_empty() {
             format!("{}/api/json?tree=jobs[name,url,_class]", self.server_url)
@@ -84,8 +84,9 @@ impl JenkinsClient {
         };
 
         let response: types::JobsResponse = self
-            .client
+            .http_client
             .get(&url)
+            .header(reqwest::header::AUTHORIZATION, &self.auth_header)
             .send()
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to fetch jobs: {e}")))?
@@ -96,7 +97,6 @@ impl JenkinsClient {
         Ok(response.jobs)
     }
 
-    /// Fetches job details
     pub async fn fetch_job_details(&self, job_path: &str) -> PluginResult<types::Job> {
         let job_path = job_path.to_string();
         self.retry_policy
@@ -108,8 +108,9 @@ impl JenkinsClient {
                 );
 
                 let job: types::Job = self
-                    .client
+                    .http_client
                     .get(&url)
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
                     .timeout(Duration::from_secs(10))
                     .send()
                     .await
@@ -127,9 +128,6 @@ impl JenkinsClient {
             .await
     }
 
-    /// Fetches build details (always fresh, no caching)
-    /// Includes all build information: status, timestamps, actions with
-    /// parameters, git info
     pub async fn fetch_build_details(
         &self, job_path: &str, build_number: i64,
     ) -> PluginResult<types::Build> {
@@ -141,11 +139,12 @@ impl JenkinsClient {
                 self.server_url, encoded_path, build_number
             );
 
-            eprintln!("[JENKINS CLIENT] Fetching build details from: {url}");
+            tracing::debug!(url = %url, "Fetching Jenkins build details");
 
             let response = self
-                .client
+                .http_client
                 .get(&url)
+                .header(reqwest::header::AUTHORIZATION, &self.auth_header)
                 .timeout(Duration::from_secs(10))
                 .send()
                 .await
@@ -154,19 +153,18 @@ impl JenkinsClient {
             let response_text = response.text().await
                 .map_err(|e| PluginError::ApiError(format!("Failed to read response: {e}")))?;
 
-            eprintln!("[JENKINS CLIENT] Raw response: {response_text}");
+            tracing::trace!(response = %response_text, "Jenkins raw response");
 
             let build: types::Build = serde_json::from_str(&response_text)
                 .map_err(|e| PluginError::ApiError(format!("Failed to parse build: {e}")))?;
 
-            eprintln!("[JENKINS CLIENT] Parsed build with {} actions", build.actions.len());
+            tracing::debug!(action_count = build.actions.len(), "Parsed Jenkins build");
 
             Ok(build)
         })
         .await
     }
 
-    /// Fetches build history for a job
     pub async fn fetch_build_history(
         &self, job_path: &str, limit: usize,
     ) -> PluginResult<Vec<types::Build>> {
@@ -177,8 +175,9 @@ impl JenkinsClient {
         );
 
         let response: types::JobBuildsResponse = self
-            .client
+            .http_client
             .get(&url)
+            .header(reqwest::header::AUTHORIZATION, &self.auth_header)
             .send()
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))?
@@ -189,7 +188,6 @@ impl JenkinsClient {
         Ok(response.builds)
     }
 
-    /// Fetches workflow parameters for a job
     pub async fn fetch_job_parameters(
         &self, job_path: &str,
     ) -> PluginResult<types::JobWithParameters> {
@@ -200,11 +198,12 @@ impl JenkinsClient {
                 self.server_url, encoded_path
             );
 
-            eprintln!("[JENKINS] Fetching params from: {url}");
+            tracing::debug!(url = %url, "Fetching Jenkins job parameters");
 
             let response: types::JobWithParameters = self
-                .client
+                .http_client
                 .get(&url)
+                .header(reqwest::header::AUTHORIZATION, &self.auth_header)
                 .timeout(Duration::from_secs(30))
                 .send()
                 .await
@@ -218,7 +217,6 @@ impl JenkinsClient {
         .await
     }
 
-    /// Triggers a build
     pub async fn trigger_build(
         &self, job_path: &str, form_data: Vec<(String, String)>,
     ) -> PluginResult<()> {
@@ -238,25 +236,26 @@ impl JenkinsClient {
                 format!("{}/job/{}/build", self.server_url, encoded_path)
             };
 
-            eprintln!("Triggering Jenkins build - URL: {url}");
-            eprintln!("Form data: {form_data_clone:?}");
+            tracing::debug!(url = %url, "Triggering Jenkins build");
+            tracing::trace!(form_data = ?form_data_clone, "Jenkins build form data");
 
             let response = self
-                .client
+                .http_client
                 .post(&url)
+                .header(reqwest::header::AUTHORIZATION, &self.auth_header)
                 .form(&form_data_clone)
                 .send()
                 .await
                 .map_err(|e| {
                     let error_msg = format!("Failed to trigger build: {e}");
-                    eprintln!("Network error: {error_msg}");
+                    tracing::error!(error = %e, "Jenkins network error");
                     PluginError::ApiError(error_msg)
                 })?;
 
             let status = response.status();
 
             if status.is_success() || status == 201 {
-                eprintln!("Jenkins build triggered successfully");
+                tracing::info!("Jenkins build triggered successfully");
                 Ok(())
             } else {
                 let error_text = response
@@ -264,7 +263,7 @@ impl JenkinsClient {
                     .await
                     .unwrap_or_else(|_| "Unknown error".to_string());
 
-                eprintln!("Jenkins trigger failed - Status: {status}, Error: {error_text}");
+                tracing::error!(status = %status, error = %error_text, "Jenkins trigger failed");
 
                 let params_info = form_data_clone
                     .iter()
@@ -304,26 +303,22 @@ impl JenkinsClient {
         }).await
     }
 
-    /// Fetches a single pipeline with its status
     pub async fn fetch_pipeline(
         &self, provider_id: i64, job_path: String,
     ) -> PluginResult<Pipeline> {
         let pipeline_start = std::time::Instant::now();
-        eprintln!("[JENKINS] Fetching pipeline: {job_path}");
+        tracing::debug!(job_path = %job_path, "Fetching Jenkins pipeline");
 
         let job_start = std::time::Instant::now();
         let job = self.fetch_job_details(&job_path).await?;
-        eprintln!("[JENKINS] Fetched job details in {:?}", job_start.elapsed());
+        tracing::debug!(elapsed = ?job_start.elapsed(), "Fetched Jenkins job details");
 
         let (status, last_run) = if let Some(ref last_build) = job.last_build {
             let build_start = std::time::Instant::now();
             let build = self
                 .fetch_build_details(&job_path, last_build.number)
                 .await?;
-            eprintln!(
-                "[JENKINS] Fetched build details in {:?}",
-                build_start.elapsed()
-            );
+            tracing::debug!(elapsed = ?build_start.elapsed(), "Fetched Jenkins build details");
 
             let build_status = if build.building {
                 pipedash_plugin_api::PipelineStatus::Running
@@ -334,7 +329,7 @@ impl JenkinsClient {
                 .map(|dt| dt.with_timezone(&Utc));
             (build_status, build_time)
         } else {
-            eprintln!("[JENKINS] No last build found");
+            tracing::debug!("No last Jenkins build found");
             (pipedash_plugin_api::PipelineStatus::Pending, None)
         };
 
@@ -345,10 +340,7 @@ impl JenkinsClient {
             format!("{org}/{repo}")
         };
 
-        eprintln!(
-            "[JENKINS] Total pipeline fetch time: {:?}",
-            pipeline_start.elapsed()
-        );
+        tracing::debug!(elapsed = ?pipeline_start.elapsed(), "Total Jenkins pipeline fetch time");
 
         Ok(Pipeline {
             id: format!("jenkins__{provider_id}__{job_path}"),
@@ -365,7 +357,6 @@ impl JenkinsClient {
         })
     }
 
-    /// Cancels a running build
     pub async fn cancel_build(&self, job_path: &str, build_number: i64) -> PluginResult<()> {
         let job_path = job_path.to_string();
 
@@ -377,24 +368,29 @@ impl JenkinsClient {
                     self.server_url, encoded_path, build_number
                 );
 
-                eprintln!("[JENKINS] Cancelling build #{build_number} for job {job_path}");
+                tracing::info!(build_number = build_number, job_path = %job_path, "Cancelling Jenkins build");
 
-                let response =
-                    self.client.post(&url).send().await.map_err(|e| {
+                let response = self
+                    .http_client
+                    .post(&url)
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
+                    .send()
+                    .await
+                    .map_err(|e| {
                         PluginError::ApiError(format!("Failed to cancel build: {e}"))
                     })?;
 
                 let status = response.status();
 
                 if status.is_success() || status == 302 {
-                    eprintln!("[JENKINS] Build #{build_number} cancelled successfully");
+                    tracing::info!(build_number = build_number, "Jenkins build cancelled successfully");
                     Ok(())
                 } else {
                     let error_text = response
                         .text()
                         .await
                         .unwrap_or_else(|_| "Unknown error".to_string());
-                    eprintln!("[JENKINS] Cancel failed - Status: {status}, Error: {error_text}");
+                    tracing::error!(status = %status, error = %error_text, "Jenkins cancel failed");
                     Err(PluginError::ApiError(format!(
                         "Failed to cancel build: HTTP {status}"
                     )))
@@ -403,7 +399,6 @@ impl JenkinsClient {
             .await
     }
 
-    /// Converts discovered jobs to available pipelines
     pub fn discovered_jobs_to_available_pipelines(
         &self, all_jobs: Vec<types::DiscoveredJob>,
     ) -> Vec<AvailablePipeline> {

@@ -1,5 +1,3 @@
-//! API response types for Jenkins API
-
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

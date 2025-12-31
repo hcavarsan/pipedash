@@ -1,5 +1,3 @@
-//! Data mapping utilities for Jenkins
-
 use std::collections::{
     HashMap,
     HashSet,
@@ -15,7 +13,6 @@ use pipedash_plugin_api::{
 
 use crate::types;
 
-/// Maps Jenkins build result to PipelineStatus
 pub(crate) fn map_jenkins_result(result: Option<&str>) -> PipelineStatus {
     match result {
         Some("SUCCESS") => PipelineStatus::Success,
@@ -28,7 +25,6 @@ pub(crate) fn map_jenkins_result(result: Option<&str>) -> PipelineStatus {
     }
 }
 
-/// Converts Jenkins Build to PipelineRun
 pub(crate) fn build_to_pipeline_run(
     build: types::Build, pipeline_id: &str, server_url: &str, encoded_path: &str,
 ) -> PipelineRun {
@@ -64,19 +60,19 @@ pub(crate) fn build_to_pipeline_run(
     let mut inputs: Option<serde_json::Value> = None;
     let mut trigger_cause: Option<String> = None;
 
-    eprintln!(
-        "[MAPPER] Processing build #{} with {} actions",
-        build.number,
-        build.actions.len()
+    tracing::debug!(
+        build_number = build.number,
+        action_count = build.actions.len(),
+        "Processing Jenkins build"
     );
 
     for (idx, action) in build.actions.iter().enumerate() {
-        eprintln!(
-            "[MAPPER] Action #{}: _class={:?}, has {} parameters, has {} causes",
-            idx,
-            action._class,
-            action.parameters.len(),
-            action.causes.len()
+        tracing::trace!(
+            idx = idx,
+            class = ?action._class,
+            param_count = action.parameters.len(),
+            cause_count = action.causes.len(),
+            "Processing Jenkins action"
         );
 
         if let Some(ref revision) = action.last_built_revision {
@@ -93,26 +89,24 @@ pub(crate) fn build_to_pipeline_run(
                 trigger_cause = Some(description.clone());
             }
         }
-        // Extract parameters from ParametersAction
         if !action.parameters.is_empty() {
-            eprintln!(
-                "[MAPPER] Found {} parameters in action",
-                action.parameters.len()
+            tracing::debug!(
+                param_count = action.parameters.len(),
+                "Found Jenkins parameters in action"
             );
             let mut params_map = serde_json::Map::new();
             for param in &action.parameters {
-                eprintln!("[MAPPER] Parameter: {} = {:?}", param.name, param.value);
+                tracing::trace!(name = %param.name, value = ?param.value, "Jenkins parameter");
                 params_map.insert(param.name.clone(), param.value.clone());
             }
             let params_count = params_map.len();
             inputs = Some(serde_json::Value::Object(params_map));
-            eprintln!("[MAPPER] Built inputs map with {params_count} entries");
+            tracing::debug!(count = params_count, "Built Jenkins inputs map");
         }
     }
 
-    eprintln!("[MAPPER] Final inputs: {inputs:?}");
+    tracing::trace!(inputs = ?inputs, "Final Jenkins inputs");
 
-    // Populate Jenkins-specific metadata
     let mut metadata = HashMap::new();
     if let Some(cause) = trigger_cause {
         metadata.insert("trigger_cause".to_string(), serde_json::json!(cause));
@@ -139,7 +133,6 @@ pub(crate) fn build_to_pipeline_run(
     }
 }
 
-/// Converts Jenkins parameter definitions to WorkflowParameters
 pub(crate) fn parameter_definitions_to_workflow_parameters(
     param_definitions: Vec<types::ParameterDefinition>,
 ) -> Vec<WorkflowParameter> {

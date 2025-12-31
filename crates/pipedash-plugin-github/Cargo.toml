@@ -3,15 +3,18 @@ name = "pipedash-plugin-github"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+description = "GitHub Actions plugin for Pipedash"
+license = "GPL-3.0"
+repository = "https://github.com/hcavarsan/pipedash"
 
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
-futures = "0.3"
+futures.workspace = true
 octocrab.workspace = true
 pipedash-plugin-api.workspace = true
 reqwest.workspace = true
-secrecy = "0.10"
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

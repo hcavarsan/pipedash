@@ -1,17 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { toPng } from 'html-to-image'
 
-import { ActionIcon, Button, Group, Menu, Select, Stack } from '@mantine/core'
-import { IconDownload, IconFileTypeCsv, IconPhoto, IconX } from '@tabler/icons-react'
+import { Select, SimpleGrid, Stack } from '@mantine/core'
 import { save } from '@tauri-apps/plugin-dialog'
 import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 
-import { useMetrics } from '../../hooks/useMetrics'
+import { useIsMobile } from '../../hooks/useIsMobile'
+import { useAggregatedMetrics } from '../../queries/useMetricsQueries'
 import type { AggregatedMetrics, AggregationPeriod, AggregationType, MetricType } from '../../types'
+import { displayErrorNotification, displaySuccessNotification } from '../../utils/errorDisplay'
 import { formatDuration } from '../../utils/formatDuration'
 
 import { MetricsChart } from './MetricsChart'
 import { MetricsDataTable } from './MetricsDataTable'
+
+export interface MetricsDetailPageRef {
+  exportPNG: () => Promise<void>
+  exportCSV: () => Promise<void>
+  canExport: boolean
+}
 
 interface MetricsDetailPageProps {
   pipelineId: string
@@ -23,7 +30,6 @@ interface MetricsDetailPageProps {
   initialAggregationType?: AggregationType
   retentionDays?: number
   refreshTrigger?: number
-  onBack: () => void
 }
 
 const DATE_RANGE_OPTIONS = [
@@ -50,14 +56,13 @@ const AGGREGATION_TYPE_OPTIONS = [
 ]
 
 const parseDateRangeToDays = (range: string): number => {
-  const value = parseInt(range)
-
+  const value = parseInt(range, 10)
 
   if (range.endsWith('h')) {
     return value / 24
   }
 
-return value
+  return value
 }
 
 const buildSmartTitle = (repository: string | undefined, pipelineName: string, metricType: MetricType): string => {
@@ -103,7 +108,7 @@ const getDefaultAggregationType = (metricType: MetricType): AggregationType => {
   }
 }
 
-export const MetricsDetailPage = ({
+export const MetricsDetailPage = forwardRef<MetricsDetailPageRef, MetricsDetailPageProps>(({
   pipelineId,
   pipelineName,
   repository,
@@ -113,11 +118,8 @@ export const MetricsDetailPage = ({
   initialAggregationType,
   retentionDays = 7,
   refreshTrigger,
-  onBack,
-}: MetricsDetailPageProps) => {
-  const isMountedRef = useRef(true)
-  const { metricsLoading: loading, queryAggregatedMetrics } = useMetrics()
-  const [data, setData] = useState<AggregatedMetrics | null>(null)
+}, ref) => {
+  const { isMobile } = useIsMobile()
   const [dateRange, setDateRange] = useState(initialDateRange)
   const [aggregationPeriod, setAggregationPeriod] = useState<AggregationPeriod>(initialAggregation)
   const [aggregationType, setAggregationType] = useState<AggregationType>(
@@ -127,78 +129,63 @@ export const MetricsDetailPage = ({
   const chartRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    isMountedRef.current = true
-
-return () => {
-      isMountedRef.current = false
-    }
-  }, [])
-
-  useEffect(() => {
-    if (isMountedRef.current) {
-      setAggregationType(getDefaultAggregationType(metricType))
-    }
+    setAggregationType(getDefaultAggregationType(metricType))
   }, [metricType])
 
-  const loadMetrics = useCallback(async () => {
-    const endDate = new Date()
-    const startDate = new Date()
+  const { startDate, endDate } = useMemo(() => {
+    const end = new Date()
+    const start = new Date()
 
     switch (dateRange) {
       case '24h':
-        startDate.setHours(startDate.getHours() - 24)
+        start.setHours(start.getHours() - 24)
         break
       case '7d':
-        startDate.setDate(startDate.getDate() - 7)
+        start.setDate(start.getDate() - 7)
         break
       case '30d':
-        startDate.setDate(startDate.getDate() - 30)
+        start.setDate(start.getDate() - 30)
         break
       case '90d':
-        startDate.setDate(startDate.getDate() - 90)
+        start.setDate(start.getDate() - 90)
         break
     }
 
-    const result = await queryAggregatedMetrics(
-      metricType,
-      aggregationPeriod,
-      aggregationType,
-      pipelineId,
-      startDate.toISOString(),
-      endDate.toISOString()
-    )
+    return {
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+    }
+  }, [dateRange])
 
-    if (!isMountedRef.current) {
-return
-}
+  const metricsQuery = useAggregatedMetrics({
+    metricType,
+    aggregationPeriod,
+    aggregationType,
+    pipelineId,
+    startDate,
+    endDate,
+  })
 
-    setData(result)
+  useEffect(() => {
+    if (refreshTrigger !== undefined && refreshTrigger > 0) {
+      metricsQuery.refetch()
+    }
+  }, [refreshTrigger, metricsQuery])
+
+  useEffect(() => {
     setSelectedDataPointIndex(null)
-  }, [metricType, aggregationPeriod, aggregationType, pipelineId, dateRange, queryAggregatedMetrics])
-
-  useEffect(() => {
-    if (isMountedRef.current) {
-      loadMetrics()
-    }
-  }, [metricType, dateRange, aggregationPeriod, aggregationType, loadMetrics])
-
-  useEffect(() => {
-    if (refreshTrigger !== undefined && refreshTrigger > 0 && isMountedRef.current) {
-      loadMetrics()
-    }
-  }, [refreshTrigger, loadMetrics])
+  }, [metricsQuery.data])
 
   const fillMissingPeriods = (metrics: AggregatedMetrics): AggregatedMetrics => {
     if (!metrics || metrics.metrics.length === 0) {
-return metrics
-}
+      return metrics
+    }
 
     const result = [...metrics.metrics]
     const period = metrics.aggregation_period
 
     const getNextPeriod = (timestamp: string): Date => {
       const date = new Date(timestamp)
-
 
       switch (period) {
         case 'hourly':
@@ -215,11 +202,10 @@ return metrics
           break
       }
 
-return date
+      return date
     }
 
     const filled: typeof metrics.metrics = []
-
 
     for (let i = 0; i < result.length - 1; i++) {
       filled.push(result[i])
@@ -230,10 +216,9 @@ return date
       while (true) {
         const nextPeriod = getNextPeriod(current.toISOString())
 
-
         if (nextPeriod >= next) {
-break
-}
+          break
+        }
 
         filled.push({
           timestamp: nextPeriod.toISOString(),
@@ -256,9 +241,10 @@ break
   }
 
   const filledData = useMemo(() => {
-    return data ? fillMissingPeriods(data) : null
-  }, [data])
+    return metricsQuery.data ? fillMissingPeriods(metricsQuery.data) : null
+  }, [metricsQuery.data])
 
+  const canExport = !!filledData && !metricsQuery.isLoading
 
   const getAvailableDateRanges = () => {
     return DATE_RANGE_OPTIONS.map((option) => {
@@ -276,10 +262,10 @@ break
     return AGGREGATION_OPTIONS
   }
 
-  const handleExportPNG = async () => {
+  const handleExportPNG = useCallback(async () => {
     if (!chartRef.current || !filledData) {
-return
-}
+      return
+    }
 
     try {
       const computedStyle = window.getComputedStyle(document.body)
@@ -298,7 +284,6 @@ return
       const binaryData = atob(base64Data)
       const bytes = new Uint8Array(binaryData.length)
 
-
       for (let i = 0; i < binaryData.length; i++) {
         bytes[i] = binaryData.charCodeAt(i)
       }
@@ -311,126 +296,102 @@ return
 
       if (filePath) {
         await writeFile(filePath, bytes)
+        displaySuccessNotification('Chart exported as PNG')
       }
     } catch (error) {
-      console.error('Failed to export PNG:', error)
+      displayErrorNotification(error, 'Failed to Export PNG')
     }
-  }
+  }, [filledData, pipelineName, metricType, dateRange])
 
-  const handleExportCSV = async () => {
+  const handleExportCSV = useCallback(async () => {
     if (!filledData) {
-return
-}
-
-    const formatValue = (value: number | null): string => {
-      if (value === null || value === undefined) {
-return ''
-}
-      if (metricType === 'run_duration') {
-return formatDuration(value)
-}
-      if (metricType === 'success_rate') {
-return `${value.toFixed(1)}%`
-}
-
-return value.toFixed(2)
+      return
     }
 
-    const headers = ['Timestamp', 'Date', 'Value', 'Count', 'Min', 'Max', 'Avg']
-    const rows = filledData.metrics.map((m) => [
-      m.timestamp,
-      new Date(m.timestamp).toLocaleString(),
-      formatValue(m.value),
-      m.count.toString(),
-      formatValue(m.min),
-      formatValue(m.max),
-      formatValue(m.avg),
-    ])
+    try {
+      const formatValue = (value: number | null): string => {
+        if (value === null || value === undefined) {
+          return ''
+        }
+        if (metricType === 'run_duration') {
+          return formatDuration(value)
+        }
+        if (metricType === 'success_rate') {
+          return `${value.toFixed(1)}%`
+        }
 
-    const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n')
+        return value.toFixed(2)
+      }
 
-    const fileName = `${pipelineName.replace(/[^a-z0-9]/gi, '_')}_${metricType}_${dateRange}.csv`
-    const filePath = await save({
-      defaultPath: fileName,
-      filters: [{ name: 'CSV File', extensions: ['csv'] }],
-    })
+      const headers = ['Timestamp', 'Date', 'Value', 'Count', 'Min', 'Max', 'Avg']
+      const rows = filledData.metrics.map((m) => [
+        m.timestamp,
+        new Date(m.timestamp).toLocaleString(),
+        formatValue(m.value),
+        m.count.toString(),
+        formatValue(m.min),
+        formatValue(m.max),
+        formatValue(m.avg),
+      ])
 
-    if (filePath) {
-      await writeTextFile(filePath, csvContent)
+      const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n')
+
+      const fileName = `${pipelineName.replace(/[^a-z0-9]/gi, '_')}_${metricType}_${dateRange}.csv`
+      const filePath = await save({
+        defaultPath: fileName,
+        filters: [{ name: 'CSV File', extensions: ['csv'] }],
+      })
+
+      if (filePath) {
+        await writeTextFile(filePath, csvContent)
+        displaySuccessNotification('Data exported as CSV')
+      }
+    } catch (error) {
+      displayErrorNotification(error, 'Failed to Export CSV')
     }
-  }
+  }, [filledData, pipelineName, metricType, dateRange])
+
+  useImperativeHandle(ref, () => ({
+    exportPNG: handleExportPNG,
+    exportCSV: handleExportCSV,
+    canExport,
+  }), [canExport, handleExportPNG, handleExportCSV])
 
   const pageTitle = buildSmartTitle(repository, pipelineName, metricType)
 
   return (
-    <Stack gap="md" pt="xs" pb="md">
-      <Group gap="sm" wrap="nowrap" justify="space-between">
-        <Group gap="sm" wrap="wrap">
-          <Select
-            label="Time Range"
-            value={dateRange}
-            onChange={(value) => setDateRange(value || '7d')}
-            data={getAvailableDateRanges()}
-            w={140}
-          />
-          <Select
-            label="Group By"
-            value={aggregationPeriod}
-            onChange={(value) => setAggregationPeriod((value as AggregationPeriod) || 'daily')}
-            data={getAvailableAggregations()}
-            w={120}
-          />
-          <Select
-            label="Aggregation"
-            value={aggregationType}
-            onChange={(value) => setAggregationType((value as AggregationType) || 'avg')}
-            data={AGGREGATION_TYPE_OPTIONS}
-            w={150}
-          />
-        </Group>
-        <Group gap="xs">
-          <Menu position="bottom-end" shadow="md">
-            <Menu.Target>
-              <Button
-                variant="light"
-                size="xs"
-                leftSection={<IconDownload size={14} />}
-                disabled={!filledData || loading}
-              >
-                Export
-              </Button>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item
-                leftSection={<IconPhoto size={16} />}
-                onClick={handleExportPNG}
-              >
-                Export as PNG
-              </Menu.Item>
-              <Menu.Item
-                leftSection={<IconFileTypeCsv size={16} />}
-                onClick={handleExportCSV}
-              >
-                Export as CSV
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="lg"
-            onClick={onBack}
-            aria-label="Close"
-          >
-            <IconX size={20} />
-          </ActionIcon>
-        </Group>
-      </Group>
+    <Stack gap={isMobile ? 'xs' : 'md'} pt="xs" pb="md">
+      <SimpleGrid cols={isMobile ? 3 : 3} spacing={isMobile ? 'xs' : 'sm'}>
+        <Select
+          label={isMobile ? undefined : 'Time Range'}
+          placeholder={isMobile ? 'Time Range' : undefined}
+          value={dateRange}
+          onChange={(value) => setDateRange(value || '7d')}
+          data={getAvailableDateRanges()}
+          size={isMobile ? 'xs' : 'sm'}
+        />
+        <Select
+          label={isMobile ? undefined : 'Group By'}
+          placeholder={isMobile ? 'Group By' : undefined}
+          value={aggregationPeriod}
+          onChange={(value) => setAggregationPeriod((value as AggregationPeriod) || 'daily')}
+          data={getAvailableAggregations()}
+          size={isMobile ? 'xs' : 'sm'}
+        />
+        <Select
+          label={isMobile ? undefined : 'Aggregation'}
+          placeholder={isMobile ? 'Aggregation' : undefined}
+          value={aggregationType}
+          onChange={(value) => setAggregationType((value as AggregationType) || 'avg')}
+          data={AGGREGATION_TYPE_OPTIONS}
+          size={isMobile ? 'xs' : 'sm'}
+        />
+      </SimpleGrid>
 
-      <Stack gap="md">
+      <Stack gap={isMobile ? 'sm' : 'md'}>
         <MetricsChart
           data={filledData}
-          loading={loading}
+          loading={metricsQuery.isLoading}
           selectedIndex={selectedDataPointIndex}
           onDataPointClick={setSelectedDataPointIndex}
           chartTitle={pageTitle}
@@ -444,4 +405,6 @@ return value.toFixed(2)
       </Stack>
     </Stack>
   )
-}
+})
+
+MetricsDetailPage.displayName = 'MetricsDetailPage'

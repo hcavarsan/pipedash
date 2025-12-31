@@ -1,8 +1,3 @@
-//! API response types for Buildkite API
-//!
-//! These types are internal implementation details for deserializing
-//! Buildkite API responses.
-
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

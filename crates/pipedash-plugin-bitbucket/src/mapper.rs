@@ -10,14 +10,11 @@ use pipedash_plugin_api::{
 
 use crate::types;
 
-/// Bitbucket states: PENDING, PARSING, IN_PROGRESS, COMPLETED, PAUSED, HALTED
-/// Bitbucket results: SUCCESSFUL, FAILED, STOPPED, EXPIRED
 pub(crate) fn map_status(state: &types::PipelineState) -> PipelineStatus {
     match state.name.as_str() {
         "PENDING" => PipelineStatus::Pending,
         "PARSING" => PipelineStatus::Running,
         "IN_PROGRESS" => {
-            // IN_PROGRESS with stage.name="PAUSED" means waiting for manual approval
             let is_paused = state
                 .stage
                 .as_ref()

@@ -5,23 +5,14 @@ use pipedash_plugin_api::{
     PluginResult,
 };
 
-/// Namespace discovery strategy: auto-discover all vs manually specified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NamespaceMode {
-    /// Automatically discover all namespaces with Tekton pipelines
-    ///
-    /// Requires cluster-wide `list` permission on `namespaces` resource.
-    /// Suitable for cluster-admin users.
     All,
 
-    /// Manually specify namespaces to monitor.
-    ///
-    /// Only needs namespaced perms (not cluster-wide), so works without admin.
     Custom,
 }
 
 impl NamespaceMode {
-    /// Parses namespace mode from config string
     pub fn from_config_value(value: &str) -> Self {
         match value.trim().to_lowercase().as_str() {
             "custom" => NamespaceMode::Custom,
@@ -92,7 +83,6 @@ pub(crate) fn get_selected_pipelines(config: &HashMap<String, String>) -> Vec<St
         .unwrap_or_default()
 }
 
-/// Extracts namespace mode from config map
 pub(crate) fn get_namespace_mode(config: &HashMap<String, String>) -> NamespaceMode {
     config
         .get("namespace_mode")

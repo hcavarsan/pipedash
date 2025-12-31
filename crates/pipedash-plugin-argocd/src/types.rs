@@ -125,7 +125,6 @@ pub struct ResourceStatus {
     pub health: Option<HealthStatus>,
 }
 
-/// Sync operation request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncRequest {
     pub revision: Option<String>,

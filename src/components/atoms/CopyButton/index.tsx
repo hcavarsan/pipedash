@@ -1,6 +1,5 @@
-import { useState } from 'react'
-
 import { ActionIcon, Tooltip } from '@mantine/core'
+import { useClipboard } from '@mantine/hooks'
 import { IconCheck, IconCopy } from '@tabler/icons-react'
 
 interface CopyButtonProps {
@@ -10,17 +9,9 @@ interface CopyButtonProps {
 }
 
 export const CopyButton = ({ value, label = 'Copy', size = 'sm' }: CopyButtonProps) => {
-  const [copied, setCopied] = useState(false)
+  const { copy, copied } = useClipboard({ timeout: 2000 })
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch (error) {
-      console.error('Failed to copy:', error)
-    }
-  }
+  const handleCopy = () => copy(value)
 
   return (
     <Tooltip label={copied ? 'Copied!' : label}>

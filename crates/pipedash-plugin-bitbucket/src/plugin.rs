@@ -4,11 +4,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::future::join_all;
 use pipedash_plugin_api::*;
-use reqwest::header::{
-    HeaderMap,
-    HeaderValue,
-    AUTHORIZATION,
-};
 
 use crate::{
     client,
@@ -52,7 +47,6 @@ impl BitbucketPlugin {
         let mut all_repos = Vec::new();
         let mut page = 1;
 
-        // Max 5000 repos; use selected_items to filter if needed
         const MAX_PAGES: usize = 50;
 
         loop {
@@ -84,7 +78,6 @@ impl BitbucketPlugin {
         }
     }
 
-    /// Bitbucket API only supports fetching by UUID, not build_number
     async fn find_pipeline_by_build_number(
         &self, workspace: &str, repo_slug: &str, build_number: i64,
     ) -> PluginResult<types::Pipeline> {
@@ -115,6 +108,7 @@ impl Plugin for BitbucketPlugin {
 
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
+        http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
         let (email, api_token) = config::get_auth(&config)?;
         let api_url = config::get_api_url();
@@ -126,24 +120,20 @@ impl Plugin for BitbucketPlugin {
         );
         let auth_value = format!("Basic {}", encoded);
 
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&auth_value)
-                .map_err(|e| PluginError::InvalidConfig(format!("Invalid auth format: {}", e)))?,
-        );
+        let client = http_client.unwrap_or_else(|| {
+            std::sync::Arc::new(
+                reqwest::Client::builder()
+                    .use_rustls_tls()
+                    .pool_max_idle_per_host(10)
+                    .timeout(Duration::from_secs(30))
+                    .connect_timeout(Duration::from_secs(10))
+                    .tcp_keepalive(Duration::from_secs(60))
+                    .build()
+                    .expect("Failed to build HTTP client"),
+            )
+        });
 
-        let http_client = reqwest::Client::builder()
-            .use_rustls_tls()
-            .pool_max_idle_per_host(10)
-            .default_headers(headers)
-            .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(10))
-            .tcp_keepalive(Duration::from_secs(60))
-            .build()
-            .map_err(|e| PluginError::Internal(format!("Failed to build HTTP client: {}", e)))?;
-
-        self.client = Some(client::BitbucketClient::new(http_client, api_url));
+        self.client = Some(client::BitbucketClient::new(client, api_url, auth_value));
         self.provider_id = Some(provider_id);
         self.config = config;
 
@@ -354,7 +344,6 @@ impl Plugin for BitbucketPlugin {
             .find_pipeline_by_build_number(&workspace, &repo_slug, run_number)
             .await?;
 
-        // Bitbucket API only stops IN_PROGRESS pipelines; PAUSED ones require UI
         let state = pipeline.state.name.as_str();
         if state == "PAUSED" || state == "HALTED" {
             return Err(PluginError::ApiError(format!(
@@ -370,7 +359,6 @@ impl Plugin for BitbucketPlugin {
             ));
         }
 
-        // API returns 204 but doesn't stop pipelines waiting for manual trigger
         if state == "IN_PROGRESS" {
             let pipeline_is_paused = pipeline
                 .state

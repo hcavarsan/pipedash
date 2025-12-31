@@ -79,7 +79,6 @@ export const TableCells = {
     </TruncatedText>
   ),
 
-  // Truncated dimmed text
   truncatedDimmed: (value: string | null | undefined) => (
     <TruncatedText
       size={TABLE_CELL_STYLES.text.size}
@@ -90,10 +89,11 @@ export const TableCells = {
     </TruncatedText>
   ),
 
-  status: (status: PipelineStatus) => (
+  status: (status: PipelineStatus, withIcon = false) => (
     <StatusBadge
       status={status}
-      size={TABLE_CELL_STYLES.badge.size}
+      size="sm"
+      withIcon={withIcon}
     />
   ),
 
@@ -102,6 +102,7 @@ export const TableCells = {
       variant={TABLE_CELL_STYLES.badge.variant}
       color="blue"
       size={TABLE_CELL_STYLES.badge.size}
+      fw={500}
     >
       {count}
     </Badge>

@@ -89,9 +89,9 @@ fn generate_icns() -> Result<(), CustomError> {
 
     let sizes = [
         (16, 1),
-        (16, 2), // 16x16@1x and 16x16@2x (32x32)
+        (16, 2),
         (32, 1),
-        (32, 2), // 32x32@1x and 32x32@2x (64x64)
+        (32, 2),
         (128, 1),
     ];
 

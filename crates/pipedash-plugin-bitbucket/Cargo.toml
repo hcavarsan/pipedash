@@ -3,6 +3,9 @@ name = "pipedash-plugin-bitbucket"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+description = "Bitbucket Pipelines plugin for Pipedash"
+license = "GPL-3.0"
+repository = "https://github.com/hcavarsan/pipedash"
 
 [dependencies]
 async-trait.workspace = true

@@ -5,11 +5,20 @@ import { Box } from '@mantine/core'
 
 export function StandardTable<T>(props: DataTableProps<T>) {
   return (
-    <Box mt="xl">
+    <Box
+      mt="xl"
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+      }}
+    >
       <DataTable<T>
         {...props}
         withTableBorder={false}
-        highlightOnHover={true}
+        highlightOnHover
         withColumnBorders={false}
         scrollAreaProps={{
           type: 'auto',
@@ -19,39 +28,38 @@ export function StandardTable<T>(props: DataTableProps<T>) {
         styles={{
           ...props.styles,
           header: {
+            ...(props.styles?.header || {}),
             fontSize: 'var(--mantine-font-size-md)',
             fontWeight: 600,
-            paddingTop: '0.875rem',
-            paddingBottom: '0.875rem',
+            paddingTop: '1rem',
+            paddingBottom: '1rem',
             paddingLeft: '1rem',
             paddingRight: '1rem',
             whiteSpace: 'nowrap',
             verticalAlign: 'middle',
             textAlign: 'left',
-            ...(props.styles?.header || {}),
+            borderBottom: '1px solid var(--mantine-color-dark-5)',
           },
           table: {
+            ...(props.styles?.table || {}),
             borderSpacing: '0',
-            tableLayout: 'fixed',
+            tableLayout: 'auto',
             width: '100%',
             fontSize: 'var(--mantine-font-size-sm)',
-            ...(props.styles?.table || {}),
           },
           pagination: {
-            paddingTop: '1rem',
-            paddingBottom: '1rem',
-            marginBottom: '3rem',
-            fontSize: 'var(--mantine-font-size-sm)',
             ...(props.styles?.pagination || {}),
+            paddingTop: '1rem',
+            fontSize: 'var(--mantine-font-size-sm)',
           },
         }}
         rowStyle={() => ({
           height: '56px',
           verticalAlign: 'middle',
         })}
-        height={props.height || 'calc(100vh - 230px)'}
+        height={props.height || '100%'}
         verticalSpacing="sm"
-        horizontalSpacing="lg"
+        horizontalSpacing="md"
       />
     </Box>
   )

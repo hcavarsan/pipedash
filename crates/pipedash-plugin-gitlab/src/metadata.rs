@@ -1,19 +1,7 @@
-//! GitLab CI plugin metadata
-//!
-//! This module contains plugin metadata, configuration schema, and
-//! capabilities.
-
 use pipedash_plugin_api::*;
 
 use crate::schema;
 
-/// Creates the plugin metadata for GitLab CI
-///
-/// This includes:
-/// - Basic plugin information (name, version, description)
-/// - Configuration schema (API token and optional base URL)
-/// - Table schema (from schema module)
-/// - Plugin capabilities
 pub fn create_metadata() -> PluginMetadata {
     PluginMetadata {
         name: "GitLab CI".to_string(),
@@ -30,11 +18,6 @@ pub fn create_metadata() -> PluginMetadata {
     }
 }
 
-/// Creates the configuration schema for GitLab CI
-///
-/// Defines two fields:
-/// - `token`: GitLab Personal Access Token (required)
-/// - `base_url`: GitLab instance URL (optional, for self-hosted instances)
 fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
@@ -64,12 +47,6 @@ fn create_config_schema() -> ConfigSchema {
         })
 }
 
-/// Creates the plugin capabilities
-///
-/// GitLab CI supports:
-/// - Pipelines
-/// - Pipeline runs
-/// - Triggering pipelines
 fn create_capabilities() -> PluginCapabilities {
     PluginCapabilities {
         pipelines: true,

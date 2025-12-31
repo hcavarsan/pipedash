@@ -13,68 +13,45 @@ use crate::schema::{
 };
 use crate::types::*;
 
-/// Plugin metadata - describes the plugin
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginMetadata {
-    /// Plugin name (e.g., "GitHub Actions")
     pub name: String,
-    /// Plugin identifier (e.g., "github")
     pub provider_type: String,
-    /// Plugin version
     pub version: String,
-    /// Plugin description
     pub description: String,
-    /// Plugin author
     pub author: Option<String>,
-    /// Plugin icon (URL or identifier)
     pub icon: Option<String>,
-    /// Configuration schema for generic UI
     pub config_schema: ConfigSchema,
-    /// Table schema for dynamic tables and columns
     pub table_schema: TableSchema,
-    /// Plugin capabilities
     pub capabilities: PluginCapabilities,
-    /// Required permissions for this provider
     #[serde(default)]
     pub required_permissions: Vec<Permission>,
-    /// Features provided by this provider
     #[serde(default)]
     pub features: Vec<Feature>,
 }
 
-/// Plugin capabilities - what features the plugin supports
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PluginCapabilities {
-    /// Supports fetching pipelines/workflows
     pub pipelines: bool,
-    /// Supports fetching pipeline runs/builds
     pub pipeline_runs: bool,
-    /// Supports triggering pipelines
     pub trigger: bool,
-    /// Supports build agents monitoring
     pub agents: bool,
-    /// Supports build artifacts
     pub artifacts: bool,
-    /// Supports build queues
     pub queues: bool,
-    /// Requires custom database tables
     pub custom_tables: bool,
 }
 
-/// Main plugin trait - all providers must implement this
 #[async_trait]
 pub trait Plugin: Send + Sync {
-    /// Get plugin metadata
     fn metadata(&self) -> &PluginMetadata;
 
-    /// Initialize plugin with configuration
-    fn initialize(&mut self, provider_id: i64, config: HashMap<String, String>)
-        -> PluginResult<()>;
+    fn initialize(
+        &mut self, provider_id: i64, config: HashMap<String, String>,
+        http_client: Option<std::sync::Arc<reqwest::Client>>,
+    ) -> PluginResult<()>;
 
-    /// Validate credentials/configuration
     async fn validate_credentials(&self) -> PluginResult<bool>;
 
-    /// Fetch available pipelines for selection
     async fn fetch_available_pipelines(
         &self, params: Option<crate::types::PaginationParams>,
     ) -> PluginResult<crate::types::PaginatedAvailablePipelines> {
@@ -120,63 +97,74 @@ pub trait Plugin: Send + Sync {
         ))
     }
 
-    /// Fetch all pipelines/workflows
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>>;
 
-    /// Fetch run history for a specific pipeline
+    async fn fetch_pipelines_paginated(
+        &self, page: usize, page_size: usize,
+    ) -> PluginResult<crate::types::PaginatedResponse<Pipeline>> {
+        let all_pipelines = self.fetch_pipelines().await?;
+        let total_count = all_pipelines.len();
+        let start = (page - 1) * page_size;
+        let end = start + page_size;
+
+        let pipelines = if start < total_count {
+            all_pipelines[start..end.min(total_count)].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        Ok(crate::types::PaginatedResponse::new(
+            pipelines,
+            page,
+            page_size,
+            total_count,
+        ))
+    }
+
     async fn fetch_run_history(
         &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>>;
 
-    /// Fetch details for a specific pipeline run
     async fn fetch_run_details(
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun>;
 
-    /// Trigger a pipeline
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String>;
 
-    /// Cancel a running pipeline/build
     async fn cancel_run(&self, _pipeline_id: &str, _run_number: i64) -> PluginResult<()> {
         Err(crate::error::PluginError::NotSupported(
             "Run cancellation not supported by this provider".to_string(),
         ))
     }
 
-    /// Fetch workflow parameters for a specific workflow/pipeline
     async fn fetch_workflow_parameters(
         &self, _workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {
         Ok(Vec::new())
     }
 
-    /// Fetch build agents (optional, for Buildkite-like providers)
     async fn fetch_agents(&self) -> PluginResult<Vec<BuildAgent>> {
         Err(crate::error::PluginError::NotSupported(
             "Agent monitoring not supported by this provider".to_string(),
         ))
     }
 
-    /// Fetch build artifacts for a run (optional)
     async fn fetch_artifacts(&self, _run_id: &str) -> PluginResult<Vec<BuildArtifact>> {
         Err(crate::error::PluginError::NotSupported(
             "Artifact fetching not supported by this provider".to_string(),
         ))
     }
 
-    /// Fetch build queues (optional)
     async fn fetch_queues(&self) -> PluginResult<Vec<BuildQueue>> {
         Err(crate::error::PluginError::NotSupported(
             "Queue monitoring not supported by this provider".to_string(),
         ))
     }
 
-    /// Get SQL migration statements for custom tables (optional)
     fn get_migrations(&self) -> Vec<String> {
         Vec::new()
     }
 
-    /// Get the provider type string
     fn provider_type(&self) -> &str {
         &self.metadata().provider_type
     }
@@ -187,9 +175,6 @@ pub trait Plugin: Send + Sync {
         Ok(Vec::new())
     }
 
-    /// Check provider token permissions
-    /// Default implementation returns all permissions granted (for backward
-    /// compatibility)
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
         let required_permissions = &self.metadata().required_permissions;
         let permissions = required_permissions
@@ -208,7 +193,6 @@ pub trait Plugin: Send + Sync {
         })
     }
 
-    /// Calculate feature availability based on permission status
     fn get_feature_availability(&self, status: &PermissionStatus) -> Vec<FeatureAvailability> {
         let features = &self.metadata().features;
         let granted_perms: std::collections::HashSet<String> = status

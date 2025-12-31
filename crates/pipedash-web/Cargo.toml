@@ -1,0 +1,63 @@
+[package]
+name = "pipedash-web"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "REST API server for Pipedash"
+license = "GPL-3.0"
+repository = "https://github.com/hcavarsan/pipedash"
+
+[[bin]]
+name = "pipedash-web"
+path = "src/main.rs"
+
+[dependencies]
+# Core
+pipedash-core.workspace = true
+pipedash-plugin-api.workspace = true
+
+# Web framework
+axum = { workspace = true, features = ["ws", "macros"] }
+tower.workspace = true
+tower-http.workspace = true
+
+# Static file embedding
+rust-embed.workspace = true
+mime_guess.workspace = true
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+sqlx.workspace = true
+
+# Async
+async-trait.workspace = true
+
+# Error handling
+anyhow.workspace = true
+thiserror.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# TLS/Crypto
+rustls.workspace = true
+
+# Configuration
+dirs.workspace = true
+
+# WebSocket
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+
+# Chrono for timestamps
+chrono.workspace = true
+
+[features]
+default = ["postgres"]
+postgres = ["pipedash-core/postgres"]
+full = ["postgres"]
