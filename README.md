@@ -95,18 +95,18 @@ The API server gives you:
 - WebSocket endpoint at `/api/v1/ws` for real-time updates
 - Same features as the desktop app
 
-Pipedash reads tokens from environment variables (`PIPEDASH_TOKEN_{provider_id}`).
-
 **Docker deployment**
 
-Run with Docker Compose:
+The `examples/` directory has ready-to-use setups with sample configs. Edit the compose file to add your tokens, then:
 
 ```bash
-git clone https://github.com/hcavarsan/pipedash.git
-cd pipedash
-docker-compose up -d
+# SQLite backend (simplest)
+mise run examples:sqlite:up
+mise run examples:sqlite:down
 
-# Access at http://localhost:8080
+# PostgreSQL backend
+mise run examples:postgres:up
+mise run examples:postgres:down
 ```
 
 The API server serves the frontend directly (it's embedded in the binary). Pipedash encrypts your tokens with AES-256-GCM. Your data persists in a Docker volume. See [Docker setup](#docker-setup) for details.
@@ -159,7 +159,7 @@ You can switch storage backends anytime. The wizard offers to migrate your exist
 **Architecture**
 
 The app is split into three crates:
-- `pipedash` – Tauri desktop app with system keyring integration
+- `pipedash-desktop` – Tauri desktop app with system keyring integration
 - `pipedash-core` – Core library with all the business logic (framework-agnostic)
 - `pipedash-web` – REST API server for headless deployments
 
@@ -180,7 +180,7 @@ Each provider has its own refresh interval (default: 30 seconds). Adjust based o
 
 **Plugin system**
 
-Each CI/CD provider is a plugin with a common interface. The core app doesn't know the specifics of GitHub Actions, GitLab CI, Buildkite, Jenkins, Tekton, or ArgoCD—it just calls methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
+Each CI/CD provider is a plugin with a common interface. The core app doesn't know the specifics of GitHub Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton, or ArgoCD—it just calls methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
 
 We compile plugins into the app at build time (not loaded dynamically at runtime). This keeps things simpler and avoids security concerns with runtime plugin loading.
 
@@ -313,8 +313,51 @@ PIPEDASH_PORT=3000 docker-compose up -d
 | `PIPEDASH_BIND_ADDR` | `127.0.0.1:8080` | API server bind address |
 | `PIPEDASH_VAULT_PASSWORD` | Auto-generated | Password for encrypted token storage and API authentication |
 | `PIPEDASH_EMBEDDED_FRONTEND` | `true` | Serve frontend from API binary |
+| `PIPEDASH_CONFIG_PATH` | Auto-discovered | Path to TOML configuration file |
+| `PIPEDASH_POSTGRES_URL` | – | PostgreSQL connection string |
 | `PIPEDASH_PORT` | `8080` | Docker host port (docker-compose only) |
 | `RUST_LOG` | `info` | Log level (debug, info, warn, error) |
+
+**Configuration file**
+
+You can also configure Pipedash via TOML. Set `PIPEDASH_CONFIG_PATH` to specify the location, or Pipedash auto-discovers from platform-specific paths.
+
+```toml
+[general]
+metrics_enabled = true
+default_refresh_interval = 30
+
+[server]
+bind_addr = "0.0.0.0:8080"
+
+[storage]
+backend = "sqlite"  # or "postgres"
+
+[storage.postgres]
+connection_string = "${PIPEDASH_POSTGRES_URL}"
+
+# Add providers with unique IDs
+[providers.github-work]
+name = "GitHub Work"
+type = "github"
+token = "${GITHUB_TOKEN}"
+refresh_interval = 30
+
+[providers.github-work.config]
+base_url = "https://github.com"
+selected_items = "org/repo1,org/repo2"
+
+[providers.gitlab-internal]
+name = "GitLab Internal"
+type = "gitlab"
+token = "${GITLAB_TOKEN}"
+
+[providers.gitlab-internal.config]
+base_url = "https://gitlab.company.com"
+selected_items = "team/backend,team/frontend"
+```
+
+Use `${VAR}` syntax to reference environment variables in config values.
 
 **Cargo features**
 
