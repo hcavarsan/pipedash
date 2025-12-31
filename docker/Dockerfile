@@ -25,11 +25,20 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 
+ARG TARGETARCH
+
+RUN case "$TARGETARCH" in \
+      amd64) echo "x86_64-unknown-linux-musl" > /tmp/rust_target ;; \
+      arm64) echo "aarch64-unknown-linux-musl" > /tmp/rust_target ;; \
+      *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac && \
+    rustup target add $(cat /tmp/rust_target)
+
 COPY --from=planner /app/recipe.json recipe.json
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    cargo chef cook --release -p pipedash-web --recipe-path recipe.json --target x86_64-unknown-linux-musl
+    cargo chef cook --release -p pipedash-web --recipe-path recipe.json --target $(cat /tmp/rust_target)
 
 COPY --from=frontend-builder /app/dist ./dist
 
@@ -39,13 +48,14 @@ COPY crates ./crates
 ENV SKIP_FRONTEND_BUILD=1
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    cargo build --release -p pipedash-web --target x86_64-unknown-linux-musl
+    cargo build --release -p pipedash-web --target $(cat /tmp/rust_target)
 
-RUN strip target/x86_64-unknown-linux-musl/release/pipedash-web
+RUN strip target/$(cat /tmp/rust_target)/release/pipedash-web && \
+    cp target/$(cat /tmp/rust_target)/release/pipedash-web /pipedash-web
 
 FROM scratch
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/pipedash-web /pipedash-web
+COPY --from=builder /pipedash-web /pipedash-web
 
 ENTRYPOINT ["/pipedash-web"]
