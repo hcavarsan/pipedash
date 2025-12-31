@@ -78,23 +78,6 @@ The main way to use Pipedash. It's a native desktop app for macOS, Windows, and 
 
 Download from the [releases page](https://github.com/hcavarsan/pipedash/releases).
 
-**REST API server**
-
-For server deployments, CI/CD integrations, or headless operation. Run `pipedash-web` as a standalone service.
-
-```bash
-# Config via environment variables
-export PIPEDASH_BIND_ADDR=127.0.0.1:8080
-export PIPEDASH_TOKEN_1=ghp_xxx  # Token for provider ID 1
-
-cargo run -p pipedash-web
-```
-
-The API server gives you:
-- REST endpoints at `/api/v1/providers`, `/api/v1/pipelines`, `/api/v1/plugins`, etc.
-- WebSocket endpoint at `/api/v1/ws` for real-time updates
-- Same features as the desktop app
-
 **Docker deployment**
 
 The `examples/` directory has ready-to-use setups with sample configs. Edit the compose file to add your tokens, then:
