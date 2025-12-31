@@ -132,6 +132,7 @@ impl PreMigrationValidator {
 
         #[cfg(not(unix))]
         {
+            let _ = path;
             Ok(u64::MAX)
         }
     }

@@ -78,7 +78,7 @@ jobs:
         run: mise install
 
       - name: Run rustfmt
-        run: mise run format:back:check
+        run: mise run fmt:back:check
 
   rust-lint:
     name: Clippy
