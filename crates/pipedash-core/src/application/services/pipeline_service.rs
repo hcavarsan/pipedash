@@ -93,6 +93,13 @@ impl PipelineService {
                         })
                         .await;
 
+                    // Read back from cache to get correct pinned values
+                    let cached_pipelines = self
+                        .repository
+                        .get_cached_pipelines(Some(pid))
+                        .await
+                        .unwrap_or_else(|_| pipelines.clone());
+
                     let timestamp = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
@@ -100,13 +107,13 @@ impl PipelineService {
 
                     self.event_bus
                         .emit(CoreEvent::PipelinesUpdated {
-                            pipelines: pipelines.clone(),
+                            pipelines: cached_pipelines.clone(),
                             provider_id: Some(pid),
                             timestamp,
                         })
                         .await;
 
-                    Ok(pipelines)
+                    Ok(cached_pipelines)
                 }
                 Ok(Err(e)) => {
                     let error_msg = format!("{e}");
@@ -216,7 +223,6 @@ impl PipelineService {
                 }
             };
 
-            let mut all_pipelines = Vec::new();
             for result in results {
                 match result {
                     Ok((provider_id, pipelines)) => {
@@ -230,12 +236,17 @@ impl PipelineService {
                                 reason: CacheInvalidationReason::Fetch,
                             })
                             .await;
-
-                        all_pipelines.extend(pipelines);
                     }
                     Err(_e) => {}
                 }
             }
+
+            // Read back from cache to get correct pinned values
+            let all_pipelines = self
+                .repository
+                .get_cached_pipelines(None)
+                .await
+                .unwrap_or_default();
 
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -651,5 +662,13 @@ impl PipelineService {
         self.repository
             .get_cached_run_history(pipeline_id, limit)
             .await
+    }
+
+    pub async fn set_pipeline_pinned(&self, pipeline_id: &str, pinned: bool) -> DomainResult<()> {
+        self.repository.set_pipeline_pinned(pipeline_id, pinned).await
+    }
+
+    pub async fn get_pinned_pipelines(&self) -> DomainResult<Vec<Pipeline>> {
+        self.repository.get_pinned_pipelines().await
     }
 }

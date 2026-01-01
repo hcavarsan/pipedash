@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
@@ -42,4 +42,38 @@ export function useGetPipelinesFromCache() {
       queryKeys.pipelines.list({ providerId })
     )
   }
+}
+
+export function useSetPipelinePinned() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ pipelineId, pinned }: { pipelineId: string; pinned: boolean }) => {
+      logger.debug('useSetPipelinePinned', 'Setting pipeline pinned', { pipelineId, pinned })
+      await service.setPipelinePinned(pipelineId, pinned)
+    },
+    onMutate: async ({ pipelineId, pinned }) => {
+      // Optimistic update - update local cache immediately
+      await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.all })
+
+      // Get all pipeline list queries and update them optimistically
+      queryClient.setQueriesData<Pipeline[]>(
+        { queryKey: queryKeys.pipelines.all },
+        (old) => {
+          if (!old) return old
+          return old.map((p) =>
+            p.id === pipelineId ? { ...p, pinned } : p
+          )
+        }
+      )
+    },
+    onError: (error, variables) => {
+      logger.error('useSetPipelinePinned', 'Failed to set pipeline pinned', {
+        pipelineId: variables.pipelineId,
+        error,
+      })
+      // Revert on error by refetching
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+    },
+  })
 }

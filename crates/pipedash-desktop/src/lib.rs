@@ -2,6 +2,7 @@ mod commands;
 pub mod fallback_store;
 pub mod keyring_store;
 pub mod tauri_event_bus;
+pub mod tray;
 
 use std::path::{
     Path,
@@ -237,6 +238,7 @@ use commands::{
     get_effective_data_dir,
     get_global_metrics_config,
     get_metrics_storage_stats,
+    get_pinned_pipelines,
     get_pipeline_metrics_config,
     get_provider,
     get_provider_features,
@@ -247,6 +249,7 @@ use commands::{
     get_storage_config,
     get_storage_paths,
     get_table_preferences,
+    get_tray_status,
     get_vault_password_status,
     get_vault_status,
     get_workflow_parameters,
@@ -265,6 +268,7 @@ use commands::{
     save_config_content,
     save_storage_config,
     save_table_preferences,
+    set_pipeline_pinned,
     set_refresh_mode,
     test_storage_connection,
     trigger_pipeline,
@@ -553,9 +557,60 @@ pub fn run() {
                 tracing::info!("Setup wizard will be shown to complete initial configuration");
             }
 
+            // Clone before moving into managed state
+            #[cfg(desktop)]
+            let maybe_core_for_tray = maybe_core_context.clone();
+
             app.manage(MaybeCoreContext(maybe_core_context));
 
             app.manage(AppDataDir(app_data_dir));
+
+            // Initialize system tray (menu bar)
+            #[cfg(desktop)]
+            {
+                use commands::TrayManagerState;
+                use tauri::Listener;
+
+                let tray_state: TrayManagerState = match tray::setup_tray(&app.handle()) {
+                    Ok(tray_manager) => {
+                        tracing::info!("System tray initialized");
+                        std::sync::Arc::new(tokio::sync::RwLock::new(Some(tray_manager)))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to initialize system tray: {}", e);
+                        std::sync::Arc::new(tokio::sync::RwLock::new(None))
+                    }
+                };
+
+                app.manage(tray_state.clone());
+
+                // Listen for pipeline updates to refresh tray
+                let tray_state_clone = tray_state.clone();
+                let maybe_core_clone = maybe_core_for_tray;
+                let app_handle = app.handle().clone();
+                app.listen("pipelines-updated", move |_event| {
+                    let tray_state = tray_state_clone.clone();
+                    let maybe_core = maybe_core_clone.clone();
+                    let app = app_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        // Get pinned pipelines and update tray
+                        let core_guard = maybe_core.read().await;
+                        if let Some(core) = core_guard.as_ref() {
+                            if let Some(tray_manager) = tray_state.write().await.as_ref() {
+                                let pinned = core.pipeline_service
+                                    .get_pinned_pipelines()
+                                    .await
+                                    .ok()
+                                    .unwrap_or_default();
+                                let summary = pipedash_core::tray_status::TrayStatusSummary::from_pipelines(&pinned);
+                                if let Err(e) = tray_manager.update_status(&app, &summary).await {
+                                    tracing::warn!("Failed to update tray on pipeline change: {}", e);
+                                }
+                            }
+                        }
+                    });
+                });
+            }
 
             Ok(())
         })
@@ -625,6 +680,10 @@ pub fn run() {
             execute_storage_migration,
             factory_reset,
             restart_app,
+            // Pinned pipelines (menu bar/tray feature)
+            set_pipeline_pinned,
+            get_pinned_pipelines,
+            get_tray_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

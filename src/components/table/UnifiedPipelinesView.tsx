@@ -4,11 +4,12 @@ import { DataTableSortStatus } from 'mantine-datatable'
 import { ActionIcon, Alert, Box, Card, Center, Group, Loader, Modal, Paper, Stack, Text, Tooltip } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconAlertCircle, IconAlertTriangle, IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
+import { IconAlertCircle, IconAlertTriangle, IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPin, IconPinFilled, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { usePipelineFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
+import { useSetPipelinePinned } from '../../queries/usePipelinesQueries'
 import type { Pipeline, ProviderSummary } from '../../types'
 import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { TableCells } from '../../utils/tableCells'
@@ -71,6 +72,8 @@ export const UnifiedPipelinesView = ({
   })
   const [errorModalOpened, { open: openErrorModal, close: closeErrorModal }] = useDisclosure(false)
   const [selectedError, setSelectedError] = useState<{ providerName: string; error: string } | null>(null)
+
+  const setPipelinePinned = useSetPipelinePinned()
 
   const getProvider = useCallback((providerId: number): ProviderSummary | undefined => {
     return providers.find((p) => p.id === providerId)
@@ -796,8 +799,26 @@ return provider?.last_fetch_status === 'never'
 
                 return null
               } else if (row.type === 'workflow' && row.pipeline) {
+                const isPinned = row.pipeline.pinned ?? false
                 return (
                   <Box style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
+                    <Tooltip label={isPinned ? "Unpin from menu bar" : "Pin to menu bar"} withArrow>
+                      <ActionIcon
+                        variant="subtle"
+                        color={isPinned ? "yellow" : "gray"}
+                        size="md"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPipelinePinned.mutate({
+                            pipelineId: row.pipeline!.id,
+                            pinned: !isPinned,
+                          })
+                        }}
+                        aria-label={isPinned ? "Unpin from menu bar" : "Pin to menu bar"}
+                      >
+                        {isPinned ? <IconPinFilled size={18} /> : <IconPin size={18} />}
+                      </ActionIcon>
+                    </Tooltip>
                     {onViewMetrics && (
                       <Tooltip label="View metrics" withArrow>
                         <ActionIcon
