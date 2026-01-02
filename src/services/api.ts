@@ -737,6 +737,15 @@ return result.flushed
   async restartApp(): Promise<void> {
     window.location.reload()
   }
+
+  // Pinned pipelines (menu bar/tray feature)
+  async setPipelinePinned(pipelineId: string, pinned: boolean): Promise<void> {
+    return this.post<void>(`/pipelines/${encodeURIComponent(pipelineId)}/pinned`, { pinned })
+  }
+
+  async getPinnedPipelines(): Promise<Pipeline[]> {
+    return this.get<Pipeline[]>('/pipelines/pinned')
+  }
 }
 
 export const apiService = new ApiClient()

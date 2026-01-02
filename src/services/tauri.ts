@@ -577,4 +577,13 @@ return { ...config, id }
   restartApp: async (): Promise<void> => {
     return invoke<void>('restart_app')
   },
+
+  // Pinned pipelines (menu bar/tray feature)
+  setPipelinePinned: async (pipelineId: string, pinned: boolean): Promise<void> => {
+    return invoke<void>('set_pipeline_pinned', { pipelineId, pinned })
+  },
+
+  getPinnedPipelines: async (): Promise<Pipeline[]> => {
+    return invoke<Pipeline[]>('get_pinned_pipelines')
+  },
 }

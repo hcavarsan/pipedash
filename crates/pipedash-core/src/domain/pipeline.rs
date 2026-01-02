@@ -60,6 +60,8 @@ pub struct Pipeline {
     pub repository: String,
     pub branch: Option<String>,
     pub workflow_file: Option<String>,
+    #[serde(default)]
+    pub pinned: bool,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, serde_json::Value>,
 }

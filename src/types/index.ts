@@ -31,6 +31,7 @@ export interface Pipeline {
   repository: string;
   branch: string | null;
   workflow_file: string | null;
+  pinned?: boolean;
   metadata?: Record<string, any>;
 }
 

@@ -64,6 +64,7 @@ impl PluginAdapter {
             repository: plugin_pipeline.repository,
             branch: plugin_pipeline.branch,
             workflow_file: plugin_pipeline.workflow_file,
+            pinned: false, // New pipelines are not pinned by default
             metadata: plugin_pipeline.metadata,
         }
     }
