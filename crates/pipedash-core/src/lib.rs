@@ -4,6 +4,7 @@ pub mod event;
 pub mod infrastructure;
 pub mod logging;
 pub mod plugins;
+pub mod tray_status;
 
 use std::sync::Arc;
 

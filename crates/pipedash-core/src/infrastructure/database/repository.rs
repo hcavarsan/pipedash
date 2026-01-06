@@ -560,7 +560,7 @@ impl Repository {
     ) -> DomainResult<Vec<Pipeline>> {
         if let Some(pid) = provider_id {
             let sql = format!(
-                "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type
+                "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, pinned
                 FROM pipelines_cache
                 WHERE provider_id = {}
                 ORDER BY last_updated DESC",
@@ -585,7 +585,7 @@ impl Repository {
                 }
             }
         } else {
-            let sql = "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type
+            let sql = "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, pinned
                 FROM pipelines_cache
                 ORDER BY last_updated DESC";
             match &self.cache_pool {
@@ -1194,11 +1194,11 @@ impl Repository {
             let is_pg = is_postgres;
             async move {
                 let select_sql = if is_pg {
-                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type
+                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, pinned
                     FROM pipelines_cache
                     WHERE provider_id = $1"
                 } else {
-                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type
+                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, pinned
                     FROM pipelines_cache
                     WHERE provider_id = ?"
                 };
@@ -1273,6 +1273,8 @@ impl Repository {
                     let provider_type: String = row
                         .try_get(9)
                         .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    let pinned_int: i64 = row.try_get(10).unwrap_or(0);
+                    let pinned = pinned_int != 0;
 
                     let status: PipelineStatus = if status_str.trim().is_empty() {
                         PipelineStatus::Pending
@@ -1312,6 +1314,7 @@ impl Repository {
                             repository,
                             branch,
                             workflow_file,
+                            pinned,
                             metadata: std::collections::HashMap::new(),
                         },
                     );
@@ -1396,6 +1399,7 @@ impl Repository {
                             let last_run: Option<DateTime<Utc>> = row.try_get(7).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                             let last_updated: DateTime<Utc> = row.try_get(8).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                             let provider_type: String = row.try_get(9).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                            let pinned: bool = row.try_get(10).unwrap_or(false);
 
                             let status: PipelineStatus = if status_str.trim().is_empty() {
                                 PipelineStatus::Pending
@@ -1408,7 +1412,7 @@ impl Repository {
 
                             existing.insert(id.clone(), Pipeline {
                                 id, provider_id: provider_id_val, provider_type, name, status,
-                                last_run, last_updated, repository, branch, workflow_file,
+                                last_run, last_updated, repository, branch, workflow_file, pinned,
                                 metadata: std::collections::HashMap::new(),
                             });
                         }
@@ -1794,6 +1798,13 @@ impl Repository {
             .try_get(9)
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
+        // Read pinned as i64 to work with both SQLite (INTEGER) and Postgres (BOOLEAN stored as int)
+        // Postgres BOOLEAN can also be decoded as i64 when using 0/1 representation
+        let pinned: bool = {
+            let pinned_int: i64 = row.try_get(10).unwrap_or(0);
+            pinned_int != 0
+        };
+
         Ok(Pipeline {
             id,
             provider_id,
@@ -1805,7 +1816,65 @@ impl Repository {
             repository,
             branch,
             workflow_file,
+            pinned,
             metadata: std::collections::HashMap::new(),
         })
+    }
+
+    pub async fn set_pipeline_pinned(&self, pipeline_id: &str, pinned: bool) -> DomainResult<()> {
+        let sql = format!(
+            "UPDATE pipelines_cache SET pinned = {} WHERE id = {}",
+            self.placeholder(1),
+            self.placeholder(2)
+        );
+
+        // Use integer (0/1) for both SQLite and Postgres for consistency
+        let pinned_int: i64 = if pinned { 1 } else { 0 };
+
+        match &self.cache_pool {
+            DatabasePool::Sqlite(p) => {
+                sqlx::query(&sql)
+                    .bind(pinned_int)
+                    .bind(pipeline_id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            }
+            DatabasePool::Postgres(p) => {
+                sqlx::query(&sql)
+                    .bind(pinned_int)
+                    .bind(pipeline_id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn get_pinned_pipelines(&self) -> DomainResult<Vec<Pipeline>> {
+        // Use integer comparison for both databases for consistency
+        let sql = "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, pinned
+                FROM pipelines_cache
+                WHERE pinned = 1
+                ORDER BY name ASC";
+
+        match &self.cache_pool {
+            DatabasePool::Sqlite(p) => {
+                let rows = sqlx::query(sql)
+                    .fetch_all(p)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                rows.iter().map(|row| self.pipeline_from_row(row)).collect()
+            }
+            DatabasePool::Postgres(p) => {
+                let rows = sqlx::query(sql)
+                    .fetch_all(p)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                rows.iter().map(|row| self.pipeline_from_row(row)).collect()
+            }
+        }
     }
 }

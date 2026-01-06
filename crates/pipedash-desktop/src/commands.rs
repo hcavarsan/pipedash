@@ -1999,3 +1999,73 @@ pub async fn restart_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
     #[allow(unreachable_code)]
     Ok(())
 }
+
+// ============================================================================
+// Pinned Pipelines Commands (for menu bar/tray feature)
+// ============================================================================
+
+/// Type alias for the tray manager state
+pub type TrayManagerState = std::sync::Arc<tokio::sync::RwLock<Option<crate::tray::TrayManager>>>;
+
+#[tauri::command]
+pub async fn set_pipeline_pinned(
+    app: tauri::AppHandle,
+    maybe_core: State<'_, crate::MaybeCoreContext>,
+    tray_state: State<'_, TrayManagerState>,
+    pipeline_id: String,
+    pinned: bool,
+) -> Result<(), ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+
+    core.pipeline_service
+        .set_pipeline_pinned(&pipeline_id, pinned)
+        .await?;
+
+    tracing::debug!(
+        pipeline_id = %pipeline_id,
+        pinned = pinned,
+        "Pipeline pinned status updated"
+    );
+
+    // Update system tray to reflect the change
+    if let Some(tray_manager) = tray_state.write().await.as_ref() {
+        let pinned_pipelines = core.pipeline_service.get_pinned_pipelines().await.ok().unwrap_or_default();
+        let summary = pipedash_core::tray_status::TrayStatusSummary::from_pipelines(&pinned_pipelines);
+        if let Err(e) = tray_manager.update_status(&app, &summary).await {
+            tracing::warn!("Failed to update system tray: {}", e);
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_pinned_pipelines(
+    maybe_core: State<'_, crate::MaybeCoreContext>,
+) -> Result<Vec<Pipeline>, ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+
+    let pipelines = core.pipeline_service.get_pinned_pipelines().await?;
+    Ok(pipelines)
+}
+
+#[tauri::command]
+pub async fn get_tray_status(
+    maybe_core: State<'_, crate::MaybeCoreContext>,
+) -> Result<pipedash_core::tray_status::TrayStatusSummary, ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+
+    let pinned_pipelines = core.pipeline_service.get_pinned_pipelines().await?;
+    let summary = pipedash_core::tray_status::TrayStatusSummary::from_pipelines(&pinned_pipelines);
+
+    Ok(summary)
+}
