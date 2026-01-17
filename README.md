@@ -2,8 +2,11 @@
   <br>
   <img src="./app-icon.png" width="102px" alt="Pipedash Logo" />
   <h1>Pipedash</h1>
-  <p>Manage CI/CD pipelines from multiple providers (self hosted and desktop app) </p>
+  <p>Manage CI/CD pipelines from multiple providers (self-hosted, desktop, and mobile)</p>
 
+  <a href="https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB">
+    <img src="https://developer.apple.com/app-store/marketing/guidelines/images/badge-download-on-the-app-store.svg" alt="Download on the App Store" height="40">
+  </a>
 </div>
 
 <p align="center">
@@ -12,7 +15,6 @@
 </div>
 </p>
 
-> **[WIP]** This is a work-in-progress project. It works for basic use cases but hasn't been thoroughly tested. Things might break, APIs might change, and there are probably bugs. Tested primarily on macOS – not sure if it works properly on Linux and Windows due to webview differences.
 
 ## About
 
@@ -96,9 +98,9 @@ The API server serves the frontend directly (it's embedded in the binary). Piped
 
 ## Installation
 
-Grab the latest release for your platform from the [releases page](https://github.com/hcavarsan/pipedash/releases).
+**Desktop**: Grab the latest release for your platform from the [releases page](https://github.com/hcavarsan/pipedash/releases). Works on macOS, Windows, and Linux.
 
-Works on macOS, Windows, and Linux.
+**iOS**: Download from the [App Store](https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB).
 
 ## Setup
 
@@ -390,19 +392,16 @@ Use `${VAR}` syntax to reference environment variables in config values.
 - [ ] Drone CI
 
 
-**Platforms** (maybe)
+**Platforms**
 
 - [ ] Android app
-- [ ] iOS app (tested locally in simulator, needs polish for store release), current state:
+- [x] iOS app — [available on the App Store](https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB)
+
 <p align="center">
 <div align="center">
-<img src="./public/pipedashios.png" width="30%" alt="Pipedash ios Screenshot"/>
+<img src="./public/pipedashios.png" width="30%" alt="Pipedash iOS Screenshot"/>
 </div>
 </p>
-
-
-
-No timeline on these. They'll happen if there's need for them and time to implement.
 
 ## Contributing
 
