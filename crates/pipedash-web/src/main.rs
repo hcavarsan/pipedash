@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Context;
+use subtle::ConstantTimeEq;
 use axum::{
     extract::Request,
     http::{
@@ -72,7 +73,7 @@ async fn auth_middleware(req: Request, next: Next) -> Result<Response, StatusCod
     match auth_header {
         Some(h)
             if h.strip_prefix("Bearer ")
-                .map(|t| t == token)
+                .map(|t| t.as_bytes().ct_eq(token.as_bytes()).into()]
                 .unwrap_or(false) =>
         {
             Ok(next.run(req).await)
@@ -90,7 +91,7 @@ impl ApiServerConfig {
 
         let cors_allow_all = std::env::var("PIPEDASH_CORS_ALLOW_ALL")
             .map(|v| v == "true" || v == "1")
-            .unwrap_or(true);
+            .unwrap_or(false);
 
         let enable_embedded_frontend = std::env::var("PIPEDASH_EMBEDDED_FRONTEND")
             .map(|v| v == "true" || v == "1")

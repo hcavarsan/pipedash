@@ -31,6 +31,7 @@ pipedash-plugin-api.workspace = true
 rust-embed.workspace = true
 # TLS/Crypto
 rustls.workspace = true
+subtle.workspace = true
 # Serialization
 serde.workspace = true
 serde_json.workspace = true

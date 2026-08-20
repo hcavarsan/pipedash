@@ -70,6 +70,15 @@ async fn get_setup_status() -> Json<SetupStatusResponse> {
 async fn create_initial_config(
     State(state): State<AppState>, Json(req): Json<CreateInitialConfigRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    {
+        let inner = state.inner.read().await;
+        if !inner.setup_required {
+            return Err(AppError::conflict(
+                "Setup already completed. Cannot re-initialize an already-configured instance.",
+            ));
+        }
+    }
+
     let config = req.config;
     let config_path = ConfigLoader::discover_config_path();
 
