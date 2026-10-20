@@ -49,7 +49,7 @@ What you can do:
 - Browse run history with commit info and execution times
 - Trigger workflows with parameters (Pipedash loads them from each provider)
 - Re-run previous executions with the same parameters
-- Cancel running builds
+- Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
 - Add multiple instances of the same provider (e.g., two GitHub orgs)
 
 When you trigger or re-run a workflow, Pipedash fetches available parameters from the plugin (workflow inputs for GitHub Actions, pipeline variables for GitLab CI, build parameters for Jenkins/Buildkite) and shows them in a form.
