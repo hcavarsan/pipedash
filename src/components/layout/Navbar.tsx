@@ -14,7 +14,7 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
-import { IconAlertTriangle, IconEdit, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
+import { IconAlertTriangle, IconEdit, IconPinFilled, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
@@ -43,9 +43,9 @@ const providerStatusText = (provider: ProviderSummary) =>
 
 const ICON_TILE = { rail: 30, list: 28 } as const
 
-const AllProvidersIcon = ({ size }: { size: number }) => (
+const NavTile = ({ icon: Icon, size }: { icon: typeof IconStack2; size: number }) => (
   <ThemeIcon size={size} radius="sm" variant="light" color="gray" aria-hidden>
-    <IconStack2 size={size * 0.6} />
+    <Icon size={size * 0.6} />
   </ThemeIcon>
 )
 
@@ -58,7 +58,8 @@ export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true 
 
   const { pathname } = useLocation()
   const [searchParams] = useSearchParams()
-  const providerParam = pathname === '/pipelines' ? searchParams.get('provider') : null
+  const pinnedActive = pathname === '/pipelines' && searchParams.get('view') === 'pinned'
+  const providerParam = pathname === '/pipelines' && !pinnedActive ? searchParams.get('provider') : null
 
   const addProviderModal = useProviderStore((s) => s.addProviderModal)
   const editProviderModal = useProviderStore((s) => s.editProviderModal)
@@ -139,7 +140,7 @@ export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true 
   }, [closeAddProviderModal, refetchProviders])
 
   const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
-  const allActive = pathname === '/pipelines' && providerParam === null
+  const allActive = pathname === '/pipelines' && providerParam === null && !pinnedActive
 
   const railItem = (label: string, to: string, active: boolean, icon: React.ReactNode) => (
     <Tooltip label={label} position="right" key={to}>
@@ -165,7 +166,13 @@ export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true 
           `All providers · ${formatCount(totalPipelines, 'pipeline')}`,
           '/pipelines',
           allActive,
-          <AllProvidersIcon size={ICON_TILE.rail} />
+          <NavTile icon={IconStack2} size={ICON_TILE.rail} />
+        )}
+        {railItem(
+          'Pinned',
+          '/pipelines?view=pinned',
+          pinnedActive,
+          <NavTile icon={IconPinFilled} size={ICON_TILE.rail} />
         )}
         <Divider w={32} my={4} />
         {loading ? (
@@ -202,12 +209,21 @@ export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true 
     <ScrollArea flex={1} px="sm" py="sm">
       <Stack gap={2}>
         <NavLink
-          leftSection={<AllProvidersIcon size={ICON_TILE.list} />}
+          leftSection={<NavTile icon={IconStack2} size={ICON_TILE.list} />}
           label="All providers"
           description={loading || providersError ? undefined : `${formatCount(totalPipelines, 'pipeline')} total`}
           active={allActive}
           component={Link}
           to="/pipelines"
+          onClick={closeMobileSidebar}
+          variant="light"
+        />
+        <NavLink
+          leftSection={<NavTile icon={IconPinFilled} size={ICON_TILE.list} />}
+          label="Pinned"
+          active={pinnedActive}
+          component={Link}
+          to="/pipelines?view=pinned"
           onClick={closeMobileSidebar}
           variant="light"
         />
@@ -228,10 +244,17 @@ export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true 
           <EmptyState title="No providers yet" description="Add a provider to see its pipelines here." />
         ) : (
           providers.map((provider) => (
-            <Group key={provider.id} gap={0} wrap="nowrap" className="nav-item">
+            <Group
+              key={provider.id}
+              gap={0}
+              wrap="nowrap"
+              className="nav-item"
+              mod={{ active: providerParam === String(provider.id) }}
+            >
               <NavLink
                 flex={1}
                 miw={0}
+                className="nav-item-link"
                 leftSection={<ProviderAvatar provider={provider} size={ICON_TILE.list} />}
                 label={
                   <Text size="sm" truncate>

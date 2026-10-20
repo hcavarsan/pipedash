@@ -8,10 +8,13 @@ import {
   IconFilterOff,
   IconFolder,
   IconGitBranch,
+  IconPin,
+  IconPinFilled,
   IconPlugConnected,
 } from '@tabler/icons-react'
 import type { DataTableSortStatus } from 'mantine-datatable'
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { usePipelineFilters } from '../../hooks/useUrlState'
@@ -161,6 +164,9 @@ export const UnifiedPipelinesView = ({
     organization: organizationFilter,
     dateRange,
   } = filters
+  const [searchParams] = useSearchParams()
+  const pinnedView = searchParams.get('view') === 'pinned'
+  const title = pinnedView ? 'Pinned' : 'Pipelines'
 
   const pinnedKeys = usePinnedStore((s) => s.pinnedKeys)
   const togglePin = usePinnedStore((s) => s.togglePin)
@@ -461,7 +467,7 @@ export const UnifiedPipelinesView = ({
   if (error) {
     return (
       <PageContainer>
-        <PageHeader title="Pipelines" />
+        <PageHeader title={title} />
         <ErrorState title="Couldn't load pipelines" error={error} onRetry={onRetry} retrying={loading} />
       </PageContainer>
     )
@@ -470,7 +476,7 @@ export const UnifiedPipelinesView = ({
   if (!loading && providers.length === 0) {
     return (
       <PageContainer>
-        <PageHeader title="Pipelines" />
+        <PageHeader title={title} />
         <EmptyState
           icon={<IconPlugConnected size={24} />}
           title="No providers configured"
@@ -488,15 +494,58 @@ export const UnifiedPipelinesView = ({
   if (loading) {
     return (
       <PageContainer>
-        <PageHeader title="Pipelines" />
+        <PageHeader title={title} />
         <LoadingState variant="page" message="Loading pipelines…" />
       </PageContainer>
     )
   }
 
+  const showPinnedSection = !pinnedView && providerFilter === null && pinnedPipelines.length > 0
+
+  const pinnedGrid = (
+    <PinnedWorkflows
+      pipelines={pinnedPipelines}
+      getProvider={getProvider}
+      onViewHistory={onViewHistory}
+      onTrigger={onTrigger}
+      onUnpin={(pipeline) => {
+        const key = pinKeys.get(pipeline.id)
+
+        if (key) {
+          togglePin(key)
+        }
+      }}
+      onViewMetrics={onViewMetrics}
+    />
+  )
+
+  const noMatches = (
+    <EmptyState
+      icon={<IconFilterOff size={24} />}
+      title="No matching workflows"
+      description={
+        pinnedView
+          ? 'No pinned workflows match the current filters.'
+          : 'No repositories or workflows match the current filters.'
+      }
+      action={
+        <Button variant="default" size="sm" onClick={clearFilters}>
+          Clear filters
+        </Button>
+      }
+    />
+  )
+
   return (
     <PageContainer>
-      <PageHeader title="Pipelines" badge={formatCount(repoGroups.length, 'repository', 'repositories')} />
+      <PageHeader
+        title={title}
+        badge={
+          pinnedView
+            ? formatCount(pinnedPipelines.length, 'workflow')
+            : formatCount(repoGroups.length, 'repository', 'repositories')
+        }
+      />
 
       <FilterBar
         filters={{
@@ -527,192 +576,199 @@ export const UnifiedPipelinesView = ({
         onClearAll={clearFilters}
       />
 
-      {pinnedPipelines.length > 0 && (
-        <PinnedWorkflows
-          pipelines={pinnedPipelines}
-          getProvider={getProvider}
-          onViewHistory={onViewHistory}
-          onTrigger={onTrigger}
-          onUnpin={(pipeline) => {
-            const key = pinKeys.get(pipeline.id)
-
-            if (key) {
-              togglePin(key)
-            }
-          }}
-          onViewMetrics={onViewMetrics}
-        />
-      )}
-
-      <Stack gap="sm" flex={1} mih={0}>
-        {pinnedPipelines.length > 0 && rows.length > 0 && (
-          <SectionHeading
-            icon={<IconFolder size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
-            label="Repositories"
-            count={sections.length}
-          />
-        )}
-
-        {rows.length === 0 ? (
-          filtersActive ? (
-            <EmptyState
-              icon={<IconFilterOff size={24} />}
-              title="No matching workflows"
-              description="No repositories or workflows match the current filters."
-              action={
-                <Button variant="default" size="sm" onClick={clearFilters}>
-                  Clear filters
-                </Button>
-              }
-            />
-          ) : fetchErrors.length > 0 ? (
-            <ErrorState
-              title={`Couldn't fetch workflows from ${fetchErrors.map((p) => p.name).join(', ')}`}
-              error={fetchErrors[0].last_fetch_error}
-              hint="Check the provider credentials in Settings → Providers. Pipedash retries on the next refresh."
-            />
-          ) : (
-            <EmptyState
-              icon={<IconFolder size={24} />}
-              title="No workflows yet"
-              description="Workflows appear here after they run on your configured providers."
-            />
-          )
-        ) : isMobile ? (
-          <MobilePipelineCards
-            rows={rows}
-            getProvider={getProvider}
-            onToggleRepo={toggleRepo}
-            onShowProviderError={showProviderError}
-            onViewHistory={onViewHistory}
-            onTrigger={onTrigger}
-            pinnedKeys={pinnedKeys}
-            onTogglePin={togglePin}
-            onViewMetrics={onViewMetrics}
-          />
+      {pinnedView ? (
+        pinnedPipelines.length > 0 ? (
+          pinnedGrid
+        ) : filtersActive ? (
+          noMatches
         ) : (
-          <Box style={{ flex: 1, minHeight: 360, position: 'relative' }}>
-            <StandardTable<TableRow>
-              records={rows}
-              columns={[
-                {
-                  accessor: 'name',
-                  title: 'Name',
-                  sortable: true,
-                  width: '35%',
-                  textAlign: 'left' as const,
-                  render: (row) => {
-                    if (row.type === 'repository') {
-                      return (
-                        <UnstyledButton w="100%" onClick={() => toggleRepo(row.id)} aria-expanded={row.expanded}>
-                          <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
-                            {row.expanded ? (
-                              <IconChevronDown size={16} style={{ flexShrink: 0 }} />
-                            ) : (
-                              <IconChevronRight size={16} style={{ flexShrink: 0 }} />
-                            )}
-                            <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                            {TableCells.truncated(row.name)}
-                          </Group>
-                        </UnstyledButton>
-                      )
-                    }
+          <EmptyState
+            icon={<IconPin size={24} />}
+            title="No pinned workflows"
+            description="Pin a workflow with the pin icon in its row to keep it here."
+            action={
+              <Button component={Link} to="/pipelines" variant="default" size="sm">
+                Browse pipelines
+              </Button>
+            }
+          />
+        )
+      ) : (
+        <>
+          {showPinnedSection && (
+            <Stack gap="sm" component="section" aria-labelledby="pinned-workflows-title">
+              <SectionHeading
+                id="pinned-workflows-title"
+                icon={<IconPinFilled size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
+                label="Pinned"
+                count={pinnedPipelines.length}
+              />
+              {pinnedGrid}
+            </Stack>
+          )}
 
-                    const { pipeline } = row
+          <Stack gap="sm" flex={1} mih={0}>
+            {showPinnedSection && rows.length > 0 && (
+              <SectionHeading
+                icon={<IconFolder size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
+                label="Repositories"
+                count={sections.length}
+              />
+            )}
 
-                    if (!pipeline) {
-                      return null
-                    }
+            {rows.length === 0 ? (
+              filtersActive ? (
+                noMatches
+              ) : fetchErrors.length > 0 ? (
+                <ErrorState
+                  title={`Couldn't fetch workflows from ${fetchErrors.map((p) => p.name).join(', ')}`}
+                  error={fetchErrors[0].last_fetch_error}
+                  hint="Check the provider credentials in Settings → Providers. Pipedash retries on the next refresh."
+                />
+              ) : (
+                <EmptyState
+                  icon={<IconFolder size={24} />}
+                  title="No workflows yet"
+                  description="Workflows appear here after they run on your configured providers."
+                />
+              )
+            ) : isMobile ? (
+              <MobilePipelineCards
+                rows={rows}
+                getProvider={getProvider}
+                onToggleRepo={toggleRepo}
+                onShowProviderError={showProviderError}
+                onViewHistory={onViewHistory}
+                onTrigger={onTrigger}
+                pinnedKeys={pinnedKeys}
+                onTogglePin={togglePin}
+                onViewMetrics={onViewMetrics}
+              />
+            ) : (
+              <Box style={{ flex: 1, minHeight: 360, position: 'relative' }}>
+                <StandardTable<TableRow>
+                  records={rows}
+                  columns={[
+                    {
+                      accessor: 'name',
+                      title: 'Name',
+                      sortable: true,
+                      width: '35%',
+                      textAlign: 'left' as const,
+                      render: (row) => {
+                        if (row.type === 'repository') {
+                          return (
+                            <UnstyledButton w="100%" onClick={() => toggleRepo(row.id)} aria-expanded={row.expanded}>
+                              <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
+                                {row.expanded ? (
+                                  <IconChevronDown size={16} style={{ flexShrink: 0 }} />
+                                ) : (
+                                  <IconChevronRight size={16} style={{ flexShrink: 0 }} />
+                                )}
+                                <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                                {TableCells.truncated(row.name)}
+                              </Group>
+                            </UnstyledButton>
+                          )
+                        }
 
-                    return (
-                      <UnstyledButton
-                        w="100%"
-                        pl="xl"
-                        onClick={() => onViewHistory(pipeline)}
-                        aria-label={`View run history for ${row.name}`}
-                      >
-                        <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
-                          <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                          {TableCells.truncated(row.name)}
-                        </Group>
-                      </UnstyledButton>
-                    )
-                  },
-                },
-                {
-                  accessor: 'organization',
-                  title: 'Organization',
-                  sortable: true,
-                  width: 160,
-                  textAlign: 'left' as const,
-                  render: (row) => TableCells.truncatedDimmed(row.organization),
-                },
-                {
-                  accessor: 'status',
-                  title: 'Status',
-                  sortable: true,
-                  width: 110,
-                  textAlign: 'center' as const,
-                  render: (row) => (
-                    <Group justify="center">
-                      <RowStatus row={row} />
-                    </Group>
-                  ),
-                },
-                {
-                  accessor: 'provider',
-                  title: 'Provider',
-                  sortable: true,
-                  width: 200,
-                  textAlign: 'left' as const,
-                  render: (row) => (
-                    <Stack gap="xs">
-                      {Array.from(row.providerIds ?? []).map((providerId) => (
-                        <div key={providerId}>{TableCells.provider(getProvider(providerId))}</div>
-                      ))}
-                    </Stack>
-                  ),
-                },
-                {
-                  accessor: 'actions',
-                  title: 'Actions',
-                  width: onViewMetrics ? 160 : 140,
-                  textAlign: 'center' as const,
-                  render: (row) => {
-                    if (row.type === 'repository') {
-                      return (
+                        const { pipeline } = row
+
+                        if (!pipeline) {
+                          return null
+                        }
+
+                        return (
+                          <UnstyledButton
+                            w="100%"
+                            pl="xl"
+                            onClick={() => onViewHistory(pipeline)}
+                            aria-label={`View run history for ${row.name}`}
+                          >
+                            <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
+                              <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                              {TableCells.truncated(row.name)}
+                            </Group>
+                          </UnstyledButton>
+                        )
+                      },
+                    },
+                    {
+                      accessor: 'organization',
+                      title: 'Organization',
+                      sortable: true,
+                      width: 160,
+                      textAlign: 'left' as const,
+                      render: (row) => TableCells.truncatedDimmed(row.organization),
+                    },
+                    {
+                      accessor: 'status',
+                      title: 'Status',
+                      sortable: true,
+                      width: 110,
+                      textAlign: 'center' as const,
+                      render: (row) => (
                         <Group justify="center">
-                          <RepositoryFetchIndicator row={row} onShowError={showProviderError} />
+                          <RowStatus row={row} />
                         </Group>
-                      )
-                    }
+                      ),
+                    },
+                    {
+                      accessor: 'provider',
+                      title: 'Provider',
+                      sortable: true,
+                      width: 200,
+                      textAlign: 'left' as const,
+                      render: (row) => (
+                        <Stack gap="xs">
+                          {Array.from(row.providerIds ?? []).map((providerId) => (
+                            <div key={providerId}>{TableCells.provider(getProvider(providerId))}</div>
+                          ))}
+                        </Stack>
+                      ),
+                    },
+                    {
+                      accessor: 'actions',
+                      title: 'Actions',
+                      width: onViewMetrics ? 160 : 140,
+                      textAlign: 'center' as const,
+                      render: (row) => {
+                        if (row.type === 'repository') {
+                          return (
+                            <Group justify="center">
+                              <RepositoryFetchIndicator row={row} onShowError={showProviderError} />
+                            </Group>
+                          )
+                        }
 
-                    const { pipeline, pinKey: rowPinKey } = row
+                        const { pipeline, pinKey: rowPinKey } = row
 
-                    if (row.type === 'workflow' && pipeline && rowPinKey) {
-                      return (
-                        <Group justify="center">
-                          <WorkflowActions
-                            pipeline={pipeline}
-                            isPinned={pinnedKeys.includes(rowPinKey)}
-                            onTogglePin={() => togglePin(rowPinKey)}
-                            onTrigger={onTrigger}
-                            onViewMetrics={onViewMetrics}
-                          />
-                        </Group>
-                      )
-                    }
+                        if (row.type === 'workflow' && pipeline && rowPinKey) {
+                          return (
+                            <Group justify="center">
+                              <WorkflowActions
+                                pipeline={pipeline}
+                                isPinned={pinnedKeys.includes(rowPinKey)}
+                                onTogglePin={() => togglePin(rowPinKey)}
+                                onTrigger={onTrigger}
+                                onViewMetrics={onViewMetrics}
+                              />
+                            </Group>
+                          )
+                        }
 
-                    return null
-                  },
-                },
-              ]}
-              sortStatus={sortStatus}
-              onSortStatusChange={setSortStatus}
-            />
-          </Box>
-        )}
-      </Stack>
+                        return null
+                      },
+                    },
+                  ]}
+                  sortStatus={sortStatus}
+                  onSortStatusChange={setSortStatus}
+                />
+              </Box>
+            )}
+          </Stack>
+        </>
+      )}
 
       <StandardModal
         opened={errorModalOpened}

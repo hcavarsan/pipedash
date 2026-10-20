@@ -50,8 +50,30 @@ select {
   background-color: var(--mantine-color-default-hover);
 }
 
+.nav-item {
+  border-radius: var(--mantine-radius-sm);
+  transition: background-color 120ms ease;
+}
+
+.nav-item:hover {
+  background-color: var(--mantine-color-default-hover);
+}
+
+.nav-item[data-active] {
+  background-color: var(--mantine-color-blue-light);
+}
+
+.nav-item[data-active]:hover {
+  background-color: var(--mantine-color-blue-light-hover);
+}
+
+.nav-item-link {
+  background-color: transparent;
+}
+
 .nav-item-actions {
   opacity: 0;
+  padding-inline-end: var(--mantine-spacing-xs);
   transition: opacity 120ms ease;
 }
 
