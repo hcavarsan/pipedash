@@ -74,14 +74,31 @@ impl TektonPlugin {
             unique_namespaces.into_iter().collect()
         };
 
-        let pipeline_futures = namespaces
-            .iter()
-            .map(|namespace| async move { client.list_pipelines(namespace).await.ok() });
+        let results = join_all(
+            namespaces
+                .iter()
+                .map(|namespace| client.list_pipelines(namespace)),
+        )
+        .await;
 
-        let results: Vec<Option<Vec<types::TektonPipeline>>> = join_all(pipeline_futures).await;
+        let mut all_pipelines = Vec::new();
+        let mut listed_any = false;
+        let mut first_error = None;
+        for result in results {
+            match result {
+                Ok(pipelines) => {
+                    listed_any = true;
+                    all_pipelines.extend(pipelines);
+                }
+                Err(e) => {
+                    first_error.get_or_insert(e);
+                }
+            }
+        }
 
-        let all_pipelines: Vec<types::TektonPipeline> =
-            results.into_iter().flatten().flatten().collect();
+        if let (false, Some(e)) = (listed_any, first_error) {
+            return Err(e);
+        }
 
         if selected_ids.is_empty() {
             Ok(all_pipelines)
@@ -670,6 +687,17 @@ mod tests {
             .collect();
 
         assert_eq!(ids, vec!["tekton__1__ci__build"]);
+    }
+
+    #[tokio::test]
+    async fn fetch_pipelines_reports_error_when_no_namespace_can_be_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let closed = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = format!("http://{}", closed.local_addr().unwrap());
+        drop(closed);
+        let plugin = plugin(&server, &dir);
+
+        assert!(plugin.fetch_pipelines().await.is_err());
     }
 
     #[tokio::test]
