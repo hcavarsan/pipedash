@@ -117,17 +117,30 @@ fn is_cross_origin_write(req: &Request) -> bool {
     let Some(origin) = headers.get(ORIGIN) else {
         return false;
     };
-    let origin_host = origin
-        .to_str()
-        .ok()
-        .and_then(|o| o.split_once("://"))
-        .map(|(_, host)| host);
-    let host = headers
+    let Some((origin_scheme, origin_host)) = origin.to_str().ok().and_then(|o| o.split_once("://"))
+    else {
+        return true;
+    };
+    let Some(host) = headers
         .get(HOST)
         .and_then(|h| h.to_str().ok())
-        .or_else(|| req.uri().authority().map(|a| a.as_str()));
+        .or_else(|| req.uri().authority().map(|a| a.as_str()))
+    else {
+        return true;
+    };
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|p| p.to_str().ok())
+        .and_then(|p| p.split(',').next())
+        .map_or("http", str::trim);
+    let default_port = if scheme.eq_ignore_ascii_case("https") {
+        ":443"
+    } else {
+        ":80"
+    };
+    let host = host.strip_suffix(default_port).unwrap_or(host);
 
-    !matches!((origin_host, host), (Some(o), Some(h)) if o.eq_ignore_ascii_case(h))
+    !(origin_scheme.eq_ignore_ascii_case(scheme) && origin_host.eq_ignore_ascii_case(host))
 }
 
 async fn reject_cross_origin_writes(req: Request, next: Next) -> Result<Response, StatusCode> {
@@ -443,8 +456,10 @@ mod tests {
             .layer(axum::middleware::from_fn(reject_cross_origin_writes));
         let mut request = axum::http::Request::builder()
             .method(method)
-            .uri("/api/v1/factory-reset")
-            .header(header::HOST, "127.0.0.1:8080");
+            .uri("/api/v1/factory-reset");
+        if !headers.iter().any(|(name, _)| *name == "host") {
+            request = request.header(header::HOST, "127.0.0.1:8080");
+        }
         for (name, value) in headers {
             request = request.header(*name, *value);
         }
@@ -469,6 +484,13 @@ mod tests {
                 ("origin", "http://127.0.0.1:8080"),
                 ("sec-fetch-site", "cross-site"),
             ],
+            &[("origin", "https://127.0.0.1:8080")],
+            &[("origin", "https://example.com"), ("host", "example.com")],
+            &[
+                ("origin", "http://example.com"),
+                ("host", "example.com"),
+                ("x-forwarded-proto", "https"),
+            ],
         ] {
             assert_eq!(
                 factory_reset_status(Method::POST, headers).await,
@@ -486,6 +508,16 @@ mod tests {
             &[
                 ("origin", "http://localhost:1420"),
                 ("sec-fetch-site", "same-origin"),
+            ],
+            &[
+                ("origin", "https://pipedash.example.com"),
+                ("host", "pipedash.example.com"),
+                ("x-forwarded-proto", "https"),
+            ],
+            &[
+                ("origin", "https://pipedash.example.com"),
+                ("host", "pipedash.example.com:443"),
+                ("x-forwarded-proto", "https, http"),
             ],
         ] {
             assert_eq!(
