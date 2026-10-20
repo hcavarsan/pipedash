@@ -46,9 +46,9 @@ impl ApplicationSpec {
             target_revision: None,
             chart: None,
         };
-        self.source
-            .as_ref()
-            .or(self.sources.first())
+        self.sources
+            .first()
+            .or(self.source.as_ref())
             .unwrap_or(&NO_SOURCE)
     }
 }
@@ -216,5 +216,14 @@ mod tests {
     fn list_keeps_multi_source_app_with_history() {
         let app = r#"{"metadata":{"name":"multi"},"spec":{"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"},{"repoURL":"https://charts.acme.dev","chart":"redis","targetRevision":"18.1.0"}],"destination":{"server":"https://kubernetes.default.svc","namespace":"c"},"project":"default"},"status":{"sync":{"status":"Synced","comparedTo":{"source":{"repoURL":""},"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"}],"destination":{"server":"https://kubernetes.default.svc","namespace":"c"}},"revisions":["abc123","18.1.0"]},"health":{"status":"Healthy"},"history":[{"deployedAt":"2026-10-20T10:00:00Z","id":0,"source":{"repoURL":""},"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"}],"revisions":["abc123","18.1.0"]}]}}"#;
         assert_eq!(parse_list_with(app), ["ok", "multi"]);
+    }
+
+    #[test]
+    fn primary_source_prefers_sources_over_empty_source() {
+        let spec: ApplicationSpec = serde_json::from_str(
+            r#"{"source":{"repoURL":""},"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"}],"destination":{"server":"https://kubernetes.default.svc"},"project":"default"}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.primary_source().repo_url, "https://github.com/acme/c");
     }
 }
