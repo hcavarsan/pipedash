@@ -5,7 +5,6 @@ import {
   PasswordInput,
   ScrollArea,
   Select,
-  SimpleGrid,
   Stack,
   Text,
   Textarea,
@@ -194,20 +193,18 @@ export function CredentialsStep({
                 {selectedPlugin.description}
               </Text>
 
-              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={isMobile ? 'xs' : 'md'}>
-                <TextInput
-                  label="Provider name"
-                  description="A friendly name to identify this provider"
-                  placeholder="e.g. GitHub (work)"
-                  value={providerName}
-                  onChange={(e) => dispatch({ type: 'SET_PROVIDER_NAME', name: e.currentTarget.value })}
-                  disabled={submitting}
-                  error={fieldErrors.providerName}
-                  withAsterisk
-                />
+              <TextInput
+                label="Provider name"
+                description="A friendly name to identify this provider"
+                placeholder="e.g. GitHub (work)"
+                value={providerName}
+                onChange={(e) => dispatch({ type: 'SET_PROVIDER_NAME', name: e.currentTarget.value })}
+                disabled={submitting}
+                error={fieldErrors.providerName}
+                withAsterisk
+              />
 
-                {selectedPlugin.config_schema.fields.map((field) => renderConfigField(field))}
-              </SimpleGrid>
+              {selectedPlugin.config_schema.fields.map((field) => renderConfigField(field))}
             </Stack>
           ) : (
             !pluginsLoading && (

@@ -28,6 +28,7 @@ import {
 } from '../../../queries/useProvidersQueries'
 import { useProviderStore } from '../../../stores/providerStore'
 import type { ProviderConfig } from '../../../types'
+import { formatCount } from '../../../utils/formatCount'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
@@ -216,9 +217,7 @@ export const ProvidersSection = () => {
                         <Text size="xs" c="dimmed">
                           Pipelines
                         </Text>
-                        <Text size="sm">
-                          {provider.pipeline_count} pipeline{provider.pipeline_count !== 1 ? 's' : ''}
-                        </Text>
+                        <Text size="sm">{formatCount(provider.pipeline_count, 'pipeline')}</Text>
                       </Stack>
 
                       <Stack gap={4}>

@@ -31,22 +31,26 @@ export function useAddProvider() {
     mutationFn: (config: ProviderConfig) => service.addProvider(config),
 
     onSuccess: async (newProviderId, config) => {
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) => [
-        ...old,
-        {
-          id: newProviderId,
-          name: config.name || `${config.provider_type} Provider`,
-          provider_type: config.provider_type,
-          icon: null,
-          pipeline_count: 0,
-          last_updated: null,
-          refresh_interval: 60,
-          last_fetch_status: 'never',
-          last_fetch_error: null,
-          last_fetch_at: null,
-          configured_repositories: [],
-        },
-      ])
+      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
+        old.some((provider) => provider.id === newProviderId)
+          ? old
+          : [
+              ...old,
+              {
+                id: newProviderId,
+                name: config.name || `${config.provider_type} Provider`,
+                provider_type: config.provider_type,
+                icon: null,
+                pipeline_count: 0,
+                last_updated: null,
+                refresh_interval: config.refresh_interval,
+                last_fetch_status: 'never',
+                last_fetch_error: null,
+                last_fetch_at: null,
+                configured_repositories: [],
+              },
+            ]
+      )
 
       queryClient.fetchQuery({
         queryKey: queryKeys.pipelines.list({ providerId: newProviderId }),
