@@ -34,8 +34,6 @@ import { AddProviderModal } from '../provider/AddProviderModal'
 
 interface NavbarProps {
   compact?: boolean
-  onToggleSidebar?: () => void
-  sidebarOpened?: boolean
 }
 
 const providerStatusText = (provider: ProviderSummary) =>
@@ -53,7 +51,7 @@ const ProviderAvatar = ({ provider, size }: { provider: ProviderSummary; size: n
   <ProviderIcon name={provider.name} icon={provider.icon} size={size} failed={provider.last_fetch_status === 'error'} />
 )
 
-export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true }: NavbarProps) => {
+export const Navbar = ({ compact = false }: NavbarProps) => {
   const { isMobile } = useIsMobile()
 
   const { pathname } = useLocation()
@@ -89,12 +87,6 @@ export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true 
       setSelectedEditId(null)
     }
   }, [providerDetails, selectedEditId, openEditProviderModal])
-
-  const closeMobileSidebar = useCallback(() => {
-    if (isMobile && onToggleSidebar && sidebarOpened) {
-      onToggleSidebar()
-    }
-  }, [isMobile, onToggleSidebar, sidebarOpened])
 
   const handleRemove = useCallback(
     (id: number, name: string) => {
@@ -215,7 +207,6 @@ export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true 
           active={allActive}
           component={Link}
           to="/pipelines"
-          onClick={closeMobileSidebar}
           variant="light"
         />
         <NavLink
@@ -224,7 +215,6 @@ export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true 
           active={pinnedActive}
           component={Link}
           to="/pipelines?view=pinned"
-          onClick={closeMobileSidebar}
           variant="light"
         />
 
@@ -269,7 +259,6 @@ export const Navbar = ({ compact = false, onToggleSidebar, sidebarOpened = true 
                 active={providerParam === String(provider.id)}
                 component={Link}
                 to={`/pipelines?provider=${provider.id}`}
-                onClick={closeMobileSidebar}
                 variant="light"
               />
               <Group gap={2} wrap="nowrap" className="nav-item-actions">

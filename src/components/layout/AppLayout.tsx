@@ -1,6 +1,6 @@
 import { AppShell } from '@mantine/core'
 import { useDisclosure, useLocalStorage } from '@mantine/hooks'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -19,11 +19,17 @@ export const AppLayout = ({ children, onRefreshAll, refreshing = false, onOpenSe
   const location = useLocation()
   const isSettingsPage = location.pathname.startsWith('/settings')
   const { isMobile } = useIsMobile()
-  const [mobileOpened, { toggle: toggleMobile }] = useDisclosure(false)
+  const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure(false)
+  const [locationKey, setLocationKey] = useState(location.key)
   const [desktopCompact, setDesktopCompact] = useLocalStorage({ key: 'pipedash-sidebar-compact', defaultValue: false })
   const compact = !isMobile && desktopCompact
   const opened = isMobile ? mobileOpened : !desktopCompact
   const toggle = isMobile ? toggleMobile : () => setDesktopCompact((value) => !value)
+
+  if (locationKey !== location.key) {
+    setLocationKey(location.key)
+    closeMobile()
+  }
 
   return (
     <AppShell
@@ -52,7 +58,7 @@ export const AppLayout = ({ children, onRefreshAll, refreshing = false, onOpenSe
       </AppShell.Header>
 
       <AppShell.Navbar>
-        <Navbar compact={compact} onToggleSidebar={toggle} sidebarOpened={opened} />
+        <Navbar compact={compact} />
       </AppShell.Navbar>
 
       <AppShell.Main>{children}</AppShell.Main>
