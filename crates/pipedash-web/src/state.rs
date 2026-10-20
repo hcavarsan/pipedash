@@ -1,4 +1,8 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    PoisonError,
+    RwLock as StdRwLock,
+};
 
 use pipedash_core::infrastructure::StorageManager;
 use pipedash_core::CoreContext;
@@ -22,7 +26,7 @@ pub struct AppState {
     pub inner: Arc<RwLock<AppStateInner>>,
     pub ws_event_bus: Arc<WebSocketEventBus>,
     pub setup_lock: Arc<Mutex<()>>,
-    pub api_token: Arc<RwLock<Option<String>>>,
+    api_token: Arc<StdRwLock<Option<Arc<str>>>>,
 }
 
 impl AppState {
@@ -71,5 +75,19 @@ impl AppState {
             setup_lock: Arc::default(),
             api_token: Arc::default(),
         }
+    }
+
+    pub fn api_token(&self) -> Option<Arc<str>> {
+        self.api_token
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    pub fn set_api_token(&self, token: &str) {
+        *self
+            .api_token
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(token.into());
     }
 }

@@ -69,8 +69,7 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> 
 async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
 
-    let expected_token = state.api_token.read().await.clone();
-    if let Some(expected_token) = expected_token {
+    if let Some(expected_token) = state.api_token() {
         match receiver.next().await {
             Some(Ok(Message::Text(text))) => {
                 if let Ok(auth) = serde_json::from_str::<AuthMessage>(&text) {

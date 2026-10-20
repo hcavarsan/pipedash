@@ -43,11 +43,9 @@ async function unlockVaultSession(password: string): Promise<UnlockVaultResponse
     return result
   } catch (error) {
     clearToken()
-
     if (getHttpStatus(error) === 401) {
       return { success: false, message: 'Incorrect vault password' }
     }
-
     throw error
   }
 }

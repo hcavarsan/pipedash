@@ -161,7 +161,7 @@ async fn unlock_vault(
                         inner.token_store_ready = true;
                     }
                     std::env::set_var("PIPEDASH_VAULT_PASSWORD", &req.password);
-                    *state.api_token.write().await = Some(req.password);
+                    state.set_api_token(&req.password);
 
                     {
                         let inner = state.inner.read().await;
@@ -218,12 +218,14 @@ async fn unlock_vault(
 }
 
 async fn lock_vault(State(state): State<AppState>) -> Json<UnlockVaultResponse> {
+    std::env::remove_var("PIPEDASH_VAULT_PASSWORD");
+
     {
         let mut inner = state.inner.write().await;
         inner.token_store_ready = false;
     }
 
-    tracing::info!("Vault locked");
+    tracing::info!("Vault locked - session password cleared");
 
     Json(UnlockVaultResponse {
         success: true,

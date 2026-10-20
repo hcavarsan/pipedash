@@ -392,9 +392,9 @@ async fn execute_migration(
     }; // inner and orchestrator dropped here, releasing database connections
 
     if result.success {
-        if let Some(password) = token_password {
-            std::env::set_var("PIPEDASH_VAULT_PASSWORD", &password);
-            *state.api_token.write().await = Some(password);
+        if let Some(ref password) = token_password {
+            std::env::set_var("PIPEDASH_VAULT_PASSWORD", password);
+            state.set_api_token(password);
             tracing::info!("Vault password set in environment for this session");
         }
 
