@@ -24,6 +24,7 @@ use crate::infrastructure::TokenStore;
 
 const SQLITE_KDF_SALT: &[u8] = b"pipedash-sqlite-vault-v1";
 const BACKUP_KDF_SALT: &[u8] = b"pipedash-backup-salt-v1";
+const VAULT_VERIFIER: &str = "pipedash-vault-verifier-v1";
 
 pub struct SqliteTokenStore {
     pool: Pool<Sqlite>,
@@ -49,7 +50,11 @@ impl SqliteTokenStore {
             cache: Arc::new(RwLock::new(HashMap::new())),
         };
 
+        let has_verifier = store.check_verifier().await?;
         store.load_to_cache().await?;
+        if !has_verifier {
+            store.store_verifier().await?;
+        }
 
         tracing::info!("SQLite token store initialized");
         Ok(store)
@@ -144,6 +149,43 @@ impl SqliteTokenStore {
 
         String::from_utf8(plaintext)
             .map_err(|e| DomainError::DatabaseError(format!("Invalid UTF-8 in token: {}", e)))
+    }
+
+    async fn check_verifier(&self) -> DomainResult<bool> {
+        let row = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+            "SELECT nonce, ciphertext FROM vault_verifier WHERE id = 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(format!("Failed to read vault verifier: {}", e)))?;
+
+        let Some((nonce, ciphertext)) = row else {
+            return Ok(false);
+        };
+
+        self.decrypt_token(&nonce, &ciphertext)
+            .await
+            .map_err(|_| DomainError::AuthenticationFailed("Wrong vault password".into()))?;
+        Ok(true)
+    }
+
+    async fn store_verifier(&self) -> DomainResult<()> {
+        let (nonce, ciphertext) = self.encrypt_token(VAULT_VERIFIER).await?;
+
+        sqlx::query(
+            "INSERT INTO vault_verifier (id, nonce, ciphertext) VALUES (1, ?1, ?2)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(&nonce)
+        .bind(&ciphertext)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            DomainError::DatabaseError(format!("Failed to store vault verifier: {}", e))
+        })?;
+
+        self.check_verifier().await?;
+        Ok(())
     }
 
     async fn load_to_cache(&self) -> DomainResult<()> {
@@ -410,6 +452,13 @@ mod tests {
         .await
         .expect("Failed to create table");
 
+        sqlx::query(include_str!(
+            "../../../migrations/sqlite/20261020000002_vault_verifier.sql"
+        ))
+        .execute(&pool)
+        .await
+        .expect("Failed to create vault verifier table");
+
         sqlx::query(
             "INSERT INTO providers (name, provider_type) VALUES ('test-provider', 'github')",
         )
@@ -492,5 +541,43 @@ mod tests {
 
         let result = store.import_encrypted(&encrypted, "wrong-password").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_empty_vault_rejects_another_password() {
+        let pool = create_test_pool().await;
+        SqliteTokenStore::new(pool.clone(), Some("operator-password".to_string()))
+            .await
+            .unwrap();
+
+        let result =
+            SqliteTokenStore::new(pool.clone(), Some("attacker-password".to_string())).await;
+
+        assert!(matches!(result, Err(DomainError::AuthenticationFailed(_))));
+        SqliteTokenStore::new(pool, Some("operator-password".to_string()))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_wrong_password_does_not_claim_vault_without_verifier() {
+        let pool = create_test_pool().await;
+        let store = SqliteTokenStore::new(pool.clone(), Some("operator-password".to_string()))
+            .await
+            .unwrap();
+        store.store_token(1, "secret").await.unwrap();
+        sqlx::query("DELETE FROM vault_verifier")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result =
+            SqliteTokenStore::new(pool.clone(), Some("attacker-password".to_string())).await;
+
+        assert!(result.is_err());
+        let store = SqliteTokenStore::new(pool, Some("operator-password".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(store.get_token(1).await.unwrap(), "secret");
     }
 }

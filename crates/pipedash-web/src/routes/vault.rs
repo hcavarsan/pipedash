@@ -57,23 +57,21 @@ pub fn router() -> Router<AppState> {
 async fn get_vault_status(State(state): State<AppState>) -> Json<VaultStatusResponse> {
     let inner = state.inner.read().await;
 
-    let env_var_set = std::env::var("PIPEDASH_VAULT_PASSWORD").is_ok();
-
     let (backend, requires_password, is_first_time) =
         if let Some(storage_manager) = &inner.storage_manager {
             let config = storage_manager.config();
             let requires = storage_manager.requires_vault_password();
-            let first_time = if env_var_set {
-                false
-            } else {
-                storage_manager
-                    .is_first_time_vault_setup()
-                    .await
-                    .unwrap_or(true)
-            };
+            let first_time = storage_manager
+                .is_first_time_vault_setup()
+                .await
+                .unwrap_or(true);
             (config.storage.backend.to_string(), requires, first_time)
         } else {
-            ("unknown".to_string(), true, !env_var_set)
+            (
+                "unknown".to_string(),
+                true,
+                std::env::var("PIPEDASH_VAULT_PASSWORD").is_err(),
+            )
         };
 
     let password_source = determine_password_source(&inner);
@@ -112,7 +110,6 @@ fn determine_password_source(inner: &crate::state::AppStateInner) -> PasswordSou
 async fn unlock_vault(
     State(state): State<AppState>, Json(req): Json<UnlockVaultRequest>,
 ) -> ApiResult<Json<UnlockVaultResponse>> {
-    // Check if already unlocked BEFORE setting env var
     {
         let inner = state.inner.read().await;
         if inner.token_store_ready {
@@ -123,22 +120,19 @@ async fn unlock_vault(
         }
     }
 
-    let inner = state.inner.read().await;
-
-    let storage_manager = inner
-        .storage_manager
-        .as_ref()
-        .ok_or_else(AppError::not_initialized)?;
-
-    let config = storage_manager.config().clone();
+    let mut config = {
+        let inner = state.inner.read().await;
+        inner
+            .storage_manager
+            .as_ref()
+            .ok_or_else(AppError::not_initialized)?
+            .config()
+            .clone()
+    };
+    config.storage.vault_password = Some(req.password.clone());
     let is_desktop = false; // API server is never desktop mode
-    drop(inner); // Release lock before potentially long operation
 
-    std::env::set_var("PIPEDASH_VAULT_PASSWORD", &req.password);
-
-    match pipedash_core::infrastructure::StorageManager::from_config(config.clone(), is_desktop)
-        .await
-    {
+    match pipedash_core::infrastructure::StorageManager::from_config(config, is_desktop).await {
         Ok(new_manager) => {
             let event_bus = {
                 let inner = state.inner.read().await;
@@ -166,6 +160,7 @@ async fn unlock_vault(
                         inner.core = Some(new_core);
                         inner.token_store_ready = true;
                     }
+                    std::env::set_var("PIPEDASH_VAULT_PASSWORD", &req.password);
                     state.set_api_token(&req.password);
 
                     {
@@ -191,8 +186,6 @@ async fn unlock_vault(
                     }))
                 }
                 Err(e) => {
-                    std::env::remove_var("PIPEDASH_VAULT_PASSWORD");
-
                     tracing::warn!("Failed to unlock vault: {}", e);
 
                     Ok(Json(UnlockVaultResponse {
@@ -202,9 +195,15 @@ async fn unlock_vault(
                 }
             }
         }
-        Err(e) => {
-            std::env::remove_var("PIPEDASH_VAULT_PASSWORD");
+        Err(pipedash_core::domain::DomainError::AuthenticationFailed(e)) => {
+            tracing::warn!("Vault unlock rejected: {}", e);
 
+            Ok(Json(UnlockVaultResponse {
+                success: false,
+                message: "Incorrect vault password".to_string(),
+            }))
+        }
+        Err(e) => {
             tracing::warn!(
                 "Failed to create storage manager with provided password: {}",
                 e

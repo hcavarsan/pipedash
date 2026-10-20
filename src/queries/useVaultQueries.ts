@@ -55,10 +55,10 @@ export function useUnlockVault() {
 
   return useMutation<UnlockVaultResponse, Error, string>({
     mutationFn: unlockVaultSession,
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       if (data.success) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
         queryClient.invalidateQueries({ queryKey: queryKeys.setup.status() })
+        await queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
       }
     },
   })

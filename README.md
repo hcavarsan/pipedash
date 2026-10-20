@@ -75,6 +75,8 @@ When `PIPEDASH_VAULT_PASSWORD` is set, or after you set a vault password in the 
 
 The API server also rejects `POST`, `PUT`, `PATCH`, and `DELETE` requests that a browser sends from another origin, so other sites can't change your instance through your browser. Requests without an `Origin` header, such as `curl` or scripts, are not affected. Set `PIPEDASH_CORS_ALLOW_ALL=true` to turn this check off when you serve the frontend from a different origin.
 
+The first password that opens a vault stays bound to it, even before you add a provider and after a factory reset. Unlocking with another password fails.
+
 ## Deployment options
 
 You can run Pipedash in three ways:

@@ -504,6 +504,44 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data_dir);
     }
 
+    #[tokio::test]
+    async fn empty_vault_unlock_cannot_replace_the_api_token() {
+        let data_dir =
+            std::env::temp_dir().join(format!("pipedash-empty-vault-{}", std::process::id()));
+        let mut config = PipedashConfig::default();
+        config.storage.backend = StorageBackendType::Sqlite;
+        config.storage.data_dir = data_dir.display().to_string();
+        config.storage.vault_password = Some(TOKEN.into());
+        let state = AppState::config_error(Arc::new(WebSocketEventBus::new()), "test".into());
+        state.inner.write().await.storage_manager =
+            Some(StorageManager::from_config(config, false).await.unwrap());
+        state.set_api_token(TOKEN);
+        let app = app(state.clone(), false);
+
+        for uri in ["/api/v1/vault/lock", "/api/v1/vault/unlock"] {
+            assert_eq!(
+                send(&app, Method::POST, uri, None).await,
+                StatusCode::UNAUTHORIZED,
+                "{uri}"
+            );
+        }
+        send(&app, Method::POST, "/api/v1/vault/unlock", Some(TOKEN)).await;
+
+        assert_eq!(state.api_token().as_deref(), Some(TOKEN));
+        assert_eq!(
+            send(
+                &app,
+                Method::GET,
+                "/api/v1/providers",
+                Some("wrong-password")
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_api_still_requires_token(&app).await;
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
     #[test]
     fn bearer_matches_accepts_exact_token() {
         assert!(bearer_matches(
