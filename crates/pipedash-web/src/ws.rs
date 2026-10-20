@@ -79,7 +79,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         match receiver.next().await {
             Some(Ok(Message::Text(text))) => {
                 if let Ok(auth) = serde_json::from_str::<AuthMessage>(&text) {
-                    if auth.msg_type != "auth" || auth.token != expected_token {
+                    if auth.msg_type != "auth"
+                        || !crate::token_matches(&auth.token, &expected_token)
+                    {
                         let _ = sender.close().await;
                         return;
                     }

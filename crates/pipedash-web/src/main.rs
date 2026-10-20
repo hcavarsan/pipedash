@@ -8,7 +8,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Context;
-use subtle::ConstantTimeEq;
 use axum::{
     extract::Request,
     http::{
@@ -26,6 +25,7 @@ use pipedash_core::infrastructure::{
     StorageManager,
 };
 use pipedash_core::CoreContext;
+use subtle::ConstantTimeEq;
 use tower_http::cors::{
     Any,
     CorsLayer,
@@ -45,6 +45,27 @@ struct ApiServerConfig {
 /// This is read dynamically to support vault unlock/lock operations.
 fn get_api_auth_token() -> Option<String> {
     std::env::var("PIPEDASH_VAULT_PASSWORD").ok()
+}
+
+fn token_matches(provided: &str, expected: &str) -> bool {
+    provided.as_bytes().ct_eq(expected.as_bytes()).into()
+}
+
+fn bearer_matches(auth_header: Option<&str>, token: &str) -> bool {
+    auth_header
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .is_some_and(|t| token_matches(t, token))
+}
+
+fn cors_layer(allow_all: bool) -> CorsLayer {
+    if allow_all {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    } else {
+        CorsLayer::new()
+    }
 }
 
 async fn auth_middleware(req: Request, next: Next) -> Result<Response, StatusCode> {
@@ -70,15 +91,10 @@ async fn auth_middleware(req: Request, next: Next) -> Result<Response, StatusCod
         .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
 
-    match auth_header {
-        Some(h)
-            if h.strip_prefix("Bearer ")
-                .map(|t| t.as_bytes().ct_eq(token.as_bytes()).into()]
-                .unwrap_or(false) =>
-        {
-            Ok(next.run(req).await)
-        }
-        _ => Err(StatusCode::UNAUTHORIZED),
+    if bearer_matches(auth_header, &token) {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
     }
 }
 
@@ -231,14 +247,7 @@ async fn main() -> anyhow::Result<()> {
         })
         .layer(axum::middleware::from_fn(auth_middleware))
         .layer(TraceLayer::new_for_http())
-        .layer(if api_config.cors_allow_all {
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any)
-        } else {
-            CorsLayer::new()
-        })
+        .layer(cors_layer(api_config.cors_allow_all))
         .with_state(app_state);
 
     tracing::info!("Listening on {}", api_config.bind_addr);
@@ -246,4 +255,58 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::header;
+    use axum::routing::get;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    #[test]
+    fn bearer_matches_accepts_exact_token() {
+        assert!(bearer_matches(
+            Some("Bearer operator-secret"),
+            "operator-secret"
+        ));
+    }
+
+    #[test]
+    fn bearer_matches_rejects_missing_wrong_and_partial_tokens() {
+        for auth_header in [
+            None,
+            Some("operator-secret"),
+            Some("Bearer "),
+            Some("Bearer wrong"),
+            Some("Bearer operator"),
+            Some("Bearer operator-secret-extra"),
+        ] {
+            assert!(
+                !bearer_matches(auth_header, "operator-secret"),
+                "accepted {auth_header:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn default_cors_does_not_allow_other_origins() {
+        std::env::remove_var("PIPEDASH_CORS_ALLOW_ALL");
+        let app = Router::new()
+            .route("/api/v1/providers", get(|| async { "ok" }))
+            .layer(cors_layer(ApiServerConfig::from_env().cors_allow_all));
+        let request = axum::http::Request::builder()
+            .uri("/api/v1/providers")
+            .header(header::ORIGIN, "https://attacker.example")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert!(!response
+            .headers()
+            .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+    }
 }

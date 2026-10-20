@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use pipedash_core::infrastructure::StorageManager;
 use pipedash_core::CoreContext;
-use tokio::sync::RwLock;
+use tokio::sync::{
+    Mutex,
+    RwLock,
+};
 
 use crate::ws::WebSocketEventBus;
 
@@ -18,6 +21,7 @@ pub struct AppStateInner {
 pub struct AppState {
     pub inner: Arc<RwLock<AppStateInner>>,
     pub ws_event_bus: Arc<WebSocketEventBus>,
+    pub setup_lock: Arc<Mutex<()>>,
 }
 
 impl AppState {
@@ -31,6 +35,7 @@ impl AppState {
                 token_store_ready: false,
             })),
             ws_event_bus,
+            setup_lock: Arc::default(),
         }
     }
 
@@ -44,6 +49,7 @@ impl AppState {
                 token_store_ready: false,
             })),
             ws_event_bus,
+            setup_lock: Arc::default(),
         }
     }
 
@@ -59,6 +65,7 @@ impl AppState {
                 token_store_ready: false,
             })),
             ws_event_bus,
+            setup_lock: Arc::default(),
         }
     }
 }

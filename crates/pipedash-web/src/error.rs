@@ -55,7 +55,7 @@ impl AppError {
         )
     }
 
-     pub fn unauthorized(message: impl Into<String>) -> Self {
+    pub fn unauthorized(message: impl Into<String>) -> Self {
         Self::new(
             StatusCode::UNAUTHORIZED,
             ApiError::new("UNAUTHORIZED", message),
@@ -63,10 +63,7 @@ impl AppError {
     }
 
     pub fn conflict(message: impl Into<String>) -> Self {
-        Self::new(
-            StatusCode::CONFLICT,
-            ApiError::new("CONFLICT", message),
-        )
+        Self::new(StatusCode::CONFLICT, ApiError::new("CONFLICT", message))
     }
 
     pub fn not_initialized() -> Self {
