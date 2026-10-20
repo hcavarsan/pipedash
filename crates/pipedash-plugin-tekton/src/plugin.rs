@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
-use futures::future::join_all;
+use futures::future::{
+    join_all,
+    try_join_all,
+};
 use pipedash_plugin_api::*;
 
 use crate::{
@@ -74,31 +77,15 @@ impl TektonPlugin {
             unique_namespaces.into_iter().collect()
         };
 
-        let results = join_all(
+        let all_pipelines: Vec<types::TektonPipeline> = try_join_all(
             namespaces
                 .iter()
                 .map(|namespace| client.list_pipelines(namespace)),
         )
-        .await;
-
-        let mut all_pipelines = Vec::new();
-        let mut listed_any = false;
-        let mut first_error = None;
-        for result in results {
-            match result {
-                Ok(pipelines) => {
-                    listed_any = true;
-                    all_pipelines.extend(pipelines);
-                }
-                Err(e) => {
-                    first_error.get_or_insert(e);
-                }
-            }
-        }
-
-        if let (false, Some(e)) = (listed_any, first_error) {
-            return Err(e);
-        }
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
         if selected_ids.is_empty() {
             Ok(all_pipelines)
@@ -620,8 +607,13 @@ mod tests {
                 } else {
                     "{}".to_string()
                 };
+                let status = if target.contains("/namespaces/denied/") {
+                    "403 Forbidden"
+                } else {
+                    "200 OK"
+                };
                 let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = stream.write_all(response.as_bytes());
@@ -690,12 +682,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_pipelines_reports_error_when_no_namespace_can_be_listed() {
+    async fn fetch_pipelines_fails_when_any_namespace_is_forbidden() {
         let dir = tempfile::tempdir().unwrap();
-        let closed = TcpListener::bind("127.0.0.1:0").unwrap();
-        let server = format!("http://{}", closed.local_addr().unwrap());
-        drop(closed);
-        let plugin = plugin(&server, &dir);
+        let (server, _requests) = stub_apiserver(TWO_PIPELINES);
+        let mut plugin = plugin(&server, &dir);
+        let mut config = plugin.config.clone();
+        config.insert("namespaces".to_string(), "ci,denied".to_string());
+        plugin.initialize(1, config, None).unwrap();
 
         assert!(plugin.fetch_pipelines().await.is_err());
     }
