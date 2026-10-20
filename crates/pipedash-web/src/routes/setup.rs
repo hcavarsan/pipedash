@@ -160,6 +160,12 @@ async fn create_initial_config(
         inner.token_store_ready = token_store_ready;
     }
 
+    if let Some(password) = req.vault_password.as_deref() {
+        if state.api_token().is_none() {
+            state.set_api_token(password);
+        }
+    }
+
     tracing::info!("Application state updated - setup complete!");
 
     Ok(Json(serde_json::json!({

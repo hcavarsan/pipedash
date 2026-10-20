@@ -6,6 +6,7 @@ import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import { useAuthStore } from '../stores/authStore'
 import type { UnlockVaultResponse, VaultStatusResponse } from '../types'
+import { getHttpStatus } from '../types/errors'
 
 export function useVaultPasswordStatus(options?: { enabled?: boolean }) {
   return useQuery({
@@ -42,6 +43,9 @@ async function unlockVaultSession(password: string): Promise<UnlockVaultResponse
     return result
   } catch (error) {
     clearToken()
+    if (getHttpStatus(error) === 401) {
+      return { success: false, message: 'Incorrect vault password' }
+    }
     throw error
   }
 }

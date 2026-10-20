@@ -167,6 +167,7 @@ async fn unlock_vault(
                         inner.core = Some(new_core);
                         inner.token_store_ready = true;
                     }
+                    state.set_api_token(&req.password);
 
                     {
                         let inner = state.inner.read().await;
