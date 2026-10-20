@@ -2,6 +2,8 @@ import { notifications } from '@mantine/notifications'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { service } from '../services'
+import { useNotificationStore } from '../stores/notificationStore'
+import { usePinnedStore } from '../stores/pinnedStore'
 import { formatCount } from '../utils/formatCount'
 
 export function useFactoryReset() {
@@ -12,6 +14,8 @@ export function useFactoryReset() {
 
     onSuccess: (result) => {
       queryClient.clear()
+      useNotificationStore.setState(useNotificationStore.getInitialState(), true)
+      usePinnedStore.setState(usePinnedStore.getInitialState(), true)
       localStorage.clear()
 
       notifications.show({
