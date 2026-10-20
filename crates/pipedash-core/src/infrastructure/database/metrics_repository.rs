@@ -1058,7 +1058,7 @@ impl MetricsRepository {
             .collect();
 
         let mut sorted_metrics = metrics;
-        sorted_metrics.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        sorted_metrics.sort_by_key(|a| a.timestamp);
 
         if let Some(limit) = query.limit {
             sorted_metrics.truncate(limit);

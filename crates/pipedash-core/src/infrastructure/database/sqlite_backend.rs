@@ -24,7 +24,8 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = DomainResult<T>>,
 {
-    const MAX_RETRIES: u32 = 3; // Reduced from 10 to 3 to prevent 5-minute delays
+    const MAX_RETRIES: u32 = 3; // Reduced from 10 to 3 to prevent 5-minute
+                                // delays
     const INITIAL_DELAY_MS: u64 = 10;
 
     let mut attempt = 0;

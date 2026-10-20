@@ -20,7 +20,9 @@ pub async fn init_database(path: PathBuf) -> anyhow::Result<SqlitePool> {
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
-        .busy_timeout(Duration::from_secs(5)); // Reduced from 30s to 5s to prevent compounding with retries
+        .busy_timeout(Duration::from_secs(5)); // Reduced from 30s to 5s to
+                                               // prevent compounding with
+                                               // retries
 
     let pool = SqlitePoolOptions::new()
         .max_connections(50)
@@ -40,7 +42,8 @@ pub async fn init_database(path: PathBuf) -> anyhow::Result<SqlitePool> {
     pool.execute("PRAGMA temp_store = MEMORY").await?;
     pool.execute("PRAGMA mmap_size = 268435456").await?; // 256MB mmap
     pool.execute("PRAGMA auto_vacuum = INCREMENTAL").await?; // Enables incremental auto-vacuum
-    pool.execute("PRAGMA wal_autocheckpoint = 1000").await?; // Checkpoint every 1000 pages
+    pool.execute("PRAGMA wal_autocheckpoint = 1000").await?; // Checkpoint every
+                                                             // 1000 pages
 
     Ok(pool)
 }

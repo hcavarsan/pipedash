@@ -62,7 +62,8 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = DomainResult<T>>,
 {
-    const MAX_RETRIES: u32 = 3; // Reduced from 10 to 3 to prevent 5-minute delays
+    const MAX_RETRIES: u32 = 3; // Reduced from 10 to 3 to prevent 5-minute
+                                // delays
     const INITIAL_DELAY_MS: u64 = 10;
 
     let mut attempt = 0;
@@ -164,7 +165,8 @@ impl Repository {
             "fetched_at",
             "run_hash",
         ];
-        let params_per_row = 4; // pipeline_id, run_number, run_data, run_hash (fetched_at is datetime)
+        let params_per_row = 4; // pipeline_id, run_number, run_data, run_hash
+                                // (fetched_at is datetime)
 
         match self.cache_pool {
             DatabasePool::Sqlite(_) => {
@@ -1363,7 +1365,7 @@ impl Repository {
                             }
                         }
 
-                        for (old_id, _) in existing.iter() {
+                        for old_id in existing.keys() {
                             if !new_ids.contains_key(old_id) {
                                 sqlx::query(delete_sql)
                                     .bind(old_id)
@@ -1432,7 +1434,7 @@ impl Repository {
                             }
                         }
 
-                        for (old_id, _) in existing.iter() {
+                        for old_id in existing.keys() {
                             if !new_ids.contains_key(old_id) {
                                 sqlx::query(delete_sql).bind(old_id).execute(&mut *tx).await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                             }
