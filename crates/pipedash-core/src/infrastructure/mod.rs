@@ -11,6 +11,8 @@ pub mod sync;
 pub mod token_store;
 
 pub use config::{
+    analyze_config,
+    ConfigAnalysis,
     ConfigChangeEvent,
     ConfigKey,
     ConfigLoader,

@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod encrypted_config;
 pub mod interpolation;
 pub mod loader;
@@ -9,6 +10,10 @@ pub mod sync;
 pub mod token_ref;
 pub mod validation;
 
+pub use analysis::{
+    analyze_config,
+    ConfigAnalysis,
+};
 pub use encrypted_config::{
     is_encrypted_format,
     EncryptedValue,

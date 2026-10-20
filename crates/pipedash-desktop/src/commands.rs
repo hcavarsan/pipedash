@@ -1151,6 +1151,7 @@ pub async fn get_default_table_preferences(
 }
 
 use pipedash_core::infrastructure::{
+    ConfigAnalysis,
     ConfigLoader,
     MigrationOptions,
     MigrationOrchestrator,
@@ -1610,6 +1611,31 @@ pub async fn save_config_content(
 
     tracing::info!("Config file saved: {:?}", config_path);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn analyze_config(
+    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
+    content: String,
+) -> Result<ConfigAnalysis, ErrorResponse> {
+    let current_config = load_config_from_dir(&app_data_dir.0)?;
+
+    let core_guard = maybe_core.0.read().await;
+    let core_opt = core_guard.as_ref();
+
+    let manager = if let Some(core) = core_opt {
+        StorageManager::with_token_store(current_config, core.token_store.clone(), true).await
+    } else {
+        StorageManager::from_config_allow_locked(current_config, true).await
+    }
+    .map_err(|e| ErrorResponse {
+        error: format!("Failed to create storage manager: {}", e),
+        details: None,
+    })?;
+
+    let event_bus = core_opt.map(|c| c.event_bus.clone());
+
+    Ok(pipedash_core::infrastructure::analyze_config(&content, &manager, event_bus, None).await?)
 }
 
 #[derive(Debug, Serialize)]
