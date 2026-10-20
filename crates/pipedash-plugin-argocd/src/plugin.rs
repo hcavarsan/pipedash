@@ -131,7 +131,7 @@ impl Plugin for ArgocdPlugin {
         if let Some(ref orgs_filter) = self.organizations_filter {
             debug!(?orgs_filter, "Filtering applications by organizations");
             apps.retain(|app| {
-                let git_org = config::extract_git_org(&app.spec.source.repo_url);
+                let git_org = config::extract_git_org(&app.spec.primary_source().repo_url);
                 orgs_filter.contains(&git_org)
             });
             debug!(
@@ -196,7 +196,7 @@ impl Plugin for ArgocdPlugin {
             std::collections::HashMap::new();
 
         for app in apps {
-            let git_org = config::extract_git_org(&app.spec.source.repo_url);
+            let git_org = config::extract_git_org(&app.spec.primary_source().repo_url);
 
             if git_org == "unknown" || git_org.is_empty() {
                 continue;
@@ -242,7 +242,7 @@ impl Plugin for ArgocdPlugin {
             .into_iter()
             .filter(|app| {
                 let org_match = org.as_ref().is_none_or(|o| {
-                    let git_org = config::extract_git_org(&app.spec.source.repo_url);
+                    let git_org = config::extract_git_org(&app.spec.primary_source().repo_url);
                     git_org == *o
                 });
 
@@ -250,7 +250,7 @@ impl Plugin for ArgocdPlugin {
                     app.metadata.name.to_lowercase().contains(&s.to_lowercase())
                         || app
                             .spec
-                            .source
+                            .primary_source()
                             .repo_url
                             .to_lowercase()
                             .contains(&s.to_lowercase())
@@ -324,7 +324,7 @@ impl Plugin for ArgocdPlugin {
         if let Some(ref orgs_filter) = self.organizations_filter {
             debug!(?orgs_filter, "Applying organization filter");
             apps.retain(|app| {
-                let git_org = config::extract_git_org(&app.spec.source.repo_url);
+                let git_org = config::extract_git_org(&app.spec.primary_source().repo_url);
                 orgs_filter.contains(&git_org)
             });
             debug!(
@@ -553,7 +553,7 @@ impl Plugin for ArgocdPlugin {
 
             let mut git_orgs = std::collections::HashSet::new();
             for app in apps {
-                let git_org = config::extract_git_org(&app.spec.source.repo_url);
+                let git_org = config::extract_git_org(&app.spec.primary_source().repo_url);
                 if git_org != "unknown" && !git_org.is_empty() {
                     git_orgs.insert(git_org);
                 }
