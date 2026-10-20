@@ -267,8 +267,6 @@ export function PipelinesStep({
                   onChange={handleOrganizationSelect}
                   data={availableOrganizations.map((org) => ({ value: org.id, label: org.name }))}
                   searchable
-                  disabled={loadingPipelines}
-                  rightSection={loadingPipelines ? <Loader size="xs" /> : undefined}
                   style={{ flex: 1 }}
                 />
               )}
@@ -277,7 +275,13 @@ export function PipelinesStep({
                 placeholder="Search repositories..."
                 value={repositorySearch}
                 onChange={(e) => handleSearchChange(e.currentTarget.value)}
-                leftSection={searchingPipelines ? <Loader size={16} /> : <IconSearch size={16} />}
+                leftSection={
+                  searchingPipelines && !loadingPipelines && !loadingMore ? (
+                    <Loader size={16} />
+                  ) : (
+                    <IconSearch size={16} />
+                  )
+                }
                 disabled={!selectedOrganization}
                 style={{ flex: 1 }}
               />

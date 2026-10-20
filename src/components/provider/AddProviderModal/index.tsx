@@ -31,7 +31,7 @@ export function AddProviderModal({
   const { plugins, loading: pluginsLoading } = usePlugins()
 
   const [state, dispatch] = useReducer(formReducer, initialFormState)
-  const { step, selectedPlugin, providerName, configValues, selectedPipelines, submitting, error, fieldErrors } = state
+  const { step, selectedPlugin, providerName, configValues, selectedPipelines, submitting, error } = state
 
   const providerConfig = useMemo<ProviderConfig>(
     () => ({
@@ -115,13 +115,7 @@ export function AddProviderModal({
 
     dispatch({ type: 'SET_FIELD_ERRORS', errors })
 
-    if (Object.keys(errors).length > 0) {
-      dispatch({ type: 'SET_ERROR', error: 'Please fix the errors below' })
-
-      return false
-    }
-
-    return true
+    return Object.keys(errors).length === 0
   }, [providerName, selectedPlugin, configValues, validateField])
 
   const handleNext = useCallback(() => {
@@ -357,11 +351,7 @@ export function AddProviderModal({
           <LoadingState variant="section" message="Loading available providers..." />
         ) : (
           <>
-            <FormErrorDisplay
-              globalError={error}
-              errors={fieldErrors}
-              onDismiss={() => dispatch({ type: 'SET_ERROR', error: null })}
-            />
+            <FormErrorDisplay globalError={error} onDismiss={() => dispatch({ type: 'SET_ERROR', error: null })} />
 
             {step === 'credentials' && (
               <CredentialsStep

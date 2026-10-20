@@ -60,6 +60,7 @@ export function useAddProvider() {
           logger.error('useAddProvider', 'Initial pipeline fetch failed', error)
           invalidateProviderPipelines(queryClient, newProviderId)
         })
+        .finally(() => queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() }))
 
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
 

@@ -22,12 +22,12 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
   const [sort, setSort] = useState<{ field: SortField; direction: SortDirection } | null>(null)
   const metricType = data.metric_type
 
-  const columns: { field: SortField; label: string }[] = [
-    { field: 'timestamp', label: 'Date' },
-    { field: 'value', label: METRIC_CONFIG[metricType].valueLabel },
-    { field: 'count', label: 'Count' },
-    { field: 'min', label: 'Min' },
-    { field: 'max', label: 'Max' },
+  const columns: { field: SortField; label: string; numeric: boolean }[] = [
+    { field: 'timestamp', label: 'Date', numeric: false },
+    { field: 'value', label: METRIC_CONFIG[metricType].valueLabel, numeric: true },
+    { field: 'count', label: 'Count', numeric: true },
+    { field: 'min', label: 'Min', numeric: true },
+    { field: 'max', label: 'Max', numeric: true },
   ]
 
   const handleSort = (field: SortField) => {
@@ -88,15 +88,20 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
         Data points ({data.metrics.length} periods)
       </Text>
       <Table.ScrollContainer minWidth={520}>
-        <Table striped highlightOnHover>
+        <Table striped highlightOnHover style={{ fontVariantNumeric: 'tabular-nums' }}>
           <Table.Thead>
             <Table.Tr>
-              {columns.map(({ field, label }) => (
-                <Table.Th key={field} aria-sort={sort?.field === field ? SORT_ARIA[sort.direction] : 'none'}>
+              {columns.map(({ field, label, numeric }) => (
+                <Table.Th
+                  key={field}
+                  ta={numeric ? 'right' : 'left'}
+                  aria-sort={sort?.field === field ? SORT_ARIA[sort.direction] : 'none'}
+                >
                   <UnstyledButton onClick={() => handleSort(field)} fz="sm" fw={600}>
                     <Group gap={4} wrap="nowrap">
+                      {numeric && getSortIcon(field)}
                       {label}
-                      {getSortIcon(field)}
+                      {!numeric && getSortIcon(field)}
                     </Group>
                   </UnstyledButton>
                 </Table.Th>
@@ -121,12 +126,12 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
                       {date}
                     </UnstyledButton>
                   </Table.Td>
-                  <Table.Td>
+                  <Table.Td ta="right">
                     {formatMetricValue(hasObservation(metric, metricType) ? metric.value : null, metricType)}
                   </Table.Td>
-                  <Table.Td>{metric.count}</Table.Td>
-                  <Table.Td>{formatMetricValue(metric.min, metricType)}</Table.Td>
-                  <Table.Td>{formatMetricValue(metric.max, metricType)}</Table.Td>
+                  <Table.Td ta="right">{metric.count}</Table.Td>
+                  <Table.Td ta="right">{formatMetricValue(metric.min, metricType)}</Table.Td>
+                  <Table.Td ta="right">{formatMetricValue(metric.max, metricType)}</Table.Td>
                 </Table.Tr>
               )
             })}

@@ -71,12 +71,20 @@ select {
   background-color: transparent;
 }
 
-.status-tone {
-  color: var(--status-light);
+:root {
+  --status-success: oklch(0.5 0.13 155);
+  --status-failed: oklch(0.5 0.13 25);
+  --status-running: oklch(0.5 0.13 255);
+  --status-pending: oklch(0.5 0.13 85);
+  --status-neutral: oklch(0.52 0.01 255);
 }
 
-[data-mantine-color-scheme="dark"] .status-tone {
-  color: var(--status-dark);
+[data-mantine-color-scheme="dark"] {
+  --status-success: oklch(0.76 0.12 155);
+  --status-failed: oklch(0.76 0.12 25);
+  --status-running: oklch(0.76 0.12 255);
+  --status-pending: oklch(0.76 0.12 85);
+  --status-neutral: oklch(0.68 0.01 255);
 }
 
 .nav-item-actions {

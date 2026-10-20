@@ -19,7 +19,15 @@ Pipedash is a CI/CD dashboard. People open it to find the pipeline that failed a
 | Pending | `yellow` | Pending runs only |
 | Neutral | `gray` | Everything else, including row actions and icon buttons |
 
-Run status colors come from `src/theme/status.ts` (`STATUS_META`). Always render a status with `StatusBadge`. Never color a status by hand.
+Run status uses its own tokens, `--status-success`, `--status-failed`, `--status-running`, `--status-pending` and `--status-neutral`, defined once per scheme in `src/App.css`. They are OKLCH colors with the same lightness and chroma, so no status looks heavier than another: deep in light mode, soft pastel in dark mode, all above 5:1 contrast. These are the only fixed colors in the app. `STATUS_META` in `src/theme/status.ts` maps each status to its token, label and icon. Render a status with `StatusBadge` (text) in tables, cards and modals, or `StatusIcon` (filled icon with a tooltip) on pinned cards. Never color a status by hand.
+
+## Tables
+
+- A header is aligned exactly like its cells.
+- Text, statuses and dates align left. Numbers and durations align right and use tabular figures.
+- The actions column aligns right, header included.
+- Run history columns get their alignment from the column data type in `src/utils/columnBuilder.ts`, so every provider looks the same.
+- Counts are plain dimmed text, not badges.
 
 ## Shape and depth
 

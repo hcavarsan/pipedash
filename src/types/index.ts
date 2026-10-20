@@ -168,7 +168,6 @@ export interface ColumnDefinition {
   width: number | null
   sortable: boolean
   filterable: boolean
-  align: string | null
 }
 
 export interface TableDefinition {

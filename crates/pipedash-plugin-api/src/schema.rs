@@ -103,7 +103,6 @@ pub struct ColumnDefinition {
     pub width: Option<u32>,
     pub sortable: bool,
     pub filterable: bool,
-    pub align: Option<String>,
 }
 
 fn default_visible_true() -> bool {

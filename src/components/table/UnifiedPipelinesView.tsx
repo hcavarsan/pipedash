@@ -698,12 +698,8 @@ export const UnifiedPipelinesView = ({
                       title: 'Status',
                       sortable: true,
                       width: 110,
-                      textAlign: 'center' as const,
-                      render: (row) => (
-                        <Group justify="center">
-                          <RowStatus row={row} />
-                        </Group>
-                      ),
+                      textAlign: 'left' as const,
+                      render: (row) => <RowStatus row={row} />,
                     },
                     {
                       accessor: 'provider',
@@ -723,11 +719,11 @@ export const UnifiedPipelinesView = ({
                       accessor: 'actions',
                       title: 'Actions',
                       width: onViewMetrics ? 160 : 140,
-                      textAlign: 'center' as const,
+                      textAlign: 'right' as const,
                       render: (row) => {
                         if (row.type === 'repository') {
                           return (
-                            <Group justify="center">
+                            <Group justify="flex-end">
                               <RepositoryFetchIndicator row={row} onShowError={showProviderError} />
                             </Group>
                           )
@@ -737,7 +733,7 @@ export const UnifiedPipelinesView = ({
 
                         if (row.type === 'workflow' && pipeline && rowPinKey) {
                           return (
-                            <Group justify="center">
+                            <Group justify="flex-end">
                               <WorkflowActions
                                 pipeline={pipeline}
                                 isPinned={pinnedKeys.includes(rowPinKey)}

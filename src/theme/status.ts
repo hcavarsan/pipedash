@@ -1,4 +1,3 @@
-import type { MantineColor } from '@mantine/core'
 import {
   type Icon,
   IconCircleCaretRightFilled,
@@ -11,13 +10,15 @@ import {
 
 import type { PipelineStatus } from '../types'
 
-export const STATUS_META: Record<PipelineStatus, { label: string; color: MantineColor; icon: Icon }> = {
-  success: { label: 'Success', color: 'green', icon: IconCircleCheckFilled },
-  failed: { label: 'Failed', color: 'red', icon: IconCircleXFilled },
-  running: { label: 'Running', color: 'blue', icon: IconCircleCaretRightFilled },
-  pending: { label: 'Pending', color: 'yellow', icon: IconClockFilled },
-  cancelled: { label: 'Cancelled', color: 'gray', icon: IconCircleRectangleFilled },
-  skipped: { label: 'Skipped', color: 'gray', icon: IconCircleChevronsRightFilled },
+type StatusTone = 'success' | 'failed' | 'running' | 'pending' | 'neutral'
+
+export const STATUS_META: Record<PipelineStatus, { label: string; tone: StatusTone; icon: Icon }> = {
+  success: { label: 'Success', tone: 'success', icon: IconCircleCheckFilled },
+  failed: { label: 'Failed', tone: 'failed', icon: IconCircleXFilled },
+  running: { label: 'Running', tone: 'running', icon: IconCircleCaretRightFilled },
+  pending: { label: 'Pending', tone: 'pending', icon: IconClockFilled },
+  cancelled: { label: 'Cancelled', tone: 'neutral', icon: IconCircleRectangleFilled },
+  skipped: { label: 'Skipped', tone: 'neutral', icon: IconCircleChevronsRightFilled },
 }
 
 export const STATUS_OPTIONS = (Object.keys(STATUS_META) as PipelineStatus[]).map((status) => ({

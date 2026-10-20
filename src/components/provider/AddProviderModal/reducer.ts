@@ -32,12 +32,11 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         dynamicOptions: {},
       }
 
-    case 'SET_PROVIDER_NAME':
-      return {
-        ...state,
-        providerName: action.name,
-        fieldErrors: { ...state.fieldErrors, providerName: '' },
-      }
+    case 'SET_PROVIDER_NAME': {
+      const { providerName: _cleared, ...fieldErrors } = state.fieldErrors
+
+      return { ...state, providerName: action.name, fieldErrors }
+    }
 
     case 'UPDATE_CONFIG': {
       const newFieldErrors = { ...state.fieldErrors }

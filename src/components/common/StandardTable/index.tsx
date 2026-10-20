@@ -34,7 +34,6 @@ export function StandardTable<T>(props: DataTableProps<T>) {
             paddingRight: 'var(--mantine-spacing-md)',
             whiteSpace: 'nowrap',
             verticalAlign: 'middle',
-            textAlign: 'left',
             borderBottom: '1px solid var(--mantine-color-default-border)',
           },
           table: {
@@ -43,6 +42,7 @@ export function StandardTable<T>(props: DataTableProps<T>) {
             tableLayout: 'auto',
             width: '100%',
             fontSize: 'var(--mantine-font-size-sm)',
+            fontVariantNumeric: 'tabular-nums',
           },
           pagination: {
             ...(props.styles?.pagination || {}),

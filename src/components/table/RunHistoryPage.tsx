@@ -266,7 +266,7 @@ export const RunHistoryPage = ({
       const detailsLabel = `View details for run #${run.run_number}`
 
       return (
-        <Group gap="xs" wrap="nowrap" justify="center">
+        <Group gap="xs" wrap="nowrap" justify="flex-end">
           {isActive
             ? onCancel && (
                 <ActionIcon
@@ -328,7 +328,7 @@ export const RunHistoryPage = ({
       accessor: 'actions' as keyof PipelineRun,
       title: 'Actions',
       width: '120px',
-      textAlign: 'center' as const,
+      textAlign: 'right' as const,
       resizable: false,
       toggleable: false,
       draggable: false,
