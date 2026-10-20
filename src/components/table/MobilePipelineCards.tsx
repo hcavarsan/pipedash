@@ -1,5 +1,5 @@
 import { ActionIcon, Box, Card, Center, Group, Stack, Text, Tooltip } from '@mantine/core'
-import { IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
+import { IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPin, IconPinFilled, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
 
 import type { Pipeline, ProviderSummary } from '../../types'
 import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
@@ -7,8 +7,9 @@ import { TableCells } from '../../utils/tableCells'
 
 interface TableRow {
   id: string
-  type: 'repository' | 'workflow'
+  type: 'repository' | 'workflow' | 'pinned-header'
   parentId?: string
+  pinned?: boolean
   repository?: string
   repositoryFullName?: string
   organization?: string
@@ -27,6 +28,8 @@ interface MobilePipelineCardsProps {
   parseRepositoryName: (fullName: string, providerId: number) => { organization: string; repository: string }
   onViewHistory: (pipeline: Pipeline) => void
   onTrigger: (pipeline: Pipeline) => void
+  pinnedIds: string[]
+  onTogglePin: (pipelineId: string) => void
   onViewMetrics?: (pipeline: Pipeline) => void
 }
 
@@ -39,6 +42,8 @@ export function MobilePipelineCards({
   parseRepositoryName,
   onViewHistory,
   onTrigger,
+  pinnedIds,
+  onTogglePin,
   onViewMetrics,
 }: MobilePipelineCardsProps) {
   return (
@@ -154,6 +159,13 @@ return (
                 </Stack>
               </Card>
             )
+          } else if (row.type === 'pinned-header') {
+            return (
+              <Group key={row.id} gap={8} wrap="nowrap">
+                <IconPinFilled size={16} color="var(--mantine-color-yellow-6)" />
+                <Text size={THEME_TYPOGRAPHY.ITEM_TITLE.size} fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight}>Pinned workflows</Text>
+              </Group>
+            )
           } else if (row.type === 'workflow' && row.pipeline) {
             const provider = getProvider(row.pipeline.provider_id)
             const { organization } = parseRepositoryName(row.pipeline.repository, row.pipeline.provider_id)
@@ -163,8 +175,8 @@ return (
                 key={row.id}
                 padding="md"
                 withBorder
-                ml="xl"
-                style={{ cursor: 'pointer', backgroundColor: 'var(--mantine-color-dark-8)' }}
+                ml={row.pinned ? undefined : 'xl'}
+                style={{ cursor: 'pointer', backgroundColor: row.pinned ? undefined : 'var(--mantine-color-dark-8)' }}
                 onClick={() => onViewHistory(row.pipeline!)}
               >
                 <Stack gap="xs">
@@ -182,6 +194,19 @@ return (
                       >
                         <div>{TableCells.status(row.pipeline.status)}</div>
                       </Tooltip>
+                      <ActionIcon
+                        variant="subtle"
+                        color="yellow"
+                        size="md"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onTogglePin(row.pipeline!.id)
+                        }}
+                        title={row.pinned ? 'Unpin workflow' : 'Pin workflow'}
+                        aria-label={row.pinned ? 'Unpin workflow' : 'Pin workflow'}
+                      >
+                        {pinnedIds.includes(row.pipeline.id) ? <IconPinFilled size={18} /> : <IconPin size={18} />}
+                      </ActionIcon>
                       {onViewMetrics && (
                         <ActionIcon
                           variant="subtle"
@@ -214,6 +239,12 @@ return (
                   </Group>
 
                   <Group gap="md" wrap="wrap">
+                    {row.pinned && (
+                      <Box style={{ flex: '1 1 auto' }}>
+                        <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Repository</Text>
+                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{row.pipeline.repository}</Text>
+                      </Box>
+                    )}
                     <Box style={{ flex: '1 1 auto' }}>
                       <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Organization</Text>
                       <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>{organization}</Text>
