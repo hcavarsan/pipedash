@@ -212,7 +212,7 @@ mise run dev
 **Initial setup** (first time only):
 
 - Install OS-specific Tauri prerequisites (see https://tauri.app/start/prerequisites/#system-dependencies)
-- `mise install` – installs dev tools: Rust nightly (with clippy, rustfmt), Node 24, Bun
+- `mise install` – installs dev tools: Rust nightly (with clippy, rustfmt), Node 26, Bun
 - `mise run install` – installs project dependencies: npm packages including @tauri-apps/cli
 - You're ready to develop
 - `mise run dev` – starts the app with hot reload
@@ -238,11 +238,12 @@ mise run build:android # Android app
 
 # Code quality
 mise run fmt           # format all code
-mise run fmt:front     # format frontend (ESLint --fix)
+mise run fmt:front     # format frontend (Biome)
 mise run fmt:back      # format backend (cargo fmt)
 mise run lint          # lint all code
-mise run lint:front    # lint frontend (ESLint)
+mise run lint:front    # lint and format check frontend (Biome)
 mise run lint:back     # lint backend (Clippy)
+mise run lint:actions  # lint GitHub workflows (zizmor)
 mise run check         # type check all
 mise run check:front   # TypeScript check
 mise run check:back    # Cargo check

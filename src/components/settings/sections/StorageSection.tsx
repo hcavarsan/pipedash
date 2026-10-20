@@ -1,23 +1,6 @@
+import { Alert, Box, Button, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core'
+import { IconAlertCircle, IconCheck, IconCloudUpload, IconLock, IconSettings } from '@tabler/icons-react'
 import { useState } from 'react'
-
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  Group,
-  Loader,
-  SimpleGrid,
-  Stack,
-  Text,
-} from '@mantine/core'
-import {
-  IconAlertCircle,
-  IconCheck,
-  IconCloudUpload,
-  IconLock,
-  IconSettings,
-} from '@tabler/icons-react'
 
 import {
   useConfigContent,
@@ -104,9 +87,7 @@ export const StorageSection = () => {
       const result = await testConnectionMutation.mutateAsync(storageConfig.config)
 
       setConnectionStatus(result.success ? 'success' : 'error')
-      setConnectionMessage(
-        result.message || (result.success ? 'Connection successful' : 'Connection failed')
-      )
+      setConnectionMessage(result.message || (result.success ? 'Connection successful' : 'Connection failed'))
     } catch (error) {
       setConnectionStatus('error')
       setConnectionMessage(error instanceof Error ? error.message : 'Failed to test connection')
@@ -180,14 +161,18 @@ export const StorageSection = () => {
         <Card withBorder padding="md" radius="md">
           <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg">
             <Stack gap={4}>
-              <Text size="xs" c="dimmed">Storage Backend</Text>
+              <Text size="xs" c="dimmed">
+                Storage Backend
+              </Text>
               <Text size="sm" fw={500}>
                 {getBackendLabel(storageConfig.config.storage.backend)}
               </Text>
             </Stack>
 
             <Stack gap={4}>
-              <Text size="xs" c="dimmed">Credentials</Text>
+              <Text size="xs" c="dimmed">
+                Credentials
+              </Text>
               <Text size="sm" fw={500}>
                 {storageConfig.config.storage.backend === 'postgres'
                   ? 'Encrypted (Postgres)'
@@ -198,22 +183,18 @@ export const StorageSection = () => {
             </Stack>
 
             <Stack gap={4}>
-              <Text size="xs" c="dimmed">Cache Backend</Text>
+              <Text size="xs" c="dimmed">
+                Cache Backend
+              </Text>
               <Text size="sm" fw={500}>
-                {storageConfig.config.storage.backend === 'postgres'
-                  ? 'PostgreSQL'
-                  : 'Local Filesystem'}
+                {storageConfig.config.storage.backend === 'postgres' ? 'PostgreSQL' : 'Local Filesystem'}
               </Text>
             </Stack>
           </SimpleGrid>
         </Card>
 
         {storagePaths && (
-          <StoragePathsDisplay
-            paths={storagePaths}
-            config={storageConfig.config}
-            onEditConfig={openConfigEditor}
-          />
+          <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
         )}
 
         <Card withBorder padding="md" radius="md">
@@ -270,11 +251,7 @@ export const StorageSection = () => {
         </Card>
       </Stack>
 
-      <SetupWizard
-        opened={setupWizardOpen}
-        onComplete={handleSetupComplete}
-        onClose={handleSetupClose}
-      />
+      <SetupWizard opened={setupWizardOpen} onComplete={handleSetupComplete} onClose={handleSetupClose} />
 
       <ConfigEditorModal
         opened={configEditorOpen}

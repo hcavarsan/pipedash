@@ -121,8 +121,11 @@ pub fn hash_pipeline_run(
     }
     hasher.update(commit_sha.unwrap_or("").as_bytes());
 
-    let result = hasher.finalize();
-    format!("{:x}", result)
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 impl<T: Clone> Clone for RequestDeduplicator<T> {

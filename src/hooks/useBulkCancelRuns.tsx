@@ -1,26 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-
 import { Text } from '@mantine/core'
 import { modals } from '@mantine/modals'
+import { useCallback, useMemo, useState } from 'react'
 
 import { useCancelRuns } from '../queries/useRunHistoryQueries'
 import type { PipelineRun } from '../types'
 
 interface UseBulkCancelRunsOptions {
-  pipelineId: string | undefined;
-  page: number;
-  runs: PipelineRun[];
-  enabled: boolean;
-  cancellingRunNumber: number | null;
+  pipelineId: string | undefined
+  page: number
+  runs: PipelineRun[]
+  enabled: boolean
+  cancellingRunNumber: number | null
 }
 
-export function useBulkCancelRuns({
-  pipelineId,
-  page,
-  runs,
-  enabled,
-  cancellingRunNumber,
-}: UseBulkCancelRunsOptions) {
+export function useBulkCancelRuns({ pipelineId, page, runs, enabled, cancellingRunNumber }: UseBulkCancelRunsOptions) {
   const [selectedRunNumbers, setSelectedRunNumbers] = useState<number[]>([])
   const cancelRunsMutation = useCancelRuns()
 
@@ -34,9 +27,12 @@ export function useBulkCancelRuns({
     [runs, selectedRunNumbers, isRunCancellable]
   )
 
-  useEffect(() => {
+  const [scope, setScope] = useState({ pipelineId, page })
+
+  if (scope.pipelineId !== pipelineId || scope.page !== page) {
+    setScope({ pipelineId, page })
     setSelectedRunNumbers([])
-  }, [pipelineId, page])
+  }
 
   const selectRuns = useCallback((records: PipelineRun[]) => {
     setSelectedRunNumbers(records.map((run) => run.run_number))
@@ -53,7 +49,8 @@ export function useBulkCancelRuns({
       title: 'Cancel selected runs',
       children: (
         <Text size="sm">
-          This cancels {runNumbers.length} {runNumbers.length === 1 ? 'run' : 'runs'}: {runNumbers.map((runNumber) => `#${runNumber}`).join(', ')}. You can't undo this.
+          This cancels {runNumbers.length} {runNumbers.length === 1 ? 'run' : 'runs'}:{' '}
+          {runNumbers.map((runNumber) => `#${runNumber}`).join(', ')}. You can't undo this.
         </Text>
       ),
       labels: { confirm: 'Cancel runs', cancel: 'Keep running' },

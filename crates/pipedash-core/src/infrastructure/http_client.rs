@@ -45,6 +45,8 @@ impl HttpClientManager {
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
         Client::builder()
             .use_rustls_tls()
             .pool_max_idle_per_host(pool_size)

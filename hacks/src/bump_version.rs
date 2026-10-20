@@ -2,7 +2,10 @@ use std::{
     env,
     fs,
     io,
-    process::{Command, ExitCode},
+    process::{
+        Command,
+        ExitCode,
+    },
 };
 
 use glob::glob;
@@ -38,10 +41,7 @@ fn bump_version(bump_type: &str) -> io::Result<String> {
         .output()?;
 
     if !output.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            String::from_utf8_lossy(&output.stderr),
-        ));
+        return Err(io::Error::other(String::from_utf8_lossy(&output.stderr)));
     }
 
     let version = String::from_utf8_lossy(&output.stdout)
@@ -58,10 +58,13 @@ fn bump_version(bump_type: &str) -> io::Result<String> {
     // Dynamically find and update all tauri.conf.json files
     let pattern = root.join("**/tauri.conf.json");
     let pattern_str = pattern.to_string_lossy();
-    for entry in glob(&pattern_str).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))? {
+    for entry in glob(&pattern_str).map_err(|e| io::Error::other(e.to_string()))? {
         match entry {
             Ok(path) => {
-                println!("  ✓ {}", path.strip_prefix(&root).unwrap_or(&path).display());
+                println!(
+                    "  ✓ {}",
+                    path.strip_prefix(&root).unwrap_or(&path).display()
+                );
                 update_json_version(&path, &version)?;
             }
             Err(e) => eprintln!("  ⚠ Warning: {}", e),
@@ -80,7 +83,7 @@ fn update_workspace_version(path: &std::path::Path, version: &str) -> io::Result
 
     let updated = workspace_re.replace(&content, |caps: &regex::Captures| {
         caps[0].replacen(
-            &caps[0].lines().last().unwrap(),
+            caps[0].lines().last().unwrap(),
             &format!(r#"version = "{}""#, version),
             1,
         )
@@ -100,8 +103,8 @@ fn update_workspace_version(path: &std::path::Path, version: &str) -> io::Result
 
 fn update_json_version(path: &std::path::Path, version: &str) -> io::Result<()> {
     let content = fs::read_to_string(path)?;
-    let mut json: Value =
-        serde_json::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let mut json: Value = serde_json::from_str(&content)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     json["version"] = Value::String(version.to_string());
 

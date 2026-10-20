@@ -19,11 +19,7 @@ base64.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 futures.workspace = true
-keyring = { version = "3", features = [
-  "apple-native",
-  "linux-native",
-  "windows-native",
-] }
+keyring.workspace = true
 pipedash-core.workspace = true
 pipedash-plugin-api.workspace = true
 pipedash-plugin-argocd.workspace = true
@@ -40,18 +36,18 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
-tauri = { version = "2", default-features = true, features = [] }
-tauri-plugin-dialog = { version = "2", default-features = true }
-tauri-plugin-fs = { version = "2", default-features = true }
-tauri-plugin-opener = { version = "2", default-features = true }
-tauri-plugin-os = { version = "2", default-features = true }
+tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-fs.workspace = true
+tauri-plugin-opener.workspace = true
+tauri-plugin-os.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
 
 [build-dependencies]
-tauri-build = { version = "2", default-features = true, features = [] }
+tauri-build.workspace = true
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

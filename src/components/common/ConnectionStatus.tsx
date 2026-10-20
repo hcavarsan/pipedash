@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
-
 import { Alert, Button, Group, Text, Tooltip } from '@mantine/core'
 import { IconLock, IconRefresh, IconWifiOff } from '@tabler/icons-react'
+import { useEffect, useState } from 'react'
 
 import { useVaultStatus } from '@/queries/useVaultQueries'
 import { isTauri } from '@/services'
@@ -25,12 +24,9 @@ export function ConnectionStatus() {
       return
     }
 
-    const unlisten = wsClient.listen<ConnectionState>(
-      WS_EVENTS.CONNECTION_STATUS,
-      (state) => {
-        setConnectionState(state)
-      }
-    )
+    const unlisten = wsClient.listen<ConnectionState>(WS_EVENTS.CONNECTION_STATUS, (state) => {
+      setConnectionState(state)
+    })
 
     return () => {
       unlisten()
@@ -60,8 +56,8 @@ export function ConnectionStatus() {
         </Tooltip>
       )
     }
-    
-return null
+
+    return null
   }
 
   if (vaultLocked) {
@@ -74,9 +70,7 @@ return null
         withCloseButton={false}
         style={{ position: 'fixed', top: 60, right: 16, zIndex: 1000, maxWidth: 400 }}
       >
-        <Text size="sm">
-          Token storage is locked. Set PIPEDASH_VAULT_PASSWORD or restart the app.
-        </Text>
+        <Text size="sm">Token storage is locked. Set PIPEDASH_VAULT_PASSWORD or restart the app.</Text>
       </Alert>
     )
   }
@@ -100,12 +94,7 @@ return null
             ? `Attempt ${connectionState.reconnectAttempts}...`
             : 'Real-time updates unavailable'}
         </Text>
-        <Button
-          size="xs"
-          variant="light"
-          leftSection={<IconRefresh size={14} />}
-          onClick={handleManualReconnect}
-        >
+        <Button size="xs" variant="light" leftSection={<IconRefresh size={14} />} onClick={handleManualReconnect}>
           Reconnect
         </Button>
       </Group>

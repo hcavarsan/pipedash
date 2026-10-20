@@ -10,4 +10,3 @@ export const STATUS_COLORS: Record<PipelineStatus, MantineColor> = {
   cancelled: 'gray',
   skipped: 'gray',
 } as const
-

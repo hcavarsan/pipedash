@@ -1,8 +1,8 @@
 import { Group, Title } from '@mantine/core'
 
 interface TableHeaderProps {
-  title: string;
-  count?: number;
+  title: string
+  count?: number
 }
 
 export const TableHeader = ({ title, count }: TableHeaderProps) => {

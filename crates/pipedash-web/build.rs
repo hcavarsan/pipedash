@@ -2,54 +2,51 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    let dist_path = Path::new("../../dist");
-    let project_root = Path::new("../../");
-    let skip_frontend_build = std::env::var("SKIP_FRONTEND_BUILD").is_ok();
+    let dist = Path::new("dist");
+    let repo_root = Path::new("../..");
+    let in_repo = repo_root.join("package.json").exists();
+    let release = std::env::var("PROFILE").is_ok_and(|profile| profile == "release");
+    let skip = std::env::var("SKIP_FRONTEND_BUILD").is_ok();
 
-    if skip_frontend_build {
-        ensure_dist_exists(dist_path);
+    if !in_repo {
+        assert!(
+            dist.join("index.html").exists(),
+            "dist/ is missing: this package was built without frontend assets"
+        );
         return;
     }
 
-    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
+    println!("cargo:rerun-if-env-changed=SKIP_FRONTEND_BUILD");
+    println!("cargo:rerun-if-changed=../../src");
+    println!("cargo:rerun-if-changed=../../package.json");
+    println!("cargo:rerun-if-changed=../../vite.config.ts");
 
-    if profile == "debug" {
-        ensure_dist_exists(dist_path);
+    if skip || !release {
+        ensure_dist_exists(dist);
         return;
     }
 
     eprintln!("Building frontend...");
-
-    let bun_check = Command::new("bun").arg("--version").output();
-    if bun_check.is_err() {
-        panic!("bun not found. Install: curl -fsSL https://bun.sh/install | bash");
-    }
-
     let status = Command::new("bunx")
-        .arg("vite")
-        .arg("build")
-        .current_dir(project_root)
+        .args(["vite", "build"])
+        .current_dir(repo_root)
         .status()
-        .expect("Failed to execute frontend build");
-
-    if !status.success() {
-        panic!("Frontend build failed");
-    }
-
-    if !dist_path.exists() {
-        panic!("dist/ not found after build");
-    }
-
-    println!("cargo:rerun-if-changed=../../src");
-    println!("cargo:rerun-if-changed=../../package.json");
-    println!("cargo:rerun-if-changed=../../vite.config.ts");
+        .expect("bun not found. Install: curl -fsSL https://bun.sh/install | bash");
+    assert!(status.success(), "Frontend build failed");
+    assert!(
+        dist.join("index.html").exists(),
+        "dist/ not found after build"
+    );
 }
 
-fn ensure_dist_exists(dist_path: &Path) {
-    if !dist_path.exists() {
-        std::fs::create_dir_all(dist_path).expect("Failed to create dist/");
-        let index_html = dist_path.join("index.html");
-        std::fs::write(&index_html, "<!DOCTYPE html><html><body><h1>Frontend not built</h1><p>Run: bun run build</p></body></html>")
-            .expect("Failed to write placeholder");
+fn ensure_dist_exists(dist: &Path) {
+    if dist.join("index.html").exists() {
+        return;
     }
+    std::fs::create_dir_all(dist).expect("Failed to create dist/");
+    std::fs::write(
+        dist.join("index.html"),
+        "<!DOCTYPE html><html><body><h1>Frontend not built</h1><p>Run: bun run build</p></body></html>",
+    )
+    .expect("Failed to write placeholder");
 }

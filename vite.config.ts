@@ -1,59 +1,13 @@
-import path from 'node:path'
-import { visualizer } from 'rollup-plugin-visualizer'
-import { defineConfig, type Plugin, type UserConfig } from 'vite'
-import tsconfigPaths from 'vite-tsconfig-paths'
-
 import { codecovVitePlugin } from '@codecov/vite-plugin'
-import terser from '@rollup/plugin-terser'
 import react from '@vitejs/plugin-react-swc'
-
-const asPlugin = (p: any) => p as Plugin
-
-const terserConfig = {
-  mangle: true,
-  output: { comments: false },
-  compress: {
-    drop_console: true,
-    drop_debugger: true,
-    pure_funcs: ['console.info', 'console.debug', 'console.warn'],
-    passes: 2
-  }
-}
-
-
-const createManualChunks = (id: string) => {
-  if (!id.includes('node_modules')) {
-    return
-  }
-
-  // Bundle Tauri separately (it doesn't depend on React)
-  if (id.includes('@tauri-apps')) {
-    return 'tauri'
-  }
-
-  // Bundle React, Mantine, and all UI libraries together
-  // This ensures React is available when Mantine tries to use it
-  if (
-    id.includes('/react/') ||
-    id.includes('/react-dom/') ||
-    id.includes('/scheduler/') ||
-    id.includes('@mantine/') ||
-    id.includes('mantine-datatable') ||
-    id.includes('@tabler/icons-react') ||
-    id.includes('@emotion')
-  ) {
-    return 'vendor'
-  }
-
-  // Everything else
-  return 'vendor'
-}
+import { visualizer } from 'rollup-plugin-visualizer'
+import { defineConfig } from 'vite'
 
 const host = process.env.TAURI_DEV_HOST
 
 export default defineConfig({
   resolve: {
-    alias: { '@': path.resolve(__dirname, 'src') }
+    tsconfigPaths: true,
   },
 
   define: {
@@ -61,23 +15,23 @@ export default defineConfig({
   },
 
   plugins: [
-    asPlugin(react()),
-    asPlugin(tsconfigPaths()),
-    ...(!process.env.TAURI_DEBUG ? [asPlugin(terser(terserConfig))] : []),
+    react(),
     codecovVitePlugin({
       enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
       bundleName: 'pipedash',
       uploadToken: process.env.CODECOV_TOKEN,
       gitService: 'github',
     }),
-    ...(process.env.ANALYZE ? [
-      visualizer({
-        open: true,
-        gzipSize: true,
-        brotliSize: true,
-        filename: 'dist/stats.html'
-      })
-    ] : [])
+    ...(process.env.ANALYZE
+      ? [
+          visualizer({
+            open: true,
+            gzipSize: true,
+            brotliSize: true,
+            filename: 'crates/pipedash-web/dist/stats.html',
+          }),
+        ]
+      : []),
   ],
 
   clearScreen: false,
@@ -101,38 +55,49 @@ export default defineConfig({
     },
     // Only enable proxy in web mode (not in Tauri mode)
     // In Tauri mode, frontend uses IPC instead of HTTP API
-    proxy: process.env.TAURI_ARCH !== undefined ? undefined : {
-      '/api': {
-        target: 'http://127.0.0.1:8080',
-        changeOrigin: true,
-        // WebSocket support for real-time updates
-        ws: true,
-      },
-    },
+    proxy:
+      process.env.TAURI_ARCH !== undefined
+        ? undefined
+        : {
+            '/api': {
+              target: 'http://127.0.0.1:8080',
+              changeOrigin: true,
+              // WebSocket support for real-time updates
+              ws: true,
+            },
+          },
   },
 
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
 
   build: {
-    outDir: 'dist',
-	emptyOutDir: false,
-    chunkSizeWarningLimit: 500,
-    // Tauri uses Chromium on Windows and WebKit on macOS and Linux
-    target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
-    minify: !process.env.TAURI_ENV_DEBUG ? 'terser' : false,
+    outDir: 'crates/pipedash-web/dist',
+    emptyOutDir: false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: createManualChunks,
+        minify: !process.env.TAURI_ENV_DEBUG && {
+          mangle: true,
+          compress: { dropConsole: true, dropDebugger: true },
+        },
+        comments: false,
+        codeSplitting: {
+          groups: [
+            { name: 'tauri', test: /node_modules[\\/]@tauri-apps[\\/]/ },
+            { name: 'charts', test: /node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor)[\\/]/ },
+            { name: 'mantine', test: /node_modules[\\/](@mantine|mantine-datatable)[\\/]/ },
+            { name: 'icons', test: /node_modules[\\/]@tabler[\\/]/ },
+            { name: 'vendor', test: /node_modules[\\/]/ },
+          ],
+        },
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: 'assets/[name]-[hash].[ext]'
+        assetFileNames: 'assets/[name]-[hash].[ext]',
       },
       treeshake: {
         moduleSideEffects: 'no-external',
         propertyReadSideEffects: false,
-        tryCatchDeoptimization: false
-      }
-    }
-  }
-} as UserConfig)
+      },
+    },
+  },
+})

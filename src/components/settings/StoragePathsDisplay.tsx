@@ -22,9 +22,7 @@ const PathRow = ({ label, path, showFolder, isConfigFile, onEdit }: PathRowProps
   const handleOpenFolder = async () => {
     if (isTauri()) {
       try {
-        const folderPath = path.includes('.')
-          ? path.substring(0, path.lastIndexOf('/'))
-          : path
+        const folderPath = path.includes('.') ? path.substring(0, path.lastIndexOf('/')) : path
 
         await service.openUrl(`file://${folderPath}`)
       } catch (err) {
@@ -49,23 +47,21 @@ const PathRow = ({ label, path, showFolder, isConfigFile, onEdit }: PathRowProps
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
             minWidth: 0,
-            cursor: 'help'
+            cursor: 'help',
           }}
         >
           {path}
         </Text>
       </Tooltip>
 
-      <Group gap={4} wrap="nowrap" style={{ flexShrink: 0, width: showFolder ? '90px' : '60px', justifyContent: 'flex-end' }}>
+      <Group
+        gap={4}
+        wrap="nowrap"
+        style={{ flexShrink: 0, width: showFolder ? '90px' : '60px', justifyContent: 'flex-end' }}
+      >
         {isConfigFile && onEdit ? (
           <Tooltip label="Edit configuration file" position="top" withArrow>
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              color="blue"
-              onClick={onEdit}
-              px={6}
-            >
+            <Button size="compact-xs" variant="subtle" color="blue" onClick={onEdit} px={6}>
               <IconEdit size={14} />
             </Button>
           </Tooltip>
@@ -76,12 +72,7 @@ const PathRow = ({ label, path, showFolder, isConfigFile, onEdit }: PathRowProps
         <CopyButton value={`"${path}"`}>
           {({ copied, copy }) => (
             <Tooltip label={copied ? 'Copied!' : 'Copy full path'} position="top" withArrow>
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                onClick={copy}
-                px={6}
-              >
+              <Button size="compact-xs" variant="subtle" onClick={copy} px={6}>
                 {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
               </Button>
             </Tooltip>
@@ -90,12 +81,7 @@ const PathRow = ({ label, path, showFolder, isConfigFile, onEdit }: PathRowProps
 
         {showFolder && (
           <Tooltip label="Open in file manager" position="top" withArrow>
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              onClick={handleOpenFolder}
-              px={6}
-            >
+            <Button size="compact-xs" variant="subtle" onClick={handleOpenFolder} px={6}>
               <IconFolderOpen size={14} />
             </Button>
           </Tooltip>
@@ -114,7 +100,9 @@ export const StoragePathsDisplay = ({ paths, config, onEditConfig }: StoragePath
 
   return (
     <Card withBorder padding="md" radius="md">
-      <Text size="sm" fw={600} mb="md">Storage Paths</Text>
+      <Text size="sm" fw={600} mb="md">
+        Storage Paths
+      </Text>
       <Stack gap="sm">
         <PathRow
           label="Configuration"
@@ -126,35 +114,16 @@ export const StoragePathsDisplay = ({ paths, config, onEditConfig }: StoragePath
 
         {!isPostgresStorage && (
           <>
-            <PathRow
-              label="Database"
-              path={paths.pipedash_db}
-              showFolder={isDesktop}
-            />
-            <PathRow
-              label="Metrics DB"
-              path={paths.metrics_db}
-              showFolder={isDesktop}
-            />
+            <PathRow label="Database" path={paths.pipedash_db} showFolder={isDesktop} />
+            <PathRow label="Metrics DB" path={paths.metrics_db} showFolder={isDesktop} />
           </>
         )}
 
-
         {(!isPostgresCache || !isPostgresStorage) && (
-          <PathRow
-            label="Data Directory"
-            path={paths.data_dir}
-            showFolder={isDesktop}
-          />
+          <PathRow label="Data Directory" path={paths.data_dir} showFolder={isDesktop} />
         )}
 
-        {!isPostgresCache && (
-          <PathRow
-            label="Cache Directory"
-            path={paths.cache_dir}
-            showFolder={isDesktop}
-          />
-        )}
+        {!isPostgresCache && <PathRow label="Cache Directory" path={paths.cache_dir} showFolder={isDesktop} />}
       </Stack>
     </Card>
   )

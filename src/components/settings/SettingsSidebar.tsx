@@ -1,28 +1,17 @@
 import { Box, NavLink, ScrollArea, Stack } from '@mantine/core'
-import {
-  IconChartBar,
-  IconDatabase,
-  IconFolder,
-  IconPlug,
-  IconSettings,
-} from '@tabler/icons-react'
+import { IconChartBar, IconDatabase, IconFolder, IconPlug, IconSettings } from '@tabler/icons-react'
 
-export type SettingsSection =
-  | 'general'
-  | 'providers'
-  | 'metrics'
-  | 'cache'
-  | 'storage'
+export type SettingsSection = 'general' | 'providers' | 'metrics' | 'cache' | 'storage'
 
 interface SettingsSidebarProps {
-  activeSection: SettingsSection;
-  onSectionChange: (section: SettingsSection) => void;
+  activeSection: SettingsSection
+  onSectionChange: (section: SettingsSection) => void
 }
 
 const SECTIONS: Array<{
-  id: SettingsSection;
-  label: string;
-  icon: React.ReactNode;
+  id: SettingsSection
+  label: string
+  icon: React.ReactNode
 }> = [
   { id: 'general', label: 'General', icon: <IconSettings size={16} /> },
   { id: 'providers', label: 'Providers', icon: <IconPlug size={16} /> },
@@ -31,11 +20,7 @@ const SECTIONS: Array<{
   { id: 'storage', label: 'Storage', icon: <IconFolder size={16} /> },
 ]
 
-export const SettingsSidebar = ({
-  activeSection,
-  onSectionChange,
-}: SettingsSidebarProps) => {
-
+export const SettingsSidebar = ({ activeSection, onSectionChange }: SettingsSidebarProps) => {
   return (
     <Stack
       h="100%"
@@ -53,11 +38,7 @@ export const SettingsSidebar = ({
               key={section.id}
               active={activeSection === section.id}
               label={section.label}
-              leftSection={
-                <Box style={{ color: 'var(--mantine-color-dimmed)' }}>
-                  {section.icon}
-                </Box>
-              }
+              leftSection={<Box style={{ color: 'var(--mantine-color-dimmed)' }}>{section.icon}</Box>}
               onClick={() => onSectionChange(section.id)}
               color="gray"
               variant="subtle"

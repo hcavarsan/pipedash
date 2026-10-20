@@ -5,7 +5,6 @@ import { StatusBadge } from '../components/atoms/StatusBadge'
 import { TruncatedText } from '../components/atoms/TruncatedText'
 import type { PipelineStatus } from '../types'
 
-
 const TABLE_CELL_STYLES = {
   text: {
     size: 'sm' as const,
@@ -40,7 +39,6 @@ const TABLE_CELL_STYLES = {
   },
 } as const
 
-
 export const TableCells = {
   text: (value: string | number) => (
     <Text size={TABLE_CELL_STYLES.text.size} fw={TABLE_CELL_STYLES.text.weight.normal}>
@@ -71,10 +69,7 @@ export const TableCells = {
   ),
 
   truncated: (value: string) => (
-    <TruncatedText
-      size={TABLE_CELL_STYLES.text.size}
-      fw={TABLE_CELL_STYLES.text.weight.medium}
-    >
+    <TruncatedText size={TABLE_CELL_STYLES.text.size} fw={TABLE_CELL_STYLES.text.weight.medium}>
       {value}
     </TruncatedText>
   ),
@@ -89,26 +84,15 @@ export const TableCells = {
     </TruncatedText>
   ),
 
-  status: (status: PipelineStatus, withIcon = false) => (
-    <StatusBadge
-      status={status}
-      size="sm"
-      withIcon={withIcon}
-    />
-  ),
+  status: (status: PipelineStatus, withIcon = false) => <StatusBadge status={status} size="sm" withIcon={withIcon} />,
 
   countBadge: (count: number) => (
-    <Badge
-      variant={TABLE_CELL_STYLES.badge.variant}
-      color="blue"
-      size={TABLE_CELL_STYLES.badge.size}
-      fw={500}
-    >
+    <Badge variant={TABLE_CELL_STYLES.badge.variant} color="blue" size={TABLE_CELL_STYLES.badge.size} fw={500}>
       {count}
     </Badge>
   ),
 
-  commit: (sha: string | null | undefined) => (
+  commit: (sha: string | null | undefined) =>
     sha ? (
       <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
         <Code fz={TABLE_CELL_STYLES.code.size} fw={TABLE_CELL_STYLES.code.weight}>
@@ -120,10 +104,9 @@ export const TableCells = {
       <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>
         —
       </Text>
-    )
-  ),
+    ),
 
-  timestamp: (date: string | null) => (
+  timestamp: (date: string | null) =>
     date ? (
       <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>
         {new Date(date).toLocaleString()}
@@ -132,8 +115,7 @@ export const TableCells = {
       <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>
         Never
       </Text>
-    )
-  ),
+    ),
 
   iconText: (icon: React.ReactNode, text: string) => (
     <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
@@ -147,11 +129,7 @@ export const TableCells = {
   avatarName: (src: string | null, name: string, fallbackIcon?: React.ReactNode) => (
     <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
       {src ? (
-        <Avatar
-          src={src}
-          size={TABLE_CELL_STYLES.avatar.size}
-          radius={TABLE_CELL_STYLES.avatar.radius}
-        >
+        <Avatar src={src} size={TABLE_CELL_STYLES.avatar.size} radius={TABLE_CELL_STYLES.avatar.radius}>
           {fallbackIcon}
         </Avatar>
       ) : fallbackIcon ? (
@@ -166,9 +144,7 @@ export const TableCells = {
       ) : (
         <Avatar size={TABLE_CELL_STYLES.avatar.size} radius={TABLE_CELL_STYLES.avatar.radius} color="gray" />
       )}
-      <Text size={TABLE_CELL_STYLES.text.size}>
-        {name}
-      </Text>
+      <Text size={TABLE_CELL_STYLES.text.size}>{name}</Text>
     </Group>
   ),
 }

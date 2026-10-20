@@ -58,8 +58,8 @@ export const CompactMetricsCard = ({ metricType, data, loading, onExpand }: Comp
 
   const formatValue = (value: number | null, type: MetricType): string => {
     if (value === null) {
-return '-'
-}
+      return '-'
+    }
 
     if (type === 'run_duration') {
       return formatDuration(value)
@@ -68,7 +68,7 @@ return '-'
       return `${value.toFixed(1)}%`
     }
 
-return value.toFixed(0)
+    return value.toFixed(0)
   }
 
   return (
@@ -113,7 +113,7 @@ return value.toFixed(0)
         </Group>
 
         {loading ? (
-          <Grid gutter="xs">
+          <Grid gap="xs">
             <Grid.Col span={6}>
               <Stack gap={4}>
                 <Text size="xs" c="dimmed" tt="uppercase">
@@ -132,7 +132,7 @@ return value.toFixed(0)
             </Grid.Col>
           </Grid>
         ) : data && data.metrics.length > 0 ? (
-          <Grid gutter="xs">
+          <Grid gap="xs">
             <Grid.Col span={6}>
               <Stack gap={4}>
                 <Text size="xs" c="dimmed" tt="uppercase">

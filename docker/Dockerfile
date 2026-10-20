@@ -40,10 +40,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     cargo chef cook --release -p pipedash-web --recipe-path recipe.json --target $(cat /tmp/rust_target)
 
-COPY --from=frontend-builder /app/dist ./dist
-
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY --from=frontend-builder /app/crates/pipedash-web/dist ./crates/pipedash-web/dist
 
 ENV SKIP_FRONTEND_BUILD=1
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

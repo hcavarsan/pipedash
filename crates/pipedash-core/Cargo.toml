@@ -22,7 +22,7 @@ dirs.workspace = true
 futures.workspace = true
 glob.workspace = true
 hostname.workspace = true
-indexmap = { version = "2", features = ["serde"] }
+indexmap.workspace = true
 pipedash-plugin-api.workspace = true
 pipedash-plugin-argocd.workspace = true
 pipedash-plugin-bitbucket.workspace = true
@@ -34,6 +34,7 @@ pipedash-plugin-tekton.workspace = true
 rand.workspace = true
 regex.workspace = true
 reqwest.workspace = true
+rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

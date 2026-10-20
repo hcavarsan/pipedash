@@ -1,12 +1,10 @@
-import { Dispatch, useEffect, useMemo } from 'react'
-
 import {
   Box,
   Button,
   Card,
-  Checkbox as MantineCheckbox,
   Group,
   Loader,
+  Checkbox as MantineCheckbox,
   Paper,
   ScrollArea,
   Select,
@@ -17,6 +15,7 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { IconSearch } from '@tabler/icons-react'
+import { type Dispatch, useEffect, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
@@ -44,19 +43,11 @@ export function PipelinesStep({
   existingProvider,
   isMobile,
 }: PipelinesStepProps) {
-  const {
-    selectedPlugin,
-    selectedOrganization,
-    selectedPipelines,
-    repositorySearch,
-  } = state
+  const { selectedPlugin, selectedOrganization, selectedPipelines, repositorySearch } = state
 
   const debouncedSearch = useDebounce(repositorySearch, DEBOUNCE_DELAYS.FILTER)
 
-  const {
-    data: organizationsData,
-    isLoading: loadingOrganizations,
-  } = useProviderOrganizations(
+  const { data: organizationsData, isLoading: loadingOrganizations } = useProviderOrganizations(
     selectedPlugin?.provider_type || '',
     providerConfig,
     true
@@ -78,14 +69,8 @@ export function PipelinesStep({
   )
 
   const availableOrganizations = useMemo(() => organizationsData || [], [organizationsData])
-  const availablePipelines = useMemo(() =>
-    pipelinesData?.pages.flatMap((page) => page.items) || [],
-  [pipelinesData]
-  )
-  const allPipelines = useMemo(() =>
-    pipelinesData?.pages[pipelinesData.pages.length - 1] || null,
-  [pipelinesData]
-  )
+  const availablePipelines = useMemo(() => pipelinesData?.pages.flatMap((page) => page.items) || [], [pipelinesData])
+  const allPipelines = useMemo(() => pipelinesData?.pages[pipelinesData.pages.length - 1] || null, [pipelinesData])
 
   const filteredPipelines = useMemo(() => {
     if (!repositorySearch.trim()) {
@@ -257,7 +242,6 @@ export function PipelinesStep({
   )
 }
 
-
 interface MobilePipelineCardProps {
   pipeline: AvailablePipeline
   isSelected: boolean
@@ -278,11 +262,7 @@ function MobilePipelineCard({ pipeline, isSelected, onToggle }: MobilePipelineCa
       <Stack gap={4}>
         <Group justify="space-between" wrap="nowrap">
           <Group gap={8} wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
-            <MantineCheckbox
-              checked={isSelected}
-              onChange={onToggle}
-              style={{ flexShrink: 0 }}
-            />
+            <MantineCheckbox checked={isSelected} onChange={onToggle} style={{ flexShrink: 0 }} />
             <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
               {pipeline.name}
             </Text>
@@ -291,13 +271,17 @@ function MobilePipelineCard({ pipeline, isSelected, onToggle }: MobilePipelineCa
 
         <Group gap="xs" wrap="nowrap" align="flex-start">
           <Box style={{ flex: 1, minWidth: 0 }}>
-            <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Org</Text>
+            <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
+              Org
+            </Text>
             <Text size={THEME_TYPOGRAPHY.FIELD_VALUE_SMALL.size} c={THEME_COLORS.VALUE_TEXT} truncate>
               {pipeline.organization || '—'}
             </Text>
           </Box>
           <Box style={{ flex: 1, minWidth: 0 }}>
-            <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>Repo</Text>
+            <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
+              Repo
+            </Text>
             <Text size={THEME_TYPOGRAPHY.FIELD_VALUE_SMALL.size} c={THEME_COLORS.VALUE_TEXT} truncate>
               {pipeline.repository || '—'}
             </Text>
@@ -353,16 +337,9 @@ function PipelinesTable({ pipelines, selectedPipelines, onToggle, onSelectAll }:
       </Table.Thead>
       <Table.Tbody>
         {pipelines.map((pipeline) => (
-          <Table.Tr
-            key={pipeline.id}
-            onClick={() => onToggle(pipeline.id)}
-            style={{ cursor: 'pointer', height: 44 }}
-          >
+          <Table.Tr key={pipeline.id} onClick={() => onToggle(pipeline.id)} style={{ cursor: 'pointer', height: 44 }}>
             <Table.Td onClick={(e) => e.stopPropagation()}>
-              <MantineCheckbox
-                checked={selectedPipelines.has(pipeline.id)}
-                onChange={() => onToggle(pipeline.id)}
-              />
+              <MantineCheckbox checked={selectedPipelines.has(pipeline.id)} onChange={() => onToggle(pipeline.id)} />
             </Table.Td>
             <Table.Td style={{ maxWidth: 0 }}>
               <Tooltip label={pipeline.name} openDelay={500}>

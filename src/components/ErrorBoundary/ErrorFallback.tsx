@@ -22,28 +22,21 @@ export function ErrorFallback({
   return (
     <Card withBorder padding="lg" radius="md" style={{ maxWidth: 600, margin: '0 auto' }}>
       <Stack gap="md">
-        <Alert
-          icon={<IconAlertTriangle size={20} />}
-          title={title}
-          color="red"
-          variant="filled"
-        >
+        <Alert icon={<IconAlertTriangle size={20} />} title={title} color="red" variant="filled">
           {formatErrorMessage(error)}
         </Alert>
 
         {showDetails && (
           <>
-            <Button
-              variant="subtle"
-              size="xs"
-              onClick={toggle}
-            >
+            <Button variant="subtle" size="xs" onClick={toggle}>
               {detailsOpened ? 'Hide' : 'Show'} technical details
             </Button>
 
-            <Collapse in={detailsOpened}>
+            <Collapse expanded={detailsOpened}>
               <Stack gap="xs">
-                <Text size="sm" fw={500}>Error details:</Text>
+                <Text size="sm" fw={500}>
+                  Error details:
+                </Text>
                 <Code block style={{ whiteSpace: 'pre-wrap' }}>
                   {error.stack || error.message}
                 </Code>
@@ -52,12 +45,7 @@ export function ErrorFallback({
           </>
         )}
 
-        <Button
-          leftSection={<IconRefresh size={16} />}
-          onClick={resetError}
-          variant="light"
-          color="blue"
-        >
+        <Button leftSection={<IconRefresh size={16} />} onClick={resetError} variant="light" color="blue">
           Try again
         </Button>
       </Stack>

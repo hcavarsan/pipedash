@@ -1,16 +1,16 @@
-import { createContext, ReactNode, useCallback, useContext, useMemo } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useMemo } from 'react'
 
 import { usePlugins as usePluginsQuery } from '../queries/usePluginsQueries'
 import type { PluginMetadata } from '../types'
 import { getPluginByType, getPluginDisplayName } from '../utils/pluginHelpers'
 
 interface PluginContextType {
-  plugins: PluginMetadata[];
-  loading: boolean;
-  error: string | null;
-  getPluginByType: (providerType: string) => PluginMetadata | undefined;
-  getPluginDisplayName: (providerType: string) => string;
-  refetch: () => void;
+  plugins: PluginMetadata[]
+  loading: boolean
+  error: string | null
+  getPluginByType: (providerType: string) => PluginMetadata | undefined
+  getPluginDisplayName: (providerType: string) => string
+  refetch: () => void
 }
 
 const PluginContext = createContext<PluginContextType | undefined>(undefined)
@@ -18,10 +18,7 @@ const PluginContext = createContext<PluginContextType | undefined>(undefined)
 export const PluginProvider = ({ children }: { children: ReactNode }) => {
   const query = usePluginsQuery()
 
-  const getPluginByTypeCallback = useCallback(
-    (type: string) => getPluginByType(query.data, type),
-    [query.data]
-  )
+  const getPluginByTypeCallback = useCallback((type: string) => getPluginByType(query.data, type), [query.data])
 
   const getPluginDisplayNameCallback = useCallback(
     (type: string) => getPluginDisplayName(query.data, type),
@@ -44,11 +41,7 @@ export const PluginProvider = ({ children }: { children: ReactNode }) => {
     [query.data, query.isLoading, query.error, getPluginByTypeCallback, getPluginDisplayNameCallback, refetchCallback]
   )
 
-  return (
-    <PluginContext.Provider value={value}>
-      {children}
-    </PluginContext.Provider>
-  )
+  return <PluginContext.Provider value={value}>{children}</PluginContext.Provider>
 }
 
 export const usePlugins = () => {

@@ -1,16 +1,15 @@
-import { useEffect, useState } from 'react'
-
 import { ActionIcon, Box, Group } from '@mantine/core'
 import { IconMinus, IconSquare, IconSquareCheck, IconX } from '@tabler/icons-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useEffect, useState } from 'react'
 
 import { platform } from '../../utils/platform'
 
 interface MacOSButtonProps {
-  color: string;
-  hoverColor: string;
-  onClick: () => void;
-  icon?: React.ReactNode;
+  color: string
+  hoverColor: string
+  onClick: () => void
+  icon?: React.ReactNode
 }
 
 const MacOSButton = ({ color, hoverColor, onClick, icon }: MacOSButtonProps) => {
@@ -59,19 +58,17 @@ export const WindowControls = () => {
       try {
         const p = await platform()
 
-
         if (!isMounted) {
-return
-}
+          return
+        }
         setCurrentPlatform(p)
 
         const appWindow = getCurrentWindow()
         const maximized = await appWindow.isMaximized()
 
-
         if (!isMounted) {
-return
-}
+          return
+        }
         setIsMaximized(maximized)
       } catch (err) {
         console.error('Error initializing window controls:', err)
@@ -92,7 +89,6 @@ return
     try {
       const appWindow = getCurrentWindow()
 
-
       await appWindow.minimize()
     } catch (err) {
       console.error('Error minimizing window:', err)
@@ -102,7 +98,6 @@ return
   const handleMaximize = async () => {
     try {
       const appWindow = getCurrentWindow()
-
 
       await appWindow.toggleMaximize()
       setIsMaximized((prev) => !prev)
@@ -114,7 +109,6 @@ return
   const handleClose = async () => {
     try {
       const appWindow = getCurrentWindow()
-
 
       await appWindow.close()
     } catch (err) {
@@ -157,7 +151,7 @@ return
           hoverColor="#1FB032"
           onClick={handleMaximize}
           icon={
-            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true">
               <path
                 d="M1 3L4 6L7 3"
                 stroke="rgba(0,0,0,0.7)"
@@ -215,11 +209,7 @@ return
           },
         }}
       >
-        {isMaximized ? (
-          <IconSquareCheck size={14} stroke={1.5} />
-        ) : (
-          <IconSquare size={14} stroke={1.5} />
-        )}
+        {isMaximized ? <IconSquareCheck size={14} stroke={1.5} /> : <IconSquare size={14} stroke={1.5} />}
       </ActionIcon>
 
       <ActionIcon

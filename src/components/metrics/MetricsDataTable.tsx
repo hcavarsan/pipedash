@@ -1,7 +1,6 @@
-import { useState } from 'react'
-
 import { Group, Paper, Stack, Table, Text } from '@mantine/core'
 import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react'
+import { useState } from 'react'
 
 import type { AggregatedMetrics } from '../../types'
 import { formatDuration } from '../../utils/formatDuration'
@@ -50,11 +49,10 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
       return <IconSelector size={14} />
     }
 
-return sortDirection === 'asc' ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />
+    return sortDirection === 'asc' ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />
   }
 
   const sortedMetrics = [...data.metrics]
-
 
   if (sortField && sortDirection) {
     sortedMetrics.sort((a, b) => {
@@ -91,8 +89,7 @@ return sortDirection === 'asc' ? <IconChevronUp size={14} /> : <IconChevronDown 
         return aVal < bVal ? -1 : aVal > bVal ? 1 : 0
       }
 
-return aVal > bVal ? -1 : aVal < bVal ? 1 : 0
-      
+      return aVal > bVal ? -1 : aVal < bVal ? 1 : 0
     })
   }
 
@@ -104,7 +101,7 @@ return aVal > bVal ? -1 : aVal < bVal ? 1 : 0
       return `${value.toFixed(1)}%`
     }
 
-return value.toFixed(0)
+    return value.toFixed(0)
   }
 
   const getValueLabel = (): string => {
@@ -125,48 +122,33 @@ return value.toFixed(0)
           Data Points ({data.metrics.length} total)
         </Text>
         <Table striped highlightOnHover>
-            <Table.Thead>
+          <Table.Thead>
             <Table.Tr>
-              <Table.Th
-                onClick={() => handleSort('timestamp')}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-              >
+              <Table.Th onClick={() => handleSort('timestamp')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                 <Group gap={4}>
                   <Text size="sm">Date</Text>
                   {getSortIcon('timestamp')}
                 </Group>
               </Table.Th>
-              <Table.Th
-                onClick={() => handleSort('value')}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-              >
+              <Table.Th onClick={() => handleSort('value')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                 <Group gap={4}>
                   <Text size="sm">{getValueLabel()}</Text>
                   {getSortIcon('value')}
                 </Group>
               </Table.Th>
-              <Table.Th
-                onClick={() => handleSort('count')}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-              >
+              <Table.Th onClick={() => handleSort('count')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                 <Group gap={4}>
                   <Text size="sm">Count</Text>
                   {getSortIcon('count')}
                 </Group>
               </Table.Th>
-              <Table.Th
-                onClick={() => handleSort('min')}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-              >
+              <Table.Th onClick={() => handleSort('min')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                 <Group gap={4}>
                   <Text size="sm">Min</Text>
                   {getSortIcon('min')}
                 </Group>
               </Table.Th>
-              <Table.Th
-                onClick={() => handleSort('max')}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-              >
+              <Table.Th onClick={() => handleSort('max')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                 <Group gap={4}>
                   <Text size="sm">Max</Text>
                   {getSortIcon('max')}
@@ -179,9 +161,7 @@ return value.toFixed(0)
               const originalIndex = data.metrics.indexOf(metric)
               const isSelected = selectedIndex === originalIndex
 
-
-
-return (
+              return (
                 <Table.Tr
                   key={originalIndex}
                   onClick={() => onRowClick(isSelected ? null : originalIndex)}

@@ -87,13 +87,7 @@ fn generate_icns() -> Result<(), CustomError> {
 
     fs::create_dir_all(&icns_path)?;
 
-    let sizes = [
-        (16, 1),
-        (16, 2),
-        (32, 1),
-        (32, 2),
-        (128, 1),
-    ];
+    let sizes = [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1)];
 
     let src = ImageReader::open(SRC_FILE)?.decode()?;
 

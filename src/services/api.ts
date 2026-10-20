@@ -1,4 +1,3 @@
-
 import { API_TIMEOUTS } from '../constants/timeouts'
 import { getToken, useAuthStore } from '../stores/authStore'
 import type {
@@ -30,6 +29,7 @@ import type {
   SetupStatus,
   StorageConfigResponse,
   StoragePathsResponse,
+  TableSchema,
   TriggerParams,
   UnlockVaultResponse,
   ValidationResult,
@@ -56,7 +56,7 @@ const getTimeoutForPath = (path: string): number => {
     }
   }
 
-return OPERATION_TIMEOUTS.default
+  return OPERATION_TIMEOUTS.default
 }
 
 class ApiClient {
@@ -74,10 +74,9 @@ class ApiClient {
         signal: controller.signal,
       })
 
-
       clearTimeout(timeoutId)
 
-return response
+      return response
     } catch (error) {
       clearTimeout(timeoutId)
       if (error instanceof Error && error.name === 'AbortError') {
@@ -87,11 +86,7 @@ return response
     }
   }
 
-  private async request<T>(
-    method: string,
-    path: string,
-    body?: unknown
-  ): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     return withRetry(
       async () => {
         const token = getToken()
@@ -102,11 +97,15 @@ return response
         if (token) {
           headers.Authorization = `Bearer ${token}`
         }
-        const res = await this.fetchWithTimeout(`${API_BASE}${path}`, {
-          method,
-          headers,
-          body: body ? JSON.stringify(body) : undefined,
-        }, getTimeoutForPath(path))
+        const res = await this.fetchWithTimeout(
+          `${API_BASE}${path}`,
+          {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : undefined,
+          },
+          getTimeoutForPath(path)
+        )
 
         if (res.ok) {
           useAuthStore.getState().resetFailures()
@@ -117,9 +116,8 @@ return response
             useAuthStore.getState().incrementFailure()
           }
           const errorText = await res.text()
-          const error = new Error(errorText || `HTTP ${res.status}`)
+          const error = Object.assign(new Error(errorText || `HTTP ${res.status}`), { status: res.status })
 
-          ;(error as any).status = res.status
           throw error
         }
 
@@ -139,7 +137,7 @@ return response
       {
         ...DEFAULT_RETRY_CONFIG,
         shouldRetry: (error: Error) => {
-          const status = (error as any).status
+          const status = (error as Error & { status?: number }).status ?? 0
           const isNetworkError = error instanceof TypeError
           const isTimeout = error.message.includes('timeout')
           const is5xxError = status >= 500 && status < 600
@@ -176,25 +174,19 @@ return response
       refresh_interval: config.refresh_interval,
     })
 
-
-
-return result.id
+    return result.id
   }
 
   async listProviders(): Promise<ProviderSummary[]> {
     const result = await this.get<ProviderSummary[]>('/providers')
 
-
-
-return result || []
+    return result || []
   }
 
   async getProvider(id: number): Promise<ProviderConfig & { id: number }> {
     const config = await this.get<ProviderConfig>(`/providers/${id}`)
 
-
-
-return { ...config, id }
+    return { ...config, id }
   }
 
   async updateProvider(id: number, config: ProviderConfig): Promise<void> {
@@ -206,10 +198,7 @@ return { ...config, id }
     })
   }
 
-  async updateProviderRefreshInterval(
-    id: number,
-    refreshInterval: number
-  ): Promise<void> {
+  async updateProviderRefreshInterval(id: number, refreshInterval: number): Promise<void> {
     await this.put(`/providers/${id}/refresh-interval`, {
       refresh_interval: refreshInterval,
     })
@@ -219,10 +208,7 @@ return { ...config, id }
     await this.delete(`/providers/${id}`)
   }
 
-  async fetchProviderOrganizations(
-    providerType: string,
-    config: Record<string, string>
-  ): Promise<Organization[]> {
+  async fetchProviderOrganizations(providerType: string, config: Record<string, string>): Promise<Organization[]> {
     return this.post<Organization[]>('/providers/organizations', {
       provider_type: providerType,
       config,
@@ -259,38 +245,26 @@ return { ...config, id }
     })
   }
 
-  async getProviderPermissions(
-    providerId: number
-  ): Promise<PermissionStatus | null> {
-    return this.get<PermissionStatus | null>(
-      `/providers/${providerId}/permissions`
-    )
+  async getProviderPermissions(providerId: number): Promise<PermissionStatus | null> {
+    return this.get<PermissionStatus | null>(`/providers/${providerId}/permissions`)
   }
 
-  async getProviderFeatures(
-    providerId: number
-  ): Promise<FeatureAvailability[]> {
+  async getProviderFeatures(providerId: number): Promise<FeatureAvailability[]> {
     return this.get<FeatureAvailability[]>(`/providers/${providerId}/features`)
   }
 
-  async getProviderTableSchema(providerId: number): Promise<any> {
-    return this.get<any>(`/providers/${providerId}/table-schema`)
+  async getProviderTableSchema(providerId: number): Promise<TableSchema> {
+    return this.get<TableSchema>(`/providers/${providerId}/table-schema`)
   }
 
-  async validateProviderCredentials(
-    providerType: string,
-    config: Record<string, string>
-  ): Promise<ValidationResult> {
+  async validateProviderCredentials(providerType: string, config: Record<string, string>): Promise<ValidationResult> {
     return this.post<ValidationResult>('/providers/validate', {
       provider_type: providerType,
       config,
     })
   }
 
-  async checkProviderPermissions(
-    providerType: string,
-    config: Record<string, string>
-  ): Promise<PermissionCheckResult> {
+  async checkProviderPermissions(providerType: string, config: Record<string, string>): Promise<PermissionCheckResult> {
     return this.post<PermissionCheckResult>('/providers/permissions/check', {
       provider_type: providerType,
       config,
@@ -301,24 +275,21 @@ return { ...config, id }
     const params = providerId ? `?provider_id=${providerId}` : ''
     const result = await this.get<Pipeline[]>(`/pipelines${params}`)
 
-
-return result || []
+    return result || []
   }
 
   async getCachedPipelines(providerId?: number): Promise<Pipeline[]> {
     const params = providerId ? `?provider_id=${providerId}` : ''
     const result = await this.get<Pipeline[]>(`/pipelines/cached${params}`)
 
-
-return result || []
+    return result || []
   }
 
   async fetchFreshPipelines(providerId?: number): Promise<Pipeline[]> {
     const params = providerId ? `?provider_id=${providerId}` : ''
     const result = await this.get<Pipeline[]>(`/pipelines/fresh${params}`)
 
-
-return result || []
+    return result || []
   }
 
   async fetchPipelinesLazy(
@@ -335,10 +306,9 @@ return result || []
   }> {
     const params = new URLSearchParams()
 
-
     if (providerId) {
-params.set('provider_id', String(providerId))
-}
+      params.set('provider_id', String(providerId))
+    }
     params.set('page', String(page))
     params.set('page_size', String(pageSize))
 
@@ -352,22 +322,16 @@ params.set('provider_id', String(providerId))
     }>(`/pipelines/lazy?${params.toString()}`)
   }
 
-  async fetchRunHistory(
-    pipelineId: string,
-    page?: number,
-    pageSize?: number
-  ): Promise<PaginatedRunHistory> {
+  async fetchRunHistory(pipelineId: string, page?: number, pageSize?: number): Promise<PaginatedRunHistory> {
     const params = new URLSearchParams()
 
-
     if (page) {
-params.set('page', String(page))
-}
+      params.set('page', String(page))
+    }
     if (pageSize) {
-params.set('page_size', String(pageSize))
-}
+      params.set('page_size', String(pageSize))
+    }
     const queryString = params.toString() ? `?${params.toString()}` : ''
-
 
     const result = await this.get<PaginatedRunHistory>(
       `/pipelines/${encodeURIComponent(pipelineId)}/runs${queryString}`
@@ -386,23 +350,16 @@ params.set('page_size', String(pageSize))
   }
 
   async triggerPipeline(params: TriggerParams): Promise<string> {
-    const result = await this.post<{ run_id: string }>(
-      `/pipelines/${encodeURIComponent(params.workflow_id)}/trigger`,
-      {
-        workflow_id: params.workflow_id,
-        inputs: params.inputs,
-      }
-    )
+    const result = await this.post<{ run_id: string }>(`/pipelines/${encodeURIComponent(params.workflow_id)}/trigger`, {
+      workflow_id: params.workflow_id,
+      inputs: params.inputs,
+    })
 
-
-
-return result.run_id
+    return result.run_id
   }
 
   async getWorkflowParameters(workflowId: string): Promise<WorkflowParameter[]> {
-    return this.get<WorkflowParameter[]>(
-      `/pipelines/${encodeURIComponent(workflowId)}/workflow-params`
-    )
+    return this.get<WorkflowParameter[]>(`/pipelines/${encodeURIComponent(workflowId)}/workflow-params`)
   }
 
   async refreshAll(): Promise<void> {
@@ -416,27 +373,15 @@ return result.run_id
   async getRefreshMode(): Promise<'active' | 'idle'> {
     const result = await this.get<{ mode: string }>('/refresh/mode')
 
-
-
-return result.mode as 'active' | 'idle'
+    return result.mode as 'active' | 'idle'
   }
 
-  async getWorkflowRunDetails(
-    pipelineId: string,
-    runNumber: number
-  ): Promise<PipelineRun> {
-    return this.get<PipelineRun>(
-      `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}`
-    )
+  async getWorkflowRunDetails(pipelineId: string, runNumber: number): Promise<PipelineRun> {
+    return this.get<PipelineRun>(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}`)
   }
 
-  async cancelPipelineRun(
-    pipelineId: string,
-    runNumber: number
-  ): Promise<void> {
-    await this.post(
-      `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/cancel`
-    )
+  async cancelPipelineRun(pipelineId: string, runNumber: number): Promise<void> {
+    await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/cancel`)
   }
 
   async openUrl(url: string): Promise<void> {
@@ -448,9 +393,7 @@ return result.mode as 'active' | 'idle'
   }
 
   async clearRunHistoryCache(pipelineId: string): Promise<void> {
-    await this.delete(
-      `/cache/run-history/${encodeURIComponent(pipelineId)}`
-    )
+    await this.delete(`/cache/run-history/${encodeURIComponent(pipelineId)}`)
   }
 
   async getCacheStats(): Promise<{
@@ -465,9 +408,7 @@ return result.mode as 'active' | 'idle'
   async clearPipelinesCache(): Promise<number> {
     const result = await this.delete<{ cleared: number }>('/cache/pipelines')
 
-
-
-return result.cleared
+    return result.cleared
   }
 
   async clearAllRunHistoryCaches(): Promise<void> {
@@ -486,10 +427,7 @@ return result.cleared
     return this.get<GlobalMetricsConfig>('/metrics/config')
   }
 
-  async updateGlobalMetricsConfig(
-    enabled: boolean,
-    defaultRetentionDays: number
-  ): Promise<void> {
+  async updateGlobalMetricsConfig(enabled: boolean, defaultRetentionDays: number): Promise<void> {
     await this.put('/metrics/config', {
       enabled,
       default_retention_days: defaultRetentionDays,
@@ -497,23 +435,14 @@ return result.cleared
   }
 
   async getPipelineMetricsConfig(pipelineId: string): Promise<MetricsConfig> {
-    return this.get<MetricsConfig>(
-      `/metrics/pipelines/${encodeURIComponent(pipelineId)}/config`
-    )
+    return this.get<MetricsConfig>(`/metrics/pipelines/${encodeURIComponent(pipelineId)}/config`)
   }
 
-  async updatePipelineMetricsConfig(
-    pipelineId: string,
-    enabled: boolean,
-    retentionDays: number
-  ): Promise<void> {
-    await this.put(
-      `/metrics/pipelines/${encodeURIComponent(pipelineId)}/config`,
-      {
-        enabled,
-        retention_days: retentionDays,
-      }
-    )
+  async updatePipelineMetricsConfig(pipelineId: string, enabled: boolean, retentionDays: number): Promise<void> {
+    await this.put(`/metrics/pipelines/${encodeURIComponent(pipelineId)}/config`, {
+      enabled,
+      retention_days: retentionDays,
+    })
   }
 
   async queryPipelineMetrics(
@@ -523,16 +452,13 @@ return result.cleared
     endDate?: string,
     limit?: number
   ): Promise<MetricEntry[]> {
-    return this.post<MetricEntry[]>(
-      `/metrics/pipelines/${encodeURIComponent(pipelineId || 'all')}/query`,
-      {
-        pipeline_id: pipelineId ?? null,
-        metric_type: metricType ?? null,
-        start_date: startDate ?? null,
-        end_date: endDate ?? null,
-        limit: limit ?? null,
-      }
-    )
+    return this.post<MetricEntry[]>(`/metrics/pipelines/${encodeURIComponent(pipelineId || 'all')}/query`, {
+      pipeline_id: pipelineId ?? null,
+      metric_type: metricType ?? null,
+      start_date: startDate ?? null,
+      end_date: endDate ?? null,
+      limit: limit ?? null,
+    })
   }
 
   async queryAggregatedMetrics(
@@ -564,50 +490,28 @@ return result.cleared
       pipeline_id: pipelineId ?? null,
     })
 
-
-
-return result.flushed
+    return result.flushed
   }
 
-  async getTablePreferences(
-    providerId: number,
-    tableId: string
-  ): Promise<string | null> {
-    return this.get<string | null>(
-      `/preferences/table/${providerId}/${encodeURIComponent(tableId)}`
-    )
+  async getTablePreferences(providerId: number, tableId: string): Promise<string | null> {
+    return this.get<string | null>(`/preferences/table/${providerId}/${encodeURIComponent(tableId)}`)
   }
 
-  async saveTablePreferences(
-    providerId: number,
-    tableId: string,
-    preferencesJson: string
-  ): Promise<void> {
-    await this.put(
-      `/preferences/table/${providerId}/${encodeURIComponent(tableId)}`,
-      {
-        preferences_json: preferencesJson,
-      }
-    )
+  async saveTablePreferences(providerId: number, tableId: string, preferencesJson: string): Promise<void> {
+    await this.put(`/preferences/table/${providerId}/${encodeURIComponent(tableId)}`, {
+      preferences_json: preferencesJson,
+    })
   }
 
-  async getDefaultTablePreferences(
-    providerId: number,
-    tableId: string
-  ): Promise<string> {
-    return this.get<string>(
-      `/preferences/table/${providerId}/${encodeURIComponent(tableId)}/default`
-    )
+  async getDefaultTablePreferences(providerId: number, tableId: string): Promise<string> {
+    return this.get<string>(`/preferences/table/${providerId}/${encodeURIComponent(tableId)}/default`)
   }
 
   async checkSetupStatus(): Promise<SetupStatus> {
     return this.get<SetupStatus>('/setup/status')
   }
 
-  async createInitialConfig(
-    config: PipedashConfig,
-    vaultPassword?: string
-  ): Promise<void> {
+  async createInitialConfig(config: PipedashConfig, vaultPassword?: string): Promise<void> {
     await this.post('/setup/config', {
       config,
       vault_password: vaultPassword,
@@ -698,30 +602,21 @@ return result.flushed
     return this.post<{ success: boolean; message: string }>('/storage/test-connection', config)
   }
 
-  async planStorageMigration(
-    targetConfig: PipedashConfig,
-    options?: MigrationOptions
-  ): Promise<MigrationPlan> {
+  async planStorageMigration(targetConfig: PipedashConfig, options?: MigrationOptions): Promise<MigrationPlan> {
     return this.post<MigrationPlan>('/storage/migration/plan', {
       target_config: targetConfig,
       options: options ?? {},
     })
   }
 
-  async executeStorageMigration(
-    plan: MigrationPlan,
-    options?: MigrationOptions
-  ): Promise<MigrationResult> {
+  async executeStorageMigration(plan: MigrationPlan, options?: MigrationOptions): Promise<MigrationResult> {
     return this.post<MigrationResult>('/storage/migration/execute', {
       plan,
       options: options ?? {},
     })
   }
 
-  async executeMigration(
-    plan: MigrationPlan,
-    options?: MigrationOptions
-  ): Promise<MigrationResult> {
+  async executeMigration(plan: MigrationPlan, options?: MigrationOptions): Promise<MigrationResult> {
     return this.executeStorageMigration(plan, options)
   }
 

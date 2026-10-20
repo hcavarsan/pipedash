@@ -1,4 +1,3 @@
-
 import type { Pipeline, PipelineRun } from '.'
 
 export interface ModalBaseProps {
@@ -14,4 +13,3 @@ export interface PipelineComponentProps {
   onRerun?: (pipeline: Pipeline, run: PipelineRun) => void
   onCancel?: (pipeline: Pipeline, run: PipelineRun) => void
 }
-

@@ -27,9 +27,7 @@ export const queryClient = new QueryClient({
       throwOnError: (_error, query) => {
         const scope = query.queryKey[0] as string
 
-
-
-return CRITICAL_QUERIES.has(scope)
+        return CRITICAL_QUERIES.has(scope)
       },
     },
     mutations: {

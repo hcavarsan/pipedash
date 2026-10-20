@@ -27,11 +27,5 @@ export function SettingsRoute({ onRefresh }: SettingsRouteProps) {
     [navigate]
   )
 
-  return (
-    <SettingsPage
-      activeSection={activeSection}
-      onSectionChange={handleSectionChange}
-      onRefresh={onRefresh}
-    />
-  )
+  return <SettingsPage activeSection={activeSection} onSectionChange={handleSectionChange} onRefresh={onRefresh} />
 }

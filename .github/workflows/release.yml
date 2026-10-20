@@ -4,9 +4,11 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+*"
 
-permissions:
-  contents: read
-  statuses: write
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -18,68 +20,49 @@ env:
 
 jobs:
   validate-version:
+    name: Validate version
     runs-on: ubuntu-22.04
     steps:
       - name: Validate version format
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          if ! [[ ${{ github.ref_name }} =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+          if ! [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
             echo "Invalid version format. Must be vX.Y.Z or vX.Y.Z-suffix"
             exit 1
           fi
 
   create-release-draft:
+    name: Create release draft
     needs:
     - validate-version
     permissions:
-      contents: write
+      contents: write # create the draft release
     runs-on: ubuntu-22.04
     outputs:
-      release_id: ${{ steps.create_release.outputs.id }}
+      release_id: ${{ steps.release.outputs.id }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
-        with:
-          fetch-depth: 0
-
-      - name: Check existing release
-        id: check_release
-        continue-on-error: true
+      - name: Create release draft
+        id: release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
         run: |
-          release_id=$(gh api repos/${{ github.repository }}/releases/tags/${{ github.ref_name }} --jq .id 2>/dev/null || echo "")
+          release_id=$(gh api --paginate "repos/$GH_REPO/releases" --jq '.[] | select(.tag_name == env.TAG) | .id' | sed -n 1p)
           if [[ "$release_id" =~ ^[0-9]+$ ]]; then
             echo "Release already exists with ID: $release_id"
-            echo "release_exists=true" >> "$GITHUB_OUTPUT"
-            echo "existing_release_id=$release_id" >> "$GITHUB_OUTPUT"
           else
-            echo "Release does not exist"
-            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+            release_id=$(gh api "repos/$GH_REPO/releases" -f tag_name="$TAG" -f name="Pipedash - $TAG" -F draft=true -F prerelease=false --jq .id)
+            echo "Created draft release with ID: $release_id"
           fi
-
-      - name: Create release draft
-        id: create_release
-        if: steps.check_release.outputs.release_exists != 'true'
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: "Pipedash - ${{ github.ref_name }}"
-          draft: true
-          prerelease: false
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set release ID output
-        run: |
-          if [ "${{ steps.check_release.outputs.release_exists }}" == "true" ]; then
-            echo "id=${{ steps.check_release.outputs.existing_release_id }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "id=${{ steps.create_release.outputs.id }}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "id=$release_id" >> "$GITHUB_OUTPUT"
 
   pipedash:
+    name: Build (${{ matrix.os }} ${{ matrix.arch }})
     needs: create-release-draft
     permissions:
-      contents: write
+      contents: write # upload build assets to the draft release
     strategy:
       matrix:
         include:
@@ -114,13 +97,15 @@ jobs:
     runs-on: ${{ matrix.runner || matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@v3
+        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
         with:
           install: false
-          cache: true
+          cache: false
 
       - name: Install mise tools
         run: mise install
@@ -130,7 +115,7 @@ jobs:
 
       - name: Set up Visual Studio shell
         if: matrix.os == 'windows-latest' && matrix.arch == 'arm64'
-        uses: TheMrMilchmann/setup-msvc-dev@fb19abb8a41b3cf0340f5d1be17d420309232be6
+        uses: TheMrMilchmann/setup-msvc-dev@368ef7d1ee4d1171b31d4a7f67f4d954f903f5a9 # v4.1.0
         with:
           arch: amd64_arm64
 
@@ -153,11 +138,14 @@ jobs:
               xdg-utils
 
       - name: Reconfigure Rust targets
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          RUST_TARGET: ${{ matrix.rust_target }}
         run: |
-          if [ "${{ matrix.os }}" == "macos-latest" ]; then
+          if [ "$MATRIX_OS" == "macos-latest" ]; then
             rustup target add aarch64-apple-darwin x86_64-apple-darwin
           else
-            rustup target add ${{ matrix.rust_target }}
+            rustup target add "$RUST_TARGET"
           fi
         shell: bash
 
@@ -166,7 +154,7 @@ jobs:
         run: choco install nasm
 
       - name: Build pipedash Desktop App
-        uses: tauri-apps/tauri-action@e834788a94591d81e3ae0bd9ec06366f5afb8994
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         id: tauri_build
         continue-on-error: true
         env:
@@ -193,7 +181,7 @@ jobs:
 
       - name: Retry Build on Failure
         if: steps.tauri_build.outcome == 'failure'
-        uses: tauri-apps/tauri-action@e834788a94591d81e3ae0bd9ec06366f5afb8994
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           RUSTFLAGS: '-C link-arg=-s'
           AWS_LC_SYS_CMAKE_CFLAGS: ${{ matrix.os == 'windows-latest' && '/std:c11' || '' }}
@@ -216,25 +204,82 @@ jobs:
           prerelease: false
           args: ${{ matrix.tauri_args }}
 
-  docker-publish:
+  docker-build:
+    name: Build Docker image (${{ matrix.platform }})
     needs: [create-release-draft]
     permissions:
-      contents: read
-      packages: write
-    runs-on: ubuntu-22.04
+      contents: read # checkout the repository
+      packages: write # push the per-platform image by digest to ghcr.io
+    runs-on: ${{ matrix.runner }}
     if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout repository
-        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          platforms: ${{ matrix.platform }}
+          context: .
+          file: ./docker/Dockerfile
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/pipedash-web,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digests-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker-publish:
+    name: Publish Docker image
+    needs: [docker-build]
+    permissions:
+      packages: write # publish the multi-platform manifest to ghcr.io
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -242,7 +287,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/pipedash-web
           tags: |
@@ -251,22 +296,33 @@ jobs:
             type=sha
             type=raw,value=latest,enable=${{ !contains(github.ref, '-beta') && !contains(github.ref, '-alpha') }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          platforms: linux/amd64,linux/arm64
-          context: .
-          file: ./docker/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create and push manifest
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/pipedash-web
+          DOCKER_METADATA_OUTPUT_JSON: ${{ steps.meta.outputs.json }}
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          args=()
+          while IFS= read -r tag; do
+            args+=(-t "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          for digest in *; do
+            args+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create "${args[@]}"
+
+      - name: Inspect manifest
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/pipedash-web
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: docker buildx imagetools inspect "$IMAGE:$VERSION"
 
   publish-cargo-crates:
+    name: Publish crates to crates.io
     needs: [create-release-draft]
     permissions:
-      contents: read
+      contents: read # checkout the repository
+      id-token: write # mint short-lived crates.io tokens via trusted publishing
     runs-on: ubuntu-22.04
     if: |
       startsWith(github.ref, 'refs/tags/v') &&
@@ -274,89 +330,186 @@ jobs:
       !contains(github.ref, '-alpha')
     steps:
       - name: Checkout repository
-        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@nightly
-
-      - name: Cache Rust
-        uses: swatinem/rust-cache@v2
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup default nightly
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev
 
-      - name: Publish crates to crates.io
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Install mise
+        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+        with:
+          install: false
+          cache: false
+
+      - name: Install mise tools
+        run: mise install
+
+      - name: Build frontend assets for pipedash-web
         run: |
-          publish_crate() {
-            local crate_path="$1"
-            local crate_name=$(basename "$crate_path")
-            local max_retries=3
-            local retry_delay=30
+          mise run install
+          mise run build:front
 
-            echo "Publishing $crate_name..."
-            cd "$crate_path"
+      # crates.io trusted-publishing tokens expire after 30 minutes and the full
+      # publish takes longer, so each crate gets its own token.
+      - name: Write publish helper
+        run: |
+          cat > "$RUNNER_TEMP/publish_crate.sh" <<'EOF'
+          set -eo pipefail
+          crate_path="$1"
+          crate_name=$(basename "$crate_path")
+          max_retries=3
+          retry_delay=30
 
-            for attempt in $(seq 1 $max_retries); do
-              echo "Attempt $attempt/$max_retries for $crate_name"
+          # Wait 60s between publishes to avoid rate limiting
+          if [ "${2:-}" = "wait" ]; then
+            echo "Waiting 60s to avoid rate limiting..."
+            sleep 60
+          fi
 
-              if cargo publish --token $CARGO_REGISTRY_TOKEN; then
-                echo "Successfully published $crate_name"
-                cd - > /dev/null
-                return 0
-              fi
+          echo "Publishing $crate_name..."
+          cd "$crate_path"
 
-              # Check if already published
-              if cargo publish --dry-run 2>&1 | grep -q "already uploaded\|already exists"; then
-                echo "$crate_name already published, skipping"
-                cd - > /dev/null
-                return 0
-              fi
+          for attempt in $(seq 1 "$max_retries"); do
+            echo "Attempt $attempt/$max_retries for $crate_name"
 
-              if [ $attempt -lt $max_retries ]; then
-                echo "Retrying $crate_name in ${retry_delay}s..."
-                sleep $retry_delay
-                retry_delay=$((retry_delay * 2))
-              else
-                echo "Failed to publish $crate_name after $max_retries attempts"
-                cd - > /dev/null
-                return 1
-              fi
-            done
-          }
+            if cargo publish; then
+              echo "Successfully published $crate_name"
+              exit 0
+            fi
 
-          # Publish in dependency order with rate limiting
-          crates=(
-            "crates/pipedash-plugin-api"
-            "crates/pipedash-plugin-github"
-            "crates/pipedash-plugin-gitlab"
-            "crates/pipedash-plugin-bitbucket"
-            "crates/pipedash-plugin-buildkite"
-            "crates/pipedash-plugin-jenkins"
-            "crates/pipedash-plugin-tekton"
-            "crates/pipedash-plugin-argocd"
-            "crates/pipedash-core"
-            "crates/pipedash-web"
-          )
+            # Check if already published
+            if cargo publish --dry-run 2>&1 | grep -q "already uploaded\|already exists"; then
+              echo "$crate_name already published, skipping"
+              exit 0
+            fi
 
-          for crate in "${crates[@]}"; do
-            publish_crate "$crate"
-            # Wait 60s between publishes to avoid rate limiting
-            if [ "$crate" != "crates/pipedash-web" ]; then
-              echo "Waiting 60s to avoid rate limiting..."
-              sleep 60
+            if [ "$attempt" -lt "$max_retries" ]; then
+              echo "Retrying $crate_name in ${retry_delay}s..."
+              sleep "$retry_delay"
+              retry_delay=$((retry_delay * 2))
+            else
+              echo "Failed to publish $crate_name after $max_retries attempts"
+              exit 1
             fi
           done
+          EOF
+          chmod +x "$RUNNER_TEMP/publish_crate.sh"
 
-          echo "All crates published successfully!"
+      # Publish in dependency order
+      - name: Authenticate to crates.io (pipedash-plugin-api)
+        id: auth-plugin-api
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-plugin-api
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-api.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-api
+
+      - name: Authenticate to crates.io (pipedash-plugin-github)
+        id: auth-plugin-github
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-plugin-github
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-github.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-github wait
+
+      - name: Authenticate to crates.io (pipedash-plugin-gitlab)
+        id: auth-plugin-gitlab
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-plugin-gitlab
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-gitlab.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-gitlab wait
+
+      - name: Authenticate to crates.io (pipedash-plugin-bitbucket)
+        id: auth-plugin-bitbucket
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-plugin-bitbucket
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-bitbucket.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-bitbucket wait
+
+      - name: Authenticate to crates.io (pipedash-plugin-buildkite)
+        id: auth-plugin-buildkite
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-plugin-buildkite
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-buildkite.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-buildkite wait
+
+      - name: Authenticate to crates.io (pipedash-plugin-jenkins)
+        id: auth-plugin-jenkins
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-plugin-jenkins
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-jenkins.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-jenkins wait
+
+      - name: Authenticate to crates.io (pipedash-plugin-tekton)
+        id: auth-plugin-tekton
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-plugin-tekton
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-tekton.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-tekton wait
+
+      - name: Authenticate to crates.io (pipedash-plugin-argocd)
+        id: auth-plugin-argocd
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-plugin-argocd
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-argocd.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-argocd wait
+
+      - name: Authenticate to crates.io (pipedash-core)
+        id: auth-core
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-core.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-core wait
+
+      - name: Authenticate to crates.io (pipedash-web)
+        id: auth-web
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish pipedash-web
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-web.outputs.token }}
+        run: |
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-web wait
 
   update-release:
+    name: Update release notes and publish
     needs: [pipedash, create-release-draft]
     permissions:
-      contents: write
+      contents: write # update release notes and publish the release
     runs-on: ubuntu-22.04
     if: |
       startsWith(github.ref, 'refs/tags/v') &&
@@ -364,12 +517,13 @@ jobs:
       !contains(github.ref, '-alpha')
     steps:
       - name: Checkout
-        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Generate changelog
-        uses: orhun/git-cliff-action@104a6cf3c9aa0fdfe4eab129f9c1900e1eb8f7fd
+        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
         id: git-cliff
         with:
           config: cliff.toml
@@ -378,39 +532,36 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update release notes
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RELEASE_ID: ${{ needs.create-release-draft.outputs.release_id }}
+          BODY: ${{ steps.git-cliff.outputs.content }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const params = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: Number(process.env.RELEASE_ID),
+              body: process.env.BODY,
+              tag_name: process.env.GITHUB_REF_NAME,
+              name: `Pipedash - ${process.env.GITHUB_REF_NAME}`
+            };
             try {
-              await github.rest.repos.updateRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: ${{ needs.create-release-draft.outputs.release_id }},
-                body: `${{ steps.git-cliff.outputs.content }}`,
-                tag_name: process.env.GITHUB_REF_NAME,
-                name: `Pipedash - ${process.env.GITHUB_REF_NAME}`
-              });
+              await github.rest.repos.updateRelease(params);
             } catch (error) {
               console.error('Failed to update release notes:', error);
               if (error.status === 404) {
                 console.log('Release not found, retrying after short delay...');
                 await new Promise(resolve => setTimeout(resolve, 5000));
-                await github.rest.repos.updateRelease({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  release_id: ${{ needs.create-release-draft.outputs.release_id }},
-                  body: `${{ steps.git-cliff.outputs.content }}`,
-                  tag_name: process.env.GITHUB_REF_NAME,
-                  name: `Pipedash - ${process.env.GITHUB_REF_NAME}`
-                });
+                await github.rest.repos.updateRelease(params);
               } else {
                 throw error;
               }
             }
 
       - name: Publish release
-        uses: eregon/publish-release@70a6784870e7313347f6aa7fa7783786f2c1692f
+        uses: eregon/publish-release@01df127f5e9a3c26935118e22e738d95b59d10ce # v1.0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

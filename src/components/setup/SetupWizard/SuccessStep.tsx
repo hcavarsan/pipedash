@@ -26,24 +26,40 @@ export function SuccessStep({
         <IconCheck size={28} />
       </ThemeIcon>
 
-      <Text size="lg" fw={600}>Setup Complete</Text>
+      <Text size="lg" fw={600}>
+        Setup Complete
+      </Text>
 
       {migrationCompleted && transferResult?.success && (
         <Card p="md" withBorder w="100%">
           <Stack gap="sm">
-            <Text size="sm" fw={600}>Migration Summary</Text>
+            <Text size="sm" fw={600}>
+              Migration Summary
+            </Text>
             <SimpleGrid cols={3} spacing="xs">
               <Stack gap={2} align="center">
-                <Text size="xs" c="dimmed">Providers</Text>
-                <Text size="md" fw={600}>{transferResult.message.match(/(\d+) providers/)?.[1] || 0}</Text>
+                <Text size="xs" c="dimmed">
+                  Providers
+                </Text>
+                <Text size="md" fw={600}>
+                  {transferResult.message.match(/(\d+) providers/)?.[1] || 0}
+                </Text>
               </Stack>
               <Stack gap={2} align="center">
-                <Text size="xs" c="dimmed">Tokens</Text>
-                <Text size="md" fw={600}>{transferResult.message.match(/(\d+) tokens/)?.[1] || 0}</Text>
+                <Text size="xs" c="dimmed">
+                  Tokens
+                </Text>
+                <Text size="md" fw={600}>
+                  {transferResult.message.match(/(\d+) tokens/)?.[1] || 0}
+                </Text>
               </Stack>
               <Stack gap={2} align="center">
-                <Text size="xs" c="dimmed">Cache</Text>
-                <Text size="md" fw={600}>{transferResult.message.match(/(\d+) cache/)?.[1] || 0}</Text>
+                <Text size="xs" c="dimmed">
+                  Cache
+                </Text>
+                <Text size="md" fw={600}>
+                  {transferResult.message.match(/(\d+) cache/)?.[1] || 0}
+                </Text>
               </Stack>
             </SimpleGrid>
           </Stack>
@@ -63,7 +79,9 @@ export function SuccessStep({
           <Stack gap="sm">
             <Group gap="xs">
               <IconAlertTriangle size={16} style={{ color: 'var(--mantine-color-yellow-6)' }} />
-              <Text size="sm" fw={600}>Required for Next Launch</Text>
+              <Text size="sm" fw={600}>
+                Required for Next Launch
+              </Text>
             </Group>
 
             <Stack gap="xs">
@@ -71,7 +89,9 @@ export function SuccessStep({
                 <Text size="sm" c="dimmed" style={{ minWidth: LABEL_WIDTH, flexShrink: 0 }}>
                   Environment Variable
                 </Text>
-                <Text size="sm" fw={500}>{envVarName}</Text>
+                <Text size="sm" fw={500}>
+                  {envVarName}
+                </Text>
               </Group>
 
               <Group gap="xs" wrap="nowrap" align="stretch">

@@ -44,7 +44,9 @@ export function ConfirmStep({
     <Stack gap="md">
       <Card p="md" withBorder>
         <Stack gap="sm">
-          <Text size="sm" fw={600}>Configuration Summary</Text>
+          <Text size="sm" fw={600}>
+            Configuration Summary
+          </Text>
 
           <Stack gap="xs">
             <Group justify="space-between" wrap="nowrap" gap="xs">
@@ -89,12 +91,7 @@ export function ConfirmStep({
                   <CopyButton value={state.dataDir}>
                     {({ copied, copy }) => (
                       <Tooltip label={copied ? 'Copied!' : 'Copy path'} withArrow>
-                        <ActionIcon
-                          size="xs"
-                          variant="subtle"
-                          color={copied ? 'blue' : 'gray'}
-                          onClick={copy}
-                        >
+                        <ActionIcon size="xs" variant="subtle" color={copied ? 'blue' : 'gray'} onClick={copy}>
                           {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
                         </ActionIcon>
                       </Tooltip>
@@ -120,7 +117,9 @@ export function ConfirmStep({
                 </Text>
                 <Group gap={4} wrap="nowrap">
                   <IconCheck size={14} style={{ color: 'var(--mantine-color-blue-5)' }} />
-                  <Text size="sm" c="blue">Set</Text>
+                  <Text size="sm" c="blue">
+                    Set
+                  </Text>
                 </Group>
               </Group>
             )}
@@ -142,7 +141,9 @@ export function ConfirmStep({
       {showEnvVarSection && (
         <Card p="md" withBorder>
           <Stack gap="sm">
-            <Text size="sm" fw={600}>Environment Variable</Text>
+            <Text size="sm" fw={600}>
+              Environment Variable
+            </Text>
             <Text size="xs" c="dimmed">
               Required to auto-unlock on next launch. Add to your shell profile.
             </Text>
@@ -181,9 +182,7 @@ export function ConfirmStep({
 
       {showTransferStep && !state.transferData && (
         <Alert icon={<IconAlertCircle size={16} />} color="yellow" variant="light">
-          <Text size="xs">
-            Your existing providers and credentials will not be transferred.
-          </Text>
+          <Text size="xs">Your existing providers and credentials will not be transferred.</Text>
         </Alert>
       )}
 

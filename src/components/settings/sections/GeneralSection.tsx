@@ -1,15 +1,14 @@
-import { useEffect, useState } from 'react'
-
 import { Box, Button, Card, Divider, Select, Stack, Text, ThemeIcon } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconTrash } from '@tabler/icons-react'
+import { useEffect, useState } from 'react'
 
 import { useFactoryReset } from '@/queries/usePlatformQueries'
 import { getPlatformOverride, platform, setPlatformOverride } from '@/utils/platform'
 
 interface GeneralSectionProps {
-  onRefresh?: () => Promise<void>;
+  onRefresh?: () => Promise<void>
 }
 
 export function GeneralSection({ onRefresh }: GeneralSectionProps) {
@@ -21,14 +20,11 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
     const loadPlatform = async () => {
       const override = getPlatformOverride()
 
-
       setPlatformOverrideState(override)
       const detectedPlatform = await platform()
 
-
       setCurrentPlatform(detectedPlatform)
     }
-
 
     loadPlatform()
   }, [])
@@ -50,9 +46,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
       ),
       children: (
         <Stack gap="sm">
-          <Text size="sm">
-            This will permanently delete all data:
-          </Text>
+          <Text size="sm">This will permanently delete all data:</Text>
           <Text size="sm" c="dimmed">
             • All providers and tokens
           </Text>
@@ -93,8 +87,12 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
       <Card withBorder padding="md" radius="md">
         <Stack gap="md">
           <Box>
-            <Text size="md" fw={600}>General Settings</Text>
-            <Text size="xs" c="dimmed">Application preferences</Text>
+            <Text size="md" fw={600}>
+              General Settings
+            </Text>
+            <Text size="xs" c="dimmed">
+              Application preferences
+            </Text>
           </Box>
 
           <Divider />
@@ -118,8 +116,12 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
       <Card withBorder padding="md" radius="md">
         <Stack gap="md">
           <Box>
-            <Text size="md" fw={600} c="red">Danger Zone</Text>
-            <Text size="xs" c="dimmed">Permanently delete all application data</Text>
+            <Text size="md" fw={600} c="red">
+              Danger Zone
+            </Text>
+            <Text size="xs" c="dimmed">
+              Permanently delete all application data
+            </Text>
           </Box>
 
           <Divider />

@@ -1,6 +1,6 @@
 import { isTauri } from '../services'
 
-type Platform = 'macos' | 'windows' | 'linux';
+type Platform = 'macos' | 'windows' | 'linux'
 
 let cachedPlatform: Platform | null = null
 
@@ -16,29 +16,25 @@ export function setPlatformOverride(platform: Platform | null): void {
 export function getPlatformOverride(): Platform | null {
   const override = localStorage.getItem('platform-override')
 
-
-  
-return override as Platform | null
+  return override as Platform | null
 }
 
 function modernPlatformDetection(): Platform {
   if ('userAgentData' in navigator) {
-    const userAgentData = (navigator as any).userAgentData
-
+    const userAgentData = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
 
     if (userAgentData?.platform) {
       const platform = userAgentData.platform.toLowerCase()
 
-
       if (platform.includes('mac')) {
-return 'macos'
-}
+        return 'macos'
+      }
       if (platform.includes('win')) {
-return 'windows'
-}
+        return 'windows'
+      }
       if (platform.includes('linux')) {
-return 'linux'
-}
+        return 'linux'
+      }
     }
   }
 
@@ -48,20 +44,18 @@ return 'linux'
 function fallbackPlatformDetection(): Platform {
   const ua = navigator.userAgent.toLowerCase()
 
-
   if (ua.includes('mac')) {
-return 'macos'
-}
+    return 'macos'
+  }
   if (ua.includes('win')) {
-return 'windows'
-}
-  
-return 'linux'
+    return 'windows'
+  }
+
+  return 'linux'
 }
 
 export async function platform(): Promise<Platform> {
   const override = getPlatformOverride()
-
 
   if (override) {
     return override
@@ -73,14 +67,14 @@ export async function platform(): Promise<Platform> {
 
   if (!isTauri()) {
     cachedPlatform = modernPlatformDetection()
-    
-return cachedPlatform
+
+    return cachedPlatform
   }
 
   const { platform: getPlatform } = await import('@tauri-apps/plugin-os')
   const p = await getPlatform()
 
   cachedPlatform = p as Platform
-  
-return cachedPlatform
+
+  return cachedPlatform
 }

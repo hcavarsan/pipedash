@@ -40,12 +40,17 @@ pub(crate) fn parse_selected_items(
 }
 
 pub(crate) fn parse_repository_name(repo_url: &str) -> String {
-    let cleaned = repo_url.trim_end_matches(".git").trim_end_matches('/');
+    let cleaned = repo_url
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .trim_end_matches('/');
 
-    if let Some(pos) = cleaned.rfind(':') {
-        let after_colon = &cleaned[pos + 1..];
-        if after_colon.contains('/') {
-            return after_colon.to_string();
+    if !cleaned.contains("://") {
+        if let Some(pos) = cleaned.rfind(':') {
+            let after_colon = &cleaned[pos + 1..];
+            if after_colon.contains('/') {
+                return after_colon.to_string();
+            }
         }
     }
 
@@ -75,6 +80,18 @@ mod tests {
         );
         assert_eq!(
             parse_repository_name("https://github.com/org/repo"),
+            "org/repo"
+        );
+        assert_eq!(
+            parse_repository_name("https://github.com/org/repo.git/"),
+            "org/repo"
+        );
+        assert_eq!(
+            parse_repository_name("ssh://git@github.com/org/repo.git"),
+            "org/repo"
+        );
+        assert_eq!(
+            parse_repository_name("git@github.com:org/repo/"),
             "org/repo"
         );
     }

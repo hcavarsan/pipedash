@@ -1,4 +1,3 @@
-
 export const API_TIMEOUTS = {
   DEFAULT: 30000,
 
@@ -10,4 +9,3 @@ export const API_TIMEOUTS = {
 
   UPLOAD: 60000,
 } as const
-

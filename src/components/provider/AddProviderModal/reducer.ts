@@ -10,9 +10,7 @@ export function formReducer(state: FormState, action: FormAction): FormState {
 
       action.plugin.config_schema.fields.forEach((field) => {
         if (field.default_value) {
-          const defaultVal = typeof field.default_value === 'string'
-            ? field.default_value
-            : String(field.default_value)
+          const defaultVal = typeof field.default_value === 'string' ? field.default_value : String(field.default_value)
 
           initialConfig[field.key] = defaultVal
         }

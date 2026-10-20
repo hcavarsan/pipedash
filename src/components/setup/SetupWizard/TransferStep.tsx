@@ -7,7 +7,10 @@ export function TransferStep({
   state,
   setState,
   error,
-}: Omit<TransferStepProps, 'isDatabaseBackendChange' | 'isDataDirChange' | 'isFromKeyring' | 'getCurrentBackend' | 'getCurrentDataDir'>) {
+}: Omit<
+  TransferStepProps,
+  'isDatabaseBackendChange' | 'isDataDirChange' | 'isFromKeyring' | 'getCurrentBackend' | 'getCurrentDataDir'
+>) {
   return (
     <Stack gap="md">
       <Radio.Group

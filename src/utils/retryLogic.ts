@@ -6,26 +6,16 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
   delayMs: RETRY_INTERVALS.INITIAL,
   backoffMultiplier: 2,
   shouldRetry: (error: Error) => {
-    const retryableErrors = [
-      'NetworkError',
-      'TimeoutError',
-      'ECONNREFUSED',
-      'ETIMEDOUT',
-    ]
+    const retryableErrors = ['NetworkError', 'TimeoutError', 'ECONNREFUSED', 'ETIMEDOUT']
 
     return (
       retryableErrors.some((errType) => error.message.includes(errType)) ||
-      (error.message.includes('status') &&
-        /5\d{2}/.test(error.message))
+      (error.message.includes('status') && /5\d{2}/.test(error.message))
     )
   },
 }
 
-export function shouldRetry(
-  error: Error,
-  attempt: number,
-  config: RetryConfig = DEFAULT_RETRY_CONFIG
-): boolean {
+export function shouldRetry(error: Error, attempt: number, config: RetryConfig = DEFAULT_RETRY_CONFIG): boolean {
   if (attempt >= config.maxAttempts) {
     return false
   }
@@ -37,19 +27,13 @@ export function shouldRetry(
   return true
 }
 
-export function getRetryDelay(
-  attempt: number,
-  config: RetryConfig = DEFAULT_RETRY_CONFIG
-): number {
+export function getRetryDelay(attempt: number, config: RetryConfig = DEFAULT_RETRY_CONFIG): number {
   const { delayMs, backoffMultiplier = 1 } = config
 
   return delayMs * backoffMultiplier ** (attempt - 1)
 }
 
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  config: RetryConfig = DEFAULT_RETRY_CONFIG
-): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, config: RetryConfig = DEFAULT_RETRY_CONFIG): Promise<T> {
   let lastError: Error | null = null
   let attempt = 1
 
@@ -79,4 +63,3 @@ export async function withRetry<T>(
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
-

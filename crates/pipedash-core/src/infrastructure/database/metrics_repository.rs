@@ -152,7 +152,7 @@ impl MetricsRepository {
 
         match &self.pool {
             DatabasePool::Sqlite(p) => {
-                sqlx::query(&sql)
+                sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(enabled as i64)
                     .bind(default_retention_days)
                     .execute(p)
@@ -160,7 +160,7 @@ impl MetricsRepository {
                     .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
             }
             DatabasePool::Postgres(p) => {
-                sqlx::query(&sql)
+                sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(enabled)
                     .bind(default_retention_days)
                     .execute(p)
@@ -332,14 +332,14 @@ impl MetricsRepository {
 
         match &self.pool {
             DatabasePool::Sqlite(p) => {
-                sqlx::query(&sql)
+                sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(pipeline_id)
                     .execute(p)
                     .await
                     .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
             }
             DatabasePool::Postgres(p) => {
-                sqlx::query(&sql)
+                sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(pipeline_id)
                     .execute(p)
                     .await
@@ -424,7 +424,7 @@ impl MetricsRepository {
                         values_clause
                     );
 
-                    let mut query = sqlx::query(&sql);
+                    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                     for (
                         pipeline_id,
                         run_number,
@@ -515,7 +515,7 @@ impl MetricsRepository {
                         values_clauses.join(", ")
                     );
 
-                    let mut query = sqlx::query(&sql);
+                    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                     for (
                         pipeline_id,
                         run_number,
@@ -624,7 +624,7 @@ impl MetricsRepository {
 
         match &self.pool {
             DatabasePool::Sqlite(p) => {
-                let mut query_builder = sqlx::query(&sql);
+                let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql));
                 let mut all_params: Vec<(usize, String)> = string_params;
                 for (idx, ts) in timestamp_params {
                     all_params.push((idx, ts.to_rfc3339()));
@@ -657,7 +657,7 @@ impl MetricsRepository {
                 }
                 all_params.sort_by_key(|(idx, _)| *idx);
 
-                let mut query_builder = sqlx::query(&sql);
+                let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql));
                 for (_, value) in all_params {
                     match value {
                         BindValue::Str(s) => query_builder = query_builder.bind(s),
@@ -792,7 +792,7 @@ impl MetricsRepository {
 
             match &self.pool {
                 DatabasePool::Sqlite(p) => {
-                    let mut query_builder = sqlx::query(&sql);
+                    let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql));
                     let mut all_params: Vec<(usize, String)> = string_params;
                     for (idx, ts) in timestamp_params {
                         all_params.push((idx, ts.to_rfc3339()));
@@ -846,7 +846,7 @@ impl MetricsRepository {
                     }
                     all_params.sort_by_key(|(idx, _)| *idx);
 
-                    let mut query_builder = sqlx::query(&sql);
+                    let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql));
                     for (_, value) in all_params {
                         match value {
                             BindValue::Str(s) => query_builder = query_builder.bind(s),
@@ -950,7 +950,7 @@ impl MetricsRepository {
 
         let data: Vec<(String, f64)> = match &self.pool {
             DatabasePool::Sqlite(p) => {
-                let mut query_builder = sqlx::query(&sql);
+                let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql));
                 let mut all_params: Vec<(usize, String)> = string_params;
                 for (idx, ts) in timestamp_params {
                     all_params.push((idx, ts.to_rfc3339()));
@@ -991,7 +991,7 @@ impl MetricsRepository {
                 }
                 all_params.sort_by_key(|(idx, _)| *idx);
 
-                let mut query_builder = sqlx::query(&sql);
+                let mut query_builder = sqlx::query(sqlx::AssertSqlSafe(sql));
                 for (_, value) in all_params {
                     match value {
                         BindValue::Str(s) => query_builder = query_builder.bind(s),
@@ -1223,7 +1223,7 @@ impl MetricsRepository {
                             placeholders
                         );
 
-                        let mut query = sqlx::query(&sql);
+                        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                         for pid in &pids {
                             query = query.bind(pid);
                         }
@@ -1252,7 +1252,7 @@ impl MetricsRepository {
                             placeholders, param_idx
                         );
 
-                        let mut query = sqlx::query(&sql);
+                        let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                         for pid in &pids {
                             query = query.bind(pid);
                         }
@@ -1710,7 +1710,7 @@ impl MetricsRepository {
                         values_clause
                     );
 
-                    let mut query = sqlx::query(&sql);
+                    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                     for config in chunk {
                         query = query
                             .bind(&config.pipeline_id)
@@ -1756,7 +1756,7 @@ impl MetricsRepository {
                         values_clauses.join(", ")
                     );
 
-                    let mut query = sqlx::query(&sql);
+                    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                     for config in chunk {
                         query = query
                             .bind(&config.pipeline_id)

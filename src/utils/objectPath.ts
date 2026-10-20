@@ -1,9 +1,6 @@
 import type { CellValue } from './dynamicRenderers'
 
-export function getValueByPath(
-  obj: Record<string, unknown>,
-  path: string
-): CellValue {
+export function getValueByPath(obj: Record<string, unknown>, path: string): CellValue {
   const parts = path.split('.')
   let value: unknown = obj
 
@@ -21,4 +18,3 @@ export function getValueByPath(
 
   return value as CellValue
 }
-

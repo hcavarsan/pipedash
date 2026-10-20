@@ -5,11 +5,7 @@ import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { service } from '../services'
 import type { PaginatedAvailablePipelines, ProviderConfig } from '../types'
 
-export function useProviderOrganizations(
-  providerType: string,
-  config: ProviderConfig,
-  enableQuery = true
-) {
+export function useProviderOrganizations(providerType: string, config: ProviderConfig, enableQuery = true) {
   return useQuery({
     queryKey: ['providerOrganizations', providerType, config.config],
     queryFn: () => service.fetchProviderOrganizations(providerType, config.config || {}),
@@ -27,13 +23,7 @@ export function usePipelinePreview(
   enableQuery = true
 ) {
   return useInfiniteQuery({
-    queryKey: [
-      'pipelinePreview',
-      providerType,
-      config.config,
-      organization,
-      search,
-    ],
+    queryKey: ['pipelinePreview', providerType, config.config, organization, search],
     queryFn: ({ pageParam = 1 }) =>
       service.previewProviderPipelines(
         providerType,
@@ -48,7 +38,7 @@ export function usePipelinePreview(
     initialPageParam: 1,
     staleTime: STALE_TIMES.MODERATE,
     gcTime: GC_TIMES.SHORT,
-    enabled: enableQuery && !!providerType && !!config.token && Object.keys(config.config || {}).length > 0 && !!organization,
+    enabled:
+      enableQuery && !!providerType && !!config.token && Object.keys(config.config || {}).length > 0 && !!organization,
   })
 }
-

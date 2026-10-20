@@ -1,7 +1,6 @@
-import { ReactNode, useEffect, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-
 import { AppShell } from '@mantine/core'
+import { type ReactNode, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useProviderStore } from '../../stores/providerStore'
@@ -17,12 +16,7 @@ interface AppLayoutProps {
   onOpenSettings?: () => void
 }
 
-export const AppLayout = ({
-  children,
-  onRefreshAll,
-  refreshing = false,
-  onOpenSettings,
-}: AppLayoutProps) => {
+export const AppLayout = ({ children, onRefreshAll, refreshing = false, onOpenSettings }: AppLayoutProps) => {
   const location = useLocation()
   const isSettingsPage = location.pathname.startsWith('/settings')
   const { isMobile } = useIsMobile()
@@ -69,9 +63,7 @@ export const AppLayout = ({
           <Navbar onToggleSidebar={toggle} sidebarOpened={opened} />
         </AppShell.Navbar>
 
-        <AppShell.Main>
-          {children}
-        </AppShell.Main>
+        <AppShell.Main>{children}</AppShell.Main>
       </AppShell>
 
       <MobileFooter onAddProvider={openAddProviderModal} />

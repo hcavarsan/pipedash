@@ -4,23 +4,15 @@ import { IconArrowLeft } from '@tabler/icons-react'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
 interface PageHeaderProps {
-  title: React.ReactNode;
-  subtitle?: string;
-  badge?: string;
-  onBack?: () => void;
-  backLabel?: string;
-  actions?: React.ReactNode;
+  title: React.ReactNode
+  subtitle?: string
+  badge?: string
+  onBack?: () => void
+  backLabel?: string
+  actions?: React.ReactNode
 }
 
-
-export const PageHeader = ({
-  title,
-  subtitle,
-  badge,
-  onBack,
-  backLabel = 'Back',
-  actions,
-}: PageHeaderProps) => {
+export const PageHeader = ({ title, subtitle, badge, onBack, backLabel = 'Back', actions }: PageHeaderProps) => {
   const { isMobile } = useIsMobile()
 
   return (
@@ -28,13 +20,7 @@ export const PageHeader = ({
       <Group gap="xs" align="center" h={isMobile ? 32 : 40} justify="space-between" wrap="nowrap">
         <Group gap="xs" align="center" style={{ flex: 1, minWidth: 0 }}>
           {onBack && (
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size={isMobile ? 'sm' : 'md'}
-              onClick={onBack}
-              title={backLabel}
-            >
+            <ActionIcon variant="subtle" color="gray" size={isMobile ? 'sm' : 'md'} onClick={onBack} title={backLabel}>
               <IconArrowLeft size={isMobile ? 16 : 18} />
             </ActionIcon>
           )}
@@ -54,11 +40,7 @@ export const PageHeader = ({
                 {title}
               </Title>
               {badge && (
-                <Badge
-                  variant="light"
-                  size={isMobile ? 'xs' : 'sm'}
-                  fw={500}
-                >
+                <Badge variant="light" size={isMobile ? 'xs' : 'sm'} fw={500}>
                   {badge}
                 </Badge>
               )}
@@ -70,9 +52,7 @@ export const PageHeader = ({
             )}
           </Stack>
         </Group>
-        {actions && (
-          <Box style={{ flexShrink: 0 }}>{actions}</Box>
-        )}
+        {actions && <Box style={{ flexShrink: 0 }}>{actions}</Box>}
       </Group>
     </Box>
   )

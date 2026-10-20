@@ -1,5 +1,3 @@
-import { useMemo } from 'react'
-
 import {
   Alert,
   Card,
@@ -13,6 +11,7 @@ import {
   TextInput,
 } from '@mantine/core'
 import { IconAlertCircle, IconAlertTriangle, IconInfoCircle, IconKey } from '@tabler/icons-react'
+import { useMemo } from 'react'
 
 import { isTauri } from '../../../services'
 
@@ -20,7 +19,6 @@ import type { StorageBackend, StorageStepProps } from './types'
 
 function analyzePasswordStrength(password: string): string[] {
   const warnings: string[] = []
-
 
   if (password.length < 16) {
     warnings.push('Consider using 16+ characters')
@@ -34,8 +32,8 @@ function analyzePasswordStrength(password: string): string[] {
   if (!/[A-Z]/.test(password) || !/[a-z]/.test(password)) {
     warnings.push('Consider mixing uppercase and lowercase')
   }
-  
-return warnings
+
+  return warnings
 }
 
 export function StorageStep({
@@ -57,10 +55,10 @@ export function StorageStep({
 
   const passwordWarnings = useMemo(() => {
     if (state.vaultPassword.length < 12) {
-return []
-}
-    
-return analyzePasswordStrength(state.vaultPassword)
+      return []
+    }
+
+    return analyzePasswordStrength(state.vaultPassword)
   }, [state.vaultPassword])
 
   return (
@@ -68,16 +66,17 @@ return analyzePasswordStrength(state.vaultPassword)
       {isFromKeyring && (
         <Alert icon={<IconKey size={16} />} color="blue" title="Credential Migration">
           <Text size="sm">
-            Your provider credentials are currently stored in the system keyring.
-            After this migration, they will be encrypted and stored in the database.
-            You'll need to enter a vault password to access them.
+            Your provider credentials are currently stored in the system keyring. After this migration, they will be
+            encrypted and stored in the database. You'll need to enter a vault password to access them.
           </Text>
         </Alert>
       )}
 
       <Card p="sm" withBorder>
         <Stack gap="sm">
-          <Text size="sm" fw={600}>Database Backend</Text>
+          <Text size="sm" fw={600}>
+            Database Backend
+          </Text>
           <SegmentedControl
             value={state.backend}
             onChange={(value) => setState({ ...state, backend: value as StorageBackend })}
@@ -117,14 +116,18 @@ return analyzePasswordStrength(state.vaultPassword)
       {needsVaultPassword && !vaultPasswordFromEnv && (
         <Card p="sm" withBorder>
           <Stack gap="sm">
-            <Text size="sm" fw={600}>Vault Password</Text>
+            <Text size="sm" fw={600}>
+              Vault Password
+            </Text>
             <Text size="xs" c="dimmed">
               Encrypts your provider tokens. Set <Code>PIPEDASH_VAULT_PASSWORD</Code> env var for auto-unlock.
             </Text>
             {checkingVault ? (
               <Group gap="xs">
                 <Loader size="xs" />
-                <Text size="sm" c="dimmed">Checking vault...</Text>
+                <Text size="sm" c="dimmed">
+                  Checking vault...
+                </Text>
               </Group>
             ) : (
               <>
@@ -144,12 +147,7 @@ return analyzePasswordStrength(state.vaultPassword)
                   required
                 />
                 {passwordWarnings.length > 0 && (
-                  <Alert
-                    icon={<IconAlertTriangle size={14} />}
-                    color="yellow"
-                    variant="light"
-                    p="xs"
-                  >
+                  <Alert icon={<IconAlertTriangle size={14} />} color="yellow" variant="light" p="xs">
                     <Text size="xs">{passwordWarnings.join(' · ')}</Text>
                   </Alert>
                 )}

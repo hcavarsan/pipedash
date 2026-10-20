@@ -16,13 +16,16 @@ export function usePipelineFilters(): {
 } {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const filters = useMemo((): PipelineFilters => ({
-    search: searchParams.get('search') ?? '',
-    status: searchParams.get('status'),
-    provider: searchParams.get('provider'),
-    organization: searchParams.get('organization'),
-    dateRange: searchParams.get('dateRange'),
-  }), [searchParams])
+  const filters = useMemo(
+    (): PipelineFilters => ({
+      search: searchParams.get('search') ?? '',
+      status: searchParams.get('status'),
+      provider: searchParams.get('provider'),
+      organization: searchParams.get('organization'),
+      dateRange: searchParams.get('dateRange'),
+    }),
+    [searchParams]
+  )
 
   const setFilter = useCallback(
     <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]) => {
@@ -48,7 +51,6 @@ export function usePipelineFilters(): {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
-
 
         next.delete('search')
         next.delete('status')
@@ -81,14 +83,17 @@ export function useRunHistoryFilters(): {
 } {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const filters = useMemo((): RunHistoryFilters => ({
-    search: searchParams.get('search') ?? '',
-    status: searchParams.get('status'),
-    branch: searchParams.get('branch'),
-    actor: searchParams.get('actor'),
-    dateRange: searchParams.get('dateRange'),
-    page: Number(searchParams.get('page')) || 1,
-  }), [searchParams])
+  const filters = useMemo(
+    (): RunHistoryFilters => ({
+      search: searchParams.get('search') ?? '',
+      status: searchParams.get('status'),
+      branch: searchParams.get('branch'),
+      actor: searchParams.get('actor'),
+      dateRange: searchParams.get('dateRange'),
+      page: Number(searchParams.get('page')) || 1,
+    }),
+    [searchParams]
+  )
 
   const setFilter = useCallback(
     <K extends keyof RunHistoryFilters>(key: K, value: RunHistoryFilters[K]) => {
@@ -96,10 +101,7 @@ export function useRunHistoryFilters(): {
         (prev) => {
           const next = new URLSearchParams(prev)
 
-          const isDefault =
-            (key === 'search' && value === '') ||
-            (key === 'page' && value === 1) ||
-            value === null
+          const isDefault = (key === 'search' && value === '') || (key === 'page' && value === 1) || value === null
 
           if (isDefault) {
             next.delete(key)
@@ -119,7 +121,6 @@ export function useRunHistoryFilters(): {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
-
 
         next.delete('search')
         next.delete('status')
@@ -148,10 +149,13 @@ export function useMetricsFilters(): {
 } {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const filters = useMemo((): MetricsFilters => ({
-    dateRange: searchParams.get('dateRange') ?? '24h',
-    period: searchParams.get('period') ?? 'hourly',
-  }), [searchParams])
+  const filters = useMemo(
+    (): MetricsFilters => ({
+      dateRange: searchParams.get('dateRange') ?? '24h',
+      period: searchParams.get('period') ?? 'hourly',
+    }),
+    [searchParams]
+  )
 
   const setFilter = useCallback(
     <K extends keyof MetricsFilters>(key: K, value: MetricsFilters[K]) => {
@@ -159,9 +163,7 @@ export function useMetricsFilters(): {
         (prev) => {
           const next = new URLSearchParams(prev)
 
-          const isDefault =
-            (key === 'dateRange' && value === '24h') ||
-            (key === 'period' && value === 'hourly')
+          const isDefault = (key === 'dateRange' && value === '24h') || (key === 'period' && value === 'hourly')
 
           if (isDefault) {
             next.delete(key)

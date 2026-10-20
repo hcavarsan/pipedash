@@ -4,12 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
-import type {
-  AggregationPeriod,
-  AggregationType,
-  MetricType,
-} from '../types'
-
+import type { AggregationPeriod, AggregationType, MetricType } from '../types'
 
 export function useGlobalMetricsConfig() {
   return useQuery({
@@ -72,7 +67,6 @@ export function useMetricsStorageStats() {
     gcTime: GC_TIMES.SHORT,
   })
 }
-
 
 export function useUpdateGlobalMetricsConfig() {
   const queryClient = useQueryClient()

@@ -1,26 +1,22 @@
 import { Badge, Box } from '@mantine/core'
-import {
-  IconCheck,
-  IconCircleOff,
-  IconClock,
-  IconLoader,
-  IconMinus,
-  IconX,
-} from '@tabler/icons-react'
+import { type Icon, IconCheck, IconCircleOff, IconClock, IconLoader, IconMinus, IconX } from '@tabler/icons-react'
 
 import { STATUS_COLORS } from '../../../theme/colors'
 import type { PipelineStatus } from '../../../types'
 
 interface StatusBadgeProps {
-  status: PipelineStatus;
-  size?: 'xs' | 'sm' | 'md' | 'lg';
-  withIcon?: boolean;
+  status: PipelineStatus
+  size?: 'xs' | 'sm' | 'md' | 'lg'
+  withIcon?: boolean
 }
 
-const statusConfig: Record<PipelineStatus, {
-  label: string;
-  icon: React.ComponentType<any>;
-}> = {
+const statusConfig: Record<
+  PipelineStatus,
+  {
+    label: string
+    icon: Icon
+  }
+> = {
   success: {
     label: 'Success',
     icon: IconCheck,
@@ -47,11 +43,7 @@ const statusConfig: Record<PipelineStatus, {
   },
 }
 
-export const StatusBadge = ({
-  status,
-  size = 'md',
-  withIcon = false,
-}: StatusBadgeProps) => {
+export const StatusBadge = ({ status, size = 'md', withIcon = false }: StatusBadgeProps) => {
   const config = statusConfig[status]
   const Icon = config.icon
 

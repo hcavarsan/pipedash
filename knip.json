@@ -1,11 +1,5 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["src/main.tsx!"],
+  "$schema": "https://unpkg.com/knip@6/schema.json",
   "project": ["src/**/*.{ts,tsx}!"],
-  "ignore": [
-    "**/dist/**",
-    "**/node_modules/**",
-    "src/components/atoms/index.ts"
-  ],
   "ignoreExportsUsedInFile": true
 }

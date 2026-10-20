@@ -1,7 +1,6 @@
+import { Center, Loader, Stack, Text } from '@mantine/core'
 import { type ReactNode, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-
-import { Center, Loader, Stack, Text } from '@mantine/core'
 
 import { useVaultStatus } from '../../queries/useVaultQueries'
 import { isTauri } from '../../services'
@@ -26,17 +25,12 @@ export function RequireAuth({ children }: RequireAuthProps) {
   // Determine if we need to redirect to unlock
   // Desktop (Tauri): Only check vault status - keyring/IPC handles auth, no Bearer token needed
   // Web: Also require isAuthenticated because API requests need Bearer token in localStorage
-  const needsUnlock = requiresPassword && (
-    isTauri()
-      ? !isVaultUnlocked
-      : !isVaultUnlocked || !isAuthenticated
-  )
+  const needsUnlock = requiresPassword && (isTauri() ? !isVaultUnlocked : !isVaultUnlocked || !isAuthenticated)
 
   useEffect(() => {
     if (!isLoadingVault && needsUnlock) {
       // Save current location for redirect after unlock
       const currentPath = location.pathname + location.search
-
 
       setReturnPath(currentPath)
       navigate('/unlock', { replace: true })

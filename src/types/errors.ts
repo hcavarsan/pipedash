@@ -1,4 +1,3 @@
-
 export type PipedashError =
   | { type: 'network'; message: string; statusCode?: number; cause?: unknown }
   | { type: 'auth'; message: string; cause?: unknown }
@@ -72,30 +71,18 @@ export function toPipedashError(error: unknown): PipedashError {
   return createError('unknown', 'An unknown error occurred', { cause: error })
 }
 
-export function isNetworkError(error: PipedashError): error is Extract<
-  PipedashError,
-  { type: 'network' }
-> {
+export function isNetworkError(error: PipedashError): error is Extract<PipedashError, { type: 'network' }> {
   return error.type === 'network'
 }
 
-export function isAuthError(error: PipedashError): error is Extract<
-  PipedashError,
-  { type: 'auth' }
-> {
+export function isAuthError(error: PipedashError): error is Extract<PipedashError, { type: 'auth' }> {
   return error.type === 'auth'
 }
 
-export function isValidationError(error: PipedashError): error is Extract<
-  PipedashError,
-  { type: 'validation' }
-> {
+export function isValidationError(error: PipedashError): error is Extract<PipedashError, { type: 'validation' }> {
   return error.type === 'validation'
 }
 
-export function isPermissionError(error: PipedashError): error is Extract<
-  PipedashError,
-  { type: 'permission' }
-> {
+export function isPermissionError(error: PipedashError): error is Extract<PipedashError, { type: 'permission' }> {
   return error.type === 'permission'
 }

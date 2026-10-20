@@ -43,13 +43,13 @@ export function useMetricsEventListeners({
 
     const handleEvent = (eventType: MetricsEventType, payload: unknown) => {
       if (!isActive) {
-return
-}
+        return
+      }
 
       if (eventType === 'pipeline-status-changed') {
         onRefetchRef.current()
-        
-return
+
+        return
       }
 
       if (payload === pipelineId) {
@@ -70,8 +70,8 @@ return
 
           if (!isActive) {
             unlisten()
-            
-return
+
+            return
           }
 
           unlisteners.push(unlisten)

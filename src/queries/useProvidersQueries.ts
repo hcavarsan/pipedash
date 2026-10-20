@@ -14,10 +14,9 @@ export function useProviders(options?: { enabled?: boolean }) {
       logger.debug('useProviders', 'Fetching providers...')
       const data = await service.listProviders()
 
-
       logger.debug('useProviders', 'Received providers', { count: data.length })
 
-return data
+      return data
     },
     staleTime: STALE_TIMES.MODERATE,
     gcTime: GC_TIMES.SHORT,
@@ -78,19 +77,15 @@ export function useUpdateProvider() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, config }: { id: number; config: ProviderConfig }) =>
-      service.updateProvider(id, config),
+    mutationFn: ({ id, config }: { id: number; config: ProviderConfig }) => service.updateProvider(id, config),
 
     onMutate: async ({ id, config }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.providers.list() })
 
-      const previousProviders = queryClient.getQueryData<ProviderSummary[]>(
-        queryKeys.providers.list()
-      )
+      const previousProviders = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
 
-      queryClient.setQueryData<ProviderSummary[]>(
-        queryKeys.providers.list(),
-        (old = []) => old.map((p) => (p.id === id ? { ...p, ...config } : p))
+      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
+        old.map((p) => (p.id === id ? { ...p, ...config } : p))
       )
 
       return { previousProviders }
@@ -98,10 +93,7 @@ export function useUpdateProvider() {
 
     onError: (error: Error, _vars, context) => {
       if (context?.previousProviders) {
-        queryClient.setQueryData(
-          queryKeys.providers.list(),
-          context.previousProviders
-        )
+        queryClient.setQueryData(queryKeys.providers.list(), context.previousProviders)
       }
 
       notifications.show({
@@ -146,8 +138,7 @@ export function useRemoveProvider() {
 
       queryClient.removeQueries({ queryKey: queryKeys.tableSchema.detail(id) })
       queryClient.removeQueries({
-        predicate: (query) =>
-          query.queryKey[0] === 'tablePreferences' && query.queryKey[1] === id,
+        predicate: (query) => query.queryKey[0] === 'tablePreferences' && query.queryKey[1] === id,
       })
 
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
@@ -183,13 +174,10 @@ export function useUpdateProviderRefreshInterval() {
     onMutate: async ({ id, refreshInterval }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.providers.list() })
 
-      const previousProviders = queryClient.getQueryData<ProviderSummary[]>(
-        queryKeys.providers.list()
-      )
+      const previousProviders = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
 
-      queryClient.setQueryData<ProviderSummary[]>(
-        queryKeys.providers.list(),
-        (old = []) => old.map((p) => (p.id === id ? { ...p, refresh_interval: refreshInterval } : p))
+      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
+        old.map((p) => (p.id === id ? { ...p, refresh_interval: refreshInterval } : p))
       )
 
       return { previousProviders }
@@ -197,10 +185,7 @@ export function useUpdateProviderRefreshInterval() {
 
     onError: (error: Error, _vars, context) => {
       if (context?.previousProviders) {
-        queryClient.setQueryData(
-          queryKeys.providers.list(),
-          context.previousProviders
-        )
+        queryClient.setQueryData(queryKeys.providers.list(), context.previousProviders)
       }
 
       notifications.show({

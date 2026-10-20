@@ -1,7 +1,6 @@
-import { useEffect, useRef } from 'react'
-
 import { Alert, Stack, Text } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
+import { useEffect, useRef } from 'react'
 
 export interface FormErrorDisplayProps {
   errors?: Record<string, string>
@@ -10,12 +9,7 @@ export interface FormErrorDisplayProps {
   compact?: boolean
 }
 
-export function FormErrorDisplay({
-  errors,
-  globalError,
-  onDismiss,
-  compact = false,
-}: FormErrorDisplayProps) {
+export function FormErrorDisplay({ errors, globalError, onDismiss, compact = false }: FormErrorDisplayProps) {
   const errorRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

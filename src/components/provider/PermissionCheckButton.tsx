@@ -7,11 +7,7 @@ interface PermissionCheckButtonProps {
   loading?: boolean
 }
 
-export const PermissionCheckButton = ({
-  onClick,
-  disabled = false,
-  loading = false,
-}: PermissionCheckButtonProps) => {
+export const PermissionCheckButton = ({ onClick, disabled = false, loading = false }: PermissionCheckButtonProps) => {
   return (
     <Button
       variant="light"

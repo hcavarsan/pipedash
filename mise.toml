@@ -1,7 +1,8 @@
 [tools]
 rust = { version = "nightly", components = "rust-src,llvm-tools,clippy,rustfmt,rustc-dev" }
-node = "24"
+node = "26"
 bun = "latest"
+zizmor = "latest"
 
 [env]
 RUST_LOG = "debug"
@@ -83,20 +84,23 @@ run = "cargo check --workspace --all-targets --all-features"
 
 [tasks.lint]
 description = "Lint all"
-depends = ["lint:front", "lint:back"]
+depends = ["lint:front", "lint:back", "lint:actions"]
 
 [tasks."lint:front"]
-run = "bun run eslint"
+run = "bun run lint"
 
 [tasks."lint:back"]
 run = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+
+[tasks."lint:actions"]
+run = "zizmor --persona=pedantic .github/workflows"
 
 [tasks.fix]
 description = "Auto-fix lint issues"
 depends = ["fix:front", "fix:back"]
 
 [tasks."fix:front"]
-run = "bun run eslint --fix"
+run = "bun run lint:fix"
 
 [tasks."fix:back"]
 run = "cargo clippy --workspace --all-targets --all-features --fix --allow-dirty"
@@ -106,7 +110,7 @@ description = "Format all"
 depends = ["fmt:front", "fmt:back"]
 
 [tasks."fmt:front"]
-run = "bun run eslint --fix"
+run = "bun run format"
 
 [tasks."fmt:back"]
 run = "cargo +nightly fmt --all"
@@ -116,7 +120,7 @@ description = "Check formatting"
 depends = ["fmt:front:check", "fmt:back:check"]
 
 [tasks."fmt:front:check"]
-run = "bun run eslint"
+run = "bun run format:check"
 
 [tasks."fmt:back:check"]
 run = "cargo +nightly fmt --all -- --check"
@@ -188,7 +192,7 @@ run = "docker compose -f examples/postgres/docker-compose.yml down -v"
 
 [tasks.clean]
 description = "Remove build artifacts"
-run = "cargo clean && rm -rf dist node_modules/.vite"
+run = "cargo clean && rm -rf crates/pipedash-web/dist node_modules/.vite"
 
 [tasks.knip]
 description = "Find unused code"
