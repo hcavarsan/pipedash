@@ -1,10 +1,12 @@
-import { Center, Loader, Stack, Text } from '@mantine/core'
+import { Center } from '@mantine/core'
 import { type ReactNode, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useVaultStatus } from '../../queries/useVaultQueries'
 import { isTauri } from '../../services'
 import { useAuthStore } from '../../stores/authStore'
+import { ErrorState } from '../common/ErrorState'
+import { LoadingState } from '../common/LoadingState'
 
 interface RequireAuthProps {
   children: ReactNode
@@ -17,7 +19,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const setReturnPath = useAuthStore((s) => s.setReturnPath)
 
-  const { data: vaultStatus, isLoading: isLoadingVault } = useVaultStatus()
+  const { data: vaultStatus, isLoading: isLoadingVault, isError, error, refetch, isRefetching } = useVaultStatus()
 
   const requiresPassword = vaultStatus?.requires_password ?? false
   const isVaultUnlocked = vaultStatus?.is_unlocked ?? false
@@ -37,16 +39,19 @@ export function RequireAuth({ children }: RequireAuthProps) {
     }
   }, [isLoadingVault, needsUnlock, location, setReturnPath, navigate])
 
-  // Show loading while checking vault status
   if (isLoadingVault) {
+    return <LoadingState variant="page" message="Checking vault status" />
+  }
+
+  if (isError && !vaultStatus) {
     return (
-      <Center h="100vh">
-        <Stack align="center" gap="md">
-          <Loader size="lg" />
-          <Text size="sm" c="dimmed">
-            Checking vault status...
-          </Text>
-        </Stack>
+      <Center h="100%" p="xl">
+        <ErrorState
+          title="Couldn't check vault status"
+          error={error}
+          onRetry={() => refetch()}
+          retrying={isRefetching}
+        />
       </Center>
     )
   }

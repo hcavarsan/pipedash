@@ -1,20 +1,41 @@
-import { Box, Button, Card, Divider, Select, Stack, Text, ThemeIcon } from '@mantine/core'
-import { modals } from '@mantine/modals'
-import { notifications } from '@mantine/notifications'
-import { IconAlertTriangle, IconTrash } from '@tabler/icons-react'
+import {
+  Button,
+  Card,
+  Divider,
+  Input,
+  type MantineColorScheme,
+  SegmentedControl,
+  Select,
+  Stack,
+  Text,
+  Title,
+  useMantineColorScheme,
+} from '@mantine/core'
+import { IconTrash } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
-import { useFactoryReset } from '@/queries/usePlatformQueries'
 import { getPlatformOverride, platform, setPlatformOverride } from '@/utils/platform'
+
+import { useFactoryResetConfirm } from '../useFactoryResetConfirm'
 
 interface GeneralSectionProps {
   onRefresh?: () => Promise<void>
 }
 
+const THEME_OPTIONS = [
+  { value: 'dark', label: 'Dark' },
+  { value: 'light', label: 'Light' },
+  { value: 'auto', label: 'System' },
+]
+
 export function GeneralSection({ onRefresh }: GeneralSectionProps) {
   const [platformOverride, setPlatformOverrideState] = useState<string | null>(null)
   const [currentPlatform, setCurrentPlatform] = useState<string>('linux')
-  const factoryResetMutation = useFactoryReset()
+  const { colorScheme, setColorScheme } = useMantineColorScheme()
+  const { confirmReset, isResetting } = useFactoryResetConfirm(async () => {
+    setPlatformOverrideState(null)
+    await onRefresh?.()
+  })
 
   useEffect(() => {
     const loadPlatform = async () => {
@@ -34,111 +55,69 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
     setPlatformOverrideState(value)
   }
 
-  const handleResetStorage = () => {
-    modals.openConfirmModal({
-      title: (
-        <Box style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ThemeIcon color="red" variant="light" size="md">
-            <IconAlertTriangle size={16} />
-          </ThemeIcon>
-          <Text fw={600}>Reset Storage</Text>
-        </Box>
-      ),
-      children: (
-        <Stack gap="sm">
-          <Text size="sm">This will permanently delete all data:</Text>
-          <Text size="sm" c="dimmed">
-            • All providers and tokens
-          </Text>
-          <Text size="sm" c="dimmed">
-            • All cached data and metrics
-          </Text>
-          <Text size="sm" c="red" fw={500} mt="xs">
-            This action cannot be undone.
-          </Text>
-        </Stack>
-      ),
-      labels: { confirm: 'Reset Everything', cancel: 'Cancel' },
-      confirmProps: { color: 'red' },
-      onConfirm: () => {
-        factoryResetMutation.mutate(undefined, {
-          onSuccess: (result) => {
-            localStorage.clear()
-
-            notifications.show({
-              title: 'Reset Complete',
-              message: `Removed ${result.providers_removed} providers. All settings cleared.`,
-              color: 'green',
-            })
-
-            setPlatformOverrideState(null)
-
-            if (onRefresh) {
-              onRefresh()
-            }
-          },
-        })
-      },
-    })
-  }
-
   return (
-    <Stack gap="md">
-      <Card withBorder padding="md" radius="md">
-        <Stack gap="md">
-          <Box>
-            <Text size="md" fw={600}>
-              General Settings
-            </Text>
-            <Text size="xs" c="dimmed">
-              Application preferences
-            </Text>
-          </Box>
+    <>
+      <Title order={2} size="lg" fw={600} mb="lg">
+        General
+      </Title>
 
-          <Divider />
+      <Stack gap="md">
+        <Card padding="md">
+          <Stack gap="md">
+            <Input.Wrapper label="Theme" description="Choose Dark, Light, or follow your system setting.">
+              <SegmentedControl
+                mt="xs"
+                fullWidth
+                data={THEME_OPTIONS}
+                value={colorScheme}
+                onChange={(value) => setColorScheme(value as MantineColorScheme)}
+              />
+            </Input.Wrapper>
 
-          <Select
-            label="Platform"
-            description={`Detected: ${currentPlatform}`}
-            placeholder="Auto-detect"
-            data={[
-              { value: '', label: 'Auto-detect' },
-              { value: 'macos', label: 'macOS' },
-              { value: 'windows', label: 'Windows' },
-              { value: 'linux', label: 'Linux' },
-            ]}
-            value={platformOverride || ''}
-            onChange={handlePlatformChange}
-          />
-        </Stack>
-      </Card>
+            <Divider />
 
-      <Card withBorder padding="md" radius="md">
-        <Stack gap="md">
-          <Box>
-            <Text size="md" fw={600} c="red">
-              Danger Zone
-            </Text>
-            <Text size="xs" c="dimmed">
-              Permanently delete all application data
-            </Text>
-          </Box>
+            <Select
+              label="Platform"
+              description={`Detected: ${currentPlatform}`}
+              placeholder="Auto-detect"
+              data={[
+                { value: '', label: 'Auto-detect' },
+                { value: 'macos', label: 'macOS' },
+                { value: 'windows', label: 'Windows' },
+                { value: 'linux', label: 'Linux' },
+              ]}
+              value={platformOverride || ''}
+              onChange={handlePlatformChange}
+            />
+          </Stack>
+        </Card>
 
-          <Divider />
+        <Card padding="md">
+          <Stack gap="md">
+            <Stack gap={0}>
+              <Text size="sm" fw={600} c="red">
+                Danger zone
+              </Text>
+              <Text size="xs" c="dimmed">
+                Permanently delete all application data
+              </Text>
+            </Stack>
 
-          <Button
-            leftSection={<IconTrash size={14} />}
-            variant="light"
-            color="red"
-            size="sm"
-            fullWidth
-            onClick={handleResetStorage}
-            loading={factoryResetMutation.isPending}
-          >
-            Reset Storage
-          </Button>
-        </Stack>
-      </Card>
-    </Stack>
+            <Divider />
+
+            <Button
+              leftSection={<IconTrash size={16} />}
+              variant="light"
+              color="red"
+              fullWidth
+              onClick={confirmReset}
+              loading={isResetting}
+            >
+              Factory reset
+            </Button>
+          </Stack>
+        </Card>
+      </Stack>
+    </>
   )
 }

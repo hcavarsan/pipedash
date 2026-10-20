@@ -438,7 +438,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::infrastructure::MemoryTokenStore;
+    use crate::{
+        infrastructure::MemoryTokenStore,
+        test_env::EnvGuard,
+    };
 
     fn create_test_state(temp_dir: &TempDir, token_store: Arc<dyn TokenStore>) -> Arc<ConfigState> {
         let config_path = temp_dir.path().join("config.toml");
@@ -566,10 +569,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_config_values() {
-        let old_metrics = std::env::var("PIPEDASH_METRICS_ENABLED").ok();
-        let old_refresh = std::env::var("PIPEDASH_DEFAULT_REFRESH_INTERVAL").ok();
-        std::env::remove_var("PIPEDASH_METRICS_ENABLED");
-        std::env::remove_var("PIPEDASH_DEFAULT_REFRESH_INTERVAL");
+        let _env = EnvGuard::set(&[
+            ("PIPEDASH_METRICS_ENABLED", None),
+            ("PIPEDASH_DEFAULT_REFRESH_INTERVAL", None),
+        ]);
 
         let temp_dir = TempDir::new().unwrap();
         let token_store = Arc::new(MemoryTokenStore::new());
@@ -578,19 +581,11 @@ mod tests {
 
         assert!(state.get_bool(ConfigKey::MetricsEnabled).await);
         assert_eq!(state.get_u32(ConfigKey::DefaultRefreshInterval).await, 30);
-
-        if let Some(v) = old_metrics {
-            std::env::set_var("PIPEDASH_METRICS_ENABLED", v);
-        }
-        if let Some(v) = old_refresh {
-            std::env::set_var("PIPEDASH_DEFAULT_REFRESH_INTERVAL", v);
-        }
     }
 
     #[tokio::test]
     async fn test_env_var_override() {
-        let old_value = std::env::var("PIPEDASH_METRICS_ENABLED").ok();
-        std::env::set_var("PIPEDASH_METRICS_ENABLED", "false");
+        let _env = EnvGuard::set(&[("PIPEDASH_METRICS_ENABLED", Some("false"))]);
 
         let temp_dir = TempDir::new().unwrap();
         let token_store = Arc::new(MemoryTokenStore::new());
@@ -598,10 +593,5 @@ mod tests {
         let state = create_test_state(&temp_dir, token_store);
 
         assert!(!state.get_bool(ConfigKey::MetricsEnabled).await);
-
-        match old_value {
-            Some(v) => std::env::set_var("PIPEDASH_METRICS_ENABLED", v),
-            None => std::env::remove_var("PIPEDASH_METRICS_ENABLED"),
-        }
     }
 }

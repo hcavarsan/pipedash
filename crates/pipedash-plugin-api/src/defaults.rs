@@ -24,7 +24,6 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
                 width: Some(100),
                 sortable: true,
                 filterable: false,
-                align: Some("center".to_string()),
             },
             ColumnDefinition {
                 id: "status".to_string(),
@@ -38,7 +37,6 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
                 width: Some(120),
                 sortable: true,
                 filterable: true,
-                align: None,
             },
             ColumnDefinition {
                 id: "branch".to_string(),
@@ -52,7 +50,6 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
                 width: Some(150),
                 sortable: true,
                 filterable: true,
-                align: None,
             },
             ColumnDefinition {
                 id: "started_at".to_string(),
@@ -66,7 +63,6 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
                 width: Some(180),
                 sortable: true,
                 filterable: false,
-                align: None,
             },
             ColumnDefinition {
                 id: "duration_seconds".to_string(),
@@ -80,7 +76,6 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
                 width: Some(120),
                 sortable: true,
                 filterable: false,
-                align: None,
             },
             ColumnDefinition {
                 id: "commit_sha".to_string(),
@@ -94,7 +89,6 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
                 width: Some(140),
                 sortable: false,
                 filterable: false,
-                align: None,
             },
             ColumnDefinition {
                 id: "actor".to_string(),
@@ -108,7 +102,6 @@ pub fn default_pipeline_runs_table() -> TableDefinition {
                 width: Some(120),
                 sortable: true,
                 filterable: true,
-                align: None,
             },
         ],
         default_sort_column: Some("run_number".to_string()),
@@ -134,7 +127,6 @@ pub fn default_pipelines_table() -> TableDefinition {
                 width: Some(200),
                 sortable: true,
                 filterable: true,
-                align: None,
             },
             ColumnDefinition {
                 id: "status".to_string(),
@@ -148,7 +140,6 @@ pub fn default_pipelines_table() -> TableDefinition {
                 width: Some(120),
                 sortable: true,
                 filterable: true,
-                align: None,
             },
             ColumnDefinition {
                 id: "repository".to_string(),
@@ -162,7 +153,6 @@ pub fn default_pipelines_table() -> TableDefinition {
                 width: Some(180),
                 sortable: true,
                 filterable: true,
-                align: None,
             },
             ColumnDefinition {
                 id: "branch".to_string(),
@@ -176,7 +166,6 @@ pub fn default_pipelines_table() -> TableDefinition {
                 width: Some(120),
                 sortable: true,
                 filterable: true,
-                align: None,
             },
         ],
         default_sort_column: Some("name".to_string()),

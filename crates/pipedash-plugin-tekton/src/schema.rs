@@ -47,7 +47,6 @@ fn create_run_identifier_column() -> schema::ColumnDefinition {
         width: Some(180),
         sortable: false,
         filterable: false,
-        align: Some("left".to_string()),
     }
 }
 
@@ -64,7 +63,6 @@ fn create_namespace_column() -> schema::ColumnDefinition {
         width: Some(140),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -81,7 +79,6 @@ fn create_status_column() -> schema::ColumnDefinition {
         width: Some(110),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -98,7 +95,6 @@ fn create_pipeline_column() -> schema::ColumnDefinition {
         width: Some(180),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -115,7 +111,6 @@ fn create_branch_column() -> schema::ColumnDefinition {
         width: Some(140),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -132,7 +127,6 @@ fn create_started_at_column() -> schema::ColumnDefinition {
         width: Some(160),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -149,7 +143,6 @@ fn create_duration_column() -> schema::ColumnDefinition {
         width: Some(100),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -166,7 +159,6 @@ fn create_commit_sha_column() -> schema::ColumnDefinition {
         width: Some(100),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -183,7 +175,6 @@ fn create_trigger_column() -> schema::ColumnDefinition {
         width: Some(140),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -200,7 +191,6 @@ fn create_pipelinerun_column() -> schema::ColumnDefinition {
         width: Some(200),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -217,7 +207,6 @@ fn create_event_type_column() -> schema::ColumnDefinition {
         width: Some(150),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -234,7 +223,6 @@ fn create_task_summary_column() -> schema::ColumnDefinition {
         width: Some(80),
         sortable: false,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -251,7 +239,6 @@ fn create_concluded_at_column() -> schema::ColumnDefinition {
         width: Some(160),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -268,6 +255,5 @@ fn create_service_account_column() -> schema::ColumnDefinition {
         width: Some(140),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }

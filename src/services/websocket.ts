@@ -1,3 +1,4 @@
+import { logger } from '../lib/logger'
 import { getToken, useAuthStore } from '../stores/authStore'
 
 type EventCallback<T = unknown> = (payload: T) => void
@@ -79,13 +80,13 @@ class WebSocketClient {
 
   connect(): void {
     if (isTauriMode()) {
-      console.debug('[WebSocket] Skipping connection - running in Tauri mode')
+      logger.debug('WebSocket', 'Skipping connection - running in Tauri mode')
 
       return
     }
 
     if (this.isLockedOut) {
-      console.debug('[WebSocket] Locked out due to auth failures - use manualReconnect after unlock')
+      logger.debug('WebSocket', 'Locked out due to auth failures - use manualReconnect after unlock')
 
       return
     }
@@ -107,7 +108,7 @@ class WebSocketClient {
         if (token && this.ws) {
           this.ws.send(JSON.stringify({ type: 'auth', token }))
         }
-        console.log('[WebSocket] Connected')
+        logger.debug('WebSocket', 'Connected')
         this.isConnecting = false
         // Don't reset reconnectAttempts here - only after stable connection
         this.emitConnectionStatus('connected')
@@ -119,7 +120,7 @@ class WebSocketClient {
           const { type, payload } = message
 
           if (type === 'auth-error') {
-            console.warn('[WebSocket] Authentication error:', payload?.message || 'Unknown error')
+            logger.warn('WebSocket', 'Authentication error', payload?.message || 'Unknown error')
             const wasCleared = useAuthStore.getState().incrementFailure()
 
             if (wasCleared) {
@@ -138,17 +139,17 @@ class WebSocketClient {
               try {
                 callback(payload)
               } catch (error) {
-                console.error(`[WebSocket] Error in listener for ${type}:`, error)
+                logger.error('WebSocket', `Error in listener for ${type}`, error)
               }
             })
           }
         } catch (error) {
-          console.error('[WebSocket] Failed to parse message:', error)
+          logger.error('WebSocket', 'Failed to parse message', error)
         }
       }
 
       this.ws.onclose = (event) => {
-        console.log('[WebSocket] Disconnected:', event.code, event.reason)
+        logger.debug('WebSocket', 'Disconnected', { code: event.code, reason: event.reason })
         this.isConnecting = false
         this.ws = null
 
@@ -158,12 +159,13 @@ class WebSocketClient {
 
         if (wasRapidDisconnect) {
           this.rapidDisconnectCount++
-          console.warn(
-            `[WebSocket] Rapid disconnect detected (${this.rapidDisconnectCount}/${WebSocketClient.RAPID_DISCONNECT_THRESHOLD})`
+          logger.warn(
+            'WebSocket',
+            `Rapid disconnect detected (${this.rapidDisconnectCount}/${WebSocketClient.RAPID_DISCONNECT_THRESHOLD})`
           )
 
           if (this.rapidDisconnectCount >= WebSocketClient.RAPID_DISCONNECT_THRESHOLD) {
-            console.error('[WebSocket] Too many rapid disconnects - locking out, clearing token')
+            logger.error('WebSocket', 'Too many rapid disconnects - locking out, clearing token')
             this.isLockedOut = true
             this.shouldReconnect = false
             useAuthStore.getState().clearToken()
@@ -188,11 +190,11 @@ class WebSocketClient {
       }
 
       this.ws.onerror = (error) => {
-        console.error('[WebSocket] Error:', error)
+        logger.error('WebSocket', 'Error', error)
         this.isConnecting = false
       }
     } catch (error) {
-      console.error('[WebSocket] Failed to connect:', error)
+      logger.error('WebSocket', 'Failed to connect', error)
       this.isConnecting = false
 
       if (this.shouldReconnect) {
@@ -205,7 +207,7 @@ class WebSocketClient {
     this.reconnectAttempts++
     const delay = Math.min(this.reconnectDelay * 1.5 ** (this.reconnectAttempts - 1), 30000)
 
-    console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
+    logger.debug('WebSocket', `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
 
     setTimeout(() => {
       if (this.shouldReconnect) {
@@ -225,7 +227,7 @@ class WebSocketClient {
 
   listen<T = unknown>(eventType: string, callback: EventCallback<T>): UnlistenFn {
     if (isTauriMode()) {
-      console.debug('[WebSocket] Skipping listener registration - running in Tauri mode')
+      logger.debug('WebSocket', 'Skipping listener registration - running in Tauri mode')
 
       return () => undefined
     }
@@ -259,7 +261,7 @@ class WebSocketClient {
         try {
           callback({ status, reconnectAttempts: this.reconnectAttempts })
         } catch (error) {
-          console.error('[WebSocket] Error in connection-status listener:', error)
+          logger.error('WebSocket', 'Error in connection-status listener', error)
         }
       })
     }

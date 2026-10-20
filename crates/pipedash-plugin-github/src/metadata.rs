@@ -9,7 +9,7 @@ pub fn create_metadata() -> PluginMetadata {
         version: "0.1.0".to_string(),
         description: "Monitor and trigger GitHub Actions workflows".to_string(),
         author: Some("Pipedash Team".to_string()),
-        icon: Some("https://cdn.simpleicons.org/github/white".to_string()),
+        icon: Some("/provider-icons/github.svg".to_string()),
         config_schema: create_config_schema(),
         table_schema: schema::create_table_schema(),
         capabilities: create_capabilities(),

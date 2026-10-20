@@ -36,6 +36,8 @@ export function usePipelinePreview(
     getNextPageParam: (lastPage: PaginatedAvailablePipelines) =>
       lastPage.has_more ? (lastPage.page ?? 0) + 1 : undefined,
     initialPageParam: 1,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[3] === organization ? previousData : undefined,
     staleTime: STALE_TIMES.MODERATE,
     gcTime: GC_TIMES.SHORT,
     enabled:

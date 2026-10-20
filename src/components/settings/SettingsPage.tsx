@@ -1,4 +1,4 @@
-import { Box, ScrollArea } from '@mantine/core'
+import { Box, Group, ScrollArea, Stack } from '@mantine/core'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { SettingsMobileTabs } from './SettingsMobileTabs'
@@ -11,101 +11,41 @@ import { StorageSection } from './sections/StorageSection'
 
 interface SettingsPageProps {
   activeSection: SettingsSection
-  onSectionChange: (section: SettingsSection) => void
   onRefresh?: () => Promise<void>
 }
 
-export const SettingsPage = ({ activeSection, onSectionChange, onRefresh }: SettingsPageProps) => {
+const SECTION_CONTENT: Record<SettingsSection, (onRefresh?: () => Promise<void>) => React.ReactNode> = {
+  general: (onRefresh) => <GeneralSection onRefresh={onRefresh} />,
+  providers: () => <ProvidersSection />,
+  metrics: () => <MetricsSection />,
+  cache: (onRefresh) => <CacheSection onRefresh={onRefresh} />,
+  storage: () => <StorageSection />,
+}
+
+export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps) => {
   const { isMobile } = useIsMobile()
 
-  const renderSection = () => {
-    switch (activeSection) {
-      case 'general':
-        return <GeneralSection onRefresh={onRefresh} />
-      case 'providers':
-        return <ProvidersSection />
-      case 'metrics':
-        return <MetricsSection />
-      case 'cache':
-        return <CacheSection onRefresh={onRefresh} />
-      case 'storage':
-        return <StorageSection />
-      default:
-        return null
-    }
+  const content = (
+    <ScrollArea flex={1}>
+      <Box p={isMobile ? 'md' : 'xl'} maw={isMobile ? undefined : 720}>
+        {SECTION_CONTENT[activeSection](onRefresh)}
+      </Box>
+    </ScrollArea>
+  )
+
+  if (isMobile) {
+    return (
+      <Stack gap={0} flex={1} mih={0}>
+        <SettingsMobileTabs activeSection={activeSection} />
+        {content}
+      </Stack>
+    )
   }
 
   return (
-    <>
-      {isMobile ? (
-        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <SettingsMobileTabs activeSection={activeSection} onSectionChange={onSectionChange} onRefresh={onRefresh} />
-          <ScrollArea
-            style={{ flex: 1 }}
-            styles={{
-              viewport: {
-                '& > div': {
-                  minHeight: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                },
-              },
-            }}
-          >
-            <Box p="md" pb="xl">
-              {renderSection()}
-            </Box>
-          </ScrollArea>
-        </Box>
-      ) : (
-        <Box
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'stretch',
-            minHeight: 0,
-            height: '100%',
-          }}
-        >
-          <SettingsSidebar activeSection={activeSection} onSectionChange={onSectionChange} />
-
-          <Box
-            style={{
-              flex: 1,
-              alignSelf: 'stretch',
-              display: 'flex',
-              flexDirection: 'column',
-              minWidth: 0,
-              minHeight: 0,
-            }}
-          >
-            <ScrollArea
-              style={{ flex: 1 }}
-              styles={{
-                viewport: {
-                  '& > div': {
-                    minHeight: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  },
-                },
-              }}
-            >
-              <Box
-                p="xl"
-                style={{
-                  maxWidth: 720,
-                  width: '100%',
-                }}
-              >
-                {renderSection()}
-              </Box>
-            </ScrollArea>
-          </Box>
-        </Box>
-      )}
-    </>
+    <Group gap={0} align="stretch" wrap="nowrap" flex={1} mih={0} h="100%">
+      <SettingsSidebar activeSection={activeSection} />
+      {content}
+    </Group>
   )
 }

@@ -1,12 +1,12 @@
-import { Alert, Button, Loader, NumberInput, Select, Stack, Switch, Text, TextInput } from '@mantine/core'
+import { Button, Group, NumberInput, Select, Stack, Switch, Text, TextInput } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { IconAlertCircle } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useTriggerWorkflow, useWorkflowParameters } from '../../queries/useWorkflowQueries'
 import type { Pipeline, WorkflowParameter } from '../../types'
-import { displayErrorNotification } from '../../utils/errorDisplay'
+import { ErrorState } from '../common/ErrorState'
+import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
 
 interface TriggerWorkflowModalProps {
@@ -56,13 +56,11 @@ export const TriggerWorkflowModal = ({
   const {
     data: parameters = [],
     isLoading: fetchingParams,
+    isFetching: refetchingParams,
     error: fetchError,
+    refetch: refetchParams,
   } = useWorkflowParameters(pipeline.provider_id, opened ? pipeline.id : '')
   const triggerMutation = useTriggerWorkflow()
-
-  const error = fetchError instanceof Error ? fetchError.message : fetchError ? String(fetchError) : null
-
-  const isPreparingRerun = opened && initialInputs === undefined && parameters.length === 0
 
   useEffect(() => {
     if (!opened) {
@@ -76,27 +74,29 @@ export const TriggerWorkflowModal = ({
     }
   }, [opened, parameters, initialInputs])
 
-  const handleTrigger = async () => {
+  const handleTrigger = () => {
     if (isSubmittingRef.current || triggerMutation.isPending) {
       return
     }
     isSubmittingRef.current = true
 
-    const requiredParams = parameters.filter((p) => p.required)
-
-    for (const param of requiredParams) {
+    const missing = parameters.find((param) => {
       const value = paramValues[param.name]
 
-      if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
-        notifications.show({
-          title: 'Error',
-          message: `Parameter "${param.label || param.name}" is required`,
-          color: 'red',
-        })
-        isSubmittingRef.current = false
+      return (
+        param.required && (value === undefined || value === null || (typeof value === 'string' && value.trim() === ''))
+      )
+    })
 
-        return
-      }
+    if (missing) {
+      notifications.show({
+        title: 'Required parameter is empty',
+        message: `Enter a value for "${missing.label || missing.name}" to trigger the workflow.`,
+        color: 'red',
+      })
+      isSubmittingRef.current = false
+
+      return
     }
 
     triggerMutation.mutate(
@@ -108,35 +108,30 @@ export const TriggerWorkflowModal = ({
         onSuccess: (result) => {
           isSubmittingRef.current = false
           let runNumber = 0
-          let shouldOpenLogs = false
 
           try {
             const parsed = JSON.parse(result)
 
             runNumber = parsed.run_number || parsed.build_number || parsed.number || 0
-            if (runNumber > 0) {
-              shouldOpenLogs = true
-            }
           } catch {
             /* parse error expected for non-JSON responses */
           }
 
           onClose()
 
-          if (onSuccess && shouldOpenLogs) {
-            onSuccess(pipeline.id, runNumber)
-          } else if (runNumber === 0) {
+          if (runNumber > 0) {
+            onSuccess?.(pipeline.id, runNumber)
+          } else {
             notifications.show({
-              title: 'Note',
-              message: 'Workflow triggered but run number not available yet. Check the pipeline list for the new run.',
-              color: 'yellow',
+              title: 'Run number not available yet',
+              message: 'The workflow was triggered. Check the pipeline list for the new run.',
+              color: 'orange',
               autoClose: 5000,
             })
           }
         },
-        onError: (error: Error) => {
+        onError: () => {
           isSubmittingRef.current = false
-          displayErrorNotification(error, 'Failed to Trigger Workflow')
         },
       }
     )
@@ -210,48 +205,62 @@ export const TriggerWorkflowModal = ({
     }
   }
 
+  const isRerun = initialInputs !== undefined
+
   const footer = (
-    <Button
-      onClick={handleTrigger}
-      variant="light"
-      color="blue"
-      fullWidth
-      size={isMobile ? 'sm' : 'md'}
-      disabled={isPreparingRerun || fetchingParams || !!error || triggerMutation.isPending}
-    >
-      {triggerMutation.isPending ? 'Triggering...' : 'Trigger Workflow'}
-    </Button>
+    <Group justify="flex-end" gap="sm" grow={isMobile}>
+      <Button variant="default" size="sm" onClick={onClose} disabled={triggerMutation.isPending}>
+        Cancel
+      </Button>
+      <Button
+        size="sm"
+        onClick={handleTrigger}
+        loading={triggerMutation.isPending}
+        disabled={fetchingParams || !!fetchError}
+      >
+        {isRerun ? 'Rerun workflow' : 'Trigger workflow'}
+      </Button>
+    </Group>
   )
+
+  const renderContent = () => {
+    if (fetchingParams) {
+      return <LoadingState message="Loading workflow parameters..." />
+    }
+
+    if (fetchError) {
+      return (
+        <ErrorState
+          title="Couldn't load workflow parameters"
+          error={fetchError}
+          hint="The workflow can't be triggered until its parameters load."
+          onRetry={() => refetchParams()}
+          retrying={refetchingParams}
+        />
+      )
+    }
+
+    if (parameters.length === 0) {
+      return (
+        <Text size="sm" c="dimmed">
+          This workflow has no parameters. It runs with its defaults.
+        </Text>
+      )
+    }
+
+    return <Stack gap={isMobile ? 'xs' : 'sm'}>{parameters.map((param) => renderParameterInput(param))}</Stack>
+  }
 
   return (
     <StandardModal
       opened={opened}
       onClose={onClose}
-      title={initialInputs ? `Rerun: ${pipeline.name}` : `Trigger: ${pipeline.name}`}
+      size="md"
+      title={isRerun ? `Rerun: ${pipeline.name}` : `Trigger: ${pipeline.name}`}
       loading={triggerMutation.isPending}
       footer={footer}
-      contentPadding={false}
     >
-      <Stack gap={isMobile ? 'xs' : 'md'} p="md">
-        {isPreparingRerun || fetchingParams ? (
-          <Stack align="center" gap="sm" py="md">
-            <Loader size="sm" />
-            <Text size="sm" c="dimmed">
-              {isPreparingRerun ? 'Preparing rerun...' : 'Loading workflow parameters...'}
-            </Text>
-          </Stack>
-        ) : error ? (
-          <Alert icon={<IconAlertCircle size={16} />} title="Error Loading Parameters" color="red">
-            {error}
-          </Alert>
-        ) : parameters.length > 0 ? (
-          <Stack gap={isMobile ? 'xs' : 'sm'}>{parameters.map((param) => renderParameterInput(param))}</Stack>
-        ) : (
-          <Text size="sm" c="dimmed" ta="center" py="sm">
-            No parameters required for this workflow
-          </Text>
-        )}
-      </Stack>
+      {renderContent()}
     </StandardModal>
   )
 }

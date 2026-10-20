@@ -6,6 +6,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { ProviderConfig, ProviderSummary } from '../types'
+import { invalidateProviderPipelines, setProviderPipelines } from './usePipelinesQueries'
 
 export function useProviders(options?: { enabled?: boolean }) {
   return useQuery({
@@ -31,33 +32,39 @@ export function useAddProvider() {
     mutationFn: (config: ProviderConfig) => service.addProvider(config),
 
     onSuccess: async (newProviderId, config) => {
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) => [
-        ...old,
-        {
-          id: newProviderId,
-          name: config.name || `${config.provider_type} Provider`,
-          provider_type: config.provider_type,
-          icon: null,
-          pipeline_count: 0,
-          last_updated: null,
-          refresh_interval: 60,
-          last_fetch_status: 'never',
-          last_fetch_error: null,
-          last_fetch_at: null,
-          configured_repositories: [],
-        },
-      ])
+      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
+        old.some((provider) => provider.id === newProviderId)
+          ? old
+          : [
+              ...old,
+              {
+                id: newProviderId,
+                name: config.name || `${config.provider_type} Provider`,
+                provider_type: config.provider_type,
+                icon: null,
+                pipeline_count: 0,
+                last_updated: null,
+                refresh_interval: config.refresh_interval,
+                last_fetch_status: 'never',
+                last_fetch_error: null,
+                last_fetch_at: null,
+                configured_repositories: [],
+              },
+            ]
+      )
 
-      queryClient.fetchQuery({
-        queryKey: queryKeys.pipelines.list({ providerId: newProviderId }),
-        queryFn: () => service.fetchPipelines(newProviderId),
-        staleTime: 0,
-      })
+      service
+        .fetchPipelines(newProviderId)
+        .then((pipelines) => setProviderPipelines(queryClient, newProviderId, pipelines))
+        .catch((error) => {
+          logger.error('useAddProvider', 'Initial pipeline fetch failed', error)
+          invalidateProviderPipelines(queryClient, newProviderId)
+        })
 
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
 
       notifications.show({
-        title: 'Provider Added',
+        title: 'Provider added',
         message: 'Fetching pipelines...',
         color: 'green',
       })
@@ -65,7 +72,7 @@ export function useAddProvider() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Add Provider',
+        title: "Couldn't add provider",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -97,7 +104,7 @@ export function useUpdateProvider() {
       }
 
       notifications.show({
-        title: 'Failed to Update Provider',
+        title: "Couldn't update provider",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -106,12 +113,10 @@ export function useUpdateProvider() {
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.pipelines.list({ providerId: id }),
-      })
+      invalidateProviderPipelines(queryClient, id)
 
       notifications.show({
-        title: 'Provider Updated',
+        title: 'Provider updated',
         message: 'Refreshing pipelines...',
         color: 'green',
       })
@@ -132,31 +137,25 @@ export function useRemoveProvider() {
       queryClient.removeQueries({ queryKey: queryKeys.providers.schema(id) })
       queryClient.removeQueries({ queryKey: queryKeys.providers.refreshInterval(id) })
 
-      queryClient.removeQueries({
-        queryKey: queryKeys.pipelines.list({ providerId: id }),
-      })
-
+      queryClient.removeQueries({ queryKey: queryKeys.pipelines.list({ providerId: id }), exact: true })
       queryClient.removeQueries({ queryKey: queryKeys.tableSchema.detail(id) })
       queryClient.removeQueries({
         predicate: (query) => query.queryKey[0] === 'tablePreferences' && query.queryKey[1] === id,
       })
 
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.pipelines.list({}),
-      })
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
 
       notifications.show({
-        title: 'Provider Removed',
+        title: 'Provider removed',
         message: 'All associated data cleared',
-        color: 'blue',
+        color: 'gray',
       })
     },
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Remove Provider',
+        title: "Couldn't remove provider",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -189,7 +188,7 @@ export function useUpdateProviderRefreshInterval() {
       }
 
       notifications.show({
-        title: 'Failed to Update Refresh Interval',
+        title: "Couldn't update refresh interval",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -200,7 +199,7 @@ export function useUpdateProviderRefreshInterval() {
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.refreshInterval(id) })
 
       notifications.show({
-        title: 'Refresh Interval Updated',
+        title: 'Refresh interval updated',
         message: 'Provider will use the new refresh interval',
         color: 'green',
       })

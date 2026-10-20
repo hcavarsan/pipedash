@@ -1,3 +1,4 @@
+import { logger } from '../lib/logger'
 import { apiService } from './api'
 import { tauriService } from './tauri'
 import { WS_EVENTS, wsClient } from './websocket'
@@ -21,7 +22,7 @@ export const isTauri = (): boolean => {
   _isTauriCache = hasTauriInternals || hasTauri
 
   if (import.meta.env.DEV) {
-    console.debug('[isTauri] Detection (cached):', { hasTauriInternals, hasTauri, result: _isTauriCache })
+    logger.debug('isTauri', 'Detection (cached)', { hasTauriInternals, hasTauri, result: _isTauriCache })
   }
 
   return _isTauriCache
@@ -37,7 +38,7 @@ export const service: PipedashService = new Proxy({} as PipedashService, {
       const inTauri = isTauri()
 
       _service = inTauri ? tauriService : apiService
-      console.debug(`[Service] Initialized with ${inTauri ? 'Tauri IPC' : 'REST API'} backend`)
+      logger.debug('Service', `Initialized with ${inTauri ? 'Tauri IPC' : 'REST API'} backend`)
     }
 
     return _service[prop]

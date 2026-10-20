@@ -28,7 +28,6 @@ fn create_namespace_column() -> schema::ColumnDefinition {
         width: Some(150),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -47,6 +46,5 @@ fn create_source_column() -> schema::ColumnDefinition {
         width: Some(100),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }

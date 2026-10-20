@@ -47,6 +47,14 @@ export function formatErrorMessage(error: unknown): string {
   return 'An unknown error occurred'
 }
 
+export function getHttpStatus(error: unknown): number | undefined {
+  if (error instanceof Error && 'status' in error && typeof error.status === 'number') {
+    return error.status
+  }
+
+  return undefined
+}
+
 export function toPipedashError(error: unknown): PipedashError {
   if (isPipedashError(error)) {
     return error

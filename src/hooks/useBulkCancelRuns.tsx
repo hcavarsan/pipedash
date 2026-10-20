@@ -44,16 +44,17 @@ export function useBulkCancelRuns({ pipelineId, page, runs, enabled, cancellingR
     }
 
     const runNumbers = selectedRuns.map((run) => run.run_number)
+    const cancelLabel = runNumbers.length === 1 ? 'Cancel run' : `Cancel ${runNumbers.length} runs`
 
     modals.openConfirmModal({
-      title: 'Cancel selected runs',
+      title: cancelLabel,
       children: (
         <Text size="sm">
-          This cancels {runNumbers.length} {runNumbers.length === 1 ? 'run' : 'runs'}:{' '}
+          This cancels {runNumbers.length === 1 ? 'run' : 'runs'}{' '}
           {runNumbers.map((runNumber) => `#${runNumber}`).join(', ')}. You can't undo this.
         </Text>
       ),
-      labels: { confirm: 'Cancel runs', cancel: 'Keep running' },
+      labels: { confirm: cancelLabel, cancel: 'Keep running' },
       confirmProps: { color: 'red' },
       onConfirm: async () => {
         await cancelRunsMutation.mutateAsync({ pipelineId, runNumbers })

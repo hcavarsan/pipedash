@@ -2,7 +2,6 @@ import { Button, PasswordInput, Stack } from '@mantine/core'
 import { useEffect, useState } from 'react'
 
 import { useUnlockVault, useVaultStatus } from '../../queries/useVaultQueries'
-import { useAuthStore } from '../../stores/authStore'
 
 interface UnlockFormProps {
   onSuccess: () => void
@@ -17,8 +16,6 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
 
   const { data: vaultStatus, isLoading: isLoadingStatus } = useVaultStatus()
   const unlockMutation = useUnlockVault()
-  const setToken = useAuthStore((s) => s.setToken)
-  const clearToken = useAuthStore((s) => s.clearToken)
 
   const isFirstTime = vaultStatus?.is_first_time ?? true
   const requiresPassword = vaultStatus?.requires_password ?? true
@@ -46,7 +43,6 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
     }
 
     try {
-      setToken(password)
       const result = await unlockMutation.mutateAsync(password)
 
       if (result.success) {
@@ -54,11 +50,9 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
         setConfirmPassword('')
         onSuccess()
       } else {
-        clearToken()
         setError(result.message || 'Failed to unlock vault')
       }
     } catch (err) {
-      clearToken()
       setError(err instanceof Error ? err.message : 'Failed to unlock vault')
     }
   }
@@ -77,6 +71,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
     <Stack gap="lg">
       <Stack gap="md">
         <PasswordInput
+          label="Password"
           placeholder="Enter your password"
           value={password}
           onChange={(e) => setPassword(e.currentTarget.value)}
@@ -90,7 +85,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
 
         {isFirstTime && (
           <PasswordInput
-            label="Confirm Password"
+            label="Confirm password"
             placeholder="Re-enter your password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.currentTarget.value)}
@@ -102,7 +97,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
         )}
       </Stack>
 
-      <Button fullWidth variant="light" color="blue" size="md" onClick={handleUnlock} loading={isLoading}>
+      <Button fullWidth size="md" onClick={handleUnlock} loading={isLoading}>
         Unlock
       </Button>
 

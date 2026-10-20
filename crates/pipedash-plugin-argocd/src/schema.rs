@@ -98,7 +98,6 @@ fn create_sync_status_column() -> schema::ColumnDefinition {
         width: Some(120),
         sortable: true,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -117,7 +116,6 @@ fn create_health_status_column() -> schema::ColumnDefinition {
         width: Some(110),
         sortable: true,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -134,7 +132,6 @@ fn create_destination_column() -> schema::ColumnDefinition {
         width: Some(150),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -151,7 +148,6 @@ fn create_target_revision_column() -> schema::ColumnDefinition {
         width: Some(120),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -168,7 +164,6 @@ fn create_auto_sync_column() -> schema::ColumnDefinition {
         width: Some(100),
         sortable: true,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -185,7 +180,6 @@ fn create_sync_revision_column() -> schema::ColumnDefinition {
         width: Some(150),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -202,7 +196,6 @@ fn create_current_revision_column() -> schema::ColumnDefinition {
         width: Some(150),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -219,7 +212,6 @@ fn create_source_path_column() -> schema::ColumnDefinition {
         width: Some(200),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -236,7 +228,6 @@ fn create_repository_url_column() -> schema::ColumnDefinition {
         width: Some(300),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -253,7 +244,6 @@ fn create_cluster_server_column() -> schema::ColumnDefinition {
         width: Some(250),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -270,7 +260,6 @@ fn create_prune_enabled_column() -> schema::ColumnDefinition {
         width: Some(80),
         sortable: true,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -287,7 +276,6 @@ fn create_self_heal_enabled_column() -> schema::ColumnDefinition {
         width: Some(90),
         sortable: true,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -304,7 +292,6 @@ fn create_health_message_column() -> schema::ColumnDefinition {
         width: Some(250),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -321,7 +308,6 @@ fn create_out_of_sync_count_column() -> schema::ColumnDefinition {
         width: Some(110),
         sortable: true,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -338,7 +324,6 @@ fn create_project_column() -> schema::ColumnDefinition {
         width: Some(150),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -355,7 +340,6 @@ fn create_resource_health_summary_column() -> schema::ColumnDefinition {
         width: Some(120),
         sortable: false,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -372,7 +356,6 @@ fn create_last_sync_time_column() -> schema::ColumnDefinition {
         width: Some(150),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -389,7 +372,6 @@ fn create_source_type_column() -> schema::ColumnDefinition {
         width: Some(100),
         sortable: true,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -406,7 +388,6 @@ fn create_run_source_type_column() -> schema::ColumnDefinition {
         width: Some(100),
         sortable: true,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -423,7 +404,6 @@ fn create_run_destination_column() -> schema::ColumnDefinition {
         width: Some(130),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -440,7 +420,6 @@ fn create_run_source_path_column() -> schema::ColumnDefinition {
         width: Some(200),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -457,7 +436,6 @@ fn create_operation_message_column() -> schema::ColumnDefinition {
         width: Some(300),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
 
@@ -474,7 +452,6 @@ fn create_run_app_sync_status_column() -> schema::ColumnDefinition {
         width: Some(120),
         sortable: false,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -491,7 +468,6 @@ fn create_run_app_health_status_column() -> schema::ColumnDefinition {
         width: Some(120),
         sortable: false,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -508,6 +484,5 @@ fn create_helm_chart_column() -> schema::ColumnDefinition {
         width: Some(150),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }

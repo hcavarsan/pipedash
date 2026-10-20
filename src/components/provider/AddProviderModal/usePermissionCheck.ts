@@ -92,7 +92,7 @@ export function usePermissionCheck({
         checking: false,
       }))
 
-      displayErrorNotification(err, 'Permission Check Failed')
+      displayErrorNotification(err, "Couldn't check permissions")
     }
   }, [selectedPlugin, permissionsQuery])
 

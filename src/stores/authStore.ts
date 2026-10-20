@@ -80,7 +80,7 @@ export const useAuthStore = create<AuthStore>()(
 
           if (shouldNotify) {
             notifications.show({
-              title: 'Session Expired',
+              title: 'Session expired',
               message: 'Please unlock the vault to continue.',
               color: 'red',
               autoClose: 5000,
