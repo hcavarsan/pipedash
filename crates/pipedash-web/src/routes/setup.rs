@@ -70,6 +70,15 @@ async fn get_setup_status() -> Json<SetupStatusResponse> {
 async fn create_initial_config(
     State(state): State<AppState>, Json(req): Json<CreateInitialConfigRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // Held for the whole setup so a concurrent request sees the flag this one
+    // clears.
+    let _setup_guard = state.setup_lock.lock().await;
+    if !state.inner.read().await.setup_required {
+        return Err(AppError::conflict(
+            "Setup already completed. Cannot re-initialize an already-configured instance.",
+        ));
+    }
+
     let config = req.config;
     let config_path = ConfigLoader::discover_config_path();
 
@@ -158,4 +167,53 @@ async fn create_initial_config(
         "message": "Configuration created and system initialized successfully",
         "config_path": config_path.to_string_lossy()
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::http::StatusCode;
+
+    use super::*;
+    use crate::ws::WebSocketEventBus;
+
+    #[tokio::test]
+    async fn create_initial_config_rejects_configured_instance() {
+        let state = AppState::config_error(Arc::new(WebSocketEventBus::new()), "invalid".into());
+        let req = CreateInitialConfigRequest {
+            config: PipedashConfig::default(),
+            vault_password: Some("attacker".into()),
+        };
+
+        let err = create_initial_config(State(state), Json(req))
+            .await
+            .unwrap_err();
+
+        assert_eq!(err.status, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn create_initial_config_rechecks_after_waiting_for_running_setup() {
+        // Points a regressed handler at a throwaway path instead of the real
+        // config.
+        let config_dir =
+            std::env::temp_dir().join(format!("pipedash-setup-race-{}", std::process::id()));
+        std::env::set_var("PIPEDASH_CONFIG_PATH", config_dir.join("config.toml"));
+        let state = AppState::setup_mode(Arc::new(WebSocketEventBus::new()));
+        let running_setup = state.setup_lock.clone().lock_owned().await;
+        let req = CreateInitialConfigRequest {
+            config: PipedashConfig::default(),
+            vault_password: None,
+        };
+        let waiting_setup = tokio::spawn(create_initial_config(State(state.clone()), Json(req)));
+        tokio::task::yield_now().await;
+
+        state.inner.write().await.setup_required = false;
+        drop(running_setup);
+        let result = waiting_setup.await.unwrap();
+        let _ = std::fs::remove_dir_all(&config_dir);
+
+        assert_eq!(result.unwrap_err().status, StatusCode::CONFLICT);
+    }
 }

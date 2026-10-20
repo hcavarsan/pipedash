@@ -62,6 +62,10 @@ impl AppError {
         )
     }
 
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, ApiError::new("CONFLICT", message))
+    }
+
     pub fn not_initialized() -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,

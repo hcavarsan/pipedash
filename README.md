@@ -298,6 +298,7 @@ PIPEDASH_PORT=3000 docker-compose up -d
 | `PIPEDASH_BIND_ADDR` | `127.0.0.1:8080` | API server bind address |
 | `PIPEDASH_VAULT_PASSWORD` | Auto-generated | Password for encrypted token storage and API authentication |
 | `PIPEDASH_EMBEDDED_FRONTEND` | `true` | Serve frontend from API binary |
+| `PIPEDASH_CORS_ALLOW_ALL` | `false` | Allow cross-origin API requests from any site |
 | `PIPEDASH_CONFIG_PATH` | Auto-discovered | Path to TOML configuration file |
 | `PIPEDASH_POSTGRES_URL` | – | PostgreSQL connection string |
 | `PIPEDASH_PORT` | `8080` | Docker host port (docker-compose only) |

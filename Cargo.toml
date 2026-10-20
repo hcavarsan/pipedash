@@ -69,6 +69,7 @@ sqlx = { version = "0.8", features = [
   "runtime-tokio",
   "sqlite",
 ] }
+subtle = "2.6"
 tempfile = "3.24"
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }
