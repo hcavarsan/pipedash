@@ -289,6 +289,8 @@ mod tests {
     use axum::body::Body;
     use axum::http::header;
     use axum::http::Method;
+    use pipedash_core::infrastructure::PipedashConfig;
+    use pipedash_core::ProviderConfig;
     use tower::ServiceExt;
 
     use super::*;
@@ -369,18 +371,73 @@ mod tests {
         assert_api_still_requires_token(&app).await;
     }
 
+    async fn locked_sqlite_vault(data_dir: &std::path::Path) -> StorageManager {
+        let mut config = PipedashConfig::default();
+        config.storage.backend = StorageBackendType::Sqlite;
+        config.storage.data_dir = data_dir.display().to_string();
+
+        let mut seeded = config.clone();
+        seeded.storage.vault_password = Some("vault-password".into());
+        let manager = StorageManager::from_config(seeded, false).await.unwrap();
+        let provider = ProviderConfig {
+            id: None,
+            name: "github".into(),
+            provider_type: "github".into(),
+            token: String::new(),
+            config: Default::default(),
+            refresh_interval: 30,
+            version: None,
+        };
+        let id = manager
+            .config_backend()
+            .create_provider(&provider)
+            .await
+            .unwrap();
+        manager
+            .token_store()
+            .await
+            .store_token(id, "ghp_secret")
+            .await
+            .unwrap();
+
+        let locked = StorageManager::from_config_allow_locked(config, false)
+            .await
+            .unwrap();
+        assert!(locked.is_vault_locked().await);
+        locked
+    }
+
     #[tokio::test]
     async fn failed_vault_unlock_keeps_api_auth() {
-        let app = app_with_token();
+        let data_dir =
+            std::env::temp_dir().join(format!("pipedash-failed-unlock-{}", std::process::id()));
+        let state = AppState::config_error(Arc::new(WebSocketEventBus::new()), "test".into());
+        state.inner.write().await.storage_manager = Some(locked_sqlite_vault(&data_dir).await);
+        state.set_api_token(TOKEN);
+        let app = app(state.clone(), false);
 
-        send(&app, Method::POST, "/api/v1/vault/unlock", None).await;
-        assert_api_still_requires_token(&app).await;
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::post("/api/v1/vault/unlock")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::from(r#"{"password":"wrong-password"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-        assert_ne!(
-            send(&app, Method::POST, "/api/v1/vault/unlock", Some(TOKEN)).await,
-            StatusCode::OK
-        );
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["success"], false);
+        assert_eq!(state.api_token().as_deref(), Some(TOKEN));
         assert_api_still_requires_token(&app).await;
+        let _ = std::fs::remove_dir_all(&data_dir);
     }
 
     #[test]

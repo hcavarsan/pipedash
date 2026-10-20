@@ -123,9 +123,6 @@ async fn unlock_vault(
         }
     }
 
-    // Only set password after confirming vault needs unlocking
-    std::env::set_var("PIPEDASH_VAULT_PASSWORD", &req.password);
-
     let inner = state.inner.read().await;
 
     let storage_manager = inner
@@ -136,6 +133,8 @@ async fn unlock_vault(
     let config = storage_manager.config().clone();
     let is_desktop = false; // API server is never desktop mode
     drop(inner); // Release lock before potentially long operation
+
+    std::env::set_var("PIPEDASH_VAULT_PASSWORD", &req.password);
 
     match pipedash_core::infrastructure::StorageManager::from_config(config.clone(), is_desktop)
         .await
