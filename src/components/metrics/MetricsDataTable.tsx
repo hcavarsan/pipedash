@@ -1,189 +1,143 @@
-import { Group, Paper, Stack, Table, Text } from '@mantine/core'
+import { Group, Paper, Table, Text, UnstyledButton } from '@mantine/core'
 import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react'
 import { useState } from 'react'
 
-import type { AggregatedMetrics } from '../../types'
-import { formatDuration } from '../../utils/formatDuration'
+import type { AggregatedMetric, AggregatedMetrics } from '../../types'
+import { formatDateTime } from '../../utils/formatDateTime'
+
+import { formatMetricValue, hasObservation, METRIC_CONFIG } from './metricsUtils'
 
 interface MetricsDataTableProps {
-  data: AggregatedMetrics | null
+  data: AggregatedMetrics
   selectedIndex: number | null
   onRowClick: (index: number | null) => void
 }
 
 type SortField = 'timestamp' | 'value' | 'count' | 'min' | 'max'
-type SortDirection = 'asc' | 'desc' | null
+type SortDirection = 'asc' | 'desc'
+
+const SORT_ARIA: Record<SortDirection, 'ascending' | 'descending'> = { asc: 'ascending', desc: 'descending' }
 
 export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDataTableProps) => {
-  const [sortField, setSortField] = useState<SortField | null>(null)
-  const [sortDirection, setSortDirection] = useState<SortDirection>(null)
+  const [sort, setSort] = useState<{ field: SortField; direction: SortDirection } | null>(null)
+  const metricType = data.metric_type
 
-  if (!data || data.metrics.length === 0) {
-    return (
-      <Paper p="md" withBorder>
-        <Text size="sm" c="dimmed" ta="center">
-          No data available
-        </Text>
-      </Paper>
-    )
-  }
+  const columns: { field: SortField; label: string; numeric: boolean }[] = [
+    { field: 'timestamp', label: 'Date', numeric: false },
+    { field: 'value', label: METRIC_CONFIG[metricType].valueLabel, numeric: true },
+    { field: 'count', label: 'Count', numeric: true },
+    { field: 'min', label: 'Min', numeric: true },
+    { field: 'max', label: 'Max', numeric: true },
+  ]
 
   const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      if (sortDirection === 'asc') {
-        setSortDirection('desc')
-      } else if (sortDirection === 'desc') {
-        setSortField(null)
-        setSortDirection(null)
-      } else {
-        setSortDirection('asc')
-      }
+    if (sort?.field !== field) {
+      setSort({ field, direction: 'asc' })
+    } else if (sort.direction === 'asc') {
+      setSort({ field, direction: 'desc' })
     } else {
-      setSortField(field)
-      setSortDirection('asc')
+      setSort(null)
     }
   }
 
-  const getSortIcon = (field: SortField) => {
-    if (sortField !== field) {
-      return <IconSelector size={14} />
+  const getSortValue = (metric: AggregatedMetric, field: SortField): number | null => {
+    switch (field) {
+      case 'timestamp':
+        return new Date(metric.timestamp).getTime()
+      case 'value':
+        return hasObservation(metric, metricType) ? metric.value : null
+      case 'count':
+        return metric.count
+      case 'min':
+        return metric.min
+      case 'max':
+        return metric.max
     }
-
-    return sortDirection === 'asc' ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />
   }
 
   const sortedMetrics = [...data.metrics]
 
-  if (sortField && sortDirection) {
+  if (sort) {
     sortedMetrics.sort((a, b) => {
-      let aVal: number
-      let bVal: number
+      const aValue = getSortValue(a, sort.field)
+      const bValue = getSortValue(b, sort.field)
 
-      switch (sortField) {
-        case 'timestamp':
-          aVal = new Date(a.timestamp).getTime()
-          bVal = new Date(b.timestamp).getTime()
-          break
-        case 'value':
-          aVal = a.value
-          bVal = b.value
-          break
-        case 'count':
-          aVal = a.count ?? 0
-          bVal = b.count ?? 0
-          break
-        case 'min':
-          aVal = a.min ?? -Infinity
-          bVal = b.min ?? -Infinity
-          break
-        case 'max':
-          aVal = a.max ?? -Infinity
-          bVal = b.max ?? -Infinity
-          break
-        default:
-          aVal = 0
-          bVal = 0
+      if (aValue === null || bValue === null) {
+        return Number(aValue === null) - Number(bValue === null)
       }
 
-      if (sortDirection === 'asc') {
-        return aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-      }
-
-      return aVal > bVal ? -1 : aVal < bVal ? 1 : 0
+      return sort.direction === 'asc' ? aValue - bValue : bValue - aValue
     })
   }
 
-  const formatValue = (value: number): string => {
-    if (data.metric_type === 'run_duration') {
-      return formatDuration(value)
-    }
-    if (data.metric_type === 'success_rate') {
-      return `${value.toFixed(1)}%`
+  const getSortIcon = (field: SortField) => {
+    if (sort?.field !== field) {
+      return <IconSelector size={14} aria-hidden />
     }
 
-    return value.toFixed(0)
-  }
-
-  const getValueLabel = (): string => {
-    switch (data.metric_type) {
-      case 'run_duration':
-        return 'Avg Duration'
-      case 'success_rate':
-        return 'Success Rate'
-      case 'run_frequency':
-        return 'Run Count'
-    }
+    return sort.direction === 'asc' ? (
+      <IconChevronUp size={14} aria-hidden />
+    ) : (
+      <IconChevronDown size={14} aria-hidden />
+    )
   }
 
   return (
-    <Paper withBorder>
-      <Stack gap={0}>
-        <Text size="sm" fw={600} p="md" pb="xs">
-          Data Points ({data.metrics.length} total)
-        </Text>
-        <Table striped highlightOnHover>
+    <Paper>
+      <Text size="sm" fw={600} p="md" pb="xs">
+        Data points ({data.metrics.length} periods)
+      </Text>
+      <Table.ScrollContainer minWidth={520}>
+        <Table striped highlightOnHover style={{ fontVariantNumeric: 'tabular-nums' }}>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th onClick={() => handleSort('timestamp')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                <Group gap={4}>
-                  <Text size="sm">Date</Text>
-                  {getSortIcon('timestamp')}
-                </Group>
-              </Table.Th>
-              <Table.Th onClick={() => handleSort('value')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                <Group gap={4}>
-                  <Text size="sm">{getValueLabel()}</Text>
-                  {getSortIcon('value')}
-                </Group>
-              </Table.Th>
-              <Table.Th onClick={() => handleSort('count')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                <Group gap={4}>
-                  <Text size="sm">Count</Text>
-                  {getSortIcon('count')}
-                </Group>
-              </Table.Th>
-              <Table.Th onClick={() => handleSort('min')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                <Group gap={4}>
-                  <Text size="sm">Min</Text>
-                  {getSortIcon('min')}
-                </Group>
-              </Table.Th>
-              <Table.Th onClick={() => handleSort('max')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                <Group gap={4}>
-                  <Text size="sm">Max</Text>
-                  {getSortIcon('max')}
-                </Group>
-              </Table.Th>
+              {columns.map(({ field, label, numeric }) => (
+                <Table.Th
+                  key={field}
+                  ta={numeric ? 'right' : 'left'}
+                  aria-sort={sort?.field === field ? SORT_ARIA[sort.direction] : 'none'}
+                >
+                  <UnstyledButton onClick={() => handleSort(field)} fz="sm" fw={600}>
+                    <Group gap={4} wrap="nowrap">
+                      {numeric && getSortIcon(field)}
+                      {label}
+                      {!numeric && getSortIcon(field)}
+                    </Group>
+                  </UnstyledButton>
+                </Table.Th>
+              ))}
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {sortedMetrics.map((metric) => {
               const originalIndex = data.metrics.indexOf(metric)
               const isSelected = selectedIndex === originalIndex
+              const date = formatDateTime(metric.timestamp)
 
               return (
-                <Table.Tr
-                  key={originalIndex}
-                  onClick={() => onRowClick(isSelected ? null : originalIndex)}
-                  style={{
-                    cursor: 'pointer',
-                    backgroundColor: isSelected ? 'var(--mantine-color-blue-light)' : undefined,
-                    borderLeft: isSelected ? '3px solid var(--mantine-color-blue-6)' : '3px solid transparent',
-                    fontWeight: isSelected ? 600 : undefined,
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <Table.Td>{new Date(metric.timestamp).toLocaleString()}</Table.Td>
-                  <Table.Td>{formatValue(metric.value)}</Table.Td>
-                  <Table.Td>{metric.count}</Table.Td>
-                  <Table.Td>{metric.min !== null && metric.min !== undefined ? formatValue(metric.min) : '-'}</Table.Td>
-                  <Table.Td>{metric.max !== null && metric.max !== undefined ? formatValue(metric.max) : '-'}</Table.Td>
+                <Table.Tr key={metric.timestamp} bg={isSelected ? 'var(--mantine-color-blue-light)' : undefined}>
+                  <Table.Td>
+                    <UnstyledButton
+                      fz="sm"
+                      fw={isSelected ? 600 : undefined}
+                      aria-pressed={isSelected}
+                      onClick={() => onRowClick(isSelected ? null : originalIndex)}
+                    >
+                      {date}
+                    </UnstyledButton>
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    {formatMetricValue(hasObservation(metric, metricType) ? metric.value : null, metricType)}
+                  </Table.Td>
+                  <Table.Td ta="right">{metric.count}</Table.Td>
+                  <Table.Td ta="right">{formatMetricValue(metric.min, metricType)}</Table.Td>
+                  <Table.Td ta="right">{formatMetricValue(metric.max, metricType)}</Table.Td>
                 </Table.Tr>
               )
             })}
           </Table.Tbody>
         </Table>
-      </Stack>
+      </Table.ScrollContainer>
     </Paper>
   )
 }

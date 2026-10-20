@@ -1,177 +1,42 @@
-import { Box, ScrollArea, Stack, Text, ThemeIcon, UnstyledButton } from '@mantine/core'
-import { modals } from '@mantine/modals'
-import { notifications } from '@mantine/notifications'
-import {
-  IconAlertTriangle,
-  IconChartBar,
-  IconDatabase,
-  IconFolder,
-  IconPlug,
-  IconSettings,
-  IconTrash,
-} from '@tabler/icons-react'
-import { useState } from 'react'
+import { Box, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
+import { Link } from 'react-router-dom'
 
-import { service } from '../../services'
+import { SETTINGS_SECTIONS, type SettingsSection } from './SettingsSidebar'
 
-import type { SettingsSection } from './SettingsSidebar'
+export const SettingsMobileTabs = ({ activeSection }: { activeSection: SettingsSection }) => (
+  <Box
+    component="nav"
+    aria-label="Settings sections"
+    p={4}
+    style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+  >
+    <SimpleGrid cols={SETTINGS_SECTIONS.length} spacing={4}>
+      {SETTINGS_SECTIONS.map((section) => {
+        const active = activeSection === section.id
 
-interface SettingsMobileTabsProps {
-  activeSection: SettingsSection
-  onSectionChange: (section: SettingsSection) => void
-  onRefresh?: () => Promise<void>
-}
-
-const TABS: Array<{
-  id: SettingsSection
-  label: string
-  icon: React.ReactNode
-}> = [
-  { id: 'general', label: 'General', icon: <IconSettings size={18} /> },
-  { id: 'providers', label: 'Providers', icon: <IconPlug size={18} /> },
-  { id: 'metrics', label: 'Metrics', icon: <IconChartBar size={18} /> },
-  { id: 'cache', label: 'Cache', icon: <IconDatabase size={18} /> },
-  { id: 'storage', label: 'Storage', icon: <IconFolder size={18} /> },
-]
-
-export const SettingsMobileTabs = ({ activeSection, onSectionChange, onRefresh }: SettingsMobileTabsProps) => {
-  const [resetting, setResetting] = useState(false)
-
-  const handleResetStorage = () => {
-    modals.openConfirmModal({
-      title: (
-        <Box style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <ThemeIcon color="red" variant="light" size="md">
-            <IconAlertTriangle size={16} />
-          </ThemeIcon>
-          <Text fw={600}>Reset Storage</Text>
-        </Box>
-      ),
-      children: (
-        <Stack gap="sm">
-          <Text size="sm">This will permanently delete all data:</Text>
-          <Text size="sm" c="dimmed">
-            • All providers and tokens
-          </Text>
-          <Text size="sm" c="dimmed">
-            • All cached data and metrics
-          </Text>
-          <Text size="sm" c="red" fw={500} mt="xs">
-            This action cannot be undone.
-          </Text>
-        </Stack>
-      ),
-      labels: { confirm: 'Reset Everything', cancel: 'Cancel' },
-      confirmProps: { color: 'red' },
-      onConfirm: async () => {
-        setResetting(true)
-        try {
-          const result = await service.factoryReset()
-
-          notifications.show({
-            title: 'Reset Complete',
-            message: `Removed ${result.providers_removed} providers.`,
-            color: 'green',
-          })
-
-          if (onRefresh) {
-            await onRefresh()
-          }
-        } catch (error: unknown) {
-          notifications.show({
-            title: 'Reset Failed',
-            message: error instanceof Error ? error.message : 'Failed to reset',
-            color: 'red',
-          })
-        } finally {
-          setResetting(false)
-        }
-      },
-    })
-  }
-
-  return (
-    <Box
-      style={{
-        borderBottom: '1px solid var(--mantine-color-default-border)',
-        flexShrink: 0,
-      }}
-    >
-      <ScrollArea
-        type="never"
-        offsetScrollbars={false}
-        styles={{
-          viewport: {
-            '& > div': {
-              display: 'flex !important',
-            },
-          },
-        }}
-      >
-        <Box
-          style={{
-            display: 'flex',
-            gap: 4,
-            padding: '8px 12px',
-            minWidth: 'max-content',
-          }}
-        >
-          {TABS.map((tab) => {
-            const isActive = activeSection === tab.id
-
-            return (
-              <UnstyledButton
-                key={tab.id}
-                onClick={() => onSectionChange(tab.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '8px 12px',
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: isActive ? 500 : 400,
-                  color: isActive ? 'var(--mantine-color-text)' : 'var(--mantine-color-dimmed)',
-                  backgroundColor: isActive ? 'var(--mantine-color-default-hover)' : 'transparent',
-                  transition: 'all 0.15s ease',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <Box
-                  style={{
-                    color: isActive ? 'var(--mantine-color-text)' : 'var(--mantine-color-dimmed)',
-                  }}
-                >
-                  {tab.icon}
-                </Box>
-                {tab.label}
-              </UnstyledButton>
-            )
-          })}
-
+        return (
           <UnstyledButton
-            onClick={handleResetStorage}
-            disabled={resetting}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 12px',
-              borderRadius: 6,
-              fontSize: 13,
-              fontWeight: 400,
-              color: 'var(--mantine-color-red-6)',
-              backgroundColor: 'transparent',
-              transition: 'all 0.15s ease',
-              whiteSpace: 'nowrap',
-              opacity: resetting ? 0.5 : 1,
-            }}
+            key={section.id}
+            component={Link}
+            to={`/settings/${section.id}`}
+            replace
+            className="interactive-surface"
+            aria-current={active ? 'page' : undefined}
+            bdrs="sm"
+            py={6}
+            miw={0}
+            c={active ? 'blue' : 'dimmed'}
+            bg={active ? 'var(--mantine-color-blue-light)' : undefined}
           >
-            <IconTrash size={18} />
-            Reset
+            <Stack gap={2} align="center">
+              {section.icon}
+              <Text size="xs" fw={500} truncate maw="100%">
+                {section.label}
+              </Text>
+            </Stack>
           </UnstyledButton>
-        </Box>
-      </ScrollArea>
-    </Box>
-  )
-}
+        )
+      })}
+    </SimpleGrid>
+  </Box>
+)

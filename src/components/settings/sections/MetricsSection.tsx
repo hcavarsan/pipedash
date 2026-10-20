@@ -1,46 +1,30 @@
-import { Box, Card, Divider, NumberInput, Select, Stack, Switch, Text } from '@mantine/core'
-import { useEffect, useState } from 'react'
+import { Box, Card, Divider, NumberInput, Select, Stack, Switch, Title } from '@mantine/core'
+import { useState } from 'react'
 
 import { useGlobalMetricsConfig, useUpdateGlobalMetricsConfig } from '../../../queries/useMetricsQueries'
+import type { GlobalMetricsConfig } from '../../../types'
+import { ErrorState } from '../../common/ErrorState'
+import { LoadingState } from '../../common/LoadingState'
+
+const RETENTION_PRESETS = [7, 14, 30, 60, 90]
 
 const RETENTION_OPTIONS = [
-  { value: '7', label: '7 days' },
-  { value: '14', label: '14 days' },
-  { value: '30', label: '30 days' },
-  { value: '60', label: '60 days' },
-  { value: '90', label: '90 days' },
+  ...RETENTION_PRESETS.map((days) => ({ value: String(days), label: `${days} days` })),
   { value: 'custom', label: 'Custom' },
 ]
 
-export const MetricsSection = () => {
-  const globalConfig = useGlobalMetricsConfig()
+const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
   const updateGlobalMutation = useUpdateGlobalMetricsConfig()
 
-  const [metricsEnabled, setMetricsEnabled] = useState(false)
-  const [metricsRetention, setMetricsRetention] = useState(7)
-  const [metricsRetentionMode, setMetricsRetentionMode] = useState<'preset' | 'custom'>('preset')
-
-  useEffect(() => {
-    if (globalConfig.data) {
-      setMetricsEnabled(globalConfig.data.enabled)
-      const retention = globalConfig.data.default_retention_days
-
-      setMetricsRetention(retention)
-      if ([7, 14, 30, 60, 90].includes(retention)) {
-        setMetricsRetentionMode('preset')
-      } else {
-        setMetricsRetentionMode('custom')
-      }
-    }
-  }, [globalConfig.data])
-
-  const handleSaveMetrics = async (enabled: boolean, retention: number) => {
-    await updateGlobalMutation.mutateAsync({ enabled, retentionDays: retention })
-  }
+  const [metricsEnabled, setMetricsEnabled] = useState(config.enabled)
+  const [metricsRetention, setMetricsRetention] = useState(config.default_retention_days)
+  const [metricsRetentionMode, setMetricsRetentionMode] = useState<'preset' | 'custom'>(
+    RETENTION_PRESETS.includes(config.default_retention_days) ? 'preset' : 'custom'
+  )
 
   const handleEnabledChange = async (checked: boolean) => {
     setMetricsEnabled(checked)
-    await handleSaveMetrics(checked, metricsRetention)
+    await updateGlobalMutation.mutateAsync({ enabled: checked, retentionDays: metricsRetention })
   }
 
   const handleRetentionChange = async (val: string | null) => {
@@ -51,7 +35,7 @@ export const MetricsSection = () => {
       const retention = Number(val) || 7
 
       setMetricsRetention(retention)
-      await handleSaveMetrics(metricsEnabled, retention)
+      await updateGlobalMutation.mutateAsync({ enabled: metricsEnabled, retentionDays: retention })
     }
   }
 
@@ -59,50 +43,67 @@ export const MetricsSection = () => {
     const retention = Number(val) || 7
 
     setMetricsRetention(retention)
-    await handleSaveMetrics(metricsEnabled, retention)
+    await updateGlobalMutation.mutateAsync({ enabled: metricsEnabled, retentionDays: retention })
   }
 
-  const isLoading = globalConfig.isLoading || updateGlobalMutation.isPending
+  const isSaving = updateGlobalMutation.isPending
+
+  return (
+    <Card padding="md">
+      <Stack gap="md">
+        <Switch
+          label="Enable metrics by default"
+          checked={metricsEnabled}
+          onChange={(e) => handleEnabledChange(e.currentTarget.checked)}
+          disabled={isSaving}
+        />
+
+        <Divider />
+
+        <Select
+          label="Retention period"
+          value={metricsRetentionMode === 'preset' ? metricsRetention.toString() : 'custom'}
+          onChange={handleRetentionChange}
+          data={RETENTION_OPTIONS}
+          disabled={isSaving}
+        />
+
+        {metricsRetentionMode === 'custom' && (
+          <NumberInput
+            label="Custom days"
+            value={metricsRetention}
+            onChange={handleCustomRetentionChange}
+            min={1}
+            max={90}
+            disabled={isSaving}
+          />
+        )}
+      </Stack>
+    </Card>
+  )
+}
+
+export const MetricsSection = () => {
+  const { data: config, isLoading, error, refetch, isRefetching } = useGlobalMetricsConfig()
 
   return (
     <Box>
-      <Text size="lg" fw={600} mb="lg">
+      <Title order={2} size="lg" fw={600} mb="lg">
         Metrics
-      </Text>
+      </Title>
 
-      <Stack gap="md">
-        <Card withBorder padding="md" radius="md">
-          <Stack gap="md">
-            <Switch
-              label="Enable metrics by default"
-              checked={metricsEnabled}
-              onChange={(e) => handleEnabledChange(e.currentTarget.checked)}
-              disabled={isLoading}
-            />
-
-            <Divider />
-
-            <Select
-              label="Retention period"
-              value={metricsRetentionMode === 'preset' ? metricsRetention.toString() : 'custom'}
-              onChange={handleRetentionChange}
-              data={RETENTION_OPTIONS}
-              disabled={isLoading}
-            />
-
-            {metricsRetentionMode === 'custom' && (
-              <NumberInput
-                label="Custom days"
-                value={metricsRetention}
-                onChange={handleCustomRetentionChange}
-                min={1}
-                max={90}
-                disabled={isLoading}
-              />
-            )}
-          </Stack>
-        </Card>
-      </Stack>
+      {isLoading ? (
+        <LoadingState message="Loading metrics settings..." />
+      ) : config ? (
+        <MetricsForm key={`${config.enabled}-${config.default_retention_days}`} config={config} />
+      ) : (
+        <ErrorState
+          title="Couldn't load metrics settings"
+          error={error}
+          onRetry={() => refetch()}
+          retrying={isRefetching}
+        />
+      )}
     </Box>
   )
 }

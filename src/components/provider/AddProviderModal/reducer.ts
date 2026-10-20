@@ -9,10 +9,8 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       const initialConfig: Record<string, string> = {}
 
       action.plugin.config_schema.fields.forEach((field) => {
-        if (field.default_value) {
-          const defaultVal = typeof field.default_value === 'string' ? field.default_value : String(field.default_value)
-
-          initialConfig[field.key] = defaultVal
+        if (field.default_value !== null && field.default_value !== undefined) {
+          initialConfig[field.key] = String(field.default_value)
         }
       })
 
@@ -34,12 +32,11 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         dynamicOptions: {},
       }
 
-    case 'SET_PROVIDER_NAME':
-      return {
-        ...state,
-        providerName: action.name,
-        fieldErrors: { ...state.fieldErrors, providerName: '' },
-      }
+    case 'SET_PROVIDER_NAME': {
+      const { providerName: _cleared, ...fieldErrors } = state.fieldErrors
+
+      return { ...state, providerName: action.name, fieldErrors }
+    }
 
     case 'UPDATE_CONFIG': {
       const newFieldErrors = { ...state.fieldErrors }

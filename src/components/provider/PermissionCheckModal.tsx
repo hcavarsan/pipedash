@@ -1,8 +1,10 @@
-import { Alert, Badge, Box, Code, Divider, Group, Loader, Stack, Text, ThemeIcon, Tooltip } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
+import { Alert, Badge, Box, Button, Card, Code, Divider, Group, Stack, Text, ThemeIcon, Tooltip } from '@mantine/core'
+import { IconAlertCircle, IconCheck, IconRefresh, IconX } from '@tabler/icons-react'
 import type React from 'react'
 
 import type { FeatureAvailability, PermissionStatus, PluginMetadata } from '../../types'
+import { ErrorState } from '../common/ErrorState'
+import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
 
 const formatPermissionDescription = (description: string) => {
@@ -31,6 +33,7 @@ const formatPermissionDescription = (description: string) => {
 interface PermissionCheckModalProps {
   opened: boolean
   onClose: () => void
+  onRetry: () => void
   metadata: PluginMetadata | null
   status: PermissionStatus | null
   features: FeatureAvailability[]
@@ -41,6 +44,7 @@ interface PermissionCheckModalProps {
 export const PermissionCheckModal = ({
   opened,
   onClose,
+  onRetry,
   metadata: _metadata,
   status,
   features,
@@ -49,113 +53,92 @@ export const PermissionCheckModal = ({
 }: PermissionCheckModalProps) => {
   const modalTitle = (
     <Group justify="space-between" w="100%">
-      <Text fw={600}>Token Permissions</Text>
+      <Text fw={600}>Token permissions</Text>
       {status?.metadata?.token_type && (
-        <Badge size="md" variant="light" color="blue">
-          {status.metadata.token_type === 'classic_pat' ? 'CLASSIC PAT' : 'FINE-GRAINED TOKEN'}
+        <Badge size="md" variant="light" color="gray">
+          {status.metadata.token_type === 'classic_pat' ? 'Classic PAT' : 'Fine-grained token'}
         </Badge>
       )}
     </Group>
   )
 
   return (
-    <StandardModal opened={opened} onClose={onClose} title={modalTitle} loading={loading}>
+    <StandardModal opened={opened} onClose={onClose} title={modalTitle} size="md">
       {loading ? (
-        <Group justify="center" py="xl">
-          <Loader size="sm" />
-          <Text size="sm" c="dimmed">
-            Checking permissions...
-          </Text>
-        </Group>
+        <LoadingState variant="section" message="Checking permissions..." />
       ) : error ? (
-        <Alert icon={<IconAlertCircle size={16} />} color="red" title="Error">
-          {error}
-        </Alert>
+        <ErrorState title="Couldn't check permissions" error={error} onRetry={onRetry} />
       ) : status ? (
-        <Stack gap="md">
-          <Stack gap="sm">
-            {status.permissions.map((check) => {
-              const featuresForPermission = features.filter((f) =>
-                f.feature.required_permissions.includes(check.permission.name)
-              )
+        <Stack gap="sm">
+          {status.permissions.map((check) => {
+            const featuresForPermission = features.filter((f) =>
+              f.feature.required_permissions.includes(check.permission.name)
+            )
 
-              return (
-                <Box
-                  key={check.permission.name}
-                  p="md"
-                  style={{
-                    border: '1px solid var(--mantine-color-dark-5)',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--mantine-color-dark-8)',
-                  }}
-                >
-                  <Stack gap="sm">
-                    <Group justify="space-between" align="flex-start">
-                      <Group gap="xs">
-                        <Tooltip label={check.granted ? 'Permission granted' : 'Permission not granted'} withArrow>
-                          <ThemeIcon
-                            size="sm"
-                            radius="xl"
-                            variant="light"
-                            color={check.granted ? 'green' : check.permission.required ? 'red' : 'yellow'}
-                          >
-                            {check.granted ? <IconCheck size={14} /> : <IconX size={14} />}
-                          </ThemeIcon>
-                        </Tooltip>
-                        <Code fz="sm">{check.permission.name}</Code>
-                      </Group>
-                      <Badge size="xs" variant="light" color="blue">
-                        {check.permission.required ? 'Required' : 'Optional'}
-                      </Badge>
+            return (
+              <Card key={check.permission.name} p="md">
+                <Stack gap="sm">
+                  <Group justify="space-between" align="flex-start">
+                    <Group gap="xs">
+                      <Tooltip label={check.granted ? 'Permission granted' : 'Permission not granted'}>
+                        <ThemeIcon
+                          size="sm"
+                          variant="transparent"
+                          color={check.granted ? 'green' : 'red'}
+                          aria-label={check.granted ? 'Permission granted' : 'Permission not granted'}
+                        >
+                          {check.granted ? <IconCheck size={14} /> : <IconX size={14} />}
+                        </ThemeIcon>
+                      </Tooltip>
+                      <Code fz="sm">{check.permission.name}</Code>
                     </Group>
+                    <Badge size="xs" variant="light" color="gray">
+                      {check.permission.required ? 'Required' : 'Optional'}
+                    </Badge>
+                  </Group>
 
-                    <Text size="xs" c="dimmed">
-                      {formatPermissionDescription(check.permission.description)}
-                    </Text>
+                  <Text size="xs" c="dimmed">
+                    {formatPermissionDescription(check.permission.description)}
+                  </Text>
 
-                    {featuresForPermission.length > 0 && <Divider />}
+                  {featuresForPermission.length > 0 && <Divider />}
 
-                    {featuresForPermission.length > 0 && (
-                      <Box>
-                        <Text size="xs" fw={500} mb={4} c="dimmed">
-                          {check.granted ? 'With this you can:' : "Missing this means you can't:"}
-                        </Text>
-                        <Stack gap={4}>
-                          {featuresForPermission.map((f) => (
-                            <Group key={f.feature.id} gap={6} wrap="nowrap">
-                              <Text size="xs" c="dimmed">
-                                •
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                {f.feature.name}
-                              </Text>
-                            </Group>
-                          ))}
-                        </Stack>
-                      </Box>
-                    )}
-                  </Stack>
-                </Box>
-              )
-            })}
-          </Stack>
+                  {featuresForPermission.length > 0 && (
+                    <Box>
+                      <Text size="xs" fw={500} mb={4} c="dimmed">
+                        {check.granted ? 'With this you can:' : "Missing this means you can't:"}
+                      </Text>
+                      <Stack gap={4}>
+                        {featuresForPermission.map((f) => (
+                          <Group key={f.feature.id} gap={6} wrap="nowrap">
+                            <Text size="xs" c="dimmed">
+                              •
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {f.feature.name}
+                            </Text>
+                          </Group>
+                        ))}
+                      </Stack>
+                    </Box>
+                  )}
+                </Stack>
+              </Card>
+            )
+          })}
         </Stack>
-      ) : !loading && !error ? (
-        <Alert icon={<IconAlertCircle size={16} />} color="blue" variant="light">
-          <Stack gap="xs">
-            <Text size="sm" fw={500}>
-              Permission Check Unavailable
+      ) : (
+        <Alert icon={<IconAlertCircle size={16} />} color="gray" variant="light" title="Permission details unavailable">
+          <Stack gap="sm" align="flex-start">
+            <Text size="sm">
+              Permission details could not be retrieved, so the token's permissions are not verified.
             </Text>
-            <Text size="xs">
-              Unable to check token permissions. This could be due to network connectivity issues or GitHub API rate
-              limits. Your token credentials are valid, but permission details cannot be verified at this time.
-            </Text>
-            <Text size="xs" fw={500}>
-              You can still add this provider and it should work normally if your token has the required permissions.
-            </Text>
+            <Button size="xs" variant="default" leftSection={<IconRefresh size={14} />} onClick={onRetry}>
+              Retry
+            </Button>
           </Stack>
         </Alert>
-      ) : null}
+      )}
     </StandardModal>
   )
 }

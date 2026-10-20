@@ -35,7 +35,6 @@ fn create_run_id_column() -> schema::ColumnDefinition {
         width: Some(130),
         sortable: true,
         filterable: false,
-        align: Some("center".to_string()),
     }
 }
 
@@ -52,7 +51,6 @@ fn create_owner_column() -> schema::ColumnDefinition {
         width: Some(120),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -72,6 +70,5 @@ fn create_event_column() -> schema::ColumnDefinition {
         width: Some(130),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }

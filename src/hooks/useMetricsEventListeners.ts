@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 
+import { logger } from '../lib/logger'
+import { useInvalidatePipelineMetrics } from '../queries/useMetricsQueries'
 import { events } from '../services'
 
 const METRICS_EVENT_TYPES = [
@@ -13,25 +15,24 @@ const METRICS_EVENT_TYPES = [
 type MetricsEventType = (typeof METRICS_EVENT_TYPES)[number]
 
 interface UseMetricsEventListenersOptions {
-  pipelineId: string | null
+  pipelineId: string
   enabled: boolean
-  onRefetch: () => void
   onConfigChanged?: () => void
 }
 
 export function useMetricsEventListeners({
   pipelineId,
   enabled,
-  onRefetch,
   onConfigChanged,
 }: UseMetricsEventListenersOptions): void {
-  const onRefetchRef = useRef(onRefetch)
+  const invalidateMetrics = useInvalidatePipelineMetrics(pipelineId)
+  const invalidateRef = useRef(invalidateMetrics)
   const onConfigChangedRef = useRef(onConfigChanged)
 
   useEffect(() => {
-    onRefetchRef.current = onRefetch
+    invalidateRef.current = invalidateMetrics
     onConfigChangedRef.current = onConfigChanged
-  }, [onRefetch, onConfigChanged])
+  }, [invalidateMetrics, onConfigChanged])
 
   useEffect(() => {
     if (!enabled || !pipelineId) {
@@ -47,7 +48,7 @@ export function useMetricsEventListeners({
       }
 
       if (eventType === 'pipeline-status-changed') {
-        onRefetchRef.current()
+        invalidateRef.current()
 
         return
       }
@@ -56,7 +57,7 @@ export function useMetricsEventListeners({
         if (eventType === 'metrics-config-changed' && onConfigChangedRef.current) {
           onConfigChangedRef.current()
         } else {
-          onRefetchRef.current()
+          invalidateRef.current()
         }
       }
     }
@@ -77,7 +78,7 @@ export function useMetricsEventListeners({
           unlisteners.push(unlisten)
         }
       } catch (error) {
-        console.error('Failed to setup metrics event listeners:', error)
+        logger.error('useMetricsEventListeners', 'Failed to set up metrics event listeners', error)
       }
     }
 
@@ -89,7 +90,7 @@ export function useMetricsEventListeners({
         try {
           unlisten()
         } catch (error) {
-          console.error('Error unlistening:', error)
+          logger.error('useMetricsEventListeners', 'Failed to remove metrics event listener', error)
         }
       })
     }

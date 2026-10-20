@@ -4,99 +4,78 @@ import type { ReactNode } from 'react'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import type { ModalBaseProps } from '../../types'
 
+type ModalSize = 'md' | 'lg' | 'xl'
+
 interface StandardModalProps extends ModalBaseProps {
   title: ReactNode
   children: ReactNode
-  loading?: boolean
-  disableAspectRatio?: boolean
   footer?: ReactNode
+  loading?: boolean
+  closable?: boolean
+  size?: ModalSize
   contentPadding?: boolean
   disableScrollArea?: boolean
-  radius?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | number
 }
 
-const SHARED_STYLES = {
-  title: {
-    fontWeight: 600,
-    fontSize: '1.25rem',
-  },
-  header: {
-    borderBottom: '1px solid var(--mantine-color-default-border)',
-    paddingBottom: '1.25rem',
-  },
-  body: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    flex: 1,
-    minHeight: 0,
-    padding: 0,
-    overflow: 'hidden',
-  },
+const DESKTOP_LAYOUT: Record<ModalSize, { width: string; height?: string }> = {
+  md: { width: 'min(560px, 92vw)' },
+  lg: { width: 'min(880px, 92vw)' },
+  xl: { width: 'min(1400px, 95vw)', height: 'min(90vh, 1000px)' },
 }
+
+const columnStyle = { display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' } as const
 
 export const StandardModal = ({
   opened,
   onClose,
   title,
   children,
-  loading = false,
-  disableAspectRatio = false,
   footer,
+  loading = false,
+  closable = true,
+  size = 'lg',
   contentPadding = true,
   disableScrollArea = false,
-  radius = 'md',
 }: StandardModalProps) => {
-  const { isMobile, isDesktop } = useIsMobile()
+  const { isMobile } = useIsMobile()
+  const padding = contentPadding ? 'var(--mantine-spacing-lg)' : 0
 
   const sharedProps = {
     opened,
     onClose,
     title,
-    closeOnClickOutside: !loading,
-    closeOnEscape: !loading,
-    withCloseButton: !loading,
+    closeOnClickOutside: closable && !loading,
+    closeOnEscape: closable && !loading,
+    withCloseButton: closable && !loading,
     zIndex: 300,
   }
 
-  const renderContent = () => (
+  const sharedStyles = {
+    title: { fontWeight: 600, fontSize: 'var(--mantine-font-size-lg)' },
+    header: {
+      borderBottom: '1px solid var(--mantine-color-default-border)',
+      paddingInline: 'var(--mantine-spacing-lg)',
+    },
+    body: { ...columnStyle, flex: 1, padding: 0 },
+  }
+
+  const content = (
     <>
       {disableScrollArea ? (
-        <Box
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            padding: contentPadding ? 'var(--mantine-spacing-md)' : 0,
-            paddingTop: contentPadding ? 'var(--mantine-spacing-xl)' : 0,
-          }}
-        >
-          {children}
-        </Box>
+        <Box style={{ ...columnStyle, flex: 1, padding }}>{children}</Box>
       ) : (
-        <ScrollArea
-          style={{ flex: 1, minHeight: 0 }}
-          type="auto"
-          styles={{
-            root: { minHeight: 0 },
-            viewport: {
-              padding: contentPadding ? 'var(--mantine-spacing-md)' : 0,
-              paddingTop: contentPadding ? 'var(--mantine-spacing-xl)' : 0,
-            },
-          }}
-        >
-          {children}
+        <ScrollArea type="auto" style={{ flex: 1, minHeight: 0 }}>
+          <Box p={padding}>{children}</Box>
         </ScrollArea>
       )}
-
       {footer && (
         <Box
+          px="lg"
+          py="md"
           style={{
-            borderTop: '1px solid var(--mantine-color-default-border)',
-            padding: isDesktop ? '12px 16px' : '8px 16px',
-            paddingBottom: isMobile ? 'calc(8px + env(safe-area-inset-bottom))' : '12px',
             flexShrink: 0,
-            backgroundColor: 'var(--mantine-color-dark-8)',
+            borderTop: '1px solid var(--mantine-color-default-border)',
+            paddingBottom: isMobile ? 'calc(var(--mantine-spacing-md) + env(safe-area-inset-bottom))' : undefined,
           }}
         >
           {footer}
@@ -112,64 +91,33 @@ export const StandardModal = ({
         position="bottom"
         size="100%"
         styles={{
-          title: SHARED_STYLES.title,
+          ...sharedStyles,
           header: {
-            ...SHARED_STYLES.header,
+            ...sharedStyles.header,
             paddingTop: 'calc(var(--mantine-spacing-md) + env(safe-area-inset-top))',
           },
-          body: SHARED_STYLES.body,
-          content: {
-            display: 'flex',
-            flexDirection: 'column',
-            backgroundColor: 'var(--mantine-color-dark-8)',
-            borderTopLeftRadius: `var(--mantine-radius-${radius})`,
-            borderTopRightRadius: `var(--mantine-radius-${radius})`,
-          },
+          content: columnStyle,
         }}
       >
-        {renderContent()}
+        {content}
       </Drawer>
     )
   }
 
-  const modalSize = !disableAspectRatio ? 'min(80vh, 80vw)' : '95vw'
+  const layout = DESKTOP_LAYOUT[size]
 
   return (
     <Modal
       {...sharedProps}
-      size={modalSize}
       centered
-      radius={radius}
+      size={layout.width}
       styles={{
-        title: SHARED_STYLES.title,
-        header: {
-          ...SHARED_STYLES.header,
-          flexShrink: 0,
-        },
-        body: SHARED_STYLES.body,
-        inner: {
-          padding: 'var(--mantine-spacing-md)',
-        },
-        content: !disableAspectRatio
-          ? {
-              aspectRatio: '1 / 1',
-              height: '80vh',
-              maxHeight: '80vh',
-              maxWidth: '80vw',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }
-          : {
-              height: '90vh',
-              maxHeight: '90vh',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            },
+        ...sharedStyles,
+        header: { ...sharedStyles.header, flexShrink: 0 },
+        content: { ...columnStyle, height: layout.height, maxHeight: layout.height ?? 'min(85vh, 960px)' },
       }}
     >
-      {renderContent()}
+      {content}
     </Modal>
   )
 }

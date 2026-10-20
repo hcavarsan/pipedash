@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Box, Divider, Group, Image, Kbd, Title, Tooltip } from '@mantine/core'
+import { ActionIcon, Box, Divider, Group, Kbd, Title, Tooltip, UnstyledButton } from '@mantine/core'
 import { useHotkeys } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
@@ -10,14 +10,15 @@ import {
   IconSettings,
 } from '@tabler/icons-react'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useRefresh } from '../../hooks/useRefresh'
+import { logger } from '../../lib/logger'
 import { useLockVault, useVaultStatus } from '../../queries/useVaultQueries'
 import { isTauri } from '../../services'
-import { clearApiToken } from '../../services/auth'
 import { platform } from '../../utils/platform'
+import { AppLogo } from '../atoms/AppLogo'
 import { ConnectionStatus } from '../common/ConnectionStatus'
 import { WindowControls } from '../common/WindowControls'
 
@@ -31,8 +32,7 @@ interface HeaderProps {
 
 export const Header = React.memo(
   ({ onRefreshAll, onToggleNavbar, navbarOpened = false, onOpenSettings, refreshing = false }: HeaderProps) => {
-    const navigate = useNavigate()
-    const { mode } = useRefresh()
+    useRefresh()
     const [isMacOS, setIsMacOS] = useState<boolean | null>(null)
     const { isMobile } = useIsMobile()
 
@@ -54,7 +54,7 @@ export const Header = React.memo(
           }
         })
         .catch((err) => {
-          console.error('Error detecting platform:', err)
+          logger.error('Header', 'Error detecting platform', err)
           if (isMounted) {
             setIsMacOS(false)
           }
@@ -65,42 +65,25 @@ export const Header = React.memo(
       }
     }, [])
 
-    const handleLogoClick = useCallback(() => {
-      navigate('/pipelines')
-    }, [navigate])
-
     const handleRefresh = async () => {
       try {
         if (onRefreshAll) {
           await onRefreshAll()
         }
       } catch (error: unknown) {
-        console.error('[Header] Failed to refresh:', error)
-        const errorMsg = error instanceof Error ? error.message : 'Failed to refresh'
+        logger.error('Header', 'Failed to refresh', error)
 
         notifications.show({
-          title: 'Error',
-          message: errorMsg,
+          title: "Couldn't refresh",
+          message: error instanceof Error ? error.message : 'Unknown error',
           color: 'red',
         })
       }
     }
 
-    const handleLockVault = useCallback(async () => {
-      if (!canLock || lockMutation.isPending) {
-        return
-      }
-
-      try {
-        await lockMutation.mutateAsync()
-        clearApiToken()
-      } catch (error) {
-        console.error('[Header] Failed to lock vault:', error)
-        notifications.show({
-          title: 'Error',
-          message: 'Failed to lock vault',
-          color: 'red',
-        })
+    const handleLockVault = useCallback(() => {
+      if (canLock && !lockMutation.isPending) {
+        lockMutation.mutate()
       }
     }, [canLock, lockMutation])
 
@@ -120,184 +103,110 @@ export const Header = React.memo(
       return <Box h="100%" />
     }
 
+    const sidebarLabel = navbarOpened ? 'Collapse sidebar' : 'Expand sidebar'
+    const lockLabel = canLock ? 'Lock vault' : 'Vault is locked'
+
+    const sidebarToggle = onToggleNavbar && (
+      <Tooltip label={sidebarLabel} position="bottom">
+        <ActionIcon onClick={onToggleNavbar} size="lg" variant="subtle" color="gray" aria-label={sidebarLabel}>
+          {navbarOpened ? <IconLayoutSidebarLeftCollapse size={20} /> : <IconLayoutSidebarLeftExpand size={20} />}
+        </ActionIcon>
+      </Tooltip>
+    )
+
     return (
       <>
         <ConnectionStatus />
-        <Box
+        <Group
           h="100%"
+          gap={0}
+          wrap="nowrap"
           data-tauri-drag-region
-          style={{
-            WebkitUserSelect: 'none',
-            position: 'relative',
-            paddingTop: isMobile ? 'env(safe-area-inset-top)' : 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0,
-          }}
+          pt={isMobile ? 'env(safe-area-inset-top)' : 0}
+          style={{ WebkitUserSelect: 'none', position: 'relative' }}
         >
           {isRunningInTauri && isMacOS && !isMobile && (
-            <Box style={{ display: 'flex', alignItems: 'center' }}>
+            <Group gap={0} wrap="nowrap" h="100%">
               <WindowControls />
-              <Divider orientation="vertical" mx={8} style={{ height: '50%' }} />
-            </Box>
+              <Divider orientation="vertical" mx="xs" h="50%" />
+            </Group>
           )}
 
-          <Box
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--mantine-spacing-sm)',
-              paddingLeft: isMobile ? 8 : 4,
-              paddingRight: isMobile ? 8 : 16,
-            }}
-          >
-            <Group gap={isMobile ? 6 : 8} align="center" wrap="nowrap">
-              {onToggleNavbar && isMobile && (
-                <Tooltip label={navbarOpened ? 'Hide sidebar' : 'Show sidebar'} position="right" withArrow>
-                  <ActionIcon
-                    onClick={onToggleNavbar}
-                    size="lg"
-                    variant="subtle"
-                    color="gray"
-                    className="header-sidebar-toggle"
-                  >
-                    {navbarOpened ? (
-                      <IconLayoutSidebarLeftCollapse size={20} />
-                    ) : (
-                      <IconLayoutSidebarLeftExpand size={20} />
-                    )}
-                  </ActionIcon>
-                </Tooltip>
-              )}
+          <Group flex={1} gap="sm" wrap="nowrap" justify="space-between" px={isMobile ? 'xs' : 'md'}>
+            <Group gap="xs" wrap="nowrap">
+              {isMobile && sidebarToggle}
 
-              <Box onClick={handleLogoClick} style={{ cursor: 'pointer', marginLeft: isMobile ? 0 : 12 }}>
-                <Group gap={6} align="center">
-                  <Image
-                    src="/app-icon.png"
-                    alt="Pipedash"
-                    h={isMobile ? 26 : 28}
-                    w={isMobile ? 26 : 28}
-                    fit="contain"
-                  />
-                  <Title order={3} size="h3" fw={600} style={{ letterSpacing: '-0.02em', lineHeight: 1 }}>
+              <UnstyledButton component={Link} to="/pipelines" aria-label="Pipedash home">
+                <Group gap="xs" wrap="nowrap">
+                  <AppLogo size={isMobile ? 26 : 28} />
+                  <Title order={3} fw={600} lh={1}>
                     Pipedash
                   </Title>
                 </Group>
-              </Box>
+              </UnstyledButton>
 
-              {onToggleNavbar && !isMobile && (
-                <Tooltip label={navbarOpened ? 'Hide sidebar' : 'Show sidebar'} position="bottom" withArrow>
-                  <ActionIcon
-                    onClick={onToggleNavbar}
-                    size="md"
-                    variant="subtle"
-                    color="gray"
-                    className="header-sidebar-toggle"
-                  >
-                    {navbarOpened ? (
-                      <IconLayoutSidebarLeftCollapse size={18} />
-                    ) : (
-                      <IconLayoutSidebarLeftExpand size={18} />
-                    )}
-                  </ActionIcon>
-                </Tooltip>
-              )}
+              {!isMobile && sidebarToggle}
             </Group>
 
-            <Box style={{ flex: 1 }} />
-
-            <Group gap="sm">
-              <Badge
-                color={mode === 'active' ? 'blue' : 'gray'}
-                variant="dot"
-                size="md"
-                fw={500}
-                hiddenFrom="xs"
-                visibleFrom="sm"
-              >
-                {mode === 'active' ? 'Auto-refresh' : 'Idle'}
-              </Badge>
-
+            <Group gap="sm" wrap="nowrap">
               {requiresPassword && (
                 <Tooltip
                   label={
                     canLock ? (
                       <Group gap={4} wrap="nowrap">
-                        <span>Lock vault</span>
+                        <span>{lockLabel}</span>
                         <Kbd size="xs">{isMacOS ? '⌘' : 'Ctrl'}</Kbd>
                         <Kbd size="xs">L</Kbd>
                       </Group>
                     ) : (
-                      'Vault is locked'
+                      lockLabel
                     )
                   }
                   position="bottom"
                 >
                   <ActionIcon
                     variant="subtle"
-                    size="xl"
+                    size="lg"
                     onClick={canLock ? handleLockVault : undefined}
                     disabled={!canLock}
                     color="gray"
+                    aria-label={lockLabel}
                   >
-                    {isVaultUnlocked ? <IconLockOpen size={22} /> : <IconLock size={22} />}
+                    {isVaultUnlocked ? <IconLockOpen size={20} /> : <IconLock size={20} />}
                   </ActionIcon>
                 </Tooltip>
               )}
 
               <Tooltip label="Refresh all" position="bottom">
-                <ActionIcon variant="subtle" size="xl" onClick={handleRefresh} disabled={refreshing} color="gray">
-                  <IconRefresh
-                    size={22}
-                    style={{
-                      animation: refreshing ? 'spin 1s linear infinite' : 'none',
-                      color: 'currentColor',
-                    }}
-                  />
+                <ActionIcon
+                  variant="subtle"
+                  size="lg"
+                  onClick={handleRefresh}
+                  loading={refreshing}
+                  color="gray"
+                  aria-label="Refresh all"
+                >
+                  <IconRefresh size={20} />
                 </ActionIcon>
               </Tooltip>
 
               {onOpenSettings && (
                 <Tooltip label="Settings" position="bottom">
-                  <ActionIcon variant="subtle" size="xl" onClick={onOpenSettings} color="gray">
-                    <IconSettings size={22} />
+                  <ActionIcon variant="subtle" size="lg" onClick={onOpenSettings} color="gray" aria-label="Settings">
+                    <IconSettings size={20} />
                   </ActionIcon>
                 </Tooltip>
               )}
             </Group>
-          </Box>
+          </Group>
 
           {isRunningInTauri && !isMacOS && !isMobile && (
-            <Box style={{ display: 'flex', alignItems: 'center' }}>
-              <Divider orientation="vertical" mx="sm" style={{ height: '50%' }} />
+            <Group gap={0} wrap="nowrap" h="100%">
+              <Divider orientation="vertical" mx="sm" h="50%" />
               <WindowControls />
-            </Box>
+            </Group>
           )}
-
-          <style>{`
-        @keyframes spin {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
-        }
-
-        .header-sidebar-toggle {
-          opacity: 0.5;
-          transition: all 0.2s ease;
-        }
-        .header-sidebar-toggle:hover {
-          opacity: 1;
-          background-color: rgba(0, 0, 0, 0.05);
-        }
-        [data-mantine-color-scheme="dark"] .header-sidebar-toggle:hover {
-          background-color: rgba(255, 255, 255, 0.05);
-        }
-      `}</style>
-        </Box>
+        </Group>
       </>
     )
   }

@@ -4,7 +4,7 @@ default_refresh_interval = 30
 
 [server]
 bind_addr = "0.0.0.0:8080"
-cors_allow_all = true
+cors_allow_all = false
 
 [storage]
 backend = "sqlite"

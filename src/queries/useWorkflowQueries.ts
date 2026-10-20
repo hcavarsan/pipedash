@@ -28,7 +28,7 @@ export function useTriggerWorkflow() {
       })
 
       notifications.show({
-        title: 'Workflow Triggered',
+        title: 'Workflow triggered',
         message: 'Workflow has been triggered successfully',
         color: 'green',
       })
@@ -36,7 +36,7 @@ export function useTriggerWorkflow() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Trigger Workflow',
+        title: "Couldn't trigger workflow",
         message: error.message || 'Unknown error',
         color: 'red',
       })

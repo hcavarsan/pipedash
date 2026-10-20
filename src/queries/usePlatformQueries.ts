@@ -2,6 +2,7 @@ import { notifications } from '@mantine/notifications'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { service } from '../services'
+import { formatCount } from '../utils/formatCount'
 
 export function useFactoryReset() {
   const queryClient = useQueryClient()
@@ -9,19 +10,20 @@ export function useFactoryReset() {
   return useMutation({
     mutationFn: () => service.factoryReset(),
 
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.clear()
+      localStorage.clear()
 
       notifications.show({
-        title: 'Factory Reset Complete',
-        message: 'Application has been reset to initial state',
+        title: 'Factory reset complete',
+        message: `Removed ${formatCount(result.providers_removed, 'provider')} and cleared all local settings.`,
         color: 'green',
       })
     },
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Factory Reset Failed',
+        title: "Couldn't reset the application",
         message: error.message || 'Failed to perform factory reset',
         color: 'red',
       })

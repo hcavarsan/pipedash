@@ -15,7 +15,6 @@ import { theme } from './theme'
 import '@mantine/core/styles.layer.css'
 import '@mantine/notifications/styles.layer.css'
 import 'mantine-datatable/styles.layer.css'
-import './styles/animations.css'
 import './App.css'
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
@@ -23,10 +22,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <QueryClientProvider client={queryClient}>
       <MantineProvider theme={theme} defaultColorScheme="dark" cssVariablesResolver={v8CssVariablesResolver}>
         <BrowserRouter>
-          <ErrorBoundary>
+          <ErrorBoundary scope="app">
             <ModalsProvider>
               <PluginProvider>
-                <Notifications position="top-right" pauseResetOnHover="notification" />
+                <Notifications position="bottom-right" pauseResetOnHover="notification" />
                 <App />
               </PluginProvider>
             </ModalsProvider>
