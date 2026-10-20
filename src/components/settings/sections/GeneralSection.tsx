@@ -7,14 +7,18 @@ import {
   SegmentedControl,
   Select,
   Stack,
+  Switch,
   Text,
   Title,
   useMantineColorScheme,
 } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
 import { IconTrash } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
+import { useNotificationStore } from '@/stores/notificationStore'
 import { getPlatformOverride, platform, setPlatformOverride } from '@/utils/platform'
+import { requestSystemNotificationPermission, systemNotificationsSupported } from '@/utils/systemNotifications'
 
 import { useFactoryResetConfirm } from '../useFactoryResetConfirm'
 
@@ -36,6 +40,9 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
     setPlatformOverrideState(null)
     await onRefresh?.()
   })
+  const failureNotificationsEnabled = useNotificationStore((s) => s.failureNotificationsEnabled)
+  const setFailureNotificationsEnabled = useNotificationStore((s) => s.setFailureNotificationsEnabled)
+  const notificationsSupported = systemNotificationsSupported()
 
   useEffect(() => {
     const loadPlatform = async () => {
@@ -55,6 +62,25 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
     setPlatformOverrideState(value)
   }
 
+  const handleFailureNotificationsChange = async (enabled: boolean) => {
+    if (!enabled) {
+      setFailureNotificationsEnabled(false)
+
+      return
+    }
+
+    if (!(await requestSystemNotificationPermission())) {
+      notifications.show({
+        title: 'Notifications blocked',
+        message: 'Allow notifications for Pipedash in your browser or system settings, then turn this on again.',
+        color: 'orange',
+      })
+
+      return
+    }
+
+    setFailureNotificationsEnabled(true)
+  }
   return (
     <>
       <Title order={2} size="lg" fw={600} mb="lg">
@@ -88,6 +114,20 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
               ]}
               value={platformOverride || ''}
               onChange={handlePlatformChange}
+            />
+
+            <Divider />
+
+            <Switch
+              label="Notify when a pipeline fails"
+              description={
+                notificationsSupported
+                  ? 'Show a system notification when a refresh finds a pipeline that just failed.'
+                  : 'Browsers allow notifications only over HTTPS or on localhost.'
+              }
+              checked={notificationsSupported && failureNotificationsEnabled}
+              onChange={(e) => handleFailureNotificationsChange(e.currentTarget.checked)}
+              disabled={!notificationsSupported}
             />
           </Stack>
         </Card>

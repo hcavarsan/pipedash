@@ -51,6 +51,7 @@ What you can do:
 - Rerun previous executions with the same parameters
 - Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
 - Pin workflows to the top of the table with the pin icon on a workflow row. Pins stay in the desktop app or in your browser, so each person on a shared web instance keeps their own
+- Get a system notification when a refresh moves a pipeline to failed. Turn it on under Settings > General. It's off by default and set per device. In the web UI, browsers allow it only over HTTPS or on localhost
 - Add multiple instances of the same provider (e.g., two GitHub orgs)
 - Pick a dark, light, or system theme in Settings → General
 
@@ -376,7 +377,7 @@ The `[server]` values are read when the API server starts. Until a config file e
 - [ ] Advanced filtering and search
 - [ ] Log viewing within the app (currently opens external links)
 - [ ] Build artifacts download
-- [ ] Build notifications
+- [x] Build notifications (failed pipelines)
 - [ ] Auto-updater for releases
 
 **CI/CD providers**
