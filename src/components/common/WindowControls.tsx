@@ -1,5 +1,5 @@
 import { ActionIcon, Box, Group, UnstyledButton } from '@mantine/core'
-import { IconArrowsDiagonal, IconMinus, IconSquare, IconSquareCheck, IconX } from '@tabler/icons-react'
+import { IconArrowsDiagonal, IconMinus, IconSquare, IconSquares, IconX } from '@tabler/icons-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react'
 
@@ -156,7 +156,7 @@ export const WindowControls = () => {
         onClick={handleMaximize}
         aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
       >
-        {isMaximized ? <IconSquareCheck size={14} stroke={1.5} /> : <IconSquare size={14} stroke={1.5} />}
+        {isMaximized ? <IconSquares size={14} stroke={1.5} /> : <IconSquare size={14} stroke={1.5} />}
       </ActionIcon>
 
       <ActionIcon
