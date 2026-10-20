@@ -8,17 +8,7 @@ interface TruncatedTextProps extends TextProps {
 export const TruncatedText = ({ children, maxWidth = '100%', ...textProps }: TruncatedTextProps) => {
   return (
     <Tooltip label={children} openDelay={500} withinPortal>
-      <Text
-        {...textProps}
-        style={{
-          maxWidth,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          cursor: 'default',
-          ...textProps.style,
-        }}
-      >
+      <Text truncate maw={maxWidth} {...textProps}>
         {children}
       </Text>
     </Tooltip>

@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { invalidateProviderPipelines, setProviderPipelines } from '../queries/usePipelinesQueries'
 import { events, wsClient } from '../services'
 import type { EventPayloadMap } from '../types/events'
 
@@ -36,11 +37,9 @@ export function useEventSync() {
         providerIds: Array.from(batch.providerIds),
       })
 
-      batch.providerIds.forEach((providerId) => {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.pipelines.list({ providerId }),
-        })
-      })
+      for (const providerId of batch.providerIds) {
+        invalidateProviderPipelines(queryClient, providerId)
+      }
     }
 
     batchedInvalidations.current = {
@@ -124,6 +123,11 @@ export function useEventSync() {
           }
         )
 
+        const unlistenProvidersChanged = await events.onProvidersChanged(() => {
+          logger.debug('EventSync', 'providers-changed')
+          queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+        })
+
         const unlistenPipelinesUpdated = await events.onPipelinesUpdated<EventPayloadMap['pipelines-updated']>(
           async (payload) => {
             if (!payload?.pipelines) {
@@ -141,14 +145,23 @@ export function useEventSync() {
               timestamp: payload.timestamp,
             })
 
-            const cacheKey = queryKeys.pipelines.list({ providerId: normalizedProviderId })
+            if (normalizedProviderId === undefined) {
+              const allKey = queryKeys.pipelines.list()
 
-            await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.all })
+              await queryClient.cancelQueries({ queryKey: allKey, exact: true })
+              queryClient.setQueryData(allKey, payload.pipelines)
 
-            queryClient.setQueryData(cacheKey, payload.pipelines)
+              return
+            }
+
+            await queryClient.cancelQueries({
+              queryKey: queryKeys.pipelines.list({ providerId: normalizedProviderId }),
+              exact: true,
+            })
+            setProviderPipelines(queryClient, normalizedProviderId, payload.pipelines)
 
             logger.debug('EventSync', 'pipelines-updated: Cache updated', {
-              cacheKey,
+              providerId: normalizedProviderId,
               pipelineCount: payload.pipelines.length,
             })
           }
@@ -172,9 +185,7 @@ export function useEventSync() {
             })
 
             if (normalizedProviderId !== undefined) {
-              queryClient.invalidateQueries({
-                queryKey: queryKeys.pipelines.list({ providerId: normalizedProviderId }),
-              })
+              invalidateProviderPipelines(queryClient, normalizedProviderId)
             } else {
               queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
             }
@@ -245,6 +256,7 @@ export function useEventSync() {
           unlistenProviderAdded,
           unlistenProviderUpdated,
           unlistenProviderRemoved,
+          unlistenProvidersChanged,
           unlistenPipelinesUpdated,
           unlistenCacheInvalidated,
           unlistenStorageUpdated,

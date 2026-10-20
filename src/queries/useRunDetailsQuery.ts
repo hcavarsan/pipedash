@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { GC_TIMES, STALE_TIMES } from '@/lib/cacheConfig'
+import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { service } from '@/services'
 import type { PipelineRun } from '@/types'
@@ -62,7 +63,7 @@ export function useRerunWorkflow() {
 
         newRunNumber = parsed.run_number || parsed.build_number || parsed.number || 0
       } catch {
-        console.warn('Could not parse trigger response:', result)
+        logger.warn('useRerunWorkflow', 'Could not parse trigger response', result)
       }
 
       if (newRunNumber > 0) {
@@ -84,11 +85,11 @@ export function useRerunWorkflow() {
         })
       }
 
-      displaySuccessNotification('Workflow re-run started successfully', 'Workflow Triggered')
+      displaySuccessNotification('Workflow rerun started', 'Workflow triggered')
     },
 
     onError: (error: Error) => {
-      displayErrorNotification(error, 'Failed to Re-run Workflow')
+      displayErrorNotification(error, "Couldn't rerun workflow")
     },
   })
 }

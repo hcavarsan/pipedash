@@ -376,6 +376,7 @@ impl ConfigSources {
             "general.metrics_enabled" => Some("PIPEDASH_METRICS_ENABLED"),
             "general.default_refresh_interval" => Some("PIPEDASH_DEFAULT_REFRESH_INTERVAL"),
             "server.bind_addr" => Some("PIPEDASH_BIND_ADDR"),
+            "server.cors_allow_all" => Some("PIPEDASH_CORS_ALLOW_ALL"),
             "storage.data_dir" => Some("PIPEDASH_DATA_DIR"),
             "storage.backend" => Some("PIPEDASH_STORAGE_BACKEND"),
             "storage.postgres.connection_string" => Some("PIPEDASH_POSTGRES_URL"),
@@ -418,6 +419,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::test_env::EnvGuard;
 
     #[test]
     fn test_platform_detect_default() {
@@ -514,9 +516,8 @@ bind_addr = "${NONEXISTENT_VAR:-127.0.0.1:8080}"
 
     #[test]
     fn test_discover_config_path_env_override() {
-        std::env::set_var("PIPEDASH_CONFIG_PATH", "/custom/path/config.toml");
+        let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", Some("/custom/path/config.toml"))]);
         let path = ConfigLoader::discover_config_path();
         assert_eq!(path, PathBuf::from("/custom/path/config.toml"));
-        std::env::remove_var("PIPEDASH_CONFIG_PATH");
     }
 }

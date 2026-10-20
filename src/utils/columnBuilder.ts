@@ -6,6 +6,8 @@ import type { ColumnDefinition, PipelineRun } from '../types'
 import { renderCellValue } from './dynamicRenderers'
 import { getValueByPath } from './objectPath'
 
+const RIGHT_ALIGNED_TYPES: ColumnDefinition['data_type'][] = ['Number', 'Duration']
+
 export function buildColumnsFromSchema(
   columnDefs: ColumnDefinition[],
   additionalColumns?: DataTableColumn<PipelineRun>[]
@@ -22,7 +24,7 @@ export function buildColumnsFromSchema(
       title: def.label,
       sortable: def.sortable,
       width: def.width ?? undefined,
-      textAlign: (def.align as 'left' | 'center' | 'right' | undefined) ?? undefined,
+      textAlign: RIGHT_ALIGNED_TYPES.includes(def.data_type) ? 'right' : 'left',
       resizable: true,
       toggleable: false,
       draggable: false,

@@ -1,79 +1,31 @@
-import { Badge, Box } from '@mantine/core'
-import { type Icon, IconCheck, IconCircleOff, IconClock, IconLoader, IconMinus, IconX } from '@tabler/icons-react'
+import { Box, Text, Tooltip } from '@mantine/core'
 
-import { STATUS_COLORS } from '../../../theme/colors'
+import { STATUS_META } from '../../../theme/status'
 import type { PipelineStatus } from '../../../types'
 
 interface StatusBadgeProps {
   status: PipelineStatus
-  size?: 'xs' | 'sm' | 'md' | 'lg'
-  withIcon?: boolean
+  size?: 'sm' | 'md'
 }
 
-const statusConfig: Record<
-  PipelineStatus,
-  {
-    label: string
-    icon: Icon
-  }
-> = {
-  success: {
-    label: 'Success',
-    icon: IconCheck,
-  },
-  failed: {
-    label: 'Failed',
-    icon: IconX,
-  },
-  running: {
-    label: 'Running',
-    icon: IconLoader,
-  },
-  pending: {
-    label: 'Pending',
-    icon: IconClock,
-  },
-  cancelled: {
-    label: 'Cancelled',
-    icon: IconCircleOff,
-  },
-  skipped: {
-    label: 'Skipped',
-    icon: IconMinus,
-  },
-}
-
-export const StatusBadge = ({ status, size = 'md', withIcon = false }: StatusBadgeProps) => {
-  const config = statusConfig[status]
-  const Icon = config.icon
-
-  const iconSize = {
-    xs: 14,
-    sm: 16,
-    md: 18,
-    lg: 20,
-  }[size]
+export const StatusBadge = ({ status, size = 'sm' }: StatusBadgeProps) => {
+  const { label, tone } = STATUS_META[status]
 
   return (
-    <Badge
-      variant="light"
-      color={STATUS_COLORS[status]}
-      size={size}
-      fw={500}
-      leftSection={
-        withIcon ? (
-          <Box component="span" style={{ display: 'flex', alignItems: 'center' }}>
-            <Icon size={iconSize} style={{ display: 'block' }} />
-          </Box>
-        ) : undefined
-      }
-      styles={{
-        label: {
-          textTransform: 'none',
-        },
-      }}
-    >
-      {config.label}
-    </Badge>
+    <Text component="span" size={size === 'sm' ? 'xs' : 'sm'} fw={600} c={`var(--status-${tone})`}>
+      {label}
+    </Text>
+  )
+}
+
+export const StatusIcon = ({ status }: { status: PipelineStatus }) => {
+  const { label, tone, icon: Icon } = STATUS_META[status]
+
+  return (
+    <Tooltip label={label}>
+      <Box component="span" role="img" aria-label={label} display="inline-flex" c={`var(--status-${tone})`}>
+        <Icon size={20} aria-hidden />
+      </Box>
+    </Tooltip>
   )
 }

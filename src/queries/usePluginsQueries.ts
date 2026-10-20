@@ -4,6 +4,7 @@ import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
+import { getHttpStatus } from '../types/errors'
 
 export function usePlugins() {
   return useQuery({
@@ -17,7 +18,7 @@ export function usePlugins() {
 
         return data
       } catch (error) {
-        if ((error as { response?: { status?: number } } | null)?.response?.status === 503) {
+        if (getHttpStatus(error) === 503) {
           logger.debug('usePlugins', 'App not initialized yet, returning empty array')
 
           return []

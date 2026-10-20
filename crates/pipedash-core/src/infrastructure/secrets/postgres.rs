@@ -344,14 +344,25 @@ impl PostgresTokenStore {
 mod tests {
     use super::*;
 
-    async fn create_test_pool() -> Pool<Postgres> {
-        let database_url = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://postgres:postgres@localhost:5432/pipedash_test".to_string()
-        });
+    const TEST_LOCK_ID: i64 = 0x7069_7065_6461_7368;
 
-        let pool = Pool::<Postgres>::connect(&database_url)
+    fn test_database_url() -> String {
+        std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set to run the PostgreSQL tests")
+    }
+
+    async fn create_test_pool() -> Pool<Postgres> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&test_database_url())
             .await
             .expect("Failed to connect to test database");
+
+        sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(TEST_LOCK_ID)
+            .execute(&pool)
+            .await
+            .expect("Failed to take test lock");
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS encrypted_tokens (
@@ -375,12 +386,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "requires TEST_DATABASE_URL"]
     async fn test_postgres_basic() {
         let pool = create_test_pool().await;
-        let connection_string = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://postgres:postgres@localhost:5432/pipedash_test".to_string()
-        });
+        let connection_string = test_database_url();
 
         let store = PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
             .await
@@ -394,12 +403,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "requires TEST_DATABASE_URL"]
     async fn test_postgres_persistence() {
         let pool = create_test_pool().await;
-        let connection_string = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://postgres:postgres@localhost:5432/pipedash_test".to_string()
-        });
+        let connection_string = test_database_url();
 
         {
             let store =
@@ -422,12 +429,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "requires TEST_DATABASE_URL"]
     async fn test_postgres_export_import() {
         let pool = create_test_pool().await;
-        let connection_string = std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| {
-            "postgresql://postgres:postgres@localhost:5432/pipedash_test".to_string()
-        });
+        let connection_string = test_database_url();
 
         let store = PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
             .await

@@ -1,4 +1,4 @@
-import { Box, Button } from '@mantine/core'
+import { Button } from '@mantine/core'
 import { IconShieldCheck } from '@tabler/icons-react'
 
 interface PermissionCheckButtonProps {
@@ -10,19 +10,14 @@ interface PermissionCheckButtonProps {
 export const PermissionCheckButton = ({ onClick, disabled = false, loading = false }: PermissionCheckButtonProps) => {
   return (
     <Button
-      variant="light"
-      color={disabled ? 'gray' : 'blue'}
+      variant="default"
       size="sm"
       onClick={onClick}
       disabled={disabled}
       loading={loading}
-      leftSection={
-        <Box component="span" c="blue">
-          <IconShieldCheck size={16} />
-        </Box>
-      }
+      leftSection={<IconShieldCheck size={16} />}
     >
-      Check Permissions
+      Check permissions
     </Button>
   )
 }

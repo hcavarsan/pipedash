@@ -45,7 +45,7 @@ export function ConnectionStatus() {
         <Tooltip label="Vault is locked - some features may be unavailable">
           <Alert
             icon={<IconLock size={16} />}
-            title="Vault Locked"
+            title="Vault locked"
             color="orange"
             variant="light"
             withCloseButton={false}
@@ -64,7 +64,7 @@ export function ConnectionStatus() {
     return (
       <Alert
         icon={<IconLock size={16} />}
-        title="Vault Locked"
+        title="Vault locked"
         color="orange"
         variant="light"
         withCloseButton={false}
@@ -82,8 +82,8 @@ export function ConnectionStatus() {
   return (
     <Alert
       icon={<IconWifiOff size={16} />}
-      title={connectionState.status === 'reconnecting' ? 'Reconnecting...' : 'Disconnected'}
-      color={connectionState.status === 'reconnecting' ? 'yellow' : 'red'}
+      title={connectionState.status === 'reconnecting' ? 'Reconnecting' : 'Disconnected'}
+      color="orange"
       variant="light"
       withCloseButton={false}
       style={{ position: 'fixed', top: 60, right: 16, zIndex: 1000, maxWidth: 400 }}
@@ -91,10 +91,10 @@ export function ConnectionStatus() {
       <Group gap="xs" align="center">
         <Text size="sm">
           {connectionState.status === 'reconnecting'
-            ? `Attempt ${connectionState.reconnectAttempts}...`
+            ? `Attempt ${connectionState.reconnectAttempts}`
             : 'Real-time updates unavailable'}
         </Text>
-        <Button size="xs" variant="light" leftSection={<IconRefresh size={14} />} onClick={handleManualReconnect}>
+        <Button size="xs" variant="default" leftSection={<IconRefresh size={14} />} onClick={handleManualReconnect}>
           Reconnect
         </Button>
       </Group>

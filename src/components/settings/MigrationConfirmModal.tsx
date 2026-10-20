@@ -40,13 +40,20 @@ export const MigrationConfirmModal = ({
     }
   }
 
+  const summaryRows = [
+    { label: 'Providers', value: stats?.providers_count },
+    { label: 'Tokens', value: stats?.tokens_count },
+    { label: 'Cache entries', value: stats?.cache_entries_count },
+    { label: 'Migration steps', value: migrationPlan.steps.length },
+  ]
+
   const modalFooter = (
     <Group justify="flex-end" gap="sm">
-      <Button variant="subtle" onClick={onClose} disabled={loading}>
+      <Button variant="default" size="sm" onClick={onClose} disabled={loading}>
         Cancel
       </Button>
-      <Button onClick={handleConfirm} loading={loading} color="orange" disabled={needsPassword && !password}>
-        Proceed with Migration
+      <Button size="sm" onClick={handleConfirm} loading={loading} color="orange" disabled={needsPassword && !password}>
+        Proceed with migration
       </Button>
     </Group>
   )
@@ -55,10 +62,10 @@ export const MigrationConfirmModal = ({
     <StandardModal
       opened={opened}
       onClose={onClose}
-      title="Migration Required"
+      title="Migration required"
       loading={loading}
       footer={modalFooter}
-      disableAspectRatio
+      size="md"
     >
       <Stack gap="md">
         <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Important">
@@ -68,35 +75,19 @@ export const MigrationConfirmModal = ({
           </Text>
         </Alert>
 
-        <Card withBorder padding="sm">
+        <Card padding="sm">
           <Stack gap="xs">
             <Text size="sm" fw={500}>
-              Migration Summary
+              Migration summary
             </Text>
-            <Group justify="space-between">
-              <Text size="sm" c="dimmed">
-                Providers
-              </Text>
-              <Badge>{stats?.providers_count || 0}</Badge>
-            </Group>
-            <Group justify="space-between">
-              <Text size="sm" c="dimmed">
-                Tokens
-              </Text>
-              <Badge>{stats?.tokens_count || 0}</Badge>
-            </Group>
-            <Group justify="space-between">
-              <Text size="sm" c="dimmed">
-                Cache Entries
-              </Text>
-              <Badge>{stats?.cache_entries_count || 0}</Badge>
-            </Group>
-            <Group justify="space-between">
-              <Text size="sm" c="dimmed">
-                Migration Steps
-              </Text>
-              <Badge>{migrationPlan.steps.length}</Badge>
-            </Group>
+            {summaryRows.map((row) => (
+              <Group key={row.label} justify="space-between">
+                <Text size="sm" c="dimmed">
+                  {row.label}
+                </Text>
+                <Badge>{row.value ?? 'Unavailable'}</Badge>
+              </Group>
+            ))}
           </Stack>
         </Card>
 
@@ -110,7 +101,7 @@ export const MigrationConfirmModal = ({
 
         {needsPassword && (
           <PasswordInput
-            label="Vault Password"
+            label="Vault password"
             description="Required to decrypt and migrate your encrypted tokens"
             placeholder="Enter your vault password"
             value={password}

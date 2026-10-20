@@ -1,15 +1,4 @@
-import {
-  ActionIcon,
-  Box,
-  Button,
-  Checkbox,
-  Group,
-  ScrollArea,
-  Stack,
-  Text,
-  TextInput,
-  UnstyledButton,
-} from '@mantine/core'
+import { ActionIcon, Box, Button, Checkbox, Group, ScrollArea, Stack, Text, TextInput, Tooltip } from '@mantine/core'
 import {
   IconChevronDown,
   IconChevronUp,
@@ -22,8 +11,9 @@ import {
 import type { DataTableColumn } from 'mantine-datatable'
 import { useEffect, useState } from 'react'
 
+import { TYPOGRAPHY } from '../../theme/typography'
 import type { PipelineRun } from '../../types'
-import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
+import { EmptyState } from '../common/EmptyState'
 import { StandardModal } from '../common/StandardModal'
 
 interface TableCustomizationModalProps {
@@ -173,26 +163,26 @@ export function TableCustomizationModal({
 
   const modalTitle = (
     <Group gap="xs">
-      <Text fw={THEME_TYPOGRAPHY.MODAL_TITLE.weight} size={THEME_TYPOGRAPHY.MODAL_TITLE.size} c={THEME_COLORS.TITLE}>
-        Customize Columns
+      <Text fw={TYPOGRAPHY.MODAL_TITLE.weight} size={TYPOGRAPHY.MODAL_TITLE.size}>
+        Customize columns
       </Text>
-      <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>
+      <Text size={TYPOGRAPHY.HELPER_TEXT.size} c="dimmed">
         {visibleCount}/{totalCount}
       </Text>
     </Group>
   )
 
   const modalFooter = (
-    <Group justify="space-between" gap={0} wrap="nowrap">
-      <Button variant="subtle" leftSection={<IconRefresh size={16} />} onClick={handleReset} size="sm" color="gray">
+    <Group justify="space-between" gap="sm" wrap="nowrap">
+      <Button variant="subtle" color="gray" size="sm" leftSection={<IconRefresh size={16} />} onClick={handleReset}>
         Reset
       </Button>
 
-      <Group gap="xs" wrap="nowrap">
-        <Button variant="default" onClick={onClose} size="sm" color="dark">
+      <Group gap="sm" wrap="nowrap">
+        <Button variant="default" size="sm" onClick={onClose}>
           Cancel
         </Button>
-        <Button onClick={handleApply} size="sm" variant="filled">
+        <Button size="sm" onClick={handleApply}>
           Apply
         </Button>
       </Group>
@@ -205,31 +195,30 @@ export function TableCustomizationModal({
       onClose={onClose}
       title={modalTitle}
       footer={modalFooter}
+      size="lg"
       disableScrollArea
       contentPadding={false}
     >
-      <Box px="lg" pb="md" pt="md">
+      <Box px="lg" py="md">
         <TextInput
+          aria-label="Search columns"
           placeholder="Search columns..."
           leftSection={<IconSearch size={16} />}
           rightSection={
             searchQuery && (
-              <ActionIcon size="sm" variant="subtle" color="gray" onClick={() => setSearchQuery('')}>
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                color="gray"
+                aria-label="Clear search"
+                onClick={() => setSearchQuery('')}
+              >
                 <IconX size={14} />
               </ActionIcon>
             )
           }
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          size="sm"
-          radius="md"
-          styles={{
-            input: {
-              backgroundColor: 'var(--mantine-color-dark-7)',
-              border: '1px solid var(--mantine-color-dark-5)',
-              color: 'var(--mantine-color-gray-1)',
-            },
-          }}
         />
       </Box>
 
@@ -237,41 +226,43 @@ export function TableCustomizationModal({
         px="lg"
         py="xs"
         style={{
-          borderTop: '1px solid var(--mantine-color-dark-6)',
-          borderBottom: '1px solid var(--mantine-color-dark-6)',
+          borderTop: '1px solid var(--mantine-color-default-border)',
+          borderBottom: '1px solid var(--mantine-color-default-border)',
         }}
       >
         <Group justify="space-between">
           <Checkbox
-            label={
-              <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                {allVisible ? 'Deselect all' : 'Select all'}
-              </Text>
-            }
+            label={allVisible ? 'Deselect all' : 'Select all'}
             checked={allVisible}
             indeterminate={!allVisible && someVisible}
             onChange={handleToggleAll}
             size="xs"
           />
-          <Group gap={4}>
-            <ActionIcon
-              size="sm"
-              variant="subtle"
-              color="gray"
-              onClick={() => setColumnItems((prev) => prev.map((item) => ({ ...item, visible: true })))}
-            >
-              <IconEye size={14} />
-            </ActionIcon>
-            <ActionIcon
-              size="sm"
-              variant="subtle"
-              color="gray"
-              onClick={() =>
-                setColumnItems((prev) => prev.map((item) => (item.locked ? item : { ...item, visible: false })))
-              }
-            >
-              <IconEyeOff size={14} />
-            </ActionIcon>
+          <Group gap="xs">
+            <Tooltip label="Show all columns">
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                color="gray"
+                aria-label="Show all columns"
+                onClick={() => setColumnItems((prev) => prev.map((item) => ({ ...item, visible: true })))}
+              >
+                <IconEye size={14} />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Hide optional columns">
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                color="gray"
+                aria-label="Hide optional columns"
+                onClick={() =>
+                  setColumnItems((prev) => prev.map((item) => (item.locked ? item : { ...item, visible: false })))
+                }
+              >
+                <IconEyeOff size={14} />
+              </ActionIcon>
+            </Tooltip>
           </Group>
         </Group>
       </Box>
@@ -279,98 +270,76 @@ export function TableCustomizationModal({
       <ScrollArea style={{ flex: 1 }} type="auto">
         <Stack gap={0}>
           {filteredItems.length === 0 ? (
-            <Box p="xl" style={{ textAlign: 'center' }}>
-              <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>
-                No columns found
-              </Text>
-            </Box>
+            <EmptyState
+              title={columnItems.length === 0 ? 'No columns available' : 'No columns match your search'}
+              description={
+                columnItems.length === 0
+                  ? "This provider's table schema has no columns to customize."
+                  : `No column title contains "${searchQuery}".`
+              }
+              action={
+                columnItems.length > 0 && (
+                  <Button variant="default" size="sm" onClick={() => setSearchQuery('')}>
+                    Clear search
+                  </Button>
+                )
+              }
+            />
           ) : (
             filteredItems.map((item) => {
               const actualIndex = columnItems.indexOf(item)
 
               return (
-                <UnstyledButton
+                <Group
                   key={item.id}
-                  onClick={() => !item.locked && handleToggleVisibility(item.id)}
+                  px="lg"
+                  py="sm"
+                  gap="sm"
+                  wrap="nowrap"
                   style={{
-                    borderBottom: '1px solid var(--mantine-color-dark-6)',
-                    transition: 'all 150ms ease',
-                    backgroundColor: item.visible ? 'rgba(34, 139, 230, 0.04)' : 'transparent',
-                    borderLeft: item.visible ? '3px solid rgba(34, 139, 230, 0.5)' : '3px solid transparent',
-                  }}
-                  styles={{
-                    root: {
-                      '&:hover': {
-                        backgroundColor: item.visible ? 'rgba(34, 139, 230, 0.08)' : 'var(--mantine-color-dark-7)',
-                      },
-                    },
+                    borderBottom: '1px solid var(--mantine-color-default-border)',
+                    borderLeft: `3px solid ${item.visible ? 'var(--mantine-color-blue-light-color)' : 'transparent'}`,
+                    backgroundColor: item.visible ? 'var(--mantine-color-blue-light)' : undefined,
                   }}
                 >
-                  <Group px="lg" py="sm" gap="sm" wrap="nowrap">
-                    <Group gap={2} wrap="nowrap">
-                      <ActionIcon
-                        component="div"
-                        size="xs"
-                        variant="subtle"
-                        color="gray"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleMoveUp(actualIndex)
-                        }}
-                        disabled={!item.moveable || actualIndex === 0}
-                        style={{
-                          visibility: item.moveable ? 'visible' : 'hidden',
-                          opacity: !item.moveable || actualIndex === 0 ? 0.2 : 0.6,
-                          cursor: !item.moveable || actualIndex === 0 ? 'default' : 'pointer',
-                        }}
-                      >
-                        <IconChevronUp size={14} />
-                      </ActionIcon>
-                      <ActionIcon
-                        component="div"
-                        size="xs"
-                        variant="subtle"
-                        color="gray"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleMoveDown(actualIndex)
-                        }}
-                        disabled={!item.moveable || actualIndex === columnItems.length - 1}
-                        style={{
-                          visibility: item.moveable ? 'visible' : 'hidden',
-                          opacity: !item.moveable || actualIndex === columnItems.length - 1 ? 0.2 : 0.6,
-                          cursor: !item.moveable || actualIndex === columnItems.length - 1 ? 'default' : 'pointer',
-                        }}
-                      >
-                        <IconChevronDown size={14} />
-                      </ActionIcon>
-                    </Group>
-
-                    <Checkbox
-                      checked={item.visible}
-                      onChange={() => handleToggleVisibility(item.id)}
-                      disabled={item.locked}
-                      onClick={(e) => e.stopPropagation()}
+                  <Group gap={2} wrap="nowrap" style={{ visibility: item.moveable ? 'visible' : 'hidden' }}>
+                    <ActionIcon
                       size="xs"
-                      style={{ pointerEvents: 'auto' }}
-                    />
-
-                    <Text
-                      size="sm"
-                      fw={item.visible ? 500 : 400}
-                      c={item.visible ? 'gray.1' : 'gray.6'}
-                      style={{ flex: 1 }}
+                      variant="subtle"
+                      color="gray"
+                      aria-label={`Move ${item.title} up`}
+                      onClick={() => handleMoveUp(actualIndex)}
+                      disabled={!item.moveable || actualIndex === 0}
                     >
-                      {item.title}
-                    </Text>
-
-                    {item.locked && (
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.DIMMED} fs="italic">
-                        Required
-                      </Text>
-                    )}
+                      <IconChevronUp size={14} />
+                    </ActionIcon>
+                    <ActionIcon
+                      size="xs"
+                      variant="subtle"
+                      color="gray"
+                      aria-label={`Move ${item.title} down`}
+                      onClick={() => handleMoveDown(actualIndex)}
+                      disabled={!item.moveable || actualIndex === columnItems.length - 1}
+                    >
+                      <IconChevronDown size={14} />
+                    </ActionIcon>
                   </Group>
-                </UnstyledButton>
+
+                  <Checkbox
+                    flex={1}
+                    size="xs"
+                    label={item.title}
+                    checked={item.visible}
+                    onChange={() => handleToggleVisibility(item.id)}
+                    disabled={item.locked}
+                  />
+
+                  {item.locked && (
+                    <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed" fs="italic">
+                      Required
+                    </Text>
+                  )}
+                </Group>
               )
             })
           )}

@@ -41,7 +41,6 @@ fn create_name_column() -> schema::ColumnDefinition {
         width: Some(200),
         sortable: true,
         filterable: true,
-        align: None,
     }
 }
 
@@ -58,7 +57,6 @@ fn create_organization_column() -> schema::ColumnDefinition {
         width: Some(140),
         sortable: true,
         filterable: true,
-        align: None,
     }
 }
 
@@ -75,7 +73,6 @@ fn create_status_column() -> schema::ColumnDefinition {
         width: Some(120),
         sortable: true,
         filterable: true,
-        align: None,
     }
 }
 
@@ -92,6 +89,5 @@ fn create_repository_column() -> schema::ColumnDefinition {
         width: Some(180),
         sortable: true,
         filterable: true,
-        align: None,
     }
 }

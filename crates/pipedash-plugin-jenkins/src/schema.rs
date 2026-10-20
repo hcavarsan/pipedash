@@ -29,6 +29,5 @@ fn create_trigger_cause_column() -> schema::ColumnDefinition {
         width: Some(140),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }
