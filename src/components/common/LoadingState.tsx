@@ -1,75 +1,21 @@
-import { Box, Center, Loader, Skeleton, Stack, Text } from '@mantine/core'
+import { Center, Loader, Stack, Text } from '@mantine/core'
 
-export interface LoadingStateProps {
-  variant?: 'page' | 'section' | 'inline' | 'table'
-  message?: string
-  skeleton?: boolean
-  skeletonLines?: number
-  minHeight?: string | number
+interface LoadingStateProps {
+  message: string
+  variant?: 'page' | 'section'
 }
 
-export function LoadingState({
-  variant = 'page',
-  message,
-  skeleton = false,
-  skeletonLines = 3,
-  minHeight,
-}: LoadingStateProps) {
-  const skeletonIds = Array.from({ length: skeletonLines }, (_, i) => `skeleton-${i}`)
+export function LoadingState({ message, variant = 'section' }: LoadingStateProps) {
+  const isPage = variant === 'page'
 
-  if (variant === 'page') {
-    return (
-      <Box style={{ minHeight: minHeight || '400px' }}>
-        <Center py="xl" h="100%">
-          <Stack align="center" gap="md">
-            <Loader size="lg" />
-            {message && (
-              <Text size="sm" c="dimmed">
-                {message}
-              </Text>
-            )}
-          </Stack>
-        </Center>
-      </Box>
-    )
-  }
-
-  if (variant === 'section') {
-    return (
-      <Box style={{ minHeight: minHeight || '200px' }}>
-        <Center py="lg" h="100%">
-          <Stack align="center" gap="sm">
-            <Loader size="md" />
-            {message && (
-              <Text size="xs" c="dimmed">
-                {message}
-              </Text>
-            )}
-          </Stack>
-        </Center>
-      </Box>
-    )
-  }
-
-  if (variant === 'table') {
-    if (skeleton) {
-      return (
-        <Stack gap="xs" py="md">
-          {skeletonIds.map((id) => (
-            <Skeleton key={id} height="2.5rem" radius="sm" />
-          ))}
-        </Stack>
-      )
-    }
-
-    return (
-      <Box style={{ minHeight: minHeight || '300px' }}>
-        <Center py="xl" h="100%">
-          <Loader size="lg" />
-        </Center>
-      </Box>
-    )
-  }
-
-  return <Loader size="sm" />
+  return (
+    <Center h={isPage ? '100%' : undefined} mih={isPage ? 400 : 160} role="status">
+      <Stack align="center" gap="sm">
+        <Loader size={isPage ? 'lg' : 'md'} />
+        <Text size="sm" c="dimmed">
+          {message}
+        </Text>
+      </Stack>
+    </Center>
+  )
 }

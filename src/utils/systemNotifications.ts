@@ -1,3 +1,4 @@
+import { logger } from '../lib/logger'
 import { isTauri } from '../services'
 
 export const systemNotificationsSupported = (): boolean =>
@@ -16,7 +17,13 @@ export async function requestSystemNotificationPermission(): Promise<boolean> {
 }
 
 export function showSystemNotification(title: string, body: string): void {
-  if (systemNotificationsSupported() && Notification.permission === 'granted') {
+  if (!systemNotificationsSupported() || Notification.permission !== 'granted') {
+    return
+  }
+
+  try {
     new Notification(title, { body })
+  } catch (error) {
+    logger.warn('systemNotifications', "Couldn't show notification", error)
   }
 }

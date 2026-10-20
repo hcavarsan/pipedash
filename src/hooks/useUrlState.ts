@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 
 export interface PipelineFilters {
   search: string
@@ -15,6 +15,7 @@ export function usePipelineFilters(): {
   clearFilters: () => void
 } {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { state } = useLocation()
 
   const filters = useMemo(
     (): PipelineFilters => ({
@@ -41,10 +42,10 @@ export function usePipelineFilters(): {
 
           return next
         },
-        { replace: true }
+        { replace: true, state }
       )
     },
-    [setSearchParams]
+    [setSearchParams, state]
   )
 
   const clearFilters = useCallback(() => {
@@ -60,9 +61,9 @@ export function usePipelineFilters(): {
 
         return next
       },
-      { replace: true }
+      { replace: true, state }
     )
-  }, [setSearchParams])
+  }, [setSearchParams, state])
 
   return { filters, setFilter, clearFilters }
 }
@@ -82,6 +83,7 @@ export function useRunHistoryFilters(): {
   clearFilters: () => void
 } {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { state } = useLocation()
 
   const filters = useMemo(
     (): RunHistoryFilters => ({
@@ -111,10 +113,10 @@ export function useRunHistoryFilters(): {
 
           return next
         },
-        { replace: true }
+        { replace: true, state }
       )
     },
-    [setSearchParams]
+    [setSearchParams, state]
   )
 
   const clearFilters = useCallback(() => {
@@ -131,9 +133,9 @@ export function useRunHistoryFilters(): {
 
         return next
       },
-      { replace: true }
+      { replace: true, state }
     )
-  }, [setSearchParams])
+  }, [setSearchParams, state])
 
   return { filters, setFilter, clearFilters }
 }
@@ -148,6 +150,7 @@ export function useMetricsFilters(): {
   setFilter: <K extends keyof MetricsFilters>(key: K, value: MetricsFilters[K]) => void
 } {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { state } = useLocation()
 
   const filters = useMemo(
     (): MetricsFilters => ({
@@ -173,10 +176,10 @@ export function useMetricsFilters(): {
 
           return next
         },
-        { replace: true }
+        { replace: true, state }
       )
     },
-    [setSearchParams]
+    [setSearchParams, state]
   )
 
   return { filters, setFilter }

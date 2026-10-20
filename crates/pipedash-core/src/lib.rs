@@ -4,6 +4,8 @@ pub mod event;
 pub mod infrastructure;
 pub mod logging;
 pub mod plugins;
+#[cfg(test)]
+mod test_env;
 
 use std::sync::Arc;
 

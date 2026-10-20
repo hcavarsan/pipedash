@@ -125,13 +125,24 @@ run = "bun run format:check"
 [tasks."fmt:back:check"]
 run = "cargo +nightly fmt --all -- --check"
 
+[tasks.test]
+description = "Run all tests"
+depends = ["test:back"]
+
+[tasks."test:back"]
+run = "cargo test --workspace --all-features"
+
+[tasks."test:postgres"]
+description = "Run PostgreSQL tests (needs TEST_DATABASE_URL)"
+run = "cargo test -p pipedash-core --all-features -- --ignored postgres"
+
 # ------------------------------------------------------------------------------
 # CI / Release
 # ------------------------------------------------------------------------------
 
 [tasks.ci]
 description = "Run all CI checks"
-depends = ["fmt:check", "lint", "check"]
+depends = ["fmt:check", "lint", "check", "test"]
 
 [tasks.precommit]
 description = "Pre-commit hook"

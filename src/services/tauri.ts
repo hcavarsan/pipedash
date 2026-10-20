@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 
+import { logger } from '../lib/logger'
 import {
   type AggregatedMetrics,
   type AggregationPeriod,
@@ -91,17 +92,17 @@ export const tauriService = {
   },
 
   listProviders: async (): Promise<ProviderSummary[]> => {
-    console.debug('[tauriService] Invoking list_providers...')
+    logger.debug('tauriService', 'Invoking list_providers...')
 
     return withRetry(async () => {
       try {
         const result = await invoke<ProviderSummary[]>('list_providers')
 
-        console.debug('[tauriService] list_providers returned:', result?.length ?? 0, 'items')
+        logger.debug('tauriService', 'list_providers returned', { count: result?.length ?? 0, unit: 'items' })
 
         return result
       } catch (err) {
-        console.error('[tauriService] list_providers error:', err)
+        logger.error('tauriService', 'list_providers error', err)
         throw toPipedashError(err)
       }
     }, DEFAULT_RETRY_CONFIG)
@@ -235,7 +236,7 @@ export const tauriService = {
   },
 
   fetchPipelines: async (providerId?: number): Promise<Pipeline[]> => {
-    console.debug('[tauriService] Invoking fetch_pipelines...', { providerId })
+    logger.debug('tauriService', 'Invoking fetch_pipelines...', { providerId })
 
     return withRetry(async () => {
       try {
@@ -243,18 +244,18 @@ export const tauriService = {
           providerId: providerId ?? null,
         })
 
-        console.debug('[tauriService] fetch_pipelines returned:', result?.length ?? 0, 'items')
+        logger.debug('tauriService', 'fetch_pipelines returned', { count: result?.length ?? 0, unit: 'items' })
 
         return result
       } catch (err) {
-        console.error('[tauriService] fetch_pipelines error:', err)
+        logger.error('tauriService', 'fetch_pipelines error', err)
         throw err
       }
     }, DEFAULT_RETRY_CONFIG)
   },
 
   getCachedPipelines: async (providerId?: number): Promise<Pipeline[]> => {
-    console.debug('[tauriService] Invoking get_cached_pipelines...', { providerId })
+    logger.debug('tauriService', 'Invoking get_cached_pipelines...', { providerId })
 
     return withRetry(async () => {
       try {
@@ -262,11 +263,11 @@ export const tauriService = {
           providerId: providerId ?? null,
         })
 
-        console.debug('[tauriService] get_cached_pipelines returned:', result?.length ?? 0, 'items')
+        logger.debug('tauriService', 'get_cached_pipelines returned', { count: result?.length ?? 0, unit: 'items' })
 
         return result
       } catch (err) {
-        console.error('[tauriService] get_cached_pipelines error:', err)
+        logger.error('tauriService', 'get_cached_pipelines error', err)
         throw err
       }
     }, DEFAULT_RETRY_CONFIG)

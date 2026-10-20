@@ -48,13 +48,14 @@ What you can do:
 - See pipeline status across all your providers
 - Browse run history with commit info and execution times
 - Trigger workflows with parameters (Pipedash loads them from each provider)
-- Re-run previous executions with the same parameters
+- Rerun previous executions with the same parameters
 - Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
 - Pin workflows to the top of the table with the pin icon on a workflow row. Pins stay in the desktop app or in your browser, so each person on a shared web instance keeps their own
 - Get a system notification when a refresh moves a pipeline to failed. Turn it on under Settings > General. It's off by default and set per device. In the web UI, browsers allow it only over HTTPS or on localhost
 - Add multiple instances of the same provider (e.g., two GitHub orgs)
+- Pick a dark, light, or system theme in Settings → General
 
-When you trigger or re-run a workflow, Pipedash fetches available parameters from the plugin (workflow inputs for GitHub Actions, pipeline variables for GitLab CI, build parameters for Jenkins/Buildkite) and shows them in a form.
+When you trigger or rerun a workflow, Pipedash fetches available parameters from the plugin (workflow inputs for GitHub Actions, pipeline variables for GitLab CI, build parameters for Jenkins/Buildkite) and shows them in a form.
 
 **Privacy and security**
 
@@ -296,10 +297,10 @@ The API server serves the frontend directly (it's embedded in the binary). A sin
 | `PIPEDASH_DB_PATH` | `$DATA_DIR/pipedash.db` | Main database path |
 | `PIPEDASH_METRICS_DB_PATH` | `$DATA_DIR/metrics.db` | Metrics database path |
 | `PIPEDASH_METRICS_ENABLED` | `true` | Turn metrics collection on/off |
-| `PIPEDASH_BIND_ADDR` | `127.0.0.1:8080` | API server bind address |
+| `PIPEDASH_BIND_ADDR` | `127.0.0.1:8080` | API server bind address. Overrides `server.bind_addr` in the config file |
 | `PIPEDASH_VAULT_PASSWORD` | Auto-generated | Password for encrypted token storage and API authentication |
 | `PIPEDASH_EMBEDDED_FRONTEND` | `true` | Serve frontend from API binary |
-| `PIPEDASH_CORS_ALLOW_ALL` | `false` | Allow cross-origin API requests from any site |
+| `PIPEDASH_CORS_ALLOW_ALL` | `false` | Allow cross-origin API requests from any site. Overrides `server.cors_allow_all` in the config file |
 | `PIPEDASH_CONFIG_PATH` | Auto-discovered | Path to TOML configuration file |
 | `PIPEDASH_POSTGRES_URL` | – | PostgreSQL connection string |
 | `RUST_LOG` | `info` | Log level (debug, info, warn, error) |
@@ -315,6 +316,7 @@ default_refresh_interval = 30
 
 [server]
 bind_addr = "0.0.0.0:8080"
+cors_allow_all = false
 
 [storage]
 backend = "sqlite"  # or "postgres"
@@ -344,6 +346,8 @@ selected_items = "team/backend,team/frontend"
 ```
 
 Use `${VAR}` syntax to reference environment variables in config values.
+
+The `[server]` values are read when the API server starts. Until a config file exists (setup mode), the server uses the defaults `127.0.0.1:8080` and `cors_allow_all = false`, so restart the server after setup to apply them. `PIPEDASH_BIND_ADDR` and `PIPEDASH_CORS_ALLOW_ALL` take precedence over the file.
 
 **Cargo features**
 

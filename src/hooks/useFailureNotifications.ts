@@ -40,7 +40,10 @@ export function useFailureNotifications() {
         if (enabled && previous !== undefined && previous !== 'failed' && pipeline.status === 'failed') {
           const providerName = providers?.find((p) => p.id === pipeline.provider_id)?.name ?? pipeline.provider_type
 
-          showSystemNotification(`${pipeline.name} failed`, providerName)
+          showSystemNotification(
+            `${pipeline.name} failed`,
+            [pipeline.repository, providerName].filter(Boolean).join(' · ')
+          )
         }
       }
     })

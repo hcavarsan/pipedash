@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
-import { FeatureErrorBoundary } from '../components/ErrorBoundary/FeatureErrorBoundary'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 import { RunHistoryPage } from '../components/table/RunHistoryPage'
 import type { Pipeline, PipelineComponentProps } from '../types'
 
@@ -57,7 +57,7 @@ export function PipelineDetailRoute({
   }, [loading, actualPipeline, navigate])
 
   return (
-    <FeatureErrorBoundary featureName="Pipeline History">
+    <ErrorBoundary name="Pipeline history">
       <RunHistoryPage
         pipeline={pipeline}
         initialTab={tab}
@@ -67,6 +67,6 @@ export function PipelineDetailRoute({
         onCancel={onCancel}
         isLoadingPipeline={loading && !actualPipeline}
       />
-    </FeatureErrorBoundary>
+    </ErrorBoundary>
   )
 }

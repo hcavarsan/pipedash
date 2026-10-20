@@ -1,23 +1,21 @@
 import {
   Box,
-  Group,
-  Checkbox as MantineCheckbox,
+  MultiSelect,
   NumberInput,
   PasswordInput,
   ScrollArea,
   Select,
-  SimpleGrid,
   Stack,
+  Switch,
   Text,
   Textarea,
   TextInput,
-  Tooltip,
 } from '@mantine/core'
-import { IconInfoCircle } from '@tabler/icons-react'
 import { type Dispatch, useEffect, useMemo, useRef } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
+import { logger } from '../../../lib/logger'
 import { service } from '../../../services'
 import type { ConfigField, PluginMetadata } from '../../../types'
 
@@ -71,7 +69,10 @@ export function CredentialsStep({
       const parsedConfig = JSON.parse(debouncedConfigValuesKey) as Record<string, string>
 
       for (const field of selectedPlugin.config_schema.fields) {
-        if (field.field_type === 'Select' && (!field.options || field.options.length === 0)) {
+        if (
+          (field.field_type === 'Select' || field.field_type === 'MultiSelect') &&
+          (!field.options || field.options.length === 0)
+        ) {
           try {
             const options = await service.getProviderFieldOptions(selectedPlugin.provider_type, field.key, parsedConfig)
 
@@ -79,7 +80,7 @@ export function CredentialsStep({
               newDynamicOptions[field.key] = options
             }
           } catch (err) {
-            console.error(`Failed to load options for ${field.key}:`, err)
+            logger.error('CredentialsStep', `Failed to load options for ${field.key}`, err)
           }
         }
       }
@@ -118,36 +119,14 @@ export function CredentialsStep({
     dispatch({ type: 'UPDATE_CONFIG', key, value })
   }
 
-  const renderFieldLabel = (label: string, description: string | null, required: boolean) => {
-    return (
-      <Group gap={4} wrap="nowrap">
-        <Text size="sm" fw={500}>
-          {label}
-          {required && (
-            <Text component="span" c="red">
-              {' '}
-              *
-            </Text>
-          )}
-        </Text>
-        {description && (
-          <Tooltip label={description} multiline w={300} withArrow>
-            <Box style={{ display: 'flex', alignItems: 'center', cursor: 'help' }}>
-              <IconInfoCircle size={14} style={{ opacity: 0.6 }} />
-            </Box>
-          </Tooltip>
-        )}
-      </Group>
-    )
-  }
-
   const renderConfigField = (field: ConfigField) => {
     const value = configValues[field.key] || ''
     const commonProps = {
-      label: renderFieldLabel(field.label, field.description, field.required),
+      label: field.label,
+      description: field.description ?? undefined,
       value,
       error: fieldErrors[field.key],
-      withAsterisk: false,
+      withAsterisk: field.required,
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | string) => {
         const newValue = typeof e === 'string' ? e : e?.currentTarget?.value
 
@@ -179,11 +158,24 @@ export function CredentialsStep({
             clearable
           />
         )
-      case 'Checkbox':
+      case 'MultiSelect':
         return (
-          <MantineCheckbox
+          <MultiSelect
             key={field.key}
-            label={renderFieldLabel(field.label, field.description, field.required)}
+            {...commonProps}
+            value={value ? value.split(',').filter(Boolean) : []}
+            data={dynamicOptions[field.key] ?? field.options ?? []}
+            onChange={(values) => handleConfigChange(field.key, values.join(','))}
+            searchable
+            clearable
+          />
+        )
+      case 'Boolean':
+        return (
+          <Switch
+            key={field.key}
+            label={field.label}
+            description={field.description ?? undefined}
             checked={value === 'true'}
             error={fieldErrors[field.key]}
             onChange={(e) => handleConfigChange(field.key, String(e.currentTarget.checked))}
@@ -197,9 +189,9 @@ export function CredentialsStep({
   return (
     <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <ScrollArea style={{ flex: 1 }} type="auto">
-        <Stack gap={isMobile ? 'xs' : 'md'} p="md">
+        <Stack gap={isMobile ? 'xs' : 'md'} px="lg" pb="lg" pt="xs">
           <Select
-            label="Provider Type"
+            label="Provider type"
             placeholder="Select a provider type"
             data={plugins.map((p) => ({
               value: p.provider_type,
@@ -217,19 +209,18 @@ export function CredentialsStep({
                 {selectedPlugin.description}
               </Text>
 
-              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={isMobile ? 'xs' : 'md'}>
-                <TextInput
-                  label={renderFieldLabel('Provider Name', 'A friendly name to identify this provider', true)}
-                  placeholder="My Provider"
-                  value={providerName}
-                  onChange={(e) => dispatch({ type: 'SET_PROVIDER_NAME', name: e.currentTarget.value })}
-                  disabled={submitting}
-                  error={fieldErrors.providerName}
-                  withAsterisk={false}
-                />
+              <TextInput
+                label="Provider name"
+                description="A friendly name to identify this provider"
+                placeholder="e.g. GitHub (work)"
+                value={providerName}
+                onChange={(e) => dispatch({ type: 'SET_PROVIDER_NAME', name: e.currentTarget.value })}
+                disabled={submitting}
+                error={fieldErrors.providerName}
+                withAsterisk
+              />
 
-                {selectedPlugin.config_schema.fields.map((field) => renderConfigField(field))}
-              </SimpleGrid>
+              {selectedPlugin.config_schema.fields.map((field) => renderConfigField(field))}
             </Stack>
           ) : (
             !pluginsLoading && (

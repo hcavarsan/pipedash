@@ -1,5 +1,5 @@
-import { Badge, Card, Grid, Group, Paper, SimpleGrid, Skeleton, Stack, Text, ThemeIcon } from '@mantine/core'
-import { IconActivity, IconChartLine, IconClock } from '@tabler/icons-react'
+import { Badge, Card, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core'
+import type { KeyboardEvent, RefObject, SyntheticEvent } from 'react'
 import {
   Area,
   AreaChart,
@@ -15,26 +15,26 @@ import {
 } from 'recharts'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
-import type { AggregatedMetrics, MetricType } from '../../types'
-import { formatDuration } from '../../utils/formatDuration'
+import type { AggregatedMetrics, AggregationPeriod, MetricType } from '../../types'
+import { formatCount } from '../../utils/formatCount'
+
+import { formatMetricValue, getMetricStats, hasObservation, METRIC_CONFIG } from './metricsUtils'
 
 interface MetricsChartProps {
-  data: AggregatedMetrics | null
-  loading?: boolean
+  data: AggregatedMetrics
   compact?: boolean
   selectedIndex?: number | null
   onDataPointClick?: (index: number | null) => void
-  chartTitle?: string
-  chartRef?: React.RefObject<HTMLDivElement | null>
+  chartTitle: string
+  chartRef?: RefObject<HTMLDivElement | null>
 }
 
 interface ChartPoint {
   date: string
-  value: number
-  count: number
+  value: number | null
   index: number
-  timestamp: string
   isSelected: boolean
+  label: string
 }
 
 interface CustomTooltipProps {
@@ -47,90 +47,117 @@ interface CustomDotProps {
   cx?: number
   cy?: number
   payload?: ChartPoint
-  fill?: string
-  stroke?: string
-  onClick?: (index: number) => void
+  color: string
+  onSelect?: (index: number) => void
+  small?: boolean
 }
 
-const CustomDot = ({ cx, cy, payload, fill, stroke, onClick }: CustomDotProps) => {
-  if (cx === undefined || cy === undefined || !payload) {
-    return null
+interface BarShapeProps {
+  fill?: string
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  payload?: ChartPoint
+}
+
+const DATE_FORMATS: Record<AggregationPeriod, Intl.DateTimeFormatOptions> = {
+  hourly: { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' },
+  daily: { month: 'short', day: 'numeric' },
+  weekly: { month: 'short', day: 'numeric' },
+  monthly: { month: 'short', year: 'numeric' },
+}
+
+const AXIS_STYLE = {
+  axisLine: { stroke: 'var(--mantine-color-default-border)' },
+  tickLine: { stroke: 'var(--mantine-color-default-border)' },
+  tick: { fill: 'var(--mantine-color-dimmed)', fontSize: 'var(--mantine-font-size-xs)' },
+}
+
+const getSelectProps = (onSelect: (() => void) | undefined, label: string, isSelected: boolean) => {
+  if (!onSelect) {
+    return {}
   }
 
-  const isSelected = payload.isSelected || false
-  const index = payload.index
-
-  const handleClick = (e: React.SyntheticEvent) => {
-    e.stopPropagation()
-    if (onClick && index !== undefined) {
-      onClick(index)
-    }
+  const handleSelect = (event: SyntheticEvent) => {
+    event.stopPropagation()
+    onSelect()
   }
 
-  const interactiveProps = {
+  return {
     role: 'button',
     tabIndex: 0,
-    onClick: handleClick,
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault()
-        handleClick(e)
+    'aria-label': label,
+    'aria-pressed': isSelected,
+    onClick: handleSelect,
+    onKeyDown: (event: KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        handleSelect(event)
       }
     },
     style: { cursor: 'pointer' },
   }
+}
 
-  if (isSelected) {
-    return (
-      <g {...interactiveProps}>
-        <circle cx={cx} cy={cy} r={10} fill={fill} fillOpacity={0.2} stroke="none" />
-        <circle cx={cx} cy={cy} r={6} fill={fill} stroke={stroke} strokeWidth={3} />
-      </g>
-    )
+const CustomDot = ({ cx, cy, payload, color, onSelect, small = false }: CustomDotProps) => {
+  if (typeof cx !== 'number' || typeof cy !== 'number' || !payload || payload.value === null) {
+    return null
   }
 
-  return <circle cx={cx} cy={cy} r={4} fill="white" stroke={stroke} strokeWidth={2} {...interactiveProps} />
+  const { isSelected, index, label } = payload
+
+  return (
+    <g {...getSelectProps(onSelect && (() => onSelect(index)), label, isSelected)}>
+      {isSelected && <circle cx={cx} cy={cy} r={10} fill={color} fillOpacity={0.2} stroke="none" />}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={isSelected ? 6 : small ? 2 : 4}
+        fill={isSelected ? color : 'var(--mantine-color-body)'}
+        stroke={color}
+        strokeWidth={isSelected ? 3 : 2}
+      />
+    </g>
+  )
 }
 
 const CustomTooltip = ({ label, payload, metricType }: CustomTooltipProps) => {
-  if (!payload || payload.length === 0) {
+  const point = payload?.[0]?.payload
+
+  if (!point) {
     return null
-  }
-
-  const data = payload[0]?.payload
-
-  if (!data) {
-    return null
-  }
-
-  const formatValue = (value: number): string => {
-    if (metricType === 'run_duration') {
-      return formatDuration(value)
-    }
-    if (metricType === 'success_rate') {
-      return `${value.toFixed(1)}%`
-    }
-
-    return value.toFixed(0)
   }
 
   return (
-    <Paper p="xs" withBorder shadow="md" style={{ minWidth: 150 }}>
+    <Paper p="xs" withBorder shadow="md" miw={150}>
       <Stack gap={4}>
         <Text size="xs" fw={600}>
           {String(label)}
         </Text>
         <Text size="sm" fw={500}>
-          {formatValue(data.value)}
+          {point.value === null ? 'No runs in this period' : formatMetricValue(point.value, metricType)}
         </Text>
       </Stack>
     </Paper>
   )
 }
 
+const StatCard = ({ label, value, metricType }: { label: string; value: number | null; metricType: MetricType }) => (
+  <Card p={{ base: 'xs', sm: 'sm' }}>
+    <Stack gap={4}>
+      <Text size="xs" c="dimmed" fw={600} truncate>
+        {label}
+      </Text>
+      <Text fz={{ base: 'sm', sm: 'lg' }} fw={700} truncate>
+        {formatMetricValue(value, metricType)}
+      </Text>
+    </Stack>
+  </Card>
+)
+
 export const MetricsChart = ({
   data,
-  loading,
   compact = false,
   selectedIndex,
   onDataPointClick,
@@ -138,478 +165,176 @@ export const MetricsChart = ({
   chartRef,
 }: MetricsChartProps) => {
   const { isMobile } = useIsMobile()
+  const metricType = data.metric_type
+  const { color } = METRIC_CONFIG[metricType]
+  const seriesColor = `var(--mantine-color-${color}-filled)`
   const chartHeight = compact ? 150 : isMobile ? 300 : 450
 
-  if (loading) {
-    return (
-      <Stack gap="md">
-        {!compact && (
-          <Grid gap="md">
-            <Grid.Col span={{ base: 12, sm: 4 }}>
-              <Card p="md" withBorder>
-                <Skeleton height={80} />
-              </Card>
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, sm: 4 }}>
-              <Card p="md" withBorder>
-                <Skeleton height={80} />
-              </Card>
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, sm: 4 }}>
-              <Card p="md" withBorder>
-                <Skeleton height={80} />
-              </Card>
-            </Grid.Col>
-          </Grid>
-        )}
-        <Paper p="md" withBorder>
-          <Skeleton height={chartHeight} />
-        </Paper>
-      </Stack>
-    )
-  }
+  const chartData: ChartPoint[] = data.metrics.map((metric, index) => {
+    const date = new Date(metric.timestamp).toLocaleString('en-US', DATE_FORMATS[data.aggregation_period])
+    const value = hasObservation(metric, metricType) ? Number(metric.value.toFixed(2)) : null
 
-  if (!data || data.metrics.length === 0) {
-    return (
-      <Paper p="xl" withBorder>
-        <Stack align="center" gap="md">
-          <ThemeIcon size={compact ? 48 : 64} radius="xl" variant="light" color="gray">
-            <IconChartLine size={compact ? 24 : 32} />
-          </ThemeIcon>
-          <Text size={compact ? 'sm' : 'lg'} fw={500} c="dimmed">
-            No metrics data available
-          </Text>
-          {!compact && (
-            <Text size="sm" c="dimmed" ta="center">
-              Metrics will appear here once pipeline runs are collected during the selected period
-            </Text>
-          )}
-        </Stack>
-      </Paper>
-    )
-  }
-
-  const formatChartDate = (timestamp: string, aggregationPeriod: string) => {
-    const date = new Date(timestamp)
-
-    switch (aggregationPeriod) {
-      case 'hourly':
-        return date.toLocaleString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      case 'daily':
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      case 'weekly':
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      case 'monthly':
-        return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-      default:
-        return date.toLocaleString()
+    return {
+      date,
+      value,
+      index,
+      isSelected: selectedIndex === index,
+      label: `${date}: ${formatMetricValue(value, metricType)}`,
     }
-  }
+  })
 
-  const chartData = data.metrics.map((m, index) => ({
-    date: formatChartDate(m.timestamp, data.aggregation_period),
-    value: parseFloat(m.value.toFixed(2)),
-    count: m.count,
-    index,
-    timestamp: m.timestamp,
-    isSelected: selectedIndex === index,
-  }))
+  const handleSelect = (index: number) => onDataPointClick?.(selectedIndex === index ? null : index)
+  const onSelect = !compact && onDataPointClick ? handleSelect : undefined
+  const selectedPoint = selectedIndex === null || selectedIndex === undefined ? undefined : chartData[selectedIndex]
 
-  const handleDotClick = (index: number) => {
-    if (!onDataPointClick) {
-      return
-    }
-    if (selectedIndex === index) {
-      onDataPointClick(null)
-    } else {
-      onDataPointClick(index)
-    }
-  }
-
-  const getChartConfig = (metricType: MetricType) => {
-    switch (metricType) {
-      case 'run_duration':
-        return {
-          title: 'Pipeline Run Duration',
-          valueLabel: 'Duration',
-          color: 'blue',
-          icon: IconClock,
-        }
-      case 'success_rate':
-        return {
-          title: 'Success Rate',
-          valueLabel: 'Success Rate (%)',
-          color: 'green',
-          icon: IconActivity,
-        }
-      case 'run_frequency':
-        return {
-          title: 'Run Frequency',
-          valueLabel: 'Number of Runs',
-          color: 'violet',
-          icon: IconActivity,
-        }
-    }
-  }
-
-  const config = getChartConfig(data.metric_type)
-
-  const calculateStats = () => {
-    const realValues = data.metrics.filter((m) => m.count > 0).map((m) => m.value)
-
-    if (realValues.length === 0) {
-      return { avg: 0, max: 0, min: 0, latest: 0, trend: 0, count: 0, totalPeriods: data.metrics.length }
-    }
-    const sum = realValues.reduce((acc, val) => acc + val, 0)
-    const avg = sum / realValues.length
-    const max = Math.max(...realValues)
-    const min = Math.min(...realValues)
-    const latest = realValues[realValues.length - 1]
-    const previous = realValues.length > 1 ? realValues[realValues.length - 2] : null
-    const trend = previous ? ((latest - previous) / previous) * 100 : 0
-
-    return { avg, max, min, latest, trend, count: realValues.length, totalPeriods: data.metrics.length }
-  }
-
-  const stats = calculateStats()
-
-  const formatValue = (value: number, metricType: MetricType): string => {
-    if (metricType === 'run_duration') {
-      return formatDuration(value)
-    }
-    if (metricType === 'success_rate') {
-      return `${value.toFixed(1)}%`
-    }
-
-    return value.toFixed(0)
-  }
-
-  const StatCard = ({ label, value, suffix = '' }: { label: string; value: number; suffix?: string }) => (
-    <Card p={isMobile ? 'xs' : 'sm'} withBorder>
-      <Stack gap={isMobile ? 2 : 4}>
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600} truncate>
-          {label}
-        </Text>
-        <Text size={isMobile ? 'sm' : 'lg'} fw={700} truncate>
-          {data.metric_type === 'run_duration' ? formatValue(value, data.metric_type) : `${value.toFixed(2)}${suffix}`}
-        </Text>
-      </Stack>
-    </Card>
+  const dot = (props: Omit<CustomDotProps, 'color' | 'onSelect' | 'small'>) => (
+    <CustomDot {...props} color={seriesColor} onSelect={onSelect} small={compact} />
   )
 
-  if (data.metric_type === 'run_duration') {
-    const selectedDataPoint = selectedIndex !== null && selectedIndex !== undefined ? chartData[selectedIndex] : null
-
-    return (
-      <Stack gap={isMobile ? 'xs' : 'md'}>
-        {!compact && (
-          <SimpleGrid cols={3} spacing={isMobile ? 'xs' : 'sm'}>
-            <StatCard label="Average" value={stats.avg} />
-            <StatCard label="Latest" value={stats.latest} />
-            <StatCard label="Max" value={stats.max} />
-          </SimpleGrid>
-        )}
-
-        <Paper p="md" withBorder ref={chartRef}>
-          {!compact && (
-            <Group mb="md" justify="space-between">
-              <Group gap="xs">
-                <ThemeIcon size="lg" radius="md" variant="light" color={config.color}>
-                  <config.icon size={20} />
-                </ThemeIcon>
-                <div>
-                  <Text size="md" fw={600}>
-                    {chartTitle || config.title}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    {stats.totalPeriods} periods
-                    {stats.count !== stats.totalPeriods ? ` (${stats.count} with data)` : ''}
-                  </Text>
-                </div>
-              </Group>
-              {selectedDataPoint && (
-                <Badge size="lg" color={config.color} variant="light">
-                  <Group gap={6}>
-                    <Text size="xs" fw={500}>
-                      {selectedDataPoint.date}:
-                    </Text>
-                    <Text size="xs" fw={700}>
-                      {formatValue(selectedDataPoint.value, data.metric_type)}
-                    </Text>
-                  </Group>
-                </Badge>
-              )}
-            </Group>
-          )}
-          <ResponsiveContainer width="100%" height={chartHeight}>
-            <LineChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-              {!compact && (
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-2)" vertical={false} />
-              )}
-              {!compact && (
-                <XAxis
-                  dataKey="date"
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                  axisLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                  tickLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                  tick={{ fill: 'var(--mantine-color-gray-6)', fontSize: 11 }}
-                />
-              )}
-              {!compact && (
-                <YAxis
-                  tickFormatter={(value) => formatValue(value, data.metric_type)}
-                  width={80}
-                  axisLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                  tickLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                  tick={{ fill: 'var(--mantine-color-gray-6)', fontSize: 11 }}
-                />
-              )}
-              {!compact && (
-                <Tooltip
-                  content={({ label, payload }) => (
-                    <CustomTooltip label={label} payload={payload} metricType={data.metric_type} />
-                  )}
-                  cursor={false}
-                  isAnimationActive={false}
-                  animationDuration={0}
-                  wrapperStyle={{ pointerEvents: 'none', outline: 'none' }}
-                />
-              )}
-              <Line
-                type="monotone"
-                dataKey="value"
-                stroke={`var(--mantine-color-${config.color}-6)`}
-                strokeWidth={2.5}
-                fill={`var(--mantine-color-${config.color}-6)`}
-                dot={!compact ? (props: CustomDotProps) => <CustomDot {...props} onClick={handleDotClick} /> : false}
-                activeDot={false}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </Paper>
-      </Stack>
-    )
+  const chartProps = {
+    data: chartData,
+    margin: { top: 5, right: 5, left: 5, bottom: 5 },
+    accessibilityLayer: !compact,
   }
+  const grid = compact ? null : (
+    <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-default-border)" vertical={false} />
+  )
+  const xAxis = compact ? null : <XAxis dataKey="date" angle={-45} textAnchor="end" height={80} {...AXIS_STYLE} />
+  const yAxis = compact ? null : (
+    <YAxis
+      tickFormatter={(value: number) => formatMetricValue(value, metricType)}
+      allowDecimals={metricType !== 'run_frequency'}
+      width={80}
+      {...AXIS_STYLE}
+    />
+  )
+  const tooltip = compact ? null : (
+    <Tooltip
+      content={({ label, payload }) => <CustomTooltip label={label} payload={payload} metricType={metricType} />}
+      cursor={false}
+      filterNull={false}
+      isAnimationActive={false}
+    />
+  )
 
-  if (data.metric_type === 'success_rate') {
-    const selectedDataPoint = selectedIndex !== null && selectedIndex !== undefined ? chartData[selectedIndex] : null
-
-    return (
-      <Stack gap={isMobile ? 'xs' : 'md'}>
-        {!compact && (
-          <SimpleGrid cols={3} spacing={isMobile ? 'xs' : 'sm'}>
-            <StatCard label="Average" value={stats.avg} suffix="%" />
-            <StatCard label="Latest" value={stats.latest} suffix="%" />
-            <StatCard label="Peak" value={stats.max} suffix="%" />
-          </SimpleGrid>
-        )}
-
-        <Paper p="md" withBorder ref={chartRef}>
-          {!compact && (
-            <Group mb="md" justify="space-between">
-              <Group gap="xs">
-                <ThemeIcon size="lg" radius="md" variant="light" color={config.color}>
-                  <config.icon size={20} />
-                </ThemeIcon>
-                <div>
-                  <Text size="md" fw={600}>
-                    {chartTitle || config.title}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    {stats.totalPeriods} periods
-                    {stats.count !== stats.totalPeriods ? ` (${stats.count} with data)` : ''}
-                  </Text>
-                </div>
-              </Group>
-              {selectedDataPoint && (
-                <Badge size="lg" color={config.color} variant="light">
-                  <Group gap={6}>
-                    <Text size="xs" fw={500}>
-                      {selectedDataPoint.date}:
-                    </Text>
-                    <Text size="xs" fw={700}>
-                      {formatValue(selectedDataPoint.value, data.metric_type)}
-                    </Text>
-                  </Group>
-                </Badge>
-              )}
-            </Group>
-          )}
-          <ResponsiveContainer width="100%" height={chartHeight}>
-            <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-              {!compact && (
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-2)" vertical={false} />
-              )}
-              {!compact && (
-                <XAxis
-                  dataKey="date"
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                  axisLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                  tickLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                  tick={{ fill: 'var(--mantine-color-gray-6)', fontSize: 11 }}
-                />
-              )}
-              {!compact && (
-                <YAxis
-                  tickFormatter={(value) => `${value}%`}
-                  width={80}
-                  axisLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                  tickLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                  tick={{ fill: 'var(--mantine-color-gray-6)', fontSize: 11 }}
-                />
-              )}
-              {!compact && (
-                <Tooltip
-                  content={({ label, payload }) => (
-                    <CustomTooltip label={label} payload={payload} metricType={data.metric_type} />
-                  )}
-                  cursor={false}
-                  isAnimationActive={false}
-                  animationDuration={0}
-                  wrapperStyle={{ pointerEvents: 'none', outline: 'none' }}
-                />
-              )}
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={`var(--mantine-color-${config.color}-6)`}
-                fill={`var(--mantine-color-${config.color}-6)`}
-                fillOpacity={0.3}
-                strokeWidth={2.5}
-                dot={!compact ? (props: CustomDotProps) => <CustomDot {...props} onClick={handleDotClick} /> : false}
-                activeDot={false}
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </Paper>
-      </Stack>
-    )
-  }
-
-  const selectedDataPoint = selectedIndex !== null && selectedIndex !== undefined ? chartData[selectedIndex] : null
-
-  return (
-    <Stack gap={isMobile ? 'xs' : 'md'}>
-      {!compact && (
-        <SimpleGrid cols={3} spacing={isMobile ? 'xs' : 'sm'}>
-          <StatCard label="Average" value={stats.avg} suffix=" runs" />
-          <StatCard label="Latest" value={stats.latest} suffix=" runs" />
-          <StatCard label="Peak" value={stats.max} suffix=" runs" />
-        </SimpleGrid>
-      )}
-
-      <Paper p="md" withBorder>
-        {!compact && (
-          <Group mb="md" justify="space-between">
-            <Group gap="xs">
-              <ThemeIcon size="lg" radius="md" variant="light" color={config.color}>
-                <config.icon size={20} />
-              </ThemeIcon>
-              <div>
-                <Text size="md" fw={600}>
-                  {chartTitle || config.title}
-                </Text>
-                <Text size="xs" c="dimmed">
-                  {stats.count} data points
-                </Text>
-              </div>
-            </Group>
-            {selectedDataPoint && (
-              <Badge size="lg" color={config.color} variant="light">
-                <Group gap={6}>
-                  <Text size="xs" fw={500}>
-                    {selectedDataPoint.date}:
-                  </Text>
-                  <Text size="xs" fw={700}>
-                    {formatValue(selectedDataPoint.value, data.metric_type)}
-                  </Text>
-                </Group>
-              </Badge>
-            )}
-          </Group>
-        )}
-        <ResponsiveContainer width="100%" height={chartHeight}>
-          <BarChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-            {!compact && <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-2)" vertical={false} />}
-            {!compact && (
-              <XAxis
-                dataKey="date"
-                angle={-45}
-                textAnchor="end"
-                height={80}
-                axisLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                tickLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                tick={{ fill: 'var(--mantine-color-gray-6)', fontSize: 11 }}
-              />
-            )}
-            {!compact && (
-              <YAxis
-                tickFormatter={(value) => value.toFixed(0)}
-                width={80}
-                axisLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                tickLine={{ stroke: 'var(--mantine-color-gray-4)' }}
-                tick={{ fill: 'var(--mantine-color-gray-6)', fontSize: 11 }}
-              />
-            )}
-            {!compact && (
-              <Tooltip
-                content={({ label, payload }) => (
-                  <CustomTooltip label={label} payload={payload} metricType={data.metric_type} />
-                )}
-                cursor={false}
-              />
-            )}
+  const renderChart = () => {
+    switch (metricType) {
+      case 'run_duration':
+        return (
+          <LineChart {...chartProps}>
+            {grid}
+            {xAxis}
+            {yAxis}
+            {tooltip}
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke={seriesColor}
+              strokeWidth={2.5}
+              connectNulls={false}
+              dot={dot}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        )
+      case 'success_rate':
+        return (
+          <AreaChart {...chartProps}>
+            {grid}
+            {xAxis}
+            {yAxis}
+            {tooltip}
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke={seriesColor}
+              fill={seriesColor}
+              fillOpacity={0.3}
+              strokeWidth={2.5}
+              connectNulls={false}
+              dot={dot}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        )
+      case 'run_frequency':
+        return (
+          <BarChart {...chartProps}>
+            {grid}
+            {xAxis}
+            {yAxis}
+            {tooltip}
             <Bar
               dataKey="value"
-              fill={`var(--mantine-color-${config.color}-6)`}
-              radius={[4, 4, 0, 0]}
-              onClick={(data: { payload?: ChartPoint }) => {
-                if (!compact && data?.payload?.index !== undefined) {
-                  handleDotClick(data.payload.index)
-                }
-              }}
-              shape={(props: {
-                fill?: string
-                x?: number
-                y?: number
-                width?: number
-                height?: number
-                payload?: ChartPoint
-              }) => {
-                const { fill, x, y, width, height, payload } = props
-                const isSelected = payload?.isSelected || false
-
-                return (
+              fill={seriesColor}
+              isAnimationActive={false}
+              shape={({ fill, x, y, width, height, payload }: BarShapeProps) => (
+                <g
+                  {...getSelectProps(
+                    onSelect && payload && (() => onSelect(payload.index)),
+                    payload?.label ?? '',
+                    !!payload?.isSelected
+                  )}
+                >
                   <rect
                     x={x}
                     y={y}
                     width={width}
                     height={height}
                     fill={fill}
-                    fillOpacity={isSelected ? 1 : 0.8}
-                    stroke={isSelected ? `var(--mantine-color-${config.color}-8)` : 'none'}
-                    strokeWidth={isSelected ? 2 : 0}
+                    fillOpacity={payload?.isSelected ? 1 : 0.8}
+                    stroke={payload?.isSelected ? 'var(--mantine-color-text)' : 'none'}
+                    strokeWidth={payload?.isSelected ? 2 : 0}
                     rx={4}
                     ry={4}
-                    style={{ cursor: !compact && onDataPointClick ? 'pointer' : 'default' }}
                   />
-                )
-              }}
-              isAnimationActive={false}
+                </g>
+              )}
             />
           </BarChart>
-        </ResponsiveContainer>
+        )
+    }
+  }
+
+  const plot = (
+    <ResponsiveContainer width="100%" height={chartHeight}>
+      {renderChart()}
+    </ResponsiveContainer>
+  )
+
+  if (compact) {
+    return plot
+  }
+
+  const stats = getMetricStats(data)
+
+  return (
+    <Stack gap={isMobile ? 'xs' : 'md'}>
+      <SimpleGrid cols={3} spacing={isMobile ? 'xs' : 'sm'}>
+        <StatCard label="Average" value={stats.average} metricType={metricType} />
+        <StatCard label="Latest" value={stats.latest} metricType={metricType} />
+        <StatCard label="Max" value={stats.max} metricType={metricType} />
+      </SimpleGrid>
+
+      <Paper p="md" ref={chartRef}>
+        <Group mb="md" justify="space-between" align="flex-start" wrap="nowrap">
+          <div>
+            <Text fw={600}>{chartTitle}</Text>
+            <Text size="xs" c="dimmed">
+              {stats.observed === stats.total
+                ? formatCount(stats.total, 'period')
+                : `${stats.observed} of ${formatCount(stats.total, 'period')} have runs`}
+            </Text>
+          </div>
+          {selectedPoint && (
+            <Badge size="lg" color={color} variant="light">
+              {selectedPoint.label}
+            </Badge>
+          )}
+        </Group>
+        {plot}
       </Paper>
     </Stack>
   )

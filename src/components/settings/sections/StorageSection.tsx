@@ -1,7 +1,9 @@
-import { Alert, Box, Button, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core'
+import { Alert, Box, Button, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconCheck, IconCloudUpload, IconLock, IconSettings } from '@tabler/icons-react'
 import { useState } from 'react'
 
+import { logger } from '../../../lib/logger'
 import {
   useConfigContent,
   useStorageConfig,
@@ -10,11 +12,13 @@ import {
 } from '../../../queries/useStorageQueries'
 import { useLockVault, useVaultStatus } from '../../../queries/useVaultQueries'
 import { isTauri } from '../../../services'
-import { clearApiToken } from '../../../services/auth'
-import { ErrorFallback } from '../../ErrorBoundary/ErrorFallback'
+import { EmptyState } from '../../common/EmptyState'
+import { ErrorState } from '../../common/ErrorState'
+import { LoadingState } from '../../common/LoadingState'
 import { SetupWizard } from '../../setup/SetupWizard'
 import { ConfigEditorModal } from '../ConfigEditorModal'
 import { StoragePathsDisplay } from '../StoragePathsDisplay'
+import { STORAGE_BACKEND_LABELS } from '../storageLabels'
 
 export const StorageSection = () => {
   const {
@@ -23,8 +27,14 @@ export const StorageSection = () => {
     isError: isStorageError,
     error: storageError,
     refetch: refetchStorageConfig,
+    isRefetching: isRefetchingStorage,
   } = useStorageConfig()
-  const { data: storagePaths, refetch: refetchStoragePaths } = useStoragePaths()
+  const {
+    data: storagePaths,
+    error: storagePathsError,
+    refetch: refetchStoragePaths,
+    isRefetching: isRefetchingPaths,
+  } = useStoragePaths()
   const { refetch: loadConfigContent } = useConfigContent()
   const testConnectionMutation = useTestStorageConnection()
 
@@ -32,15 +42,7 @@ export const StorageSection = () => {
   const lockVaultMutation = useLockVault()
   const canLockVault = vaultStatus?.requires_password && vaultStatus?.is_unlocked
 
-  const handleLockVault = async () => {
-    try {
-      await lockVaultMutation.mutateAsync()
-      clearApiToken()
-      window.location.reload()
-    } catch (error) {
-      console.error('Failed to lock vault:', error)
-    }
-  }
+  const handleLockVault = () => lockVaultMutation.mutate()
 
   const [setupWizardOpen, setSetupWizardOpen] = useState(false)
   const [configEditorOpen, setConfigEditorOpen] = useState(false)
@@ -65,9 +67,16 @@ export const StorageSection = () => {
       if (result.data) {
         setConfigContent(result.data.content)
         setConfigEditorOpen(true)
+      } else {
+        throw result.error ?? new Error('The config file returned no content')
       }
     } catch (error) {
-      console.error('Failed to load config content:', error)
+      logger.error('StorageSection', 'Failed to load config content', error)
+      notifications.show({
+        title: "Couldn't open config file",
+        message: error instanceof Error ? error.message : 'Failed to load the config file',
+        color: 'red',
+      })
     }
   }
 
@@ -94,78 +103,46 @@ export const StorageSection = () => {
     }
   }
 
-  const getBackendLabel = (type: string): string => {
-    const labels: Record<string, string> = {
-      Sqlite: 'SQLite Encrypted',
-      keyring: 'System Keyring',
-      env: 'Environment Variables',
-      memory: 'Memory (Testing)',
-      Postgres: 'PostgreSQL',
-      sqlite: 'SQLite',
-      postgres: 'PostgreSQL',
-      local: 'Local Filesystem',
-      hybrid: 'Hybrid (Local + Remote)',
+  const backend = storageConfig?.config.storage.backend
+  const isPostgres = backend === 'postgres'
+
+  const renderContent = () => {
+    if (isStorageError) {
+      return (
+        <ErrorState
+          title="Couldn't load storage configuration"
+          error={storageError}
+          onRetry={() => refetchStorageConfig()}
+          retrying={isRefetchingStorage}
+        />
+      )
     }
 
-    return labels[type] || type
-  }
+    if (loadingStorage) {
+      return <LoadingState message="Loading storage configuration..." />
+    }
 
-  if (isStorageError) {
-    return (
-      <Box>
-        <Text size="lg" fw={600} mb="lg">
-          Storage Configuration
-        </Text>
-        <ErrorFallback
-          error={storageError as Error}
-          resetError={() => refetchStorageConfig()}
-          title="Failed to load storage configuration"
+    if (!storageConfig || !backend) {
+      return (
+        <EmptyState
+          title="No storage configuration found"
+          description="Pipedash couldn't find a config file in its data directory. Configure storage to create one."
+          icon={<IconSettings size={24} />}
+          action={<Button onClick={() => setSetupWizardOpen(true)}>Configure storage</Button>}
         />
-      </Box>
-    )
-  }
+      )
+    }
 
-  if (loadingStorage) {
     return (
-      <Box>
-        <Text size="lg" fw={600} mb="lg">
-          Storage Configuration
-        </Text>
-        <Stack align="center" py="xl">
-          <Loader size="sm" />
-        </Stack>
-      </Box>
-    )
-  }
-
-  if (!storageConfig) {
-    return (
-      <Box>
-        <Text size="lg" fw={600} mb="lg">
-          Storage Configuration
-        </Text>
-        <Alert icon={<IconAlertCircle size={16} />} color="red">
-          Unable to load storage configuration
-        </Alert>
-      </Box>
-    )
-  }
-
-  return (
-    <Box>
-      <Text size="lg" fw={600} mb="lg">
-        Storage Configuration
-      </Text>
-
       <Stack gap="md">
-        <Card withBorder padding="md" radius="md">
+        <Card padding="md">
           <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg">
             <Stack gap={4}>
               <Text size="xs" c="dimmed">
-                Storage Backend
+                Storage backend
               </Text>
               <Text size="sm" fw={500}>
-                {getBackendLabel(storageConfig.config.storage.backend)}
+                {STORAGE_BACKEND_LABELS[backend]}
               </Text>
             </Stack>
 
@@ -174,30 +151,37 @@ export const StorageSection = () => {
                 Credentials
               </Text>
               <Text size="sm" fw={500}>
-                {storageConfig.config.storage.backend === 'postgres'
-                  ? 'Encrypted (Postgres)'
-                  : vaultStatus?.password_source === 'keyring'
-                    ? 'System Keyring'
-                    : 'Encrypted (SQLite)'}
+                {vaultStatus?.password_source === 'keyring'
+                  ? 'System keyring'
+                  : `Encrypted in ${STORAGE_BACKEND_LABELS[backend]}`}
               </Text>
             </Stack>
 
             <Stack gap={4}>
               <Text size="xs" c="dimmed">
-                Cache Backend
+                Cache backend
               </Text>
               <Text size="sm" fw={500}>
-                {storageConfig.config.storage.backend === 'postgres' ? 'PostgreSQL' : 'Local Filesystem'}
+                {isPostgres ? STORAGE_BACKEND_LABELS.postgres : 'Local filesystem'}
               </Text>
             </Stack>
           </SimpleGrid>
         </Card>
 
-        {storagePaths && (
+        {storagePathsError ? (
+          <ErrorState
+            title="Couldn't load storage paths"
+            error={storagePathsError}
+            onRetry={() => refetchStoragePaths()}
+            retrying={isRefetchingPaths}
+          />
+        ) : storagePaths ? (
           <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
+        ) : (
+          <LoadingState message="Loading storage paths..." />
         )}
 
-        <Card withBorder padding="md" radius="md">
+        <Card padding="md">
           <Stack gap="sm">
             {connectionStatus === 'success' && (
               <Alert icon={<IconCheck size={16} />} color="green" variant="light">
@@ -219,37 +203,47 @@ export const StorageSection = () => {
                 onClick={testConnection}
                 loading={testConnectionMutation.isPending}
               >
-                Test Connection
+                Test connection
               </Button>
               <Button
                 variant="light"
-                color="blue"
+                color="gray"
                 leftSection={<IconSettings size={16} />}
                 onClick={() => setSetupWizardOpen(true)}
               >
-                Configure Storage
+                Configure storage
               </Button>
               {canLockVault && (
                 <Button
                   variant="light"
-                  color="orange"
+                  color="gray"
                   leftSection={<IconLock size={16} />}
                   onClick={handleLockVault}
                   loading={lockVaultMutation.isPending}
                 >
-                  Lock Vault
+                  Lock vault
                 </Button>
               )}
             </Group>
 
-            {isTauri() && storageConfig.config.storage.backend === 'sqlite' && !vaultStatus?.requires_password && (
+            {isTauri() && backend === 'sqlite' && !vaultStatus?.requires_password && (
               <Text size="xs" c="dimmed" ta="center">
-                Configure Storage to migrate to encrypted database or PostgreSQL
+                Configure storage to migrate to an encrypted database or PostgreSQL
               </Text>
             )}
           </Stack>
         </Card>
       </Stack>
+    )
+  }
+
+  return (
+    <Box>
+      <Title order={2} size="lg" fw={600} mb="lg">
+        Storage
+      </Title>
+
+      {renderContent()}
 
       <SetupWizard opened={setupWizardOpen} onComplete={handleSetupComplete} onClose={handleSetupClose} />
 

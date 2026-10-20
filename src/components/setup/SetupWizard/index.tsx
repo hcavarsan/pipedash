@@ -1,6 +1,6 @@
-import { Box, Button, Group, Loader, ScrollArea, Stack, Stepper, Text } from '@mantine/core'
+import { Box, Button, Group, ScrollArea, Stack, Stepper, Text } from '@mantine/core'
 import { modals } from '@mantine/modals'
-import { IconCheck, IconDatabase, IconKey, IconRocket } from '@tabler/icons-react'
+import { IconCheck, IconDatabase, IconListCheck, IconTransfer } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useIsMobile } from '../../../hooks/useIsMobile'
@@ -14,14 +14,15 @@ import {
 } from '../../../queries/useStorageQueries'
 import { useUnlockVault, useVaultPasswordStatus } from '../../../queries/useVaultQueries'
 import { isTauri } from '../../../services'
-import type { PipedashConfig } from '../../../types'
+import type { MigrationResult, PipedashConfig } from '../../../types'
+import { LoadingState } from '../../common/LoadingState'
 import { StandardModal } from '../../common/StandardModal'
 
 import { ConfirmStep } from './ConfirmStep'
 import { StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
 import { TransferStep } from './TransferStep'
-import type { SetupState, SetupWizardProps, StorageBackend, TransferResult } from './types'
+import type { SetupState, SetupWizardProps, StorageBackend } from './types'
 
 export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) => {
   const { data: currentConfig, isLoading: loading } = useStorageConfig({ enabled: opened })
@@ -36,8 +37,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
   const [step, setStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [transferResult, setTransferResult] = useState<TransferResult | null>(null)
-  const [migrationCompleted, setMigrationCompleted] = useState(false)
+  const [migrationStats, setMigrationStats] = useState<MigrationResult['stats'] | null>(null)
 
   const [state, setState] = useState<SetupState>({
     backend: 'sqlite',
@@ -56,17 +56,6 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     planMigrationMutation.isPending ||
     executeMigrationMutation.isPending ||
     unlockVaultMutation.isPending
-
-  const stepperConfig = useMemo(
-    () => ({
-      orientation: 'horizontal' as const,
-      size: 'xs' as const,
-      iconSize: 24,
-      showLabels: true,
-      showDescriptions: false,
-    }),
-    []
-  )
 
   const getCurrentBackend = useCallback((): string => {
     if (!currentConfig) {
@@ -94,33 +83,33 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     return currentConfig.config.storage.data_dir || defaultDataDir
   }, [currentConfig, defaultDataDir])
 
-  const isDatabaseBackendChange = getCurrentBackend() !== state.backend && currentConfig !== null
-  const isDataDirChange = getCurrentDataDir() !== state.dataDir && currentConfig !== null
+  const [reconfiguring, setReconfiguring] = useState<boolean | null>(null)
+  const showTransferStep = reconfiguring ?? Boolean(currentConfig)
+  const isDatabaseBackendChange = showTransferStep && getCurrentBackend() !== state.backend
+  const isDataDirChange = showTransferStep && getCurrentDataDir() !== state.dataDir
 
   const needsMigration = isDatabaseBackendChange || isFromKeyring || isDataDirChange
-  const showTransferStep = currentConfig !== null
 
-  const isSuccessStep = step === (showTransferStep ? 3 : 2)
+  const wizardSteps = showTransferStep
+    ? (['storage', 'transfer', 'confirm', 'success'] as const)
+    : (['storage', 'confirm', 'success'] as const)
+  const currentStep = wizardSteps[step] ?? 'storage'
+  const isSuccessStep = currentStep === 'success'
 
   const stepperSteps = useMemo(() => {
-    const steps = [{ label: 'Storage', description: 'Select storage backend', icon: <IconDatabase size={18} /> }]
+    const steps = [{ label: 'Storage', icon: <IconDatabase size={16} /> }]
 
     if (showTransferStep) {
-      steps.push({ label: 'Transfer', description: 'Data transfer options', icon: <IconKey size={18} /> })
+      steps.push({ label: 'Transfer', icon: <IconTransfer size={16} /> })
     }
 
-    steps.push(
-      { label: 'Confirm', description: 'Review configuration', icon: <IconCheck size={18} /> },
-      { label: 'Success', description: 'Setup complete', icon: <IconRocket size={18} /> }
-    )
+    steps.push({ label: 'Confirm', icon: <IconListCheck size={16} /> })
 
     return steps
   }, [showTransferStep])
 
   const passwordsMatch = state.vaultPassword === state.vaultPasswordConfirm
   const passwordValid = state.vaultPassword.length >= 8 && passwordsMatch
-
-  const needsVaultPassword = true
 
   useEffect(() => {
     if (!opened) {
@@ -134,14 +123,17 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         transferData: true,
       })
       setError(null)
-      setTransferResult(null)
+      setMigrationStats(null)
+      setReconfiguring(null)
 
       return
     }
 
-    if (!defaultDataDir) {
+    if (loading || !defaultDataDir) {
       return
     }
+
+    setReconfiguring((prev) => prev ?? Boolean(currentConfig))
 
     if (currentConfig) {
       const currentBackend = currentConfig.config.storage.backend || 'sqlite'
@@ -160,14 +152,14 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         dataDir: defaultDataDir,
       }))
     }
-  }, [opened, currentConfig, defaultDataDir])
+  }, [opened, loading, currentConfig, defaultDataDir])
 
   const canProceedFromStorage = useMemo(() => {
     if (state.backend === 'postgres' && !state.postgresUrl.trim()) {
       return false
     }
 
-    if (needsVaultPassword && !vaultPasswordFromEnv && !passwordValid) {
+    if (!vaultPasswordFromEnv && !passwordValid) {
       return false
     }
 
@@ -176,7 +168,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
   const handleSave = useCallback(async () => {
     setError(null)
-    setTransferResult(null)
+    setMigrationStats(null)
 
     try {
       const shouldUseDefault =
@@ -193,7 +185,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         },
         server: currentConfig?.config.server || {
           bind_addr: '127.0.0.1:8080',
-          cors_allow_all: true,
+          cors_allow_all: false,
         },
         storage: {
           data_dir: shouldUseDefault ? '' : state.dataDir,
@@ -204,6 +196,20 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
             },
           }),
         },
+      }
+
+      const unlockWithEnteredPassword = async () => {
+        if (vaultPasswordFromEnv || !state.vaultPassword) {
+          return true
+        }
+
+        const unlockResult = await unlockVaultMutation.mutateAsync(state.vaultPassword)
+
+        if (!unlockResult.success) {
+          setError(`Couldn't unlock the vault: ${unlockResult.message}`)
+        }
+
+        return unlockResult.success
       }
 
       if (!currentConfig) {
@@ -217,14 +223,8 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         return
       }
 
-      if (!vaultPasswordFromEnv && state.vaultPassword) {
-        const unlockResult = await unlockVaultMutation.mutateAsync(state.vaultPassword)
-
-        if (!unlockResult.success) {
-          setError(`Failed to set vault password: ${unlockResult.message}`)
-
-          return
-        }
+      if (!(await unlockWithEnteredPassword())) {
+        return
       }
 
       if (needsMigration && state.transferData && currentConfig) {
@@ -256,11 +256,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
         await saveStorageConfigMutation.mutateAsync(newConfig)
 
-        setTransferResult({
-          success: true,
-          message: `Transferred ${result.stats.providers_migrated} providers, ${result.stats.tokens_migrated} tokens, and ${result.stats.cache_entries_migrated || 0} cache entries`,
-        })
-        setMigrationCompleted(true)
+        setMigrationStats(result.stats)
       } else {
         await saveStorageConfigMutation.mutateAsync(newConfig)
       }
@@ -289,8 +285,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
     setTimeout(() => {
       setStep(0)
-      setMigrationCompleted(false)
-      setTransferResult(null)
+      setMigrationStats(null)
       setState({
         backend: 'sqlite',
         dataDir: '',
@@ -309,17 +304,17 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       const changes = []
 
       if (isDatabaseBackendChange) {
-        changes.push('Database backend')
+        changes.push('database backend')
       }
       if (isFromKeyring) {
-        changes.push('Credential storage (keyring → encrypted)')
+        changes.push('credential storage (keyring → encrypted)')
       }
       if (isDataDirChange) {
-        changes.push('Data directory')
+        changes.push('data directory')
       }
 
       modals.openConfirmModal({
-        title: 'Skip Data Migration?',
+        title: 'Skip data transfer?',
         centered: true,
         zIndex: 400,
         children: (
@@ -342,11 +337,10 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
           </Stack>
         ),
         labels: {
-          confirm: 'Skip Migration',
-          cancel: 'Go Back',
+          confirm: 'Skip data transfer',
+          cancel: 'Go back',
         },
-        confirmProps: { color: 'red', variant: 'light' },
-        cancelProps: { variant: 'light', color: 'gray' },
+        confirmProps: { color: 'red' },
         onConfirm: () => {
           setError(null)
           setStep(2)
@@ -363,18 +357,19 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       return null
     }
 
-    if (step === 0) {
+    if (currentStep === 'storage') {
       return (
-        <Group justify="flex-end" gap="xs" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-          <Button variant="light" color="gray" onClick={handleClose} disabled={saving} fullWidth={isMobile}>
-            Cancel
-          </Button>
+        <Group justify="flex-end" gap="sm">
+          {onClose && (
+            <Button variant="default" size="sm" onClick={handleClose} disabled={saving} fullWidth={isMobile}>
+              Cancel
+            </Button>
+          )}
           <Button
-            variant="light"
-            color="blue"
+            size="sm"
             onClick={() => {
               setError(null)
-              setStep(showTransferStep ? 1 : 1)
+              setStep(1)
             }}
             disabled={!canProceedFromStorage}
             fullWidth={isMobile}
@@ -385,35 +380,27 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       )
     }
 
-    if (showTransferStep && step === 1) {
+    if (currentStep === 'transfer') {
       return (
-        <Group justify="space-between" gap="xs" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-          <Button variant="light" color="gray" onClick={() => setStep(0)} fullWidth={isMobile}>
+        <Group justify="flex-end" gap="sm">
+          <Button variant="default" size="sm" onClick={() => setStep(0)} fullWidth={isMobile}>
             Back
           </Button>
-          <Button variant="light" color="blue" onClick={handleContinueFromTransfer} fullWidth={isMobile}>
+          <Button size="sm" onClick={handleContinueFromTransfer} fullWidth={isMobile}>
             Continue
           </Button>
         </Group>
       )
     }
 
-    const confirmStep = showTransferStep ? 2 : 1
-
-    if (step === confirmStep) {
+    if (currentStep === 'confirm') {
       return (
-        <Group justify="space-between" gap="xs" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-          <Button
-            variant="light"
-            color="gray"
-            onClick={() => setStep(showTransferStep ? 1 : 0)}
-            disabled={saving}
-            fullWidth={isMobile}
-          >
+        <Group justify="flex-end" gap="sm">
+          <Button variant="default" size="sm" onClick={() => setStep(step - 1)} disabled={saving} fullWidth={isMobile}>
             Back
           </Button>
-          <Button variant="light" color="blue" onClick={handleSave} loading={saving} fullWidth={isMobile}>
-            {needsMigration && state.transferData ? 'Save & Transfer' : 'Save'}
+          <Button size="sm" onClick={handleSave} loading={saving} fullWidth={isMobile}>
+            {needsMigration && state.transferData ? 'Save and transfer' : 'Save'}
           </Button>
         </Group>
       )
@@ -422,13 +409,14 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     return null
   }, [
     step,
+    currentStep,
     loading,
     saving,
-    showTransferStep,
     isSuccessStep,
     state,
     needsMigration,
     canProceedFromStorage,
+    onClose,
     handleClose,
     handleSave,
     handleContinueFromTransfer,
@@ -437,140 +425,54 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
   const getCurrentStepContent = () => {
     if (loading) {
-      return (
-        <Stack align="center" py="xl" gap="xs">
-          <Loader size="md" />
-          <Text size="sm" c="dimmed">
-            Loading config...
-          </Text>
-        </Stack>
-      )
+      return <LoadingState message="Loading storage configuration…" />
     }
 
-    if (showTransferStep) {
-      switch (step) {
-        case 0:
-          return (
-            <StorageStep
-              state={state}
-              setState={setState}
-              currentConfig={currentConfig || null}
-              vaultStatus={vaultStatus || null}
-              error={error}
-              checkingVault={checkingVault}
-            />
-          )
-        case 1:
-          return <TransferStep state={state} setState={setState} error={error} />
-        case 2:
-          return (
-            <ConfirmStep
-              state={state}
-              isDatabaseBackendChange={isDatabaseBackendChange}
-              isFromKeyring={isFromKeyring}
-              isDataDirChange={isDataDirChange}
-              showTransferStep={showTransferStep}
-              vaultPasswordFromEnv={vaultPasswordFromEnv}
-              needsVaultPassword={needsVaultPassword}
-              isMobile={isMobile}
-              error={error}
-              getCurrentBackend={getCurrentBackend}
-              getCurrentDataDir={getCurrentDataDir}
-              vaultStatus={vaultStatus || null}
-            />
-          )
-        case 3:
-          return (
-            <SuccessStep
-              state={state}
-              migrationCompleted={migrationCompleted}
-              transferResult={transferResult}
-              vaultStatus={vaultStatus || null}
-              vaultPasswordFromEnv={vaultPasswordFromEnv}
-              onComplete={handleComplete}
-            />
-          )
-        default:
-          return (
-            <StorageStep
-              state={state}
-              setState={setState}
-              currentConfig={currentConfig || null}
-              vaultStatus={vaultStatus || null}
-              error={error}
-              checkingVault={checkingVault}
-            />
-          )
-      }
-    } else {
-      switch (step) {
-        case 0:
-          return (
-            <StorageStep
-              state={state}
-              setState={setState}
-              currentConfig={currentConfig || null}
-              vaultStatus={vaultStatus || null}
-              error={error}
-              checkingVault={checkingVault}
-            />
-          )
-        case 1:
-          return (
-            <ConfirmStep
-              state={state}
-              isDatabaseBackendChange={isDatabaseBackendChange}
-              isFromKeyring={isFromKeyring}
-              isDataDirChange={isDataDirChange}
-              showTransferStep={showTransferStep}
-              vaultPasswordFromEnv={vaultPasswordFromEnv}
-              needsVaultPassword={needsVaultPassword}
-              isMobile={isMobile}
-              error={error}
-              getCurrentBackend={getCurrentBackend}
-              getCurrentDataDir={getCurrentDataDir}
-              vaultStatus={vaultStatus || null}
-            />
-          )
-        case 2:
-          return (
-            <SuccessStep
-              state={state}
-              migrationCompleted={migrationCompleted}
-              transferResult={transferResult}
-              vaultStatus={vaultStatus || null}
-              vaultPasswordFromEnv={vaultPasswordFromEnv}
-              onComplete={handleComplete}
-            />
-          )
-        default:
-          return (
-            <StorageStep
-              state={state}
-              setState={setState}
-              currentConfig={currentConfig || null}
-              vaultStatus={vaultStatus || null}
-              error={error}
-              checkingVault={checkingVault}
-            />
-          )
-      }
+    switch (currentStep) {
+      case 'transfer':
+        return <TransferStep state={state} setState={setState} error={error} />
+      case 'confirm':
+        return (
+          <ConfirmStep
+            state={state}
+            showTransferStep={showTransferStep}
+            vaultPasswordFromEnv={vaultPasswordFromEnv}
+            isMobile={isMobile}
+            error={error}
+            vaultStatus={vaultStatus || null}
+          />
+        )
+      case 'success':
+        return (
+          <SuccessStep
+            state={state}
+            migrationStats={migrationStats}
+            vaultStatus={vaultStatus || null}
+            vaultPasswordFromEnv={vaultPasswordFromEnv}
+            onComplete={handleComplete}
+          />
+        )
+      default:
+        return (
+          <StorageStep
+            state={state}
+            setState={setState}
+            currentConfig={currentConfig || null}
+            vaultStatus={vaultStatus || null}
+            error={error}
+            checkingVault={checkingVault}
+          />
+        )
     }
-  }
-
-  const getTitle = () => {
-    if (isSuccessStep) {
-      return 'Setup Complete'
-    }
-
-    return currentConfig ? 'Storage Settings' : 'Welcome to Pipedash'
   }
 
   return (
     <StandardModal
       opened={opened}
-      onClose={handleClose}
-      title={getTitle()}
+      onClose={isSuccessStep ? handleComplete : handleClose}
+      closable={isSuccessStep || Boolean(onClose)}
+      title={showTransferStep ? 'Storage settings' : 'Welcome to Pipedash'}
+      size="lg"
       loading={saving}
       footer={footer}
       contentPadding={false}
@@ -579,41 +481,29 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       <Stack gap={0} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {!loading && !isSuccessStep && (
           <Box
-            px="md"
-            pt="xl"
-            pb="lg"
+            px="lg"
+            pt="md"
+            pb="md"
             style={{
               flexShrink: 0,
               borderBottom: '1px solid var(--mantine-color-default-border)',
-              backgroundColor: 'var(--mantine-color-dark-8)',
             }}
           >
-            <Stepper
-              active={step}
-              size={stepperConfig.size}
-              iconSize={stepperConfig.iconSize}
-              orientation={stepperConfig.orientation}
-              styles={{
-                root: {
-                  transition: 'all 0.3s ease',
-                },
-                stepLabel: {
-                  fontSize: '0.875rem',
-                  display: isMobile ? 'none' : 'block',
-                },
-                step: {
-                  padding: isMobile ? 4 : 8,
-                },
-              }}
-            >
+            <Stepper active={step} size="xs" iconSize={24}>
               {stepperSteps.map((s) => (
-                <Stepper.Step key={s.label} label={s.label} icon={s.icon} completedIcon={<IconCheck size={16} />} />
+                <Stepper.Step
+                  key={s.label}
+                  label={isMobile ? undefined : s.label}
+                  aria-label={s.label}
+                  icon={s.icon}
+                  completedIcon={<IconCheck size={16} />}
+                />
               ))}
             </Stepper>
 
             {isMobile && (
               <Text size="xs" c="dimmed" ta="center" mt="xs">
-                Step {step + 1} of {stepperSteps.length}
+                Step {step + 1} of {stepperSteps.length}: {stepperSteps[step]?.label}
               </Text>
             )}
           </Box>
@@ -621,30 +511,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <ScrollArea style={{ flex: 1 }} type="auto">
-            <Box
-              px={isMobile ? 'xs' : isMobile ? 'sm' : 'md'}
-              pt={isSuccessStep ? (isMobile ? 'xs' : 'md') : isMobile ? 'md' : 'xl'}
-              pb={isMobile ? 'xs' : 'md'}
-              style={{
-                maxWidth: '100%',
-                margin: '0 auto',
-                animation: 'fadeIn 0.3s ease-in',
-              }}
-            >
-              <style>
-                {`
-                  @keyframes fadeIn {
-                    from {
-                      opacity: 0;
-                      transform: translateY(10px);
-                    }
-                    to {
-                      opacity: 1;
-                      transform: translateY(0);
-                    }
-                  }
-                `}
-              </style>
+            <Box px="lg" py="lg">
               {getCurrentStepContent()}
             </Box>
           </ScrollArea>

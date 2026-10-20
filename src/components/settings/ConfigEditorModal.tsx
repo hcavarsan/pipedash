@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, Group, Loader, Stack, Text } from '@mantine/core'
+import { Alert, Badge, Button, Group, Loader, Stack, Text, useComputedColorScheme } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import Editor from '@monaco-editor/react'
@@ -6,8 +6,10 @@ import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
 import { useCallback, useEffect, useState } from 'react'
 import { parse } from 'smol-toml'
 
+import { logger } from '../../lib/logger'
 import { service } from '../../services'
 import type { ConfigAnalysisResponse, MigrationOptions } from '../../types'
+import { formatCount } from '../../utils/formatCount'
 import { StandardModal } from '../common/StandardModal'
 
 import { MigrationConfirmModal } from './MigrationConfirmModal'
@@ -20,6 +22,7 @@ interface ConfigEditorModalProps {
 }
 
 export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: ConfigEditorModalProps) => {
+  const colorScheme = useComputedColorScheme('dark')
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -78,7 +81,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
           setValidationError(null)
         }
       } catch (err) {
-        console.error('Analysis failed:', err)
+        logger.error('ConfigEditorModal', 'Analysis failed', err)
       } finally {
         setAnalyzing(false)
       }
@@ -111,8 +114,8 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
 
     if (!validateTOML(content)) {
       notifications.show({
-        title: 'Validation Error',
-        message: 'Please fix the validation errors before saving',
+        title: 'Configuration is invalid',
+        message: 'Fix the validation errors before saving',
         color: 'red',
       })
 
@@ -121,8 +124,8 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
 
     if (analysis && !analysis.valid) {
       notifications.show({
-        title: 'Validation Error',
-        message: 'Please fix validation errors before saving',
+        title: 'Configuration is invalid',
+        message: 'Fix the validation errors before saving',
         color: 'red',
       })
 
@@ -137,7 +140,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
 
     if (analysis?.warnings && analysis.warnings.length > 0) {
       modals.openConfirmModal({
-        title: 'Configuration Warnings',
+        title: 'Configuration warnings',
         children: (
           <Stack gap="xs">
             {analysis.warnings.map((w) => (
@@ -147,7 +150,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
             ))}
           </Stack>
         ),
-        labels: { confirm: 'Save Anyway', cancel: 'Cancel' },
+        labels: { confirm: 'Save anyway', cancel: 'Cancel' },
         confirmProps: { color: 'orange' },
         onConfirm: () => saveWithoutMigration(),
       })
@@ -163,8 +166,8 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     try {
       await service.saveConfigContent(content)
       notifications.show({
-        title: 'Success',
-        message: 'Configuration saved successfully',
+        title: 'Configuration saved',
+        message: 'Your changes to config.toml were saved.',
         color: 'green',
       })
       onSaved?.()
@@ -173,7 +176,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       const errorMessage = err instanceof Error ? err.message : 'Failed to save configuration'
 
       notifications.show({
-        title: 'Error',
+        title: "Couldn't save configuration",
         message: errorMessage,
         color: 'red',
       })
@@ -198,8 +201,8 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       await service.saveConfigContent(content)
 
       notifications.show({
-        title: 'Migration Complete',
-        message: `Migrated ${result.stats.providers_migrated} providers successfully`,
+        title: 'Migration complete',
+        message: `Migrated ${formatCount(result.stats.providers_migrated, 'provider')}`,
         color: 'green',
       })
 
@@ -208,7 +211,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       onClose()
     } catch (err) {
       notifications.show({
-        title: 'Migration Failed',
+        title: 'Migration failed',
         message: err instanceof Error ? err.message : 'Unknown error',
         color: 'red',
       })
@@ -220,11 +223,11 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
   const handleClose = () => {
     if (hasChanges) {
       modals.openConfirmModal({
-        title: 'Unsaved Changes',
+        title: 'Discard changes?',
         centered: true,
         zIndex: 400,
-        children: <Text size="sm">You have unsaved changes. Are you sure you want to close without saving?</Text>,
-        labels: { confirm: 'Close', cancel: 'Cancel' },
+        children: <Text size="sm">Your edits to config.toml have not been saved and will be lost.</Text>,
+        labels: { confirm: 'Discard changes', cancel: 'Keep editing' },
         confirmProps: { color: 'red' },
         onConfirm: onClose,
       })
@@ -239,11 +242,11 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       <Text size="xs" c="dimmed">
         {hasChanges ? 'Unsaved changes' : 'No changes'}
       </Text>
-      <Group gap="xs">
-        <Button variant="subtle" onClick={handleClose} disabled={loading}>
+      <Group gap="sm">
+        <Button variant="default" size="sm" onClick={handleClose} disabled={loading}>
           Cancel
         </Button>
-        <Button onClick={handleSave} loading={loading} disabled={!!validationError || !hasChanges}>
+        <Button size="sm" onClick={handleSave} loading={loading} disabled={!!validationError || !hasChanges}>
           Save
         </Button>
       </Group>
@@ -256,46 +259,30 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       onClose={handleClose}
       title="Edit config.toml"
       footer={footerContent}
+      size="xl"
       contentPadding={false}
       disableScrollArea
     >
       <Stack gap={0} style={{ flex: 1, overflow: 'hidden' }}>
         {analyzing && (
-          <Alert
-            icon={<Loader size={16} />}
-            color="blue"
-            styles={{
-              root: {
-                margin: 'var(--mantine-spacing-md)',
-                marginBottom: 0,
-              },
-            }}
-          >
+          <Alert icon={<Loader size={16} />} color="gray" mx="lg" mt="md">
             <Text size="sm">Analyzing configuration...</Text>
           </Alert>
         )}
 
         {analysis?.migration_plan && (
-          <Alert
-            icon={<IconAlertCircle size={16} />}
-            color="orange"
-            title="Migration Required"
-            styles={{
-              root: {
-                margin: 'var(--mantine-spacing-md)',
-                marginBottom: 0,
-              },
-            }}
-          >
+          <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Migration required" mx="lg" mt="md">
             <Text size="sm" fw={500}>
               These changes require migrating {analysis.migration_plan.steps.length} components to the new storage
               backend.
             </Text>
             {analysis.stats && (
               <Group gap="xs" mt="xs">
-                <Badge size="sm">{analysis.stats.providers_count} providers</Badge>
-                <Badge size="sm">{analysis.stats.tokens_count} tokens</Badge>
-                <Badge size="sm">{analysis.stats.cache_entries_count} cache entries</Badge>
+                <Badge size="sm">{formatCount(analysis.stats.providers_count, 'provider')}</Badge>
+                <Badge size="sm">{formatCount(analysis.stats.tokens_count, 'token')}</Badge>
+                <Badge size="sm">
+                  {formatCount(analysis.stats.cache_entries_count, 'cache entry', 'cache entries')}
+                </Badge>
               </Group>
             )}
           </Alert>
@@ -307,12 +294,8 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
             icon={<IconAlertCircle size={16} />}
             color="red"
             title={error.field}
-            styles={{
-              root: {
-                margin: 'var(--mantine-spacing-md)',
-                marginBottom: 0,
-              },
-            }}
+            mx="lg"
+            mt="md"
           >
             <Text size="sm">{error.message}</Text>
             <Text size="xs" c="dimmed" mt={4}>
@@ -325,14 +308,10 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
           <Alert
             key={`${warning.field}:${warning.message}`}
             icon={<IconAlertCircle size={16} />}
-            color="yellow"
+            color="orange"
             title={warning.field}
-            styles={{
-              root: {
-                margin: 'var(--mantine-spacing-md)',
-                marginBottom: 0,
-              },
-            }}
+            mx="lg"
+            mt="md"
           >
             <Text size="sm">{warning.message}</Text>
           </Alert>
@@ -343,14 +322,10 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
             icon={analysis.postgres_connection.success ? <IconCheck size={16} /> : <IconX size={16} />}
             color={analysis.postgres_connection.success ? 'green' : 'red'}
             title={
-              analysis.postgres_connection.success ? 'PostgreSQL Connection Successful' : 'PostgreSQL Connection Failed'
+              analysis.postgres_connection.success ? 'PostgreSQL connection successful' : 'PostgreSQL connection failed'
             }
-            styles={{
-              root: {
-                margin: 'var(--mantine-spacing-md)',
-                marginBottom: 0,
-              },
-            }}
+            mx="lg"
+            mt="md"
           >
             <Text size="sm">{analysis.postgres_connection.message}</Text>
             {analysis.postgres_connection.latency_ms && (
@@ -362,17 +337,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
         )}
 
         {validationError && !analysis && (
-          <Alert
-            icon={<IconAlertCircle size={16} />}
-            color="red"
-            title="Validation Error"
-            styles={{
-              root: {
-                margin: 'var(--mantine-spacing-md)',
-                marginBottom: 0,
-              },
-            }}
-          >
+          <Alert icon={<IconAlertCircle size={16} />} color="red" title="Validation error" mx="lg" mt="md">
             <Text size="sm">{validationError}</Text>
           </Alert>
         )}
@@ -380,7 +345,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
         <Editor
           height="100%"
           language="ini"
-          theme="vs-dark"
+          theme={colorScheme === 'dark' ? 'vs-dark' : 'light'}
           value={content}
           onChange={handleEditorChange}
           options={{

@@ -50,7 +50,7 @@ default_refresh_interval = 300
 
 [server]
 bind_addr = "127.0.0.1:8080"
-cors_allow_all = true
+cors_allow_all = false
 
 [storage]
 data_dir = "{}"
@@ -71,7 +71,7 @@ default_refresh_interval = 300
 
 [server]
 bind_addr = "127.0.0.1:8080"
-cors_allow_all = true
+cors_allow_all = false
 
 [storage]
 data_dir = "{}"

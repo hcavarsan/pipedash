@@ -28,7 +28,6 @@ fn create_workspace_column() -> schema::ColumnDefinition {
         width: Some(120),
         sortable: true,
         filterable: false,
-        align: None,
     }
 }
 
@@ -45,6 +44,5 @@ fn create_selector_column() -> schema::ColumnDefinition {
         width: Some(100),
         sortable: false,
         filterable: false,
-        align: None,
     }
 }

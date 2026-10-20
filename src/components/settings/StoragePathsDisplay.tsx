@@ -1,8 +1,11 @@
-import { Button, Card, CopyButton, Group, Stack, Text, Tooltip } from '@mantine/core'
-import { IconCheck, IconCopy, IconEdit, IconFolderOpen } from '@tabler/icons-react'
+import { ActionIcon, Card, Group, Stack, Text, Tooltip } from '@mantine/core'
+import { notifications } from '@mantine/notifications'
+import { IconEdit, IconFolderOpen } from '@tabler/icons-react'
 
+import { logger } from '../../lib/logger'
 import { isTauri, service } from '../../services'
 import type { PipedashConfig, StoragePathsResponse } from '../../types'
+import { CopyButton } from '../atoms/CopyButton'
 
 interface StoragePathsDisplayProps {
   paths: StoragePathsResponse
@@ -13,77 +16,67 @@ interface StoragePathsDisplayProps {
 interface PathRowProps {
   label: string
   path: string
-  showFolder?: boolean
-  isConfigFile?: boolean
+  kind: 'file' | 'directory'
+  canOpen: boolean
   onEdit?: () => void
 }
 
-const PathRow = ({ label, path, showFolder, isConfigFile, onEdit }: PathRowProps) => {
+const PathRow = ({ label, path, kind, canOpen, onEdit }: PathRowProps) => {
   const handleOpenFolder = async () => {
-    if (isTauri()) {
-      try {
-        const folderPath = path.includes('.') ? path.substring(0, path.lastIndexOf('/')) : path
+    const folderPath = kind === 'file' ? path.replace(/[\\/][^\\/]*$/, '') : path
 
-        await service.openUrl(`file://${folderPath}`)
-      } catch (err) {
-        console.error('Failed to open folder:', err)
-      }
+    try {
+      await service.openUrl(`file://${folderPath}`)
+    } catch (err) {
+      logger.error('StoragePathsDisplay', 'Failed to open folder', err)
+      notifications.show({
+        title: "Couldn't open folder",
+        message: err instanceof Error ? err.message : `Failed to open ${folderPath}`,
+        color: 'red',
+      })
     }
   }
 
   return (
     <Group gap="xs" align="center" wrap="nowrap">
-      <Text size="xs" c="dimmed" style={{ flexShrink: 0, width: '120px' }}>
+      <Text size="xs" c="dimmed" w={120} style={{ flexShrink: 0 }}>
         {label}
       </Text>
 
-      <Tooltip label={path} position="top" withArrow multiline maw={400}>
-        <Text
-          size="xs"
-          ff="monospace"
-          style={{
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            minWidth: 0,
-            cursor: 'help',
-          }}
-        >
+      <Tooltip label={path} position="top" multiline maw={400}>
+        <Text size="xs" ff="monospace" truncate="end" flex={1} miw={0}>
           {path}
         </Text>
       </Tooltip>
 
-      <Group
-        gap={4}
-        wrap="nowrap"
-        style={{ flexShrink: 0, width: showFolder ? '90px' : '60px', justifyContent: 'flex-end' }}
-      >
-        {isConfigFile && onEdit ? (
-          <Tooltip label="Edit configuration file" position="top" withArrow>
-            <Button size="compact-xs" variant="subtle" color="blue" onClick={onEdit} px={6}>
-              <IconEdit size={14} />
-            </Button>
+      <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+        {onEdit && (
+          <Tooltip label={`Edit ${label.toLowerCase()} file`} position="top">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              aria-label={`Edit ${label.toLowerCase()} file`}
+              onClick={onEdit}
+            >
+              <IconEdit size={16} />
+            </ActionIcon>
           </Tooltip>
-        ) : showFolder ? (
-          <div style={{ width: '30px' }} />
-        ) : null}
+        )}
 
-        <CopyButton value={`"${path}"`}>
-          {({ copied, copy }) => (
-            <Tooltip label={copied ? 'Copied!' : 'Copy full path'} position="top" withArrow>
-              <Button size="compact-xs" variant="subtle" onClick={copy} px={6}>
-                {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-              </Button>
-            </Tooltip>
-          )}
-        </CopyButton>
+        <CopyButton value={path} label={`Copy ${label.toLowerCase()} path`} />
 
-        {showFolder && (
-          <Tooltip label="Open in file manager" position="top" withArrow>
-            <Button size="compact-xs" variant="subtle" onClick={handleOpenFolder} px={6}>
-              <IconFolderOpen size={14} />
-            </Button>
+        {canOpen && (
+          <Tooltip label={`Open ${label.toLowerCase()} in file manager`} position="top">
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              aria-label={`Open ${label.toLowerCase()} in file manager`}
+              onClick={handleOpenFolder}
+            >
+              <IconFolderOpen size={16} />
+            </ActionIcon>
           </Tooltip>
         )}
       </Group>
@@ -92,38 +85,25 @@ const PathRow = ({ label, path, showFolder, isConfigFile, onEdit }: PathRowProps
 }
 
 export const StoragePathsDisplay = ({ paths, config, onEditConfig }: StoragePathsDisplayProps) => {
-  const isDesktop = isTauri()
-
-  const isPostgresStorage = config?.storage?.backend === 'postgres'
-
-  const isPostgresCache = config?.storage?.backend === 'postgres'
+  const canOpen = isTauri()
+  const isPostgres = config?.storage?.backend === 'postgres'
 
   return (
-    <Card withBorder padding="md" radius="md">
+    <Card padding="md">
       <Text size="sm" fw={600} mb="md">
-        Storage Paths
+        Storage paths
       </Text>
       <Stack gap="sm">
-        <PathRow
-          label="Configuration"
-          path={paths.config_file}
-          showFolder={isDesktop}
-          isConfigFile
-          onEdit={onEditConfig}
-        />
+        <PathRow label="Configuration" path={paths.config_file} kind="file" canOpen={canOpen} onEdit={onEditConfig} />
 
-        {!isPostgresStorage && (
+        {!isPostgres && (
           <>
-            <PathRow label="Database" path={paths.pipedash_db} showFolder={isDesktop} />
-            <PathRow label="Metrics DB" path={paths.metrics_db} showFolder={isDesktop} />
+            <PathRow label="Database" path={paths.pipedash_db} kind="file" canOpen={canOpen} />
+            <PathRow label="Metrics DB" path={paths.metrics_db} kind="file" canOpen={canOpen} />
+            <PathRow label="Data directory" path={paths.data_dir} kind="directory" canOpen={canOpen} />
+            <PathRow label="Cache directory" path={paths.cache_dir} kind="directory" canOpen={canOpen} />
           </>
         )}
-
-        {(!isPostgresCache || !isPostgresStorage) && (
-          <PathRow label="Data Directory" path={paths.data_dir} showFolder={isDesktop} />
-        )}
-
-        {!isPostgresCache && <PathRow label="Cache Directory" path={paths.cache_dir} showFolder={isDesktop} />}
       </Stack>
     </Card>
   )

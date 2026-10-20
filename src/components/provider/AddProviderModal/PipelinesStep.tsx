@@ -1,7 +1,6 @@
 import {
   Box,
   Button,
-  Card,
   Group,
   Loader,
   Checkbox as MantineCheckbox,
@@ -14,14 +13,16 @@ import {
   TextInput,
   Tooltip,
 } from '@mantine/core'
-import { IconSearch } from '@tabler/icons-react'
+import { IconBuildingSkyscraper, IconSearch, IconStack2 } from '@tabler/icons-react'
 import { type Dispatch, useEffect, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
 import { usePipelinePreview, useProviderOrganizations } from '../../../queries/useProviderFieldQueries'
+import { TYPOGRAPHY } from '../../../theme/typography'
 import type { AvailablePipeline, ProviderConfig } from '../../../types'
-import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../../utils/dynamicRenderers'
+import { EmptyState } from '../../common/EmptyState'
+import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
 
 import type { FormAction, FormState } from './types'
@@ -47,16 +48,22 @@ export function PipelinesStep({
 
   const debouncedSearch = useDebounce(repositorySearch, DEBOUNCE_DELAYS.FILTER)
 
-  const { data: organizationsData, isLoading: loadingOrganizations } = useProviderOrganizations(
-    selectedPlugin?.provider_type || '',
-    providerConfig,
-    true
-  )
+  const {
+    data: organizationsData,
+    isLoading: loadingOrganizations,
+    isError: organizationsFailed,
+    error: organizationsError,
+    refetch: refetchOrganizations,
+    isFetching: fetchingOrganizations,
+  } = useProviderOrganizations(selectedPlugin?.provider_type || '', providerConfig, true)
 
   const {
     data: pipelinesData,
     isLoading: loadingPipelines,
     isFetching: searchingPipelines,
+    isError: pipelinesFailed,
+    error: pipelinesError,
+    refetch: refetchPipelines,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage: loadingMore,
@@ -133,110 +140,156 @@ export function PipelinesStep({
     }
   }
 
-  const renderMobilePipelineCards = () => {
-    return (
-      <Stack gap="xs">
-        {filteredPipelines.map((pipeline) => {
-          const isSelected = selectedPipelines.has(pipeline.id)
+  const renderBody = () => {
+    if (organizationsFailed) {
+      return (
+        <ErrorState
+          title="Couldn't load organizations"
+          error={organizationsError}
+          onRetry={() => refetchOrganizations()}
+          retrying={fetchingOrganizations}
+        />
+      )
+    }
 
-          return (
-            <MobilePipelineCard
-              key={pipeline.id}
-              pipeline={pipeline}
-              isSelected={isSelected}
-              onToggle={() => handlePipelineToggle(pipeline.id)}
+    if (loadingOrganizations) {
+      return <LoadingState variant="section" message="Loading organizations..." />
+    }
+
+    if (availableOrganizations.length === 0) {
+      return (
+        <EmptyState
+          icon={<IconBuildingSkyscraper size={24} />}
+          title="No organizations found"
+          description="This token can't access any organizations. Go back and check the credentials."
+        />
+      )
+    }
+
+    if (!selectedOrganization) {
+      return (
+        <EmptyState
+          icon={<IconBuildingSkyscraper size={24} />}
+          title="Select an organization"
+          description="Choose an organization above to list its pipelines."
+        />
+      )
+    }
+
+    if (pipelinesFailed) {
+      return (
+        <ErrorState
+          title="Couldn't load pipelines"
+          error={pipelinesError}
+          onRetry={() => refetchPipelines()}
+          retrying={searchingPipelines}
+        />
+      )
+    }
+
+    if (loadingPipelines) {
+      return <LoadingState variant="section" message="Loading pipelines..." />
+    }
+
+    const results =
+      filteredPipelines.length === 0 ? (
+        repositorySearch.trim() ? (
+          <EmptyState
+            icon={<IconSearch size={24} />}
+            title="No pipelines match your search"
+            description={
+              allPipelines?.has_more
+                ? 'No loaded pipeline matches the current search. Load more to search further.'
+                : 'No pipeline repository matches the current search.'
+            }
+            action={
+              <Button variant="default" size="sm" onClick={() => handleSearchChange('')}>
+                Clear search
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={<IconStack2 size={24} />}
+            title="No pipelines found"
+            description="This organization has no pipelines available to this token."
+          />
+        )
+      ) : (
+        <ScrollArea style={{ flex: 1, minHeight: 0 }} type="auto">
+          {isMobile ? (
+            <Stack gap="xs">
+              {filteredPipelines.map((pipeline) => (
+                <MobilePipelineCard
+                  key={pipeline.id}
+                  pipeline={pipeline}
+                  isSelected={selectedPipelines.has(pipeline.id)}
+                  onToggle={() => handlePipelineToggle(pipeline.id)}
+                />
+              ))}
+            </Stack>
+          ) : (
+            <PipelinesTable
+              pipelines={filteredPipelines}
+              selectedPipelines={selectedPipelines}
+              onToggle={handlePipelineToggle}
+              onSelectAll={handleSelectAll}
             />
-          )
-        })}
-      </Stack>
+          )}
+        </ScrollArea>
+      )
+
+    return (
+      <>
+        {results}
+        {allPipelines?.has_more && (
+          <Group justify="center" pt={4}>
+            <Button size="sm" variant="default" onClick={handleLoadMore} loading={loadingMore} disabled={loadingMore}>
+              Load more
+            </Button>
+          </Group>
+        )}
+      </>
     )
   }
 
   return (
-    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }} px="md">
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }} px="lg" pb="lg">
       <Stack gap="xs" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <Paper p="sm" withBorder style={{ flexShrink: 0, marginTop: 'var(--mantine-spacing-md)' }}>
-          {loadingOrganizations ? (
-            <LoadingState variant="section" message="Loading organizations..." minHeight="100px" />
-          ) : (
+        {!loadingOrganizations && !organizationsFailed && (
+          <Paper p="sm" style={{ flexShrink: 0, marginTop: 'var(--mantine-spacing-md)' }}>
             <Group gap="sm" wrap="nowrap" align="flex-start">
               {availableOrganizations.length > 1 && (
                 <Select
+                  aria-label="Organization"
                   placeholder="Select organization"
                   value={selectedOrganization}
                   onChange={handleOrganizationSelect}
                   data={availableOrganizations.map((org) => ({ value: org.id, label: org.name }))}
                   searchable
-                  disabled={loadingPipelines}
-                  rightSection={loadingPipelines ? <Loader size="xs" /> : undefined}
                   style={{ flex: 1 }}
-                  styles={{
-                    input: {
-                      height: 36,
-                      fontSize: '0.875rem',
-                    },
-                  }}
                 />
               )}
               <TextInput
+                aria-label="Search pipelines by repository"
                 placeholder="Search repositories..."
                 value={repositorySearch}
                 onChange={(e) => handleSearchChange(e.currentTarget.value)}
-                leftSection={searchingPipelines ? <Loader size={16} /> : <IconSearch size={16} />}
+                leftSection={
+                  searchingPipelines && !loadingPipelines && !loadingMore ? (
+                    <Loader size={16} />
+                  ) : (
+                    <IconSearch size={16} />
+                  )
+                }
                 disabled={!selectedOrganization}
                 style={{ flex: 1 }}
-                styles={{
-                  input: {
-                    height: 36,
-                    fontSize: '0.875rem',
-                  },
-                }}
               />
             </Group>
-          )}
-        </Paper>
-
-        {loadingOrganizations ? (
-          <LoadingState variant="section" message="Fetching organizations..." />
-        ) : loadingPipelines ? (
-          <LoadingState variant="section" message="Loading pipelines..." />
-        ) : !selectedOrganization ? (
-          <Box style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>
-              {availableOrganizations.length > 1 ? 'Select organization above' : 'No organizations found'}
-            </Text>
-          </Box>
-        ) : isMobile ? (
-          <ScrollArea style={{ flex: 1, minHeight: 0 }} type="auto">
-            {renderMobilePipelineCards()}
-          </ScrollArea>
-        ) : (
-          <>
-            <ScrollArea style={{ flex: 1, minHeight: 0 }} type="auto">
-              <PipelinesTable
-                pipelines={filteredPipelines}
-                selectedPipelines={selectedPipelines}
-                onToggle={handlePipelineToggle}
-                onSelectAll={handleSelectAll}
-              />
-            </ScrollArea>
-
-            {allPipelines && selectedOrganization && allPipelines.has_more && (
-              <Group justify="center" pt={4}>
-                <Button
-                  size="xs"
-                  variant="filled"
-                  color="dark.5"
-                  onClick={handleLoadMore}
-                  loading={loadingMore}
-                  disabled={loadingMore}
-                >
-                  Load More
-                </Button>
-              </Group>
-            )}
-          </>
+          </Paper>
         )}
+
+        {renderBody()}
       </Stack>
     </Box>
   )
@@ -250,53 +303,41 @@ interface MobilePipelineCardProps {
 
 function MobilePipelineCard({ pipeline, isSelected, onToggle }: MobilePipelineCardProps) {
   return (
-    <Card
-      padding="xs"
-      withBorder
-      style={{
-        cursor: 'pointer',
-        backgroundColor: isSelected ? 'var(--mantine-color-blue-light)' : undefined,
-      }}
-      onClick={onToggle}
-    >
+    <MantineCheckbox.Card checked={isSelected} onClick={onToggle} p="xs" aria-label={pipeline.name}>
       <Stack gap={4}>
-        <Group justify="space-between" wrap="nowrap">
-          <Group gap={8} wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
-            <MantineCheckbox checked={isSelected} onChange={onToggle} style={{ flexShrink: 0 }} />
-            <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
-              {pipeline.name}
-            </Text>
-          </Group>
+        <Group gap="xs" wrap="nowrap">
+          <MantineCheckbox.Indicator />
+          <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
+            {pipeline.name}
+          </Text>
         </Group>
 
         <Group gap="xs" wrap="nowrap" align="flex-start">
           <Box style={{ flex: 1, minWidth: 0 }}>
-            <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
+            <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed">
               Org
             </Text>
-            <Text size={THEME_TYPOGRAPHY.FIELD_VALUE_SMALL.size} c={THEME_COLORS.VALUE_TEXT} truncate>
+            <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} truncate>
               {pipeline.organization || '—'}
             </Text>
           </Box>
           <Box style={{ flex: 1, minWidth: 0 }}>
-            <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
+            <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed">
               Repo
             </Text>
-            <Text size={THEME_TYPOGRAPHY.FIELD_VALUE_SMALL.size} c={THEME_COLORS.VALUE_TEXT} truncate>
+            <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} truncate>
               {pipeline.repository || '—'}
             </Text>
           </Box>
         </Group>
 
         {pipeline.description && (
-          <Box>
-            <Text size={THEME_TYPOGRAPHY.FIELD_VALUE_SMALL.size} c={THEME_COLORS.DIMMED} lineClamp={1}>
-              {pipeline.description}
-            </Text>
-          </Box>
+          <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} c="dimmed" lineClamp={1}>
+            {pipeline.description}
+          </Text>
         )}
       </Stack>
-    </Card>
+    </MantineCheckbox.Card>
   )
 }
 
@@ -321,13 +362,12 @@ function PipelinesTable({ pipelines, selectedPipelines, onToggle, onSelectAll }:
       <Table.Thead>
         <Table.Tr>
           <Table.Th style={{ width: 50 }}>
-            {pipelines.length > 0 && (
-              <MantineCheckbox
-                checked={selectedPipelines.size === pipelines.length && pipelines.length > 0}
-                indeterminate={selectedPipelines.size > 0 && selectedPipelines.size < pipelines.length}
-                onChange={onSelectAll}
-              />
-            )}
+            <MantineCheckbox
+              aria-label="Select all displayed pipelines"
+              checked={selectedPipelines.size === pipelines.length}
+              indeterminate={selectedPipelines.size > 0 && selectedPipelines.size < pipelines.length}
+              onChange={onSelectAll}
+            />
           </Table.Th>
           <Table.Th style={{ width: '25%' }}>Name</Table.Th>
           <Table.Th style={{ width: '15%' }}>Organization</Table.Th>
@@ -337,9 +377,13 @@ function PipelinesTable({ pipelines, selectedPipelines, onToggle, onSelectAll }:
       </Table.Thead>
       <Table.Tbody>
         {pipelines.map((pipeline) => (
-          <Table.Tr key={pipeline.id} onClick={() => onToggle(pipeline.id)} style={{ cursor: 'pointer', height: 44 }}>
-            <Table.Td onClick={(e) => e.stopPropagation()}>
-              <MantineCheckbox checked={selectedPipelines.has(pipeline.id)} onChange={() => onToggle(pipeline.id)} />
+          <Table.Tr key={pipeline.id}>
+            <Table.Td>
+              <MantineCheckbox
+                aria-label={pipeline.name}
+                checked={selectedPipelines.has(pipeline.id)}
+                onChange={() => onToggle(pipeline.id)}
+              />
             </Table.Td>
             <Table.Td style={{ maxWidth: 0 }}>
               <Tooltip label={pipeline.name} openDelay={500}>
