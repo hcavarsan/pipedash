@@ -13,7 +13,7 @@ pub(crate) fn parse_selected_items(
         .or_else(|| config.get("pipelines")) // Fallback for backward compatibility
         .ok_or_else(|| PluginError::InvalidConfig("No pipelines selected".to_string()))?;
 
-    let organizations: HashMap<String, i32> = HashMap::new();
+    let mut organizations: HashMap<String, i32> = HashMap::new();
     let mut pipeline_slugs = Vec::new();
 
     for item in selected_items.split(',') {
@@ -23,11 +23,13 @@ pub(crate) fn parse_selected_items(
         }
 
         let parts: Vec<&str> = trimmed.split('/').collect();
-        if parts.len() == 2 {
-            let _org = parts[0].to_string();
-            let slug = parts[1].to_string();
-
-            pipeline_slugs.push(slug);
+        match parts.as_slice() {
+            [org, slug] => {
+                *organizations.entry(org.to_string()).or_insert(0) += 1;
+                pipeline_slugs.push(slug.to_string());
+            }
+            [slug] => pipeline_slugs.push(slug.to_string()),
+            _ => {}
         }
     }
 
@@ -81,5 +83,33 @@ mod tests {
             parse_repository_name("https://github.com/org/repo"),
             "org/repo"
         );
+    }
+
+    #[test]
+    fn selected_items_carry_the_organization() {
+        let config: HashMap<String, String> =
+            serde_json::from_str(r#"{"token":"test","selected_items":"acme/backend,acme/web"}"#)
+                .unwrap();
+        let (org, slugs) = parse_selected_items(&config).unwrap();
+        assert_eq!(org, "acme");
+        assert_eq!(slugs, vec!["backend", "web"]);
+    }
+
+    #[test]
+    fn example_config_pipelines_are_kept() {
+        let config: HashMap<String, String> = serde_json::from_str(
+            r#"{"organization":"mycompany","selected_items":"deploy-pipeline,test-pipeline"}"#,
+        )
+        .unwrap();
+        let (org, slugs) = parse_selected_items(&config).unwrap();
+        assert_eq!(org, "mycompany");
+        assert_eq!(slugs, vec!["deploy-pipeline", "test-pipeline"]);
+    }
+
+    #[test]
+    fn bare_slug_without_any_organization_is_rejected() {
+        let config: HashMap<String, String> =
+            serde_json::from_str(r#"{"selected_items":"deploy-pipeline"}"#).unwrap();
+        assert!(parse_selected_items(&config).is_err());
     }
 }
