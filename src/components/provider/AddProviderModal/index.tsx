@@ -329,7 +329,7 @@ export function AddProviderModal({
       disableScrollArea
     >
       <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <Box px="md" pt="md" style={{ flexShrink: 0 }}>
+        <Box px="lg" pt="md" style={{ flexShrink: 0 }}>
           <Stepper active={activeStepIndex} size={isMobile ? 'xs' : 'sm'} iconSize={isMobile ? 32 : 42}>
             <Stepper.Step
               aria-label="Step 1: Credentials"

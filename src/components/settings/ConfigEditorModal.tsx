@@ -265,13 +265,13 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     >
       <Stack gap={0} style={{ flex: 1, overflow: 'hidden' }}>
         {analyzing && (
-          <Alert icon={<Loader size={16} />} color="gray" mx="md" mt="md">
+          <Alert icon={<Loader size={16} />} color="gray" mx="lg" mt="md">
             <Text size="sm">Analyzing configuration...</Text>
           </Alert>
         )}
 
         {analysis?.migration_plan && (
-          <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Migration required" mx="md" mt="md">
+          <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Migration required" mx="lg" mt="md">
             <Text size="sm" fw={500}>
               These changes require migrating {analysis.migration_plan.steps.length} components to the new storage
               backend.
@@ -294,7 +294,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
             icon={<IconAlertCircle size={16} />}
             color="red"
             title={error.field}
-            mx="md"
+            mx="lg"
             mt="md"
           >
             <Text size="sm">{error.message}</Text>
@@ -310,7 +310,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
             icon={<IconAlertCircle size={16} />}
             color="orange"
             title={warning.field}
-            mx="md"
+            mx="lg"
             mt="md"
           >
             <Text size="sm">{warning.message}</Text>
@@ -324,7 +324,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
             title={
               analysis.postgres_connection.success ? 'PostgreSQL connection successful' : 'PostgreSQL connection failed'
             }
-            mx="md"
+            mx="lg"
             mt="md"
           >
             <Text size="sm">{analysis.postgres_connection.message}</Text>
@@ -337,7 +337,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
         )}
 
         {validationError && !analysis && (
-          <Alert icon={<IconAlertCircle size={16} />} color="red" title="Validation error" mx="md" mt="md">
+          <Alert icon={<IconAlertCircle size={16} />} color="red" title="Validation error" mx="lg" mt="md">
             <Text size="sm">{validationError}</Text>
           </Alert>
         )}

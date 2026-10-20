@@ -4,7 +4,6 @@ import { DataTable, type DataTableProps } from 'mantine-datatable'
 export function StandardTable<T>(props: DataTableProps<T>) {
   return (
     <Box
-      mt="xl"
       style={{
         width: '100%',
         height: '100%',
@@ -27,12 +26,12 @@ export function StandardTable<T>(props: DataTableProps<T>) {
           ...props.styles,
           header: {
             ...(props.styles?.header || {}),
-            fontSize: 'var(--mantine-font-size-md)',
+            fontSize: 'var(--mantine-font-size-sm)',
             fontWeight: 600,
-            paddingTop: '1rem',
-            paddingBottom: '1rem',
-            paddingLeft: '1rem',
-            paddingRight: '1rem',
+            paddingTop: 'var(--mantine-spacing-sm)',
+            paddingBottom: 'var(--mantine-spacing-sm)',
+            paddingLeft: 'var(--mantine-spacing-md)',
+            paddingRight: 'var(--mantine-spacing-md)',
             whiteSpace: 'nowrap',
             verticalAlign: 'middle',
             textAlign: 'left',
@@ -47,13 +46,13 @@ export function StandardTable<T>(props: DataTableProps<T>) {
           },
           pagination: {
             ...(props.styles?.pagination || {}),
-            paddingTop: '1rem',
+            paddingTop: 'var(--mantine-spacing-xs)',
             fontSize: 'var(--mantine-font-size-sm)',
           },
         }}
-        rowStyle={(record, index) => [{ height: '56px', verticalAlign: 'middle' }, props.rowStyle?.(record, index)]}
+        rowStyle={(record, index) => [{ height: '48px', verticalAlign: 'middle' }, props.rowStyle?.(record, index)]}
         height={props.height || '100%'}
-        verticalSpacing="sm"
+        verticalSpacing="xs"
         horizontalSpacing="md"
       />
     </Box>

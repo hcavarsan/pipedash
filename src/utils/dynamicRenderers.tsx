@@ -3,6 +3,7 @@ import { Anchor, Badge, Code } from '@mantine/core'
 import { STATUS_META } from '../theme/status'
 import type { CellRenderer, PipelineStatus } from '../types'
 
+import { formatDateTime } from './formatDateTime'
 import { formatDuration } from './formatDuration'
 import { TableCells } from './tableCells'
 
@@ -27,7 +28,7 @@ const renderDateTime = (value: CellValue): React.ReactNode => {
 
   const date = new Date(typeof value === 'number' ? value : String(value))
 
-  return Number.isNaN(date.getTime()) ? renderText(value) : TableCells.text(date.toLocaleString())
+  return Number.isNaN(date.getTime()) ? renderText(value) : TableCells.text(formatDateTime(date))
 }
 
 const renderDuration = (value: CellValue): React.ReactNode => {

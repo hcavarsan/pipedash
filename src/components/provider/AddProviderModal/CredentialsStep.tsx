@@ -1,11 +1,12 @@
 import {
   Box,
-  Checkbox as MantineCheckbox,
+  MultiSelect,
   NumberInput,
   PasswordInput,
   ScrollArea,
   Select,
   Stack,
+  Switch,
   Text,
   Textarea,
   TextInput,
@@ -68,7 +69,10 @@ export function CredentialsStep({
       const parsedConfig = JSON.parse(debouncedConfigValuesKey) as Record<string, string>
 
       for (const field of selectedPlugin.config_schema.fields) {
-        if (field.field_type === 'Select' && (!field.options || field.options.length === 0)) {
+        if (
+          (field.field_type === 'Select' || field.field_type === 'MultiSelect') &&
+          (!field.options || field.options.length === 0)
+        ) {
           try {
             const options = await service.getProviderFieldOptions(selectedPlugin.provider_type, field.key, parsedConfig)
 
@@ -154,9 +158,21 @@ export function CredentialsStep({
             clearable
           />
         )
-      case 'Checkbox':
+      case 'MultiSelect':
         return (
-          <MantineCheckbox
+          <MultiSelect
+            key={field.key}
+            {...commonProps}
+            value={value ? value.split(',').filter(Boolean) : []}
+            data={dynamicOptions[field.key] ?? field.options ?? []}
+            onChange={(values) => handleConfigChange(field.key, values.join(','))}
+            searchable
+            clearable
+          />
+        )
+      case 'Boolean':
+        return (
+          <Switch
             key={field.key}
             label={field.label}
             description={field.description ?? undefined}
@@ -173,7 +189,7 @@ export function CredentialsStep({
   return (
     <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <ScrollArea style={{ flex: 1 }} type="auto">
-        <Stack gap={isMobile ? 'xs' : 'md'} p="md">
+        <Stack gap={isMobile ? 'xs' : 'md'} px="lg" pb="lg" pt="xs">
           <Select
             label="Provider type"
             placeholder="Select a provider type"

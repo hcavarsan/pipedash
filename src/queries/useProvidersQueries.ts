@@ -6,6 +6,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { ProviderConfig, ProviderSummary } from '../types'
+import { invalidateProviderPipelines, setProviderPipelines } from './usePipelinesQueries'
 
 export function useProviders(options?: { enabled?: boolean }) {
   return useQuery({
@@ -52,11 +53,13 @@ export function useAddProvider() {
             ]
       )
 
-      queryClient.fetchQuery({
-        queryKey: queryKeys.pipelines.list({ providerId: newProviderId }),
-        queryFn: () => service.fetchPipelines(newProviderId),
-        staleTime: 0,
-      })
+      service
+        .fetchPipelines(newProviderId)
+        .then((pipelines) => setProviderPipelines(queryClient, newProviderId, pipelines))
+        .catch((error) => {
+          logger.error('useAddProvider', 'Initial pipeline fetch failed', error)
+          invalidateProviderPipelines(queryClient, newProviderId)
+        })
 
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
 
@@ -110,9 +113,7 @@ export function useUpdateProvider() {
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.pipelines.list({ providerId: id }),
-      })
+      invalidateProviderPipelines(queryClient, id)
 
       notifications.show({
         title: 'Provider updated',
@@ -136,20 +137,14 @@ export function useRemoveProvider() {
       queryClient.removeQueries({ queryKey: queryKeys.providers.schema(id) })
       queryClient.removeQueries({ queryKey: queryKeys.providers.refreshInterval(id) })
 
-      queryClient.removeQueries({
-        queryKey: queryKeys.pipelines.list({ providerId: id }),
-      })
-
+      queryClient.removeQueries({ queryKey: queryKeys.pipelines.list({ providerId: id }), exact: true })
       queryClient.removeQueries({ queryKey: queryKeys.tableSchema.detail(id) })
       queryClient.removeQueries({
         predicate: (query) => query.queryKey[0] === 'tablePreferences' && query.queryKey[1] === id,
       })
 
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.pipelines.list({}),
-      })
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
 
       notifications.show({
         title: 'Provider removed',

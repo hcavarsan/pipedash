@@ -1,12 +1,5 @@
 import { Box, Card, Group, Stack, Text, UnstyledButton } from '@mantine/core'
-import {
-  IconChevronDown,
-  IconChevronRight,
-  IconFolder,
-  IconGitBranch,
-  IconPinFilled,
-  IconPlugConnected,
-} from '@tabler/icons-react'
+import { IconChevronDown, IconChevronRight, IconFolder, IconGitBranch } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { TYPOGRAPHY } from '../../theme/typography'
@@ -61,19 +54,9 @@ export function MobilePipelineCards({
         {label}
       </Text>
       <Stack gap="xs">
-        {Array.from(row.providerIds ?? []).map((providerId) => {
-          const provider = getProvider(providerId)
-
-          return (
-            <div key={providerId}>
-              {TableCells.avatarName(
-                provider?.icon || null,
-                provider?.name || 'Unknown',
-                <IconPlugConnected size={14} />
-              )}
-            </div>
-          )
-        })}
+        {Array.from(row.providerIds ?? []).map((providerId) => (
+          <div key={providerId}>{TableCells.provider(getProvider(providerId))}</div>
+        ))}
       </Stack>
     </Box>
   )
@@ -123,17 +106,6 @@ export function MobilePipelineCards({
           )
         }
 
-        if (row.type === 'pinned-header') {
-          return (
-            <Group key={row.id} gap="xs" wrap="nowrap">
-              <IconPinFilled size={16} color="var(--mantine-color-dimmed)" />
-              <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight}>
-                Pinned workflows
-              </Text>
-            </Group>
-          )
-        }
-
         const { pipeline, pinKey } = row
 
         if (!pipeline || !pinKey) {
@@ -141,7 +113,7 @@ export function MobilePipelineCards({
         }
 
         return (
-          <Card key={row.id} padding="xs" ml={row.pinned ? undefined : 'xl'}>
+          <Card key={row.id} padding="xs" ml="xl">
             <Stack gap="xs">
               <UnstyledButton
                 className="interactive-surface"

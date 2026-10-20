@@ -50,6 +50,22 @@ select {
   background-color: var(--mantine-color-default-hover);
 }
 
+.nav-item-actions {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.nav-item:hover .nav-item-actions,
+.nav-item:focus-within .nav-item-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .nav-item-actions {
+    opacity: 1;
+  }
+}
+
 [data-mantine-color-scheme="light"] .app-logo {
   filter: invert(1);
 }

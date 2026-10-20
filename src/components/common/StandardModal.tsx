@@ -17,10 +17,10 @@ interface StandardModalProps extends ModalBaseProps {
   disableScrollArea?: boolean
 }
 
-const DESKTOP_LAYOUT: Record<ModalSize, { width: number | string; height?: string }> = {
-  md: { width: 560 },
-  lg: { width: 800, height: '85vh' },
-  xl: { width: '95vw', height: '90vh' },
+const DESKTOP_LAYOUT: Record<ModalSize, { width: string; height?: string }> = {
+  md: { width: 'min(560px, 92vw)' },
+  lg: { width: 'min(880px, 92vw)' },
+  xl: { width: 'min(1400px, 95vw)', height: 'min(90vh, 1000px)' },
 }
 
 const columnStyle = { display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' } as const
@@ -38,7 +38,7 @@ export const StandardModal = ({
   disableScrollArea = false,
 }: StandardModalProps) => {
   const { isMobile } = useIsMobile()
-  const padding = contentPadding ? 'var(--mantine-spacing-md)' : 0
+  const padding = contentPadding ? 'var(--mantine-spacing-lg)' : 0
 
   const sharedProps = {
     opened,
@@ -52,7 +52,10 @@ export const StandardModal = ({
 
   const sharedStyles = {
     title: { fontWeight: 600, fontSize: 'var(--mantine-font-size-lg)' },
-    header: { borderBottom: '1px solid var(--mantine-color-default-border)' },
+    header: {
+      borderBottom: '1px solid var(--mantine-color-default-border)',
+      paddingInline: 'var(--mantine-spacing-lg)',
+    },
     body: { ...columnStyle, flex: 1, padding: 0 },
   }
 
@@ -61,18 +64,18 @@ export const StandardModal = ({
       {disableScrollArea ? (
         <Box style={{ ...columnStyle, flex: 1, padding }}>{children}</Box>
       ) : (
-        <ScrollArea type="auto" style={{ flex: 1, minHeight: 0 }} styles={{ viewport: { padding } }}>
-          {children}
+        <ScrollArea type="auto" style={{ flex: 1, minHeight: 0 }}>
+          <Box p={padding}>{children}</Box>
         </ScrollArea>
       )}
       {footer && (
         <Box
-          px="md"
-          py="sm"
+          px="lg"
+          py="md"
           style={{
             flexShrink: 0,
             borderTop: '1px solid var(--mantine-color-default-border)',
-            paddingBottom: isMobile ? 'calc(var(--mantine-spacing-sm) + env(safe-area-inset-bottom))' : undefined,
+            paddingBottom: isMobile ? 'calc(var(--mantine-spacing-md) + env(safe-area-inset-bottom))' : undefined,
           }}
         >
           {footer}
@@ -111,7 +114,7 @@ export const StandardModal = ({
       styles={{
         ...sharedStyles,
         header: { ...sharedStyles.header, flexShrink: 0 },
-        content: { ...columnStyle, height: layout.height, maxHeight: layout.height ?? '85vh' },
+        content: { ...columnStyle, height: layout.height, maxHeight: layout.height ?? 'min(85vh, 960px)' },
       }}
     >
       {content}

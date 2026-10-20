@@ -254,7 +254,7 @@ export function PipelinesStep({
   }
 
   return (
-    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }} px="md">
+    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }} px="lg" pb="lg">
       <Stack gap="xs" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {!loadingOrganizations && !organizationsFailed && (
           <Paper p="sm" style={{ flexShrink: 0, marginTop: 'var(--mantine-spacing-md)' }}>

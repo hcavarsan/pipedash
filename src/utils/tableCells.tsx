@@ -1,9 +1,12 @@
-import { Avatar, Badge, Code, Group, Text, ThemeIcon } from '@mantine/core'
+import { Badge, Code, Group, Text } from '@mantine/core'
 
 import { CopyButton } from '../components/atoms/CopyButton'
+import { ProviderIcon } from '../components/atoms/ProviderIcon'
 import { StatusBadge } from '../components/atoms/StatusBadge'
 import { TruncatedText } from '../components/atoms/TruncatedText'
-import type { PipelineStatus } from '../types'
+import type { PipelineStatus, ProviderSummary } from '../types'
+
+import { formatDateTime } from './formatDateTime'
 
 const TABLE_CELL_STYLES = {
   text: {
@@ -109,7 +112,7 @@ export const TableCells = {
   timestamp: (date: string | null) =>
     date ? (
       <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>
-        {new Date(date).toLocaleString()}
+        {formatDateTime(date)}
       </Text>
     ) : (
       <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>
@@ -126,25 +129,17 @@ export const TableCells = {
     </Group>
   ),
 
-  avatarName: (src: string | null, name: string, fallbackIcon?: React.ReactNode) => (
+  provider: (provider: ProviderSummary | undefined) => (
     <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
-      {src ? (
-        <Avatar src={src} size={TABLE_CELL_STYLES.avatar.size} radius={TABLE_CELL_STYLES.avatar.radius}>
-          {fallbackIcon}
-        </Avatar>
-      ) : fallbackIcon ? (
-        <ThemeIcon
-          size={TABLE_CELL_STYLES.avatar.size}
-          radius={TABLE_CELL_STYLES.avatar.radius}
-          variant="light"
-          color="gray"
-        >
-          {fallbackIcon}
-        </ThemeIcon>
-      ) : (
-        <Avatar size={TABLE_CELL_STYLES.avatar.size} radius={TABLE_CELL_STYLES.avatar.radius} color="gray" />
-      )}
-      <Text size={TABLE_CELL_STYLES.text.size}>{name}</Text>
+      <ProviderIcon
+        name={provider?.name ?? 'Unknown'}
+        icon={provider?.icon ?? null}
+        size={22}
+        failed={provider?.last_fetch_status === 'error'}
+      />
+      <Text size={TABLE_CELL_STYLES.text.size} truncate>
+        {provider?.name ?? 'Unknown'}
+      </Text>
     </Group>
   ),
 }

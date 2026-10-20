@@ -12,6 +12,8 @@ import {
   useUpdateGlobalMetricsConfig,
   useUpdatePipelineMetricsConfig,
 } from '../../queries/useMetricsQueries'
+import { formatCount } from '../../utils/formatCount'
+import { formatDateTime } from '../../utils/formatDateTime'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
@@ -34,8 +36,6 @@ interface MetricsConfigModalProps {
   pipelineName?: string
   onConfigChange?: () => void
 }
-
-const formatCount = (count: number) => `${count.toLocaleString()} metric${count === 1 ? '' : 's'}`
 
 const StatRow = ({ label, value }: { label: string; value: string }) => (
   <Group justify="space-between" gap="sm" wrap="nowrap">
@@ -167,14 +167,16 @@ export const MetricsConfigModal = ({
 
     return (
       <Stack gap="xs">
-        {pipelineId && <StatRow label="This pipeline" value={formatCount(pipelineStats?.metrics_count ?? 0)} />}
+        {pipelineId && (
+          <StatRow label="This pipeline" value={formatCount(pipelineStats?.metrics_count ?? 0, 'metric')} />
+        )}
         <StatRow
           label="All pipelines"
-          value={`${formatCount(stats.data.total_metrics_count)} · ${stats.data.estimated_size_mb.toFixed(2)} MB`}
+          value={`${formatCount(stats.data.total_metrics_count, 'metric')} · ${stats.data.estimated_size_mb.toFixed(2)} MB`}
         />
         <StatRow
           label="Last cleanup (all pipelines)"
-          value={stats.data.last_cleanup_at ? new Date(stats.data.last_cleanup_at).toLocaleString() : '—'}
+          value={stats.data.last_cleanup_at ? formatDateTime(stats.data.last_cleanup_at) : '—'}
         />
       </Stack>
     )

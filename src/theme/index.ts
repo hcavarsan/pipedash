@@ -45,11 +45,11 @@ const yellow: MantineColorsTuple = [
   '#FFEB99',
   '#FFE366',
   '#FFD93D',
-  '#F0CA2E',
-  '#E0BB1F',
-  '#D0AC10',
-  '#C09D01',
-  '#B08E00',
+  '#D9A514',
+  '#A87A06',
+  '#8C6504',
+  '#715103',
+  '#573E02',
 ]
 
 const gray: MantineColorsTuple = [

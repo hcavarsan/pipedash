@@ -1,8 +1,31 @@
-import { ActionIcon, Group, Loader, Tooltip } from '@mantine/core'
+import { ActionIcon, Badge, Group, Loader, Text, Tooltip } from '@mantine/core'
 import { IconAlertTriangle, IconChartLine, IconPin, IconPinFilled, IconPlayerPlayFilled } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import type { Pipeline, PipelineStatus } from '../../types'
+import { formatDateTime } from '../../utils/formatDateTime'
 import { TableCells } from '../../utils/tableCells'
+
+interface SectionHeadingProps {
+  id?: string
+  icon: ReactNode
+  label: string
+  count: number
+}
+
+export function SectionHeading({ id, icon, label, count }: SectionHeadingProps) {
+  return (
+    <Group gap="xs">
+      {icon}
+      <Text id={id} size="sm" fw={600}>
+        {label}
+      </Text>
+      <Badge variant="light" color="gray" size="sm">
+        {count}
+      </Badge>
+    </Group>
+  )
+}
 
 export interface ProviderFetchError {
   id: number
@@ -12,9 +35,8 @@ export interface ProviderFetchError {
 
 export interface TableRow {
   id: string
-  type: 'repository' | 'workflow' | 'pinned-header'
+  type: 'repository' | 'workflow'
   name: string
-  pinned?: boolean
   pinKey?: string
   expanded?: boolean
   organization?: string
@@ -34,7 +56,7 @@ export function RowStatus({ row }: { row: TableRow }) {
   }
 
   const prefix = row.type === 'repository' ? 'Most severe workflow status. ' : ''
-  const lastActivity = row.lastRun ? new Date(row.lastRun).toLocaleString() : 'Never'
+  const lastActivity = row.lastRun ? formatDateTime(row.lastRun) : 'Never'
 
   return (
     <Tooltip label={`${prefix}Last activity: ${lastActivity}`}>

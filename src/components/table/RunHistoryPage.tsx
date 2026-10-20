@@ -46,12 +46,14 @@ import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineRun } from '../../types'
 import { getDateRangeStart } from '../../utils/dateRange'
 import { formatCount } from '../../utils/formatCount'
+import { formatDateTime } from '../../utils/formatDateTime'
 import { formatDuration } from '../../utils/formatDuration'
 import { TableCells } from '../../utils/tableCells'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
 import { FilterBar } from '../common/FilterBar'
 import { LoadingState } from '../common/LoadingState'
+import { PageContainer } from '../common/PageContainer'
 import { PageHeader } from '../common/PageHeader'
 import { StandardTable } from '../common/StandardTable'
 import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
@@ -610,7 +612,7 @@ export const RunHistoryPage = ({
                 </RunField>
                 <RunField icon={<IconCalendar size={14} />} label="Started">
                   <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>
-                    {run.started_at ? new Date(run.started_at).toLocaleString() : '—'}
+                    {run.started_at ? formatDateTime(run.started_at) : '—'}
                   </Text>
                 </RunField>
               </Group>
@@ -709,13 +711,7 @@ export const RunHistoryPage = ({
     }
 
     return (
-      <Box
-        style={{
-          height: 'calc(100vh - var(--app-shell-header-height, 70px) - 220px)',
-          minHeight: '400px',
-          position: 'relative',
-        }}
-      >
+      <Box style={{ flex: 1, minHeight: 360, position: 'relative' }}>
         <StandardTable<PipelineRun>
           records={sortedRuns}
           onRowClick={({ record }) => onViewRun(currentPipeline.id, record.run_number)}
@@ -749,20 +745,7 @@ export const RunHistoryPage = ({
     isLoadingPipeline || loading || !preferencesLoaded || (!isMobile && schemaLoading) || !pipeline?.id
 
   return (
-    <Box
-      pt={{ base: 0, sm: 'sm' }}
-      pb={{ base: 0, sm: 'md' }}
-      px={{ base: 'xs', sm: 'xl' }}
-      style={{
-        width: '100%',
-        maxWidth: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        minHeight: 0,
-        background: 'var(--mantine-color-body)',
-      }}
-    >
+    <PageContainer>
       <PageHeader
         title={
           !isLoadingPipeline && pipeline?.name ? pipeline.name : <Skeleton height="1.5rem" width="min(250px, 60vw)" />
@@ -771,8 +754,12 @@ export const RunHistoryPage = ({
         actions={headerActions}
       />
 
-      <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'history')}>
-        <Tabs.List mb="md" style={{ minHeight: '2.5rem' }}>
+      <Tabs
+        value={activeTab}
+        onChange={(value) => setActiveTab(value || 'history')}
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+      >
+        <Tabs.List mb="sm">
           <Tabs.Tab value="history" leftSection={<IconHistory size={16} />}>
             Run history
           </Tabs.Tab>
@@ -783,7 +770,14 @@ export const RunHistoryPage = ({
 
         <Tabs.Panel
           value="history"
-          style={{ width: '100%', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+          style={{
+            width: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--mantine-spacing-md)',
+            flex: 1,
+            minHeight: 0,
+          }}
         >
           {isHistoryLoading || !pipeline ? (
             <LoadingState message="Loading run history..." />
@@ -860,6 +854,6 @@ export const RunHistoryPage = ({
         currentVisibility={columnPreferences.columnVisibility}
         onApply={handleApplyCustomization}
       />
-    </Box>
+    </PageContainer>
   )
 }

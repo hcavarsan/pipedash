@@ -3,6 +3,7 @@ import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-reac
 import { useState } from 'react'
 
 import type { AggregatedMetric, AggregatedMetrics } from '../../types'
+import { formatDateTime } from '../../utils/formatDateTime'
 
 import { formatMetricValue, hasObservation, METRIC_CONFIG } from './metricsUtils'
 
@@ -106,7 +107,7 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
             {sortedMetrics.map((metric) => {
               const originalIndex = data.metrics.indexOf(metric)
               const isSelected = selectedIndex === originalIndex
-              const date = new Date(metric.timestamp).toLocaleString()
+              const date = formatDateTime(metric.timestamp)
 
               return (
                 <Table.Tr key={metric.timestamp} bg={isSelected ? 'var(--mantine-color-blue-light)' : undefined}>

@@ -1,8 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { invalidateProviderPipelines, setProviderPipelines } from '../queries/usePipelinesQueries'
 import { events, wsClient } from '../services'
-import type { Pipeline } from '../types'
 import type { EventPayloadMap } from '../types/events'
 
 import { logger } from './logger'
@@ -26,14 +26,6 @@ export function useEventSync() {
   })
   const batchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const invalidateProviderPipelines = useCallback(
-    (providerId: number) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list({ providerId }), exact: true })
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
-    },
-    [queryClient]
-  )
-
   const processBatch = useCallback(() => {
     const batch = batchedInvalidations.current
 
@@ -45,7 +37,9 @@ export function useEventSync() {
         providerIds: Array.from(batch.providerIds),
       })
 
-      batch.providerIds.forEach(invalidateProviderPipelines)
+      for (const providerId of batch.providerIds) {
+        invalidateProviderPipelines(queryClient, providerId)
+      }
     }
 
     batchedInvalidations.current = {
@@ -54,7 +48,7 @@ export function useEventSync() {
       timestamp: Date.now(),
     }
     batchTimeout.current = null
-  }, [queryClient, invalidateProviderPipelines])
+  }, [queryClient])
 
   const scheduleBatchedInvalidation = useCallback(
     (providerId?: number) => {
@@ -146,27 +140,20 @@ export function useEventSync() {
               timestamp: payload.timestamp,
             })
 
-            const allKey = queryKeys.pipelines.list()
-
             if (normalizedProviderId === undefined) {
+              const allKey = queryKeys.pipelines.list()
+
               await queryClient.cancelQueries({ queryKey: allKey, exact: true })
               queryClient.setQueryData(allKey, payload.pipelines)
 
               return
             }
 
-            const scopedKey = queryKeys.pipelines.list({ providerId: normalizedProviderId })
-
-            await queryClient.cancelQueries({ queryKey: scopedKey, exact: true })
-            queryClient.setQueryData(scopedKey, payload.pipelines)
-            queryClient.setQueryData<Pipeline[]>(allKey, (previous) =>
-              previous
-                ? [
-                    ...previous.filter((pipeline) => pipeline.provider_id !== normalizedProviderId),
-                    ...payload.pipelines,
-                  ]
-                : previous
-            )
+            await queryClient.cancelQueries({
+              queryKey: queryKeys.pipelines.list({ providerId: normalizedProviderId }),
+              exact: true,
+            })
+            setProviderPipelines(queryClient, normalizedProviderId, payload.pipelines)
 
             logger.debug('EventSync', 'pipelines-updated: Cache updated', {
               providerId: normalizedProviderId,
@@ -193,7 +180,7 @@ export function useEventSync() {
             })
 
             if (normalizedProviderId !== undefined) {
-              invalidateProviderPipelines(normalizedProviderId)
+              invalidateProviderPipelines(queryClient, normalizedProviderId)
             } else {
               queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
             }
@@ -304,7 +291,7 @@ export function useEventSync() {
       })
       cleanupFnsRef.current = []
     }
-  }, [queryClient, scheduleBatchedInvalidation, invalidateProviderPipelines])
+  }, [queryClient, scheduleBatchedInvalidation])
 
   useEffect(() => {
     let wasDisconnected = false

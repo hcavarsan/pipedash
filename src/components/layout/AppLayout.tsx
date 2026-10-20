@@ -1,5 +1,5 @@
 import { AppShell } from '@mantine/core'
-import { useDisclosure } from '@mantine/hooks'
+import { useDisclosure, useLocalStorage } from '@mantine/hooks'
 import type { ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 
@@ -20,17 +20,18 @@ export const AppLayout = ({ children, onRefreshAll, refreshing = false, onOpenSe
   const isSettingsPage = location.pathname.startsWith('/settings')
   const { isMobile } = useIsMobile()
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure(false)
-  const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true)
-  const opened = isMobile ? mobileOpened : desktopOpened
-  const toggle = isMobile ? toggleMobile : toggleDesktop
+  const [desktopCompact, setDesktopCompact] = useLocalStorage({ key: 'pipedash-sidebar-compact', defaultValue: false })
+  const compact = !isMobile && desktopCompact
+  const opened = isMobile ? mobileOpened : !desktopCompact
+  const toggle = isMobile ? toggleMobile : () => setDesktopCompact((value) => !value)
 
   return (
     <AppShell
       header={{ height: isMobile ? 'calc(70px + env(safe-area-inset-top))' : 70 }}
       navbar={{
-        width: 280,
+        width: { base: 280, sm: compact ? 68 : 248 },
         breakpoint: 'sm',
-        collapsed: { mobile: !mobileOpened, desktop: !desktopOpened || isSettingsPage },
+        collapsed: { mobile: !mobileOpened, desktop: isSettingsPage },
       }}
       padding={{ base: 'xs', sm: 'md' }}
       styles={{
@@ -51,7 +52,7 @@ export const AppLayout = ({ children, onRefreshAll, refreshing = false, onOpenSe
       </AppShell.Header>
 
       <AppShell.Navbar>
-        <Navbar onToggleSidebar={toggle} sidebarOpened={opened} />
+        <Navbar compact={compact} onToggleSidebar={toggle} sidebarOpened={opened} />
       </AppShell.Navbar>
 
       <AppShell.Main>{children}</AppShell.Main>

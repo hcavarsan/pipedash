@@ -103,7 +103,7 @@ export const Header = React.memo(
       return <Box h="100%" />
     }
 
-    const sidebarLabel = navbarOpened ? 'Hide sidebar' : 'Show sidebar'
+    const sidebarLabel = navbarOpened ? 'Collapse sidebar' : 'Expand sidebar'
     const lockLabel = canLock ? 'Lock vault' : 'Vault is locked'
 
     const sidebarToggle = onToggleNavbar && (

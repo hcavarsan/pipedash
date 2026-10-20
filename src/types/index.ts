@@ -107,7 +107,7 @@ interface PluginCapabilities {
   custom_tables: boolean
 }
 
-type ConfigFieldType = 'Text' | 'TextArea' | 'Password' | 'Number' | 'Select' | 'Checkbox'
+type ConfigFieldType = 'Text' | 'Password' | 'TextArea' | 'Boolean' | 'Select' | 'MultiSelect' | 'Number'
 
 export interface ConfigField {
   key: string
@@ -115,7 +115,7 @@ export interface ConfigField {
   description: string | null
   field_type: ConfigFieldType
   required: boolean
-  default_value: string | null
+  default_value: string | number | boolean | null
   options: string[] | null
   validation_regex: string | null
   validation_message: string | null

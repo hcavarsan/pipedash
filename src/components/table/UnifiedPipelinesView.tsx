@@ -8,11 +8,9 @@ import {
   IconFilterOff,
   IconFolder,
   IconGitBranch,
-  IconPinFilled,
   IconPlugConnected,
 } from '@tabler/icons-react'
 import type { DataTableSortStatus } from 'mantine-datatable'
-import type { ReactNode } from 'react'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -24,25 +22,27 @@ import { mostSevereStatus } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { getDateRangeStart } from '../../utils/dateRange'
+import { formatCount } from '../../utils/formatCount'
 import { TableCells } from '../../utils/tableCells'
-import { TableHeader } from '../atoms/TableHeader'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
 import { FilterBar } from '../common/FilterBar'
 import { LoadingState } from '../common/LoadingState'
+import { PageContainer } from '../common/PageContainer'
+import { PageHeader } from '../common/PageHeader'
 import { StandardModal } from '../common/StandardModal'
 import { StandardTable } from '../common/StandardTable'
 
 import { MobilePipelineCards } from './MobilePipelineCards'
+import { PinnedWorkflows } from './PinnedWorkflows'
 import {
   type ProviderFetchError,
   RepositoryFetchIndicator,
   RowStatus,
+  SectionHeading,
   type TableRow,
   WorkflowActions,
 } from './PipelineRowParts'
-
-const PINNED_HEADER_ROW: TableRow = { id: 'pinned-header', type: 'pinned-header', name: 'Pinned workflows' }
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
@@ -138,25 +138,6 @@ interface UnifiedPipelinesViewProps {
   onTrigger: (pipeline: Pipeline) => void
   onViewMetrics?: (pipeline: Pipeline) => void
 }
-
-const PageFrame = ({ children }: { children: ReactNode }) => (
-  <Box
-    pt={{ base: 0, sm: 'sm' }}
-    pb={{ base: 0, sm: '2xl' }}
-    px={{ base: 'xs', sm: 'xl' }}
-    style={{
-      width: '100%',
-      maxWidth: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      flex: 1,
-      minHeight: 0,
-      background: 'var(--mantine-color-body)',
-    }}
-  >
-    {children}
-  </Box>
-)
 
 export const UnifiedPipelinesView = ({
   pipelines,
@@ -348,12 +329,11 @@ export const UnifiedPipelinesView = ({
       rowFilters.cutoff
   )
 
-  const { pinnedRows, sections } = useMemo(() => {
-    const buildWorkflowRow = (pipeline: Pipeline, pinned: boolean): TableRow => ({
-      id: pinned ? `pinned-${pipeline.id}` : `workflow-${pipeline.id}`,
+  const { pinnedPipelines, sections } = useMemo(() => {
+    const buildWorkflowRow = (pipeline: Pipeline): TableRow => ({
+      id: `workflow-${pipeline.id}`,
       type: 'workflow',
-      name: pinned ? `${pipeline.repository} / ${pipeline.name}` : pipeline.name,
-      pinned,
+      name: pipeline.name,
       pinKey: pinKeys.get(pipeline.id),
       organization: parseRepositoryName(pipeline.repository, pipeline.provider_id).organization,
       providerIds: new Set([pipeline.provider_id]),
@@ -372,8 +352,6 @@ export const UnifiedPipelinesView = ({
     const pinned = pinnedKeys
       .map((key) => validPipelines.get(key))
       .filter((pipeline): pipeline is Pipeline => !!pipeline && matches(pipeline))
-      .map((pipeline) => buildWorkflowRow(pipeline, true))
-      .sort((a, b) => compareRows(a, b, sortStatus))
 
     const built = repoGroups.flatMap((group): Section[] => {
       const workflows = group.pipelines.filter(matches)
@@ -428,16 +406,16 @@ export const UnifiedPipelinesView = ({
             status: mostSevereStatus(workflows.map((p) => p.status)),
             lastRun,
           },
-          workflows: workflows.map((p) => buildWorkflowRow(p, false)).sort((a, b) => compareRows(a, b, sortStatus)),
+          workflows: workflows.map(buildWorkflowRow).sort((a, b) => compareRows(a, b, sortStatus)),
         },
       ]
     })
 
-    return { pinnedRows: pinned, sections: built.sort((a, b) => compareRows(a.row, b.row, sortStatus)) }
+    return { pinnedPipelines: pinned, sections: built.sort((a, b) => compareRows(a.row, b.row, sortStatus)) }
   }, [repoGroups, validPipelines, pinKeys, pinnedKeys, rowFilters, sortStatus, getProvider, parseRepositoryName])
 
   const rows = useMemo(() => {
-    const result: TableRow[] = pinnedRows.length > 0 ? [PINNED_HEADER_ROW, ...pinnedRows] : []
+    const result: TableRow[] = []
 
     sections.forEach(({ row, workflows }) => {
       const expanded = expansionOverrides[row.id] ?? filtersActive
@@ -450,7 +428,7 @@ export const UnifiedPipelinesView = ({
     })
 
     return result
-  }, [pinnedRows, sections, expansionOverrides, filtersActive])
+  }, [sections, expansionOverrides, filtersActive])
 
   const toggleRepo = useCallback(
     (repoId: string) => {
@@ -482,17 +460,17 @@ export const UnifiedPipelinesView = ({
 
   if (error) {
     return (
-      <PageFrame>
-        <TableHeader title="Repositories & Workflows" />
+      <PageContainer>
+        <PageHeader title="Pipelines" />
         <ErrorState title="Couldn't load pipelines" error={error} onRetry={onRetry} retrying={loading} />
-      </PageFrame>
+      </PageContainer>
     )
   }
 
   if (!loading && providers.length === 0) {
     return (
-      <PageFrame>
-        <TableHeader title="Repositories & Workflows" count={0} />
+      <PageContainer>
+        <PageHeader title="Pipelines" />
         <EmptyState
           icon={<IconPlugConnected size={24} />}
           title="No providers configured"
@@ -503,22 +481,22 @@ export const UnifiedPipelinesView = ({
             </Button>
           }
         />
-      </PageFrame>
+      </PageContainer>
     )
   }
 
   if (loading) {
     return (
-      <PageFrame>
-        <TableHeader title="Repositories & Workflows" count={repoGroups.length} />
+      <PageContainer>
+        <PageHeader title="Pipelines" />
         <LoadingState variant="page" message="Loading pipelines…" />
-      </PageFrame>
+      </PageContainer>
     )
   }
 
   return (
-    <PageFrame>
-      <TableHeader title="Repositories & Workflows" count={repoGroups.length} />
+    <PageContainer>
+      <PageHeader title="Pipelines" badge={formatCount(repoGroups.length, 'repository', 'repositories')} />
 
       <FilterBar
         filters={{
@@ -549,190 +527,192 @@ export const UnifiedPipelinesView = ({
         onClearAll={clearFilters}
       />
 
-      {rows.length === 0 ? (
-        filtersActive ? (
-          <EmptyState
-            icon={<IconFilterOff size={24} />}
-            title="No matching workflows"
-            description="No repositories or workflows match the current filters."
-            action={
-              <Button variant="default" size="sm" onClick={clearFilters}>
-                Clear filters
-              </Button>
-            }
-          />
-        ) : fetchErrors.length > 0 ? (
-          <ErrorState
-            title={`Couldn't fetch workflows from ${fetchErrors.map((p) => p.name).join(', ')}`}
-            error={fetchErrors[0].last_fetch_error}
-            hint="Check the provider credentials in Settings → Providers. Pipedash retries on the next refresh."
-          />
-        ) : (
-          <EmptyState
-            icon={<IconFolder size={24} />}
-            title="No workflows yet"
-            description="Workflows appear here after they run on your configured providers."
-          />
-        )
-      ) : isMobile ? (
-        <MobilePipelineCards
-          rows={rows}
+      {pinnedPipelines.length > 0 && (
+        <PinnedWorkflows
+          pipelines={pinnedPipelines}
           getProvider={getProvider}
-          onToggleRepo={toggleRepo}
-          onShowProviderError={showProviderError}
           onViewHistory={onViewHistory}
           onTrigger={onTrigger}
-          pinnedKeys={pinnedKeys}
-          onTogglePin={togglePin}
+          onUnpin={(pipeline) => {
+            const key = pinKeys.get(pipeline.id)
+
+            if (key) {
+              togglePin(key)
+            }
+          }}
           onViewMetrics={onViewMetrics}
         />
-      ) : (
-        <Box
-          style={{
-            height: 'calc(100vh - var(--app-shell-header-height, 70px) - 250px)',
-            minHeight: 'clamp(300px, 40vh, 500px)',
-            position: 'relative',
-          }}
-        >
-          <StandardTable<TableRow>
-            records={rows}
-            columns={[
-              {
-                accessor: 'name',
-                title: 'Name',
-                sortable: true,
-                width: '35%',
-                textAlign: 'left' as const,
-                render: (row) => {
-                  if (row.type === 'repository') {
+      )}
+
+      <Stack gap="sm" flex={1} mih={0}>
+        {pinnedPipelines.length > 0 && rows.length > 0 && (
+          <SectionHeading
+            icon={<IconFolder size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
+            label="Repositories"
+            count={sections.length}
+          />
+        )}
+
+        {rows.length === 0 ? (
+          filtersActive ? (
+            <EmptyState
+              icon={<IconFilterOff size={24} />}
+              title="No matching workflows"
+              description="No repositories or workflows match the current filters."
+              action={
+                <Button variant="default" size="sm" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : fetchErrors.length > 0 ? (
+            <ErrorState
+              title={`Couldn't fetch workflows from ${fetchErrors.map((p) => p.name).join(', ')}`}
+              error={fetchErrors[0].last_fetch_error}
+              hint="Check the provider credentials in Settings → Providers. Pipedash retries on the next refresh."
+            />
+          ) : (
+            <EmptyState
+              icon={<IconFolder size={24} />}
+              title="No workflows yet"
+              description="Workflows appear here after they run on your configured providers."
+            />
+          )
+        ) : isMobile ? (
+          <MobilePipelineCards
+            rows={rows}
+            getProvider={getProvider}
+            onToggleRepo={toggleRepo}
+            onShowProviderError={showProviderError}
+            onViewHistory={onViewHistory}
+            onTrigger={onTrigger}
+            pinnedKeys={pinnedKeys}
+            onTogglePin={togglePin}
+            onViewMetrics={onViewMetrics}
+          />
+        ) : (
+          <Box style={{ flex: 1, minHeight: 360, position: 'relative' }}>
+            <StandardTable<TableRow>
+              records={rows}
+              columns={[
+                {
+                  accessor: 'name',
+                  title: 'Name',
+                  sortable: true,
+                  width: '35%',
+                  textAlign: 'left' as const,
+                  render: (row) => {
+                    if (row.type === 'repository') {
+                      return (
+                        <UnstyledButton w="100%" onClick={() => toggleRepo(row.id)} aria-expanded={row.expanded}>
+                          <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
+                            {row.expanded ? (
+                              <IconChevronDown size={16} style={{ flexShrink: 0 }} />
+                            ) : (
+                              <IconChevronRight size={16} style={{ flexShrink: 0 }} />
+                            )}
+                            <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                            {TableCells.truncated(row.name)}
+                          </Group>
+                        </UnstyledButton>
+                      )
+                    }
+
+                    const { pipeline } = row
+
+                    if (!pipeline) {
+                      return null
+                    }
+
                     return (
-                      <UnstyledButton w="100%" onClick={() => toggleRepo(row.id)} aria-expanded={row.expanded}>
+                      <UnstyledButton
+                        w="100%"
+                        pl="xl"
+                        onClick={() => onViewHistory(pipeline)}
+                        aria-label={`View run history for ${row.name}`}
+                      >
                         <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
-                          {row.expanded ? (
-                            <IconChevronDown size={16} style={{ flexShrink: 0 }} />
-                          ) : (
-                            <IconChevronRight size={16} style={{ flexShrink: 0 }} />
-                          )}
-                          <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                          <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
                           {TableCells.truncated(row.name)}
                         </Group>
                       </UnstyledButton>
                     )
-                  }
-
-                  if (row.type === 'pinned-header') {
-                    return (
-                      <Group gap="xs" wrap="nowrap">
-                        <IconPinFilled size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                        {TableCells.truncated(row.name)}
-                      </Group>
-                    )
-                  }
-
-                  const { pipeline } = row
-
-                  if (!pipeline) {
-                    return null
-                  }
-
-                  return (
-                    <UnstyledButton
-                      w="100%"
-                      pl={row.pinned ? undefined : 'xl'}
-                      onClick={() => onViewHistory(pipeline)}
-                      aria-label={`View run history for ${row.name}`}
-                    >
-                      <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
-                        <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                        {TableCells.truncated(row.name)}
-                      </Group>
-                    </UnstyledButton>
-                  )
+                  },
                 },
-              },
-              {
-                accessor: 'organization',
-                title: 'Organization',
-                sortable: true,
-                width: 160,
-                textAlign: 'left' as const,
-                render: (row) => (row.type === 'pinned-header' ? null : TableCells.truncatedDimmed(row.organization)),
-              },
-              {
-                accessor: 'status',
-                title: 'Status',
-                sortable: true,
-                width: 110,
-                textAlign: 'center' as const,
-                render: (row) => (
-                  <Group justify="center">
-                    <RowStatus row={row} />
-                  </Group>
-                ),
-              },
-              {
-                accessor: 'provider',
-                title: 'Provider',
-                sortable: true,
-                width: 200,
-                textAlign: 'left' as const,
-                render: (row) => (
-                  <Stack gap="xs">
-                    {Array.from(row.providerIds ?? []).map((providerId) => {
-                      const provider = getProvider(providerId)
-
+                {
+                  accessor: 'organization',
+                  title: 'Organization',
+                  sortable: true,
+                  width: 160,
+                  textAlign: 'left' as const,
+                  render: (row) => TableCells.truncatedDimmed(row.organization),
+                },
+                {
+                  accessor: 'status',
+                  title: 'Status',
+                  sortable: true,
+                  width: 110,
+                  textAlign: 'center' as const,
+                  render: (row) => (
+                    <Group justify="center">
+                      <RowStatus row={row} />
+                    </Group>
+                  ),
+                },
+                {
+                  accessor: 'provider',
+                  title: 'Provider',
+                  sortable: true,
+                  width: 200,
+                  textAlign: 'left' as const,
+                  render: (row) => (
+                    <Stack gap="xs">
+                      {Array.from(row.providerIds ?? []).map((providerId) => (
+                        <div key={providerId}>{TableCells.provider(getProvider(providerId))}</div>
+                      ))}
+                    </Stack>
+                  ),
+                },
+                {
+                  accessor: 'actions',
+                  title: 'Actions',
+                  width: onViewMetrics ? 160 : 140,
+                  textAlign: 'center' as const,
+                  render: (row) => {
+                    if (row.type === 'repository') {
                       return (
-                        <div key={providerId}>
-                          {TableCells.avatarName(
-                            provider?.icon || null,
-                            provider?.name || 'Unknown',
-                            <IconPlugConnected size={14} />
-                          )}
-                        </div>
+                        <Group justify="center">
+                          <RepositoryFetchIndicator row={row} onShowError={showProviderError} />
+                        </Group>
                       )
-                    })}
-                  </Stack>
-                ),
-              },
-              {
-                accessor: 'actions',
-                title: 'Actions',
-                width: onViewMetrics ? 160 : 140,
-                textAlign: 'center' as const,
-                render: (row) => {
-                  if (row.type === 'repository') {
-                    return (
-                      <Group justify="center">
-                        <RepositoryFetchIndicator row={row} onShowError={showProviderError} />
-                      </Group>
-                    )
-                  }
+                    }
 
-                  const { pipeline, pinKey: rowPinKey } = row
+                    const { pipeline, pinKey: rowPinKey } = row
 
-                  if (row.type === 'workflow' && pipeline && rowPinKey) {
-                    return (
-                      <Group justify="center">
-                        <WorkflowActions
-                          pipeline={pipeline}
-                          isPinned={pinnedKeys.includes(rowPinKey)}
-                          onTogglePin={() => togglePin(rowPinKey)}
-                          onTrigger={onTrigger}
-                          onViewMetrics={onViewMetrics}
-                        />
-                      </Group>
-                    )
-                  }
+                    if (row.type === 'workflow' && pipeline && rowPinKey) {
+                      return (
+                        <Group justify="center">
+                          <WorkflowActions
+                            pipeline={pipeline}
+                            isPinned={pinnedKeys.includes(rowPinKey)}
+                            onTogglePin={() => togglePin(rowPinKey)}
+                            onTrigger={onTrigger}
+                            onViewMetrics={onViewMetrics}
+                          />
+                        </Group>
+                      )
+                    }
 
-                  return null
+                    return null
+                  },
                 },
-              },
-            ]}
-            sortStatus={sortStatus}
-            onSortStatusChange={setSortStatus}
-          />
-        </Box>
-      )}
+              ]}
+              sortStatus={sortStatus}
+              onSortStatusChange={setSortStatus}
+            />
+          </Box>
+        )}
+      </Stack>
 
       <StandardModal
         opened={errorModalOpened}
@@ -764,6 +744,6 @@ export const UnifiedPipelinesView = ({
           </Stack>
         )}
       </StandardModal>
-    </PageFrame>
+    </PageContainer>
   )
 }

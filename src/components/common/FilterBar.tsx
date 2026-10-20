@@ -167,7 +167,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
   }, [filters, onClearAll])
 
   return (
-    <Box mb="md">
+    <Box>
       <Group gap="sm" wrap="wrap" align="flex-start">
         {filters.search && (
           <TextInput

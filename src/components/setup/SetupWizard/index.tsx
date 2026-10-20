@@ -481,9 +481,9 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       <Stack gap={0} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {!loading && !isSuccessStep && (
           <Box
-            px="md"
-            pt="xl"
-            pb="lg"
+            px="lg"
+            pt="md"
+            pb="md"
             style={{
               flexShrink: 0,
               borderBottom: '1px solid var(--mantine-color-default-border)',
@@ -511,13 +511,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <ScrollArea style={{ flex: 1 }} type="auto">
-            <Box
-              px={isMobile ? 'xs' : 'md'}
-              pt={isSuccessStep ? (isMobile ? 'xs' : 'md') : isMobile ? 'md' : 'xl'}
-              pb={isMobile ? 'xs' : 'md'}
-              maw="100%"
-              mx="auto"
-            >
+            <Box px="lg" py="lg">
               {getCurrentStepContent()}
             </Box>
           </ScrollArea>

@@ -16,7 +16,7 @@ export const PageHeader = ({ title, subtitle, badge, onBack, backLabel = 'Back',
   const { isMobile } = useIsMobile()
 
   return (
-    <Box mb="xs" mih={isMobile ? 32 : 40}>
+    <Box mih={isMobile ? 32 : 40}>
       <Group gap="xs" align="center" h={isMobile ? 32 : 40} justify="space-between" wrap="nowrap">
         <Group gap="xs" align="center" flex={1} miw={0}>
           {onBack && (
@@ -36,7 +36,7 @@ export const PageHeader = ({ title, subtitle, badge, onBack, backLabel = 'Back',
                 {title}
               </Title>
               {badge && (
-                <Badge variant="light" size={isMobile ? 'xs' : 'sm'} fw={500}>
+                <Badge variant="light" color="gray" size={isMobile ? 'xs' : 'sm'} fw={500}>
                   {badge}
                 </Badge>
               )}
