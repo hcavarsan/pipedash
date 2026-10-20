@@ -821,7 +821,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::infrastructure::token_store::MemoryTokenStore;
+    use crate::{
+        infrastructure::token_store::MemoryTokenStore,
+        test_env::EnvGuard,
+    };
 
     async fn create_test_manager(temp_dir: &TempDir) -> StorageManager {
         let mut config = PipedashConfig::default();
@@ -920,7 +923,7 @@ mod tests {
         let target_dir = TempDir::new().unwrap();
         let config_path = source_dir.path().join("config.toml");
         std::fs::write(&config_path, "[storage]\nbackend = \"sqlite\"\n").unwrap();
-        std::env::set_var("PIPEDASH_CONFIG_PATH", &config_path);
+        let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
 
         let mut source = PipedashConfig::default();
         source.storage.data_dir = source_dir.path().to_string_lossy().to_string();
