@@ -368,6 +368,10 @@ jobs:
           crate_name=$(basename "$crate_path")
           max_retries=3
           retry_delay=30
+          publish_args=()
+          if [ "${3:-}" = "allow-dirty" ]; then
+            publish_args+=(--allow-dirty)
+          fi
 
           # Wait 60s between publishes to avoid rate limiting
           if [ "${2:-}" = "wait" ]; then
@@ -381,13 +385,13 @@ jobs:
           for attempt in $(seq 1 "$max_retries"); do
             echo "Attempt $attempt/$max_retries for $crate_name"
 
-            if cargo publish; then
+            if cargo publish "${publish_args[@]}"; then
               echo "Successfully published $crate_name"
               exit 0
             fi
 
             # Check if already published
-            if cargo publish --dry-run 2>&1 | grep -q "already uploaded\|already exists"; then
+            if cargo publish --dry-run "${publish_args[@]}" 2>&1 | grep -q "already uploaded\|already exists"; then
               echo "$crate_name already published, skipping"
               exit 0
             fi
@@ -502,8 +506,10 @@ jobs:
       - name: Publish pipedash-web
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth-web.outputs.token }}
+        # dist/ is gitignored build output from the frontend step, and cargo
+        # counts packaged files that git ignores as uncommitted changes.
         run: |
-          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-web wait
+          "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-web wait allow-dirty
 
   update-release:
     name: Update release notes and publish
