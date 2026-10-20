@@ -234,7 +234,6 @@ mise run build:front   # frontend assets only
 mise run build:tauri   # desktop app
 mise run build:ios     # iOS app
 mise run build:android # Android app
-mise run build:docker  # Docker image
 
 # Code quality
 mise run fmt           # format all code
@@ -252,10 +251,11 @@ mise run ci            # run all CI checks (fmt, lint, check)
 mise run precommit     # pre-commit hook (fmt + lint + check)
 mise run release       # full release build (ci + build)
 
-# Docker
-mise run docker:up     # start Docker Compose stack
-mise run docker:down   # stop Docker Compose stack
-mise run docker:logs   # view Docker Compose logs
+# Docker examples
+mise run examples:sqlite:up      # build and start the SQLite example
+mise run examples:sqlite:down    # stop the SQLite example and remove its data
+mise run examples:postgres:up    # build and start the PostgreSQL example
+mise run examples:postgres:down  # stop the PostgreSQL example and remove its data
 
 # Utilities
 mise run clean         # remove build artifacts
@@ -264,14 +264,16 @@ mise run knip          # find unused code
 
 ## Docker setup
 
-Run Pipedash as a web app via Docker Compose:
+Run Pipedash as a web app via Docker Compose. The compose files live in `examples/`:
 
 ```bash
-docker-compose up -d        # start
-docker-compose logs -f      # view logs
-docker-compose down         # stop
-docker-compose down -v      # stop and reset data
+docker compose -f examples/sqlite/docker-compose.yml up -d --build   # build and start
+docker compose -f examples/sqlite/docker-compose.yml logs -f         # view logs
+docker compose -f examples/sqlite/docker-compose.yml down            # stop
+docker compose -f examples/sqlite/docker-compose.yml down -v         # stop and reset data
 ```
+
+`examples/postgres/docker-compose.yml` runs the same app with PostgreSQL storage.
 
 Open http://localhost:8080 in your browser.
 
@@ -279,11 +281,7 @@ The API server serves the frontend directly (it's embedded in the binary). A sin
 
 **Token storage**: Add providers via the web UI. Pipedash encrypts your tokens with AES-256-GCM and stores them in the database. The encryption key is auto-generated on first run and persists in the Docker volume.
 
-**Custom port**: Set `PIPEDASH_PORT` in your environment or `.env` file:
-
-```bash
-PIPEDASH_PORT=3000 docker-compose up -d
-```
+**Custom port**: Change the host side of `"8080:8080"` under `ports` in the compose file, for example to `"3000:8080"`.
 
 ## Config
 
@@ -301,7 +299,6 @@ PIPEDASH_PORT=3000 docker-compose up -d
 | `PIPEDASH_CORS_ALLOW_ALL` | `false` | Allow cross-origin API requests from any site |
 | `PIPEDASH_CONFIG_PATH` | Auto-discovered | Path to TOML configuration file |
 | `PIPEDASH_POSTGRES_URL` | – | PostgreSQL connection string |
-| `PIPEDASH_PORT` | `8080` | Docker host port (docker-compose only) |
 | `RUST_LOG` | `info` | Log level (debug, info, warn, error) |
 
 **Configuration file**
