@@ -156,6 +156,29 @@ impl TektonPlugin {
     }
 }
 
+fn find_run(
+    runs: Vec<types::TektonPipelineRun>, run_number: i64,
+) -> PluginResult<types::TektonPipelineRun> {
+    let mut matching: Vec<_> = runs
+        .into_iter()
+        .filter(|r| mapper::run_number(&r.metadata) == run_number)
+        .collect();
+
+    match matching.len() {
+        0 => Err(PluginError::PipelineNotFound(format!(
+            "PipelineRun #{run_number} not found"
+        ))),
+        1 => Ok(matching.remove(0)),
+        _ => {
+            let names: Vec<_> = matching.iter().map(|r| r.metadata.name.as_str()).collect();
+            Err(PluginError::ApiError(format!(
+                "PipelineRuns {} share run number {run_number}. Use kubectl to pick one",
+                names.join(", ")
+            )))
+        }
+    }
+}
+
 #[async_trait]
 impl Plugin for TektonPlugin {
     fn metadata(&self) -> &PluginMetadata {
@@ -299,12 +322,7 @@ impl Plugin for TektonPlugin {
             .list_pipelineruns(&namespace, Some(&pipeline_name))
             .await?;
 
-        let run = runs
-            .into_iter()
-            .find(|r| mapper::run_number(&r.metadata) == run_number)
-            .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!("PipelineRun #{run_number} not found"))
-            })?;
+        let run = find_run(runs, run_number)?;
 
         Ok(mapper::map_pipeline_run(&run, provider_id))
     }
@@ -413,12 +431,7 @@ impl Plugin for TektonPlugin {
             .list_pipelineruns(&namespace, Some(&pipeline_name))
             .await?;
 
-        let run = runs
-            .into_iter()
-            .find(|r| mapper::run_number(&r.metadata) == run_number)
-            .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!("PipelineRun #{run_number} not found"))
-            })?;
+        let run = find_run(runs, run_number)?;
 
         client
             .delete_pipelinerun(&namespace, &run.metadata.name)
@@ -539,15 +552,14 @@ mod tests {
 
     const CREATED: &str = "2026-10-20T10:00:00Z";
 
-    fn run_json(name: &str, pipeline: &str) -> String {
-        let uid = name.bytes().map(u32::from).sum::<u32>();
+    fn run_json(name: &str, pipeline: &str, uid: &str) -> String {
         format!(
-            r#"{{"apiVersion":"tekton.dev/v1","kind":"PipelineRun","metadata":{{"name":"{name}","namespace":"ci","uid":"{uid:08x}-0000-4000-8000-000000000000","creationTimestamp":"{CREATED}","labels":{{"tekton.dev/pipeline":"{pipeline}"}}}},"spec":{{"pipelineRef":{{"name":"{pipeline}"}}}},"status":{{"startTime":"{CREATED}","conditions":[{{"type":"Running","status":"Unknown","reason":"Running"}}]}}}}"#
+            r#"{{"apiVersion":"tekton.dev/v1","kind":"PipelineRun","metadata":{{"name":"{name}","namespace":"ci","uid":"{uid}","creationTimestamp":"{CREATED}","labels":{{"tekton.dev/pipeline":"{pipeline}"}}}},"spec":{{"pipelineRef":{{"name":"{pipeline}"}}}},"status":{{"startTime":"{CREATED}","conditions":[{{"type":"Running","status":"Unknown","reason":"Running"}}]}}}}"#
         )
     }
 
     fn stub_apiserver(
-        runs: &'static [(&'static str, &'static str)],
+        runs: &'static [(&'static str, &'static str, &'static str)],
     ) -> (String, mpsc::Receiver<String>) {
         let (log, requests) = mpsc::channel();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -572,8 +584,8 @@ mod tests {
                     let selector = target.split("labelSelector=tekton.dev/pipeline=").nth(1);
                     let items: Vec<String> = runs
                         .iter()
-                        .filter(|(_, pipeline)| selector.is_none_or(|s| s == *pipeline))
-                        .map(|(name, pipeline)| run_json(name, pipeline))
+                        .filter(|(_, pipeline, _)| selector.is_none_or(|s| s == *pipeline))
+                        .map(|(name, pipeline, uid)| run_json(name, pipeline, uid))
                         .collect();
                     format!(r#"{{"items":[{}]}}"#, items.join(","))
                 } else {
@@ -617,7 +629,14 @@ mod tests {
             .collect()
     }
 
-    const TWO_PIPELINES: &[(&str, &str)] = &[("build-run-1", "build"), ("lint-run-1", "lint")];
+    const TWO_PIPELINES: &[(&str, &str, &str)] = &[
+        (
+            "build-run-1",
+            "build",
+            "0000000a-0000-4000-8000-000000000000",
+        ),
+        ("lint-run-1", "lint", "0000000b-0000-4000-8000-000000000000"),
+    ];
 
     #[tokio::test]
     async fn run_details_returns_run_of_requested_pipeline() {
@@ -662,7 +681,10 @@ mod tests {
     #[tokio::test]
     async fn cancel_run_deletes_only_the_requested_run_when_runs_share_the_second() {
         let dir = tempfile::tempdir().unwrap();
-        let (server, requests) = stub_apiserver(&[("lint-run-1", "lint"), ("lint-run-2", "lint")]);
+        let (server, requests) = stub_apiserver(&[
+            ("lint-run-1", "lint", "0000000b-0000-4000-8000-000000000000"),
+            ("lint-run-2", "lint", "0000000c-0000-4000-8000-000000000000"),
+        ]);
         let plugin = plugin(&server, &dir);
 
         let history = plugin
@@ -683,5 +705,31 @@ mod tests {
             deletes(&requests),
             vec!["DELETE /apis/tekton.dev/v1/namespaces/ci/pipelineruns/lint-run-2"]
         );
+    }
+
+    #[tokio::test]
+    async fn cancel_run_refuses_when_run_numbers_collide() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, requests) = stub_apiserver(&[
+            ("lint-run-1", "lint", "00000001-0000-4000-8000-000000000001"),
+            ("lint-run-2", "lint", "00000001-0000-4000-8000-000000000002"),
+        ]);
+        let plugin = plugin(&server, &dir);
+
+        let history = plugin
+            .fetch_run_history("tekton__1__ci__lint", 10)
+            .await
+            .unwrap();
+        assert_eq!(history[0].run_number, history[1].run_number);
+        let result = plugin
+            .cancel_run("tekton__1__ci__lint", history[0].run_number)
+            .await;
+
+        assert!(result.is_err(), "{result:?}");
+        assert_eq!(deletes(&requests), Vec::<String>::new());
+        assert!(plugin
+            .fetch_run_details("tekton__1__ci__lint", history[0].run_number)
+            .await
+            .is_err());
     }
 }
