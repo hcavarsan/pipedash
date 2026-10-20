@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
-use futures::future::join_all;
+use futures::future::{
+    join_all,
+    try_join_all,
+};
 use pipedash_plugin_api::*;
 
 use crate::{
@@ -67,22 +70,22 @@ impl TektonPlugin {
             let unique_namespaces: std::collections::HashSet<String> = selected_ids
                 .iter()
                 .filter_map(|id| {
-                    config::parse_pipeline_id(id)
-                        .ok()
-                        .map(|(_provider_id, namespace, _pipeline_name)| namespace)
+                    id.split_once("__")
+                        .map(|(namespace, _)| namespace.to_string())
                 })
                 .collect();
             unique_namespaces.into_iter().collect()
         };
 
-        let pipeline_futures = namespaces
-            .iter()
-            .map(|namespace| async move { client.list_pipelines(namespace).await.ok() });
-
-        let results: Vec<Option<Vec<types::TektonPipeline>>> = join_all(pipeline_futures).await;
-
-        let all_pipelines: Vec<types::TektonPipeline> =
-            results.into_iter().flatten().flatten().collect();
+        let all_pipelines: Vec<types::TektonPipeline> = try_join_all(
+            namespaces
+                .iter()
+                .map(|namespace| client.list_pipelines(namespace)),
+        )
+        .await?
+        .into_iter()
+        .flatten()
+        .collect();
 
         if selected_ids.is_empty() {
             Ok(all_pipelines)
@@ -580,7 +583,20 @@ mod tests {
                 let target = parts.next().unwrap_or_default().to_string();
                 let _ = log.send(format!("{method} {target}"));
 
-                let body = if method == "GET" {
+                let body = if method == "GET" && target.contains("/pipelines") {
+                    let mut names: Vec<&str> =
+                        runs.iter().map(|(_, pipeline, _)| *pipeline).collect();
+                    names.dedup();
+                    let items: Vec<String> = names
+                        .iter()
+                        .map(|name| {
+                            format!(
+                                r#"{{"apiVersion":"tekton.dev/v1","kind":"Pipeline","metadata":{{"name":"{name}","namespace":"ci"}},"spec":{{}}}}"#
+                            )
+                        })
+                        .collect();
+                    format!(r#"{{"items":[{}]}}"#, items.join(","))
+                } else if method == "GET" {
                     let selector = target.split("labelSelector=tekton.dev/pipeline=").nth(1);
                     let items: Vec<String> = runs
                         .iter()
@@ -591,8 +607,13 @@ mod tests {
                 } else {
                     "{}".to_string()
                 };
+                let status = if target.contains("/namespaces/denied/") {
+                    "403 Forbidden"
+                } else {
+                    "200 OK"
+                };
                 let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = stream.write_all(response.as_bytes());
@@ -637,6 +658,40 @@ mod tests {
         ),
         ("lint-run-1", "lint", "0000000b-0000-4000-8000-000000000000"),
     ];
+
+    #[tokio::test]
+    async fn fetch_pipelines_loads_only_selected_pipelines() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, _requests) = stub_apiserver(TWO_PIPELINES);
+        let mut plugin = plugin(&server, &dir);
+        let available = plugin.fetch_available_pipelines(None).await.unwrap();
+        let build = available.items.iter().find(|p| p.name == "build").unwrap();
+
+        let mut config = plugin.config.clone();
+        config.insert("selected_items".to_string(), build.id.clone());
+        plugin.initialize(1, config, None).unwrap();
+        let ids: Vec<String> = plugin
+            .fetch_pipelines()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+
+        assert_eq!(ids, vec!["tekton__1__ci__build"]);
+    }
+
+    #[tokio::test]
+    async fn fetch_pipelines_fails_when_any_namespace_is_forbidden() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, _requests) = stub_apiserver(TWO_PIPELINES);
+        let mut plugin = plugin(&server, &dir);
+        let mut config = plugin.config.clone();
+        config.insert("namespaces".to_string(), "ci,denied".to_string());
+        plugin.initialize(1, config, None).unwrap();
+
+        assert!(plugin.fetch_pipelines().await.is_err());
+    }
 
     #[tokio::test]
     async fn run_details_returns_run_of_requested_pipeline() {
