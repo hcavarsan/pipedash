@@ -7,6 +7,7 @@ import { modals } from '@mantine/modals'
 import { IconAdjustments, IconCalendar, IconChartLine, IconClock, IconFileText, IconGitBranch, IconHistory, IconRefresh, IconSquare, IconUser } from '@tabler/icons-react'
 
 import { PAGE_SIZES } from '../../constants/pagination'
+import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useTableColumns } from '../../hooks/useTableColumns'
 import { useRunHistoryFilters } from '../../hooks/useUrlState'
@@ -540,6 +541,14 @@ return []
     return sorted
   }, [filteredRuns, sortStatus])
 
+  const { selectedRuns, isRunCancellable, selectRuns, cancelSelected, isCancelling: isCancellingSelected } = useBulkCancelRuns({
+    pipelineId: pipeline?.id,
+    page,
+    runs: sortedRuns,
+    enabled: !!onCancel,
+    cancellingRunNumber,
+  })
+
   const mobileRuns = useMemo(() => {
     if (!isMobile) {
 return sortedRuns
@@ -820,17 +829,31 @@ result = result.filter(run => run.actor === actorFilter)
                     },
                   }}
                 />
-                {isError && (
-                  <Button
-                    size="xs"
-                    variant="light"
-                    color="red"
-                    leftSection={<IconRefresh size={14} />}
-                    onClick={() => refetchRuns()}
-                  >
-                    Retry
-                  </Button>
-                )}
+                <Group gap="xs" wrap="nowrap">
+                  {!isMobile && selectedRuns.length > 0 && (
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="red"
+                      leftSection={<IconSquare size={14} />}
+                      loading={isCancellingSelected}
+                      onClick={cancelSelected}
+                    >
+                      Cancel selected
+                    </Button>
+                  )}
+                  {isError && (
+                    <Button
+                      size="xs"
+                      variant="light"
+                      color="red"
+                      leftSection={<IconRefresh size={14} />}
+                      onClick={() => refetchRuns()}
+                    >
+                      Retry
+                    </Button>
+                  )}
+                </Group>
               </Group>
 
           {isMobile ? (
@@ -846,6 +869,11 @@ result = result.filter(run => run.actor === actorFilter)
               onRowClick={({ record }) => onViewRun(pipeline!.id, record.run_number)}
               rowStyle={() => ({ cursor: 'pointer' })}
               columns={columns}
+              {...(onCancel && {
+                selectedRecords: selectedRuns,
+                onSelectedRecordsChange: selectRuns,
+                isRecordSelectable: isRunCancellable,
+              })}
               sortStatus={sortStatus}
               onSortStatusChange={setSortStatus}
               fetching={pageLoading}

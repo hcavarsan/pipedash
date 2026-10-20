@@ -165,3 +165,47 @@ export function useCancelRun() {
     },
   })
 }
+
+export function useCancelRuns() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ pipelineId, runNumbers }: { pipelineId: string; runNumbers: number[] }) => {
+      const results = await Promise.allSettled(
+        runNumbers.map((runNumber) => service.cancelPipelineRun(pipelineId, runNumber))
+      )
+
+      return {
+        cancelled: runNumbers.filter((_, index) => results[index].status === 'fulfilled'),
+        failed: runNumbers.filter((_, index) => results[index].status === 'rejected'),
+      }
+    },
+
+    onSuccess: ({ cancelled, failed }, { pipelineId, runNumbers }) => {
+      cancelled.forEach((runNumber) => {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.runs.detail(pipelineId, runNumber),
+        })
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.runs.list(pipelineId),
+      })
+
+      if (failed.length === 0) {
+        notifications.show({
+          title: 'Runs cancelled',
+          message: `Cancellation requested for ${cancelled.length} ${cancelled.length === 1 ? 'run' : 'runs'}`,
+          color: 'blue',
+        })
+
+        return
+      }
+
+      notifications.show({
+        title: 'Some runs were not cancelled',
+        message: `Cancellation requested for ${cancelled.length} of ${runNumbers.length} runs. Failed: ${failed.map((runNumber) => `#${runNumber}`).join(', ')}`,
+        color: 'red',
+      })
+    },
+  })
+}
