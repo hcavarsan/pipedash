@@ -11,6 +11,7 @@ import { AppLayout } from './components/layout/AppLayout'
 import { TriggerWorkflowModal } from './components/pipeline/TriggerWorkflowModal'
 import { WorkflowLogsModal } from './components/pipeline/WorkflowLogsModal'
 import { SetupWizard } from './components/setup/SetupWizard'
+import { useFailureNotifications } from './hooks/useFailureNotifications'
 import { useEventSync } from './lib/eventSync'
 import { logger } from './lib/logger'
 import { queryKeys } from './lib/queryKeys'
@@ -32,6 +33,7 @@ function AppContent() {
   const queryClient = useQueryClient()
 
   useEventSync()
+  useFailureNotifications()
 
   const { data: vaultStatus } = useVaultStatus()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)

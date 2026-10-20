@@ -19,6 +19,9 @@
     "core:window:allow-outer-size",
     "core:window:allow-scale-factor",
     "opener:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
     "dialog:allow-save",
     "fs:allow-write-text-file",
     "fs:allow-write-file"

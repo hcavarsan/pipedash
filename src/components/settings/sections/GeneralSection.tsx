@@ -1,11 +1,13 @@
-import { Box, Button, Card, Divider, Select, Stack, Text, ThemeIcon } from '@mantine/core'
+import { Box, Button, Card, Divider, Select, Stack, Switch, Text, ThemeIcon } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle, IconTrash } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
 import { useFactoryReset } from '@/queries/usePlatformQueries'
+import { useNotificationStore } from '@/stores/notificationStore'
 import { getPlatformOverride, platform, setPlatformOverride } from '@/utils/platform'
+import { requestSystemNotificationPermission, systemNotificationsSupported } from '@/utils/systemNotifications'
 
 interface GeneralSectionProps {
   onRefresh?: () => Promise<void>
@@ -15,6 +17,9 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
   const [platformOverride, setPlatformOverrideState] = useState<string | null>(null)
   const [currentPlatform, setCurrentPlatform] = useState<string>('linux')
   const factoryResetMutation = useFactoryReset()
+  const failureNotificationsEnabled = useNotificationStore((s) => s.failureNotificationsEnabled)
+  const setFailureNotificationsEnabled = useNotificationStore((s) => s.setFailureNotificationsEnabled)
+  const notificationsSupported = systemNotificationsSupported()
 
   useEffect(() => {
     const loadPlatform = async () => {
@@ -32,6 +37,26 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
   const handlePlatformChange = (value: string | null) => {
     setPlatformOverride(value as 'macos' | 'windows' | 'linux' | null)
     setPlatformOverrideState(value)
+  }
+
+  const handleFailureNotificationsChange = async (enabled: boolean) => {
+    if (!enabled) {
+      setFailureNotificationsEnabled(false)
+
+      return
+    }
+
+    if (!(await requestSystemNotificationPermission())) {
+      notifications.show({
+        title: 'Notifications blocked',
+        message: 'Allow notifications for Pipedash in your browser or system settings, then turn this on again.',
+        color: 'orange',
+      })
+
+      return
+    }
+
+    setFailureNotificationsEnabled(true)
   }
 
   const handleResetStorage = () => {
@@ -109,6 +134,18 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
             ]}
             value={platformOverride || ''}
             onChange={handlePlatformChange}
+          />
+
+          <Switch
+            label="Notify when a pipeline fails"
+            description={
+              notificationsSupported
+                ? 'Shows a system notification when a refresh moves a pipeline to failed'
+                : 'Browsers allow notifications only over HTTPS or on localhost'
+            }
+            checked={notificationsSupported && failureNotificationsEnabled}
+            onChange={(e) => handleFailureNotificationsChange(e.currentTarget.checked)}
+            disabled={!notificationsSupported}
           />
         </Stack>
       </Card>
