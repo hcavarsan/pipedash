@@ -1,4 +1,3 @@
-
 const isDev = import.meta.env.DEV
 
 function formatMessage(component: string, message: string, data?: unknown): string[] {
@@ -56,4 +55,3 @@ export const logger = {
     console.groupEnd()
   },
 }
-

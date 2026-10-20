@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
-
-import { parse } from '@iarna/toml'
 import { Alert, Badge, Button, Group, Loader, Stack, Text } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import Editor from '@monaco-editor/react'
 import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
+import { useCallback, useEffect, useState } from 'react'
+import { parse } from 'smol-toml'
 
 import { service } from '../../services'
 import type { ConfigAnalysisResponse, MigrationOptions } from '../../types'
@@ -20,12 +19,7 @@ interface ConfigEditorModalProps {
   onSaved?: () => void
 }
 
-export const ConfigEditorModal = ({
-  opened,
-  onClose,
-  initialContent,
-  onSaved,
-}: ConfigEditorModalProps) => {
+export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: ConfigEditorModalProps) => {
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -49,45 +43,48 @@ export const ConfigEditorModal = ({
     if (!toml.trim()) {
       setValidationError('Config file cannot be empty')
 
-return false
+      return false
     }
 
     try {
       parse(toml)
       setValidationError(null)
 
-return true
+      return true
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Invalid TOML syntax'
 
       setValidationError(error)
 
-return false
+      return false
     }
   }
 
-  const analyzeChanges = useCallback(async (newContent: string) => {
-    if (!newContent.trim()) {
-      return
-    }
-
-    setAnalyzing(true)
-    try {
-      const result = await service.analyzeConfig(newContent)
-
-      setAnalysis(result)
-
-      if (!result.valid && result.errors.length > 0) {
-        setValidationError(result.errors[0].message)
-      } else if (validationError && result.valid) {
-        setValidationError(null)
+  const analyzeChanges = useCallback(
+    async (newContent: string) => {
+      if (!newContent.trim()) {
+        return
       }
-    } catch (err) {
-      console.error('Analysis failed:', err)
-    } finally {
-      setAnalyzing(false)
-    }
-  }, [validationError])
+
+      setAnalyzing(true)
+      try {
+        const result = await service.analyzeConfig(newContent)
+
+        setAnalysis(result)
+
+        if (!result.valid && result.errors.length > 0) {
+          setValidationError(result.errors[0].message)
+        } else if (validationError && result.valid) {
+          setValidationError(null)
+        }
+      } catch (err) {
+        console.error('Analysis failed:', err)
+      } finally {
+        setAnalyzing(false)
+      }
+    },
+    [validationError]
+  )
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -119,7 +116,7 @@ return false
         color: 'red',
       })
 
-return
+      return
     }
 
     if (analysis && !analysis.valid) {
@@ -129,13 +126,13 @@ return
         color: 'red',
       })
 
-return
+      return
     }
 
     if (analysis?.migration_plan) {
       setShowMigrationModal(true)
 
-return
+      return
     }
 
     if (analysis?.warnings && analysis.warnings.length > 0) {
@@ -143,8 +140,8 @@ return
         title: 'Configuration Warnings',
         children: (
           <Stack gap="xs">
-            {analysis.warnings.map((w, i) => (
-              <Text key={i} size="sm">
+            {analysis.warnings.map((w) => (
+              <Text key={`${w.field}:${w.message}`} size="sm">
                 • {w.message}
               </Text>
             ))}
@@ -155,7 +152,7 @@ return
         onConfirm: () => saveWithoutMigration(),
       })
 
-return
+      return
     }
 
     await saveWithoutMigration()
@@ -226,17 +223,13 @@ return
         title: 'Unsaved Changes',
         centered: true,
         zIndex: 400,
-        children: (
-          <Text size="sm">
-            You have unsaved changes. Are you sure you want to close without saving?
-          </Text>
-        ),
+        children: <Text size="sm">You have unsaved changes. Are you sure you want to close without saving?</Text>,
         labels: { confirm: 'Close', cancel: 'Cancel' },
         confirmProps: { color: 'red' },
         onConfirm: onClose,
       })
 
-return
+      return
     }
     onClose()
   }
@@ -250,11 +243,7 @@ return
         <Button variant="subtle" onClick={handleClose} disabled={loading}>
           Cancel
         </Button>
-        <Button
-          onClick={handleSave}
-          loading={loading}
-          disabled={!!validationError || !hasChanges}
-        >
+        <Button onClick={handleSave} loading={loading} disabled={!!validationError || !hasChanges}>
           Save
         </Button>
       </Group>
@@ -299,8 +288,8 @@ return
             }}
           >
             <Text size="sm" fw={500}>
-              These changes require migrating {analysis.migration_plan.steps.length} components to the new
-              storage backend.
+              These changes require migrating {analysis.migration_plan.steps.length} components to the new storage
+              backend.
             </Text>
             {analysis.stats && (
               <Group gap="xs" mt="xs">
@@ -312,9 +301,9 @@ return
           </Alert>
         )}
 
-        {analysis?.errors.map((error, i) => (
+        {analysis?.errors.map((error) => (
           <Alert
-            key={i}
+            key={`${error.field}:${error.message}`}
             icon={<IconAlertCircle size={16} />}
             color="red"
             title={error.field}
@@ -332,9 +321,9 @@ return
           </Alert>
         ))}
 
-        {analysis?.warnings.map((warning, i) => (
+        {analysis?.warnings.map((warning) => (
           <Alert
-            key={i}
+            key={`${warning.field}:${warning.message}`}
             icon={<IconAlertCircle size={16} />}
             color="yellow"
             title={warning.field}
@@ -353,7 +342,9 @@ return
           <Alert
             icon={analysis.postgres_connection.success ? <IconCheck size={16} /> : <IconX size={16} />}
             color={analysis.postgres_connection.success ? 'green' : 'red'}
-            title={analysis.postgres_connection.success ? 'PostgreSQL Connection Successful' : 'PostgreSQL Connection Failed'}
+            title={
+              analysis.postgres_connection.success ? 'PostgreSQL Connection Successful' : 'PostgreSQL Connection Failed'
+            }
             styles={{
               root: {
                 margin: 'var(--mantine-spacing-md)',

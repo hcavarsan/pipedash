@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
 import { Button, Grid, Group, Loader, Menu, Paper, Select, Stack, Text } from '@mantine/core'
 import { IconAdjustments, IconChartLine, IconDownload, IconFileTypeCsv, IconPhoto } from '@tabler/icons-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useMetricsEventListeners } from '../../hooks/useMetricsEventListeners'
 import { useMetricsFilters } from '../../hooks/useUrlState'
@@ -11,7 +10,7 @@ import type { AggregationPeriod, AggregationType, MetricType } from '../../types
 import { StandardModal } from '../common/StandardModal'
 import { CompactMetricsCard } from '../metrics/CompactMetricsCard'
 import { MetricsConfigModal } from '../metrics/MetricsConfigModal'
-import { MetricsDetailPage, MetricsDetailPageRef } from '../metrics/MetricsDetailPage'
+import { MetricsDetailPage, type MetricsDetailPageRef } from '../metrics/MetricsDetailPage'
 
 interface PipelineMetricsViewProps {
   pipelineId: string
@@ -60,7 +59,12 @@ const getMetricTitle = (type: MetricType): string => {
   }
 }
 
-export const PipelineMetricsView = ({ pipelineId, pipelineName, repository, refreshTrigger }: PipelineMetricsViewProps) => {
+export const PipelineMetricsView = ({
+  pipelineId,
+  pipelineName,
+  repository,
+  refreshTrigger,
+}: PipelineMetricsViewProps) => {
   const { filters, setFilter } = useMetricsFilters()
   const dateRange = filters.dateRange
   const aggregationPeriod = filters.period as AggregationPeriod
@@ -143,11 +147,7 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository, refr
   const hasTriggeredCollectionRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (
-      pipelineConfig.data?.enabled &&
-      !pipelineConfig.isLoading &&
-      hasTriggeredCollectionRef.current !== pipelineId
-    ) {
+    if (pipelineConfig.data?.enabled && !pipelineConfig.isLoading && hasTriggeredCollectionRef.current !== pipelineId) {
       hasTriggeredCollectionRef.current = pipelineId
 
       service.fetchRunHistory(pipelineId, 1, 50).catch((error) => {
@@ -231,7 +231,9 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository, refr
       <Paper p="xl" withBorder>
         <Stack align="center" gap="md">
           <IconChartLine size={48} stroke={1.5} style={{ opacity: 0.3 }} />
-          <Text size="sm" c="dimmed">Loading metrics configuration...</Text>
+          <Text size="sm" c="dimmed">
+            Loading metrics configuration...
+          </Text>
         </Stack>
       </Paper>
     )
@@ -244,8 +246,7 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository, refr
             Metrics Not Enabled
           </Text>
           <Text size="sm" c="dimmed" ta="center">
-            Enable metrics collection to track run duration, success rates, and run frequency over
-            time.
+            Enable metrics collection to track run duration, success rates, and run frequency over time.
           </Text>
           <Button
             onClick={() => setConfigModalOpened(true)}
@@ -273,7 +274,9 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository, refr
         <Paper p="xl" withBorder>
           <Stack align="center" gap="md">
             <Loader size="lg" />
-            <Text size="sm" c="dimmed">Loading metrics...</Text>
+            <Text size="sm" c="dimmed">
+              Loading metrics...
+            </Text>
           </Stack>
         </Paper>
       )
@@ -300,9 +303,7 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository, refr
                 }}
                 variant="subtle"
                 size="sm"
-                loading={
-                  durationQuery.isFetching || successRateQuery.isFetching || frequencyQuery.isFetching
-                }
+                loading={durationQuery.isFetching || successRateQuery.isFetching || frequencyQuery.isFetching}
               >
                 Refresh
               </Button>
@@ -339,7 +340,7 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository, refr
               </Button>
             </Group>
 
-            <Grid gutter="md">
+            <Grid gap="md">
               <Grid.Col span={{ base: 12, sm: 12, md: 4 }}>
                 <CompactMetricsCard
                   metricType="run_duration"
@@ -375,11 +376,7 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository, refr
                 <Group justify="flex-end">
                   <Menu position="top-end" shadow="md">
                     <Menu.Target>
-                      <Button
-                        variant="light"
-                        size="sm"
-                        leftSection={<IconDownload size={16} />}
-                      >
+                      <Button variant="light" size="sm" leftSection={<IconDownload size={16} />}>
                         Export
                       </Button>
                     </Menu.Target>

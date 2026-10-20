@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useReducer } from 'react'
-
 import { Box, Button, Group, Stack, Stepper, Text } from '@mantine/core'
 import { IconCheck, IconKey, IconList } from '@tabler/icons-react'
+import { useCallback, useEffect, useMemo, useReducer } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
 import { useIsMobile } from '../../../hooks/useIsMobile'
@@ -32,24 +31,18 @@ export function AddProviderModal({
   const { plugins, loading: pluginsLoading } = usePlugins()
 
   const [state, dispatch] = useReducer(formReducer, initialFormState)
-  const {
-    step,
-    selectedPlugin,
-    providerName,
-    configValues,
-    selectedPipelines,
-    submitting,
-    error,
-    fieldErrors,
-  } = state
+  const { step, selectedPlugin, providerName, configValues, selectedPipelines, submitting, error, fieldErrors } = state
 
-  const providerConfig = useMemo<ProviderConfig>(() => ({
-    name: providerName,
-    provider_type: selectedPlugin?.provider_type || '',
-    token: configValues.token || '',
-    config: configValues,
-    refresh_interval: 300,
-  }), [providerName, selectedPlugin?.provider_type, configValues])
+  const providerConfig = useMemo<ProviderConfig>(
+    () => ({
+      name: providerName,
+      provider_type: selectedPlugin?.provider_type || '',
+      token: configValues.token || '',
+      config: configValues,
+      refresh_interval: 300,
+    }),
+    [providerName, selectedPlugin?.provider_type, configValues]
+  )
 
   const permission = usePermissionCheck({
     selectedPlugin,
@@ -71,21 +64,33 @@ export function AddProviderModal({
     }
   }, [opened, editMode, existingProvider, plugins, resetPermission])
 
-  const validateField = useCallback((field: { key: string; label: string; required: boolean; validation_regex?: string | null; validation_message?: string | null }, value: string): string | null => {
-    if (field.required && !value?.trim()) {
-      return `${field.label} is required`
-    }
-
-    if (field.validation_regex && value) {
-      const regex = new RegExp(field.validation_regex)
-
-      if (!regex.test(value)) {
-        return field.validation_message || `Invalid format for ${field.label}`
+  const validateField = useCallback(
+    (
+      field: {
+        key: string
+        label: string
+        required: boolean
+        validation_regex?: string | null
+        validation_message?: string | null
+      },
+      value: string
+    ): string | null => {
+      if (field.required && !value?.trim()) {
+        return `${field.label} is required`
       }
-    }
 
-    return null
-  }, [])
+      if (field.validation_regex && value) {
+        const regex = new RegExp(field.validation_regex)
+
+        if (!regex.test(value)) {
+          return field.validation_message || `Invalid format for ${field.label}`
+        }
+      }
+
+      return null
+    },
+    []
+  )
 
   const validateCredentials = useCallback((): boolean => {
     const errors: Record<string, string> = {}
@@ -184,7 +189,17 @@ export function AddProviderModal({
         onClose()
       }
     }
-  }, [selectedPlugin, selectedPipelines, configValues, providerName, editMode, existingProvider, onUpdate, onAdd, onClose])
+  }, [
+    selectedPlugin,
+    selectedPipelines,
+    configValues,
+    providerName,
+    editMode,
+    existingProvider,
+    onUpdate,
+    onAdd,
+    onClose,
+  ])
 
   const handleSaveCredentialsOnly = useCallback(async () => {
     if (!validateCredentials() || !selectedPlugin) {
@@ -288,12 +303,27 @@ export function AddProviderModal({
             loading={submitting}
             disabled={selectedPipelines.size === 0}
           >
-            {editMode ? (isMobile ? 'Update' : 'Update Provider') : (isMobile ? 'Add' : 'Add Provider')}
+            {editMode ? (isMobile ? 'Update' : 'Update Provider') : isMobile ? 'Add' : 'Add Provider'}
           </Button>
         </Group>
       </Group>
     )
-  }, [step, selectedPlugin, configValues.token, submitting, permission, editMode, providerName, isMobile, selectedPipelines.size, handleNext, handleBack, handleSubmit, handleSaveCredentialsOnly, onClose])
+  }, [
+    step,
+    selectedPlugin,
+    configValues.token,
+    submitting,
+    permission,
+    editMode,
+    providerName,
+    isMobile,
+    selectedPipelines.size,
+    handleNext,
+    handleBack,
+    handleSubmit,
+    handleSaveCredentialsOnly,
+    onClose,
+  ])
 
   const activeStepIndex = step === 'credentials' ? 0 : 1
 

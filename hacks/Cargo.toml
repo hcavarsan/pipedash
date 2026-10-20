@@ -1,5 +1,5 @@
 [package]
-name = "kftray-utils"
+name = "pipedash-utils"
 version = "0.0.1"
 edition = "2021"
 
@@ -15,7 +15,7 @@ path = "src/generate_icons.rs"
 
 [dependencies]
 glob = "0.3"
-ico = "0.4"
+ico = "0.6"
 image = "0.25"
 regex = "1"
 serde_json = "1"

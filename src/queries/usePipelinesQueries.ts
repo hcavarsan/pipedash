@@ -6,10 +6,7 @@ import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { Pipeline, ProviderSummary } from '../types'
 
-export function usePipelines(
-  providerId?: number,
-  options?: { enabled?: boolean; providers?: ProviderSummary[] }
-) {
+export function usePipelines(providerId?: number, options?: { enabled?: boolean; providers?: ProviderSummary[] }) {
   const hasProviders = (options?.providers?.length ?? 0) > 0
 
   return useQuery({
@@ -17,8 +14,8 @@ export function usePipelines(
     queryFn: async () => {
       if (!hasProviders && providerId === undefined) {
         logger.debug('usePipelines', 'Skipping fetch - no providers configured')
-        
-return []
+
+        return []
       }
 
       logger.debug('usePipelines', 'Fetching pipelines', { providerId: providerId ?? 'all' })
@@ -38,8 +35,6 @@ export function useGetPipelinesFromCache() {
   const queryClient = useQueryClient()
 
   return (providerId?: number) => {
-    return queryClient.getQueryData<Pipeline[]>(
-      queryKeys.pipelines.list({ providerId })
-    )
+    return queryClient.getQueryData<Pipeline[]>(queryKeys.pipelines.list({ providerId }))
   }
 }

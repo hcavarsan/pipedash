@@ -24,16 +24,7 @@ pub struct TektonClient {
 
 impl TektonClient {
     fn merge_kubeconfigs(paths: Vec<String>) -> PluginResult<kube::config::Kubeconfig> {
-        let mut merged = kube::config::Kubeconfig {
-            preferences: None,
-            clusters: vec![],
-            auth_infos: vec![],
-            contexts: vec![],
-            current_context: None,
-            extensions: None,
-            kind: None,
-            api_version: None,
-        };
+        let mut merged = kube::config::Kubeconfig::default();
 
         let mut found_any = false;
 

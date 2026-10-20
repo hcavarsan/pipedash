@@ -4,12 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
-import type {
-  MigrationOptions,
-  MigrationPlan,
-  MigrationResult,
-  PipedashConfig,
-} from '../types'
+import type { MigrationOptions, MigrationPlan, MigrationResult, PipedashConfig } from '../types'
 
 export function useStorageConfig(options?: { enabled?: boolean }) {
   return useQuery({
@@ -17,8 +12,8 @@ export function useStorageConfig(options?: { enabled?: boolean }) {
     queryFn: async () => {
       try {
         return await service.getStorageConfig()
-      } catch (error: any) {
-        if (error?.response?.status === 404) {
+      } catch (error) {
+        if ((error as { response?: { status?: number } } | null)?.response?.status === 404) {
           return undefined
         }
         throw error
@@ -115,13 +110,7 @@ export function useCreateInitialConfig() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({
-      config,
-      vaultPassword,
-    }: {
-      config: PipedashConfig;
-      vaultPassword?: string;
-    }) => {
+    mutationFn: async ({ config, vaultPassword }: { config: PipedashConfig; vaultPassword?: string }) => {
       await service.createInitialConfig(config, vaultPassword)
 
       await service.bootstrapApp()

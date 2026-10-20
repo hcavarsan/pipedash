@@ -6,7 +6,7 @@ import { RunHistoryPage } from '../components/table/RunHistoryPage'
 import type { Pipeline, PipelineComponentProps } from '../types'
 
 interface PipelineDetailRouteProps extends Omit<PipelineComponentProps, 'pipeline'> {
-  pipelines: Pipeline[];
+  pipelines: Pipeline[]
 }
 
 export function PipelineDetailRoute({
@@ -25,18 +25,22 @@ export function PipelineDetailRoute({
 
   const actualPipeline = pipelines.find((p) => p.id === pipelineId) || null
 
-  const pipeline: Pipeline | null = actualPipeline || (loading && pipelineId ? {
-    id: pipelineId,
-    name: pipelineId,
-    provider_id: 0,
-    repository: '',
-    branch: null,
-    status: 'pending' as const,
-    last_run: null,
-    last_updated: new Date().toISOString(),
-    workflow_file: null,
-    provider_type: 'github',
-  } : null)
+  const pipeline: Pipeline | null =
+    actualPipeline ||
+    (loading && pipelineId
+      ? {
+          id: pipelineId,
+          name: pipelineId,
+          provider_id: 0,
+          repository: '',
+          branch: null,
+          status: 'pending' as const,
+          last_run: null,
+          last_updated: new Date().toISOString(),
+          workflow_file: null,
+          provider_type: 'github',
+        }
+      : null)
 
   const handleBack = () => {
     if (onBack) {

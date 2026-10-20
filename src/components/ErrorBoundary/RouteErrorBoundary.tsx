@@ -10,10 +10,7 @@ interface RouteErrorBoundaryState {
   error: Error | null
 }
 
-export class RouteErrorBoundary extends Component<
-  RouteErrorBoundaryProps,
-  RouteErrorBoundaryState
-> {
+export class RouteErrorBoundary extends Component<RouteErrorBoundaryProps, RouteErrorBoundaryState> {
   constructor(props: RouteErrorBoundaryProps) {
     super(props)
     this.state = {
@@ -51,71 +48,87 @@ export class RouteErrorBoundary extends Component<
       }
 
       return (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-          padding: '2rem',
-          backgroundColor: '#1a1b1e',
-          color: '#c1c2c5',
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        }}>
-          <div style={{
-            maxWidth: '500px',
-            width: '100%',
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '100vh',
             padding: '2rem',
-            backgroundColor: '#25262b',
-            borderRadius: '8px',
-            border: '1px solid #373a40',
-            textAlign: 'center',
-          }}>
-            <div style={{
-              fontSize: '48px',
-              marginBottom: '1rem',
-            }}>
+            backgroundColor: '#1a1b1e',
+            color: '#c1c2c5',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          }}
+        >
+          <div
+            style={{
+              maxWidth: '500px',
+              width: '100%',
+              padding: '2rem',
+              backgroundColor: '#25262b',
+              borderRadius: '8px',
+              border: '1px solid #373a40',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '48px',
+                marginBottom: '1rem',
+              }}
+            >
               ⚠️
             </div>
-            <h2 style={{
-              margin: '0 0 0.5rem 0',
-              fontSize: '1.25rem',
-              fontWeight: 600,
-              color: '#fff',
-            }}>
+            <h2
+              style={{
+                margin: '0 0 0.5rem 0',
+                fontSize: '1.25rem',
+                fontWeight: 600,
+                color: '#fff',
+              }}
+            >
               Page failed to load
             </h2>
-            <p style={{
-              margin: '0 0 1.5rem 0',
-              fontSize: '0.875rem',
-              color: '#909296',
-            }}>
+            <p
+              style={{
+                margin: '0 0 1.5rem 0',
+                fontSize: '0.875rem',
+                color: '#909296',
+              }}
+            >
               {this.state.error.message || 'An unexpected error occurred'}
             </p>
 
             {import.meta.env.DEV && (
-              <details style={{
-                marginBottom: '1.5rem',
-                textAlign: 'left',
-              }}>
-                <summary style={{
-                  cursor: 'pointer',
-                  fontSize: '0.75rem',
-                  color: '#909296',
-                  marginBottom: '0.5rem',
-                }}>
+              <details
+                style={{
+                  marginBottom: '1.5rem',
+                  textAlign: 'left',
+                }}
+              >
+                <summary
+                  style={{
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    color: '#909296',
+                    marginBottom: '0.5rem',
+                  }}
+                >
                   Show technical details
                 </summary>
-                <pre style={{
-                  padding: '1rem',
-                  backgroundColor: '#1a1b1e',
-                  borderRadius: '4px',
-                  fontSize: '0.7rem',
-                  overflow: 'auto',
-                  maxHeight: '200px',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  margin: 0,
-                }}>
+                <pre
+                  style={{
+                    padding: '1rem',
+                    backgroundColor: '#1a1b1e',
+                    borderRadius: '4px',
+                    fontSize: '0.7rem',
+                    overflow: 'auto',
+                    maxHeight: '200px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    margin: 0,
+                  }}
+                >
                   {this.state.error.stack || this.state.error.message}
                 </pre>
               </details>

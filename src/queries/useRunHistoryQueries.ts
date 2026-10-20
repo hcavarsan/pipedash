@@ -52,24 +52,15 @@ export function useSaveTablePreferences() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({
-      providerId,
-      tableId,
-      preferences,
-    }: {
-      providerId: number
-      tableId: string
-      preferences: unknown
-    }) => service.saveTablePreferences(providerId, tableId, JSON.stringify(preferences)),
+    mutationFn: ({ providerId, tableId, preferences }: { providerId: number; tableId: string; preferences: unknown }) =>
+      service.saveTablePreferences(providerId, tableId, JSON.stringify(preferences)),
 
     onMutate: async ({ providerId, tableId, preferences }) => {
       await queryClient.cancelQueries({
         queryKey: queryKeys.tablePreferences.detail(providerId, tableId),
       })
 
-      const previousPreferences = queryClient.getQueryData(
-        queryKeys.tablePreferences.detail(providerId, tableId)
-      )
+      const previousPreferences = queryClient.getQueryData(queryKeys.tablePreferences.detail(providerId, tableId))
 
       queryClient.setQueryData(queryKeys.tablePreferences.detail(providerId, tableId), preferences)
 

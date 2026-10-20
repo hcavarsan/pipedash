@@ -1,14 +1,13 @@
 import { Box, ScrollArea } from '@mantine/core'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
-
+import { SettingsMobileTabs } from './SettingsMobileTabs'
+import { type SettingsSection, SettingsSidebar } from './SettingsSidebar'
 import { CacheSection } from './sections/CacheSection'
 import { GeneralSection } from './sections/GeneralSection'
 import { MetricsSection } from './sections/MetricsSection'
 import { ProvidersSection } from './sections/ProvidersSection'
 import { StorageSection } from './sections/StorageSection'
-import { SettingsMobileTabs } from './SettingsMobileTabs'
-import { type SettingsSection, SettingsSidebar } from './SettingsSidebar'
 
 interface SettingsPageProps {
   activeSection: SettingsSection
@@ -16,11 +15,7 @@ interface SettingsPageProps {
   onRefresh?: () => Promise<void>
 }
 
-export const SettingsPage = ({
-  activeSection,
-  onSectionChange,
-  onRefresh,
-}: SettingsPageProps) => {
+export const SettingsPage = ({ activeSection, onSectionChange, onRefresh }: SettingsPageProps) => {
   const { isMobile } = useIsMobile()
 
   const renderSection = () => {
@@ -44,11 +39,7 @@ export const SettingsPage = ({
     <>
       {isMobile ? (
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <SettingsMobileTabs
-            activeSection={activeSection}
-            onSectionChange={onSectionChange}
-            onRefresh={onRefresh}
-          />
+          <SettingsMobileTabs activeSection={activeSection} onSectionChange={onSectionChange} onRefresh={onRefresh} />
           <ScrollArea
             style={{ flex: 1 }}
             styles={{

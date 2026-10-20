@@ -31,8 +31,9 @@ import {
   type SetupStatus,
   type StorageConfigResponse,
   type StoragePathsResponse,
-  toPipedashError,
+  type TableSchema,
   type TriggerParams,
+  toPipedashError,
   type UnlockVaultResponse,
   type ValidationResult,
   type VaultStatusResponse,
@@ -64,10 +65,7 @@ async function invokeWithTimeout<T>(
       return await Promise.race([
         invoke<T>(cmd, args),
         new Promise<T>((_, reject) =>
-          setTimeout(
-            () => reject(createError('timeout', `Command '${cmd}' timeout`, { timeoutMs: timeout })),
-            timeout
-          )
+          setTimeout(() => reject(createError('timeout', `Command '${cmd}' timeout`, { timeoutMs: timeout })), timeout)
         ),
       ])
     } catch (error) {
@@ -95,28 +93,25 @@ export const tauriService = {
   listProviders: async (): Promise<ProviderSummary[]> => {
     console.debug('[tauriService] Invoking list_providers...')
 
-    return withRetry(
-      async () => {
-        try {
-          const result = await invoke<ProviderSummary[]>('list_providers')
+    return withRetry(async () => {
+      try {
+        const result = await invoke<ProviderSummary[]>('list_providers')
 
-          console.debug('[tauriService] list_providers returned:', result?.length ?? 0, 'items')
+        console.debug('[tauriService] list_providers returned:', result?.length ?? 0, 'items')
 
-          return result
-        } catch (err) {
-          console.error('[tauriService] list_providers error:', err)
-          throw toPipedashError(err)
-        }
-      },
-      DEFAULT_RETRY_CONFIG
-    )
+        return result
+      } catch (err) {
+        console.error('[tauriService] list_providers error:', err)
+        throw toPipedashError(err)
+      }
+    }, DEFAULT_RETRY_CONFIG)
   },
 
   getProvider: async (id: number): Promise<ProviderConfig & { id: number }> => {
     try {
       const config = await invoke<ProviderConfig>('get_provider', { id })
 
-return { ...config, id }
+      return { ...config, id }
     } catch (error) {
       throw toPipedashError(error)
     }
@@ -146,10 +141,7 @@ return { ...config, id }
     }
   },
 
-  fetchProviderOrganizations: async (
-    providerType: string,
-    config: Record<string, string>
-  ): Promise<Organization[]> => {
+  fetchProviderOrganizations: async (providerType: string, config: Record<string, string>): Promise<Organization[]> => {
     return invokeWithTimeout<Organization[]>('fetch_provider_organizations', {
       providerType,
       config,
@@ -206,9 +198,9 @@ return { ...config, id }
     }
   },
 
-  getProviderTableSchema: async (providerId: number): Promise<any> => {
+  getProviderTableSchema: async (providerId: number): Promise<TableSchema> => {
     try {
-      return await invoke('get_provider_table_schema', { providerId })
+      return await invoke<TableSchema>('get_provider_table_schema', { providerId })
     } catch (error) {
       throw toPipedashError(error)
     }
@@ -245,52 +237,42 @@ return { ...config, id }
   fetchPipelines: async (providerId?: number): Promise<Pipeline[]> => {
     console.debug('[tauriService] Invoking fetch_pipelines...', { providerId })
 
-    return withRetry(
-      async () => {
-        try {
-          const result = await invoke<Pipeline[]>('fetch_pipelines', {
-            providerId: providerId ?? null,
-          })
+    return withRetry(async () => {
+      try {
+        const result = await invoke<Pipeline[]>('fetch_pipelines', {
+          providerId: providerId ?? null,
+        })
 
-          console.debug('[tauriService] fetch_pipelines returned:', result?.length ?? 0, 'items')
+        console.debug('[tauriService] fetch_pipelines returned:', result?.length ?? 0, 'items')
 
-          return result
-        } catch (err) {
-          console.error('[tauriService] fetch_pipelines error:', err)
-          throw err
-        }
-      },
-      DEFAULT_RETRY_CONFIG
-    )
+        return result
+      } catch (err) {
+        console.error('[tauriService] fetch_pipelines error:', err)
+        throw err
+      }
+    }, DEFAULT_RETRY_CONFIG)
   },
 
   getCachedPipelines: async (providerId?: number): Promise<Pipeline[]> => {
     console.debug('[tauriService] Invoking get_cached_pipelines...', { providerId })
 
-    return withRetry(
-      async () => {
-        try {
-          const result = await invokeWithTimeout<Pipeline[]>('get_cached_pipelines', {
-            providerId: providerId ?? null,
-          })
+    return withRetry(async () => {
+      try {
+        const result = await invokeWithTimeout<Pipeline[]>('get_cached_pipelines', {
+          providerId: providerId ?? null,
+        })
 
-          console.debug('[tauriService] get_cached_pipelines returned:', result?.length ?? 0, 'items')
+        console.debug('[tauriService] get_cached_pipelines returned:', result?.length ?? 0, 'items')
 
-          return result
-        } catch (err) {
-          console.error('[tauriService] get_cached_pipelines error:', err)
-          throw err
-        }
-      },
-      DEFAULT_RETRY_CONFIG
-    )
+        return result
+      } catch (err) {
+        console.error('[tauriService] get_cached_pipelines error:', err)
+        throw err
+      }
+    }, DEFAULT_RETRY_CONFIG)
   },
 
-  fetchRunHistory: async (
-    pipelineId: string,
-    page?: number,
-    pageSize?: number
-  ): Promise<PaginatedRunHistory> => {
+  fetchRunHistory: async (pipelineId: string, page?: number, pageSize?: number): Promise<PaginatedRunHistory> => {
     return invoke<PaginatedRunHistory>('fetch_run_history', {
       pipelineId,
       page: page ?? null,
@@ -318,20 +300,14 @@ return { ...config, id }
     return invoke<'active' | 'idle'>('get_refresh_mode')
   },
 
-  getWorkflowRunDetails: async (
-    pipelineId: string,
-    runNumber: number
-  ): Promise<PipelineRun> => {
+  getWorkflowRunDetails: async (pipelineId: string, runNumber: number): Promise<PipelineRun> => {
     return invoke<PipelineRun>('get_workflow_run_details', {
       pipelineId,
       runNumber,
     })
   },
 
-  cancelPipelineRun: async (
-    pipelineId: string,
-    runNumber: number
-  ): Promise<void> => {
+  cancelPipelineRun: async (pipelineId: string, runNumber: number): Promise<void> => {
     return invoke<void>('cancel_pipeline_run', {
       pipelineId,
       runNumber,
@@ -354,10 +330,7 @@ return { ...config, id }
     return invoke<GlobalMetricsConfig>('get_global_metrics_config')
   },
 
-  updateGlobalMetricsConfig: async (
-    enabled: boolean,
-    defaultRetentionDays: number
-  ): Promise<void> => {
+  updateGlobalMetricsConfig: async (enabled: boolean, defaultRetentionDays: number): Promise<void> => {
     return invoke<void>('update_global_metrics_config', {
       enabled,
       defaultRetentionDays,
@@ -368,11 +341,7 @@ return { ...config, id }
     return invoke<MetricsConfig>('get_pipeline_metrics_config', { pipelineId })
   },
 
-  updatePipelineMetricsConfig: async (
-    pipelineId: string,
-    enabled: boolean,
-    retentionDays: number
-  ): Promise<void> => {
+  updatePipelineMetricsConfig: async (pipelineId: string, enabled: boolean, retentionDays: number): Promise<void> => {
     return invoke<void>('update_pipeline_metrics_config', {
       pipelineId,
       enabled,
@@ -455,11 +424,7 @@ return { ...config, id }
     return invoke<string | null>('get_table_preferences', { providerId, tableId })
   },
 
-  saveTablePreferences: async (
-    providerId: number,
-    tableId: string,
-    preferencesJson: string
-  ): Promise<void> => {
+  saveTablePreferences: async (providerId: number, tableId: string, preferencesJson: string): Promise<void> => {
     return invoke<void>('save_table_preferences', {
       providerId,
       tableId,
@@ -475,10 +440,7 @@ return { ...config, id }
     return invoke<SetupStatus>('check_setup_status')
   },
 
-  createInitialConfig: async (
-    config: PipedashConfig,
-    vaultPassword?: string
-  ): Promise<void> => {
+  createInitialConfig: async (config: PipedashConfig, vaultPassword?: string): Promise<void> => {
     return invoke<void>('create_initial_config', { config, vaultPassword })
   },
 
@@ -538,27 +500,23 @@ return { ...config, id }
     return invoke<void>('save_storage_config', { config, tokenPassword })
   },
 
-  testStorageConnection: async (config: PipedashConfig): Promise<{
+  testStorageConnection: async (
+    config: PipedashConfig
+  ): Promise<{
     success: boolean
     message: string
   }> => {
     return invoke<{ success: boolean; message: string }>('test_storage_connection', { config })
   },
 
-  planStorageMigration: async (
-    targetConfig: PipedashConfig,
-    options?: MigrationOptions
-  ): Promise<MigrationPlan> => {
+  planStorageMigration: async (targetConfig: PipedashConfig, options?: MigrationOptions): Promise<MigrationPlan> => {
     return invoke<MigrationPlan>('plan_storage_migration', {
       targetConfig,
       options: options ?? {},
     })
   },
 
-  executeMigration: async (
-    plan: MigrationPlan,
-    options?: MigrationOptions
-  ): Promise<MigrationResult> => {
+  executeMigration: async (plan: MigrationPlan, options?: MigrationOptions): Promise<MigrationResult> => {
     return invoke<MigrationResult>('execute_storage_migration', {
       plan,
       options: options ?? {},

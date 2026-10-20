@@ -25,10 +25,7 @@ export function usePermissionCheck({
 }: UsePermissionCheckParams): UsePermissionCheckReturn {
   const [state, setState] = useState<PermissionState>(initialPermissionState)
 
-  const permissionsQuery = useProviderPermissions(
-    selectedPlugin?.provider_type || '',
-    providerConfig
-  )
+  const permissionsQuery = useProviderPermissions(selectedPlugin?.provider_type || '', providerConfig)
 
   const openModal = useCallback(() => {
     setState((prev) => ({ ...prev, modalOpen: true }))

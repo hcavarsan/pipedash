@@ -1,7 +1,6 @@
+import { Box, Center, Image, Paper, Stack, Title } from '@mantine/core'
 import { useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-
-import { Box, Center, Image, Paper, Stack, Title } from '@mantine/core'
 
 import { UnlockForm } from '../components/vault/UnlockForm'
 import { wsClient } from '../services'
@@ -25,19 +24,8 @@ export function UnlockRoute() {
   }, [consumeReturnPath, navigate, searchParams])
 
   return (
-    <Center
-      h="100vh"
-      bg="var(--mantine-color-body)"
-      p={{ base: 'md', sm: 'xl' }}
-    >
-      <Paper
-        shadow="lg"
-        radius="lg"
-        p={{ base: 'lg', sm: 'xl' }}
-        w="100%"
-        maw={{ base: '100%', xs: 420 }}
-        withBorder
-      >
+    <Center h="100vh" bg="var(--mantine-color-body)" p={{ base: 'md', sm: 'xl' }}>
+      <Paper shadow="lg" radius="lg" p={{ base: 'lg', sm: 'xl' }} w="100%" maw={{ base: '100%', xs: 420 }} withBorder>
         <Stack gap="xl">
           <Stack gap="md" align="center">
             <Box
@@ -47,11 +35,7 @@ export function UnlockRoute() {
                 background: 'var(--mantine-color-dark-6)',
               }}
             >
-              <Image
-                src="/app-icon.png"
-                w={{ base: 48, sm: 56 }}
-                h={{ base: 48, sm: 56 }}
-              />
+              <Image src="/app-icon.png" w={{ base: 48, sm: 56 }} h={{ base: 48, sm: 56 }} />
             </Box>
             <Title order={2} ta="center">
               Unlock Vault

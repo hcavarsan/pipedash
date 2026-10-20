@@ -1,60 +1,59 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
 import { ActionIcon, Box, Button, Group, Select, TextInput } from '@mantine/core'
 import { IconFilter, IconSearch, IconX } from '@tabler/icons-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../constants/intervals'
 import { useDebounce } from '../../hooks/useDebounce'
 
 interface FilterConfig {
   search?: {
-    value: string;
-    onChange: (value: string) => void;
-    placeholder?: string;
-  };
+    value: string
+    onChange: (value: string) => void
+    placeholder?: string
+  }
   status?: {
-    value: string | null;
-    onChange: (value: string | null) => void;
-  };
+    value: string | null
+    onChange: (value: string | null) => void
+  }
   provider?: {
-    value: string | null;
-    onChange: (value: string | null) => void;
-    options: string[];
-  };
+    value: string | null
+    onChange: (value: string | null) => void
+    options: string[]
+  }
   organization?: {
-    value: string | null;
-    onChange: (value: string | null) => void;
-    options: string[];
-  };
+    value: string | null
+    onChange: (value: string | null) => void
+    options: string[]
+  }
   repository?: {
-    value: string | null;
-    onChange: (value: string | null) => void;
-    options: string[];
-  };
+    value: string | null
+    onChange: (value: string | null) => void
+    options: string[]
+  }
   workflow?: {
-    value: string | null;
-    onChange: (value: string | null) => void;
-    options: string[];
-  };
+    value: string | null
+    onChange: (value: string | null) => void
+    options: string[]
+  }
   branch?: {
-    value: string | null;
-    onChange: (value: string | null) => void;
-    options: string[];
-  };
+    value: string | null
+    onChange: (value: string | null) => void
+    options: string[]
+  }
   actor?: {
-    value: string | null;
-    onChange: (value: string | null) => void;
-    options: string[];
-  };
+    value: string | null
+    onChange: (value: string | null) => void
+    options: string[]
+  }
   dateRange?: {
-    value: string | null;
-    onChange: (value: string | null) => void;
-  };
+    value: string | null
+    onChange: (value: string | null) => void
+  }
 }
 
 interface FilterBarProps {
-  filters: FilterConfig;
-  onClearAll?: () => void;
+  filters: FilterConfig
+  onClearAll?: () => void
 }
 
 const statusOptions = [
@@ -92,10 +91,9 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
   useEffect(() => {
     const searchFilter = filters.search
 
-
     if (!searchFilter) {
-return
-}
+      return
+    }
 
     const externalValue = searchFilter.value ?? ''
     const syncState = syncStateRef.current
@@ -107,8 +105,8 @@ return
         setLocalSearchValue(externalValue)
         syncState.lastSentToParent = externalValue
       }
-      
-return
+
+      return
     }
 
     if (debouncedSearchValue !== syncState.lastSentToParent) {
@@ -121,10 +119,7 @@ return
   const providerOptions = useMemo(
     () =>
       filters.provider?.options.length
-        ? [
-            { value: '', label: 'All Providers' },
-            ...filters.provider.options.map((p) => ({ value: p, label: p })),
-          ]
+        ? [{ value: '', label: 'All Providers' }, ...filters.provider.options.map((p) => ({ value: p, label: p }))]
         : [],
     [filters.provider?.options]
   )
@@ -143,10 +138,7 @@ return
   const repositoryOptions = useMemo(
     () =>
       filters.repository?.options.length
-        ? [
-            { value: '', label: 'All Repositories' },
-            ...filters.repository.options.map((r) => ({ value: r, label: r })),
-          ]
+        ? [{ value: '', label: 'All Repositories' }, ...filters.repository.options.map((r) => ({ value: r, label: r }))]
         : [],
     [filters.repository?.options]
   )
@@ -154,10 +146,7 @@ return
   const workflowOptions = useMemo(
     () =>
       filters.workflow?.options.length
-        ? [
-            { value: '', label: 'All Workflows' },
-            ...filters.workflow.options.map((w) => ({ value: w, label: w })),
-          ]
+        ? [{ value: '', label: 'All Workflows' }, ...filters.workflow.options.map((w) => ({ value: w, label: w }))]
         : [],
     [filters.workflow?.options]
   )
@@ -165,10 +154,7 @@ return
   const branchOptions = useMemo(
     () =>
       filters.branch?.options.length
-        ? [
-            { value: '', label: 'All Branches' },
-            ...filters.branch.options.map((b) => ({ value: b, label: b })),
-          ]
+        ? [{ value: '', label: 'All Branches' }, ...filters.branch.options.map((b) => ({ value: b, label: b }))]
         : [],
     [filters.branch?.options]
   )
@@ -176,10 +162,7 @@ return
   const actorOptions = useMemo(
     () =>
       filters.actor?.options.length
-        ? [
-            { value: '', label: 'All Actors' },
-            ...filters.actor.options.map((a) => ({ value: a, label: a })),
-          ]
+        ? [{ value: '', label: 'All Actors' }, ...filters.actor.options.map((a) => ({ value: a, label: a }))]
         : [],
     [filters.actor?.options]
   )
@@ -187,15 +170,15 @@ return
   const hasActiveFilters = useMemo(
     () =>
       !!(
-        (filters.search && filters.search.value) ||
-        (filters.status && filters.status.value) ||
-        (filters.provider && filters.provider.value) ||
-        (filters.organization && filters.organization.value) ||
-        (filters.repository && filters.repository.value) ||
-        (filters.workflow && filters.workflow.value) ||
-        (filters.branch && filters.branch.value) ||
-        (filters.actor && filters.actor.value) ||
-        (filters.dateRange && filters.dateRange.value)
+        filters.search?.value ||
+        filters.status?.value ||
+        filters.provider?.value ||
+        filters.organization?.value ||
+        filters.repository?.value ||
+        filters.workflow?.value ||
+        filters.branch?.value ||
+        filters.actor?.value ||
+        filters.dateRange?.value
       ),
     [
       filters.search,
@@ -238,11 +221,7 @@ return
             leftSection={<IconSearch size={14} />}
             rightSection={
               localSearchValue && (
-                <ActionIcon
-                  size="xs"
-                  variant="transparent"
-                  onClick={() => setLocalSearchValue('')}
-                >
+                <ActionIcon size="xs" variant="transparent" onClick={() => setLocalSearchValue('')}>
                   <IconX size={12} />
                 </ActionIcon>
               )

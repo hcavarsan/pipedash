@@ -351,7 +351,7 @@ impl ConfigBackend for SqliteConfigBackend {
                     values_clause
                 );
 
-                let mut query = sqlx::query(&sql);
+                let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                 for (permission_name, granted) in chunk {
                     query = query
                         .bind(provider_id)

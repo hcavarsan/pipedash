@@ -39,7 +39,6 @@ thiserror.workspace = true
 # Async runtime
 tokio = { workspace = true, features = ["full"] }
 # WebSocket
-tokio-tungstenite.workspace = true
 toml.workspace = true
 tower.workspace = true
 tower-http.workspace = true

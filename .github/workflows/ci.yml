@@ -23,15 +23,17 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  eslint-format:
-    name: ESLint
+  biome:
+    name: Biome
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@v3
+        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
         with:
           install: false
           cache: true
@@ -42,15 +44,38 @@ jobs:
       - name: Install dependencies
         run: mise run install
 
-      - name: Perform linting
+      - name: Lint and format check
         run: mise run lint:front
+
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+        with:
+          install: false
+          cache: true
+
+      - name: Install mise tools
+        run: mise install
+
+      - name: Lint workflows
+        run: mise run lint:actions
 
   rust-format:
     name: rustfmt
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install dependencies
         run: |
@@ -69,7 +94,7 @@ jobs:
               xdg-utils
 
       - name: Install mise
-        uses: jdx/mise-action@v3
+        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
         with:
           install: false
           cache: true
@@ -97,7 +122,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@09d2acae674a48949e3602304ab46fd20ae0c42f
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install dependencies
         if: matrix.os_name == 'linux'
@@ -117,7 +144,7 @@ jobs:
               xdg-utils
 
       - name: Install mise
-        uses: jdx/mise-action@v3
+        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
         with:
           install: false
           cache: true
@@ -131,19 +158,22 @@ jobs:
 
       - name: Set up Perl on Windows
         if: matrix.os == 'windows-latest'
-        uses: shogo82148/actions-setup-perl@2fde72b7b7b24c986737ffc0eb0cbba8622c9d78
+        uses: shogo82148/actions-setup-perl@8b574cdc2dffdae49f803204a4f2b716a2fa1db7 # v1.44.2
         with:
           perl-version: "5.32"
           distribution: "strawberry"
 
       - name: Set Perl environment variables
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
           echo "PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           echo "OPENSSL_SRC_PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Configure Rust targets
-        run: rustup target add ${{ matrix.rust_target }}
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: rustup target add "$RUST_TARGET"
         shell: bash
 
       - name: Run Clippy

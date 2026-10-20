@@ -1,17 +1,6 @@
-import { useState } from 'react'
-
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Checkbox,
-  Group,
-  PasswordInput,
-  Stack,
-  Text,
-} from '@mantine/core'
+import { Alert, Badge, Button, Card, Checkbox, Group, PasswordInput, Stack, Text } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
+import { useState } from 'react'
 
 import type { MigrationOptions, MigrationPlan, MigrationStatsPreview } from '../../types'
 import { StandardModal } from '../common/StandardModal'
@@ -56,12 +45,7 @@ export const MigrationConfirmModal = ({
       <Button variant="subtle" onClick={onClose} disabled={loading}>
         Cancel
       </Button>
-      <Button
-        onClick={handleConfirm}
-        loading={loading}
-        color="orange"
-        disabled={needsPassword && !password}
-      >
+      <Button onClick={handleConfirm} loading={loading} color="orange" disabled={needsPassword && !password}>
         Proceed with Migration
       </Button>
     </Group>
@@ -79,9 +63,8 @@ export const MigrationConfirmModal = ({
       <Stack gap="md">
         <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Important">
           <Text size="sm">
-            These configuration changes require migrating your data to the new storage backend.
-            {' '}
-            This process will move your providers, tokens, and cache to the new location.
+            These configuration changes require migrating your data to the new storage backend. This process will move
+            your providers, tokens, and cache to the new location.
           </Text>
         </Alert>
 

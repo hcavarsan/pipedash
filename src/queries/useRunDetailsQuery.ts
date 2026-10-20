@@ -6,11 +6,7 @@ import { service } from '@/services'
 import type { PipelineRun } from '@/types'
 import { displayErrorNotification, displaySuccessNotification } from '@/utils/errorDisplay'
 
-export function useRunDetails(
-  pipelineId: string,
-  runNumber: number,
-  enabled: boolean = true
-) {
+export function useRunDetails(pipelineId: string, runNumber: number, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.runs.detail(pipelineId, runNumber),
     queryFn: () => service.getWorkflowRunDetails(pipelineId, runNumber),
@@ -21,19 +17,13 @@ export function useRunDetails(
       const data = query.state.data as PipelineRun | undefined
       const isRunning = data?.status === 'running' || data?.status === 'pending'
 
-
-
-return isRunning ? 10000 : false
+      return isRunning ? 10000 : false
     },
     refetchIntervalInBackground: false,
   })
 }
 
-async function pollForRunAvailability(
-  pipelineId: string,
-  runNumber: number,
-  maxRetries: number = 5
-): Promise<void> {
+async function pollForRunAvailability(pipelineId: string, runNumber: number, maxRetries: number = 5): Promise<void> {
   let retries = maxRetries
 
   while (retries > 0) {
@@ -42,12 +32,11 @@ async function pollForRunAvailability(
     try {
       const runDetails = await service.getWorkflowRunDetails(pipelineId, runNumber)
 
-
       if (runDetails?.status) {
         return
       }
     } catch {
-return
+      return
     }
 
     retries--
@@ -60,13 +49,7 @@ export function useRerunWorkflow() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({
-      pipelineId,
-      inputs,
-    }: {
-      pipelineId: string
-      inputs?: Record<string, any>
-    }) => {
+    mutationFn: async ({ pipelineId, inputs }: { pipelineId: string; inputs?: Record<string, unknown> }) => {
       const result = await service.triggerPipeline({
         workflow_id: pipelineId,
         inputs,
@@ -74,10 +57,8 @@ export function useRerunWorkflow() {
 
       let newRunNumber = 0
 
-
       try {
         const parsed = JSON.parse(result)
-
 
         newRunNumber = parsed.run_number || parsed.build_number || parsed.number || 0
       } catch {

@@ -1,9 +1,8 @@
-import { useCallback, useEffect } from 'react'
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-
 import { Center, Loader, Stack, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect } from 'react'
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import { RequireAuth } from './components/auth'
 import { FeatureErrorBoundary } from './components/ErrorBoundary/FeatureErrorBoundary'
@@ -19,13 +18,13 @@ import { useGetPipelinesFromCache, usePipelines } from './queries/usePipelinesQu
 import { useProviders } from './queries/useProvidersQueries'
 import { useCancelRun } from './queries/useRunHistoryQueries'
 import { useVaultStatus } from './queries/useVaultQueries'
+import { PipelineDetailRoute, PipelinesRoute, SettingsRoute, UnlockRoute } from './routes'
+import { service } from './services'
 import { useAuthStore } from './stores/authStore'
 import { useFilterStore } from './stores/filterStore'
 import { useModalStore } from './stores/modalStore'
-import { displayErrorNotification } from './utils/errorDisplay'
-import { PipelineDetailRoute, PipelinesRoute, SettingsRoute, UnlockRoute } from './routes'
-import { service } from './services'
 import type { Pipeline, PipelineRun } from './types'
+import { displayErrorNotification } from './utils/errorDisplay'
 
 function AppContent() {
   const navigate = useNavigate()
@@ -49,8 +48,7 @@ function AppContent() {
 
   const isVaultUnlocked = vaultStatus?.is_unlocked ?? false
 
-  const shouldEnableQueries =
-    !vaultStatus?.requires_password || (isVaultUnlocked && isAuthenticated)
+  const shouldEnableQueries = !vaultStatus?.requires_password || (isVaultUnlocked && isAuthenticated)
 
   const {
     data: providers = [],
@@ -113,9 +111,7 @@ function AppContent() {
   )
 
   const handleBackFromHistory = useCallback(() => {
-    const path = selectedProviderId
-      ? `/pipelines?provider=${selectedProviderId}`
-      : '/pipelines'
+    const path = selectedProviderId ? `/pipelines?provider=${selectedProviderId}` : '/pipelines'
 
     navigate(path)
   }, [navigate, selectedProviderId])
@@ -173,11 +169,7 @@ function AppContent() {
     : null
 
   return (
-    <AppLayout
-      onRefreshAll={handleRefreshAll}
-      refreshing={loading}
-      onOpenSettings={handleOpenSettings}
-    >
+    <AppLayout onRefreshAll={handleRefreshAll} refreshing={loading} onOpenSettings={handleOpenSettings}>
       <Routes>
         <Route path="/" element={<Navigate to="/pipelines" replace />} />
 

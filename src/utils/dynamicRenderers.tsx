@@ -5,14 +5,7 @@ import type { CellRenderer, PipelineStatus } from '../types'
 
 import { formatDuration } from './formatDuration'
 
-export type CellValue =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | Record<string, unknown>
-  | unknown[]
+export type CellValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[]
 
 export const THEME_COLORS = {
   FIELD_LABEL: 'gray.5',
@@ -49,7 +42,6 @@ export const THEME_TYPOGRAPHY = {
   },
 } as const
 
-
 const renderText = (value: CellValue): React.ReactNode => (
   <Text size="md" c={THEME_COLORS.VALUE_TEXT}>
     {String(value)}
@@ -64,19 +56,24 @@ const renderBadge = (value: CellValue): React.ReactNode => (
 
 const renderDateTime = (value: CellValue): React.ReactNode => {
   if (!value) {
-    return <Text size="md" c="dimmed">—</Text>
+    return (
+      <Text size="md" c="dimmed">
+        —
+      </Text>
+    )
   }
 
-  const dateValue = typeof value === 'string' || typeof value === 'number'
-    ? value
-    : value instanceof Date
-    ? value
-    : String(value)
+  const dateValue =
+    typeof value === 'string' || typeof value === 'number' ? value : value instanceof Date ? value : String(value)
 
   const date = new Date(dateValue)
 
   if (Number.isNaN(date.getTime())) {
-    return <Text size="md" c={THEME_COLORS.VALUE_TEXT}>{String(value)}</Text>
+    return (
+      <Text size="md" c={THEME_COLORS.VALUE_TEXT}>
+        {String(value)}
+      </Text>
+    )
   }
 
   return (
@@ -88,13 +85,21 @@ const renderDateTime = (value: CellValue): React.ReactNode => {
 
 const renderDuration = (value: CellValue): React.ReactNode => {
   if (value === null || value === undefined) {
-    return <Text size="md" c="dimmed">—</Text>
+    return (
+      <Text size="md" c="dimmed">
+        —
+      </Text>
+    )
   }
 
   const duration = typeof value === 'number' ? value : Number.parseInt(String(value), 10)
 
   if (Number.isNaN(duration)) {
-    return <Text size="md" c="dimmed">—</Text>
+    return (
+      <Text size="md" c="dimmed">
+        —
+      </Text>
+    )
   }
 
   return (
@@ -107,9 +112,7 @@ const renderDuration = (value: CellValue): React.ReactNode => {
 const renderStatusBadge = (value: CellValue): React.ReactNode => {
   const status = String(value).toLowerCase() as PipelineStatus
 
-
-  
-return <StatusBadgeComponent status={status} size="md" />
+  return <StatusBadgeComponent status={status} size="md" />
 }
 
 const renderCommit = (value: CellValue): React.ReactNode => {
@@ -147,11 +150,7 @@ const renderTruncatedText = (value: CellValue): React.ReactNode => (
 )
 
 const renderLink = (value: CellValue): React.ReactNode => (
-  <Text
-    size="md"
-    c="blue"
-    style={{ textDecoration: 'underline', cursor: 'pointer' }}
-  >
+  <Text size="md" c="blue" style={{ textDecoration: 'underline', cursor: 'pointer' }}>
     {String(value)}
   </Text>
 )
@@ -167,9 +166,10 @@ const renderJsonViewer = (value: CellValue): React.ReactNode => {
 }
 
 const renderEmpty = (isMobile: boolean): React.ReactNode => (
-  <Text size={isMobile ? 'sm' : 'md'} c="dimmed">—</Text>
+  <Text size={isMobile ? 'sm' : 'md'} c="dimmed">
+    —
+  </Text>
 )
-
 
 type RendererFn = (value: CellValue) => React.ReactNode
 
@@ -186,12 +186,7 @@ const RENDERER_MAP: Record<string, RendererFn> = {
   JsonViewer: renderJsonViewer,
 }
 
-
-export const renderCellValue = (
-  renderer: CellRenderer,
-  value: CellValue,
-  isMobile = false
-): React.ReactNode => {
+export const renderCellValue = (renderer: CellRenderer, value: CellValue, isMobile = false): React.ReactNode => {
   if (value === null || value === undefined) {
     return renderEmpty(isMobile)
   }
@@ -199,9 +194,7 @@ export const renderCellValue = (
   if (typeof renderer === 'string') {
     const rendererFn = RENDERER_MAP[renderer]
 
-
-    
-return rendererFn ? rendererFn(value) : renderText(value)
+    return rendererFn ? rendererFn(value) : renderText(value)
   }
 
   if (typeof renderer === 'object' && 'Custom' in renderer) {
@@ -209,11 +202,4 @@ return rendererFn ? rendererFn(value) : renderText(value)
   }
 
   return renderText(value)
-}
-
-
-export class DynamicRenderers {
-  static render(renderer: CellRenderer, value: CellValue, isMobile = false): React.ReactNode {
-    return renderCellValue(renderer, value, isMobile)
-  }
 }

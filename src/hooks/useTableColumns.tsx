@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
 import type { DataTableColumn } from 'mantine-datatable'
+import { useMemo } from 'react'
 
 import { logger } from '../lib/logger'
 import { useTableDefinition } from '../queries/useTableSchemaQueries'
@@ -17,11 +17,7 @@ export function useTableColumns(
   additionalColumns?: DataTableColumn<PipelineRun>[],
   preferences?: ColumnPreferences
 ) {
-  const {
-    data: tableSchema,
-    isLoading: loading,
-    error: queryError,
-  } = useTableDefinition(providerId ?? 0, tableId)
+  const { data: tableSchema, isLoading: loading, error: queryError } = useTableDefinition(providerId ?? 0, tableId)
 
   const stableAdditionalColumns = useMemo(
     () => (additionalColumns && Array.isArray(additionalColumns) ? additionalColumns : []),
@@ -38,13 +34,13 @@ export function useTableColumns(
         logger.warn('useTableColumns', `No schema found for table ${tableId}, using default columns`)
       }
 
-return stableAdditionalColumns
+      return stableAdditionalColumns
     }
 
     if (!tableSchema.columns || !Array.isArray(tableSchema.columns)) {
       logger.warn('useTableColumns', `Schema for table ${tableId} has no columns array, using default columns`)
 
-return stableAdditionalColumns
+      return stableAdditionalColumns
     }
 
     const visibleCols = filterVisibleColumns(tableSchema.columns)
@@ -57,7 +53,7 @@ return stableAdditionalColumns
     if (!baseColumns || !Array.isArray(baseColumns)) {
       logger.warn('useTableColumns', 'baseColumns is not an array', baseColumns)
 
-return []
+      return []
     }
 
     if (!preferences?.columnOrder && !preferences?.columnVisibility) {
@@ -67,22 +63,19 @@ return []
     let columns = [...baseColumns]
 
     if (preferences.columnVisibility) {
-      columns = columns.filter(col => {
+      columns = columns.filter((col) => {
         const accessor = String(col.accessor)
 
-
-
-return preferences.columnVisibility?.[accessor] !== false
+        return preferences.columnVisibility?.[accessor] !== false
       })
     }
 
     if (preferences.columnOrder) {
       const ordered: DataTableColumn<PipelineRun>[] = []
-      const columnMap = new Map(columns.map(col => [String(col.accessor), col]))
+      const columnMap = new Map(columns.map((col) => [String(col.accessor), col]))
 
       for (const accessor of preferences.columnOrder) {
         const column = columnMap.get(accessor)
-
 
         if (column) {
           ordered.push(column)
@@ -90,7 +83,7 @@ return preferences.columnVisibility?.[accessor] !== false
         }
       }
 
-      columnMap.forEach(col => ordered.push(col))
+      ordered.push(...columnMap.values())
       columns = ordered
     }
 

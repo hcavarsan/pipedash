@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
-
 import { Button, Card, Group, NumberInput, Progress, Select, Stack, Switch, Text } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import { IconCheck, IconTrash } from '@tabler/icons-react'
+import { useEffect, useState } from 'react'
 
 import {
   useFlushMetrics,
@@ -75,8 +74,8 @@ export const MetricsConfigModal = ({
       title: 'Flush Metrics',
       children: (
         <Text size="sm">
-          Are you sure you want to delete {pipelineId ? 'metrics for this pipeline' : 'all metrics'}?
-          This action cannot be undone.
+          Are you sure you want to delete {pipelineId ? 'metrics for this pipeline' : 'all metrics'}? This action cannot
+          be undone.
         </Text>
       ),
       labels: { confirm: 'Delete', cancel: 'Cancel' },
@@ -152,9 +151,8 @@ export const MetricsConfigModal = ({
     }
   }
 
-  const pipelineStats = pipelineId && stats.data
-    ? stats.data.by_pipeline.find((p) => p.pipeline_id === pipelineId)
-    : null
+  const pipelineStats =
+    pipelineId && stats.data ? stats.data.by_pipeline.find((p) => p.pipeline_id === pipelineId) : null
   const metricsCount = pipelineStats ? pipelineStats.metrics_count : stats.data?.total_metrics_count || 0
   const sizeMB = stats.data?.estimated_size_mb || 0
 
@@ -163,18 +161,10 @@ export const MetricsConfigModal = ({
 
   const footer = (
     <Group justify="flex-end" gap="xs">
-      <Button
-        variant="subtle"
-        onClick={onClose}
-        disabled={isSaving || flushMutation.isPending}
-      >
+      <Button variant="subtle" onClick={onClose} disabled={isSaving || flushMutation.isPending}>
         Cancel
       </Button>
-      <Button
-        onClick={handleSave}
-        loading={isSaving}
-        disabled={loadingInitial}
-      >
+      <Button onClick={handleSave} loading={isSaving} disabled={loadingInitial}>
         Save
       </Button>
     </Group>
@@ -235,8 +225,7 @@ export const MetricsConfigModal = ({
 
             {enabled && (
               <Text size="xs" c="dimmed">
-                Estimated storage: ~{Math.round(retentionDays * 0.1)}MB per pipeline for {retentionDays}{' '}
-                days
+                Estimated storage: ~{Math.round(retentionDays * 0.1)}MB per pipeline for {retentionDays} days
               </Text>
             )}
           </Stack>

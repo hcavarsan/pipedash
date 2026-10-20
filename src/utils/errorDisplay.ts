@@ -9,10 +9,7 @@ export const NOTIFICATION_DURATIONS = {
   WARNING: 5000,
 } as const
 
-export function displayErrorNotification(
-  error: unknown,
-  title = 'Error'
-): void {
+export function displayErrorNotification(error: unknown, title = 'Error'): void {
   const message = formatErrorMessage(error)
 
   notifications.show({
@@ -23,10 +20,7 @@ export function displayErrorNotification(
   })
 }
 
-export function displaySuccessNotification(
-  message: string,
-  title = 'Success'
-): void {
+export function displaySuccessNotification(message: string, title = 'Success'): void {
   notifications.show({
     title,
     message,
@@ -34,5 +28,3 @@ export function displaySuccessNotification(
     autoClose: NOTIFICATION_DURATIONS.SUCCESS,
   })
 }
-
-

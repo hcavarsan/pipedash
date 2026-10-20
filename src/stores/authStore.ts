@@ -1,7 +1,6 @@
+import { notifications } from '@mantine/notifications'
 import { create } from 'zustand'
 import { devtools, subscribeWithSelector } from 'zustand/middleware'
-
-import { notifications } from '@mantine/notifications'
 
 const STORAGE_KEY = 'pipedash_vault_password'
 const FAILURE_THRESHOLD = 3
@@ -66,10 +65,9 @@ export const useAuthStore = create<AuthStore>()(
       consumeReturnPath: () => {
         const { returnPath } = get()
 
-
         set({ returnPath: null })
-        
-return returnPath
+
+        return returnPath
       },
 
       incrementFailure: () => {
@@ -78,8 +76,7 @@ return returnPath
         const now = Date.now()
 
         if (newCount >= FAILURE_THRESHOLD) {
-          const shouldNotify =
-            !lastNotificationTime || now - lastNotificationTime > NOTIFICATION_DEBOUNCE_MS
+          const shouldNotify = !lastNotificationTime || now - lastNotificationTime > NOTIFICATION_DEBOUNCE_MS
 
           if (shouldNotify) {
             notifications.show({
@@ -92,13 +89,13 @@ return returnPath
           }
 
           get().clearToken()
-          
-return true
+
+          return true
         }
 
         set({ consecutiveFailures: newCount })
-        
-return false
+
+        return false
       },
 
       resetFailures: () => set({ consecutiveFailures: 0 }),

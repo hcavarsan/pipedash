@@ -1,4 +1,3 @@
-
 export const PAGE_SIZES = {
   RUN_HISTORY: 20,
 

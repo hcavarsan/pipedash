@@ -1,9 +1,7 @@
-import { Dispatch, useEffect, useMemo, useRef } from 'react'
-
 import {
   Box,
-  Checkbox as MantineCheckbox,
   Group,
+  Checkbox as MantineCheckbox,
   NumberInput,
   PasswordInput,
   ScrollArea,
@@ -16,6 +14,7 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { IconInfoCircle } from '@tabler/icons-react'
+import { type Dispatch, useEffect, useMemo, useRef } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
@@ -53,11 +52,10 @@ export function CredentialsStep({
 
   useEffect(() => {
     if (!selectedPlugin) {
-return
-}
+      return
+    }
 
     const currentKey = `${selectedPlugin.provider_type}:${debouncedConfigValuesKey}`
-
 
     if (
       loadedOptionsRef.current.pluginType === selectedPlugin.provider_type &&
@@ -75,11 +73,7 @@ return
       for (const field of selectedPlugin.config_schema.fields) {
         if (field.field_type === 'Select' && (!field.options || field.options.length === 0)) {
           try {
-            const options = await service.getProviderFieldOptions(
-              selectedPlugin.provider_type,
-              field.key,
-              parsedConfig
-            )
+            const options = await service.getProviderFieldOptions(selectedPlugin.provider_type, field.key, parsedConfig)
 
             if (options.length > 0 && isMounted) {
               newDynamicOptions[field.key] = options
@@ -129,7 +123,12 @@ return
       <Group gap={4} wrap="nowrap">
         <Text size="sm" fw={500}>
           {label}
-          {required && <Text component="span" c="red"> *</Text>}
+          {required && (
+            <Text component="span" c="red">
+              {' '}
+              *
+            </Text>
+          )}
         </Text>
         {description && (
           <Tooltip label={description} multiline w={300} withArrow>
@@ -190,7 +189,6 @@ return
             onChange={(e) => handleConfigChange(field.key, String(e.currentTarget.checked))}
           />
         )
-      case 'Text':
       default:
         return <TextInput key={field.key} {...commonProps} />
     }

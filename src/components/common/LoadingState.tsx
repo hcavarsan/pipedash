@@ -15,6 +15,8 @@ export function LoadingState({
   skeletonLines = 3,
   minHeight,
 }: LoadingStateProps) {
+  const skeletonIds = Array.from({ length: skeletonLines }, (_, i) => `skeleton-${i}`)
+
   if (variant === 'page') {
     return (
       <Box style={{ minHeight: minHeight || '400px' }}>
@@ -53,8 +55,8 @@ export function LoadingState({
     if (skeleton) {
       return (
         <Stack gap="xs" py="md">
-          {Array.from({ length: skeletonLines }).map((_, i) => (
-            <Skeleton key={i} height="2.5rem" radius="sm" />
+          {skeletonIds.map((id) => (
+            <Skeleton key={id} height="2.5rem" radius="sm" />
           ))}
         </Stack>
       )

@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useState } from 'react'
-
 import {
   ActionIcon,
   Box,
@@ -17,6 +15,7 @@ import {
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import { IconEdit, IconSettings, IconTrash } from '@tabler/icons-react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
 import { useProviderDetails } from '../../../queries/useProviderDetailsQuery'
@@ -32,11 +31,7 @@ import { AddProviderModal } from '../../provider/AddProviderModal'
 export const ProvidersSection = () => {
   const { getPluginDisplayName } = usePlugins()
 
-  const {
-    data: providers = [],
-    isLoading: loading,
-    error: providersError,
-  } = useProviders()
+  const { data: providers = [], isLoading: loading, error: providersError } = useProviders()
 
   const { mutateAsync: updateProviderMutation } = useUpdateProvider()
   const { mutateAsync: removeProviderMutation } = useRemoveProvider()
@@ -81,8 +76,7 @@ export const ProvidersSection = () => {
         title: 'Remove Provider',
         children: (
           <Text size="sm">
-            Are you sure you want to remove <strong>{name}</strong>? All cached pipeline data will
-            be deleted.
+            Are you sure you want to remove <strong>{name}</strong>? All cached pipeline data will be deleted.
           </Text>
         ),
         labels: { confirm: 'Remove', cancel: 'Cancel' },
@@ -99,16 +93,13 @@ export const ProvidersSection = () => {
     [removeProviderMutation]
   )
 
-  const handleEditRefreshInterval = useCallback(
-    (providerId: number, currentInterval: number) => {
-      setEditingId(providerId)
-      setRefreshValues((prev) => ({
-        ...prev,
-        [providerId]: currentInterval,
-      }))
-    },
-    []
-  )
+  const handleEditRefreshInterval = useCallback((providerId: number, currentInterval: number) => {
+    setEditingId(providerId)
+    setRefreshValues((prev) => ({
+      ...prev,
+      [providerId]: currentInterval,
+    }))
+  }, [])
 
   const handleSaveRefreshInterval = useCallback(
     (providerId: number, currentInterval: number) => {
@@ -121,7 +112,7 @@ export const ProvidersSection = () => {
           color: 'red',
         })
 
-return
+        return
       }
 
       updateRefreshIntervalMutation.mutate(
@@ -190,12 +181,7 @@ return
                         <Group gap="xs">
                           <Text size="sm">{provider.name}</Text>
                           {provider.last_fetch_status === 'error' && (
-                            <Tooltip
-                              label={provider.last_fetch_error || 'Failed to fetch'}
-                              multiline
-                              w={300}
-                              withArrow
-                            >
+                            <Tooltip label={provider.last_fetch_error || 'Failed to fetch'} multiline w={300} withArrow>
                               <Text size="xs" c="red">
                                 Error
                               </Text>
@@ -247,9 +233,7 @@ return
                           <Group
                             gap={2}
                             style={{ cursor: 'pointer' }}
-                            onClick={() =>
-                              handleEditRefreshInterval(provider.id, provider.refresh_interval)
-                            }
+                            onClick={() => handleEditRefreshInterval(provider.id, provider.refresh_interval)}
                           >
                             <Text size="sm">{provider.refresh_interval}s</Text>
                             <ActionIcon size="xs" variant="transparent" color="gray">
@@ -278,9 +262,7 @@ return
                             size="compact-xs"
                             variant="light"
                             color="gray"
-                            onClick={() =>
-                              handleSaveRefreshInterval(provider.id, provider.refresh_interval)
-                            }
+                            onClick={() => handleSaveRefreshInterval(provider.id, provider.refresh_interval)}
                             loading={updateRefreshIntervalMutation.isPending}
                           >
                             Save
@@ -317,7 +299,7 @@ return
         )}
       </Box>
 
-      {editingProvider && editingProvider.id && (
+      {editingProvider?.id && (
         <AddProviderModal
           opened={editModalOpened}
           onClose={handleCloseEditModal}

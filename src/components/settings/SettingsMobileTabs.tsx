@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 import { Box, ScrollArea, Stack, Text, ThemeIcon, UnstyledButton } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
@@ -12,21 +10,22 @@ import {
   IconSettings,
   IconTrash,
 } from '@tabler/icons-react'
+import { useState } from 'react'
 
 import { service } from '../../services'
 
 import type { SettingsSection } from './SettingsSidebar'
 
 interface SettingsMobileTabsProps {
-  activeSection: SettingsSection;
-  onSectionChange: (section: SettingsSection) => void;
-  onRefresh?: () => Promise<void>;
+  activeSection: SettingsSection
+  onSectionChange: (section: SettingsSection) => void
+  onRefresh?: () => Promise<void>
 }
 
 const TABS: Array<{
-  id: SettingsSection;
-  label: string;
-  icon: React.ReactNode;
+  id: SettingsSection
+  label: string
+  icon: React.ReactNode
 }> = [
   { id: 'general', label: 'General', icon: <IconSettings size={18} /> },
   { id: 'providers', label: 'Providers', icon: <IconPlug size={18} /> },
@@ -35,11 +34,7 @@ const TABS: Array<{
   { id: 'storage', label: 'Storage', icon: <IconFolder size={18} /> },
 ]
 
-export const SettingsMobileTabs = ({
-  activeSection,
-  onSectionChange,
-  onRefresh,
-}: SettingsMobileTabsProps) => {
+export const SettingsMobileTabs = ({ activeSection, onSectionChange, onRefresh }: SettingsMobileTabsProps) => {
   const [resetting, setResetting] = useState(false)
 
   const handleResetStorage = () => {
@@ -54,9 +49,7 @@ export const SettingsMobileTabs = ({
       ),
       children: (
         <Stack gap="sm">
-          <Text size="sm">
-            This will permanently delete all data:
-          </Text>
+          <Text size="sm">This will permanently delete all data:</Text>
           <Text size="sm" c="dimmed">
             • All providers and tokens
           </Text>
@@ -138,21 +131,15 @@ export const SettingsMobileTabs = ({
                   borderRadius: 6,
                   fontSize: 13,
                   fontWeight: isActive ? 500 : 400,
-                  color: isActive
-                    ? 'var(--mantine-color-text)'
-                    : 'var(--mantine-color-dimmed)',
-                  backgroundColor: isActive
-                    ? 'var(--mantine-color-default-hover)'
-                    : 'transparent',
+                  color: isActive ? 'var(--mantine-color-text)' : 'var(--mantine-color-dimmed)',
+                  backgroundColor: isActive ? 'var(--mantine-color-default-hover)' : 'transparent',
                   transition: 'all 0.15s ease',
                   whiteSpace: 'nowrap',
                 }}
               >
                 <Box
                   style={{
-                    color: isActive
-                      ? 'var(--mantine-color-text)'
-                      : 'var(--mantine-color-dimmed)',
+                    color: isActive ? 'var(--mantine-color-text)' : 'var(--mantine-color-dimmed)',
                   }}
                 >
                   {tab.icon}

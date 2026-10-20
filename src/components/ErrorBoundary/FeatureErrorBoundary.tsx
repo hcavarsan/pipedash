@@ -11,10 +11,7 @@ interface FeatureErrorBoundaryState {
   error: Error | null
 }
 
-export class FeatureErrorBoundary extends Component<
-  FeatureErrorBoundaryProps,
-  FeatureErrorBoundaryState
-> {
+export class FeatureErrorBoundary extends Component<FeatureErrorBoundaryProps, FeatureErrorBoundaryState> {
   constructor(props: FeatureErrorBoundaryProps) {
     super(props)
     this.state = {
@@ -52,60 +49,72 @@ export class FeatureErrorBoundary extends Component<
       const featureName = this.props.featureName || 'Feature'
 
       return (
-        <div style={{
-          padding: '1rem',
-          margin: '1rem 0',
-          backgroundColor: '#25262b',
-          borderRadius: '8px',
-          border: '1px solid #fa5252',
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            marginBottom: '0.75rem',
-          }}>
+        <div
+          style={{
+            padding: '1rem',
+            margin: '1rem 0',
+            backgroundColor: '#25262b',
+            borderRadius: '8px',
+            border: '1px solid #fa5252',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: '0.75rem',
+            }}
+          >
             <span style={{ fontSize: '1.25rem' }}>⚠️</span>
-            <span style={{
-              fontWeight: 600,
-              color: '#fa5252',
-              fontSize: '0.875rem',
-            }}>
+            <span
+              style={{
+                fontWeight: 600,
+                color: '#fa5252',
+                fontSize: '0.875rem',
+              }}
+            >
               {featureName} encountered an error
             </span>
           </div>
 
-          <p style={{
-            margin: '0 0 1rem 0',
-            fontSize: '0.8rem',
-            color: '#909296',
-          }}>
+          <p
+            style={{
+              margin: '0 0 1rem 0',
+              fontSize: '0.8rem',
+              color: '#909296',
+            }}
+          >
             {this.state.error.message || 'An unexpected error occurred'}
           </p>
 
           {import.meta.env.DEV && (
             <details style={{ marginBottom: '1rem' }}>
-              <summary style={{
-                cursor: 'pointer',
-                fontSize: '0.75rem',
-                color: '#909296',
-                marginBottom: '0.5rem',
-              }}>
+              <summary
+                style={{
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  color: '#909296',
+                  marginBottom: '0.5rem',
+                }}
+              >
                 Show technical details
               </summary>
-              <pre style={{
-                padding: '0.75rem',
-                backgroundColor: '#1a1b1e',
-                borderRadius: '4px',
-                fontSize: '0.65rem',
-                overflow: 'auto',
-                maxHeight: '150px',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                margin: 0,
-                color: '#c1c2c5',
-              }}>
+              <pre
+                style={{
+                  padding: '0.75rem',
+                  backgroundColor: '#1a1b1e',
+                  borderRadius: '4px',
+                  fontSize: '0.65rem',
+                  overflow: 'auto',
+                  maxHeight: '150px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  margin: 0,
+                  color: '#c1c2c5',
+                }}
+              >
                 {this.state.error.stack || this.state.error.message}
               </pre>
             </details>

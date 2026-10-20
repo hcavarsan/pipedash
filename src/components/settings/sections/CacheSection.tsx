@@ -10,7 +10,7 @@ import {
 } from '../../../queries/useCacheQueries'
 
 interface CacheSectionProps {
-  onRefresh?: () => Promise<void>;
+  onRefresh?: () => Promise<void>
 }
 
 export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
@@ -65,7 +65,9 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
 
   return (
     <Box>
-      <Text size="lg" fw={600} mb="lg">Cache</Text>
+      <Text size="lg" fw={600} mb="lg">
+        Cache
+      </Text>
 
       <Stack gap="md">
         <Card withBorder padding="md" radius="md">
@@ -75,10 +77,10 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
                 {index > 0 && <Divider mb="md" />}
                 <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
                   <Stack gap={4}>
-                    <Text size="xs" c="dimmed">{item.label}</Text>
-                    <Text size="sm">
-                      {item.count !== undefined ? `${item.count} items` : 'Loading...'}
+                    <Text size="xs" c="dimmed">
+                      {item.label}
                     </Text>
+                    <Text size="sm">{item.count !== undefined ? `${item.count} items` : 'Loading...'}</Text>
                   </Stack>
                   <Stack gap={4} align="flex-end">
                     <Button
@@ -105,7 +107,9 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
                 <Divider />
                 <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
                   <Stack gap={4}>
-                    <Text size="xs" c="dimmed">Metrics</Text>
+                    <Text size="xs" c="dimmed">
+                      Metrics
+                    </Text>
                     <Text size="sm">{cacheStats.metrics_count} items</Text>
                   </Stack>
                 </SimpleGrid>

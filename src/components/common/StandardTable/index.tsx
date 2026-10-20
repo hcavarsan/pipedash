@@ -1,7 +1,5 @@
-import { DataTable, DataTableProps } from 'mantine-datatable'
-
 import { Box } from '@mantine/core'
-
+import { DataTable, type DataTableProps } from 'mantine-datatable'
 
 export function StandardTable<T>(props: DataTableProps<T>) {
   return (

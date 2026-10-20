@@ -1,3 +1,5 @@
+import { Badge, Card, Grid, Group, Paper, SimpleGrid, Skeleton, Stack, Text, ThemeIcon } from '@mantine/core'
+import { IconActivity, IconChartLine, IconClock } from '@tabler/icons-react'
 import {
   Area,
   AreaChart,
@@ -11,9 +13,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-
-import { Badge, Card, Grid, Group, Paper, SimpleGrid, Skeleton, Stack, Text, ThemeIcon } from '@mantine/core'
-import { IconActivity, IconChartLine, IconClock } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import type { AggregatedMetrics, MetricType } from '../../types'
@@ -29,16 +28,25 @@ interface MetricsChartProps {
   chartRef?: React.RefObject<HTMLDivElement | null>
 }
 
+interface ChartPoint {
+  date: string
+  value: number
+  count: number
+  index: number
+  timestamp: string
+  isSelected: boolean
+}
+
 interface CustomTooltipProps {
   label?: string | number
-  payload?: readonly any[]
+  payload?: readonly { payload?: ChartPoint }[]
   metricType: MetricType
 }
 
 interface CustomDotProps {
   cx?: number
   cy?: number
-  payload?: any
+  payload?: ChartPoint
   fill?: string
   stroke?: string
   onClick?: (index: number) => void
@@ -46,53 +54,54 @@ interface CustomDotProps {
 
 const CustomDot = ({ cx, cy, payload, fill, stroke, onClick }: CustomDotProps) => {
   if (cx === undefined || cy === undefined || !payload) {
-return null
-}
+    return null
+  }
 
   const isSelected = payload.isSelected || false
   const index = payload.index
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: React.SyntheticEvent) => {
     e.stopPropagation()
     if (onClick && index !== undefined) {
       onClick(index)
     }
   }
 
+  const interactiveProps = {
+    role: 'button',
+    tabIndex: 0,
+    onClick: handleClick,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        handleClick(e)
+      }
+    },
+    style: { cursor: 'pointer' },
+  }
+
   if (isSelected) {
     return (
-      <g onClick={handleClick} style={{ cursor: 'pointer' }}>
+      <g {...interactiveProps}>
         <circle cx={cx} cy={cy} r={10} fill={fill} fillOpacity={0.2} stroke="none" />
         <circle cx={cx} cy={cy} r={6} fill={fill} stroke={stroke} strokeWidth={3} />
       </g>
     )
   }
 
-  return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={4}
-      fill="white"
-      stroke={stroke}
-      strokeWidth={2}
-      onClick={handleClick}
-      style={{ cursor: 'pointer' }}
-    />
-  )
+  return <circle cx={cx} cy={cy} r={4} fill="white" stroke={stroke} strokeWidth={2} {...interactiveProps} />
 }
 
 const CustomTooltip = ({ label, payload, metricType }: CustomTooltipProps) => {
   if (!payload || payload.length === 0) {
-return null
-}
+    return null
+  }
 
   const data = payload[0]?.payload
 
-
   if (!data) {
-return null
-}
+    return null
+  }
 
   const formatValue = (value: number): string => {
     if (metricType === 'run_duration') {
@@ -101,8 +110,8 @@ return null
     if (metricType === 'success_rate') {
       return `${value.toFixed(1)}%`
     }
-    
-return value.toFixed(0)
+
+    return value.toFixed(0)
   }
 
   return (
@@ -119,15 +128,23 @@ return value.toFixed(0)
   )
 }
 
-export const MetricsChart = ({ data, loading, compact = false, selectedIndex, onDataPointClick, chartTitle, chartRef }: MetricsChartProps) => {
+export const MetricsChart = ({
+  data,
+  loading,
+  compact = false,
+  selectedIndex,
+  onDataPointClick,
+  chartTitle,
+  chartRef,
+}: MetricsChartProps) => {
   const { isMobile } = useIsMobile()
-  const chartHeight = compact ? 150 : (isMobile ? 300 : 450)
+  const chartHeight = compact ? 150 : isMobile ? 300 : 450
 
   if (loading) {
     return (
       <Stack gap="md">
         {!compact && (
-          <Grid gutter="md">
+          <Grid gap="md">
             <Grid.Col span={{ base: 12, sm: 4 }}>
               <Card p="md" withBorder>
                 <Skeleton height={80} />
@@ -181,7 +198,7 @@ export const MetricsChart = ({ data, loading, compact = false, selectedIndex, on
           month: 'short',
           day: 'numeric',
           hour: '2-digit',
-          minute: '2-digit'
+          minute: '2-digit',
         })
       case 'daily':
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -205,8 +222,8 @@ export const MetricsChart = ({ data, loading, compact = false, selectedIndex, on
 
   const handleDotClick = (index: number) => {
     if (!onDataPointClick) {
-return
-}
+      return
+    }
     if (selectedIndex === index) {
       onDataPointClick(null)
     } else {
@@ -245,7 +262,6 @@ return
   const calculateStats = () => {
     const realValues = data.metrics.filter((m) => m.count > 0).map((m) => m.value)
 
-
     if (realValues.length === 0) {
       return { avg: 0, max: 0, min: 0, latest: 0, trend: 0, count: 0, totalPeriods: data.metrics.length }
     }
@@ -269,8 +285,8 @@ return
     if (metricType === 'success_rate') {
       return `${value.toFixed(1)}%`
     }
-    
-return value.toFixed(0)
+
+    return value.toFixed(0)
   }
 
   const StatCard = ({ label, value, suffix = '' }: { label: string; value: number; suffix?: string }) => (
@@ -311,7 +327,8 @@ return value.toFixed(0)
                     {chartTitle || config.title}
                   </Text>
                   <Text size="xs" c="dimmed">
-                    {stats.totalPeriods} periods{stats.count !== stats.totalPeriods ? ` (${stats.count} with data)` : ''}
+                    {stats.totalPeriods} periods
+                    {stats.count !== stats.totalPeriods ? ` (${stats.count} with data)` : ''}
                   </Text>
                 </div>
               </Group>
@@ -332,11 +349,7 @@ return value.toFixed(0)
           <ResponsiveContainer width="100%" height={chartHeight}>
             <LineChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               {!compact && (
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="var(--mantine-color-gray-2)"
-                  vertical={false}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-2)" vertical={false} />
               )}
               {!compact && (
                 <XAxis
@@ -375,11 +388,7 @@ return value.toFixed(0)
                 stroke={`var(--mantine-color-${config.color}-6)`}
                 strokeWidth={2.5}
                 fill={`var(--mantine-color-${config.color}-6)`}
-                dot={
-                  !compact
-                    ? (props: any) => <CustomDot {...props} onClick={handleDotClick} />
-                    : false
-                }
+                dot={!compact ? (props: CustomDotProps) => <CustomDot {...props} onClick={handleDotClick} /> : false}
                 activeDot={false}
                 isAnimationActive={false}
               />
@@ -415,7 +424,8 @@ return value.toFixed(0)
                     {chartTitle || config.title}
                   </Text>
                   <Text size="xs" c="dimmed">
-                    {stats.totalPeriods} periods{stats.count !== stats.totalPeriods ? ` (${stats.count} with data)` : ''}
+                    {stats.totalPeriods} periods
+                    {stats.count !== stats.totalPeriods ? ` (${stats.count} with data)` : ''}
                   </Text>
                 </div>
               </Group>
@@ -436,11 +446,7 @@ return value.toFixed(0)
           <ResponsiveContainer width="100%" height={chartHeight}>
             <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               {!compact && (
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="var(--mantine-color-gray-2)"
-                  vertical={false}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-2)" vertical={false} />
               )}
               {!compact && (
                 <XAxis
@@ -480,11 +486,7 @@ return value.toFixed(0)
                 fill={`var(--mantine-color-${config.color}-6)`}
                 fillOpacity={0.3}
                 strokeWidth={2.5}
-                dot={
-                  !compact
-                    ? (props: any) => <CustomDot {...props} onClick={handleDotClick} />
-                    : false
-                }
+                dot={!compact ? (props: CustomDotProps) => <CustomDot {...props} onClick={handleDotClick} /> : false}
                 activeDot={false}
                 isAnimationActive={false}
               />
@@ -539,13 +541,7 @@ return value.toFixed(0)
         )}
         <ResponsiveContainer width="100%" height={chartHeight}>
           <BarChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-            {!compact && (
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="var(--mantine-color-gray-2)"
-                vertical={false}
-              />
-            )}
+            {!compact && <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-gray-2)" vertical={false} />}
             {!compact && (
               <XAxis
                 dataKey="date"
@@ -578,18 +574,23 @@ return value.toFixed(0)
               dataKey="value"
               fill={`var(--mantine-color-${config.color}-6)`}
               radius={[4, 4, 0, 0]}
-              onClick={(data: any) => {
-                if (!compact && data && data.index !== undefined) {
-                  handleDotClick(data.index)
+              onClick={(data: { payload?: ChartPoint }) => {
+                if (!compact && data?.payload?.index !== undefined) {
+                  handleDotClick(data.payload.index)
                 }
               }}
-              shape={(props: any) => {
+              shape={(props: {
+                fill?: string
+                x?: number
+                y?: number
+                width?: number
+                height?: number
+                payload?: ChartPoint
+              }) => {
                 const { fill, x, y, width, height, payload } = props
                 const isSelected = payload?.isSelected || false
 
-
-                
-return (
+                return (
                   <rect
                     x={x}
                     y={y}

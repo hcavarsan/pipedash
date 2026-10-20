@@ -80,6 +80,7 @@ const modernGray: MantineColorsTuple = [
 
 export const theme = createTheme({
   primaryColor: 'blue',
+  defaultRadius: 'sm',
 
   colors: {
     blue: modernBlue,

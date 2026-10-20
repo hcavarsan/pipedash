@@ -181,6 +181,8 @@ impl ConfigState {
             )));
         }
 
+        *self.config.write().await = Arc::new(new_config);
+
         let event = ConfigChangeEvent::Reloaded {
             changed_keys: vec![], // TODO: Calculate diff
         };
@@ -324,6 +326,8 @@ impl ConfigState {
         std::fs::write(&self.config_path, &new_content).map_err(|e| {
             DomainError::DatabaseError(format!("Failed to write config file: {}", e))
         })?;
+
+        *self.config.write().await = Arc::new(config.clone());
 
         tracing::debug!("Config persisted to {:?}", self.config_path);
         Ok(())
@@ -481,6 +485,26 @@ mod tests {
 
         let config = state.get().await;
         assert!(config.providers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_reload_replaces_in_memory_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let token_store = Arc::new(MemoryTokenStore::new());
+
+        let state = create_test_state(&temp_dir, token_store);
+
+        let mut on_disk = PipedashConfig::default();
+        on_disk.general.default_refresh_interval = 123;
+        std::fs::write(
+            temp_dir.path().join("config.toml"),
+            ConfigLoader::to_toml(&on_disk).unwrap(),
+        )
+        .unwrap();
+
+        state.reload().await.unwrap();
+
+        assert_eq!(state.get().await.general.default_refresh_interval, 123);
     }
 
     #[tokio::test]

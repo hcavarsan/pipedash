@@ -1,34 +1,15 @@
-import React from 'react'
-
-import {
-  Alert,
-  Badge,
-  Box,
-  Code,
-  Divider,
-  Group,
-  Loader,
-  Stack,
-  Text,
-  ThemeIcon,
-  Tooltip,
-} from '@mantine/core'
-import {
-  IconAlertCircle,
-  IconCheck,
-  IconX,
-} from '@tabler/icons-react'
+import { Alert, Badge, Box, Code, Divider, Group, Loader, Stack, Text, ThemeIcon, Tooltip } from '@mantine/core'
+import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
+import type React from 'react'
 
 import type { FeatureAvailability, PermissionStatus, PluginMetadata } from '../../types'
 import { StandardModal } from '../common/StandardModal'
 
 const formatPermissionDescription = (description: string) => {
   const parts: (string | React.ReactNode)[] = []
-  const regex = /'([^']+)'/g
   let lastIndex = 0
-  let match
 
-  while ((match = regex.exec(description)) !== null) {
+  for (const match of description.matchAll(/'([^']+)'/g)) {
     if (match.index > lastIndex) {
       parts.push(description.substring(lastIndex, match.index))
     }
@@ -37,7 +18,7 @@ const formatPermissionDescription = (description: string) => {
         {match[1]}
       </Code>
     )
-    lastIndex = regex.lastIndex
+    lastIndex = match.index + match[0].length
   }
 
   if (lastIndex < description.length) {
@@ -78,12 +59,7 @@ export const PermissionCheckModal = ({
   )
 
   return (
-    <StandardModal
-      opened={opened}
-      onClose={onClose}
-      title={modalTitle}
-      loading={loading}
-    >
+    <StandardModal opened={opened} onClose={onClose} title={modalTitle} loading={loading}>
       {loading ? (
         <Group justify="center" py="xl">
           <Loader size="sm" />
@@ -116,10 +92,7 @@ export const PermissionCheckModal = ({
                   <Stack gap="sm">
                     <Group justify="space-between" align="flex-start">
                       <Group gap="xs">
-                        <Tooltip
-                          label={check.granted ? 'Permission granted' : 'Permission not granted'}
-                          withArrow
-                        >
+                        <Tooltip label={check.granted ? 'Permission granted' : 'Permission not granted'} withArrow>
                           <ThemeIcon
                             size="sm"
                             radius="xl"
@@ -131,11 +104,7 @@ export const PermissionCheckModal = ({
                         </Tooltip>
                         <Code fz="sm">{check.permission.name}</Code>
                       </Group>
-                      <Badge
-                        size="xs"
-                        variant="light"
-                        color="blue"
-                      >
+                      <Badge size="xs" variant="light" color="blue">
                         {check.permission.required ? 'Required' : 'Optional'}
                       </Badge>
                     </Group>
@@ -149,7 +118,7 @@ export const PermissionCheckModal = ({
                     {featuresForPermission.length > 0 && (
                       <Box>
                         <Text size="xs" fw={500} mb={4} c="dimmed">
-                          {check.granted ? 'With this you can:' : 'Missing this means you can\'t:'}
+                          {check.granted ? 'With this you can:' : "Missing this means you can't:"}
                         </Text>
                         <Stack gap={4}>
                           {featuresForPermission.map((f) => (
@@ -178,13 +147,11 @@ export const PermissionCheckModal = ({
               Permission Check Unavailable
             </Text>
             <Text size="xs">
-              Unable to check token permissions. This could be due to network connectivity issues or
-              GitHub API rate limits. Your token credentials are valid, but permission details cannot
-              be verified at this time.
+              Unable to check token permissions. This could be due to network connectivity issues or GitHub API rate
+              limits. Your token credentials are valid, but permission details cannot be verified at this time.
             </Text>
             <Text size="xs" fw={500}>
-              You can still add this provider and it should work normally if your token has the
-              required permissions.
+              You can still add this provider and it should work normally if your token has the required permissions.
             </Text>
           </Stack>
         </Alert>

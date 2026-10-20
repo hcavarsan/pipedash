@@ -16,11 +16,11 @@ export function usePlugins() {
         logger.debug('usePlugins', 'Received plugins', { count: data.length })
 
         return data
-      } catch (error: any) {
-        if (error?.response?.status === 503) {
+      } catch (error) {
+        if ((error as { response?: { status?: number } } | null)?.response?.status === 503) {
           logger.debug('usePlugins', 'App not initialized yet, returning empty array')
 
-return []
+          return []
         }
         throw error
       }

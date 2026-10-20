@@ -8,11 +8,13 @@ export function useProviderDetails(providerId: number | null) {
   return useQuery({
     queryKey: queryKeys.providers.detail(providerId || 0),
     queryFn: async () => {
-      const config = await service.getProvider(providerId!)
+      if (!providerId) {
+        throw new Error('providerId is required')
+      }
 
+      const config = await service.getProvider(providerId)
 
-
-return { ...config, id: providerId! }
+      return { ...config, id: providerId }
     },
     staleTime: STALE_TIMES.MODERATE,
     gcTime: GC_TIMES.SHORT,

@@ -3,7 +3,7 @@ import type { DataTableColumn } from 'mantine-datatable'
 import { logger } from '../lib/logger'
 import type { ColumnDefinition, PipelineRun } from '../types'
 
-import { DynamicRenderers } from './dynamicRenderers'
+import { renderCellValue } from './dynamicRenderers'
 import { getValueByPath } from './objectPath'
 
 export function buildColumnsFromSchema(
@@ -13,7 +13,7 @@ export function buildColumnsFromSchema(
   if (!columnDefs || !Array.isArray(columnDefs)) {
     logger.warn('buildColumnsFromSchema', 'columnDefs is not an array', columnDefs)
 
-return additionalColumns || []
+    return additionalColumns || []
   }
 
   const columns: DataTableColumn<PipelineRun>[] = columnDefs.map((def) => {
@@ -29,7 +29,7 @@ return additionalColumns || []
       render: (record) => {
         const value = getValueByPath(record, def.field_path)
 
-        return DynamicRenderers.render(def.renderer, value)
+        return renderCellValue(def.renderer, value)
       },
     }
 
@@ -47,7 +47,7 @@ export function filterVisibleColumns(columnDefs: ColumnDefinition[]): ColumnDefi
   if (!columnDefs || !Array.isArray(columnDefs)) {
     logger.warn('filterVisibleColumns', 'columnDefs is not an array', columnDefs)
 
-return []
+    return []
   }
 
   return columnDefs.filter((def) => {

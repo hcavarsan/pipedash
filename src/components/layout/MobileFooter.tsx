@@ -1,12 +1,11 @@
-import React from 'react'
-
 import { ActionIcon } from '@mantine/core'
 import { IconPlus } from '@tabler/icons-react'
+import React from 'react'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 
 interface MobileFooterProps {
-  onAddProvider: () => void;
+  onAddProvider: () => void
 }
 
 export const MobileFooter = React.memo(({ onAddProvider }: MobileFooterProps) => {

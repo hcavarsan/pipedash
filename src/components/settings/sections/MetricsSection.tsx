@@ -1,15 +1,5 @@
+import { Box, Card, Divider, NumberInput, Select, Stack, Switch, Text } from '@mantine/core'
 import { useEffect, useState } from 'react'
-
-import {
-  Box,
-  Card,
-  Divider,
-  NumberInput,
-  Select,
-  Stack,
-  Switch,
-  Text,
-} from '@mantine/core'
 
 import { useGlobalMetricsConfig, useUpdateGlobalMetricsConfig } from '../../../queries/useMetricsQueries'
 
@@ -76,7 +66,9 @@ export const MetricsSection = () => {
 
   return (
     <Box>
-      <Text size="lg" fw={600} mb="lg">Metrics</Text>
+      <Text size="lg" fw={600} mb="lg">
+        Metrics
+      </Text>
 
       <Stack gap="md">
         <Card withBorder padding="md" radius="md">

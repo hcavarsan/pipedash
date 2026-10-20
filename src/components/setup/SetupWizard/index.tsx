@@ -1,22 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-
-import {
-  Box,
-  Button,
-  Group,
-  Loader,
-  ScrollArea,
-  Stack,
-  Stepper,
-  Text,
-} from '@mantine/core'
+import { Box, Button, Group, Loader, ScrollArea, Stack, Stepper, Text } from '@mantine/core'
 import { modals } from '@mantine/modals'
-import {
-  IconCheck,
-  IconDatabase,
-  IconKey,
-  IconRocket,
-} from '@tabler/icons-react'
+import { IconCheck, IconDatabase, IconKey, IconRocket } from '@tabler/icons-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useIsMobile } from '../../../hooks/useIsMobile'
 import {
@@ -37,7 +22,6 @@ import { StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
 import { TransferStep } from './TransferStep'
 import type { SetupState, SetupWizardProps, StorageBackend, TransferResult } from './types'
-
 
 export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) => {
   const { data: currentConfig, isLoading: loading } = useStorageConfig({ enabled: opened })
@@ -73,13 +57,16 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     executeMigrationMutation.isPending ||
     unlockVaultMutation.isPending
 
-  const stepperConfig = useMemo(() => ({
-    orientation: 'horizontal' as const,
-    size: 'xs' as const,
-    iconSize: 24,
-    showLabels: true,
-    showDescriptions: false
-  }), [])
+  const stepperConfig = useMemo(
+    () => ({
+      orientation: 'horizontal' as const,
+      size: 'xs' as const,
+      iconSize: 24,
+      showLabels: true,
+      showDescriptions: false,
+    }),
+    []
+  )
 
   const getCurrentBackend = useCallback((): string => {
     if (!currentConfig) {
@@ -92,10 +79,9 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
   const vaultPasswordFromEnv = vaultStatus?.is_set === true
   const isFromKeyring = useMemo(() => {
     if (!currentConfig || !isTauri()) {
-return false
-}
+      return false
+    }
     const currentBackend = currentConfig.config.storage.backend || 'sqlite'
-
 
     return currentBackend === 'sqlite' && !vaultPasswordFromEnv
   }, [currentConfig, vaultPasswordFromEnv])
@@ -108,20 +94,16 @@ return false
     return currentConfig.config.storage.data_dir || defaultDataDir
   }, [currentConfig, defaultDataDir])
 
-
   const isDatabaseBackendChange = getCurrentBackend() !== state.backend && currentConfig !== null
   const isDataDirChange = getCurrentDataDir() !== state.dataDir && currentConfig !== null
 
   const needsMigration = isDatabaseBackendChange || isFromKeyring || isDataDirChange
   const showTransferStep = currentConfig !== null
 
-
   const isSuccessStep = step === (showTransferStep ? 3 : 2)
 
   const stepperSteps = useMemo(() => {
-    const steps = [
-      { label: 'Storage', description: 'Select storage backend', icon: <IconDatabase size={18} /> },
-    ]
+    const steps = [{ label: 'Storage', description: 'Select storage backend', icon: <IconDatabase size={18} /> }]
 
     if (showTransferStep) {
       steps.push({ label: 'Transfer', description: 'Data transfer options', icon: <IconKey size={18} /> })
@@ -190,24 +172,19 @@ return false
     }
 
     return true
-  }, [
-    state.backend,
-    state.postgresUrl,
-    vaultPasswordFromEnv,
-    passwordValid,
-    needsVaultPassword,
-  ])
+  }, [state.backend, state.postgresUrl, vaultPasswordFromEnv, passwordValid])
 
   const handleSave = useCallback(async () => {
     setError(null)
     setTransferResult(null)
 
     try {
-      const shouldUseDefault = state.dataDir === defaultDataDir ||
+      const shouldUseDefault =
+        state.dataDir === defaultDataDir ||
         (isTauri() &&
-         needsMigration &&
-         getCurrentDataDir().includes('com.henrique.pipedash') &&
-         state.dataDir === getCurrentDataDir())
+          needsMigration &&
+          getCurrentDataDir().includes('com.henrique.pipedash') &&
+          state.dataDir === getCurrentDataDir())
 
       const newConfig: PipedashConfig = {
         general: currentConfig?.config.general || {
@@ -234,7 +211,6 @@ return false
           config: newConfig,
           vaultPassword: !vaultPasswordFromEnv ? state.vaultPassword : undefined,
         })
-
 
         setStep(2)
 
@@ -351,21 +327,23 @@ return false
             <Text size="sm">
               You are changing <strong>{changes.join(' and ')}</strong> without transferring data.
             </Text>
-            <Text size="sm" fw={500}>This means:</Text>
+            <Text size="sm" fw={500}>
+              This means:
+            </Text>
             <Stack gap={4} ml="md">
               <Text size="sm">• Your existing providers will NOT be available in the new location</Text>
               <Text size="sm">• Your saved credentials will NOT be transferred</Text>
               <Text size="sm">• Your pipeline history will NOT be migrated</Text>
             </Stack>
             <Text size="sm" c="dimmed">
-              Your old data will remain in the previous location but won't be accessible after switching.
-              You'll need to reconfigure providers manually.
+              Your old data will remain in the previous location but won't be accessible after switching. You'll need to
+              reconfigure providers manually.
             </Text>
           </Stack>
         ),
         labels: {
           confirm: 'Skip Migration',
-          cancel: 'Go Back'
+          cancel: 'Go Back',
         },
         confirmProps: { color: 'red', variant: 'light' },
         cancelProps: { variant: 'light', color: 'gray' },
@@ -388,13 +366,7 @@ return false
     if (step === 0) {
       return (
         <Group justify="flex-end" gap="xs" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-          <Button
-            variant="light"
-            color="gray"
-            onClick={handleClose}
-            disabled={saving}
-            fullWidth={isMobile}
-          >
+          <Button variant="light" color="gray" onClick={handleClose} disabled={saving} fullWidth={isMobile}>
             Cancel
           </Button>
           <Button
@@ -416,20 +388,10 @@ return false
     if (showTransferStep && step === 1) {
       return (
         <Group justify="space-between" gap="xs" style={{ flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-          <Button
-            variant="light"
-            color="gray"
-            onClick={() => setStep(0)}
-            fullWidth={isMobile}
-          >
+          <Button variant="light" color="gray" onClick={() => setStep(0)} fullWidth={isMobile}>
             Back
           </Button>
-          <Button
-            variant="light"
-            color="blue"
-            onClick={handleContinueFromTransfer}
-            fullWidth={isMobile}
-          >
+          <Button variant="light" color="blue" onClick={handleContinueFromTransfer} fullWidth={isMobile}>
             Continue
           </Button>
         </Group>
@@ -450,13 +412,7 @@ return false
           >
             Back
           </Button>
-          <Button
-            variant="light"
-            color="blue"
-            onClick={handleSave}
-            loading={saving}
-            fullWidth={isMobile}
-          >
+          <Button variant="light" color="blue" onClick={handleSave} loading={saving} fullWidth={isMobile}>
             {needsMigration && state.transferData ? 'Save & Transfer' : 'Save'}
           </Button>
         </Group>
@@ -464,14 +420,29 @@ return false
     }
 
     return null
-  }, [step, loading, saving, showTransferStep, isSuccessStep, state, needsMigration, canProceedFromStorage, handleClose, handleSave, handleContinueFromTransfer, isMobile])
+  }, [
+    step,
+    loading,
+    saving,
+    showTransferStep,
+    isSuccessStep,
+    state,
+    needsMigration,
+    canProceedFromStorage,
+    handleClose,
+    handleSave,
+    handleContinueFromTransfer,
+    isMobile,
+  ])
 
   const getCurrentStepContent = () => {
     if (loading) {
       return (
         <Stack align="center" py="xl" gap="xs">
           <Loader size="md" />
-          <Text size="sm" c="dimmed">Loading config...</Text>
+          <Text size="sm" c="dimmed">
+            Loading config...
+          </Text>
         </Stack>
       )
     }
@@ -490,13 +461,7 @@ return false
             />
           )
         case 1:
-          return (
-            <TransferStep
-              state={state}
-              setState={setState}
-              error={error}
-            />
-          )
+          return <TransferStep state={state} setState={setState} error={error} />
         case 2:
           return (
             <ConfirmStep
@@ -630,24 +595,19 @@ return false
               orientation={stepperConfig.orientation}
               styles={{
                 root: {
-                  transition: 'all 0.3s ease'
+                  transition: 'all 0.3s ease',
                 },
                 stepLabel: {
                   fontSize: '0.875rem',
-                  display: isMobile ? 'none' : 'block'
+                  display: isMobile ? 'none' : 'block',
                 },
                 step: {
-                  padding: isMobile ? 4 : 8
-                }
+                  padding: isMobile ? 4 : 8,
+                },
               }}
             >
-              {stepperSteps.map((s, i) => (
-                <Stepper.Step
-                  key={i}
-                  label={s.label}
-                  icon={s.icon}
-                  completedIcon={<IconCheck size={16} />}
-                />
+              {stepperSteps.map((s) => (
+                <Stepper.Step key={s.label} label={s.label} icon={s.icon} completedIcon={<IconCheck size={16} />} />
               ))}
             </Stepper>
 
@@ -663,7 +623,7 @@ return false
           <ScrollArea style={{ flex: 1 }} type="auto">
             <Box
               px={isMobile ? 'xs' : isMobile ? 'sm' : 'md'}
-              pt={isSuccessStep ? (isMobile ? 'xs' : 'md') : (isMobile ? 'md' : 'xl')}
+              pt={isSuccessStep ? (isMobile ? 'xs' : 'md') : isMobile ? 'md' : 'xl'}
               pb={isMobile ? 'xs' : 'md'}
               style={{
                 maxWidth: '100%',

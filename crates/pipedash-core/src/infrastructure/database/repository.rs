@@ -345,14 +345,14 @@ impl Repository {
         );
         match &self.cache_pool {
             DatabasePool::Sqlite(p) => {
-                let _ = sqlx::query(&run_history_sql)
+                let _ = sqlx::query(sqlx::AssertSqlSafe(run_history_sql))
                     .bind(id)
                     .execute(p)
                     .await
                     .map_err(|e| DomainError::DatabaseError(e.to_string()));
             }
             DatabasePool::Postgres(p) => {
-                let _ = sqlx::query(&run_history_sql)
+                let _ = sqlx::query(sqlx::AssertSqlSafe(run_history_sql))
                     .bind(id)
                     .execute(p)
                     .await
@@ -367,14 +367,14 @@ impl Repository {
             );
             match &self.cache_pool {
                 DatabasePool::Sqlite(p) => {
-                    let _ = sqlx::query(&workflow_params_sql)
+                    let _ = sqlx::query(sqlx::AssertSqlSafe(workflow_params_sql))
                         .bind(format!("{}%", pipeline_id))
                         .execute(p)
                         .await
                         .map_err(|e| DomainError::DatabaseError(e.to_string()));
                 }
                 DatabasePool::Postgres(p) => {
-                    let _ = sqlx::query(&workflow_params_sql)
+                    let _ = sqlx::query(sqlx::AssertSqlSafe(workflow_params_sql))
                         .bind(format!("{}%", pipeline_id))
                         .execute(p)
                         .await
@@ -389,14 +389,14 @@ impl Repository {
         );
         match &self.cache_pool {
             DatabasePool::Sqlite(p) => {
-                let _ = sqlx::query(&pipelines_sql)
+                let _ = sqlx::query(sqlx::AssertSqlSafe(pipelines_sql))
                     .bind(id)
                     .execute(p)
                     .await
                     .map_err(|e| DomainError::DatabaseError(e.to_string()));
             }
             DatabasePool::Postgres(p) => {
-                let _ = sqlx::query(&pipelines_sql)
+                let _ = sqlx::query(sqlx::AssertSqlSafe(pipelines_sql))
                     .bind(id)
                     .execute(p)
                     .await
@@ -441,16 +441,16 @@ impl Repository {
 
             let select_sql = match cache_pool {
                 DatabasePool::Sqlite(_) => {
-                    "SELECT last_fetch_status, last_fetch_error FROM providers WHERE id = ?".to_string()
+                    "SELECT last_fetch_status, last_fetch_error FROM providers WHERE id = ?"
                 }
                 DatabasePool::Postgres(_) => {
-                    "SELECT last_fetch_status, last_fetch_error FROM providers WHERE id = $1".to_string()
+                    "SELECT last_fetch_status, last_fetch_error FROM providers WHERE id = $1"
                 }
             };
 
             let status_changed = match &cache_pool {
                 DatabasePool::Sqlite(p) => {
-                    let current = sqlx::query(&select_sql)
+                    let current = sqlx::query(select_sql)
                         .bind(provider_id)
                         .fetch_optional(p)
                         .await
@@ -467,7 +467,7 @@ impl Repository {
                     }
                 }
                 DatabasePool::Postgres(p) => {
-                    let current = sqlx::query(&select_sql)
+                    let current = sqlx::query(select_sql)
                         .bind(provider_id)
                         .fetch_optional(p)
                         .await
@@ -525,7 +525,7 @@ impl Repository {
         );
         match &self.cache_pool {
             DatabasePool::Sqlite(p) => {
-                let row = sqlx::query(&sql)
+                let row = sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(provider_id)
                     .fetch_one(p)
                     .await
@@ -540,7 +540,7 @@ impl Repository {
                 Ok((status, error, fetch_at))
             }
             DatabasePool::Postgres(p) => {
-                let row = sqlx::query(&sql)
+                let row = sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(provider_id)
                     .fetch_one(p)
                     .await
@@ -570,7 +570,7 @@ impl Repository {
             );
             match &self.cache_pool {
                 DatabasePool::Sqlite(p) => {
-                    let rows = sqlx::query(&sql)
+                    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
                         .bind(pid)
                         .fetch_all(p)
                         .await
@@ -578,7 +578,7 @@ impl Repository {
                     rows.iter().map(|row| self.pipeline_from_row(row)).collect()
                 }
                 DatabasePool::Postgres(p) => {
-                    let rows = sqlx::query(&sql)
+                    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
                         .bind(pid)
                         .fetch_all(p)
                         .await
@@ -658,12 +658,12 @@ impl Repository {
             self.placeholder(1)
         );
         let result = match &self.cache_pool {
-            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, String>(&sql)
+            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
                 .bind(workflow_id)
                 .fetch_optional(p)
                 .await
                 .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, String>(&sql)
+            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
                 .bind(workflow_id)
                 .fetch_optional(p)
                 .await
@@ -762,7 +762,7 @@ impl Repository {
                                 values_clause
                             );
 
-                            let mut query = sqlx::query(&sql);
+                            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                             for (run_number, run_data, run_hash) in &prepared_data {
                                 query = query
                                     .bind(&pipeline_id_clone)
@@ -816,7 +816,7 @@ impl Repository {
                                 values_clauses.join(", ")
                             );
 
-                            let mut query = sqlx::query(&sql);
+                            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                             for (run_number, run_data, run_hash) in &prepared_data {
                                 query = query
                                     .bind(&pipeline_id_clone)
@@ -860,13 +860,13 @@ impl Repository {
             self.placeholder(2)
         );
         let rows = match &self.cache_pool {
-            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, String>(&sql)
+            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
                 .bind(pipeline_id)
                 .bind(limit as i64)
                 .fetch_all(p)
                 .await
                 .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, String>(&sql)
+            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
                 .bind(pipeline_id)
                 .bind(limit as i64)
                 .fetch_all(p)
@@ -889,14 +889,14 @@ impl Repository {
         );
         match &self.cache_pool {
             DatabasePool::Sqlite(p) => {
-                sqlx::query(&sql)
+                sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(pipeline_id)
                     .execute(p)
                     .await
                     .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
             }
             DatabasePool::Postgres(p) => {
-                sqlx::query(&sql)
+                sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(pipeline_id)
                     .execute(p)
                     .await
@@ -936,7 +936,7 @@ impl Repository {
                     "SELECT run_number, run_data, run_hash FROM run_history_cache WHERE pipeline_id = {}",
                     self.placeholder(1)
                 );
-                let rows = sqlx::query(&sql)
+                let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(pipeline_id)
                     .fetch_all(p)
                     .await
@@ -963,7 +963,7 @@ impl Repository {
                     "SELECT run_number::BIGINT, run_data, run_hash FROM run_history_cache WHERE pipeline_id = {}",
                     self.placeholder(1)
                 );
-                let rows = sqlx::query(&sql)
+                let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(pipeline_id)
                     .fetch_all(p)
                     .await
@@ -1050,7 +1050,7 @@ impl Repository {
                                     values_clause
                                 );
 
-                                let mut query = sqlx::query(&sql);
+                                let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                                 for (run_number, run_data, run_hash) in &prepared_data {
                                     query = query
                                         .bind(&pipeline_id_clone)
@@ -1071,7 +1071,7 @@ impl Repository {
                                     placeholders
                                 );
 
-                                let mut query = sqlx::query(&sql).bind(&pipeline_id_clone);
+                                let mut query = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(&pipeline_id_clone);
                                 for run_number in chunk {
                                     query = query.bind(run_number);
                                 }
@@ -1123,7 +1123,7 @@ impl Repository {
                                     values_clauses.join(", ")
                                 );
 
-                                let mut query = sqlx::query(&sql);
+                                let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                                 for (run_number, run_data, run_hash) in &prepared_data {
                                     query = query
                                         .bind(&pipeline_id_clone)
@@ -1151,7 +1151,7 @@ impl Repository {
                                     placeholders
                                 );
 
-                                let mut query = sqlx::query(&sql);
+                                let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
                                 for run_number in chunk {
                                     query = query.bind(run_number);
                                 }
@@ -1657,12 +1657,12 @@ impl Repository {
             self.placeholder(1)
         );
         let count = match &self.cache_pool {
-            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, i64>(&sql)
+            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql))
                 .bind(pipeline_id)
                 .fetch_one(p)
                 .await
                 .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, i64>(&sql)
+            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql))
                 .bind(pipeline_id)
                 .fetch_one(p)
                 .await
@@ -1687,14 +1687,14 @@ impl Repository {
             self.placeholder(3)
         );
         let runs_json = match &self.cache_pool {
-            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, String>(&sql)
+            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
                 .bind(pipeline_id)
                 .bind(page_size as i64)
                 .bind(offset as i64)
                 .fetch_all(p)
                 .await
                 .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, String>(&sql)
+            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
                 .bind(pipeline_id)
                 .bind(page_size as i64)
                 .bind(offset as i64)

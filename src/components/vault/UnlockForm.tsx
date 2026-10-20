@@ -1,10 +1,5 @@
+import { Button, PasswordInput, Stack } from '@mantine/core'
 import { useEffect, useState } from 'react'
-
-import {
-  Button,
-  PasswordInput,
-  Stack,
-} from '@mantine/core'
 
 import { useUnlockVault, useVaultStatus } from '../../queries/useVaultQueries'
 import { useAuthStore } from '../../stores/authStore'
@@ -107,25 +102,12 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
         )}
       </Stack>
 
-      <Button
-        fullWidth
-        variant="light"
-        color="blue"
-        size="md"
-        onClick={handleUnlock}
-        loading={isLoading}
-      >
+      <Button fullWidth variant="light" color="blue" size="md" onClick={handleUnlock} loading={isLoading}>
         Unlock
       </Button>
 
       {showCancelButton && onCancel && (
-        <Button
-          fullWidth
-          variant="subtle"
-          size="md"
-          onClick={onCancel}
-          disabled={isLoading}
-        >
+        <Button fullWidth variant="subtle" size="md" onClick={onCancel} disabled={isLoading}>
           Cancel
         </Button>
       )}

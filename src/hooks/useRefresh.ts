@@ -49,8 +49,8 @@ export const useRefresh = () => {
             } catch (e) {
               logger.debug('useRefresh', 'Error cleaning up listener during unmount', e)
             }
-            
-return
+
+            return
           }
           unlistenFn = tauriUnlisten
         } catch (err) {
