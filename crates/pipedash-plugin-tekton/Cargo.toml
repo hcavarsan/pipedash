@@ -22,3 +22,6 @@ serde_json.workspace = true
 shellexpand.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

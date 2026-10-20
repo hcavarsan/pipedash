@@ -292,10 +292,12 @@ impl Plugin for TektonPlugin {
     async fn fetch_run_details(
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun> {
-        let (provider_id, namespace, _pipeline_name) = config::parse_pipeline_id(pipeline_id)?;
+        let (provider_id, namespace, pipeline_name) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client().await?;
 
-        let runs = client.list_pipelineruns(&namespace, None).await?;
+        let runs = client
+            .list_pipelineruns(&namespace, Some(&pipeline_name))
+            .await?;
 
         let run = runs
             .into_iter()
@@ -409,10 +411,12 @@ impl Plugin for TektonPlugin {
     }
 
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
-        let (_provider_id, namespace, _pipeline_name) = config::parse_pipeline_id(pipeline_id)?;
+        let (_provider_id, namespace, pipeline_name) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client().await?;
 
-        let runs = client.list_pipelineruns(&namespace, None).await?;
+        let runs = client
+            .list_pipelineruns(&namespace, Some(&pipeline_name))
+            .await?;
 
         let matching_runs: Vec<_> = runs
             .into_iter()
@@ -430,12 +434,16 @@ impl Plugin for TektonPlugin {
         }
 
         if matching_runs.len() > 1 {
-            tracing::warn!(
-                run_number = run_number,
-                run_name = %matching_runs[0].metadata.name,
-                count = matching_runs.len(),
-                "Multiple PipelineRuns found with same timestamp, cancelling first one"
-            );
+            let names: Vec<_> = matching_runs
+                .iter()
+                .map(|r| r.metadata.name.as_str())
+                .collect();
+            return Err(PluginError::ApiError(format!(
+                "Cancel refused: PipelineRuns {} of pipeline {} share timestamp {}. Delete the right one with kubectl",
+                names.join(", "),
+                pipeline_name,
+                run_number
+            )));
         }
 
         let run = &matching_runs[0];
@@ -543,5 +551,156 @@ impl Plugin for TektonPlugin {
         } else {
             Ok(Vec::new())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{
+        Read,
+        Write,
+    };
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+
+    use super::*;
+
+    const CREATED: &str = "2026-10-20T10:00:00Z";
+
+    fn run_json(name: &str, pipeline: &str) -> String {
+        format!(
+            r#"{{"apiVersion":"tekton.dev/v1","kind":"PipelineRun","metadata":{{"name":"{name}","namespace":"ci","creationTimestamp":"{CREATED}","labels":{{"tekton.dev/pipeline":"{pipeline}"}}}},"spec":{{"pipelineRef":{{"name":"{pipeline}"}}}},"status":{{"startTime":"{CREATED}","conditions":[{{"type":"Running","status":"Unknown","reason":"Running"}}]}}}}"#
+        )
+    }
+
+    fn stub_apiserver(
+        runs: &'static [(&'static str, &'static str)],
+    ) -> (String, mpsc::Receiver<String>) {
+        let (log, requests) = mpsc::channel();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match stream.read(&mut byte) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => head.push(byte[0]),
+                    }
+                }
+                let head = String::from_utf8_lossy(&head).to_string();
+                let mut parts = head.split_whitespace();
+                let method = parts.next().unwrap_or_default().to_string();
+                let target = parts.next().unwrap_or_default().to_string();
+                let _ = log.send(format!("{method} {target}"));
+
+                let body = if method == "GET" {
+                    let selector = target.split("labelSelector=tekton.dev/pipeline=").nth(1);
+                    let items: Vec<String> = runs
+                        .iter()
+                        .filter(|(_, pipeline)| selector.is_none_or(|s| s == *pipeline))
+                        .map(|(name, pipeline)| run_json(name, pipeline))
+                        .collect();
+                    format!(r#"{{"items":[{}]}}"#, items.join(","))
+                } else {
+                    "{}".to_string()
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (format!("http://{addr}"), requests)
+    }
+
+    fn plugin(server: &str, dir: &tempfile::TempDir) -> TektonPlugin {
+        let kubeconfig = dir.path().join("kubeconfig");
+        std::fs::write(
+            &kubeconfig,
+            format!(
+                "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: {server}\ncontexts:\n- name: ctx\n  context:\n    cluster: c\n    user: u\ncurrent-context: ctx\nusers:\n- name: u\n  user:\n    token: t\n"
+            ),
+        )
+        .unwrap();
+        let mut config = HashMap::new();
+        config.insert(
+            "kubeconfig_path".to_string(),
+            kubeconfig.to_string_lossy().to_string(),
+        );
+        config.insert("namespace_mode".to_string(), "custom".to_string());
+        config.insert("namespaces".to_string(), "ci".to_string());
+        let mut plugin = TektonPlugin::new();
+        plugin.initialize(1, config, None).unwrap();
+        plugin
+    }
+
+    fn deletes(requests: &mpsc::Receiver<String>) -> Vec<String> {
+        requests
+            .try_iter()
+            .filter(|line| line.starts_with("DELETE"))
+            .collect()
+    }
+
+    const TWO_PIPELINES: &[(&str, &str)] = &[("build-run-1", "build"), ("lint-run-1", "lint")];
+
+    #[tokio::test]
+    async fn run_details_returns_run_of_requested_pipeline() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, _requests) = stub_apiserver(TWO_PIPELINES);
+        let plugin = plugin(&server, &dir);
+
+        let history = plugin
+            .fetch_run_history("tekton__1__ci__lint", 10)
+            .await
+            .unwrap();
+        let run = plugin
+            .fetch_run_details("tekton__1__ci__lint", history[0].run_number)
+            .await
+            .unwrap();
+
+        assert_eq!(run.pipeline_id, "tekton__1__ci__lint");
+        assert_eq!(run.id, "tekton__1__ci__lint-run-1");
+    }
+
+    #[tokio::test]
+    async fn cancel_run_deletes_run_of_requested_pipeline() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, requests) = stub_apiserver(TWO_PIPELINES);
+        let plugin = plugin(&server, &dir);
+
+        let history = plugin
+            .fetch_run_history("tekton__1__ci__lint", 10)
+            .await
+            .unwrap();
+        plugin
+            .cancel_run("tekton__1__ci__lint", history[0].run_number)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            deletes(&requests),
+            vec!["DELETE /apis/tekton.dev/v1/namespaces/ci/pipelineruns/lint-run-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_run_deletes_nothing_when_runs_share_the_second() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, requests) = stub_apiserver(&[("lint-run-1", "lint"), ("lint-run-2", "lint")]);
+        let plugin = plugin(&server, &dir);
+
+        let history = plugin
+            .fetch_run_history("tekton__1__ci__lint", 10)
+            .await
+            .unwrap();
+        let result = plugin
+            .cancel_run("tekton__1__ci__lint", history[0].run_number)
+            .await;
+
+        assert!(result.is_err(), "{result:?}");
+        assert_eq!(deletes(&requests), Vec::<String>::new());
     }
 }
