@@ -120,6 +120,12 @@ pub struct StoragePathsResponse {
     pub vault_path: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DatabaseExistsResponse {
+    pub exists: bool,
+    pub path: String,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/config", get(get_storage_config))
@@ -128,6 +134,9 @@ pub fn router() -> Router<AppState> {
         .route("/config/content", put(save_config_content))
         .route("/config/analyze", post(analyze_config))
         .route("/paths", get(get_storage_paths))
+        .route("/default-data-dir", get(get_default_data_dir))
+        .route("/effective-data-dir", post(get_effective_data_dir))
+        .route("/check-database", post(check_database_exists))
         .route("/validate", post(validate_storage_config))
         .route("/test-connection", post(test_storage_connection))
         .route("/vault-password-status", get(get_vault_password_status))
@@ -432,6 +441,23 @@ async fn get_storage_paths(State(state): State<AppState>) -> ApiResult<Json<Stor
     }))
 }
 
+async fn get_default_data_dir() -> Json<String> {
+    Json(PipedashConfig::default_data_dir().display().to_string())
+}
+
+async fn get_effective_data_dir(Json(config): Json<PipedashConfig>) -> Json<String> {
+    Json(config.data_dir().display().to_string())
+}
+
+async fn check_database_exists(Json(config): Json<PipedashConfig>) -> Json<DatabaseExistsResponse> {
+    let db_path = config.db_path();
+
+    Json(DatabaseExistsResponse {
+        exists: db_path.exists(),
+        path: db_path.display().to_string(),
+    })
+}
+
 async fn validate_storage_config(
     State(state): State<AppState>, Json(config): Json<StorageConfig>,
 ) -> ApiResult<Json<ValidationReport>> {
@@ -651,4 +677,82 @@ async fn execute_migration(
     }
 
     Ok(Json(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::body::Body;
+    use axum::http::{
+        header,
+        Request,
+        StatusCode,
+    };
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::ws::WebSocketEventBus;
+
+    async fn call(request: Request<Body>) -> (StatusCode, serde_json::Value) {
+        let app = router().with_state(AppState::setup_mode(Arc::new(WebSocketEventBus::new())));
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+
+        (status, serde_json::from_slice(&body).unwrap())
+    }
+
+    fn post_config(uri: &str, data_dir: &std::path::Path) -> Request<Body> {
+        let mut config = PipedashConfig::default();
+        config.storage.data_dir = data_dir.display().to_string();
+
+        Request::post(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(&config).unwrap()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn default_data_dir_returns_a_json_string() {
+        let request = Request::get("/default-data-dir")
+            .body(Body::empty())
+            .unwrap();
+
+        let (status, body) = call(request).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            serde_json::json!(PipedashConfig::default_data_dir().display().to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn effective_data_dir_and_check_database_follow_the_posted_config() {
+        let data_dir =
+            std::env::temp_dir().join(format!("pipedash-storage-routes-{}", std::process::id()));
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let db_path = data_dir.join("pipedash.db").display().to_string();
+
+        let (status, effective) = call(post_config("/effective-data-dir", &data_dir)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(effective, serde_json::json!(data_dir.display().to_string()));
+
+        let (_, missing) = call(post_config("/check-database", &data_dir)).await;
+        std::fs::write(&db_path, b"").unwrap();
+        let (_, present) = call(post_config("/check-database", &data_dir)).await;
+        let _ = std::fs::remove_dir_all(&data_dir);
+
+        assert_eq!(
+            missing,
+            serde_json::json!({ "exists": false, "path": db_path })
+        );
+        assert_eq!(
+            present,
+            serde_json::json!({ "exists": true, "path": db_path })
+        );
+    }
 }
