@@ -93,6 +93,18 @@ pub(crate) fn map_pipeline(
     }
 }
 
+pub(crate) fn run_number(metadata: &types::ObjectMeta) -> i64 {
+    let created = types::parse_timestamp(&metadata.creation_timestamp)
+        .map(|dt| dt.timestamp())
+        .unwrap_or(0);
+    let uid = metadata
+        .uid
+        .as_deref()
+        .and_then(|uid| u32::from_str_radix(uid.get(..8)?, 16).ok())
+        .unwrap_or(0);
+    created * 1_000_000 + i64::from(uid % 1_000_000)
+}
+
 pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> PipelineRun {
     let namespace = &run.metadata.namespace;
     let pipeline_name = run
@@ -179,9 +191,7 @@ pub(crate) fn map_pipeline_run(run: &TektonPipelineRun, provider_id: i64) -> Pip
         .get("triggers.tekton.dev/triggers-eventid")
         .cloned();
 
-    let run_number = types::parse_timestamp(&run.metadata.creation_timestamp)
-        .map(|dt| dt.timestamp())
-        .unwrap_or(0);
+    let run_number = run_number(&run.metadata);
 
     let inputs = if !run.spec.params.is_empty() {
         let params_map: std::collections::HashMap<String, serde_json::Value> = run

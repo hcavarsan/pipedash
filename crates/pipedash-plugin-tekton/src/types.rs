@@ -13,6 +13,7 @@ use serde::{
 pub struct ObjectMeta {
     pub name: String,
     pub namespace: String,
+    pub uid: Option<String>,
     #[serde(rename = "creationTimestamp")]
     pub creation_timestamp: Option<String>,
     #[serde(default)]

@@ -301,15 +301,9 @@ impl Plugin for TektonPlugin {
 
         let run = runs
             .into_iter()
-            .find(|r| {
-                types::parse_timestamp(&r.metadata.creation_timestamp).map(|dt| dt.timestamp())
-                    == Some(run_number)
-            })
+            .find(|r| mapper::run_number(&r.metadata) == run_number)
             .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!(
-                    "PipelineRun with timestamp {} not found",
-                    run_number
-                ))
+                PluginError::PipelineNotFound(format!("PipelineRun #{run_number} not found"))
             })?;
 
         Ok(mapper::map_pipeline_run(&run, provider_id))
@@ -380,6 +374,7 @@ impl Plugin for TektonPlugin {
             metadata: types::ObjectMeta {
                 name: run_name.clone(),
                 namespace: namespace.clone(),
+                uid: None,
                 creation_timestamp: None,
                 labels: HashMap::new(),
                 annotations,
@@ -418,35 +413,12 @@ impl Plugin for TektonPlugin {
             .list_pipelineruns(&namespace, Some(&pipeline_name))
             .await?;
 
-        let matching_runs: Vec<_> = runs
+        let run = runs
             .into_iter()
-            .filter(|r| {
-                types::parse_timestamp(&r.metadata.creation_timestamp).map(|dt| dt.timestamp())
-                    == Some(run_number)
-            })
-            .collect();
-
-        if matching_runs.is_empty() {
-            return Err(PluginError::PipelineNotFound(format!(
-                "PipelineRun with timestamp {} not found",
-                run_number
-            )));
-        }
-
-        if matching_runs.len() > 1 {
-            let names: Vec<_> = matching_runs
-                .iter()
-                .map(|r| r.metadata.name.as_str())
-                .collect();
-            return Err(PluginError::ApiError(format!(
-                "Cancel refused: PipelineRuns {} of pipeline {} share timestamp {}. Delete the right one with kubectl",
-                names.join(", "),
-                pipeline_name,
-                run_number
-            )));
-        }
-
-        let run = &matching_runs[0];
+            .find(|r| mapper::run_number(&r.metadata) == run_number)
+            .ok_or_else(|| {
+                PluginError::PipelineNotFound(format!("PipelineRun #{run_number} not found"))
+            })?;
 
         client
             .delete_pipelinerun(&namespace, &run.metadata.name)
@@ -568,8 +540,9 @@ mod tests {
     const CREATED: &str = "2026-10-20T10:00:00Z";
 
     fn run_json(name: &str, pipeline: &str) -> String {
+        let uid = name.bytes().map(u32::from).sum::<u32>();
         format!(
-            r#"{{"apiVersion":"tekton.dev/v1","kind":"PipelineRun","metadata":{{"name":"{name}","namespace":"ci","creationTimestamp":"{CREATED}","labels":{{"tekton.dev/pipeline":"{pipeline}"}}}},"spec":{{"pipelineRef":{{"name":"{pipeline}"}}}},"status":{{"startTime":"{CREATED}","conditions":[{{"type":"Running","status":"Unknown","reason":"Running"}}]}}}}"#
+            r#"{{"apiVersion":"tekton.dev/v1","kind":"PipelineRun","metadata":{{"name":"{name}","namespace":"ci","uid":"{uid:08x}-0000-4000-8000-000000000000","creationTimestamp":"{CREATED}","labels":{{"tekton.dev/pipeline":"{pipeline}"}}}},"spec":{{"pipelineRef":{{"name":"{pipeline}"}}}},"status":{{"startTime":"{CREATED}","conditions":[{{"type":"Running","status":"Unknown","reason":"Running"}}]}}}}"#
         )
     }
 
@@ -687,7 +660,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_run_deletes_nothing_when_runs_share_the_second() {
+    async fn cancel_run_deletes_only_the_requested_run_when_runs_share_the_second() {
         let dir = tempfile::tempdir().unwrap();
         let (server, requests) = stub_apiserver(&[("lint-run-1", "lint"), ("lint-run-2", "lint")]);
         let plugin = plugin(&server, &dir);
@@ -696,11 +669,19 @@ mod tests {
             .fetch_run_history("tekton__1__ci__lint", 10)
             .await
             .unwrap();
-        let result = plugin
-            .cancel_run("tekton__1__ci__lint", history[0].run_number)
-            .await;
+        assert_ne!(history[0].run_number, history[1].run_number);
+        let target = history
+            .iter()
+            .find(|run| run.id == "tekton__1__ci__lint-run-2")
+            .unwrap();
+        plugin
+            .cancel_run("tekton__1__ci__lint", target.run_number)
+            .await
+            .unwrap();
 
-        assert!(result.is_err(), "{result:?}");
-        assert_eq!(deletes(&requests), Vec::<String>::new());
+        assert_eq!(
+            deletes(&requests),
+            vec!["DELETE /apis/tekton.dev/v1/namespaces/ci/pipelineruns/lint-run-2"]
+        );
     }
 }
