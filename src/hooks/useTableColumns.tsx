@@ -1,7 +1,6 @@
 import type { DataTableColumn } from 'mantine-datatable'
 import { useMemo } from 'react'
 
-import { logger } from '../lib/logger'
 import { useTableDefinition } from '../queries/useTableSchemaQueries'
 import type { PipelineRun } from '../types'
 import { buildColumnsFromSchema, filterVisibleColumns } from '../utils/columnBuilder'
@@ -14,48 +13,37 @@ interface ColumnPreferences {
 export function useTableColumns(
   providerId: number | undefined,
   tableId: string,
-  additionalColumns?: DataTableColumn<PipelineRun>[],
+  additionalColumns: DataTableColumn<PipelineRun>[],
   preferences?: ColumnPreferences
 ) {
-  const { data: tableSchema, isLoading: loading, error: queryError } = useTableDefinition(providerId ?? 0, tableId)
+  const {
+    data: tableSchema,
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useTableDefinition(providerId ?? 0, tableId)
 
-  const stableAdditionalColumns = useMemo(
-    () => (additionalColumns && Array.isArray(additionalColumns) ? additionalColumns : []),
-    [additionalColumns]
-  )
+  const error = useMemo(() => {
+    if (queryError) {
+      return queryError
+    }
+
+    if (providerId && !loading && !tableSchema?.columns?.length) {
+      return new Error(`No "${tableId}" table schema is available for this provider.`)
+    }
+
+    return null
+  }, [queryError, providerId, loading, tableSchema, tableId])
 
   const baseColumns = useMemo(() => {
-    if (!providerId) {
-      return stableAdditionalColumns
+    if (!providerId || !tableSchema?.columns) {
+      return additionalColumns
     }
 
-    if (!tableSchema) {
-      if (!loading && queryError) {
-        logger.warn('useTableColumns', `No schema found for table ${tableId}, using default columns`)
-      }
-
-      return stableAdditionalColumns
-    }
-
-    if (!tableSchema.columns || !Array.isArray(tableSchema.columns)) {
-      logger.warn('useTableColumns', `Schema for table ${tableId} has no columns array, using default columns`)
-
-      return stableAdditionalColumns
-    }
-
-    const visibleCols = filterVisibleColumns(tableSchema.columns)
-    const builtColumns = buildColumnsFromSchema(visibleCols, stableAdditionalColumns)
-
-    return builtColumns
-  }, [providerId, tableSchema, loading, queryError, tableId, stableAdditionalColumns])
+    return buildColumnsFromSchema(filterVisibleColumns(tableSchema.columns), additionalColumns)
+  }, [providerId, tableSchema, additionalColumns])
 
   const effectiveColumns = useMemo(() => {
-    if (!baseColumns || !Array.isArray(baseColumns)) {
-      logger.warn('useTableColumns', 'baseColumns is not an array', baseColumns)
-
-      return []
-    }
-
     if (!preferences?.columnOrder && !preferences?.columnVisibility) {
       return baseColumns
     }
@@ -94,6 +82,7 @@ export function useTableColumns(
     columns: effectiveColumns,
     allColumns: baseColumns,
     loading,
-    error: queryError ? (queryError as Error).message : null,
+    error,
+    refetch,
   }
 }

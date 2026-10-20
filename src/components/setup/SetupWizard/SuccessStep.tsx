@@ -1,7 +1,11 @@
-import { Button, Card, Code, CopyButton, Group, SimpleGrid, Stack, Text, ThemeIcon, Tooltip } from '@mantine/core'
-import { IconAlertTriangle, IconCheck, IconCopy } from '@tabler/icons-react'
+import { Button, Card, Code, Group, SimpleGrid, Stack, Text, ThemeIcon } from '@mantine/core'
+import { IconAlertTriangle, IconCheck } from '@tabler/icons-react'
+import { useState } from 'react'
 
+import { logger } from '../../../lib/logger'
 import { isTauri, service } from '../../../services'
+import { CopyButton } from '../../atoms/CopyButton'
+import { ErrorState } from '../../common/ErrorState'
 
 import type { SuccessStepProps } from './types'
 
@@ -9,16 +13,39 @@ const LABEL_WIDTH = 130
 
 export function SuccessStep({
   state,
-  migrationCompleted,
-  transferResult,
+  migrationStats,
   vaultStatus,
   vaultPasswordFromEnv,
   onComplete,
 }: SuccessStepProps) {
+  const [restarting, setRestarting] = useState(false)
+  const [restartError, setRestartError] = useState<unknown>(null)
+
   const envVarName = vaultStatus?.env_var_name || 'PIPEDASH_VAULT_PASSWORD'
   const exportCommand = `export ${envVarName}="${state.vaultPassword}"`
 
   const showPasswordReminder = !vaultPasswordFromEnv && state.vaultPassword
+
+  const handleRestart = async () => {
+    setRestarting(true)
+    setRestartError(null)
+
+    try {
+      await service.restartApp()
+    } catch (error) {
+      logger.error('SuccessStep', 'Failed to restart app', error)
+      setRestartError(error)
+      setRestarting(false)
+    }
+  }
+
+  const migratedCounts = migrationStats
+    ? [
+        { label: 'Providers', value: migrationStats.providers_migrated },
+        { label: 'Tokens', value: migrationStats.tokens_migrated },
+        { label: 'Cache entries', value: migrationStats.cache_entries_migrated },
+      ]
+    : []
 
   return (
     <Stack gap="md" align="center" py="xl">
@@ -27,40 +54,26 @@ export function SuccessStep({
       </ThemeIcon>
 
       <Text size="lg" fw={600}>
-        Setup Complete
+        Setup complete
       </Text>
 
-      {migrationCompleted && transferResult?.success && (
-        <Card p="md" withBorder w="100%">
+      {migrationStats !== null && (
+        <Card p="md" w="100%">
           <Stack gap="sm">
             <Text size="sm" fw={600}>
-              Migration Summary
+              Migration summary
             </Text>
             <SimpleGrid cols={3} spacing="xs">
-              <Stack gap={2} align="center">
-                <Text size="xs" c="dimmed">
-                  Providers
-                </Text>
-                <Text size="md" fw={600}>
-                  {transferResult.message.match(/(\d+) providers/)?.[1] || 0}
-                </Text>
-              </Stack>
-              <Stack gap={2} align="center">
-                <Text size="xs" c="dimmed">
-                  Tokens
-                </Text>
-                <Text size="md" fw={600}>
-                  {transferResult.message.match(/(\d+) tokens/)?.[1] || 0}
-                </Text>
-              </Stack>
-              <Stack gap={2} align="center">
-                <Text size="xs" c="dimmed">
-                  Cache
-                </Text>
-                <Text size="md" fw={600}>
-                  {transferResult.message.match(/(\d+) cache/)?.[1] || 0}
-                </Text>
-              </Stack>
+              {migratedCounts.map(({ label, value }) => (
+                <Stack key={label} gap={2} align="center">
+                  <Text size="xs" c="dimmed">
+                    {label}
+                  </Text>
+                  <Text size="md" fw={600}>
+                    {value}
+                  </Text>
+                </Stack>
+              ))}
             </SimpleGrid>
           </Stack>
         </Card>
@@ -69,59 +82,35 @@ export function SuccessStep({
       {showPasswordReminder && (
         <Card
           p="md"
-          withBorder
           w="100%"
           style={{
-            borderColor: 'var(--mantine-color-yellow-6)',
-            backgroundColor: 'var(--mantine-color-yellow-light)',
+            borderColor: 'var(--mantine-color-orange-light-color)',
+            backgroundColor: 'var(--mantine-color-orange-light)',
           }}
         >
           <Stack gap="sm">
             <Group gap="xs">
-              <IconAlertTriangle size={16} style={{ color: 'var(--mantine-color-yellow-6)' }} />
+              <IconAlertTriangle size={16} color="var(--mantine-color-orange-light-color)" />
               <Text size="sm" fw={600}>
-                Required for Next Launch
+                Required for next launch
               </Text>
             </Group>
 
             <Stack gap="xs">
               <Group justify="space-between" wrap="nowrap" gap="xs">
-                <Text size="sm" c="dimmed" style={{ minWidth: LABEL_WIDTH, flexShrink: 0 }}>
-                  Environment Variable
+                <Text size="sm" c="dimmed" miw={LABEL_WIDTH} style={{ flexShrink: 0 }}>
+                  Environment variable
                 </Text>
                 <Text size="sm" fw={500}>
                   {envVarName}
                 </Text>
               </Group>
 
-              <Group gap="xs" wrap="nowrap" align="stretch">
-                <Code
-                  block
-                  style={{
-                    flex: 1,
-                    fontSize: '0.75rem',
-                    wordBreak: 'break-all',
-                    padding: '8px 12px',
-                    backgroundColor: 'var(--mantine-color-dark-7)',
-                  }}
-                >
+              <Group gap="xs" wrap="nowrap" align="center">
+                <Code block fz="xs" p="xs" style={{ flex: 1, wordBreak: 'break-all' }}>
                   {exportCommand}
                 </Code>
-                <CopyButton value={exportCommand}>
-                  {({ copied, copy }) => (
-                    <Tooltip label={copied ? 'Copied!' : 'Copy'} withArrow>
-                      <Button
-                        size="sm"
-                        variant="light"
-                        color={copied ? 'green' : 'gray'}
-                        onClick={copy}
-                        style={{ alignSelf: 'stretch' }}
-                      >
-                        {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
-                      </Button>
-                    </Tooltip>
-                  )}
-                </CopyButton>
+                <CopyButton value={exportCommand} label="Copy export command" />
               </Group>
 
               <Text size="xs" c="dimmed">
@@ -132,34 +121,31 @@ export function SuccessStep({
         </Card>
       )}
 
-      {migrationCompleted && isTauri() ? (
+      {migrationStats !== null && isTauri() ? (
         <>
           <Text size="sm" c="dimmed" ta="center">
             Restart required to load the new database
           </Text>
-          <Button
-            variant="light"
-            color="blue"
-            onClick={async () => {
-              try {
-                await service.restartApp()
-              } catch (error) {
-                console.error('Failed to restart:', error)
-                onComplete()
-              }
-            }}
-          >
-            Restart Now
-          </Button>
+          {restartError === null ? (
+            <Button onClick={handleRestart} loading={restarting}>
+              Restart now
+            </Button>
+          ) : (
+            <ErrorState
+              title="Couldn't restart Pipedash"
+              error={restartError}
+              hint="Close and reopen Pipedash manually to load the new database."
+              onRetry={handleRestart}
+              retrying={restarting}
+            />
+          )}
         </>
       ) : (
         <>
           <Text size="sm" c="dimmed" ta="center">
             Add providers to start monitoring pipelines
           </Text>
-          <Button variant="light" color="blue" onClick={onComplete}>
-            Get Started
-          </Button>
+          <Button onClick={onComplete}>Get started</Button>
         </>
       )}
     </Stack>

@@ -1,20 +1,24 @@
-import { Alert, Avatar, Box, Button, Code, Group, Loader, Paper, Stack, Text } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
+import { Alert, Box, Button, Code, Divider, Group, Paper, Stack, Text } from '@mantine/core'
 import { IconExternalLink, IconPlayerPlay, IconRefresh, IconSquare } from '@tabler/icons-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { logger } from '../../lib/logger'
 import { useRerunWorkflow, useRunDetails } from '../../queries/useRunDetailsQuery'
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { service } from '../../services'
-import type { PipelineStatus } from '../../types'
+import { STATUS_META } from '../../theme/status'
+import { TYPOGRAPHY } from '../../theme/typography'
+import type { CellRenderer, PipelineStatus } from '../../types'
 import { filterVisibleColumns } from '../../utils/columnBuilder'
-import { type CellValue, renderCellValue, THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
-import { formatDuration } from '../../utils/formatDuration'
+import { type CellValue, renderCellValue } from '../../utils/dynamicRenderers'
+import { displayErrorNotification } from '../../utils/errorDisplay'
 import { getValueByPath } from '../../utils/objectPath'
 import { CopyButton } from '../atoms/CopyButton'
+import { StatusBadge } from '../atoms/StatusBadge'
+import { ErrorState } from '../common/ErrorState'
+import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
-import { StatusBadge } from '../common/StatusBadge'
 
 interface WorkflowLogsModalProps {
   opened: boolean
@@ -25,6 +29,25 @@ interface WorkflowLogsModalProps {
   onRerunSuccess?: (pipelineId: string, newRunNumber: number) => void
   onCancelSuccess?: () => void
 }
+
+interface DetailField {
+  id: string
+  label: string
+  field_path: string
+  renderer: CellRenderer
+}
+
+const FALLBACK_FIELDS: DetailField[] = [
+  { id: 'run_number', label: 'Run number', field_path: 'run_number', renderer: 'Text' },
+  { id: 'status', label: 'Status', field_path: 'status', renderer: 'StatusBadge' },
+  { id: 'branch', label: 'Branch', field_path: 'branch', renderer: 'Text' },
+  { id: 'duration_seconds', label: 'Duration', field_path: 'duration_seconds', renderer: 'Duration' },
+  { id: 'started_at', label: 'Started at', field_path: 'started_at', renderer: 'DateTime' },
+  { id: 'concluded_at', label: 'Concluded at', field_path: 'concluded_at', renderer: 'DateTime' },
+  { id: 'actor', label: 'Actor', field_path: 'actor', renderer: 'Avatar' },
+]
+
+const isPipelineStatus = (value: unknown): value is PipelineStatus => typeof value === 'string' && value in STATUS_META
 
 export const WorkflowLogsModal = ({
   opened,
@@ -40,6 +63,8 @@ export const WorkflowLogsModal = ({
   const abortRef = useRef(false)
 
   useEffect(() => {
+    abortRef.current = false
+
     return () => {
       abortRef.current = true
     }
@@ -48,6 +73,7 @@ export const WorkflowLogsModal = ({
   const {
     data: runDetails,
     isLoading: loading,
+    isFetching,
     error: queryError,
     refetch,
   } = useRunDetails(pipelineId, runNumber, opened)
@@ -56,29 +82,11 @@ export const WorkflowLogsModal = ({
 
   const { data: tableSchema } = useTableDefinition(providerId ?? 0, 'pipeline_runs')
 
-  const columnDefs = useMemo(() => {
-    if (!tableSchema) {
-      return []
-    }
+  const fields = useMemo<DetailField[]>(() => {
+    const columns = tableSchema ? filterVisibleColumns(tableSchema.columns).filter((col) => col.id !== 'actions') : []
 
-    return filterVisibleColumns(tableSchema.columns)
+    return columns.length > 0 ? columns : FALLBACK_FIELDS
   }, [tableSchema])
-
-  const error = queryError instanceof Error ? queryError.message : null
-
-  const isPipelineStatus = (value: unknown): value is PipelineStatus => {
-    return (
-      typeof value === 'string' && ['success', 'failed', 'running', 'pending', 'cancelled', 'skipped'].includes(value)
-    )
-  }
-
-  const isValidDateValue = (value: unknown): value is string | number | Date => {
-    if (typeof value === 'string' || typeof value === 'number' || value instanceof Date) {
-      return true
-    }
-
-    return false
-  }
 
   const isRunning = runDetails?.status === 'running' || runDetails?.status === 'pending'
   const isPending = runDetails?.status === 'pending'
@@ -89,21 +97,18 @@ export const WorkflowLogsModal = ({
     }
 
     try {
-      console.log('[WorkflowLogs] Re-running workflow with inputs:', runDetails.inputs)
-
       const result = await rerunMutation.mutateAsync({
         pipelineId,
         inputs: runDetails.inputs,
       })
 
+      onClose()
+
       if (onRerunSuccess && result.newRunNumber > 0) {
-        onClose()
-        await onRerunSuccess(pipelineId, result.newRunNumber)
-      } else {
-        onClose()
+        onRerunSuccess(pipelineId, result.newRunNumber)
       }
     } catch (error: unknown) {
-      console.error('[WorkflowLogs] Failed to re-run workflow:', error)
+      logger.error('WorkflowLogsModal', 'Failed to re-run workflow', error)
     }
   }
 
@@ -122,7 +127,10 @@ export const WorkflowLogsModal = ({
       let statusChanged = false
 
       while (attempt < maxAttempts && !statusChanged && !abortRef.current) {
-        await new Promise((resolve) => setTimeout(resolve, 1000))
+        const { promise: delay, resolve: elapsed } = Promise.withResolvers<void>()
+
+        setTimeout(elapsed, 1000)
+        await delay
 
         if (abortRef.current) {
           break
@@ -150,20 +158,14 @@ export const WorkflowLogsModal = ({
       }
 
       if (onCancelSuccess) {
-        await onCancelSuccess()
+        onCancelSuccess()
       }
     } catch (error: unknown) {
       if (abortRef.current) {
         return
       }
 
-      const errorMsg = error instanceof Error ? error.message : 'Failed to cancel run'
-
-      notifications.show({
-        title: 'Error',
-        message: errorMsg,
-        color: 'red',
-      })
+      displayErrorNotification(error, `Couldn't cancel run #${runNumber}`)
     } finally {
       if (!abortRef.current) {
         setCancelling(false)
@@ -171,385 +173,140 @@ export const WorkflowLogsModal = ({
     }
   }
 
+  const renderValue = (field: DetailField, value: unknown) => {
+    if (field.id === 'status' && isPipelineStatus(value)) {
+      return <StatusBadge status={value} size="md" withIcon />
+    }
+
+    if (field.id === 'run_number') {
+      return (
+        <Group gap="xs" wrap="nowrap">
+          <Text size={TYPOGRAPHY.FIELD_VALUE.size}>#{String(value)}</Text>
+          <CopyButton value={String(value)} label="Copy run number" />
+        </Group>
+      )
+    }
+
+    if ((field.id === 'id' || field.id === 'commit_sha') && typeof value === 'string') {
+      const isCommit = field.id === 'commit_sha'
+
+      return (
+        <Group gap="xs" wrap="nowrap">
+          <Code fz={TYPOGRAPHY.FIELD_VALUE_SMALL.size} style={{ wordBreak: 'break-all' }}>
+            {isCommit ? value.substring(0, 7) : value}
+          </Code>
+          <CopyButton value={value} label={isCommit ? 'Copy commit SHA' : 'Copy run ID'} />
+        </Group>
+      )
+    }
+
+    return renderCellValue(field.renderer, value as CellValue)
+  }
+
   const footer = runDetails ? (
-    <Group justify="flex-end" gap="xs" wrap="wrap">
-      {isRunning ? (
-        <Button
-          variant="light"
-          color="red"
-          size="sm"
-          style={{ flex: isMobile ? 1 : undefined }}
-          leftSection={
-            <IconSquare
-              size={14}
-              style={{
-                animation: cancelling ? 'spin 1s linear infinite' : 'none',
-              }}
-            />
-          }
-          onClick={handleCancel}
-          disabled={cancelling || isPending}
-          title={isPending ? 'Cannot cancel pending workflow' : 'Stop the running workflow'}
-        >
-          {isMobile ? 'Stop' : 'Stop Workflow'}
-        </Button>
-      ) : (
-        <Button
-          variant="light"
-          color="blue"
-          size="sm"
-          style={{ flex: isMobile ? 1 : undefined }}
-          leftSection={
-            <IconPlayerPlay
-              size={14}
-              style={{
-                animation: rerunMutation.isPending ? 'spin 1s linear infinite' : 'none',
-              }}
-            />
-          }
-          onClick={handleRerun}
-          disabled={rerunMutation.isPending || isPending}
-          title={isPending ? 'Workflow is pending' : 'Re-run workflow with same parameters'}
-        >
-          {isMobile ? 'Re-run' : 'Re-run Workflow'}
-        </Button>
+    <Stack gap="xs">
+      {isPending && (
+        <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} c="dimmed">
+          This run is pending. It can be stopped or rerun once it starts.
+        </Text>
       )}
-      <Button
-        component="a"
-        href={runDetails.logs_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        variant="light"
-        color="blue"
-        size="sm"
-        style={{ flex: isMobile ? 1 : undefined }}
-        rightSection={<IconExternalLink size={14} />}
-      >
-        {isMobile ? 'Logs' : 'View Full Logs'}
-      </Button>
-    </Group>
+      <Group justify="flex-end" gap="sm" grow={isMobile}>
+        <Button
+          component="a"
+          href={runDetails.logs_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          variant="default"
+          size="sm"
+          rightSection={<IconExternalLink size={16} />}
+        >
+          {isMobile ? 'Logs' : 'View full logs'}
+        </Button>
+        {isRunning ? (
+          <Button
+            color="red"
+            size="sm"
+            leftSection={<IconSquare size={16} />}
+            onClick={handleCancel}
+            loading={cancelling}
+            disabled={isPending}
+          >
+            {isMobile ? 'Stop' : 'Stop workflow'}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            leftSection={<IconPlayerPlay size={16} />}
+            onClick={handleRerun}
+            loading={rerunMutation.isPending}
+          >
+            {isMobile ? 'Rerun' : 'Rerun workflow'}
+          </Button>
+        )}
+      </Group>
+    </Stack>
   ) : null
 
+  const renderContent = () => {
+    if (queryError) {
+      return (
+        <ErrorState
+          title={`Couldn't load run #${runNumber}`}
+          error={queryError}
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
+      )
+    }
+
+    if (loading || !runDetails) {
+      return <LoadingState message="Loading run details..." />
+    }
+
+    const rows = fields.flatMap((field) => {
+      const value = getValueByPath(runDetails, field.field_path)
+
+      if ((value === null || value === undefined) && field.id !== 'status' && field.id !== 'run_number') {
+        return []
+      }
+
+      return [{ field, value }]
+    })
+
+    return (
+      <Stack gap={isMobile ? 'xs' : 'md'}>
+        {isRunning && (
+          <Alert color="blue" icon={<IconRefresh size={16} />} title="Run in progress">
+            <Text size={TYPOGRAPHY.HELPER_TEXT.size}>Details refresh automatically every 10 seconds.</Text>
+          </Alert>
+        )}
+
+        <Paper withBorder p={isMobile ? 'md' : 'lg'}>
+          <Stack gap="sm">
+            {rows.map(({ field, value }, index) => (
+              <Fragment key={field.id}>
+                {index > 0 && <Divider />}
+                <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
+                  <Text size={TYPOGRAPHY.FIELD_VALUE.size} c="dimmed" miw={isMobile ? 90 : 130}>
+                    {field.label}
+                  </Text>
+                  <Box flex={1} miw={0}>
+                    <Group justify="flex-end" ta="right">
+                      {renderValue(field, value)}
+                    </Group>
+                  </Box>
+                </Group>
+              </Fragment>
+            ))}
+          </Stack>
+        </Paper>
+      </Stack>
+    )
+  }
+
   return (
-    <StandardModal opened={opened} onClose={onClose} title="Run Details" footer={footer} contentPadding={false}>
-      {loading && !runDetails ? (
-        <Box py={isMobile ? 'md' : 'xl'}>
-          <Group justify="center" gap="xs">
-            <Loader size="sm" />
-            <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED}>
-              Loading run details...
-            </Text>
-          </Group>
-        </Box>
-      ) : error ? (
-        <Alert color="red" title="Error">
-          <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size}>{error}</Text>
-        </Alert>
-      ) : runDetails ? (
-        <Stack gap={isMobile ? 'xs' : 'md'} p="md">
-          {isRunning && !isMobile && (
-            <Alert color="blue" icon={<IconRefresh size={16} />} title="Build in Progress">
-              <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size}>Details will automatically update every 5 seconds.</Text>
-            </Alert>
-          )}
-
-          <Paper
-            p={isMobile ? 'md' : 'lg'}
-            withBorder
-            radius="md"
-            style={{
-              backgroundColor: 'var(--mantine-color-dark-8)',
-              borderColor: 'var(--mantine-color-dark-5)',
-            }}
-          >
-            {columnDefs.length > 0 ? (
-              <Stack gap={0}>
-                {columnDefs
-                  .filter((col) => col.id !== 'actions')
-                  .map((col, index) => {
-                    const value = getValueByPath(runDetails, col.field_path)
-
-                    if ((value === null || value === undefined) && col.id !== 'status' && col.id !== 'run_number') {
-                      return null
-                    }
-
-                    return (
-                      <Box
-                        key={col.id}
-                        py={isMobile ? 'xs' : 'sm'}
-                        style={{
-                          borderBottom:
-                            index === columnDefs.filter((col) => col.id !== 'actions').length - 1
-                              ? 'none'
-                              : '1px solid var(--mantine-color-dark-6)',
-                        }}
-                      >
-                        <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-                          <Text
-                            size={THEME_TYPOGRAPHY.FIELD_VALUE.size}
-                            c={THEME_COLORS.FIELD_LABEL}
-                            style={{
-                              minWidth: isMobile ? '90px' : '130px',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {col.label}
-                          </Text>
-                          <Box
-                            style={{
-                              flex: 1,
-                              display: 'flex',
-                              justifyContent: 'flex-end',
-                              alignItems: 'center',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {col.id === 'run_number' && value !== null && value !== undefined ? (
-                              <Group gap="sm" wrap="nowrap">
-                                <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                                  #{String(value)}
-                                </Text>
-                                <CopyButton value={String(value)} size="sm" />
-                              </Group>
-                            ) : col.id === 'status' && isPipelineStatus(value) ? (
-                              <StatusBadge status={value} size="md" withIcon />
-                            ) : col.id === 'id' && typeof value === 'string' ? (
-                              <Group gap="sm" wrap="nowrap">
-                                <Code
-                                  c={THEME_COLORS.VALUE_TEXT}
-                                  style={{
-                                    wordBreak: 'break-all',
-                                    fontSize: '0.8125rem',
-                                    backgroundColor: 'var(--mantine-color-dark-7)',
-                                    padding: '4px 10px',
-                                    borderRadius: '6px',
-                                    border: '1px solid var(--mantine-color-dark-5)',
-                                  }}
-                                >
-                                  {value}
-                                </Code>
-                                <CopyButton value={value} size="sm" />
-                              </Group>
-                            ) : col.id === 'commit_sha' && typeof value === 'string' ? (
-                              <Group gap="sm" wrap="nowrap">
-                                <Code
-                                  c={THEME_COLORS.VALUE_TEXT}
-                                  style={{
-                                    fontSize: '0.8125rem',
-                                    backgroundColor: 'var(--mantine-color-dark-7)',
-                                    padding: '4px 10px',
-                                    borderRadius: '6px',
-                                    border: '1px solid var(--mantine-color-dark-5)',
-                                  }}
-                                >
-                                  {value.substring(0, 7)}
-                                </Code>
-                                <CopyButton value={value} size="sm" />
-                              </Group>
-                            ) : col.id === 'branch' && typeof value === 'string' ? (
-                              <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                                {value}
-                              </Text>
-                            ) : col.id === 'duration_seconds' && typeof value === 'number' ? (
-                              <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                                {formatDuration(value)}
-                              </Text>
-                            ) : col.id === 'started_at' && isValidDateValue(value) ? (
-                              <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                                {new Date(value).toLocaleString()}
-                              </Text>
-                            ) : col.id === 'concluded_at' && isValidDateValue(value) ? (
-                              <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                                {new Date(value).toLocaleString()}
-                              </Text>
-                            ) : col.id === 'commit_message' && typeof value === 'string' ? (
-                              <Text
-                                size={THEME_TYPOGRAPHY.FIELD_VALUE.size}
-                                c={THEME_COLORS.VALUE_TEXT}
-                                style={{ textAlign: 'right' }}
-                                lineClamp={2}
-                              >
-                                {value}
-                              </Text>
-                            ) : col.id === 'actor' && typeof value === 'string' ? (
-                              <Group gap="sm" wrap="nowrap">
-                                <Avatar size="sm" radius="xl" color="blue" />
-                                <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                                  {value}
-                                </Text>
-                              </Group>
-                            ) : (
-                              <Box style={{ textAlign: 'right' }}>
-                                {renderCellValue(col.renderer, value as CellValue, isMobile)}
-                              </Box>
-                            )}
-                          </Box>
-                        </Group>
-                      </Box>
-                    )
-                  })}
-              </Stack>
-            ) : (
-              <Stack gap={0}>
-                <Box
-                  py={isMobile ? 'xs' : 'sm'}
-                  style={{
-                    borderBottom: '1px solid var(--mantine-color-dark-6)',
-                  }}
-                >
-                  <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-                    <Text
-                      size={THEME_TYPOGRAPHY.FIELD_VALUE.size}
-                      c={THEME_COLORS.FIELD_LABEL}
-                      style={{ minWidth: isMobile ? '90px' : '130px', flexShrink: 0 }}
-                    >
-                      Run Number
-                    </Text>
-                    <Group gap="sm" wrap="nowrap">
-                      <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                        #{runDetails.run_number}
-                      </Text>
-                      <CopyButton value={runDetails.run_number.toString()} size="sm" />
-                    </Group>
-                  </Group>
-                </Box>
-
-                <Box
-                  py={isMobile ? 'xs' : 'sm'}
-                  style={{
-                    borderBottom: '1px solid var(--mantine-color-dark-6)',
-                  }}
-                >
-                  <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-                    <Text
-                      size={THEME_TYPOGRAPHY.FIELD_VALUE.size}
-                      c={THEME_COLORS.FIELD_LABEL}
-                      style={{ minWidth: isMobile ? '90px' : '130px', flexShrink: 0 }}
-                    >
-                      Status
-                    </Text>
-                    <StatusBadge status={runDetails.status} size="md" withIcon />
-                  </Group>
-                </Box>
-
-                {runDetails.branch && (
-                  <Box
-                    py={isMobile ? 'xs' : 'sm'}
-                    style={{
-                      borderBottom: '1px solid var(--mantine-color-dark-6)',
-                    }}
-                  >
-                    <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-                      <Text
-                        size={THEME_TYPOGRAPHY.FIELD_VALUE.size}
-                        c={THEME_COLORS.FIELD_LABEL}
-                        style={{ minWidth: isMobile ? '90px' : '130px', flexShrink: 0 }}
-                      >
-                        Branch
-                      </Text>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                        {runDetails.branch}
-                      </Text>
-                    </Group>
-                  </Box>
-                )}
-
-                <Box
-                  py={isMobile ? 'xs' : 'sm'}
-                  style={{
-                    borderBottom: '1px solid var(--mantine-color-dark-6)',
-                  }}
-                >
-                  <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-                    <Text
-                      size={THEME_TYPOGRAPHY.FIELD_VALUE.size}
-                      c={THEME_COLORS.FIELD_LABEL}
-                      style={{ minWidth: isMobile ? '90px' : '130px', flexShrink: 0 }}
-                    >
-                      Duration
-                    </Text>
-                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                      {formatDuration(runDetails.duration_seconds)}
-                    </Text>
-                  </Group>
-                </Box>
-
-                <Box
-                  py={isMobile ? 'xs' : 'sm'}
-                  style={{
-                    borderBottom: '1px solid var(--mantine-color-dark-6)',
-                  }}
-                >
-                  <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-                    <Text
-                      size={THEME_TYPOGRAPHY.FIELD_VALUE.size}
-                      c={THEME_COLORS.FIELD_LABEL}
-                      style={{ minWidth: isMobile ? '90px' : '130px', flexShrink: 0 }}
-                    >
-                      Started At
-                    </Text>
-                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                      {new Date(runDetails.started_at).toLocaleString()}
-                    </Text>
-                  </Group>
-                </Box>
-
-                {runDetails.concluded_at && (
-                  <Box
-                    py={isMobile ? 'xs' : 'sm'}
-                    style={{
-                      borderBottom: '1px solid var(--mantine-color-dark-6)',
-                    }}
-                  >
-                    <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-                      <Text
-                        size={THEME_TYPOGRAPHY.FIELD_VALUE.size}
-                        c={THEME_COLORS.FIELD_LABEL}
-                        style={{ minWidth: isMobile ? '90px' : '130px', flexShrink: 0 }}
-                      >
-                        Concluded At
-                      </Text>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                        {new Date(runDetails.concluded_at).toLocaleString()}
-                      </Text>
-                    </Group>
-                  </Box>
-                )}
-
-                {runDetails.actor && (
-                  <Box py={isMobile ? 'xs' : 'sm'}>
-                    <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xl">
-                      <Text
-                        size={THEME_TYPOGRAPHY.FIELD_VALUE.size}
-                        c={THEME_COLORS.FIELD_LABEL}
-                        style={{ minWidth: isMobile ? '90px' : '130px', flexShrink: 0 }}
-                      >
-                        Actor
-                      </Text>
-                      <Group gap="sm" wrap="nowrap">
-                        <Avatar size="sm" radius="xl" color="blue" />
-                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                          {runDetails.actor}
-                        </Text>
-                      </Group>
-                    </Group>
-                  </Box>
-                )}
-              </Stack>
-            )}
-          </Paper>
-        </Stack>
-      ) : null}
-      <style>{`
-        @keyframes spin {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
-        }
-      `}</style>
+    <StandardModal opened={opened} onClose={onClose} size="lg" title="Run details" footer={footer}>
+      {renderContent()}
     </StandardModal>
   )
 }

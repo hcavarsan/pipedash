@@ -1,4 +1,17 @@
-import { ActionIcon, Box, Button, Card, Center, Group, Loader, Skeleton, Stack, Tabs, Text } from '@mantine/core'
+import {
+  ActionIcon,
+  Box,
+  Button,
+  Card,
+  Checkbox,
+  Group,
+  Loader,
+  Skeleton,
+  Stack,
+  Tabs,
+  Text,
+  UnstyledButton,
+} from '@mantine/core'
 import { useDisclosure, useIntersection } from '@mantine/hooks'
 import { modals } from '@mantine/modals'
 import {
@@ -14,7 +27,7 @@ import {
   IconUser,
 } from '@tabler/icons-react'
 import type { DataTableSortStatus } from 'mantine-datatable'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PAGE_SIZES } from '../../constants/pagination'
 import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
@@ -29,11 +42,16 @@ import {
 } from '../../queries/useRunHistoryQueries'
 import { events } from '../../services'
 import { useModalStore } from '../../stores/modalStore'
+import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineRun } from '../../types'
-import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
+import { getDateRangeStart } from '../../utils/dateRange'
+import { formatCount } from '../../utils/formatCount'
 import { formatDuration } from '../../utils/formatDuration'
 import { TableCells } from '../../utils/tableCells'
+import { EmptyState } from '../common/EmptyState'
+import { ErrorState } from '../common/ErrorState'
 import { FilterBar } from '../common/FilterBar'
+import { LoadingState } from '../common/LoadingState'
 import { PageHeader } from '../common/PageHeader'
 import { StandardTable } from '../common/StandardTable'
 import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
@@ -52,6 +70,22 @@ interface RunHistoryPageProps {
   isLoadingPipeline?: boolean
 }
 
+interface RunFieldProps {
+  icon?: ReactNode
+  label: string
+  children: ReactNode
+}
+
+const RunField = ({ icon, label, children }: RunFieldProps) => (
+  <Box flex={1} miw={0}>
+    <Group gap="xs" wrap="nowrap" c="dimmed">
+      {icon}
+      <Text size={TYPOGRAPHY.FIELD_LABEL.size}>{label}</Text>
+    </Group>
+    {children}
+  </Box>
+)
+
 export const RunHistoryPage = ({
   pipeline,
   onBack,
@@ -65,7 +99,7 @@ export const RunHistoryPage = ({
 }: RunHistoryPageProps) => {
   const { isMobile } = useIsMobile()
 
-  const { filters, setFilter, clearFilters: _clearFilters } = useRunHistoryFilters()
+  const { filters, setFilter, clearFilters } = useRunHistoryFilters()
   const { search, status: statusFilter, branch: branchFilter, actor: actorFilter, dateRange, page } = filters
 
   const [cancellingRunNumber, setCancellingRunNumber] = useState<number | null>(null)
@@ -90,7 +124,9 @@ export const RunHistoryPage = ({
     data: runHistoryData,
     isLoading: loading,
     isFetching: pageLoading,
+    isPlaceholderData,
     isError,
+    error: runsError,
     refetch: refetchRuns,
   } = useRunHistory(pipeline?.id || '', page, PAGE_SIZE)
 
@@ -132,21 +168,24 @@ export const RunHistoryPage = ({
   }, [pageLoading, isError, totalCount, hasMore, page])
 
   useEffect(() => {
-    if (!isMobile || runs.length === 0) {
+    if (!isMobile || isPlaceholderData || !runHistoryData) {
       return
     }
 
-    if (page === 1) {
-      setAccumulatedRuns(runs)
-    } else {
-      setAccumulatedRuns((prev) => {
-        const existingIds = new Set(prev.map((r) => r.run_number))
-        const newRuns = runs.filter((r) => !existingIds.has(r.run_number))
+    setAccumulatedRuns((prev) => {
+      if (page === 1) {
+        return runs
+      }
 
-        return [...prev, ...newRuns]
-      })
-    }
-  }, [runs, page, isMobile])
+      const incoming = new Map(runs.map((run) => [run.run_number, run]))
+      const known = new Set(prev.map((run) => run.run_number))
+
+      return [
+        ...prev.map((run) => incoming.get(run.run_number) ?? run),
+        ...runs.filter((run) => !known.has(run.run_number)),
+      ]
+    })
+  }, [runs, runHistoryData, page, isMobile, isPlaceholderData])
 
   useEffect(() => {
     if (!isMobile || !entry?.isIntersecting || pageLoading || !hasMore) {
@@ -187,11 +226,9 @@ export const RunHistoryPage = ({
   const handleCancelRun = useCallback(
     (pipeline: Pipeline, run: PipelineRun) => {
       modals.openConfirmModal({
-        title: 'Cancel Run',
-        children: (
-          <Text size="sm">Are you sure you want to cancel run #{run.run_number}? This action cannot be undone.</Text>
-        ),
-        labels: { confirm: 'Cancel Run', cancel: 'Keep Running' },
+        title: 'Cancel run',
+        children: <Text size="sm">This cancels run #{run.run_number}. You can't undo this.</Text>,
+        labels: { confirm: 'Cancel run', cancel: 'Keep running' },
         confirmProps: { color: 'red' },
         onConfirm: async () => {
           setCancellingRunNumber(run.run_number)
@@ -210,6 +247,80 @@ export const RunHistoryPage = ({
 
   const rerunLoading = useModalStore((s) => s.rerunLoading)
 
+  const renderRunActions = useCallback(
+    (run: PipelineRun, withDetails: boolean) => {
+      if (!pipeline) {
+        return null
+      }
+
+      const isActive = run.status === 'running' || run.status === 'pending'
+      const isPending = run.status === 'pending'
+      const isCancelling = cancellingRunNumber === run.run_number
+      const isRerunning = rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number
+      const cancelLabel = isPending
+        ? `Cancel unavailable for pending run #${run.run_number}`
+        : `Cancel run #${run.run_number}`
+      const rerunLabel = `Rerun run #${run.run_number}`
+      const detailsLabel = `View details for run #${run.run_number}`
+
+      return (
+        <Group gap="xs" wrap="nowrap" justify="center">
+          {isActive
+            ? onCancel && (
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="md"
+                  title={cancelLabel}
+                  aria-label={cancelLabel}
+                  loading={isCancelling}
+                  disabled={isCancelling || isPending}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleCancelRun(pipeline, run)
+                  }}
+                >
+                  <IconSquare size={16} />
+                </ActionIcon>
+              )
+            : onRerun && (
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="md"
+                  title={rerunLabel}
+                  aria-label={rerunLabel}
+                  loading={isRerunning}
+                  disabled={isRerunning}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRerun(pipeline, run)
+                  }}
+                >
+                  <IconRefresh size={16} />
+                </ActionIcon>
+              )}
+          {withDetails && (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="md"
+              title={detailsLabel}
+              aria-label={detailsLabel}
+              onClick={(e) => {
+                e.stopPropagation()
+                onViewRun(pipeline.id, run.run_number)
+              }}
+            >
+              <IconFileText size={16} />
+            </ActionIcon>
+          )}
+        </Group>
+      )
+    },
+    [cancellingRunNumber, handleCancelRun, onCancel, onRerun, onViewRun, pipeline, rerunLoading]
+  )
+
   const actionsColumn = useMemo(
     () => ({
       accessor: 'actions' as keyof PipelineRun,
@@ -219,83 +330,20 @@ export const RunHistoryPage = ({
       resizable: false,
       toggleable: false,
       draggable: false,
-      render: (run: PipelineRun) => {
-        const isRunning = run.status === 'running' || run.status === 'pending'
-        const isCancelling = cancellingRunNumber === run.run_number
-        const isRerunning = rerunLoading?.pipelineId === pipeline?.id && rerunLoading?.runNumber === run.run_number
-
-        return (
-          <Group gap={6} wrap="nowrap" justify="center" onClick={(e) => e.stopPropagation()}>
-            {isRunning
-              ? onCancel && (
-                  <ActionIcon
-                    variant="subtle"
-                    color="red"
-                    size="md"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (pipeline) {
-                        handleCancelRun(pipeline, run)
-                      }
-                    }}
-                    title={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
-                    aria-label={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
-                    disabled={isCancelling || run.status === 'pending'}
-                    style={{
-                      backgroundColor: 'transparent',
-                      cursor: isCancelling || run.status === 'pending' ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    <IconSquare
-                      size={18}
-                      style={{
-                        animation: isCancelling ? 'spin 1s linear infinite' : 'none',
-                      }}
-                    />
-                  </ActionIcon>
-                )
-              : onRerun && (
-                  <ActionIcon
-                    variant="subtle"
-                    color="blue"
-                    size="md"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      if (pipeline) {
-                        onRerun(pipeline, run)
-                      }
-                    }}
-                    title="Rerun workflow"
-                    aria-label="Rerun workflow"
-                    loading={isRerunning}
-                    disabled={isRerunning}
-                  >
-                    <IconRefresh size={18} />
-                  </ActionIcon>
-                )}
-            <ActionIcon
-              variant="subtle"
-              color="blue"
-              size="md"
-              onClick={(e) => {
-                e.stopPropagation()
-                if (pipeline) {
-                  onViewRun(pipeline.id, run.run_number)
-                }
-              }}
-              title="View details"
-              aria-label="View details"
-            >
-              <IconFileText size={18} />
-            </ActionIcon>
-          </Group>
-        )
-      },
+      render: (run: PipelineRun) => renderRunActions(run, true),
     }),
-    [cancellingRunNumber, handleCancelRun, onCancel, onRerun, onViewRun, pipeline, rerunLoading]
+    [renderRunActions]
   )
 
   const additionalColumns = useMemo(() => [actionsColumn], [actionsColumn])
+
+  const {
+    columns,
+    allColumns,
+    loading: schemaLoading,
+    error: schemaError,
+    refetch: refetchSchema,
+  } = useTableColumns(pipeline?.provider_id, 'pipeline_runs', additionalColumns, columnPreferences)
 
   const headerActions = useMemo(() => {
     const shouldShow = !isMobile && activeTab === 'history'
@@ -304,7 +352,7 @@ export const RunHistoryPage = ({
     if (isLoading && shouldShow) {
       return (
         <Box style={{ minWidth: 'fit-content' }}>
-          <Skeleton height="1.75rem" width="144px" radius="sm" />
+          <Skeleton height="2.25rem" width="10rem" />
         </Box>
       )
     }
@@ -317,45 +365,30 @@ export const RunHistoryPage = ({
         }}
       >
         <Button
-          variant="light"
-          size="xs"
-          leftSection={<IconAdjustments size={14} />}
+          variant="default"
+          size="sm"
+          leftSection={<IconAdjustments size={16} />}
           onClick={openCustomizeModal}
-          disabled={!shouldShow}
+          disabled={!shouldShow || schemaLoading || !!schemaError}
           tabIndex={shouldShow ? 0 : -1}
         >
-          Customize Columns
+          Customize columns
         </Button>
       </Box>
     )
-  }, [isMobile, activeTab, openCustomizeModal, isLoadingPipeline, pipeline])
+  }, [isMobile, activeTab, openCustomizeModal, isLoadingPipeline, pipeline, schemaLoading, schemaError])
 
-  const { columns, allColumns } = useTableColumns(
-    pipeline?.provider_id,
-    'pipeline_runs',
-    additionalColumns,
-    columnPreferences
+  const sourceRuns = isMobile && accumulatedRuns.length > 0 ? accumulatedRuns : runs
+
+  const branches = useMemo(
+    () => Array.from(new Set(sourceRuns.map((r) => r.branch).filter((b): b is string => !!b))),
+    [sourceRuns]
   )
 
-  const safeRuns = useMemo(() => {
-    return runs && Array.isArray(runs) ? runs : []
-  }, [runs])
-
-  const branches = useMemo(() => {
-    if (!safeRuns || !Array.isArray(safeRuns)) {
-      return []
-    }
-
-    return Array.from(new Set(safeRuns.map((r) => r.branch).filter((b): b is string => !!b)))
-  }, [safeRuns])
-
-  const actors = useMemo(() => {
-    if (!safeRuns || !Array.isArray(safeRuns)) {
-      return []
-    }
-
-    return Array.from(new Set(safeRuns.map((r) => r.actor).filter((a): a is string => !!a)))
-  }, [safeRuns])
+  const actors = useMemo(
+    () => Array.from(new Set(sourceRuns.map((r) => r.actor).filter((a): a is string => !!a))),
+    [sourceRuns]
+  )
 
   const previousPipelineIdRef = useRef<string | null>(null)
 
@@ -444,72 +477,33 @@ export const RunHistoryPage = ({
     }
   }, [pipeline, refetchRuns, setFilter])
 
-  const dateFilteredRuns = useMemo(() => {
-    if (!safeRuns || !Array.isArray(safeRuns)) {
-      return []
-    }
-    if (!dateRange?.trim()) {
-      return safeRuns
-    }
-
-    const now = new Date()
-    const cutoffDate = new Date()
-
-    switch (dateRange) {
-      case 'today':
-        cutoffDate.setHours(0, 0, 0, 0)
-        break
-      case '24h':
-        cutoffDate.setHours(now.getHours() - 24)
-        break
-      case '7d':
-        cutoffDate.setDate(now.getDate() - 7)
-        break
-      case '30d':
-        cutoffDate.setDate(now.getDate() - 30)
-        break
-      case '90d':
-        cutoffDate.setDate(now.getDate() - 90)
-        break
-      default:
-        return safeRuns
-    }
-
-    return safeRuns.filter((run) => (run.started_at ? new Date(run.started_at) >= cutoffDate : false))
-  }, [safeRuns, dateRange])
-
   const filteredRuns = useMemo(() => {
-    let result = dateFilteredRuns
+    const rangeStart = getDateRangeStart(dateRange)
+    const term = search.toLowerCase()
 
-    if (search) {
-      result = result.filter(
-        (run) =>
-          run.branch?.toLowerCase().includes(search.toLowerCase()) ||
-          run.commit_sha?.toLowerCase().includes(search.toLowerCase()) ||
-          run.commit_message?.toLowerCase().includes(search.toLowerCase()) ||
-          run.actor?.toLowerCase().includes(search.toLowerCase())
+    return sourceRuns.filter((run) => {
+      if (rangeStart && !(run.started_at && new Date(run.started_at) >= rangeStart)) {
+        return false
+      }
+
+      if (
+        term &&
+        ![run.branch, run.commit_sha, run.commit_message, run.actor].some((field) =>
+          field?.toLowerCase().includes(term)
+        )
+      ) {
+        return false
+      }
+
+      return (
+        (!statusFilter || run.status === statusFilter) &&
+        (!branchFilter || run.branch === branchFilter) &&
+        (!actorFilter || run.actor === actorFilter)
       )
-    }
-
-    if (statusFilter) {
-      result = result.filter((run) => run.status === statusFilter)
-    }
-
-    if (branchFilter) {
-      result = result.filter((run) => run.branch === branchFilter)
-    }
-
-    if (actorFilter) {
-      result = result.filter((run) => run.actor === actorFilter)
-    }
-
-    return result
-  }, [dateFilteredRuns, search, statusFilter, branchFilter, actorFilter])
+    })
+  }, [sourceRuns, dateRange, search, statusFilter, branchFilter, actorFilter])
 
   const sortedRuns = useMemo(() => {
-    if (!filteredRuns || !Array.isArray(filteredRuns)) {
-      return []
-    }
     const sorted = [...filteredRuns]
     const { columnAccessor, direction } = sortStatus
 
@@ -551,239 +545,208 @@ export const RunHistoryPage = ({
     isCancelling: isCancellingSelected,
   } = useBulkCancelRuns({
     pipelineId: pipeline?.id,
-    page,
+    page: isMobile ? 1 : page,
     runs: sortedRuns,
     enabled: !!onCancel,
     cancellingRunNumber,
   })
 
-  const mobileRuns = useMemo(() => {
-    if (!isMobile) {
-      return sortedRuns
-    }
+  const renderMobileCards = (currentPipeline: Pipeline, emptyState: ReactNode) => (
+    <Stack gap="md">
+      {sortedRuns.map((run) => {
+        const selectable = isRunCancellable(run)
+        const selected = selectedRuns.some((selectedRun) => selectedRun.run_number === run.run_number)
 
-    let result = [...accumulatedRuns]
+        return (
+          <Card key={run.run_number} padding="lg">
+            <Stack gap="xs">
+              <Group justify="space-between" wrap="nowrap">
+                <Group gap="xs" wrap="nowrap" flex={1} miw={0}>
+                  {selectable && (
+                    <Checkbox
+                      aria-label={`Select run #${run.run_number}`}
+                      checked={selected}
+                      onChange={(e) =>
+                        selectRuns(
+                          e.currentTarget.checked
+                            ? [...selectedRuns, run]
+                            : selectedRuns.filter((selectedRun) => selectedRun.run_number !== run.run_number)
+                        )
+                      }
+                    />
+                  )}
+                  <UnstyledButton
+                    className="interactive-surface"
+                    aria-label={`View details for run #${run.run_number}`}
+                    onClick={() => onViewRun(currentPipeline.id, run.run_number)}
+                  >
+                    <Group gap="xs" wrap="nowrap">
+                      <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight}>
+                        #{run.run_number}
+                      </Text>
+                      {TableCells.status(run.status)}
+                    </Group>
+                  </UnstyledButton>
+                </Group>
+                {renderRunActions(run, false)}
+              </Group>
 
-    if (dateRange?.trim()) {
-      const now = new Date()
-      const cutoffDate = new Date()
+              <Group gap="lg" wrap="nowrap" align="flex-start">
+                <RunField icon={<IconGitBranch size={14} />} label="Branch">
+                  <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>
+                    {run.branch || '—'}
+                  </Text>
+                </RunField>
+                <RunField icon={<IconUser size={14} />} label="Actor">
+                  <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>
+                    {run.actor || '—'}
+                  </Text>
+                </RunField>
+              </Group>
 
-      switch (dateRange) {
-        case 'today':
-          cutoffDate.setHours(0, 0, 0, 0)
-          break
-        case '24h':
-          cutoffDate.setHours(now.getHours() - 24)
-          break
-        case '7d':
-          cutoffDate.setDate(now.getDate() - 7)
-          break
-        case '30d':
-          cutoffDate.setDate(now.getDate() - 30)
-          break
-        case '90d':
-          cutoffDate.setDate(now.getDate() - 90)
-          break
-      }
-      result = result.filter((run) => (run.started_at ? new Date(run.started_at) >= cutoffDate : false))
-    }
+              <Group gap="lg" wrap="nowrap" align="flex-start">
+                <RunField icon={<IconClock size={14} />} label="Duration">
+                  <Text size={TYPOGRAPHY.FIELD_VALUE.size}>{formatDuration(run.duration_seconds)}</Text>
+                </RunField>
+                <RunField icon={<IconCalendar size={14} />} label="Started">
+                  <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>
+                    {run.started_at ? new Date(run.started_at).toLocaleString() : '—'}
+                  </Text>
+                </RunField>
+              </Group>
 
-    if (search) {
-      result = result.filter(
-        (run) =>
-          run.branch?.toLowerCase().includes(search.toLowerCase()) ||
-          run.commit_sha?.toLowerCase().includes(search.toLowerCase()) ||
-          run.commit_message?.toLowerCase().includes(search.toLowerCase()) ||
-          run.actor?.toLowerCase().includes(search.toLowerCase())
+              {run.commit_sha && <RunField label="Commit">{TableCells.commit(run.commit_sha)}</RunField>}
+            </Stack>
+          </Card>
+        )
+      })}
+      {emptyState}
+      <Box ref={loadMoreRef} py="md">
+        {pageLoading && hasMore && (
+          <Group justify="center" gap="xs" role="status">
+            <Loader size="sm" />
+            <Text size="sm" c="dimmed">
+              Loading more runs...
+            </Text>
+          </Group>
+        )}
+        {!hasMore && sortedRuns.length > 0 && (
+          <Text size="sm" c="dimmed" ta="center">
+            {isComplete ? `All ${formatCount(totalCount, 'run')}` : `${totalCount}+ runs`}
+          </Text>
+        )}
+      </Box>
+    </Stack>
+  )
+
+  const renderRuns = (currentPipeline: Pipeline) => {
+    if (isError) {
+      return (
+        <ErrorState
+          title="Couldn't load run history"
+          error={runsError}
+          onRetry={() => refetchRuns()}
+          retrying={pageLoading}
+        />
       )
     }
 
-    if (statusFilter) {
-      result = result.filter((run) => run.status === statusFilter)
-    }
-    if (branchFilter) {
-      result = result.filter((run) => run.branch === branchFilter)
-    }
-    if (actorFilter) {
-      result = result.filter((run) => run.actor === actorFilter)
+    if (!isMobile && schemaError) {
+      return (
+        <ErrorState
+          title="Couldn't load run table columns"
+          error={schemaError}
+          onRetry={() => refetchSchema()}
+          retrying={schemaLoading}
+        />
+      )
     }
 
-    return result
-  }, [isMobile, accumulatedRuns, sortedRuns, search, statusFilter, branchFilter, actorFilter, dateRange])
+    const emptyState =
+      !pageLoading && sortedRuns.length === 0 ? (
+        sourceRuns.length === 0 ? (
+          <EmptyState
+            icon={<IconHistory size={24} />}
+            title="No runs yet"
+            description="This workflow has no recorded runs. Runs appear here after the workflow runs on its provider."
+            action={
+              <Button variant="default" size="sm" leftSection={<IconRefresh size={16} />} onClick={() => refetchRuns()}>
+                Refresh runs
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={<IconHistory size={24} />}
+            title="No runs match your filters"
+            description={
+              hasMore
+                ? 'None of the loaded runs match the current search or filters. More runs can still be loaded.'
+                : 'None of the runs match the current search or filters.'
+            }
+            action={
+              <Group gap="sm">
+                {hasMore && isMobile && (
+                  <Button variant="default" size="sm" onClick={() => setFilter('page', page + 1)}>
+                    Load more runs
+                  </Button>
+                )}
+                <Button variant="default" size="sm" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              </Group>
+            }
+          />
+        )
+      ) : null
 
-  const renderMobileCards = () => {
-    if (!pipeline) {
-      return null
+    if (isMobile) {
+      return renderMobileCards(currentPipeline, emptyState)
+    }
+
+    if (emptyState) {
+      return emptyState
     }
 
     return (
-      <Stack gap="md">
-        {mobileRuns.map((run) => {
-          const isRunning = run.status === 'running' || run.status === 'pending'
-          const isCancelling = cancellingRunNumber === run.run_number
-
-          return (
-            <Card
-              key={run.run_number}
-              padding="lg"
-              withBorder
-              style={{
-                cursor: 'pointer',
-                transition: 'all 150ms ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)'
-                e.currentTarget.style.transform = 'translateY(-2px)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = ''
-                e.currentTarget.style.transform = ''
-              }}
-              onClick={() => onViewRun(pipeline.id, run.run_number)}
-            >
-              <Stack gap="xs">
-                <Group justify="space-between" wrap="nowrap">
-                  <Group gap={8} wrap="nowrap">
-                    <Text size={THEME_TYPOGRAPHY.ITEM_TITLE.size} fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight}>
-                      #{run.run_number}
-                    </Text>
-                    {TableCells.status(run.status)}
-                  </Group>
-                  <Group gap={4}>
-                    {isRunning
-                      ? onCancel && (
-                          <ActionIcon
-                            variant="subtle"
-                            color="red"
-                            size="md"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCancelRun(pipeline, run)
-                            }}
-                            disabled={isCancelling || run.status === 'pending'}
-                            title={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
-                            aria-label={run.status === 'pending' ? 'Cannot cancel pending workflow' : 'Stop run'}
-                            style={{
-                              backgroundColor: 'transparent',
-                              cursor: isCancelling || run.status === 'pending' ? 'not-allowed' : 'pointer',
-                            }}
-                          >
-                            <IconSquare
-                              size={18}
-                              style={{
-                                animation: isCancelling ? 'spin 1s linear infinite' : 'none',
-                              }}
-                            />
-                          </ActionIcon>
-                        )
-                      : onRerun && (
-                          <ActionIcon
-                            variant="subtle"
-                            color="blue"
-                            size="md"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onRerun(pipeline, run)
-                            }}
-                            title="Rerun workflow"
-                            aria-label="Rerun workflow"
-                          >
-                            <IconRefresh size={18} />
-                          </ActionIcon>
-                        )}
-                    <ActionIcon
-                      variant="subtle"
-                      color="blue"
-                      size="md"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onViewRun(pipeline.id, run.run_number)
-                      }}
-                      title="View details"
-                      aria-label="View details"
-                    >
-                      <IconFileText size={18} />
-                    </ActionIcon>
-                  </Group>
-                </Group>
-
-                <Group gap="lg" wrap="nowrap" align="flex-start">
-                  <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Group gap={4} wrap="nowrap">
-                      <IconGitBranch size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                        Branch
-                      </Text>
-                    </Group>
-                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT} truncate>
-                      {run.branch || '—'}
-                    </Text>
-                  </Box>
-                  <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Group gap={4} wrap="nowrap">
-                      <IconUser size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                        Actor
-                      </Text>
-                    </Group>
-                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT} truncate>
-                      {run.actor || '—'}
-                    </Text>
-                  </Box>
-                </Group>
-
-                <Group gap="lg" wrap="nowrap" align="flex-start">
-                  <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Group gap={4} wrap="nowrap">
-                      <IconClock size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                        Duration
-                      </Text>
-                    </Group>
-                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                      {formatDuration(run.duration_seconds)}
-                    </Text>
-                  </Box>
-                  <Box style={{ flex: 1, minWidth: 0 }}>
-                    <Group gap={4} wrap="nowrap">
-                      <IconCalendar size={14} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                        Started
-                      </Text>
-                    </Group>
-                    <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT} truncate>
-                      {run.started_at ? new Date(run.started_at).toLocaleString() : '—'}
-                    </Text>
-                  </Box>
-                </Group>
-
-                {run.commit_sha && (
-                  <Box>
-                    <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                      Commit
-                    </Text>
-                    {TableCells.commit(run.commit_sha)}
-                  </Box>
-                )}
-              </Stack>
-            </Card>
-          )
-        })}
-        <Box ref={loadMoreRef} py="md">
-          {pageLoading && hasMore && (
-            <Center>
-              <Loader size="sm" />
-            </Center>
-          )}
-          {!hasMore && mobileRuns.length > 0 && (
-            <Text size="sm" c="dimmed" ta="center">
-              {isComplete ? `All ${totalCount} runs` : `${totalCount}+ runs`}
-            </Text>
-          )}
-        </Box>
-      </Stack>
+      <Box
+        style={{
+          height: 'calc(100vh - var(--app-shell-header-height, 70px) - 220px)',
+          minHeight: '400px',
+          position: 'relative',
+        }}
+      >
+        <StandardTable<PipelineRun>
+          records={sortedRuns}
+          onRowClick={({ record }) => onViewRun(currentPipeline.id, record.run_number)}
+          rowStyle={() => ({ cursor: 'pointer' })}
+          columns={columns}
+          {...(onCancel && {
+            selectedRecords: selectedRuns,
+            onSelectedRecordsChange: selectRuns,
+            isRecordSelectable: isRunCancellable,
+          })}
+          sortStatus={sortStatus}
+          onSortStatusChange={setSortStatus}
+          fetching={pageLoading}
+          totalRecords={effectiveTotalRecords}
+          recordsPerPage={PAGE_SIZE}
+          page={page}
+          onPageChange={(p) => setFilter('page', p)}
+          paginationText={({ from, to }) =>
+            pageLoading
+              ? 'Loading...'
+              : isComplete
+                ? `Showing ${from}-${to} of ${formatCount(totalCount, 'run')}`
+                : `Showing ${from}-${to} runs`
+          }
+        />
+      </Box>
     )
   }
+
+  const isHistoryLoading =
+    isLoadingPipeline || loading || !preferencesLoaded || (!isMobile && schemaLoading) || !pipeline?.id
 
   return (
     <Box
@@ -811,7 +774,7 @@ export const RunHistoryPage = ({
       <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'history')}>
         <Tabs.List mb="md" style={{ minHeight: '2.5rem' }}>
           <Tabs.Tab value="history" leftSection={<IconHistory size={16} />}>
-            Run History
+            Run history
           </Tabs.Tab>
           <Tabs.Tab value="metrics" leftSection={<IconChartLine size={16} />}>
             Metrics
@@ -822,14 +785,13 @@ export const RunHistoryPage = ({
           value="history"
           style={{ width: '100%', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
         >
-          {isLoadingPipeline || loading || !preferencesLoaded || !pipeline?.id ? (
-            <Center py="xl">
-              <Loader size="lg" />
-            </Center>
+          {isHistoryLoading || !pipeline ? (
+            <LoadingState message="Loading run history..." />
           ) : (
             <>
               <Group justify="space-between" align="flex-start" wrap="nowrap">
                 <FilterBar
+                  onClearAll={clearFilters}
                   filters={{
                     search: {
                       value: search,
@@ -856,90 +818,28 @@ export const RunHistoryPage = ({
                     },
                   }}
                 />
-                <Group gap="xs" wrap="nowrap">
-                  {!isMobile && selectedRuns.length > 0 && (
-                    <Button
-                      size="xs"
-                      variant="light"
-                      color="red"
-                      leftSection={<IconSquare size={14} />}
-                      loading={isCancellingSelected}
-                      onClick={cancelSelected}
-                    >
-                      Cancel selected
-                    </Button>
-                  )}
-                  {isError && (
-                    <Button
-                      size="xs"
-                      variant="light"
-                      color="red"
-                      leftSection={<IconRefresh size={14} />}
-                      onClick={() => refetchRuns()}
-                    >
-                      Retry
-                    </Button>
-                  )}
-                </Group>
+                {selectedRuns.length > 0 && (
+                  <Button
+                    size="xs"
+                    variant="light"
+                    color="red"
+                    leftSection={<IconSquare size={14} />}
+                    loading={isCancellingSelected}
+                    onClick={cancelSelected}
+                  >
+                    Cancel selected
+                  </Button>
+                )}
               </Group>
 
-              {isMobile ? (
-                renderMobileCards()
-              ) : (
-                <Box
-                  style={{
-                    height: 'calc(100vh - var(--app-shell-header-height, 70px) - 220px)',
-                    minHeight: '400px',
-                    position: 'relative',
-                  }}
-                >
-                  <StandardTable<PipelineRun>
-                    records={sortedRuns}
-                    onRowClick={({ record }) => onViewRun(pipeline.id, record.run_number)}
-                    rowStyle={() => ({ cursor: 'pointer' })}
-                    columns={columns}
-                    {...(onCancel && {
-                      selectedRecords: selectedRuns,
-                      onSelectedRecordsChange: selectRuns,
-                      isRecordSelectable: isRunCancellable,
-                    })}
-                    sortStatus={sortStatus}
-                    onSortStatusChange={setSortStatus}
-                    fetching={pageLoading}
-                    noRecordsText={
-                      pageLoading
-                        ? ''
-                        : isError
-                          ? 'Failed to load runs. Click refresh to retry.'
-                          : safeRuns.length === 0
-                            ? 'No runs found'
-                            : 'No matching runs'
-                    }
-                    totalRecords={effectiveTotalRecords}
-                    recordsPerPage={PAGE_SIZE}
-                    page={page}
-                    onPageChange={(p) => setFilter('page', p)}
-                    paginationText={({ from, to }) =>
-                      pageLoading
-                        ? 'Loading...'
-                        : isError
-                          ? 'Error loading runs - use pagination to retry'
-                          : isComplete
-                            ? `Showing ${from}-${to} of ${totalCount} runs`
-                            : `Showing ${from}-${to} runs`
-                    }
-                  />
-                </Box>
-              )}
+              {renderRuns(pipeline)}
             </>
           )}
         </Tabs.Panel>
 
         <Tabs.Panel value="metrics" style={{ width: '100%' }}>
           {isLoadingPipeline || !pipeline ? (
-            <Center py="xl">
-              <Loader size="lg" />
-            </Center>
+            <LoadingState message="Loading pipeline..." />
           ) : (
             <PipelineMetricsView
               pipelineId={pipeline.id}
@@ -960,17 +860,6 @@ export const RunHistoryPage = ({
         currentVisibility={columnPreferences.columnVisibility}
         onApply={handleApplyCustomization}
       />
-
-      <style>{`
-        @keyframes spin {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
-        }
-      `}</style>
     </Box>
   )
 }

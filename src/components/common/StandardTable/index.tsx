@@ -36,7 +36,7 @@ export function StandardTable<T>(props: DataTableProps<T>) {
             whiteSpace: 'nowrap',
             verticalAlign: 'middle',
             textAlign: 'left',
-            borderBottom: '1px solid var(--mantine-color-dark-5)',
+            borderBottom: '1px solid var(--mantine-color-default-border)',
           },
           table: {
             ...(props.styles?.table || {}),
@@ -51,10 +51,7 @@ export function StandardTable<T>(props: DataTableProps<T>) {
             fontSize: 'var(--mantine-font-size-sm)',
           },
         }}
-        rowStyle={() => ({
-          height: '56px',
-          verticalAlign: 'middle',
-        })}
+        rowStyle={(record, index) => [{ height: '56px', verticalAlign: 'middle' }, props.rowStyle?.(record, index)]}
         height={props.height || '100%'}
         verticalSpacing="sm"
         horizontalSpacing="md"

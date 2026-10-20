@@ -21,6 +21,7 @@ use axum::{
 use pipedash_core::infrastructure::{
     ConfigLoader,
     Platform,
+    ServerConfig,
     StorageBackendType,
     StorageManager,
 };
@@ -98,26 +99,37 @@ async fn auth_middleware(req: Request, next: Next) -> Result<Response, StatusCod
     }
 }
 
+fn env_flag(value: &str) -> bool {
+    value == "true" || value == "1"
+}
+
 impl ApiServerConfig {
-    fn from_env() -> Self {
-        let bind_addr = std::env::var("PIPEDASH_BIND_ADDR")
-            .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
+    fn resolve(file: Option<&ServerConfig>) -> anyhow::Result<Self> {
+        Self::from_sources(
+            std::env::var("PIPEDASH_BIND_ADDR").ok().as_deref(),
+            std::env::var("PIPEDASH_CORS_ALLOW_ALL").ok().as_deref(),
+            std::env::var("PIPEDASH_EMBEDDED_FRONTEND").ok().as_deref(),
+            file,
+        )
+    }
+
+    fn from_sources(
+        env_bind_addr: Option<&str>, env_cors_allow_all: Option<&str>,
+        env_embedded_frontend: Option<&str>, file: Option<&ServerConfig>,
+    ) -> anyhow::Result<Self> {
+        let defaults = ServerConfig::default();
+        let file = file.unwrap_or(&defaults);
+
+        let bind_addr = env_bind_addr
+            .unwrap_or(&file.bind_addr)
             .parse()
-            .expect("Invalid bind address");
+            .context("Invalid bind address")?;
 
-        let cors_allow_all = std::env::var("PIPEDASH_CORS_ALLOW_ALL")
-            .map(|v| v == "true" || v == "1")
-            .unwrap_or(false);
-
-        let enable_embedded_frontend = std::env::var("PIPEDASH_EMBEDDED_FRONTEND")
-            .map(|v| v == "true" || v == "1")
-            .unwrap_or(true); // Default to true for production
-
-        Self {
+        Ok(Self {
             bind_addr,
-            cors_allow_all,
-            enable_embedded_frontend,
-        }
+            cors_allow_all: env_cors_allow_all.map_or(file.cors_allow_all, env_flag),
+            enable_embedded_frontend: env_embedded_frontend.is_none_or(env_flag),
+        })
     }
 }
 
@@ -129,21 +141,9 @@ async fn main() -> anyhow::Result<()> {
 
     pipedash_core::logging::init();
 
-    let api_config = ApiServerConfig::from_env();
+    let mut file_server_config = None;
 
     tracing::info!("Starting Pipedash API server");
-    tracing::info!("Bind address: {}", api_config.bind_addr);
-
-    if api_config.enable_embedded_frontend {
-        tracing::info!(
-            "Serving embedded frontend at http://{}",
-            api_config.bind_addr
-        );
-    } else {
-        tracing::info!(
-            "Embedded frontend disabled - expecting external frontend (e.g., Vite dev server)"
-        );
-    }
 
     let ws_event_bus = Arc::new(WebSocketEventBus::new());
 
@@ -171,6 +171,8 @@ async fn main() -> anyhow::Result<()> {
 
         let config = ConfigLoader::load_or_create(&config_path, Platform::Server)
             .context("Failed to load config")?;
+
+        file_server_config = Some(config.server.clone());
 
         tracing::info!(
             "Initializing with storage backend: {}",
@@ -237,6 +239,21 @@ async fn main() -> anyhow::Result<()> {
         app_state
     };
 
+    let api_config = ApiServerConfig::resolve(file_server_config.as_ref())?;
+
+    tracing::info!("Bind address: {}", api_config.bind_addr);
+
+    if api_config.enable_embedded_frontend {
+        tracing::info!(
+            "Serving embedded frontend at http://{}",
+            api_config.bind_addr
+        );
+    } else {
+        tracing::info!(
+            "Embedded frontend disabled - expecting external frontend (e.g., Vite dev server)"
+        );
+    }
+
     let app = Router::new()
         .nest("/api/v1", routes::api_router())
         .route("/api/v1/ws", axum::routing::get(ws::ws_handler))
@@ -291,12 +308,68 @@ mod tests {
         }
     }
 
+    fn server_config(bind_addr: &str, cors_allow_all: bool) -> ServerConfig {
+        ServerConfig {
+            bind_addr: bind_addr.to_string(),
+            cors_allow_all,
+        }
+    }
+
+    #[test]
+    fn setup_mode_falls_back_to_secure_defaults() {
+        let config = ApiServerConfig::from_sources(None, None, None, None).unwrap();
+
+        assert_eq!(config.bind_addr, "127.0.0.1:8080".parse().unwrap());
+        assert!(!config.cors_allow_all);
+        assert!(config.enable_embedded_frontend);
+    }
+
+    #[test]
+    fn config_values_apply_when_env_is_unset() {
+        let file = server_config("0.0.0.0:9090", true);
+
+        let config = ApiServerConfig::from_sources(None, None, None, Some(&file)).unwrap();
+
+        assert_eq!(config.bind_addr, "0.0.0.0:9090".parse().unwrap());
+        assert!(config.cors_allow_all);
+    }
+
+    #[test]
+    fn env_overrides_config_values() {
+        let file = server_config("0.0.0.0:9090", true);
+
+        let config = ApiServerConfig::from_sources(
+            Some("127.0.0.1:7070"),
+            Some("false"),
+            Some("false"),
+            Some(&file),
+        )
+        .unwrap();
+
+        assert_eq!(config.bind_addr, "127.0.0.1:7070".parse().unwrap());
+        assert!(!config.cors_allow_all);
+        assert!(!config.enable_embedded_frontend);
+
+        let file = server_config("0.0.0.0:9090", false);
+        let config = ApiServerConfig::from_sources(None, Some("1"), None, Some(&file)).unwrap();
+
+        assert!(config.cors_allow_all);
+    }
+
+    #[test]
+    fn invalid_bind_addr_is_an_error() {
+        let file = server_config("not-an-address", false);
+
+        assert!(ApiServerConfig::from_sources(None, None, None, Some(&file)).is_err());
+        assert!(ApiServerConfig::from_sources(Some("nope"), None, None, None).is_err());
+    }
+
     #[tokio::test]
     async fn default_cors_does_not_allow_other_origins() {
-        std::env::remove_var("PIPEDASH_CORS_ALLOW_ALL");
+        let config = ApiServerConfig::from_sources(None, None, None, None).unwrap();
         let app = Router::new()
             .route("/api/v1/providers", get(|| async { "ok" }))
-            .layer(cors_layer(ApiServerConfig::from_env().cors_allow_all));
+            .layer(cors_layer(config.cors_allow_all));
         let request = axum::http::Request::builder()
             .uri("/api/v1/providers")
             .header(header::ORIGIN, "https://attacker.example")

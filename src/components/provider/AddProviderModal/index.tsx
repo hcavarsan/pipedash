@@ -182,7 +182,7 @@ export function AddProviderModal({
         dispatch({ type: 'SET_ERROR', error: 'Network error. Please check your connection.' })
       }
 
-      displayErrorNotification(err, editMode ? 'Failed to Update Provider' : 'Failed to Add Provider')
+      displayErrorNotification(err, editMode ? "Couldn't update provider" : "Couldn't add provider")
     } finally {
       dispatch({ type: 'SET_SUBMITTING', submitting: false })
       if (success) {
@@ -229,7 +229,7 @@ export function AddProviderModal({
 
       onClose()
     } catch (err: unknown) {
-      displayErrorNotification(err, 'Failed to Update Provider')
+      displayErrorNotification(err, "Couldn't update provider")
     } finally {
       dispatch({ type: 'SET_SUBMITTING', submitting: false })
     }
@@ -250,13 +250,11 @@ export function AddProviderModal({
           </Group>
 
           <Group gap="xs">
-            <Button variant="light" size="sm" onClick={onClose} disabled={submitting}>
+            <Button variant="default" size="sm" onClick={onClose} disabled={submitting}>
               Cancel
             </Button>
             {editMode && (
               <Button
-                variant="filled"
-                color="blue"
                 size="sm"
                 onClick={handleSaveCredentialsOnly}
                 loading={submitting}
@@ -266,13 +264,12 @@ export function AddProviderModal({
               </Button>
             )}
             <Button
-              variant="light"
-              color="blue"
+              variant={editMode ? 'default' : 'filled'}
               size="sm"
               onClick={handleNext}
               disabled={!selectedPlugin || !providerName.trim()}
             >
-              {isMobile ? 'Next' : 'Next: Select Pipelines'}
+              {isMobile ? 'Next' : 'Next: select pipelines'}
             </Button>
           </Group>
         </Group>
@@ -282,7 +279,7 @@ export function AddProviderModal({
     return (
       <Group justify="space-between">
         <Group gap="sm">
-          <Button variant="light" size="sm" onClick={handleBack} disabled={submitting}>
+          <Button variant="default" size="sm" onClick={handleBack} disabled={submitting}>
             Back
           </Button>
           {selectedPipelines.size > 0 && (
@@ -292,18 +289,11 @@ export function AddProviderModal({
           )}
         </Group>
         <Group gap="xs">
-          <Button variant="light" size="sm" onClick={onClose} disabled={submitting}>
+          <Button variant="default" size="sm" onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
-          <Button
-            variant="light"
-            color="blue"
-            size="sm"
-            onClick={handleSubmit}
-            loading={submitting}
-            disabled={selectedPipelines.size === 0}
-          >
-            {editMode ? (isMobile ? 'Update' : 'Update Provider') : isMobile ? 'Add' : 'Add Provider'}
+          <Button size="sm" onClick={handleSubmit} loading={submitting} disabled={selectedPipelines.size === 0}>
+            {editMode ? (isMobile ? 'Update' : 'Update provider') : isMobile ? 'Add' : 'Add provider'}
           </Button>
         </Group>
       </Group>
@@ -331,28 +321,36 @@ export function AddProviderModal({
     <StandardModal
       opened={opened}
       onClose={onClose}
-      title={editMode ? 'Edit Provider' : 'Add Provider'}
+      title={editMode ? 'Edit provider' : 'Add provider'}
       loading={submitting}
       footer={footer}
       contentPadding={false}
+      size="lg"
       disableScrollArea
     >
       <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <Box px="md" pt="md" style={{ flexShrink: 0 }}>
           <Stepper active={activeStepIndex} size={isMobile ? 'xs' : 'sm'} iconSize={isMobile ? 32 : 42}>
             <Stepper.Step
+              aria-label="Step 1: Credentials"
               label={isMobile ? undefined : 'Credentials'}
               description={isMobile ? undefined : 'Enter your API credentials'}
               icon={<IconKey size={18} />}
               completedIcon={<IconCheck size={18} />}
             />
             <Stepper.Step
-              label={isMobile ? undefined : 'Select Pipelines'}
+              aria-label="Step 2: Select pipelines"
+              label={isMobile ? undefined : 'Select pipelines'}
               description={isMobile ? undefined : 'Choose pipelines to monitor'}
               icon={<IconList size={18} />}
               completedIcon={<IconCheck size={18} />}
             />
           </Stepper>
+          {isMobile && (
+            <Text size="sm" fw={500} ta="center" mt="xs">
+              Step {activeStepIndex + 1} of 2: {activeStepIndex === 0 ? 'Credentials' : 'Select pipelines'}
+            </Text>
+          )}
         </Box>
 
         {pluginsLoading ? (
@@ -393,6 +391,7 @@ export function AddProviderModal({
       <PermissionCheckModal
         opened={permission.modalOpen}
         onClose={permission.closeModal}
+        onRetry={permission.checkPermissions}
         metadata={selectedPlugin}
         status={permission.status}
         features={permission.features}

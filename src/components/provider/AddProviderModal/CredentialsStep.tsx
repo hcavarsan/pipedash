@@ -1,6 +1,5 @@
 import {
   Box,
-  Group,
   Checkbox as MantineCheckbox,
   NumberInput,
   PasswordInput,
@@ -11,13 +10,12 @@ import {
   Text,
   Textarea,
   TextInput,
-  Tooltip,
 } from '@mantine/core'
-import { IconInfoCircle } from '@tabler/icons-react'
 import { type Dispatch, useEffect, useMemo, useRef } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
+import { logger } from '../../../lib/logger'
 import { service } from '../../../services'
 import type { ConfigField, PluginMetadata } from '../../../types'
 
@@ -79,7 +77,7 @@ export function CredentialsStep({
               newDynamicOptions[field.key] = options
             }
           } catch (err) {
-            console.error(`Failed to load options for ${field.key}:`, err)
+            logger.error('CredentialsStep', `Failed to load options for ${field.key}`, err)
           }
         }
       }
@@ -118,36 +116,14 @@ export function CredentialsStep({
     dispatch({ type: 'UPDATE_CONFIG', key, value })
   }
 
-  const renderFieldLabel = (label: string, description: string | null, required: boolean) => {
-    return (
-      <Group gap={4} wrap="nowrap">
-        <Text size="sm" fw={500}>
-          {label}
-          {required && (
-            <Text component="span" c="red">
-              {' '}
-              *
-            </Text>
-          )}
-        </Text>
-        {description && (
-          <Tooltip label={description} multiline w={300} withArrow>
-            <Box style={{ display: 'flex', alignItems: 'center', cursor: 'help' }}>
-              <IconInfoCircle size={14} style={{ opacity: 0.6 }} />
-            </Box>
-          </Tooltip>
-        )}
-      </Group>
-    )
-  }
-
   const renderConfigField = (field: ConfigField) => {
     const value = configValues[field.key] || ''
     const commonProps = {
-      label: renderFieldLabel(field.label, field.description, field.required),
+      label: field.label,
+      description: field.description ?? undefined,
       value,
       error: fieldErrors[field.key],
-      withAsterisk: false,
+      withAsterisk: field.required,
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | string) => {
         const newValue = typeof e === 'string' ? e : e?.currentTarget?.value
 
@@ -183,7 +159,8 @@ export function CredentialsStep({
         return (
           <MantineCheckbox
             key={field.key}
-            label={renderFieldLabel(field.label, field.description, field.required)}
+            label={field.label}
+            description={field.description ?? undefined}
             checked={value === 'true'}
             error={fieldErrors[field.key]}
             onChange={(e) => handleConfigChange(field.key, String(e.currentTarget.checked))}
@@ -199,7 +176,7 @@ export function CredentialsStep({
       <ScrollArea style={{ flex: 1 }} type="auto">
         <Stack gap={isMobile ? 'xs' : 'md'} p="md">
           <Select
-            label="Provider Type"
+            label="Provider type"
             placeholder="Select a provider type"
             data={plugins.map((p) => ({
               value: p.provider_type,
@@ -219,13 +196,14 @@ export function CredentialsStep({
 
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={isMobile ? 'xs' : 'md'}>
                 <TextInput
-                  label={renderFieldLabel('Provider Name', 'A friendly name to identify this provider', true)}
-                  placeholder="My Provider"
+                  label="Provider name"
+                  description="A friendly name to identify this provider"
+                  placeholder="e.g. GitHub (work)"
                   value={providerName}
                   onChange={(e) => dispatch({ type: 'SET_PROVIDER_NAME', name: e.currentTarget.value })}
                   disabled={submitting}
                   error={fieldErrors.providerName}
-                  withAsterisk={false}
+                  withAsterisk
                 />
 
                 {selectedPlugin.config_schema.fields.map((field) => renderConfigField(field))}

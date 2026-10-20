@@ -57,7 +57,7 @@ export function useAddProvider() {
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
 
       notifications.show({
-        title: 'Provider Added',
+        title: 'Provider added',
         message: 'Fetching pipelines...',
         color: 'green',
       })
@@ -65,7 +65,7 @@ export function useAddProvider() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Add Provider',
+        title: "Couldn't add provider",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -97,7 +97,7 @@ export function useUpdateProvider() {
       }
 
       notifications.show({
-        title: 'Failed to Update Provider',
+        title: "Couldn't update provider",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -111,7 +111,7 @@ export function useUpdateProvider() {
       })
 
       notifications.show({
-        title: 'Provider Updated',
+        title: 'Provider updated',
         message: 'Refreshing pipelines...',
         color: 'green',
       })
@@ -148,15 +148,15 @@ export function useRemoveProvider() {
       })
 
       notifications.show({
-        title: 'Provider Removed',
+        title: 'Provider removed',
         message: 'All associated data cleared',
-        color: 'blue',
+        color: 'gray',
       })
     },
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Remove Provider',
+        title: "Couldn't remove provider",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -189,7 +189,7 @@ export function useUpdateProviderRefreshInterval() {
       }
 
       notifications.show({
-        title: 'Failed to Update Refresh Interval',
+        title: "Couldn't update refresh interval",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -200,7 +200,7 @@ export function useUpdateProviderRefreshInterval() {
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.refreshInterval(id) })
 
       notifications.show({
-        title: 'Refresh Interval Updated',
+        title: 'Refresh interval updated',
         message: 'Provider will use the new refresh interval',
         color: 'green',
       })

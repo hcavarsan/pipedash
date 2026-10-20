@@ -1,178 +1,111 @@
-import { Component, type ReactNode } from 'react'
+import { Button, Center, Code, Group, Paper, Stack, Text, ThemeIcon, Title } from '@mantine/core'
+import { IconAlertTriangle } from '@tabler/icons-react'
+import { Component, type ErrorInfo, type ReactNode } from 'react'
 
-interface Props {
+import { logger } from '../../lib/logger'
+
+type Scope = 'app' | 'route' | 'feature'
+
+interface ErrorBoundaryProps {
   children: ReactNode
-  fallback?: ReactNode
+  scope?: Scope
+  name?: string
 }
 
-interface State {
-  hasError: boolean
+interface ErrorBoundaryState {
   error: Error | null
-  errorInfo: React.ErrorInfo | null
+  componentStack: string | null
 }
 
-export class ErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props)
-    this.state = { hasError: false, error: null, errorInfo: null }
+const SCOPE_MIN_HEIGHT: Record<Scope, string | number> = {
+  app: '100vh',
+  route: 400,
+  feature: 200,
+}
+
+const SCOPE_TITLE: Record<Scope, string> = {
+  app: 'Pipedash hit an unexpected error',
+  route: 'This page failed to load',
+  feature: 'This section failed to load',
+}
+
+interface BoundaryFallbackProps {
+  scope: Scope
+  name?: string
+  error: Error
+  componentStack: string | null
+  onRetry: () => void
+}
+
+function BoundaryFallback({ scope, name, error, componentStack, onRetry }: BoundaryFallbackProps) {
+  const title = name ? `${name} failed to load` : SCOPE_TITLE[scope]
+
+  return (
+    <Center mih={SCOPE_MIN_HEIGHT[scope]} p="xl" role="alert">
+      <Paper withBorder p="xl" maw={500} w="100%">
+        <Stack align="center" gap="md">
+          <ThemeIcon variant="light" color="red" size="xl">
+            <IconAlertTriangle size={24} aria-hidden />
+          </ThemeIcon>
+          <Stack align="center" gap="xs">
+            <Title order={3}>{title}</Title>
+            <Text size="sm" c="dimmed" ta="center">
+              {error.message || 'An unexpected error occurred'}
+            </Text>
+          </Stack>
+          {import.meta.env.DEV && componentStack && (
+            <Code block fz="xs" mah={200} w="100%" style={{ overflow: 'auto' }}>
+              {componentStack}
+            </Code>
+          )}
+          <Group justify="center" gap="sm">
+            <Button size="sm" onClick={() => window.location.reload()}>
+              Reload page
+            </Button>
+            <Button size="sm" variant="default" onClick={onRetry}>
+              Try again
+            </Button>
+          </Group>
+        </Stack>
+      </Paper>
+    </Center>
+  )
+}
+
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null, componentStack: null }
+
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    return { error }
   }
 
-  static getDerivedStateFromError(error: Error): Partial<State> {
-    return { hasError: true, error }
+  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    const { scope = 'feature', name } = this.props
+
+    logger.error('ErrorBoundary', `${name ?? scope} caught an error`, {
+      message: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack,
+    })
+    this.setState({ componentStack: errorInfo.componentStack ?? null })
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('Error Boundary caught error:', error, errorInfo)
-    this.setState({ errorInfo })
+  handleRetry = (): void => {
+    this.setState({ error: null, componentStack: null })
   }
 
-  handleReload = () => {
-    window.location.reload()
-  }
+  render(): ReactNode {
+    const { error, componentStack } = this.state
 
-  handleReset = () => {
-    this.setState({ hasError: false, error: null, errorInfo: null })
-  }
-
-  render() {
-    if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback
-      }
-
+    if (error) {
       return (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minHeight: '100vh',
-            padding: '2rem',
-            backgroundColor: '#1a1b1e',
-            color: '#c1c2c5',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          }}
-        >
-          <div
-            style={{
-              maxWidth: '500px',
-              width: '100%',
-              padding: '2rem',
-              backgroundColor: '#25262b',
-              borderRadius: '8px',
-              border: '1px solid #373a40',
-              textAlign: 'center',
-            }}
-          >
-            <div
-              style={{
-                fontSize: '56px',
-                marginBottom: '1.5rem',
-              }}
-            >
-              ⚠️
-            </div>
-            <h2
-              style={{
-                margin: '0 0 0.5rem 0',
-                fontSize: '1.5rem',
-                fontWeight: 600,
-                color: '#fff',
-              }}
-            >
-              Something went wrong
-            </h2>
-            <p
-              style={{
-                margin: '0 0 1.5rem 0',
-                fontSize: '0.875rem',
-                color: '#909296',
-              }}
-            >
-              {this.state.error?.message || 'An unexpected error occurred'}
-            </p>
-
-            {import.meta.env.DEV && this.state.errorInfo && (
-              <details
-                style={{
-                  marginBottom: '1.5rem',
-                  textAlign: 'left',
-                }}
-              >
-                <summary
-                  style={{
-                    cursor: 'pointer',
-                    fontSize: '0.75rem',
-                    color: '#909296',
-                    marginBottom: '0.5rem',
-                  }}
-                >
-                  Show component stack
-                </summary>
-                <pre
-                  style={{
-                    padding: '1rem',
-                    backgroundColor: '#1a1b1e',
-                    borderRadius: '4px',
-                    fontSize: '0.65rem',
-                    overflow: 'auto',
-                    maxHeight: '200px',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    margin: 0,
-                  }}
-                >
-                  {this.state.errorInfo.componentStack}
-                </pre>
-              </details>
-            )}
-
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.5rem',
-                maxWidth: '280px',
-                margin: '0 auto',
-              }}
-            >
-              <button
-                type="button"
-                onClick={this.handleReload}
-                style={{
-                  padding: '0.75rem 1rem',
-                  backgroundColor: '#228be6',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                  fontSize: '0.875rem',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                  width: '100%',
-                }}
-              >
-                Reload Application
-              </button>
-              <button
-                type="button"
-                onClick={this.handleReset}
-                style={{
-                  padding: '0.75rem 1rem',
-                  backgroundColor: 'transparent',
-                  color: '#909296',
-                  border: 'none',
-                  borderRadius: '4px',
-                  fontSize: '0.875rem',
-                  cursor: 'pointer',
-                  fontWeight: 500,
-                  width: '100%',
-                }}
-              >
-                Try Again
-              </button>
-            </div>
-          </div>
-        </div>
+        <BoundaryFallback
+          scope={this.props.scope ?? 'feature'}
+          name={this.props.name}
+          error={error}
+          componentStack={componentStack}
+          onRetry={this.handleRetry}
+        />
       )
     }
 

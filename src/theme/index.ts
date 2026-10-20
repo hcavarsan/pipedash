@@ -1,6 +1,6 @@
-import { createTheme, type MantineColorsTuple } from '@mantine/core'
+import { Badge, Card, createTheme, type MantineColorsTuple, Modal, Paper, Tooltip } from '@mantine/core'
 
-const modernBlue: MantineColorsTuple = [
+const blue: MantineColorsTuple = [
   '#EBF3FF',
   '#D6E7FF',
   '#A8CEFF',
@@ -13,7 +13,7 @@ const modernBlue: MantineColorsTuple = [
   '#0A4FAF',
 ]
 
-const modernGreen: MantineColorsTuple = [
+const green: MantineColorsTuple = [
   '#E6FAF3',
   '#CCF5E7',
   '#99EBCF',
@@ -26,7 +26,7 @@ const modernGreen: MantineColorsTuple = [
   '#0A6D41',
 ]
 
-const modernRed: MantineColorsTuple = [
+const red: MantineColorsTuple = [
   '#FFE8E8',
   '#FFD1D1',
   '#FFA3A3',
@@ -39,7 +39,7 @@ const modernRed: MantineColorsTuple = [
   '#B01616',
 ]
 
-const modernYellow: MantineColorsTuple = [
+const yellow: MantineColorsTuple = [
   '#FFFAE6',
   '#FFF5CC',
   '#FFEB99',
@@ -52,20 +52,7 @@ const modernYellow: MantineColorsTuple = [
   '#B08E00',
 ]
 
-const modernTeal: MantineColorsTuple = [
-  '#E6FAF8',
-  '#CCF5F0',
-  '#99EBE1',
-  '#66E1D2',
-  '#3DD6C3',
-  '#32C1B0',
-  '#28AC9D',
-  '#1E978A',
-  '#148277',
-  '#0A6D64',
-]
-
-const modernGray: MantineColorsTuple = [
+const gray: MantineColorsTuple = [
   '#F9FAFB',
   '#F3F4F6',
   '#E5E7EB',
@@ -81,13 +68,13 @@ const modernGray: MantineColorsTuple = [
 export const theme = createTheme({
   primaryColor: 'blue',
   defaultRadius: 'sm',
-
-  colors: {
-    blue: modernBlue,
-    green: modernGreen,
-    red: modernRed,
-    yellow: modernYellow,
-    teal: modernTeal,
-    gray: modernGray,
+  respectReducedMotion: true,
+  colors: { blue, green, red, yellow, gray },
+  components: {
+    Badge: Badge.extend({ defaultProps: { tt: 'none' } }),
+    Card: Card.extend({ defaultProps: { radius: 'md', withBorder: true } }),
+    Paper: Paper.extend({ defaultProps: { radius: 'md' } }),
+    Modal: Modal.extend({ defaultProps: { radius: 'md' } }),
+    Tooltip: Tooltip.extend({ defaultProps: { withArrow: true } }),
   },
 })

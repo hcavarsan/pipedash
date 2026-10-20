@@ -1,0 +1,32 @@
+.trafficLight {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: var(--traffic-light-color);
+  color: var(--mantine-color-black);
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--traffic-light-hover-color);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mantine-primary-color-filled);
+    outline-offset: 2px;
+  }
+}
+
+.trafficLightIcon {
+  display: flex;
+  opacity: 0;
+
+  .trafficLight:hover &,
+  .trafficLight:focus-visible & {
+    opacity: 1;
+  }
+}

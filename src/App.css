@@ -21,7 +21,6 @@ body,
   background-color: var(--mantine-color-body);
 }
 
-/* Desktop: contain scroll within app shell */
 @media (min-width: 48.0625em) {
   html,
   body,
@@ -43,41 +42,18 @@ select {
   font-size: 16px;
 }
 
-@media (max-width: 48em) {
-  body {
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    user-select: none;
-  }
+.interactive-surface {
+  transition: background-color 120ms ease;
 }
 
-input,
-textarea,
-[contenteditable] {
-  -webkit-user-select: auto;
-  user-select: auto;
+.interactive-surface:hover {
+  background-color: var(--mantine-color-default-hover);
 }
 
-.mantine-DataTable-root .mantine-ScrollArea-scrollbar {
-  background-color: var(--mantine-color-dark-6);
-  border-radius: 4px;
+[data-mantine-color-scheme="light"] .app-logo {
+  filter: invert(1);
 }
 
-.mantine-DataTable-root .mantine-ScrollArea-thumb {
-  background-color: var(--mantine-color-dark-4);
-  border-radius: 4px;
-}
-
-.mantine-DataTable-root .mantine-ScrollArea-thumb:hover {
-  background-color: var(--mantine-color-dark-3);
-}
-
-.mantine-DataTable-root .mantine-ScrollArea-root::before,
-.mantine-DataTable-root .mantine-ScrollArea-root::after {
-  display: none;
-}
-
-/* Container must be position: relative for absolute children */
 .mantine-datatable {
   display: flex;
   flex-direction: column;
@@ -86,63 +62,38 @@ textarea,
   position: relative;
 }
 
-/* Scroll area takes up space EXCEPT for pagination height */
 .mantine-datatable-scroll-area {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding-bottom: calc(var(--mantine-spacing-xl) * 2.5); /* ~60px for pagination */
+  padding-bottom: calc(var(--mantine-spacing-xl) * 2.5);
 }
 
-/* Pagination positioned absolutely at bottom - DESKTOP ONLY */
 .mantine-datatable-pagination {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  padding: var(--mantine-spacing-md) var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-md);
   min-height: 56px;
-  background: var(--mantine-color-dark-7);
+  background: var(--mantine-color-body);
   z-index: 10;
-  border-top: 1px solid var(--mantine-color-dark-5);
+  border-top: 1px solid var(--mantine-color-default-border);
   display: flex;
   align-items: center;
 }
 
-/* Simplified Badge styling - work with Mantine, not against it */
-.mantine-Badge-root {
-  /* Only enforce vertical alignment for table cells */
-  vertical-align: middle;
-}
-
-.mantine-Badge-label {
-  /* Ensure consistent font rendering across browsers */
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
 @media (max-width: 48em) {
-  /* Consistent background on shell elements */
-  .mantine-AppShell-root,
-  .mantine-AppShell-main,
-  .mantine-AppShell-body {
-    background: var(--mantine-color-body);
-  }
-
-  /* Enable natural scrolling on mobile */
   .mantine-AppShell-main {
-    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Remove visual separators (borders/shadows) on mobile */
   .mantine-AppShell-header,
   .mantine-AppShell-navbar {
     border: none;
     box-shadow: none;
   }
 
-  /* DataTable mobile overrides */
   .mantine-datatable {
     position: static;
   }
@@ -155,5 +106,16 @@ textarea,
     position: static;
     background: transparent;
     border: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+    scroll-behavior: auto;
   }
 }

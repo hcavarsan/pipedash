@@ -4,7 +4,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
+import { useAuthStore } from '../stores/authStore'
 import type { MigrationOptions, MigrationPlan, MigrationResult, PipedashConfig } from '../types'
+import { getHttpStatus } from '../types/errors'
+import { formatCount } from '../utils/formatCount'
 
 export function useStorageConfig(options?: { enabled?: boolean }) {
   return useQuery({
@@ -13,8 +16,8 @@ export function useStorageConfig(options?: { enabled?: boolean }) {
       try {
         return await service.getStorageConfig()
       } catch (error) {
-        if ((error as { response?: { status?: number } } | null)?.response?.status === 404) {
-          return undefined
+        if (getHttpStatus(error) === 404) {
+          return null
         }
         throw error
       }
@@ -68,7 +71,7 @@ export function useSaveStorageConfig() {
       queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
 
       notifications.show({
-        title: 'Configuration Saved',
+        title: 'Configuration saved',
         message: 'Storage configuration updated successfully',
         color: 'green',
       })
@@ -76,7 +79,7 @@ export function useSaveStorageConfig() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Save Configuration',
+        title: "Couldn't save configuration",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -90,7 +93,7 @@ export function useTestStorageConnection() {
 
     onSuccess: () => {
       notifications.show({
-        title: 'Connection Successful',
+        title: 'Connection successful',
         message: 'Storage connection test passed',
         color: 'green',
       })
@@ -98,7 +101,7 @@ export function useTestStorageConnection() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Connection Failed',
+        title: 'Connection failed',
         message: error.message || 'Failed to connect to storage',
         color: 'red',
       })
@@ -113,6 +116,10 @@ export function useCreateInitialConfig() {
     mutationFn: async ({ config, vaultPassword }: { config: PipedashConfig; vaultPassword?: string }) => {
       await service.createInitialConfig(config, vaultPassword)
 
+      if (vaultPassword) {
+        useAuthStore.getState().setToken(vaultPassword)
+      }
+
       await service.bootstrapApp()
     },
 
@@ -125,7 +132,7 @@ export function useCreateInitialConfig() {
       queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
 
       notifications.show({
-        title: 'Configuration Created',
+        title: 'Configuration created',
         message: 'Initial configuration saved successfully',
         color: 'green',
       })
@@ -133,7 +140,7 @@ export function useCreateInitialConfig() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Create Configuration',
+        title: "Couldn't create configuration",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -147,7 +154,7 @@ export function usePlanStorageMigration() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Migration Planning Failed',
+        title: 'Migration planning failed',
         message: error.message || 'Failed to plan storage migration',
         color: 'red',
       })
@@ -172,13 +179,13 @@ export function useExecuteMigration() {
         queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
 
         notifications.show({
-          title: 'Migration Complete',
-          message: `Migrated ${result.stats.providers_migrated} providers and ${result.stats.tokens_migrated} tokens`,
+          title: 'Migration complete',
+          message: `Migrated ${formatCount(result.stats.providers_migrated, 'provider')} and ${formatCount(result.stats.tokens_migrated, 'token')}`,
           color: 'green',
         })
       } else {
         notifications.show({
-          title: 'Migration Failed',
+          title: 'Migration failed',
           message: result.errors?.join(', ') || 'Migration completed with errors',
           color: 'red',
         })
@@ -187,7 +194,7 @@ export function useExecuteMigration() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Migration Failed',
+        title: 'Migration failed',
         message: error.message || 'Failed to execute migration',
         color: 'red',
       })

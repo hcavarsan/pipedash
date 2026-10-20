@@ -1,41 +1,31 @@
-import { ActionIcon, Box, Card, Center, Group, Stack, Text, Tooltip } from '@mantine/core'
+import { Box, Card, Group, Stack, Text, UnstyledButton } from '@mantine/core'
 import {
-  IconChartLine,
+  IconChevronDown,
   IconChevronRight,
   IconFolder,
   IconGitBranch,
-  IconPin,
   IconPinFilled,
-  IconPlayerPlayFilled,
   IconPlugConnected,
 } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
+import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, ProviderSummary } from '../../types'
-import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { TableCells } from '../../utils/tableCells'
 
-interface TableRow {
-  id: string
-  type: 'repository' | 'workflow' | 'pinned-header'
-  parentId?: string
-  pinned?: boolean
-  pinKey?: string
-  repository?: string
-  repositoryFullName?: string
-  organization?: string
-  pipelineCount?: number
-  providerIds?: Set<number>
-  lastUpdated?: string | null
-  pipeline?: Pipeline
-}
+import {
+  type ProviderFetchError,
+  RepositoryFetchIndicator,
+  RowStatus,
+  type TableRow,
+  WorkflowActions,
+} from './PipelineRowParts'
 
 interface MobilePipelineCardsProps {
-  filteredRows: TableRow[]
-  pipelines: Pipeline[]
-  expandedRepos: Set<string>
-  setExpandedRepos: React.Dispatch<React.SetStateAction<Set<string>>>
+  rows: TableRow[]
   getProvider: (providerId: number) => ProviderSummary | undefined
-  parseRepositoryName: (fullName: string, providerId: number) => { organization: string; repository: string }
+  onToggleRepo: (repoId: string) => void
+  onShowProviderError: (error: ProviderFetchError) => void
   onViewHistory: (pipeline: Pipeline) => void
   onTrigger: (pipeline: Pipeline) => void
   pinnedKeys: string[]
@@ -43,281 +33,155 @@ interface MobilePipelineCardsProps {
   onViewMetrics?: (pipeline: Pipeline) => void
 }
 
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Box style={{ flex: '1 1 auto' }}>
+      <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed">
+        {label}
+      </Text>
+      <Text size={TYPOGRAPHY.FIELD_VALUE.size}>{children}</Text>
+    </Box>
+  )
+}
+
 export function MobilePipelineCards({
-  filteredRows,
-  pipelines,
-  expandedRepos,
-  setExpandedRepos,
+  rows,
   getProvider,
-  parseRepositoryName,
+  onToggleRepo,
+  onShowProviderError,
   onViewHistory,
   onTrigger,
   pinnedKeys,
   onTogglePin,
   onViewMetrics,
 }: MobilePipelineCardsProps) {
+  const renderProviders = (row: TableRow, label: string) => (
+    <Box>
+      <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed" mb={4}>
+        {label}
+      </Text>
+      <Stack gap="xs">
+        {Array.from(row.providerIds ?? []).map((providerId) => {
+          const provider = getProvider(providerId)
+
+          return (
+            <div key={providerId}>
+              {TableCells.avatarName(
+                provider?.icon || null,
+                provider?.name || 'Unknown',
+                <IconPlugConnected size={14} />
+              )}
+            </div>
+          )
+        })}
+      </Stack>
+    </Box>
+  )
+
   return (
     <Stack gap="sm">
-      {filteredRows.length === 0 ? (
-        <Card padding="xl" withBorder>
-          <Center>
-            <Stack align="center" gap="md">
-              <IconFolder size={48} color="var(--mantine-color-dimmed)" />
-              <Stack align="center" gap="xs">
-                <Text size={THEME_TYPOGRAPHY.MODAL_TITLE.size} fw={THEME_TYPOGRAPHY.MODAL_TITLE.weight}>
-                  No workflows found
-                </Text>
-                <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center">
-                  {pipelines.length === 0
-                    ? "This provider doesn't have any workflows configured yet."
-                    : 'No workflows match your current filters'}
-                </Text>
-              </Stack>
-            </Stack>
-          </Center>
-        </Card>
-      ) : (
-        filteredRows.map((row) => {
-          if (row.type === 'repository') {
-            const isExpanded = expandedRepos.has(row.id)
-            const repoPipelines = pipelines.filter((p) => p.repository === row.repositoryFullName)
-            const latestPipeline = repoPipelines.sort((a, b) => {
-              const aTime = a.last_run ? new Date(a.last_run).getTime() : 0
-              const bTime = b.last_run ? new Date(b.last_run).getTime() : 0
-
-              return bTime - aTime
-            })[0]
-
-            return (
-              <Card
-                key={row.id}
-                padding="md"
-                withBorder
-                style={{ cursor: 'pointer' }}
-                onClick={() => {
-                  setExpandedRepos((prev) => {
-                    const newSet = new Set(prev)
-
-                    if (newSet.has(row.id)) {
-                      newSet.delete(row.id)
-                    } else {
-                      newSet.add(row.id)
-                    }
-
-                    return newSet
-                  })
-                }}
-              >
-                <Stack gap="xs">
-                  <Group justify="space-between" wrap="nowrap">
-                    <Group gap={8} wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
-                      <IconChevronRight
-                        size={16}
-                        style={{
-                          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                          transition: 'transform 200ms ease',
-                          flexShrink: 0,
-                        }}
-                      />
-                      <IconFolder size={18} color="var(--mantine-color-blue-5)" style={{ flexShrink: 0 }} />
-                      <Text
-                        size={THEME_TYPOGRAPHY.ITEM_TITLE.size}
-                        fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight}
-                        truncate
-                        style={{ flex: 1 }}
-                      >
-                        {row.repository}
-                      </Text>
+      {rows.map((row) => {
+        if (row.type === 'repository') {
+          return (
+            <Card key={row.id} padding="xs">
+              <Group wrap="nowrap" align="flex-start" gap="xs">
+                <UnstyledButton
+                  className="interactive-surface"
+                  onClick={() => onToggleRepo(row.id)}
+                  aria-expanded={row.expanded}
+                  p="xs"
+                  bdrs="sm"
+                  style={{ flex: 1, minWidth: 0 }}
+                >
+                  <Stack gap="xs">
+                    <Group justify="space-between" wrap="nowrap">
+                      <Group gap="xs" wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
+                        {row.expanded ? (
+                          <IconChevronDown size={16} style={{ flexShrink: 0 }} />
+                        ) : (
+                          <IconChevronRight size={16} style={{ flexShrink: 0 }} />
+                        )}
+                        <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                        <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight} truncate>
+                          {row.name}
+                        </Text>
+                      </Group>
+                      <RowStatus row={row} />
                     </Group>
-                    {latestPipeline && (
-                      <Tooltip
-                        label={`Last activity: ${latestPipeline.last_run ? new Date(latestPipeline.last_run).toLocaleString() : 'Never'}`}
-                        withArrow
-                      >
-                        <div>{TableCells.status(latestPipeline.status)}</div>
-                      </Tooltip>
-                    )}
-                  </Group>
 
-                  <Group gap="md" wrap="wrap">
-                    <Box style={{ flex: '1 1 auto' }}>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                        Organization
-                      </Text>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                        {row.organization}
-                      </Text>
-                    </Box>
-                    <Box style={{ flex: '1 1 auto' }}>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                        Pipelines
-                      </Text>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                        {row.pipelineCount}
-                      </Text>
-                    </Box>
-                  </Group>
+                    <Group gap="md" wrap="wrap">
+                      <Field label="Organization">{row.organization}</Field>
+                      <Field label="Workflows">{row.pipelineCount}</Field>
+                    </Group>
 
-                  <Box>
-                    <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL} mb={4}>
-                      Providers
-                    </Text>
-                    <Stack gap={(row.providerIds?.size || 0) > 1 ? 8 : 0}>
-                      {Array.from(row.providerIds || []).map((providerId) => {
-                        const provider = getProvider(providerId)
-
-                        return (
-                          <div key={providerId}>
-                            {TableCells.avatarName(
-                              provider?.icon || null,
-                              provider?.name || 'Unknown',
-                              <IconPlugConnected size={14} />
-                            )}
-                          </div>
-                        )
-                      })}
-                    </Stack>
-                  </Box>
-                </Stack>
-              </Card>
-            )
-          } else if (row.type === 'pinned-header') {
-            return (
-              <Group key={row.id} gap={8} wrap="nowrap">
-                <IconPinFilled size={16} color="var(--mantine-color-yellow-6)" />
-                <Text size={THEME_TYPOGRAPHY.ITEM_TITLE.size} fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight}>
-                  Pinned workflows
-                </Text>
+                    {renderProviders(row, 'Providers')}
+                  </Stack>
+                </UnstyledButton>
+                <RepositoryFetchIndicator row={row} onShowError={onShowProviderError} />
               </Group>
-            )
-          } else if (row.type === 'workflow' && row.pipeline && row.pinKey) {
-            const { pipeline, pinKey } = row
+            </Card>
+          )
+        }
 
-            const provider = getProvider(row.pipeline.provider_id)
-            const { organization } = parseRepositoryName(row.pipeline.repository, row.pipeline.provider_id)
+        if (row.type === 'pinned-header') {
+          return (
+            <Group key={row.id} gap="xs" wrap="nowrap">
+              <IconPinFilled size={16} color="var(--mantine-color-dimmed)" />
+              <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight}>
+                Pinned workflows
+              </Text>
+            </Group>
+          )
+        }
 
-            return (
-              <Card
-                key={row.id}
-                padding="md"
-                withBorder
-                ml={row.pinned ? undefined : 'xl'}
-                style={{ cursor: 'pointer', backgroundColor: row.pinned ? undefined : 'var(--mantine-color-dark-8)' }}
+        const { pipeline, pinKey } = row
+
+        if (!pipeline || !pinKey) {
+          return null
+        }
+
+        return (
+          <Card key={row.id} padding="xs" ml={row.pinned ? undefined : 'xl'}>
+            <Stack gap="xs">
+              <UnstyledButton
+                className="interactive-surface"
                 onClick={() => onViewHistory(pipeline)}
+                aria-label={`View run history for ${row.name}`}
+                p="xs"
+                bdrs="sm"
               >
                 <Stack gap="xs">
                   <Group justify="space-between" wrap="nowrap">
-                    <Group gap={8} wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
-                      <IconGitBranch size={16} color="var(--mantine-color-gray-6)" style={{ flexShrink: 0 }} />
-                      <Text
-                        size={THEME_TYPOGRAPHY.ITEM_TITLE.size}
-                        fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight}
-                        truncate
-                        style={{ flex: 1 }}
-                      >
-                        {row.pipeline.name}
+                    <Group gap="xs" wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
+                      <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                      <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight} truncate>
+                        {row.name}
                       </Text>
                     </Group>
-                    <Group gap={8}>
-                      <Tooltip
-                        label={`Last activity: ${row.pipeline.last_run ? new Date(row.pipeline.last_run).toLocaleString() : 'Never'}`}
-                        withArrow
-                      >
-                        <div>{TableCells.status(row.pipeline.status)}</div>
-                      </Tooltip>
-                      <ActionIcon
-                        variant="subtle"
-                        color="yellow"
-                        size="md"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onTogglePin(pinKey)
-                        }}
-                        title={row.pinned ? 'Unpin workflow' : 'Pin workflow'}
-                        aria-label={row.pinned ? 'Unpin workflow' : 'Pin workflow'}
-                      >
-                        {pinnedKeys.includes(row.pinKey) ? <IconPinFilled size={18} /> : <IconPin size={18} />}
-                      </ActionIcon>
-                      {onViewMetrics && (
-                        <ActionIcon
-                          variant="subtle"
-                          color="violet"
-                          size="md"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onViewMetrics(pipeline)
-                          }}
-                          title="View metrics"
-                          aria-label="View metrics"
-                        >
-                          <IconChartLine size={18} />
-                        </ActionIcon>
-                      )}
-                      <ActionIcon
-                        variant="subtle"
-                        color="blue"
-                        size="md"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onTrigger(pipeline)
-                        }}
-                        title="Trigger workflow"
-                        aria-label="Trigger workflow"
-                      >
-                        <IconPlayerPlayFilled size={18} />
-                      </ActionIcon>
-                    </Group>
+                    <RowStatus row={row} />
                   </Group>
 
                   <Group gap="md" wrap="wrap">
-                    {row.pinned && (
-                      <Box style={{ flex: '1 1 auto' }}>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                          Repository
-                        </Text>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                          {row.pipeline.repository}
-                        </Text>
-                      </Box>
-                    )}
-                    <Box style={{ flex: '1 1 auto' }}>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                        Organization
-                      </Text>
-                      <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                        {organization}
-                      </Text>
-                    </Box>
-                    {row.pipeline.branch && (
-                      <Box style={{ flex: '1 1 auto' }}>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL}>
-                          Branch
-                        </Text>
-                        <Text size={THEME_TYPOGRAPHY.FIELD_VALUE.size} c={THEME_COLORS.VALUE_TEXT}>
-                          {row.pipeline.branch}
-                        </Text>
-                      </Box>
-                    )}
+                    <Field label="Organization">{row.organization}</Field>
+                    {pipeline.branch && <Field label="Branch">{pipeline.branch}</Field>}
                   </Group>
 
-                  <Box>
-                    <Text size={THEME_TYPOGRAPHY.FIELD_LABEL.size} c={THEME_COLORS.FIELD_LABEL} mb={4}>
-                      Provider
-                    </Text>
-                    {TableCells.avatarName(
-                      provider?.icon || null,
-                      provider?.name || 'Unknown',
-                      <IconPlugConnected size={14} />
-                    )}
-                  </Box>
+                  {renderProviders(row, 'Provider')}
                 </Stack>
-              </Card>
-            )
-          }
-
-          return null
-        })
-      )}
+              </UnstyledButton>
+              <Group justify="flex-end">
+                <WorkflowActions
+                  pipeline={pipeline}
+                  isPinned={pinnedKeys.includes(pinKey)}
+                  onTogglePin={() => onTogglePin(pinKey)}
+                  onTrigger={onTrigger}
+                  onViewMetrics={onViewMetrics}
+                />
+              </Group>
+            </Stack>
+          </Card>
+        )
+      })}
     </Stack>
   )
 }

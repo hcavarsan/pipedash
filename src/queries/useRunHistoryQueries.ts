@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
+import { formatCount } from '../utils/formatCount'
 
 export function useRunHistory(pipelineId: string, page = 1, pageSize = 20) {
   return useQuery({
@@ -76,7 +77,7 @@ export function useSaveTablePreferences() {
       }
 
       notifications.show({
-        title: 'Failed to Save Preferences',
+        title: "Couldn't save preferences",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -88,7 +89,7 @@ export function useSaveTablePreferences() {
       })
 
       notifications.show({
-        title: 'Preferences Saved',
+        title: 'Preferences saved',
         message: 'Table preferences updated successfully',
         color: 'green',
         autoClose: 2000,
@@ -109,7 +110,7 @@ export function useClearRunHistoryCache() {
       })
 
       notifications.show({
-        title: 'Cache Cleared',
+        title: 'Cache cleared',
         message: 'Run history cache cleared successfully',
         color: 'green',
       })
@@ -117,7 +118,7 @@ export function useClearRunHistoryCache() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Clear Cache',
+        title: "Couldn't clear cache",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -141,15 +142,15 @@ export function useCancelRun() {
       })
 
       notifications.show({
-        title: 'Run Cancelled',
+        title: 'Run cancelled',
         message: `Run #${runNumber} cancellation requested`,
-        color: 'blue',
+        color: 'gray',
       })
     },
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Cancel Run',
+        title: "Couldn't cancel run",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -185,8 +186,8 @@ export function useCancelRuns() {
       if (failed.length === 0) {
         notifications.show({
           title: 'Runs cancelled',
-          message: `Cancellation requested for ${cancelled.length} ${cancelled.length === 1 ? 'run' : 'runs'}`,
-          color: 'blue',
+          message: `Cancellation requested for ${formatCount(cancelled.length, 'run')}`,
+          color: 'gray',
         })
 
         return
@@ -194,7 +195,7 @@ export function useCancelRuns() {
 
       notifications.show({
         title: 'Some runs were not cancelled',
-        message: `Cancellation requested for ${cancelled.length} of ${runNumbers.length} runs. Failed: ${failed.map((runNumber) => `#${runNumber}`).join(', ')}`,
+        message: `Cancellation requested for ${cancelled.length} of ${formatCount(runNumbers.length, 'run')}. Failed: ${failed.map((runNumber) => `#${runNumber}`).join(', ')}`,
         color: 'red',
       })
     },

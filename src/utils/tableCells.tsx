@@ -87,7 +87,7 @@ export const TableCells = {
   status: (status: PipelineStatus, withIcon = false) => <StatusBadge status={status} size="sm" withIcon={withIcon} />,
 
   countBadge: (count: number) => (
-    <Badge variant={TABLE_CELL_STYLES.badge.variant} color="blue" size={TABLE_CELL_STYLES.badge.size} fw={500}>
+    <Badge variant={TABLE_CELL_STYLES.badge.variant} color="gray" size={TABLE_CELL_STYLES.badge.size} fw={500}>
       {count}
     </Badge>
   ),
@@ -98,7 +98,7 @@ export const TableCells = {
         <Code fz={TABLE_CELL_STYLES.code.size} fw={TABLE_CELL_STYLES.code.weight}>
           {sha.substring(0, 7)}
         </Code>
-        <CopyButton value={sha} size="sm" />
+        <CopyButton value={sha} label="Copy commit SHA" />
       </Group>
     ) : (
       <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>

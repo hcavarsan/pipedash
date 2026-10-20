@@ -1,4 +1,5 @@
 import { API_TIMEOUTS } from '../constants/timeouts'
+import { logger } from '../lib/logger'
 import { getToken, useAuthStore } from '../stores/authStore'
 import type {
   AggregatedMetrics,
@@ -36,6 +37,7 @@ import type {
   VaultStatusResponse,
   WorkflowParameter,
 } from '../types'
+import { getHttpStatus } from '../types/errors'
 import { DEFAULT_RETRY_CONFIG, withRetry } from '../utils/retryLogic'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
@@ -130,14 +132,14 @@ class ApiClient {
         try {
           return JSON.parse(text)
         } catch (parseError) {
-          console.error('[API] Failed to parse response:', parseError)
+          logger.error('API', 'Failed to parse response', parseError)
           throw new Error('Invalid response from server: response is not valid JSON')
         }
       },
       {
         ...DEFAULT_RETRY_CONFIG,
         shouldRetry: (error: Error) => {
-          const status = (error as Error & { status?: number }).status ?? 0
+          const status = getHttpStatus(error) ?? 0
           const isNetworkError = error instanceof TypeError
           const isTimeout = error.message.includes('timeout')
           const is5xxError = status >= 500 && status < 600
@@ -337,15 +339,6 @@ class ApiClient {
       `/pipelines/${encodeURIComponent(pipelineId)}/runs${queryString}`
     )
 
-    console.log('[API] fetchRunHistory response:', {
-      url: `/pipelines/${encodeURIComponent(pipelineId)}/runs${queryString}`,
-      resultType: typeof result,
-      resultKeys: result ? Object.keys(result) : [],
-      runsIsArray: Array.isArray(result?.runs),
-      runsLength: result?.runs?.length,
-      result,
-    })
-
     return result
   }
 
@@ -504,7 +497,9 @@ class ApiClient {
   }
 
   async getDefaultTablePreferences(providerId: number, tableId: string): Promise<string> {
-    return this.get<string>(`/preferences/table/${providerId}/${encodeURIComponent(tableId)}/default`)
+    const defaults = await this.get<unknown>(`/preferences/table/${providerId}/${encodeURIComponent(tableId)}/default`)
+
+    return JSON.stringify(defaults)
   }
 
   async checkSetupStatus(): Promise<SetupStatus> {

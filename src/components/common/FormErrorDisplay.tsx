@@ -31,9 +31,11 @@ export function FormErrorDisplay({ errors, globalError, onDismiss, compact = fal
       {globalError && (
         <Alert
           icon={<IconAlertCircle size={16} />}
-          title="Error"
+          title="Couldn't save"
           color="red"
+          variant="light"
           withCloseButton={!!onDismiss}
+          closeButtonLabel="Dismiss error"
           onClose={onDismiss}
         >
           {globalError}
@@ -41,8 +43,8 @@ export function FormErrorDisplay({ errors, globalError, onDismiss, compact = fal
       )}
 
       {errors && Object.keys(errors).length > 0 && (
-        <Alert icon={<IconAlertCircle size={16} />} title="Validation Errors" color="red">
-          <Stack gap={compact ? 4 : 8}>
+        <Alert icon={<IconAlertCircle size={16} />} title="Validation errors" color="red" variant="light">
+          <Stack gap={gap}>
             {Object.entries(errors).map(([field, message]) => (
               <Text key={field} size="sm">
                 <strong>{field}:</strong> {message}

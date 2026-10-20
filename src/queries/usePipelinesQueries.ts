@@ -1,10 +1,10 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
-import type { Pipeline, ProviderSummary } from '../types'
+import type { ProviderSummary } from '../types'
 
 export function usePipelines(providerId?: number, options?: { enabled?: boolean; providers?: ProviderSummary[] }) {
   const hasProviders = (options?.providers?.length ?? 0) > 0
@@ -29,12 +29,4 @@ export function usePipelines(providerId?: number, options?: { enabled?: boolean;
     gcTime: GC_TIMES.SHORT,
     enabled: (options?.enabled ?? true) && hasProviders,
   })
-}
-
-export function useGetPipelinesFromCache() {
-  const queryClient = useQueryClient()
-
-  return (providerId?: number) => {
-    return queryClient.getQueryData<Pipeline[]>(queryKeys.pipelines.list({ providerId }))
-  }
 }

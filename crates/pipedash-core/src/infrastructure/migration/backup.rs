@@ -296,7 +296,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // Requires filesystem access
     async fn test_backup_manager_creation() {
         let temp_dir = std::env::temp_dir().join("pipedash_backup_test");
         let manager = BackupManager::new(temp_dir);

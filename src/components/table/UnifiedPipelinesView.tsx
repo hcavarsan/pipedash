@@ -1,80 +1,176 @@
-import { ActionIcon, Alert, Box, Card, Center, Group, Loader, Modal, Paper, Stack, Text, Tooltip } from '@mantine/core'
+import { Alert, Box, Button, Code, Group, Stack, Text, UnstyledButton } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
   IconAlertCircle,
-  IconAlertTriangle,
-  IconChartLine,
+  IconChevronDown,
   IconChevronRight,
+  IconFilterOff,
   IconFolder,
   IconGitBranch,
-  IconPin,
   IconPinFilled,
-  IconPlayerPlayFilled,
   IconPlugConnected,
 } from '@tabler/icons-react'
 import type { DataTableSortStatus } from 'mantine-datatable'
+import type { ReactNode } from 'react'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { usePipelineFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
 import { pinKey, usePinnedStore } from '../../stores/pinnedStore'
-import type { Pipeline, ProviderSummary } from '../../types'
-import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
+import { useProviderStore } from '../../stores/providerStore'
+import { mostSevereStatus } from '../../theme/status'
+import { TYPOGRAPHY } from '../../theme/typography'
+import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
+import { getDateRangeStart } from '../../utils/dateRange'
 import { TableCells } from '../../utils/tableCells'
 import { TableHeader } from '../atoms/TableHeader'
+import { EmptyState } from '../common/EmptyState'
+import { ErrorState } from '../common/ErrorState'
 import { FilterBar } from '../common/FilterBar'
 import { LoadingState } from '../common/LoadingState'
+import { StandardModal } from '../common/StandardModal'
 import { StandardTable } from '../common/StandardTable'
 
 import { MobilePipelineCards } from './MobilePipelineCards'
+import {
+  type ProviderFetchError,
+  RepositoryFetchIndicator,
+  RowStatus,
+  type TableRow,
+  WorkflowActions,
+} from './PipelineRowParts'
 
-type TableRowType = 'repository' | 'workflow' | 'pinned-header'
+const PINNED_HEADER_ROW: TableRow = { id: 'pinned-header', type: 'pinned-header', name: 'Pinned workflows' }
 
-interface TableRow {
-  id: string
-  type: TableRowType
-  parentId?: string
-  pinned?: boolean
-  pinKey?: string
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
-  repository?: string
-  repositoryFullName?: string
-  organization?: string
-  pipelineCount?: number
-  providerIds?: Set<number>
-  lastUpdated?: string | null
-
-  pipeline?: Pipeline
-  branch?: string
-  status?: string
+interface RepoGroup {
+  fullName: string
+  repository: string
+  organization: string
+  pipelines: Pipeline[]
+  providerIds: Set<number>
 }
 
-const PINNED_HEADER_ROW: TableRow = { id: 'pinned-header', type: 'pinned-header' }
+interface RowFilters {
+  query: string
+  organization: string | null
+  providerId?: number
+  status: string | null
+  cutoff: Date | null
+}
+
+interface Section {
+  row: TableRow
+  workflows: TableRow[]
+}
+
+const compareStatus = (a: PipelineStatus | null | undefined, b: PipelineStatus | null | undefined) => {
+  if (a === b) {
+    return 0
+  }
+
+  if (!a) {
+    return 1
+  }
+
+  if (!b) {
+    return -1
+  }
+
+  return mostSevereStatus([a, b]) === a ? -1 : 1
+}
+
+const compareRows = (a: TableRow, b: TableRow, sort: DataTableSortStatus<TableRow>) => {
+  let primary = 0
+
+  if (sort.columnAccessor === 'status') {
+    primary = compareStatus(a.status, b.status)
+  } else if (sort.columnAccessor === 'organization') {
+    primary = collator.compare(a.organization ?? '', b.organization ?? '')
+  } else if (sort.columnAccessor === 'provider') {
+    primary = collator.compare(a.providerLabel ?? '', b.providerLabel ?? '')
+  } else {
+    primary = collator.compare(a.name, b.name)
+  }
+
+  if (primary !== 0) {
+    return sort.direction === 'asc' ? primary : -primary
+  }
+
+  return collator.compare(a.name, b.name)
+}
+
+const pipelineMatches = (pipeline: Pipeline, repository: string, organization: string, filters: RowFilters) => {
+  if (filters.organization && organization !== filters.organization) {
+    return false
+  }
+
+  if (filters.providerId !== undefined && pipeline.provider_id !== filters.providerId) {
+    return false
+  }
+
+  if (filters.status && pipeline.status !== filters.status) {
+    return false
+  }
+
+  if (filters.cutoff && !(pipeline.last_run && new Date(pipeline.last_run) >= filters.cutoff)) {
+    return false
+  }
+
+  return (
+    !filters.query ||
+    [pipeline.name, pipeline.branch, repository, organization].some((value) =>
+      value?.toLowerCase().includes(filters.query)
+    )
+  )
+}
 
 interface UnifiedPipelinesViewProps {
   pipelines: Pipeline[]
   providers: ProviderSummary[]
-  selectedProviderId?: number
   loading?: boolean
+  error?: unknown
+  onRetry: () => void
   onViewHistory: (pipeline: Pipeline) => void
   onTrigger: (pipeline: Pipeline) => void
   onViewMetrics?: (pipeline: Pipeline) => void
 }
 
+const PageFrame = ({ children }: { children: ReactNode }) => (
+  <Box
+    pt={{ base: 0, sm: 'sm' }}
+    pb={{ base: 0, sm: '2xl' }}
+    px={{ base: 'xs', sm: 'xl' }}
+    style={{
+      width: '100%',
+      maxWidth: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      flex: 1,
+      minHeight: 0,
+      background: 'var(--mantine-color-body)',
+    }}
+  >
+    {children}
+  </Box>
+)
+
 export const UnifiedPipelinesView = ({
   pipelines,
   providers,
-  selectedProviderId,
   loading = false,
+  error,
+  onRetry,
   onViewHistory,
   onTrigger,
   onViewMetrics,
 }: UnifiedPipelinesViewProps) => {
   const orphanedPipelines = useRef<Set<string>>(new Set())
 
-  const { isMobile, isDesktop } = useIsMobile()
+  const { isMobile } = useIsMobile()
 
   const { filters, setFilter, clearFilters } = usePipelineFilters()
   const {
@@ -87,14 +183,15 @@ export const UnifiedPipelinesView = ({
 
   const pinnedKeys = usePinnedStore((s) => s.pinnedKeys)
   const togglePin = usePinnedStore((s) => s.togglePin)
+  const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
 
-  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set())
+  const [expansionOverrides, setExpansionOverrides] = useState<Record<string, boolean>>({})
   const [sortStatus, setSortStatus] = useState<DataTableSortStatus<TableRow>>({
-    columnAccessor: 'repository',
+    columnAccessor: 'name',
     direction: 'asc',
   })
   const [errorModalOpened, { open: openErrorModal, close: closeErrorModal }] = useDisclosure(false)
-  const [selectedError, setSelectedError] = useState<{ providerName: string; error: string } | null>(null)
+  const [selectedError, setSelectedError] = useState<ProviderFetchError | null>(null)
 
   const getProvider = useCallback(
     (providerId: number): ProviderSummary | undefined => {
@@ -103,23 +200,13 @@ export const UnifiedPipelinesView = ({
     [providers]
   )
 
-  const getRepositoryProviderErrors = (providerIds: Set<number>) => {
-    const errors: Array<{ id: number; name: string; error: string }> = []
-
-    providerIds.forEach((id) => {
-      const provider = providers.find((p) => p.id === id)
-
-      if (provider?.last_fetch_status === 'error' && provider.last_fetch_error) {
-        errors.push({
-          id: provider.id,
-          name: provider.name,
-          error: provider.last_fetch_error,
-        })
-      }
-    })
-
-    return errors
-  }
+  const showProviderError = useCallback(
+    (error: ProviderFetchError) => {
+      setSelectedError(error)
+      openErrorModal()
+    },
+    [openErrorModal]
+  )
 
   const parseRepositoryName = useCallback(
     (fullName: string, providerId: number): { organization: string; repository: string } => {
@@ -152,18 +239,10 @@ export const UnifiedPipelinesView = ({
     [getProvider]
   )
 
-  const tableRows = useMemo(() => {
-    const rows: TableRow[] = []
-    const validPipelines = new Map<string, Pipeline>()
-    const pinKeys = new Map<string, string>()
-    const repoMap = new Map<
-      string,
-      {
-        pipelines: Pipeline[]
-        providerIds: Set<number>
-        lastUpdated: string | null
-      }
-    >()
+  const { repoGroups, validPipelines, pinKeys } = useMemo(() => {
+    const valid = new Map<string, Pipeline>()
+    const keysById = new Map<string, string>()
+    const repoMap = new Map<string, { pipelines: Pipeline[]; providerIds: Set<number> }>()
 
     pipelines.forEach((pipeline) => {
       if (!pipeline.repository) {
@@ -182,7 +261,7 @@ export const UnifiedPipelinesView = ({
 
           if (import.meta.env.DEV) {
             notifications.show({
-              title: 'Data Inconsistency Detected',
+              title: 'Data inconsistency detected',
               message: `Pipeline "${pipeline.name}" has invalid provider reference`,
               color: 'red',
               autoClose: false,
@@ -211,344 +290,235 @@ export const UnifiedPipelinesView = ({
 
       orphanedPipelines.current.delete(pipeline.id)
 
-      if (selectedProviderId !== undefined && pipeline.provider_id !== selectedProviderId) {
-        return
-      }
-
       const key = pinKey(pipeline, provider.name)
 
-      validPipelines.set(key, pipeline)
-      pinKeys.set(pipeline.id, key)
+      valid.set(key, pipeline)
+      keysById.set(pipeline.id, key)
 
       const existing = repoMap.get(pipeline.repository)
 
       if (existing) {
         existing.pipelines.push(pipeline)
         existing.providerIds.add(pipeline.provider_id)
-        if (pipeline.last_updated && (!existing.lastUpdated || pipeline.last_updated > existing.lastUpdated)) {
-          existing.lastUpdated = pipeline.last_updated
-        }
       } else {
-        const providerIds = new Set<number>()
-
-        providerIds.add(pipeline.provider_id)
         repoMap.set(pipeline.repository, {
           pipelines: [pipeline],
-          providerIds,
-          lastUpdated: pipeline.last_updated,
+          providerIds: new Set([pipeline.provider_id]),
         })
       }
     })
 
     providers.forEach((provider) => {
-      if (selectedProviderId !== undefined && provider.id !== selectedProviderId) {
-        return
-      }
+      provider.configured_repositories?.forEach((repoName) => {
+        const existing = repoMap.get(repoName)
 
-      if (provider.configured_repositories && provider.configured_repositories.length > 0) {
-        provider.configured_repositories.forEach((repoName) => {
-          if (!repoMap.has(repoName)) {
-            const providerIds = new Set<number>()
-
-            providerIds.add(provider.id)
-            repoMap.set(repoName, {
-              pipelines: [],
-              providerIds,
-              lastUpdated: provider.last_updated || null,
-            })
-          } else {
-            const existing = repoMap.get(repoName)
-
-            if (existing) {
-              existing.providerIds.add(provider.id)
-            }
-          }
-        })
-      }
+        if (existing) {
+          existing.providerIds.add(provider.id)
+        } else {
+          repoMap.set(repoName, { pipelines: [], providerIds: new Set([provider.id]) })
+        }
+      })
     })
 
-    pinnedKeys.forEach((key) => {
-      const pipeline = validPipelines.get(key)
+    const groups: RepoGroup[] = Array.from(repoMap.entries()).map(([fullName, data]) => {
+      const providerId = data.pipelines[0]?.provider_id || Array.from(data.providerIds)[0] || 0
 
-      if (pipeline) {
-        rows.push({
-          id: `pinned-${pipeline.id}`,
-          type: 'workflow',
-          pinned: true,
-          pinKey: key,
-          parentId: `repo-${pipeline.repository}`,
-          organization: parseRepositoryName(pipeline.repository, pipeline.provider_id).organization,
-          pipeline,
-        })
-      }
+      return { fullName, ...parseRepositoryName(fullName, providerId), ...data }
     })
 
-    Array.from(repoMap.entries()).forEach(([repoName, repoData]) => {
-      const providerId = repoData.pipelines[0]?.provider_id || Array.from(repoData.providerIds)[0] || 0
-      const { organization, repository } = parseRepositoryName(repoName, providerId)
-      const repoId = `repo-${repoName}`
+    return { repoGroups: groups, validPipelines: valid, pinKeys: keysById }
+  }, [pipelines, providers, getProvider, parseRepositoryName])
 
-      rows.push({
-        id: repoId,
-        type: 'repository',
-        repository,
-        repositoryFullName: repoName,
-        organization,
-        pipelineCount: repoData.pipelines.length,
-        providerIds: repoData.providerIds,
-        lastUpdated: repoData.lastUpdated,
-      })
+  const rowFilters = useMemo<RowFilters>(
+    () => ({
+      query: search.toLowerCase(),
+      organization: organizationFilter,
+      providerId: providers.find((p) => String(p.id) === providerFilter)?.id,
+      status: statusFilter,
+      cutoff: getDateRangeStart(dateRange),
+    }),
+    [search, organizationFilter, providerFilter, statusFilter, dateRange, providers]
+  )
 
-      if (expandedRepos.has(repoId)) {
-        repoData.pipelines.forEach((pipeline) => {
-          rows.push({
-            id: `workflow-${pipeline.id}`,
-            type: 'workflow',
-            parentId: repoId,
-            pinKey: pinKeys.get(pipeline.id),
-            pipeline,
-          })
-        })
-      }
+  const filtersActive = Boolean(
+    rowFilters.query ||
+      rowFilters.organization ||
+      rowFilters.providerId !== undefined ||
+      rowFilters.status ||
+      rowFilters.cutoff
+  )
+
+  const { pinnedRows, sections } = useMemo(() => {
+    const buildWorkflowRow = (pipeline: Pipeline, pinned: boolean): TableRow => ({
+      id: pinned ? `pinned-${pipeline.id}` : `workflow-${pipeline.id}`,
+      type: 'workflow',
+      name: pinned ? `${pipeline.repository} / ${pipeline.name}` : pipeline.name,
+      pinned,
+      pinKey: pinKeys.get(pipeline.id),
+      organization: parseRepositoryName(pipeline.repository, pipeline.provider_id).organization,
+      providerIds: new Set([pipeline.provider_id]),
+      providerLabel: getProvider(pipeline.provider_id)?.name ?? 'Unknown',
+      status: pipeline.status,
+      lastRun: pipeline.last_run,
+      pipeline,
     })
 
-    return rows
-  }, [pipelines, expandedRepos, providers, selectedProviderId, pinnedKeys, getProvider, parseRepositoryName])
+    const matches = (pipeline: Pipeline) => {
+      const { repository, organization } = parseRepositoryName(pipeline.repository, pipeline.provider_id)
 
-  const filteredRows = useMemo(() => {
-    let result = tableRows
-
-    if (search) {
-      const matchingRepoIds = new Set<string>()
-      const matchingWorkflowParentIds = new Set<string>()
-
-      result.forEach((row) => {
-        if (row.type === 'repository') {
-          const matches =
-            row.repository?.toLowerCase().includes(search.toLowerCase()) ||
-            row.organization?.toLowerCase().includes(search.toLowerCase())
-
-          if (matches) {
-            matchingRepoIds.add(row.id)
-          }
-        } else if (row.pipeline) {
-          const workflowMatches =
-            row.pipeline.name.toLowerCase().includes(search.toLowerCase()) ||
-            row.pipeline.branch?.toLowerCase().includes(search.toLowerCase())
-
-          if (workflowMatches && row.parentId && !row.pinned) {
-            matchingWorkflowParentIds.add(row.parentId)
-          }
-        }
-      })
-
-      result = result.filter((row) => {
-        if (row.type === 'repository') {
-          return matchingRepoIds.has(row.id) || matchingWorkflowParentIds.has(row.id)
-        } else if (row.pipeline && row.parentId) {
-          const workflowMatches =
-            row.pipeline.name.toLowerCase().includes(search.toLowerCase()) ||
-            row.pipeline.branch?.toLowerCase().includes(search.toLowerCase())
-          const parentMatches = matchingRepoIds.has(row.parentId)
-
-          return workflowMatches || parentMatches
-        }
-
-        return false
-      })
+      return pipelineMatches(pipeline, repository, organization, rowFilters)
     }
 
-    if (organizationFilter) {
-      result = result.filter((row) => {
-        if (row.type === 'repository' || row.pinned) {
-          return row.organization === organizationFilter
-        }
+    const pinned = pinnedKeys
+      .map((key) => validPipelines.get(key))
+      .filter((pipeline): pipeline is Pipeline => !!pipeline && matches(pipeline))
+      .map((pipeline) => buildWorkflowRow(pipeline, true))
+      .sort((a, b) => compareRows(a, b, sortStatus))
 
-        return true
-      })
-    }
+    const built = repoGroups.flatMap((group): Section[] => {
+      const workflows = group.pipelines.filter(matches)
+      const matchesAsEmptyRepo =
+        group.pipelines.length === 0 &&
+        !rowFilters.status &&
+        !rowFilters.cutoff &&
+        (!rowFilters.organization || group.organization === rowFilters.organization) &&
+        (rowFilters.providerId === undefined || group.providerIds.has(rowFilters.providerId)) &&
+        (!rowFilters.query ||
+          [group.repository, group.organization].some((value) => value.toLowerCase().includes(rowFilters.query)))
 
-    if (providerFilter) {
-      const provider = providers.find((p) => p.name === providerFilter)
-
-      if (provider) {
-        result = result.filter((row) => {
-          if (row.type === 'repository') {
-            return row.providerIds?.has(provider.id)
-          } else if (row.pipeline) {
-            return row.pipeline.provider_id === provider.id
-          }
-
-          return false
-        })
-      }
-    }
-
-    if (statusFilter) {
-      // Build set of repo IDs with workflows matching status
-      const reposWithMatchingStatus = new Set<string>()
-
-      pipelines.forEach((pipeline) => {
-        if (pipeline.status === statusFilter && pipeline.repository) {
-          reposWithMatchingStatus.add(`repo-${pipeline.repository}`)
-        }
-      })
-
-      result = result.filter((row) => {
-        if (row.type === 'repository') {
-          return reposWithMatchingStatus.has(row.id)
-        } else if (row.type === 'workflow' && row.pipeline) {
-          return row.pipeline.status === statusFilter
-        }
-
-        return false
-      })
-    }
-
-    if (dateRange) {
-      const now = new Date()
-      const cutoffDate = new Date()
-
-      switch (dateRange) {
-        case 'today':
-          cutoffDate.setHours(0, 0, 0, 0)
-          break
-        case '24h':
-          cutoffDate.setHours(now.getHours() - 24)
-          break
-        case '7d':
-          cutoffDate.setDate(now.getDate() - 7)
-          break
-        case '30d':
-          cutoffDate.setDate(now.getDate() - 30)
-          break
-        case '90d':
-          cutoffDate.setDate(now.getDate() - 90)
-          break
+      if (workflows.length === 0 && !matchesAsEmptyRepo) {
+        return []
       }
 
-      if (dateRange) {
-        result = result.filter((row) => {
-          if (row.type === 'repository' && row.lastUpdated) {
-            return new Date(row.lastUpdated) >= cutoffDate
-          } else if (row.type === 'workflow' && row.pipeline?.last_run) {
-            return new Date(row.pipeline.last_run) >= cutoffDate
-          }
+      const providerErrors: ProviderFetchError[] = []
+      const providerNames: string[] = []
+      let hasPendingFetch = false
 
-          return false
-        })
-      }
-    }
+      group.providerIds.forEach((id) => {
+        const provider = getProvider(id)
 
-    return result[0]?.pinned ? [PINNED_HEADER_ROW, ...result] : result
-  }, [tableRows, search, organizationFilter, providerFilter, statusFilter, dateRange, providers, pipelines])
+        providerNames.push(provider?.name ?? 'Unknown')
 
-  const uniqueOrganizations = useMemo(() => {
-    return Array.from(
-      new Set(
-        tableRows
-          .filter((r) => r.type === 'repository')
-          .map((r) => r.organization)
-          .filter((org): org is string => !!org && org !== 'Unknown')
+        if (provider?.last_fetch_status === 'never') {
+          hasPendingFetch = true
+        }
+
+        if (provider?.last_fetch_status === 'error' && provider.last_fetch_error) {
+          providerErrors.push({ id: provider.id, name: provider.name, error: provider.last_fetch_error })
+        }
+      })
+
+      const lastRun = workflows.reduce<string | null>(
+        (latest, p) => (p.last_run && (!latest || p.last_run > latest) ? p.last_run : latest),
+        null
       )
-    ).sort()
-  }, [tableRows])
 
-  const uniqueProviderNames = useMemo(() => {
-    const providerIdSet = new Set<number>()
+      return [
+        {
+          row: {
+            id: `repo-${group.fullName}`,
+            type: 'repository',
+            name: group.repository,
+            organization: group.organization,
+            pipelineCount: workflows.length,
+            providerIds: group.providerIds,
+            providerLabel: providerNames.sort(collator.compare).join(', '),
+            providerErrors,
+            hasPendingFetch,
+            status: mostSevereStatus(workflows.map((p) => p.status)),
+            lastRun,
+          },
+          workflows: workflows.map((p) => buildWorkflowRow(p, false)).sort((a, b) => compareRows(a, b, sortStatus)),
+        },
+      ]
+    })
 
-    tableRows.forEach((row) => {
-      if (row.type === 'repository' && row.providerIds) {
-        for (const id of row.providerIds) {
-          providerIdSet.add(id)
-        }
-      } else if (row.type === 'workflow' && row.pipeline) {
-        providerIdSet.add(row.pipeline.provider_id)
+    return { pinnedRows: pinned, sections: built.sort((a, b) => compareRows(a.row, b.row, sortStatus)) }
+  }, [repoGroups, validPipelines, pinKeys, pinnedKeys, rowFilters, sortStatus, getProvider, parseRepositoryName])
+
+  const rows = useMemo(() => {
+    const result: TableRow[] = pinnedRows.length > 0 ? [PINNED_HEADER_ROW, ...pinnedRows] : []
+
+    sections.forEach(({ row, workflows }) => {
+      const expanded = expansionOverrides[row.id] ?? filtersActive
+
+      result.push({ ...row, expanded })
+
+      if (expanded) {
+        result.push(...workflows)
       }
     })
 
-    return Array.from(providerIdSet)
-      .map((id) => getProvider(id)?.name)
-      .filter((name): name is string => !!name)
-      .sort()
-  }, [tableRows, getProvider])
+    return result
+  }, [pinnedRows, sections, expansionOverrides, filtersActive])
 
-  const repositoryCount = tableRows.filter((r) => r.type === 'repository').length
+  const toggleRepo = useCallback(
+    (repoId: string) => {
+      setExpansionOverrides((prev) => ({ ...prev, [repoId]: !(prev[repoId] ?? filtersActive) }))
+    },
+    [filtersActive]
+  )
+
+  const uniqueOrganizations = useMemo(
+    () => Array.from(new Set(repoGroups.map((g) => g.organization).filter((org) => org !== 'Unknown'))).sort(),
+    [repoGroups]
+  )
+
+  const providerOptions = useMemo(() => {
+    const providerIds = new Set(repoGroups.flatMap((group) => Array.from(group.providerIds)))
+
+    return providers
+      .filter((provider) => providerIds.has(provider.id))
+      .map((provider) => ({ value: String(provider.id), label: provider.name }))
+      .sort((a, b) => collator.compare(a.label, b.label))
+  }, [repoGroups, providers])
+
+  const fetchErrors = providers.filter(
+    (provider) =>
+      provider.last_fetch_status === 'error' &&
+      provider.last_fetch_error &&
+      (rowFilters.providerId === undefined || provider.id === rowFilters.providerId)
+  )
+
+  if (error) {
+    return (
+      <PageFrame>
+        <TableHeader title="Repositories & Workflows" />
+        <ErrorState title="Couldn't load pipelines" error={error} onRetry={onRetry} retrying={loading} />
+      </PageFrame>
+    )
+  }
 
   if (!loading && providers.length === 0) {
     return (
-      <Box
-        pt={{ base: 0, sm: 'sm' }}
-        pb={{ base: 0, sm: '2xl' }}
-        px={{ base: 'xs', sm: 'xl' }}
-        style={{
-          width: '100%',
-          maxWidth: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          flex: 1,
-          minHeight: 0,
-          background: 'var(--mantine-color-body)',
-        }}
-      >
+      <PageFrame>
         <TableHeader title="Repositories & Workflows" count={0} />
-        <Card padding="xl" withBorder mt="md">
-          <Center>
-            <Stack align="center" gap="md">
-              <IconPlugConnected size={48} color="var(--mantine-color-dimmed)" />
-              <Stack align="center" gap="xs">
-                <Text size={THEME_TYPOGRAPHY.MODAL_TITLE.size} fw={THEME_TYPOGRAPHY.MODAL_TITLE.weight}>
-                  No providers configured
-                </Text>
-                <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center">
-                  Add a CI/CD provider to start monitoring your pipelines and workflows.
-                </Text>
-              </Stack>
-            </Stack>
-          </Center>
-        </Card>
-      </Box>
+        <EmptyState
+          icon={<IconPlugConnected size={24} />}
+          title="No providers configured"
+          description="Add a CI/CD provider to start monitoring your pipelines and workflows."
+          action={
+            <Button size="sm" onClick={openAddProviderModal}>
+              Add provider
+            </Button>
+          }
+        />
+      </PageFrame>
     )
   }
 
   if (loading) {
     return (
-      <Box
-        pt={{ base: 0, sm: 'sm' }}
-        pb={{ base: 0, sm: '2xl' }}
-        px={{ base: 'xs', sm: 'xl' }}
-        style={{
-          width: '100%',
-          maxWidth: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          flex: 1,
-          minHeight: 0,
-          background: 'var(--mantine-color-body)',
-        }}
-      >
-        <TableHeader title="Repositories & Workflows" count={repositoryCount} />
-        <LoadingState variant="page" message="Loading pipelines..." />
-      </Box>
+      <PageFrame>
+        <TableHeader title="Repositories & Workflows" count={repoGroups.length} />
+        <LoadingState variant="page" message="Loading pipelines…" />
+      </PageFrame>
     )
   }
 
   return (
-    <Box
-      pt={{ base: 0, sm: 'sm' }}
-      pb={{ base: 0, sm: '2xl' }}
-      px={{ base: 'xs', sm: 'xl' }}
-      style={{
-        width: '100%',
-        maxWidth: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        flex: 1,
-        minHeight: 0,
-        background: 'var(--mantine-color-body)',
-      }}
-    >
-      <TableHeader title="Repositories & Workflows" count={repositoryCount} />
+    <PageFrame>
+      <TableHeader title="Repositories & Workflows" count={repoGroups.length} />
 
       <FilterBar
         filters={{
@@ -564,7 +534,7 @@ export const UnifiedPipelinesView = ({
           provider: {
             value: providerFilter,
             onChange: (value) => setFilter('provider', value),
-            options: uniqueProviderNames,
+            options: providerOptions,
           },
           organization: {
             value: organizationFilter,
@@ -579,38 +549,43 @@ export const UnifiedPipelinesView = ({
         onClearAll={clearFilters}
       />
 
-      {isMobile ? (
+      {rows.length === 0 ? (
+        filtersActive ? (
+          <EmptyState
+            icon={<IconFilterOff size={24} />}
+            title="No matching workflows"
+            description="No repositories or workflows match the current filters."
+            action={
+              <Button variant="default" size="sm" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            }
+          />
+        ) : fetchErrors.length > 0 ? (
+          <ErrorState
+            title={`Couldn't fetch workflows from ${fetchErrors.map((p) => p.name).join(', ')}`}
+            error={fetchErrors[0].last_fetch_error}
+            hint="Check the provider credentials in Settings → Providers. Pipedash retries on the next refresh."
+          />
+        ) : (
+          <EmptyState
+            icon={<IconFolder size={24} />}
+            title="No workflows yet"
+            description="Workflows appear here after they run on your configured providers."
+          />
+        )
+      ) : isMobile ? (
         <MobilePipelineCards
-          filteredRows={filteredRows}
-          pipelines={pipelines}
-          expandedRepos={expandedRepos}
-          setExpandedRepos={setExpandedRepos}
+          rows={rows}
           getProvider={getProvider}
-          parseRepositoryName={parseRepositoryName}
+          onToggleRepo={toggleRepo}
+          onShowProviderError={showProviderError}
           onViewHistory={onViewHistory}
           onTrigger={onTrigger}
           pinnedKeys={pinnedKeys}
           onTogglePin={togglePin}
           onViewMetrics={onViewMetrics}
         />
-      ) : filteredRows.length === 0 ? (
-        <Card padding="xl" withBorder mt="md">
-          <Center>
-            <Stack align="center" gap="md">
-              <IconFolder size={48} color="var(--mantine-color-dimmed)" />
-              <Stack align="center" gap="xs">
-                <Text size={THEME_TYPOGRAPHY.MODAL_TITLE.size} fw={THEME_TYPOGRAPHY.MODAL_TITLE.weight}>
-                  No workflows found
-                </Text>
-                <Text size={THEME_TYPOGRAPHY.HELPER_TEXT.size} c={THEME_COLORS.DIMMED} ta="center">
-                  {pipelines.length === 0
-                    ? 'No workflows found for this provider. Workflows will appear after they run.'
-                    : 'No workflows match your current filters. Try adjusting your search or filters.'}
-                </Text>
-              </Stack>
-            </Stack>
-          </Center>
-        </Card>
       ) : (
         <Box
           style={{
@@ -620,63 +595,59 @@ export const UnifiedPipelinesView = ({
           }}
         >
           <StandardTable<TableRow>
-            records={filteredRows}
+            records={rows}
             columns={[
               {
-                accessor: 'repository',
+                accessor: 'name',
                 title: 'Name',
                 sortable: true,
                 width: '35%',
                 textAlign: 'left' as const,
                 render: (row) => {
                   if (row.type === 'repository') {
-                    const isExpanded = expandedRepos.has(row.id)
-                    const providerErrors = row.providerIds ? getRepositoryProviderErrors(row.providerIds) : []
-                    const hasErrors = providerErrors.length > 0
+                    return (
+                      <UnstyledButton w="100%" onClick={() => toggleRepo(row.id)} aria-expanded={row.expanded}>
+                        <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
+                          {row.expanded ? (
+                            <IconChevronDown size={16} style={{ flexShrink: 0 }} />
+                          ) : (
+                            <IconChevronRight size={16} style={{ flexShrink: 0 }} />
+                          )}
+                          <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                          {TableCells.truncated(row.name)}
+                        </Group>
+                      </UnstyledButton>
+                    )
+                  }
 
+                  if (row.type === 'pinned-header') {
                     return (
-                      <Group gap={8} wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
-                        <IconChevronRight
-                          size={16}
-                          style={{
-                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                            transition: 'transform 200ms ease',
-                            flexShrink: 0,
-                            opacity: hasErrors ? 0.3 : 1,
-                          }}
-                        />
-                        <IconFolder
-                          size={18}
-                          color={hasErrors ? 'var(--mantine-color-gray-6)' : 'var(--mantine-color-blue-5)'}
-                          style={{ flexShrink: 0 }}
-                        />
-                        {TableCells.truncated(row.repository || '')}
-                      </Group>
-                    )
-                  } else if (row.type === 'pinned-header') {
-                    return (
-                      <Group gap={8} wrap="nowrap">
-                        <IconPinFilled size={16} color="var(--mantine-color-yellow-6)" style={{ flexShrink: 0 }} />
-                        {TableCells.truncated('Pinned workflows')}
-                      </Group>
-                    )
-                  } else if (row.pipeline) {
-                    return (
-                      <Group
-                        gap={8}
-                        wrap="nowrap"
-                        pl={row.pinned ? undefined : 'xl'}
-                        style={{ overflow: 'hidden', maxWidth: '100%' }}
-                      >
-                        <IconGitBranch size={16} color="var(--mantine-color-gray-6)" style={{ flexShrink: 0 }} />
-                        {TableCells.truncated(
-                          row.pinned ? `${row.pipeline.repository} / ${row.pipeline.name}` : row.pipeline.name
-                        )}
+                      <Group gap="xs" wrap="nowrap">
+                        <IconPinFilled size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                        {TableCells.truncated(row.name)}
                       </Group>
                     )
                   }
 
-                  return null
+                  const { pipeline } = row
+
+                  if (!pipeline) {
+                    return null
+                  }
+
+                  return (
+                    <UnstyledButton
+                      w="100%"
+                      pl={row.pinned ? undefined : 'xl'}
+                      onClick={() => onViewHistory(pipeline)}
+                      aria-label={`View run history for ${row.name}`}
+                    >
+                      <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
+                        <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                        {TableCells.truncated(row.name)}
+                      </Group>
+                    </UnstyledButton>
+                  )
                 },
               },
               {
@@ -685,17 +656,7 @@ export const UnifiedPipelinesView = ({
                 sortable: true,
                 width: 160,
                 textAlign: 'left' as const,
-                render: (row) => {
-                  if (row.type === 'repository') {
-                    return TableCells.truncatedDimmed(row.organization || '')
-                  } else if (row.pipeline) {
-                    const { organization } = parseRepositoryName(row.pipeline.repository, row.pipeline.provider_id)
-
-                    return TableCells.truncatedDimmed(organization)
-                  }
-
-                  return null
-                },
+                render: (row) => (row.type === 'pinned-header' ? null : TableCells.truncatedDimmed(row.organization)),
               },
               {
                 accessor: 'status',
@@ -703,88 +664,35 @@ export const UnifiedPipelinesView = ({
                 sortable: true,
                 width: 110,
                 textAlign: 'center' as const,
-                render: (row) => {
-                  if (row.type === 'workflow' && row.pipeline) {
-                    const lastActivity = row.pipeline.last_run
-                      ? new Date(row.pipeline.last_run).toLocaleString()
-                      : 'Never'
-
-                    return (
-                      <Box style={{ display: 'flex', justifyContent: 'center' }}>
-                        <Tooltip label={`Last activity: ${lastActivity}`} withArrow>
-                          <div>{TableCells.status(row.pipeline.status)}</div>
-                        </Tooltip>
-                      </Box>
-                    )
-                  } else if (row.type === 'repository' && row.repositoryFullName) {
-                    const repoPipelines = pipelines.filter((p) => p.repository === row.repositoryFullName)
-
-                    if (repoPipelines.length > 0) {
-                      const latestPipeline = repoPipelines.sort((a, b) => {
-                        const aTime = a.last_run ? new Date(a.last_run).getTime() : 0
-                        const bTime = b.last_run ? new Date(b.last_run).getTime() : 0
-
-                        return bTime - aTime
-                      })[0]
-
-                      if (latestPipeline) {
-                        const lastActivity = latestPipeline.last_run
-                          ? new Date(latestPipeline.last_run).toLocaleString()
-                          : 'Never'
-
-                        return (
-                          <Box style={{ display: 'flex', justifyContent: 'center' }}>
-                            <Tooltip label={`Last activity: ${lastActivity}`} withArrow>
-                              <div>{TableCells.status(latestPipeline.status)}</div>
-                            </Tooltip>
-                          </Box>
-                        )
-                      }
-                    }
-                  }
-
-                  return null
-                },
+                render: (row) => (
+                  <Group justify="center">
+                    <RowStatus row={row} />
+                  </Group>
+                ),
               },
               {
-                accessor: 'providerIds',
+                accessor: 'provider',
                 title: 'Provider',
                 sortable: true,
                 width: 200,
                 textAlign: 'left' as const,
-                render: (row) => {
-                  if (row.type === 'repository' && row.providerIds) {
-                    const providerCount = row.providerIds.size
+                render: (row) => (
+                  <Stack gap="xs">
+                    {Array.from(row.providerIds ?? []).map((providerId) => {
+                      const provider = getProvider(providerId)
 
-                    return (
-                      <Stack gap={providerCount > 1 ? 8 : 0}>
-                        {Array.from(row.providerIds).map((providerId) => {
-                          const provider = getProvider(providerId)
-
-                          return (
-                            <div key={providerId}>
-                              {TableCells.avatarName(
-                                provider?.icon || null,
-                                provider?.name || 'Unknown',
-                                <IconPlugConnected size={14} />
-                              )}
-                            </div>
-                          )
-                        })}
-                      </Stack>
-                    )
-                  } else if (row.pipeline) {
-                    const provider = getProvider(row.pipeline.provider_id)
-
-                    return TableCells.avatarName(
-                      provider?.icon || null,
-                      provider?.name || 'Unknown',
-                      <IconPlugConnected size={14} />
-                    )
-                  }
-
-                  return null
-                },
+                      return (
+                        <div key={providerId}>
+                          {TableCells.avatarName(
+                            provider?.icon || null,
+                            provider?.name || 'Unknown',
+                            <IconPlugConnected size={14} />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </Stack>
+                ),
               },
               {
                 accessor: 'actions',
@@ -793,101 +701,26 @@ export const UnifiedPipelinesView = ({
                 textAlign: 'center' as const,
                 render: (row) => {
                   if (row.type === 'repository') {
-                    const hasPendingFetch = Array.from(row.providerIds || []).some((id) => {
-                      const provider = getProvider(id)
-
-                      return provider?.last_fetch_status === 'never'
-                    })
-
-                    if (hasPendingFetch) {
-                      return (
-                        <Box style={{ display: 'flex', justifyContent: 'center' }}>
-                          <Tooltip label="Loading pipelines..." withArrow>
-                            <Loader size="sm" />
-                          </Tooltip>
-                        </Box>
-                      )
-                    }
-
-                    const providerErrors = row.providerIds ? getRepositoryProviderErrors(row.providerIds) : []
-
-                    if (providerErrors.length > 0) {
-                      return (
-                        <Box style={{ display: 'flex', justifyContent: 'center' }}>
-                          <Tooltip label="Provider fetch error - Click to view details" withArrow>
-                            <ActionIcon
-                              size="sm"
-                              color="red"
-                              variant="subtle"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedError({
-                                  providerName: providerErrors[0].name,
-                                  error: providerErrors[0].error,
-                                })
-                                openErrorModal()
-                              }}
-                              style={{ backgroundColor: 'transparent' }}
-                              aria-label="View provider fetch error details"
-                            >
-                              <IconAlertTriangle size={18} color="var(--mantine-color-red-6)" />
-                            </ActionIcon>
-                          </Tooltip>
-                        </Box>
-                      )
-                    }
-
-                    return null
-                  } else if (row.type === 'workflow' && row.pipeline && row.pinKey) {
-                    const { pipeline, pinKey } = row
-
                     return (
-                      <Box style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
-                        <Tooltip label={row.pinned ? 'Unpin workflow' : 'Pin workflow'} withArrow>
-                          <ActionIcon
-                            variant="subtle"
-                            color="yellow"
-                            size="md"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              togglePin(pinKey)
-                            }}
-                            aria-label={row.pinned ? 'Unpin workflow' : 'Pin workflow'}
-                          >
-                            {pinnedKeys.includes(row.pinKey) ? <IconPinFilled size={18} /> : <IconPin size={18} />}
-                          </ActionIcon>
-                        </Tooltip>
-                        {onViewMetrics && (
-                          <Tooltip label="View metrics" withArrow>
-                            <ActionIcon
-                              variant="subtle"
-                              color="violet"
-                              size="md"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                onViewMetrics(pipeline)
-                              }}
-                              aria-label="View metrics"
-                            >
-                              <IconChartLine size={18} />
-                            </ActionIcon>
-                          </Tooltip>
-                        )}
-                        <Tooltip label="Trigger workflow" withArrow>
-                          <ActionIcon
-                            variant="subtle"
-                            color="blue"
-                            size="md"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onTrigger(pipeline)
-                            }}
-                            aria-label="Trigger workflow"
-                          >
-                            <IconPlayerPlayFilled size={18} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Box>
+                      <Group justify="center">
+                        <RepositoryFetchIndicator row={row} onShowError={showProviderError} />
+                      </Group>
+                    )
+                  }
+
+                  const { pipeline, pinKey: rowPinKey } = row
+
+                  if (row.type === 'workflow' && pipeline && rowPinKey) {
+                    return (
+                      <Group justify="center">
+                        <WorkflowActions
+                          pipeline={pipeline}
+                          isPinned={pinnedKeys.includes(rowPinKey)}
+                          onTogglePin={() => togglePin(rowPinKey)}
+                          onTrigger={onTrigger}
+                          onViewMetrics={onViewMetrics}
+                        />
+                      </Group>
                     )
                   }
 
@@ -897,97 +730,40 @@ export const UnifiedPipelinesView = ({
             ]}
             sortStatus={sortStatus}
             onSortStatusChange={setSortStatus}
-            onRowClick={({ record }) => {
-              if (record.type === 'repository') {
-                const providerErrors = record.providerIds ? getRepositoryProviderErrors(record.providerIds) : []
-
-                if (providerErrors.length > 0) {
-                  setSelectedError({
-                    providerName: providerErrors[0].name,
-                    error: providerErrors[0].error,
-                  })
-                  openErrorModal()
-                } else {
-                  setExpandedRepos((prev) => {
-                    const newSet = new Set(prev)
-
-                    if (newSet.has(record.id)) {
-                      newSet.delete(record.id)
-                    } else {
-                      newSet.add(record.id)
-                    }
-
-                    return newSet
-                  })
-                }
-              } else if (record.type === 'workflow' && record.pipeline) {
-                onViewHistory(record.pipeline)
-              }
-            }}
-            rowStyle={(row) => ({
-              backgroundColor: row.type === 'workflow' && !row.pinned ? 'var(--mantine-color-dark-8)' : undefined,
-              cursor: row.type === 'pinned-header' ? 'default' : 'pointer',
-            })}
-            noRecordsText="No repositories found"
           />
         </Box>
       )}
 
-      <Modal
+      <StandardModal
         opened={errorModalOpened}
         onClose={closeErrorModal}
-        title="Provider Fetch Error"
-        size={isDesktop ? 'min(80vh, 80vw)' : 'md'}
-        centered
-        padding="lg"
-        zIndex={300}
-        styles={{
-          content: isDesktop
-            ? {
-                aspectRatio: '1 / 1',
-                maxHeight: '80vh',
-                maxWidth: '80vw',
-              }
-            : {},
-        }}
+        title="Provider fetch error"
+        size="md"
+        footer={
+          <Group justify="flex-end" gap="sm">
+            <Button variant="default" size="sm" onClick={closeErrorModal}>
+              Close
+            </Button>
+          </Group>
+        }
       >
         {selectedError && (
           <Stack gap="md">
-            <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light" title={selectedError.providerName}>
-              <Text size="sm" c="dimmed">
-                Failed to fetch pipelines from this provider
-              </Text>
+            <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light" title={selectedError.name}>
+              <Text size={TYPOGRAPHY.HELPER_TEXT.size}>Couldn't fetch pipelines from this provider.</Text>
             </Alert>
 
             <Box>
-              <Text size="xs" fw={500} c="dimmed" mb="xs" tt="uppercase">
-                Error Details
+              <Text size={TYPOGRAPHY.FIELD_LABEL.size} fw={500} c="dimmed" mb="xs">
+                Error details
               </Text>
-              <Paper
-                p="md"
-                withBorder
-                radius="md"
-                style={{
-                  backgroundColor: 'var(--mantine-color-dark-8)',
-                  borderColor: 'var(--mantine-color-dark-5)',
-                }}
-              >
-                <Text
-                  size="sm"
-                  c="red"
-                  style={{
-                    fontFamily: 'monospace',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  {selectedError.error}
-                </Text>
-              </Paper>
+              <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {selectedError.error}
+              </Code>
             </Box>
           </Stack>
         )}
-      </Modal>
-    </Box>
+      </StandardModal>
+    </PageFrame>
   )
 }

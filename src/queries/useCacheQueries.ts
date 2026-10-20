@@ -28,7 +28,7 @@ export function useClearCache() {
       queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
-        title: 'Cache Cleared',
+        title: 'Cache cleared',
         message: 'All caches cleared successfully',
         color: 'green',
       })
@@ -36,7 +36,7 @@ export function useClearCache() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Clear Cache',
+        title: "Couldn't clear caches",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -55,7 +55,7 @@ export function useClearPipelinesCache() {
       queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
 
       notifications.show({
-        title: 'Pipelines Cache Cleared',
+        title: 'Pipelines cache cleared',
         message: 'Pipeline cache cleared successfully',
         color: 'green',
       })
@@ -63,7 +63,7 @@ export function useClearPipelinesCache() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Clear Pipelines Cache',
+        title: "Couldn't clear pipelines cache",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -82,7 +82,7 @@ export function useClearRunHistoryCache() {
       queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
 
       notifications.show({
-        title: 'Run History Cache Cleared',
+        title: 'Run history cache cleared',
         message: 'Run history cache cleared successfully',
         color: 'green',
       })
@@ -90,7 +90,7 @@ export function useClearRunHistoryCache() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Clear Run History Cache',
+        title: "Couldn't clear run history cache",
         message: error.message || 'Unknown error',
         color: 'red',
       })
@@ -109,7 +109,7 @@ export function useClearWorkflowParamsCache() {
       queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
 
       notifications.show({
-        title: 'Workflow Parameters Cache Cleared',
+        title: 'Workflow parameters cache cleared',
         message: 'Workflow parameters cache cleared successfully',
         color: 'green',
       })
@@ -117,7 +117,7 @@ export function useClearWorkflowParamsCache() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Failed to Clear Workflow Parameters Cache',
+        title: "Couldn't clear workflow parameters cache",
         message: error.message || 'Unknown error',
         color: 'red',
       })

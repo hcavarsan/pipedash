@@ -5,11 +5,11 @@ import {
   Card,
   Divider,
   Group,
-  Loader,
   NumberInput,
   SimpleGrid,
   Stack,
   Text,
+  Title,
   Tooltip,
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
@@ -18,6 +18,7 @@ import { IconEdit, IconSettings, IconTrash } from '@tabler/icons-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
+import { logger } from '../../../lib/logger'
 import { useProviderDetails } from '../../../queries/useProviderDetailsQuery'
 import {
   useProviders,
@@ -25,19 +26,28 @@ import {
   useUpdateProvider,
   useUpdateProviderRefreshInterval,
 } from '../../../queries/useProvidersQueries'
+import { useProviderStore } from '../../../stores/providerStore'
 import type { ProviderConfig } from '../../../types'
+import { EmptyState } from '../../common/EmptyState'
+import { ErrorState } from '../../common/ErrorState'
+import { LoadingState } from '../../common/LoadingState'
 import { AddProviderModal } from '../../provider/AddProviderModal'
 
 export const ProvidersSection = () => {
   const { getPluginDisplayName } = usePlugins()
+  const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
 
-  const { data: providers = [], isLoading: loading, error: providersError } = useProviders()
+  const {
+    data: providers = [],
+    isLoading: loading,
+    error: providersError,
+    refetch: refetchProviders,
+    isRefetching: isRefetchingProviders,
+  } = useProviders()
 
   const { mutateAsync: updateProviderMutation } = useUpdateProvider()
   const { mutateAsync: removeProviderMutation } = useRemoveProvider()
   const updateRefreshIntervalMutation = useUpdateProviderRefreshInterval()
-
-  const error = providersError ? (providersError as Error).message : null
 
   const [editingId, setEditingId] = useState<number | null>(null)
   const [refreshValues, setRefreshValues] = useState<Record<number, number>>({})
@@ -58,8 +68,8 @@ export const ProvidersSection = () => {
   useEffect(() => {
     if (providerError) {
       notifications.show({
-        title: 'Error',
-        message: 'Failed to load provider configuration',
+        title: "Couldn't load provider configuration",
+        message: 'The provider configuration could not be fetched. Try again.',
         color: 'red',
       })
       setSelectedEditId(null)
@@ -73,19 +83,19 @@ export const ProvidersSection = () => {
   const handleRemove = useCallback(
     (id: number, name: string) => {
       modals.openConfirmModal({
-        title: 'Remove Provider',
+        title: 'Remove provider',
         children: (
           <Text size="sm">
             Are you sure you want to remove <strong>{name}</strong>? All cached pipeline data will be deleted.
           </Text>
         ),
-        labels: { confirm: 'Remove', cancel: 'Cancel' },
+        labels: { confirm: 'Remove provider', cancel: 'Cancel' },
         confirmProps: { color: 'red' },
         onConfirm: async () => {
           try {
             await removeProviderMutation(id)
           } catch (err) {
-            console.error('Failed to remove provider:', err)
+            logger.error('ProvidersSection', 'Failed to remove provider', err)
           }
         },
       })
@@ -107,7 +117,7 @@ export const ProvidersSection = () => {
 
       if (newValue < 5 || newValue > 300) {
         notifications.show({
-          title: 'Invalid Value',
+          title: 'Invalid refresh interval',
           message: 'Refresh interval must be between 5 and 300 seconds',
           color: 'red',
         })
@@ -146,24 +156,29 @@ export const ProvidersSection = () => {
   return (
     <>
       <Box>
-        <Text size="lg" fw={600} mb="lg">
+        <Title order={2} size="lg" fw={600} mb="lg">
           Providers
-        </Text>
+        </Title>
 
         {loading ? (
-          <Stack align="center" py="xl">
-            <Loader size="sm" />
-          </Stack>
-        ) : error ? (
-          <Stack align="center" py="xl">
-            <Text size="sm" c="red">
-              {error}
-            </Text>
-          </Stack>
+          <LoadingState message="Loading providers..." />
+        ) : providersError ? (
+          <ErrorState
+            title="Couldn't load providers"
+            error={providersError}
+            onRetry={() => refetchProviders()}
+            retrying={isRefetchingProviders}
+          />
         ) : providers.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            No providers configured. Add a provider from the sidebar.
-          </Text>
+          <EmptyState
+            title="No providers configured"
+            description="Add a CI/CD provider to start monitoring pipelines."
+            action={
+              <Button size="sm" onClick={openAddProviderModal}>
+                Add provider
+              </Button>
+            }
+          />
         ) : (
           <Stack gap="md">
             {providers.map((provider) => {
@@ -171,17 +186,17 @@ export const ProvidersSection = () => {
               const currentValue = refreshValues[provider.id] ?? provider.refresh_interval
 
               return (
-                <Card key={provider.id} withBorder padding="md" radius="md">
+                <Card key={provider.id} padding="md">
                   <Stack gap="md">
                     <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                       <Stack gap={4}>
                         <Text size="xs" c="dimmed">
-                          Provider Name
+                          Provider name
                         </Text>
                         <Group gap="xs">
                           <Text size="sm">{provider.name}</Text>
                           {provider.last_fetch_status === 'error' && (
-                            <Tooltip label={provider.last_fetch_error || 'Failed to fetch'} multiline w={300} withArrow>
+                            <Tooltip label={provider.last_fetch_error || 'Failed to fetch'} multiline w={300}>
                               <Text size="xs" c="red">
                                 Error
                               </Text>
@@ -208,7 +223,7 @@ export const ProvidersSection = () => {
 
                       <Stack gap={4}>
                         <Text size="xs" c="dimmed">
-                          Refresh Interval
+                          Refresh interval
                         </Text>
                         {isEditing ? (
                           <Group gap="xs">
@@ -223,6 +238,7 @@ export const ProvidersSection = () => {
                               min={5}
                               max={300}
                               step={5}
+                              aria-label={`Refresh interval in seconds for ${provider.name}`}
                               disabled={updateRefreshIntervalMutation.isPending}
                               size="xs"
                               w={80}
@@ -230,15 +246,19 @@ export const ProvidersSection = () => {
                             />
                           </Group>
                         ) : (
-                          <Group
-                            gap={2}
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => handleEditRefreshInterval(provider.id, provider.refresh_interval)}
-                          >
+                          <Group gap="xs">
                             <Text size="sm">{provider.refresh_interval}s</Text>
-                            <ActionIcon size="xs" variant="transparent" color="gray">
-                              <IconEdit size={12} />
-                            </ActionIcon>
+                            <Tooltip label={`Edit refresh interval for ${provider.name}`}>
+                              <ActionIcon
+                                size="sm"
+                                variant="subtle"
+                                color="gray"
+                                aria-label={`Edit refresh interval for ${provider.name}`}
+                                onClick={() => handleEditRefreshInterval(provider.id, provider.refresh_interval)}
+                              >
+                                <IconEdit size={14} />
+                              </ActionIcon>
+                            </Tooltip>
                           </Group>
                         )}
                       </Stack>
@@ -282,7 +302,7 @@ export const ProvidersSection = () => {
                           <Button
                             size="compact-xs"
                             variant="subtle"
-                            color="red"
+                            color="gray"
                             onClick={() => handleRemove(provider.id, provider.name)}
                             leftSection={<IconTrash size={14} />}
                           >

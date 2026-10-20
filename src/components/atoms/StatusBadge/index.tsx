@@ -1,79 +1,26 @@
-import { Badge, Box } from '@mantine/core'
-import { type Icon, IconCheck, IconCircleOff, IconClock, IconLoader, IconMinus, IconX } from '@tabler/icons-react'
+import { Badge } from '@mantine/core'
 
-import { STATUS_COLORS } from '../../../theme/colors'
+import { STATUS_META } from '../../../theme/status'
 import type { PipelineStatus } from '../../../types'
 
 interface StatusBadgeProps {
   status: PipelineStatus
-  size?: 'xs' | 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md'
   withIcon?: boolean
 }
 
-const statusConfig: Record<
-  PipelineStatus,
-  {
-    label: string
-    icon: Icon
-  }
-> = {
-  success: {
-    label: 'Success',
-    icon: IconCheck,
-  },
-  failed: {
-    label: 'Failed',
-    icon: IconX,
-  },
-  running: {
-    label: 'Running',
-    icon: IconLoader,
-  },
-  pending: {
-    label: 'Pending',
-    icon: IconClock,
-  },
-  cancelled: {
-    label: 'Cancelled',
-    icon: IconCircleOff,
-  },
-  skipped: {
-    label: 'Skipped',
-    icon: IconMinus,
-  },
-}
-
-export const StatusBadge = ({ status, size = 'md', withIcon = false }: StatusBadgeProps) => {
-  const config = statusConfig[status]
-  const Icon = config.icon
-
-  const iconSize = {
-    xs: 14,
-    sm: 16,
-    md: 18,
-    lg: 20,
-  }[size]
+export const StatusBadge = ({ status, size = 'sm', withIcon = false }: StatusBadgeProps) => {
+  const { label, color, icon: Icon } = STATUS_META[status]
 
   return (
     <Badge
       variant="light"
-      color={STATUS_COLORS[status]}
+      color={color}
       size={size}
       fw={500}
-      leftSection={
-        withIcon ? (
-          <Box component="span" style={{ display: 'flex', alignItems: 'center' }}>
-            <Icon size={iconSize} style={{ display: 'block' }} />
-          </Box>
-        ) : undefined
-      }
-      styles={{
-        label: {
-          textTransform: 'none',
-        },
-      }}
+      leftSection={withIcon ? <Icon size={size === 'sm' ? 12 : 14} aria-hidden /> : undefined}
     >
-      {config.label}
+      {label}
     </Badge>
   )
 }

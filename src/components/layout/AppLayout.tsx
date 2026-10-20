@@ -1,12 +1,11 @@
 import { AppShell } from '@mantine/core'
-import { type ReactNode, useEffect, useState } from 'react'
+import { useDisclosure } from '@mantine/hooks'
+import type { ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useProviderStore } from '../../stores/providerStore'
 
 import { Header } from './Header'
-import { MobileFooter } from './MobileFooter'
 import { Navbar } from './Navbar'
 
 interface AppLayoutProps {
@@ -20,53 +19,42 @@ export const AppLayout = ({ children, onRefreshAll, refreshing = false, onOpenSe
   const location = useLocation()
   const isSettingsPage = location.pathname.startsWith('/settings')
   const { isMobile } = useIsMobile()
-  const [opened, setOpened] = useState(() => !isMobile)
-
-  const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
-
-  useEffect(() => {
-    if (!isMobile) {
-      setOpened(true)
-    }
-  }, [isMobile])
-
-  const toggle = () => setOpened((prev) => !prev)
+  const [mobileOpened, { toggle: toggleMobile }] = useDisclosure(false)
+  const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true)
+  const opened = isMobile ? mobileOpened : desktopOpened
+  const toggle = isMobile ? toggleMobile : toggleDesktop
 
   return (
-    <>
-      <AppShell
-        header={{ height: isMobile ? 'calc(70px + env(safe-area-inset-top))' : 70 }}
-        navbar={{
-          width: 280,
-          breakpoint: 'sm',
-          collapsed: { mobile: !opened, desktop: !opened || isSettingsPage },
-        }}
-        padding={{ base: 'xs', sm: 'md' }}
-        styles={{
-          main: {
-            minHeight: 'unset',
-            background: 'var(--mantine-color-body)',
-          },
-        }}
-      >
-        <AppShell.Header>
-          <Header
-            onRefreshAll={onRefreshAll}
-            onToggleNavbar={toggle}
-            navbarOpened={opened}
-            onOpenSettings={onOpenSettings}
-            refreshing={refreshing}
-          />
-        </AppShell.Header>
+    <AppShell
+      header={{ height: isMobile ? 'calc(70px + env(safe-area-inset-top))' : 70 }}
+      navbar={{
+        width: 280,
+        breakpoint: 'sm',
+        collapsed: { mobile: !mobileOpened, desktop: !desktopOpened || isSettingsPage },
+      }}
+      padding={{ base: 'xs', sm: 'md' }}
+      styles={{
+        main: {
+          minHeight: 'unset',
+          background: 'var(--mantine-color-body)',
+        },
+      }}
+    >
+      <AppShell.Header>
+        <Header
+          onRefreshAll={onRefreshAll}
+          onToggleNavbar={isMobile || !isSettingsPage ? toggle : undefined}
+          navbarOpened={opened}
+          onOpenSettings={onOpenSettings}
+          refreshing={refreshing}
+        />
+      </AppShell.Header>
 
-        <AppShell.Navbar>
-          <Navbar onToggleSidebar={toggle} sidebarOpened={opened} />
-        </AppShell.Navbar>
+      <AppShell.Navbar>
+        <Navbar onToggleSidebar={toggle} sidebarOpened={opened} />
+      </AppShell.Navbar>
 
-        <AppShell.Main>{children}</AppShell.Main>
-      </AppShell>
-
-      <MobileFooter onAddProvider={openAddProviderModal} />
-    </>
+      <AppShell.Main>{children}</AppShell.Main>
+    </AppShell>
   )
 }

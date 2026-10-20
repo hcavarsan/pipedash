@@ -15,7 +15,7 @@ pub(super) const DEFAULT_BIND_ADDR_DESKTOP: &str = "127.0.0.1:8080";
 
 pub(super) const DEFAULT_BIND_ADDR_SERVER: &str = "0.0.0.0:8080";
 
-pub(super) const DEFAULT_CORS_ALLOW_ALL: bool = true;
+pub(super) const DEFAULT_CORS_ALLOW_ALL: bool = false;
 
 pub(super) const DEFAULT_METRICS_ENABLED: bool = true;
 
@@ -306,6 +306,16 @@ mod tests {
         assert_eq!(config.server.bind_addr, "127.0.0.1:8080");
         assert_eq!(config.storage.backend, StorageBackend::Sqlite);
         assert!(config.providers.is_empty());
+        assert!(!config.server.cors_allow_all);
+    }
+
+    #[test]
+    fn test_cors_allow_all_defaults_to_false_when_absent() {
+        let config: PipedashConfig =
+            toml::from_str("[server]\nbind_addr = \"0.0.0.0:8080\"").unwrap();
+
+        assert!(!config.server.cors_allow_all);
+        assert!(!ServerConfig::default().cors_allow_all);
     }
 
     #[test]
