@@ -123,6 +123,11 @@ export function useEventSync() {
           }
         )
 
+        const unlistenProvidersChanged = await events.onProvidersChanged(() => {
+          logger.debug('EventSync', 'providers-changed')
+          queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+        })
+
         const unlistenPipelinesUpdated = await events.onPipelinesUpdated<EventPayloadMap['pipelines-updated']>(
           async (payload) => {
             if (!payload?.pipelines) {
@@ -251,6 +256,7 @@ export function useEventSync() {
           unlistenProviderAdded,
           unlistenProviderUpdated,
           unlistenProviderRemoved,
+          unlistenProvidersChanged,
           unlistenPipelinesUpdated,
           unlistenCacheInvalidated,
           unlistenStorageUpdated,
