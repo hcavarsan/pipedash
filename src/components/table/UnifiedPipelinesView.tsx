@@ -4,11 +4,12 @@ import { DataTableSortStatus } from 'mantine-datatable'
 import { ActionIcon, Alert, Box, Card, Center, Group, Loader, Modal, Paper, Stack, Text, Tooltip } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconAlertCircle, IconAlertTriangle, IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
+import { IconAlertCircle, IconAlertTriangle, IconChartLine, IconChevronRight, IconFolder, IconGitBranch, IconPin, IconPinFilled, IconPlayerPlayFilled, IconPlugConnected } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { usePipelineFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
+import { usePinnedStore } from '../../stores/pinnedStore'
 import type { Pipeline, ProviderSummary } from '../../types'
 import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { TableCells } from '../../utils/tableCells'
@@ -19,12 +20,13 @@ import { StandardTable } from '../common/StandardTable'
 
 import { MobilePipelineCards } from './MobilePipelineCards'
 
-type TableRowType = 'repository' | 'workflow';
+type TableRowType = 'repository' | 'workflow' | 'pinned-header';
 
 interface TableRow {
   id: string;
   type: TableRowType;
   parentId?: string;
+  pinned?: boolean;
 
   repository?: string;
   repositoryFullName?: string;
@@ -37,6 +39,8 @@ interface TableRow {
   branch?: string;
   status?: string;
 }
+
+const PINNED_HEADER_ROW: TableRow = { id: 'pinned-header', type: 'pinned-header' }
 
 interface UnifiedPipelinesViewProps {
   pipelines: Pipeline[];
@@ -63,6 +67,9 @@ export const UnifiedPipelinesView = ({
 
   const { filters, setFilter, clearFilters } = usePipelineFilters()
   const { search, status: statusFilter, provider: providerFilter, organization: organizationFilter, dateRange } = filters
+
+  const pinnedIds = usePinnedStore((s) => s.pinnedIds)
+  const togglePin = usePinnedStore((s) => s.togglePin)
 
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set())
   const [sortStatus, setSortStatus] = useState<DataTableSortStatus<TableRow>>({
@@ -132,6 +139,7 @@ return {
 
   const tableRows = useMemo(() => {
     const rows: TableRow[] = []
+    const validPipelines = new Map<string, Pipeline>()
     const repoMap = new Map<string, {
       pipelines: Pipeline[];
       providerIds: Set<number>;
@@ -188,6 +196,8 @@ return
         return
       }
 
+      validPipelines.set(pipeline.id, pipeline)
+
       const existing = repoMap.get(pipeline.repository)
 
 
@@ -239,6 +249,21 @@ return
       }
     })
 
+    pinnedIds.forEach((pipelineId) => {
+      const pipeline = validPipelines.get(pipelineId)
+
+      if (pipeline) {
+        rows.push({
+          id: `pinned-${pipeline.id}`,
+          type: 'workflow',
+          pinned: true,
+          parentId: `repo-${pipeline.repository}`,
+          organization: parseRepositoryName(pipeline.repository, pipeline.provider_id).organization,
+          pipeline,
+        })
+      }
+    })
+
     Array.from(repoMap.entries()).forEach(([repoName, repoData]) => {
       const providerId = repoData.pipelines[0]?.provider_id || Array.from(repoData.providerIds)[0] || 0
       const { organization, repository } = parseRepositoryName(repoName, providerId)
@@ -268,7 +293,7 @@ return
     })
 
     return rows
-  }, [pipelines, expandedRepos, providers, selectedProviderId, getProvider, parseRepositoryName])
+  }, [pipelines, expandedRepos, providers, selectedProviderId, pinnedIds, getProvider, parseRepositoryName])
 
   const filteredRows = useMemo(() => {
     let result = tableRows
@@ -295,7 +320,7 @@ return
           )
 
 
-          if (workflowMatches && row.parentId) {
+          if (workflowMatches && row.parentId && !row.pinned) {
             matchingWorkflowParentIds.add(row.parentId)
           }
         }
@@ -322,7 +347,7 @@ return false
 
     if (organizationFilter) {
       result = result.filter((row) => {
-        if (row.type === 'repository') {
+        if (row.type === 'repository' || row.pinned) {
           return row.organization === organizationFilter
         }
 
@@ -403,7 +428,7 @@ return false
       }
     }
 
-    return result
+    return result[0]?.pinned ? [PINNED_HEADER_ROW, ...result] : result
   }, [tableRows, search, organizationFilter, providerFilter, statusFilter, dateRange, providers, pipelines])
 
   const uniqueOrganizations = useMemo(() => {
@@ -547,6 +572,8 @@ return Array.from(providerIdSet)
           parseRepositoryName={parseRepositoryName}
           onViewHistory={onViewHistory}
           onTrigger={onTrigger}
+          pinnedIds={pinnedIds}
+          onTogglePin={togglePin}
           onViewMetrics={onViewMetrics}
         />
       ) : filteredRows.length === 0 ? (
@@ -610,11 +637,18 @@ return (
                     {TableCells.truncated(row.repository || '')}
                   </Group>
                 )
+              } else if (row.type === 'pinned-header') {
+                return (
+                  <Group gap={8} wrap="nowrap">
+                    <IconPinFilled size={16} color="var(--mantine-color-yellow-6)" style={{ flexShrink: 0 }} />
+                    {TableCells.truncated('Pinned workflows')}
+                  </Group>
+                )
               } else if (row.pipeline) {
                 return (
-                  <Group gap={8} wrap="nowrap" pl="xl" style={{ overflow: 'hidden', maxWidth: '100%' }}>
+                  <Group gap={8} wrap="nowrap" pl={row.pinned ? undefined : 'xl'} style={{ overflow: 'hidden', maxWidth: '100%' }}>
                     <IconGitBranch size={16} color="var(--mantine-color-gray-6)" style={{ flexShrink: 0 }} />
-                    {TableCells.truncated(row.pipeline.name)}
+                    {TableCells.truncated(row.pinned ? `${row.pipeline.repository} / ${row.pipeline.name}` : row.pipeline.name)}
                   </Group>
                 )
               }
@@ -744,7 +778,7 @@ return null
           {
             accessor: 'actions',
             title: 'Actions',
-            width: onViewMetrics ? 120 : 100,
+            width: onViewMetrics ? 160 : 140,
             textAlign: 'center' as const,
             render: (row) => {
               if (row.type === 'repository') {
@@ -798,6 +832,20 @@ return provider?.last_fetch_status === 'never'
               } else if (row.type === 'workflow' && row.pipeline) {
                 return (
                   <Box style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
+                    <Tooltip label={row.pinned ? 'Unpin workflow' : 'Pin workflow'} withArrow>
+                      <ActionIcon
+                        variant="subtle"
+                        color="yellow"
+                        size="md"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          togglePin(row.pipeline!.id)
+                        }}
+                        aria-label={row.pinned ? 'Unpin workflow' : 'Pin workflow'}
+                      >
+                        {pinnedIds.includes(row.pipeline.id) ? <IconPinFilled size={18} /> : <IconPin size={18} />}
+                      </ActionIcon>
+                    </Tooltip>
                     {onViewMetrics && (
                       <Tooltip label="View metrics" withArrow>
                         <ActionIcon
@@ -869,10 +917,10 @@ return newSet
           }
         }}
         rowStyle={(row) => ({
-          backgroundColor: row.type === 'workflow'
+          backgroundColor: row.type === 'workflow' && !row.pinned
             ? 'var(--mantine-color-dark-8)'
             : undefined,
-          cursor: 'pointer',
+          cursor: row.type === 'pinned-header' ? 'default' : 'pointer',
         })}
         noRecordsText="No repositories found"
       />
