@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Box, Divider, Group, Kbd, Title, Tooltip, UnstyledButton } from '@mantine/core'
+import { ActionIcon, Box, Divider, Group, Kbd, Title, Tooltip, UnstyledButton } from '@mantine/core'
 import { useHotkeys } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import {
@@ -32,7 +32,7 @@ interface HeaderProps {
 
 export const Header = React.memo(
   ({ onRefreshAll, onToggleNavbar, navbarOpened = false, onOpenSettings, refreshing = false }: HeaderProps) => {
-    const { mode } = useRefresh()
+    useRefresh()
     const [isMacOS, setIsMacOS] = useState<boolean | null>(null)
     const { isMobile } = useIsMobile()
 
@@ -149,10 +149,6 @@ export const Header = React.memo(
             </Group>
 
             <Group gap="sm" wrap="nowrap">
-              <Badge color={mode === 'active' ? 'blue' : 'gray'} variant="dot" size="md" fw={500} visibleFrom="sm">
-                {mode === 'active' ? 'Auto-refresh' : 'Idle'}
-              </Badge>
-
               {requiresPassword && (
                 <Tooltip
                   label={

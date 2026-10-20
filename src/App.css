@@ -71,6 +71,14 @@ select {
   background-color: transparent;
 }
 
+.status-tone {
+  color: var(--status-light);
+}
+
+[data-mantine-color-scheme="dark"] .status-tone {
+  color: var(--status-dark);
+}
+
 .nav-item-actions {
   opacity: 0;
   padding-inline-end: var(--mantine-spacing-xs);

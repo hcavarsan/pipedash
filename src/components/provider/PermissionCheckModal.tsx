@@ -83,8 +83,7 @@ export const PermissionCheckModal = ({
                       <Tooltip label={check.granted ? 'Permission granted' : 'Permission not granted'}>
                         <ThemeIcon
                           size="sm"
-                          radius="xl"
-                          variant="light"
+                          variant="transparent"
                           color={check.granted ? 'green' : 'red'}
                           aria-label={check.granted ? 'Permission granted' : 'Permission not granted'}
                         >

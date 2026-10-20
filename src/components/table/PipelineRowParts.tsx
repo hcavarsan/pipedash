@@ -1,10 +1,10 @@
-import { ActionIcon, Badge, Group, Loader, Text, Tooltip } from '@mantine/core'
+import { ActionIcon, Group, Loader, Text, Tooltip } from '@mantine/core'
 import { IconAlertTriangle, IconChartLine, IconPin, IconPinFilled, IconPlayerPlayFilled } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import type { Pipeline, PipelineStatus } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
-import { TableCells } from '../../utils/tableCells'
+import { StatusBadge } from '../atoms/StatusBadge'
 
 interface SectionHeadingProps {
   id?: string
@@ -20,9 +20,9 @@ export function SectionHeading({ id, icon, label, count }: SectionHeadingProps) 
       <Text id={id} size="sm" fw={600}>
         {label}
       </Text>
-      <Badge variant="light" color="gray" size="sm">
+      <Text size="sm" c="dimmed">
         {count}
-      </Badge>
+      </Text>
     </Group>
   )
 }
@@ -60,7 +60,9 @@ export function RowStatus({ row }: { row: TableRow }) {
 
   return (
     <Tooltip label={`${prefix}Last activity: ${lastActivity}`}>
-      <div>{TableCells.status(row.status)}</div>
+      <span>
+        <StatusBadge status={row.status} />
+      </span>
     </Tooltip>
   )
 }

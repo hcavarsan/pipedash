@@ -15,7 +15,7 @@ const initials = (name: string) => {
 
 export const ProviderIcon = ({ name, icon, size, failed = false }: ProviderIconProps) => (
   <Indicator color="red" size={Math.max(8, size / 3)} offset={1} withBorder disabled={!failed}>
-    <ThemeIcon size={size} radius="sm" variant="light" color="gray" aria-hidden>
+    <ThemeIcon size={size} variant="transparent" color="gray" aria-hidden>
       {icon ? (
         <Image src={icon} alt="" w={size * 0.65} h={size * 0.65} fit="contain" />
       ) : (

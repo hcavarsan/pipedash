@@ -25,7 +25,6 @@ import { mostSevereStatus } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { getDateRangeStart } from '../../utils/dateRange'
-import { formatCount } from '../../utils/formatCount'
 import { TableCells } from '../../utils/tableCells'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
@@ -538,14 +537,7 @@ export const UnifiedPipelinesView = ({
 
   return (
     <PageContainer>
-      <PageHeader
-        title={title}
-        badge={
-          pinnedView
-            ? formatCount(pinnedPipelines.length, 'workflow')
-            : formatCount(repoGroups.length, 'repository', 'repositories')
-        }
-      />
+      <PageHeader title={title} />
 
       <FilterBar
         filters={{

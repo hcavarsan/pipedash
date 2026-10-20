@@ -12,7 +12,7 @@ export function EmptyState({ title, description, icon, action }: EmptyStateProps
   return (
     <Stack align="center" gap="xs" py="xl" px="md" ta="center">
       {icon && (
-        <ThemeIcon variant="light" color="gray" size={48} radius="xl" aria-hidden>
+        <ThemeIcon variant="transparent" color="gray" size={48} aria-hidden>
           {icon}
         </ThemeIcon>
       )}

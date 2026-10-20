@@ -12,7 +12,7 @@ export const useFactoryResetConfirm = (onReset?: () => Promise<void> | void) => 
     modals.openConfirmModal({
       title: (
         <Group gap="xs">
-          <ThemeIcon color="red" variant="light" size="md">
+          <ThemeIcon color="red" variant="transparent" size="md">
             <IconAlertTriangle size={16} />
           </ThemeIcon>
           <Text fw={600}>Factory reset</Text>

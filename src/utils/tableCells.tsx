@@ -1,4 +1,4 @@
-import { Badge, Code, Group, Text } from '@mantine/core'
+import { Code, Group, Text } from '@mantine/core'
 
 import { CopyButton } from '../components/atoms/CopyButton'
 import { ProviderIcon } from '../components/atoms/ProviderIcon'
@@ -21,24 +21,12 @@ const TABLE_CELL_STYLES = {
       dimmed: 'dimmed' as const,
     },
   },
-  badge: {
-    size: 'md' as const,
-    variant: 'light' as const,
-  },
-  icon: {
-    size: 18,
-    actionSize: 16,
-  },
   spacing: {
     gap: 8,
   },
   code: {
     size: 'sm' as const,
     weight: 500,
-  },
-  avatar: {
-    size: 20,
-    radius: 'xs' as const,
   },
 } as const
 
@@ -87,13 +75,7 @@ export const TableCells = {
     </TruncatedText>
   ),
 
-  status: (status: PipelineStatus, withIcon = false) => <StatusBadge status={status} size="sm" withIcon={withIcon} />,
-
-  countBadge: (count: number) => (
-    <Badge variant={TABLE_CELL_STYLES.badge.variant} color="gray" size={TABLE_CELL_STYLES.badge.size} fw={500}>
-      {count}
-    </Badge>
-  ),
+  status: (status: PipelineStatus) => <StatusBadge status={status} />,
 
   commit: (sha: string | null | undefined) =>
     sha ? (

@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Box, Group, Stack, Text, Title } from '@mantine/core'
+import { ActionIcon, Box, Group, Stack, Text, Title } from '@mantine/core'
 import { IconArrowLeft } from '@tabler/icons-react'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -6,13 +6,12 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 interface PageHeaderProps {
   title: React.ReactNode
   subtitle?: string
-  badge?: string
   onBack?: () => void
   backLabel?: string
   actions?: React.ReactNode
 }
 
-export const PageHeader = ({ title, subtitle, badge, onBack, backLabel = 'Back', actions }: PageHeaderProps) => {
+export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', actions }: PageHeaderProps) => {
   const { isMobile } = useIsMobile()
 
   return (
@@ -31,16 +30,9 @@ export const PageHeader = ({ title, subtitle, badge, onBack, backLabel = 'Back',
             </ActionIcon>
           )}
           <Stack gap={2} flex={1} miw={0}>
-            <Group gap="xs" align="center" wrap="nowrap">
-              <Title order={2} fw={600} size={isMobile ? 'h5' : 'h4'} lineClamp={1} miw={0}>
-                {title}
-              </Title>
-              {badge && (
-                <Badge variant="light" color="gray" size={isMobile ? 'xs' : 'sm'} fw={500}>
-                  {badge}
-                </Badge>
-              )}
-            </Group>
+            <Title order={2} fw={600} size={isMobile ? 'h5' : 'h4'} lineClamp={1} miw={0}>
+              {title}
+            </Title>
             {subtitle && (
               <Text size="xs" c="dimmed">
                 {subtitle}

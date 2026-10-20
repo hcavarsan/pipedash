@@ -44,7 +44,7 @@ function BoundaryFallback({ scope, name, error, componentStack, onRetry }: Bound
     <Center mih={SCOPE_MIN_HEIGHT[scope]} p="xl" role="alert">
       <Paper withBorder p="xl" maw={500} w="100%">
         <Stack align="center" gap="md">
-          <ThemeIcon variant="light" color="red" size="xl">
+          <ThemeIcon variant="transparent" color="red" size="xl">
             <IconAlertTriangle size={24} aria-hidden />
           </ThemeIcon>
           <Stack align="center" gap="xs">

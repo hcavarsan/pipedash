@@ -175,7 +175,7 @@ export const WorkflowLogsModal = ({
 
   const renderValue = (field: DetailField, value: unknown) => {
     if (field.id === 'status' && isPipelineStatus(value)) {
-      return <StatusBadge status={value} size="md" withIcon />
+      return <StatusBadge status={value} size="md" />
     }
 
     if (field.id === 'run_number') {

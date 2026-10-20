@@ -2,7 +2,7 @@ import { Card, Group, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/c
 
 import type { Pipeline, ProviderSummary } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
-import { StatusBadge } from '../atoms/StatusBadge'
+import { StatusIcon } from '../atoms/StatusBadge'
 
 import { WorkflowActions } from './PipelineRowParts'
 
@@ -42,7 +42,7 @@ export function PinnedWorkflows({
                   {pipeline.repository}
                 </Text>
               </UnstyledButton>
-              <StatusBadge status={pipeline.status} />
+              <StatusIcon status={pipeline.status} />
             </Group>
 
             <Group justify="space-between" wrap="nowrap" gap="sm">

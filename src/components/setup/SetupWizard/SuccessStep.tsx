@@ -49,7 +49,7 @@ export function SuccessStep({
 
   return (
     <Stack gap="md" align="center" py="xl">
-      <ThemeIcon size={56} radius="xl" variant="light" color="green">
+      <ThemeIcon size={56} variant="transparent" color="green">
         <IconCheck size={28} />
       </ThemeIcon>
 

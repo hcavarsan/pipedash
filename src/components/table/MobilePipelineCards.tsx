@@ -6,13 +6,7 @@ import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, ProviderSummary } from '../../types'
 import { TableCells } from '../../utils/tableCells'
 
-import {
-  type ProviderFetchError,
-  RepositoryFetchIndicator,
-  RowStatus,
-  type TableRow,
-  WorkflowActions,
-} from './PipelineRowParts'
+import { type ProviderFetchError, RepositoryFetchIndicator, type TableRow, WorkflowActions } from './PipelineRowParts'
 
 interface MobilePipelineCardsProps {
   rows: TableRow[]
@@ -89,7 +83,7 @@ export function MobilePipelineCards({
                           {row.name}
                         </Text>
                       </Group>
-                      <RowStatus row={row} />
+                      {row.status && TableCells.status(row.status)}
                     </Group>
 
                     <Group gap="md" wrap="wrap">
@@ -130,7 +124,7 @@ export function MobilePipelineCards({
                         {row.name}
                       </Text>
                     </Group>
-                    <RowStatus row={row} />
+                    {row.status && TableCells.status(row.status)}
                   </Group>
 
                   <Group gap="md" wrap="wrap">

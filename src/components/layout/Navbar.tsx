@@ -42,7 +42,7 @@ const providerStatusText = (provider: ProviderSummary) =>
 const ICON_TILE = { rail: 30, list: 28 } as const
 
 const NavTile = ({ icon: Icon, size }: { icon: typeof IconStack2; size: number }) => (
-  <ThemeIcon size={size} radius="sm" variant="light" color="gray" aria-hidden>
+  <ThemeIcon size={size} variant="transparent" color="gray" aria-hidden>
     <Icon size={size * 0.6} />
   </ThemeIcon>
 )
