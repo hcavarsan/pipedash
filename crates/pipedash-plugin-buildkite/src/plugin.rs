@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{
+    BTreeSet,
+    HashMap,
+};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -118,18 +121,18 @@ impl Plugin for BuildkitePlugin {
             .provider_id
             .ok_or_else(|| PluginError::Internal("Provider ID not set".to_string()))?;
 
-        let (org, pipeline_slugs) = config::parse_selected_items(&self.config)?;
+        let pipelines = config::parse_selected_items(&self.config)?;
 
-        if pipeline_slugs.is_empty() {
+        if pipelines.is_empty() {
             return Err(PluginError::InvalidConfig(
                 "No pipelines configured".to_string(),
             ));
         }
 
         let client = self.client()?;
-        let futures = pipeline_slugs
+        let futures = pipelines
             .into_iter()
-            .map(|slug| client.fetch_pipeline(provider_id, org.clone(), slug));
+            .map(|(org, slug)| client.fetch_pipeline(provider_id, org, slug));
 
         let results = join_all(futures).await;
 
@@ -250,23 +253,30 @@ impl Plugin for BuildkitePlugin {
     }
 
     async fn fetch_agents(&self) -> PluginResult<Vec<BuildAgent>> {
-        let (org, _) = config::parse_selected_items(&self.config)?;
+        let orgs: BTreeSet<String> = config::parse_selected_items(&self.config)?
+            .into_iter()
+            .map(|(org, _)| org)
+            .collect();
 
         let client = self.client()?;
-        let agents = client.fetch_agents(&org).await?;
+        let mut agents = Vec::new();
+        for org in orgs {
+            agents.extend(client.fetch_agents(&org).await?);
+        }
 
         Ok(agents.into_iter().map(mapper::map_agent).collect())
     }
 
     async fn fetch_artifacts(&self, run_id: &str) -> PluginResult<Vec<BuildArtifact>> {
-        let (org, _) = config::parse_selected_items(&self.config)?;
-
-        let build_id = run_id
-            .strip_prefix("buildkite-build-")
-            .ok_or_else(|| PluginError::InvalidConfig(format!("Invalid run ID: {run_id}")))?;
+        let parts: Vec<&str> = run_id.split("__").collect();
+        let [_, _, org, _, build_id] = parts.as_slice() else {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid run ID: {run_id}"
+            )));
+        };
 
         let client = self.client()?;
-        let artifacts = client.fetch_artifacts(&org, build_id).await?;
+        let artifacts = client.fetch_artifacts(org, build_id).await?;
 
         Ok(artifacts
             .into_iter()

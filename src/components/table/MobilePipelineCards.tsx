@@ -10,6 +10,7 @@ interface TableRow {
   type: 'repository' | 'workflow' | 'pinned-header'
   parentId?: string
   pinned?: boolean
+  pinKey?: string
   repository?: string
   repositoryFullName?: string
   organization?: string
@@ -28,8 +29,8 @@ interface MobilePipelineCardsProps {
   parseRepositoryName: (fullName: string, providerId: number) => { organization: string; repository: string }
   onViewHistory: (pipeline: Pipeline) => void
   onTrigger: (pipeline: Pipeline) => void
-  pinnedIds: string[]
-  onTogglePin: (pipelineId: string) => void
+  pinnedKeys: string[]
+  onTogglePin: (pinKey: string) => void
   onViewMetrics?: (pipeline: Pipeline) => void
 }
 
@@ -42,7 +43,7 @@ export function MobilePipelineCards({
   parseRepositoryName,
   onViewHistory,
   onTrigger,
-  pinnedIds,
+  pinnedKeys,
   onTogglePin,
   onViewMetrics,
 }: MobilePipelineCardsProps) {
@@ -166,7 +167,7 @@ return (
                 <Text size={THEME_TYPOGRAPHY.ITEM_TITLE.size} fw={THEME_TYPOGRAPHY.ITEM_TITLE.weight}>Pinned workflows</Text>
               </Group>
             )
-          } else if (row.type === 'workflow' && row.pipeline) {
+          } else if (row.type === 'workflow' && row.pipeline && row.pinKey) {
             const provider = getProvider(row.pipeline.provider_id)
             const { organization } = parseRepositoryName(row.pipeline.repository, row.pipeline.provider_id)
 
@@ -200,12 +201,12 @@ return (
                         size="md"
                         onClick={(e) => {
                           e.stopPropagation()
-                          onTogglePin(row.pipeline!.id)
+                          onTogglePin(row.pinKey!)
                         }}
                         title={row.pinned ? 'Unpin workflow' : 'Pin workflow'}
                         aria-label={row.pinned ? 'Unpin workflow' : 'Pin workflow'}
                       >
-                        {pinnedIds.includes(row.pipeline.id) ? <IconPinFilled size={18} /> : <IconPin size={18} />}
+                        {pinnedKeys.includes(row.pinKey) ? <IconPinFilled size={18} /> : <IconPin size={18} />}
                       </ActionIcon>
                       {onViewMetrics && (
                         <ActionIcon

@@ -433,7 +433,7 @@ pub(crate) fn build_to_pipeline_run(build: types::Build, pipeline_id: &str) -> P
     let inputs = Some(serde_json::Value::Object(inputs_map));
 
     PipelineRun {
-        id: format!("buildkite-build-{}", build.id),
+        id: format!("{pipeline_id}__{}", build.id),
         pipeline_id: pipeline_id.to_string(),
         run_number: build.number,
         status,

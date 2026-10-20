@@ -9,7 +9,7 @@ import { IconAlertCircle, IconAlertTriangle, IconChartLine, IconChevronRight, Ic
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { usePipelineFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
-import { usePinnedStore } from '../../stores/pinnedStore'
+import { pinKey, usePinnedStore } from '../../stores/pinnedStore'
 import type { Pipeline, ProviderSummary } from '../../types'
 import { THEME_COLORS, THEME_TYPOGRAPHY } from '../../utils/dynamicRenderers'
 import { TableCells } from '../../utils/tableCells'
@@ -27,6 +27,7 @@ interface TableRow {
   type: TableRowType;
   parentId?: string;
   pinned?: boolean;
+  pinKey?: string;
 
   repository?: string;
   repositoryFullName?: string;
@@ -68,7 +69,7 @@ export const UnifiedPipelinesView = ({
   const { filters, setFilter, clearFilters } = usePipelineFilters()
   const { search, status: statusFilter, provider: providerFilter, organization: organizationFilter, dateRange } = filters
 
-  const pinnedIds = usePinnedStore((s) => s.pinnedIds)
+  const pinnedKeys = usePinnedStore((s) => s.pinnedKeys)
   const togglePin = usePinnedStore((s) => s.togglePin)
 
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set())
@@ -140,6 +141,7 @@ return {
   const tableRows = useMemo(() => {
     const rows: TableRow[] = []
     const validPipelines = new Map<string, Pipeline>()
+    const pinKeys = new Map<string, string>()
     const repoMap = new Map<string, {
       pipelines: Pipeline[];
       providerIds: Set<number>;
@@ -196,7 +198,10 @@ return
         return
       }
 
-      validPipelines.set(pipeline.id, pipeline)
+      const key = pinKey(pipeline, provider.name)
+
+      validPipelines.set(key, pipeline)
+      pinKeys.set(pipeline.id, key)
 
       const existing = repoMap.get(pipeline.repository)
 
@@ -249,14 +254,15 @@ return
       }
     })
 
-    pinnedIds.forEach((pipelineId) => {
-      const pipeline = validPipelines.get(pipelineId)
+    pinnedKeys.forEach((key) => {
+      const pipeline = validPipelines.get(key)
 
       if (pipeline) {
         rows.push({
           id: `pinned-${pipeline.id}`,
           type: 'workflow',
           pinned: true,
+          pinKey: key,
           parentId: `repo-${pipeline.repository}`,
           organization: parseRepositoryName(pipeline.repository, pipeline.provider_id).organization,
           pipeline,
@@ -286,6 +292,7 @@ return
             id: `workflow-${pipeline.id}`,
             type: 'workflow',
             parentId: repoId,
+            pinKey: pinKeys.get(pipeline.id),
             pipeline,
           })
         })
@@ -293,7 +300,7 @@ return
     })
 
     return rows
-  }, [pipelines, expandedRepos, providers, selectedProviderId, pinnedIds, getProvider, parseRepositoryName])
+  }, [pipelines, expandedRepos, providers, selectedProviderId, pinnedKeys, getProvider, parseRepositoryName])
 
   const filteredRows = useMemo(() => {
     let result = tableRows
@@ -572,7 +579,7 @@ return Array.from(providerIdSet)
           parseRepositoryName={parseRepositoryName}
           onViewHistory={onViewHistory}
           onTrigger={onTrigger}
-          pinnedIds={pinnedIds}
+          pinnedKeys={pinnedKeys}
           onTogglePin={togglePin}
           onViewMetrics={onViewMetrics}
         />
@@ -829,7 +836,7 @@ return provider?.last_fetch_status === 'never'
                 }
 
                 return null
-              } else if (row.type === 'workflow' && row.pipeline) {
+              } else if (row.type === 'workflow' && row.pipeline && row.pinKey) {
                 return (
                   <Box style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
                     <Tooltip label={row.pinned ? 'Unpin workflow' : 'Pin workflow'} withArrow>
@@ -839,11 +846,11 @@ return provider?.last_fetch_status === 'never'
                         size="md"
                         onClick={(e) => {
                           e.stopPropagation()
-                          togglePin(row.pipeline!.id)
+                          togglePin(row.pinKey!)
                         }}
                         aria-label={row.pinned ? 'Unpin workflow' : 'Pin workflow'}
                       >
-                        {pinnedIds.includes(row.pipeline.id) ? <IconPinFilled size={18} /> : <IconPin size={18} />}
+                        {pinnedKeys.includes(row.pinKey) ? <IconPinFilled size={18} /> : <IconPin size={18} />}
                       </ActionIcon>
                     </Tooltip>
                     {onViewMetrics && (

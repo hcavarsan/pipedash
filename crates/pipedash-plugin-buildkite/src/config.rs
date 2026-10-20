@@ -7,14 +7,13 @@ use pipedash_plugin_api::{
 
 pub(crate) fn parse_selected_items(
     config: &HashMap<String, String>,
-) -> PluginResult<(String, Vec<String>)> {
+) -> PluginResult<Vec<(String, String)>> {
     let selected_items = config
         .get("selected_items")
         .or_else(|| config.get("pipelines")) // Fallback for backward compatibility
         .ok_or_else(|| PluginError::InvalidConfig("No pipelines selected".to_string()))?;
 
-    let mut organizations: HashMap<String, i32> = HashMap::new();
-    let mut pipeline_slugs = Vec::new();
+    let mut pipelines = Vec::new();
 
     for item in selected_items.split(',') {
         let trimmed = item.trim();
@@ -24,25 +23,20 @@ pub(crate) fn parse_selected_items(
 
         let parts: Vec<&str> = trimmed.split('/').collect();
         match parts.as_slice() {
-            [org, slug] => {
-                *organizations.entry(org.to_string()).or_insert(0) += 1;
-                pipeline_slugs.push(slug.to_string());
+            [org, slug] => pipelines.push((org.to_string(), slug.to_string())),
+            [slug] => {
+                let org = config.get("organization").cloned().ok_or_else(|| {
+                    PluginError::InvalidConfig(format!(
+                        "Could not determine organization of pipeline {slug}"
+                    ))
+                })?;
+                pipelines.push((org, slug.to_string()));
             }
-            [slug] => pipeline_slugs.push(slug.to_string()),
             _ => {}
         }
     }
 
-    let organization = organizations
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .map(|(org, _)| org)
-        .or_else(|| config.get("organization").cloned()) // Fallback
-        .ok_or_else(|| {
-            PluginError::InvalidConfig("Could not determine organization".to_string())
-        })?;
-
-    Ok((organization, pipeline_slugs))
+    Ok(pipelines)
 }
 
 pub(crate) fn parse_repository_name(repo_url: &str) -> String {
@@ -86,13 +80,19 @@ mod tests {
     }
 
     #[test]
-    fn selected_items_carry_the_organization() {
-        let config: HashMap<String, String> =
-            serde_json::from_str(r#"{"token":"test","selected_items":"acme/backend,acme/web"}"#)
-                .unwrap();
-        let (org, slugs) = parse_selected_items(&config).unwrap();
-        assert_eq!(org, "acme");
-        assert_eq!(slugs, vec!["backend", "web"]);
+    fn selected_items_carry_their_organization() {
+        let config: HashMap<String, String> = serde_json::from_str(
+            r#"{"token":"test","selected_items":"acme/backend,acme/web,other/deploy"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parse_selected_items(&config).unwrap(),
+            vec![
+                ("acme".to_string(), "backend".to_string()),
+                ("acme".to_string(), "web".to_string()),
+                ("other".to_string(), "deploy".to_string()),
+            ]
+        );
     }
 
     #[test]
@@ -101,9 +101,13 @@ mod tests {
             r#"{"organization":"mycompany","selected_items":"deploy-pipeline,test-pipeline"}"#,
         )
         .unwrap();
-        let (org, slugs) = parse_selected_items(&config).unwrap();
-        assert_eq!(org, "mycompany");
-        assert_eq!(slugs, vec!["deploy-pipeline", "test-pipeline"]);
+        assert_eq!(
+            parse_selected_items(&config).unwrap(),
+            vec![
+                ("mycompany".to_string(), "deploy-pipeline".to_string()),
+                ("mycompany".to_string(), "test-pipeline".to_string()),
+            ]
+        );
     }
 
     #[test]
