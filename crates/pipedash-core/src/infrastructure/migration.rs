@@ -634,9 +634,7 @@ impl MigrationOrchestrator {
                             .find(|p| p.name == source_provider.name)
                         {
                             if let Some(target_id) = target_provider.id {
-                                if source_id != target_id {
-                                    result.provider_id_mapping.insert(source_id, target_id);
-                                }
+                                result.provider_id_mapping.insert(source_id, target_id);
                             }
                         }
                     }
@@ -914,5 +912,76 @@ mod tests {
         let summary = result.summary();
         assert!(summary.contains("5 providers"));
         assert!(summary.contains("10 cache entries"));
+    }
+
+    #[tokio::test]
+    async fn migrate_tokens_after_a_provider_was_deleted() {
+        let source_dir = TempDir::new().unwrap();
+        let target_dir = TempDir::new().unwrap();
+        let config_path = source_dir.path().join("config.toml");
+        std::fs::write(&config_path, "[storage]\nbackend = \"sqlite\"\n").unwrap();
+        std::env::set_var("PIPEDASH_CONFIG_PATH", &config_path);
+
+        let mut source = PipedashConfig::default();
+        source.storage.data_dir = source_dir.path().to_string_lossy().to_string();
+        source.storage.vault_password = Some("test-password".to_string());
+        let mut target = source.clone();
+        target.storage.data_dir = target_dir.path().to_string_lossy().to_string();
+
+        let manager = StorageManager::from_config(source, false).await.unwrap();
+        let backend = manager.config_backend();
+        let tokens = manager.token_store().await;
+        let mut ids = Vec::new();
+        for name in ["a", "b", "c"] {
+            let provider = ProviderConfig {
+                id: None,
+                name: name.to_string(),
+                provider_type: "github".to_string(),
+                token: String::new(),
+                config: HashMap::new(),
+                refresh_interval: 30,
+                version: None,
+            };
+            ids.push(backend.create_provider(&provider).await.unwrap());
+        }
+        backend.delete_provider(ids[1]).await.unwrap();
+        tokens.store_token(ids[0], "tok-a").await.unwrap();
+        tokens.store_token(ids[2], "tok-c").await.unwrap();
+
+        let orchestrator = MigrationOrchestrator::from_manager(&manager, None, None).await;
+        let options = MigrationOptions {
+            migrate_tokens: true,
+            token_password: Some("test-password".to_string()),
+            ..Default::default()
+        };
+        let plan = orchestrator
+            .plan_migration(target.clone(), &options)
+            .unwrap();
+        let result = orchestrator.execute_migration(plan, options, false).await;
+        assert!(result.success, "{:?}", result.errors);
+
+        let target_manager = StorageManager::from_config(target, false).await.unwrap();
+        let mut migrated = HashMap::new();
+        for provider in target_manager
+            .config_backend()
+            .list_providers()
+            .await
+            .unwrap()
+        {
+            let token = target_manager
+                .token_store()
+                .await
+                .get_token(provider.id.unwrap())
+                .await
+                .unwrap();
+            migrated.insert(provider.name, token);
+        }
+        assert_eq!(
+            migrated,
+            HashMap::from([
+                ("a".to_string(), "tok-a".to_string()),
+                ("c".to_string(), "tok-c".to_string()),
+            ])
+        );
     }
 }
