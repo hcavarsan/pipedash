@@ -73,6 +73,8 @@ You can store pipeline data in SQLite or PostgreSQL on both desktop and web. Swi
 
 When `PIPEDASH_VAULT_PASSWORD` is set, Pipedash requires authentication for API requests. The vault password serves dual purpose: encrypting your provider tokens AND securing API access. All requests must include the header `Authorization: Bearer <vault_password>`. If the env var is not set, the API remains open (suitable for local use or behind a VPN).
 
+The API server also rejects `POST`, `PUT`, `PATCH`, and `DELETE` requests that a browser sends from another origin, so other sites can't change your instance through your browser. Requests without an `Origin` header, such as `curl` or scripts, are not affected. Set `PIPEDASH_CORS_ALLOW_ALL=true` to turn this check off when you serve the frontend from a different origin.
+
 ## Deployment options
 
 You can run Pipedash in three ways:
@@ -300,7 +302,7 @@ The API server serves the frontend directly (it's embedded in the binary). A sin
 | `PIPEDASH_BIND_ADDR` | `127.0.0.1:8080` | API server bind address. Overrides `server.bind_addr` in the config file |
 | `PIPEDASH_VAULT_PASSWORD` | Auto-generated | Password for encrypted token storage and API authentication |
 | `PIPEDASH_EMBEDDED_FRONTEND` | `true` | Serve frontend from API binary |
-| `PIPEDASH_CORS_ALLOW_ALL` | `false` | Allow cross-origin API requests from any site. Overrides `server.cors_allow_all` in the config file |
+| `PIPEDASH_CORS_ALLOW_ALL` | `false` | Allow cross-origin API requests, including writes, from any site. Overrides `server.cors_allow_all` in the config file |
 | `PIPEDASH_CONFIG_PATH` | Auto-discovered | Path to TOML configuration file |
 | `PIPEDASH_POSTGRES_URL` | – | PostgreSQL connection string |
 | `RUST_LOG` | `info` | Log level (debug, info, warn, error) |
