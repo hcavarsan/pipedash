@@ -4274,7 +4274,6 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
- "dirs 7.0.0",
  "futures-util",
  "mime_guess",
  "pipedash-core",

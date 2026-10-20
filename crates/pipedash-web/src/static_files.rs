@@ -16,7 +16,7 @@ use rust_embed::Embed;
 const INDEX_HTML: &str = "index.html";
 
 #[derive(Embed)]
-#[folder = "../../dist/"]
+#[folder = "dist/"]
 pub struct StaticAssets;
 
 pub async fn serve_static(uri: Uri) -> impl IntoResponse {

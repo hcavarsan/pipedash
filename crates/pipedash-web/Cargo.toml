@@ -6,6 +6,7 @@ edition.workspace = true
 description = "REST API server for Pipedash"
 repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
+include = ["build.rs", "dist/**", "src/**"]
 
 [[bin]]
 name = "pipedash-web"
@@ -21,7 +22,6 @@ axum = { workspace = true, features = ["macros", "ws"] }
 # Chrono for timestamps
 chrono.workspace = true
 # Configuration
-dirs.workspace = true
 futures-util.workspace = true
 mime_guess.workspace = true
 # Core

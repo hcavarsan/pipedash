@@ -8,7 +8,6 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-*/dist/assets/**
 *.local
 
 # Editor directories and files
@@ -23,8 +22,7 @@ node_modules
 *.sw?
 */target/*
 target/*
-dist/*
-!dist/.gitkeep
+crates/pipedash-web/dist/
 crates/kftray-tauri/bin/*
 !crates/kftray-tauri/bin/.gitkeep
 bin/*
@@ -49,4 +47,3 @@ cert.sh
 cert_gen.sh
 certificate-base64.txt
 DeveloperID_*
-dist

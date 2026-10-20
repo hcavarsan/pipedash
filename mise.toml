@@ -192,7 +192,7 @@ run = "docker compose -f examples/postgres/docker-compose.yml down -v"
 
 [tasks.clean]
 description = "Remove build artifacts"
-run = "cargo clean && rm -rf dist node_modules/.vite"
+run = "cargo clean && rm -rf crates/pipedash-web/dist node_modules/.vite"
 
 [tasks.knip]
 description = "Find unused code"

@@ -28,7 +28,7 @@ export default defineConfig({
             open: true,
             gzipSize: true,
             brotliSize: true,
-            filename: 'dist/stats.html',
+            filename: 'crates/pipedash-web/dist/stats.html',
           }),
         ]
       : []),
@@ -71,7 +71,7 @@ export default defineConfig({
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
 
   build: {
-    outDir: 'dist',
+    outDir: 'crates/pipedash-web/dist',
     emptyOutDir: false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
     rolldownOptions: {

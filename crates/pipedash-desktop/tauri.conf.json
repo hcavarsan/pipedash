@@ -17,7 +17,7 @@
     "beforeBuildCommand": "mise run build:front",
     "beforeDevCommand": "mise run dev:front",
     "devUrl": "http://localhost:1420",
-    "frontendDist": "../../dist"
+    "frontendDist": "../pipedash-web/dist"
   },
   "bundle": {
     "active": true,

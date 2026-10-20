@@ -344,6 +344,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev
 
+      - name: Install mise
+        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+        with:
+          install: false
+          cache: false
+
+      - name: Install mise tools
+        run: mise install
+
+      - name: Build frontend assets for pipedash-web
+        run: |
+          mise run install
+          mise run build:front
+
       # crates.io trusted-publishing tokens expire after 30 minutes and the full
       # publish takes longer, so each crate gets its own token.
       - name: Write publish helper
