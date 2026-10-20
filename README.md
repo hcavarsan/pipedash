@@ -51,6 +51,7 @@ What you can do:
 - Rerun previous executions with the same parameters
 - Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
 - Pin workflows to the top of the table with the pin icon on a workflow row. Pins stay in the desktop app or in your browser, so each person on a shared web instance keeps their own
+- Get a system notification when a refresh moves a pipeline to failed. Turn it on under Settings > General. It's off by default and set per device. In the web UI, browsers allow it only over HTTPS or on localhost
 - Add multiple instances of the same provider (e.g., two GitHub orgs)
 - Pick a dark, light, or system theme in Settings → General
 
@@ -71,6 +72,8 @@ You can store pipeline data in SQLite or PostgreSQL on both desktop and web. Swi
 **API Authentication** (web deployments)
 
 When `PIPEDASH_VAULT_PASSWORD` is set, or after you set a vault password in the setup wizard or unlock screen, Pipedash requires authentication for API requests. The vault password serves dual purpose: encrypting your provider tokens AND securing API access. All requests except health, setup, plugin list and vault status, including vault lock and unlock, must include the header `Authorization: Bearer <vault_password>`. Locking the vault or a failed unlock never turns authentication off. If no vault password was set, the API remains open (suitable for local use or behind a VPN).
+
+The API server also rejects `POST`, `PUT`, `PATCH`, and `DELETE` requests that a browser sends from another origin, so other sites can't change your instance through your browser. Requests without an `Origin` header, such as `curl` or scripts, are not affected. Set `PIPEDASH_CORS_ALLOW_ALL=true` to turn this check off when you serve the frontend from a different origin.
 
 ## Deployment options
 
@@ -299,7 +302,7 @@ The API server serves the frontend directly (it's embedded in the binary). A sin
 | `PIPEDASH_BIND_ADDR` | `127.0.0.1:8080` | API server bind address. Overrides `server.bind_addr` in the config file |
 | `PIPEDASH_VAULT_PASSWORD` | Auto-generated | Password for encrypted token storage and API authentication |
 | `PIPEDASH_EMBEDDED_FRONTEND` | `true` | Serve frontend from API binary |
-| `PIPEDASH_CORS_ALLOW_ALL` | `false` | Allow cross-origin API requests from any site. Overrides `server.cors_allow_all` in the config file |
+| `PIPEDASH_CORS_ALLOW_ALL` | `false` | Allow cross-origin API requests, including writes, from any site. Overrides `server.cors_allow_all` in the config file |
 | `PIPEDASH_CONFIG_PATH` | Auto-discovered | Path to TOML configuration file |
 | `PIPEDASH_POSTGRES_URL` | – | PostgreSQL connection string |
 | `RUST_LOG` | `info` | Log level (debug, info, warn, error) |
@@ -376,7 +379,7 @@ The `[server]` values are read when the API server starts. Until a config file e
 - [ ] Advanced filtering and search
 - [ ] Log viewing within the app (currently opens external links)
 - [ ] Build artifacts download
-- [ ] Build notifications
+- [x] Build notifications (failed pipelines)
 - [ ] Auto-updater for releases
 
 **CI/CD providers**

@@ -14,7 +14,12 @@ use axum::{
         State,
     },
     http::{
-        header::AUTHORIZATION,
+        header::{
+            AUTHORIZATION,
+            HOST,
+            ORIGIN,
+        },
+        Method,
         StatusCode,
     },
     middleware::Next,
@@ -112,6 +117,59 @@ fn app(state: AppState, enable_embedded_frontend: bool) -> Router {
             auth_middleware,
         ))
         .with_state(state)
+}
+
+fn is_cross_origin_write(req: &Request) -> bool {
+    if matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS) {
+        return false;
+    }
+
+    let headers = req.headers();
+    if let Some(site) = headers.get("sec-fetch-site") {
+        return !matches!(site.as_bytes(), b"same-origin" | b"none");
+    }
+
+    let Some(origin) = headers.get(ORIGIN) else {
+        return false;
+    };
+    let Some((origin_scheme, origin_host)) = origin.to_str().ok().and_then(|o| o.split_once("://"))
+    else {
+        return true;
+    };
+    let Some(host) = headers
+        .get(HOST)
+        .and_then(|h| h.to_str().ok())
+        .or_else(|| req.uri().authority().map(|a| a.as_str()))
+    else {
+        return true;
+    };
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|p| p.to_str().ok())
+        .and_then(|p| p.split(',').next())
+        .map_or("http", str::trim);
+    let default_port = if scheme.eq_ignore_ascii_case("https") {
+        ":443"
+    } else {
+        ":80"
+    };
+    let host = host.strip_suffix(default_port).unwrap_or(host);
+
+    !(origin_scheme.eq_ignore_ascii_case(scheme) && origin_host.eq_ignore_ascii_case(host))
+}
+
+async fn reject_cross_origin_writes(req: Request, next: Next) -> Result<Response, StatusCode> {
+    if is_cross_origin_write(&req) {
+        tracing::warn!(
+            method = %req.method(),
+            path = req.uri().path(),
+            origin = ?req.headers().get(ORIGIN),
+            "Rejected cross-origin request. Set PIPEDASH_CORS_ALLOW_ALL=true to allow other origins"
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    Ok(next.run(req).await)
 }
 
 fn env_flag(value: &str) -> bool {
@@ -273,7 +331,13 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let app = app(app_state, api_config.enable_embedded_frontend)
+    let mut app = app(app_state, api_config.enable_embedded_frontend);
+
+    if !api_config.cors_allow_all {
+        app = app.layer(axum::middleware::from_fn(reject_cross_origin_writes));
+    }
+
+    let app = app
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer(api_config.cors_allow_all));
 
@@ -538,5 +602,98 @@ mod tests {
         assert!(!response
             .headers()
             .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+    }
+
+    async fn factory_reset_status(method: Method, headers: &[(&str, &str)]) -> StatusCode {
+        let app = Router::new()
+            .route(
+                "/api/v1/factory-reset",
+                axum::routing::any(|| async { "ok" }),
+            )
+            .layer(axum::middleware::from_fn(reject_cross_origin_writes));
+        let mut request = axum::http::Request::builder()
+            .method(method)
+            .uri("/api/v1/factory-reset");
+        if !headers.iter().any(|(name, _)| *name == "host") {
+            request = request.header(header::HOST, "127.0.0.1:8080");
+        }
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+
+        app.oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status()
+    }
+
+    #[tokio::test]
+    async fn cross_origin_writes_are_forbidden() {
+        for headers in [
+            &[("origin", "http://127.0.0.1:8899")][..],
+            &[("origin", "null")],
+            &[("origin", "http://127.0.0.1:8080.attacker.example")],
+            &[
+                ("origin", "http://127.0.0.1:8899"),
+                ("sec-fetch-site", "same-site"),
+            ],
+            &[
+                ("origin", "http://127.0.0.1:8080"),
+                ("sec-fetch-site", "cross-site"),
+            ],
+            &[("origin", "https://127.0.0.1:8080")],
+            &[("origin", "https://example.com"), ("host", "example.com")],
+            &[
+                ("origin", "http://example.com"),
+                ("host", "example.com"),
+                ("x-forwarded-proto", "https"),
+            ],
+        ] {
+            assert_eq!(
+                factory_reset_status(Method::POST, headers).await,
+                StatusCode::FORBIDDEN,
+                "allowed {headers:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn same_origin_and_non_browser_writes_are_allowed() {
+        for headers in [
+            &[][..],
+            &[("origin", "http://127.0.0.1:8080")],
+            &[
+                ("origin", "http://localhost:1420"),
+                ("sec-fetch-site", "same-origin"),
+            ],
+            &[
+                ("origin", "https://pipedash.example.com"),
+                ("host", "pipedash.example.com"),
+                ("x-forwarded-proto", "https"),
+            ],
+            &[
+                ("origin", "https://pipedash.example.com"),
+                ("host", "pipedash.example.com:443"),
+                ("x-forwarded-proto", "https, http"),
+            ],
+        ] {
+            assert_eq!(
+                factory_reset_status(Method::POST, headers).await,
+                StatusCode::OK,
+                "rejected {headers:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn cross_origin_reads_are_allowed() {
+        let headers = [
+            ("origin", "http://127.0.0.1:8899"),
+            ("sec-fetch-site", "same-site"),
+        ];
+
+        for method in [Method::GET, Method::HEAD, Method::OPTIONS] {
+            assert_eq!(factory_reset_status(method, &headers).await, StatusCode::OK);
+        }
     }
 }
