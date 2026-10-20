@@ -211,6 +211,7 @@ impl MaybeCoreContext {
 
 use commands::{
     add_provider,
+    analyze_config,
     bootstrap_app,
     cancel_pipeline_run,
     check_database_exists,
@@ -615,6 +616,7 @@ pub fn run() {
             save_storage_config,
             get_config_content,
             save_config_content,
+            analyze_config,
             get_storage_paths,
             get_default_data_dir,
             get_effective_data_dir,
