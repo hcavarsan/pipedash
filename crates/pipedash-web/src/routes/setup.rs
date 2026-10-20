@@ -159,6 +159,9 @@ async fn create_initial_config(
         inner.config_error = None;
         inner.token_store_ready = token_store_ready;
     }
+    if let Some(password) = req.vault_password {
+        *state.api_token.write().await = Some(password);
+    }
 
     tracing::info!("Application state updated - setup complete!");
 

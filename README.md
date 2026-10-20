@@ -73,6 +73,8 @@ You can store pipeline data in SQLite or PostgreSQL on both desktop and web. Swi
 
 When `PIPEDASH_VAULT_PASSWORD` is set, Pipedash requires authentication for API requests. The vault password serves dual purpose: encrypting your provider tokens AND securing API access. All requests must include the header `Authorization: Bearer <vault_password>`. If the env var is not set, the API remains open (suitable for local use or behind a VPN).
 
+The first password that opens a vault stays bound to it, even before you add a provider and after a factory reset. Unlocking with another password fails, and locking or unlocking the vault needs the current bearer token.
+
 ## Deployment options
 
 You can run Pipedash in three ways:

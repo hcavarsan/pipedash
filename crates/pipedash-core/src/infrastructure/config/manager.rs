@@ -136,8 +136,22 @@ impl StorageManager {
     }
 
     pub async fn is_first_time_vault_setup(&self) -> DomainResult<bool> {
-        let providers = self.config_backend.list_providers().await?;
-        Ok(providers.is_empty())
+        use crate::infrastructure::database::DatabasePool;
+
+        const QUERY: &str = "SELECT 1 FROM vault_verifier";
+        let verifier = match &self.database_pool {
+            DatabasePool::Sqlite(pool) => sqlx::query(QUERY)
+                .fetch_optional(pool)
+                .await
+                .map(|r| r.is_some()),
+            DatabasePool::Postgres(pool) => sqlx::query(QUERY)
+                .fetch_optional(pool)
+                .await
+                .map(|r| r.is_some()),
+        }
+        .map_err(|e| DomainError::DatabaseError(format!("Failed to read vault verifier: {}", e)))?;
+
+        Ok(!verifier && self.config_backend.list_providers().await?.is_empty())
     }
 
     pub async fn unlock_vault(&self, password: &str) -> DomainResult<()> {

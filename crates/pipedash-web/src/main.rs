@@ -9,7 +9,10 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use axum::{
-    extract::Request,
+    extract::{
+        Request,
+        State,
+    },
     http::{
         header::AUTHORIZATION,
         StatusCode,
@@ -42,12 +45,6 @@ struct ApiServerConfig {
     enable_embedded_frontend: bool,
 }
 
-/// Get the current API auth token from environment variable.
-/// This is read dynamically to support vault unlock/lock operations.
-fn get_api_auth_token() -> Option<String> {
-    std::env::var("PIPEDASH_VAULT_PASSWORD").ok()
-}
-
 fn token_matches(provided: &str, expected: &str) -> bool {
     provided.as_bytes().ct_eq(expected.as_bytes()).into()
 }
@@ -69,34 +66,54 @@ fn cors_layer(allow_all: bool) -> CorsLayer {
     }
 }
 
-async fn auth_middleware(req: Request, next: Next) -> Result<Response, StatusCode> {
+async fn auth_middleware(
+    State(state): State<AppState>, req: Request, next: Next,
+) -> Result<Response, StatusCode> {
     let path = req.uri().path();
 
     if !path.starts_with("/api/v1/")
         || path.starts_with("/api/v1/health")
         || path.starts_with("/api/v1/setup")
-        || path.starts_with("/api/v1/vault")
+        || path == "/api/v1/vault/status"
         || path == "/api/v1/ws"
         || path == "/api/v1/plugins"
     {
         return Ok(next.run(req).await);
     }
 
-    let token = match get_api_auth_token() {
-        Some(t) => t,
-        None => return Ok(next.run(req).await),
+    let authorized = match state.api_token.read().await.as_deref() {
+        Some(token) => bearer_matches(
+            req.headers()
+                .get(AUTHORIZATION)
+                .and_then(|v| v.to_str().ok()),
+            token,
+        ),
+        None => true,
     };
 
-    let auth_header = req
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
-
-    if bearer_matches(auth_header, &token) {
+    if authorized {
         Ok(next.run(req).await)
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
+}
+
+fn app(state: AppState, config: &ApiServerConfig) -> Router {
+    Router::new()
+        .nest("/api/v1", routes::api_router())
+        .route("/api/v1/ws", axum::routing::get(ws::ws_handler))
+        .fallback(if config.enable_embedded_frontend {
+            axum::routing::get(static_files::serve_static)
+        } else {
+            axum::routing::get(|| async { axum::http::StatusCode::NOT_FOUND })
+        })
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .layer(TraceLayer::new_for_http())
+        .layer(cors_layer(config.cors_allow_all))
+        .with_state(state)
 }
 
 fn env_flag(value: &str) -> bool {
@@ -239,6 +256,8 @@ async fn main() -> anyhow::Result<()> {
         app_state
     };
 
+    *app_state.api_token.write().await = std::env::var("PIPEDASH_VAULT_PASSWORD").ok();
+
     let api_config = ApiServerConfig::resolve(file_server_config.as_ref())?;
 
     tracing::info!("Bind address: {}", api_config.bind_addr);
@@ -254,18 +273,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let app = Router::new()
-        .nest("/api/v1", routes::api_router())
-        .route("/api/v1/ws", axum::routing::get(ws::ws_handler))
-        .fallback(if api_config.enable_embedded_frontend {
-            axum::routing::get(static_files::serve_static)
-        } else {
-            axum::routing::get(|| async { axum::http::StatusCode::NOT_FOUND })
-        })
-        .layer(axum::middleware::from_fn(auth_middleware))
-        .layer(TraceLayer::new_for_http())
-        .layer(cors_layer(api_config.cors_allow_all))
-        .with_state(app_state);
+    let app = app(app_state, &api_config);
 
     tracing::info!("Listening on {}", api_config.bind_addr);
     let listener = tokio::net::TcpListener::bind(api_config.bind_addr).await?;
@@ -381,5 +389,115 @@ mod tests {
         assert!(!response
             .headers()
             .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+    }
+
+    async fn send(
+        app: &Router, method: &str, uri: &str, bearer: Option<&str>, body: Option<&str>,
+    ) -> (StatusCode, String) {
+        let mut request = axum::http::Request::builder().method(method).uri(uri);
+        if let Some(token) = bearer {
+            request = request.header(AUTHORIZATION, format!("Bearer {token}"));
+        }
+        if body.is_some() {
+            request = request.header(header::CONTENT_TYPE, "application/json");
+        }
+        let request = request
+            .body(body.map_or_else(Body::empty, |b| Body::from(b.to_owned())))
+            .unwrap();
+
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    #[tokio::test]
+    async fn vault_lock_and_unlock_cannot_replace_the_api_token() {
+        let data_dir =
+            std::env::temp_dir().join(format!("pipedash-vault-auth-{}", std::process::id()));
+        let mut config = pipedash_core::infrastructure::PipedashConfig::default();
+        config.storage.data_dir = data_dir.to_string_lossy().into_owned();
+        config.storage.vault_password = Some("operator-token".into());
+        let storage_manager = StorageManager::from_config(config, false).await.unwrap();
+        let event_bus = Arc::new(WebSocketEventBus::new());
+        let core = CoreContext::with_storage_manager(&storage_manager, event_bus.clone())
+            .await
+            .unwrap();
+        let state = AppState::initialized(event_bus, core, storage_manager);
+        state.inner.write().await.token_store_ready = true;
+        *state.api_token.write().await = Some("operator-token".into());
+        let app = app(
+            state,
+            &ApiServerConfig::from_sources(None, None, Some("false"), None).unwrap(),
+        );
+        let attacker_unlock = Some(r#"{"password":"attacker-token"}"#);
+
+        let lock = send(&app, "POST", "/api/v1/vault/lock", None, None).await;
+        let unlock = send(&app, "POST", "/api/v1/vault/unlock", None, attacker_unlock).await;
+        let operator = send(
+            &app,
+            "GET",
+            "/api/v1/providers",
+            Some("operator-token"),
+            None,
+        )
+        .await;
+        let attacker = send(
+            &app,
+            "GET",
+            "/api/v1/providers",
+            Some("attacker-token"),
+            None,
+        )
+        .await;
+
+        assert_eq!(lock.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(unlock.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(operator.0, StatusCode::OK);
+        assert_eq!(attacker.0, StatusCode::UNAUTHORIZED);
+
+        let lock = send(
+            &app,
+            "POST",
+            "/api/v1/vault/lock",
+            Some("operator-token"),
+            None,
+        )
+        .await;
+        let anonymous = send(&app, "GET", "/api/v1/providers", None, None).await;
+        let unlock = send(
+            &app,
+            "POST",
+            "/api/v1/vault/unlock",
+            Some("operator-token"),
+            attacker_unlock,
+        )
+        .await;
+        let operator = send(
+            &app,
+            "GET",
+            "/api/v1/providers",
+            Some("operator-token"),
+            None,
+        )
+        .await;
+        let attacker = send(
+            &app,
+            "GET",
+            "/api/v1/providers",
+            Some("attacker-token"),
+            None,
+        )
+        .await;
+        let _ = std::fs::remove_dir_all(&data_dir);
+
+        assert_eq!(lock.0, StatusCode::OK);
+        assert_eq!(anonymous.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(unlock.0, StatusCode::OK);
+        assert!(unlock.1.contains(r#""success":false"#), "{}", unlock.1);
+        assert_eq!(operator.0, StatusCode::OK);
+        assert_eq!(attacker.0, StatusCode::UNAUTHORIZED);
     }
 }

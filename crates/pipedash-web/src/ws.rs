@@ -23,12 +23,6 @@ use tokio::sync::broadcast;
 
 use crate::state::AppState;
 
-/// Get the current WebSocket auth token from environment variable.
-/// This is read dynamically to support vault unlock/lock operations.
-fn get_ws_auth_token() -> Option<String> {
-    std::env::var("PIPEDASH_VAULT_PASSWORD").ok()
-}
-
 #[derive(Deserialize)]
 struct AuthMessage {
     #[serde(rename = "type")]
@@ -75,7 +69,8 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> 
 async fn handle_socket(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
 
-    if let Some(expected_token) = get_ws_auth_token() {
+    let expected_token = state.api_token.read().await.clone();
+    if let Some(expected_token) = expected_token {
         match receiver.next().await {
             Some(Ok(Message::Text(text))) => {
                 if let Ok(auth) = serde_json::from_str::<AuthMessage>(&text) {

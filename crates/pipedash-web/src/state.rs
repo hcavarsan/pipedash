@@ -22,6 +22,7 @@ pub struct AppState {
     pub inner: Arc<RwLock<AppStateInner>>,
     pub ws_event_bus: Arc<WebSocketEventBus>,
     pub setup_lock: Arc<Mutex<()>>,
+    pub api_token: Arc<RwLock<Option<String>>>,
 }
 
 impl AppState {
@@ -36,6 +37,7 @@ impl AppState {
             })),
             ws_event_bus,
             setup_lock: Arc::default(),
+            api_token: Arc::default(),
         }
     }
 
@@ -50,6 +52,7 @@ impl AppState {
             })),
             ws_event_bus,
             setup_lock: Arc::default(),
+            api_token: Arc::default(),
         }
     }
 
@@ -66,6 +69,7 @@ impl AppState {
             })),
             ws_event_bus,
             setup_lock: Arc::default(),
+            api_token: Arc::default(),
         }
     }
 }

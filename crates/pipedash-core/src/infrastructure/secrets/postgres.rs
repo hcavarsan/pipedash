@@ -23,6 +23,7 @@ use crate::domain::{
 use crate::infrastructure::TokenStore;
 
 const BACKUP_KDF_SALT: &[u8] = b"pipedash-backup-salt-v1";
+const VAULT_VERIFIER: &str = "pipedash-vault-verifier-v1";
 
 pub struct PostgresTokenStore {
     pool: Pool<Postgres>,
@@ -54,9 +55,9 @@ impl PostgresTokenStore {
                 DomainError::DatabaseError(format!("Failed to connect to PostgreSQL: {}", e))
             })?;
 
-        let password = vault_password
-            .or_else(|| std::env::var("PIPEDASH_VAULT_PASSWORD").ok())
-            .unwrap_or_else(Self::generate_random_key);
+        let password = vault_password.or_else(|| std::env::var("PIPEDASH_VAULT_PASSWORD").ok());
+        let generated_key = password.is_none();
+        let password = password.unwrap_or_else(Self::generate_random_key);
 
         let encryption_key = Self::derive_encryption_key(&password);
 
@@ -66,7 +67,11 @@ impl PostgresTokenStore {
             cache: Arc::new(RwLock::new(HashMap::new())),
         };
 
+        let has_verifier = store.check_verifier().await?;
         store.load_to_cache().await?;
+        if !has_verifier && !generated_key {
+            store.store_verifier().await?;
+        }
 
         tracing::info!("PostgreSQL token store initialized");
 
@@ -144,6 +149,43 @@ impl PostgresTokenStore {
 
         String::from_utf8(plaintext)
             .map_err(|e| DomainError::DatabaseError(format!("Invalid UTF-8: {}", e)))
+    }
+
+    async fn check_verifier(&self) -> DomainResult<bool> {
+        let row = sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+            "SELECT nonce, ciphertext FROM vault_verifier WHERE id = 1",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::DatabaseError(format!("Failed to read vault verifier: {}", e)))?;
+
+        let Some((nonce, ciphertext)) = row else {
+            return Ok(false);
+        };
+
+        self.decrypt_token(&nonce, &ciphertext)
+            .await
+            .map_err(|_| DomainError::AuthenticationFailed("Wrong vault password".into()))?;
+        Ok(true)
+    }
+
+    async fn store_verifier(&self) -> DomainResult<()> {
+        let (nonce, ciphertext) = self.encrypt_token(VAULT_VERIFIER).await?;
+
+        sqlx::query(
+            "INSERT INTO vault_verifier (id, nonce, ciphertext) VALUES (1, $1, $2)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(&nonce)
+        .bind(&ciphertext)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            DomainError::DatabaseError(format!("Failed to store vault verifier: {}", e))
+        })?;
+
+        self.check_verifier().await?;
+        Ok(())
     }
 
     async fn load_to_cache(&self) -> DomainResult<()> {
@@ -377,10 +419,17 @@ mod tests {
         .await
         .expect("Failed to create test table");
 
-        sqlx::query("TRUNCATE TABLE encrypted_tokens")
+        sqlx::query(include_str!(
+            "../../../migrations/postgres/20261020000002_vault_verifier.sql"
+        ))
+        .execute(&pool)
+        .await
+        .expect("Failed to create vault verifier table");
+
+        sqlx::query("TRUNCATE TABLE encrypted_tokens, vault_verifier")
             .execute(&pool)
             .await
-            .expect("Failed to truncate test table");
+            .expect("Failed to truncate test tables");
 
         pool
     }
@@ -442,7 +491,7 @@ mod tests {
 
         let encrypted = store.export_encrypted("backup-password").await.unwrap();
 
-        sqlx::query("TRUNCATE TABLE encrypted_tokens")
+        sqlx::query("TRUNCATE TABLE encrypted_tokens, vault_verifier")
             .execute(&pool)
             .await
             .unwrap();
@@ -458,6 +507,28 @@ mod tests {
 
         assert_eq!(store2.get_token(1).await.unwrap(), "export-token");
         assert_eq!(store2.get_token(2).await.unwrap(), "export-token-2");
+
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires TEST_DATABASE_URL"]
+    async fn test_postgres_empty_vault_rejects_another_password() {
+        let pool = create_test_pool().await;
+        let connection_string = test_database_url();
+
+        PostgresTokenStore::new(&connection_string, Some("operator-password".to_string()))
+            .await
+            .unwrap();
+
+        let result =
+            PostgresTokenStore::new(&connection_string, Some("attacker-password".to_string()))
+                .await;
+
+        assert!(matches!(result, Err(DomainError::AuthenticationFailed(_))));
+        PostgresTokenStore::new(&connection_string, Some("operator-password".to_string()))
+            .await
+            .unwrap();
 
         pool.close().await;
     }
