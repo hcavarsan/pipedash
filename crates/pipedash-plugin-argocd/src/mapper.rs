@@ -65,6 +65,8 @@ pub(crate) fn map_application_to_pipeline(
         .and_then(|op| op.finished_at)
         .or(app.metadata.creation_timestamp);
 
+    let source = app.spec.primary_source();
+
     let mut metadata = HashMap::new();
     metadata.insert(
         "sync_status".to_string(),
@@ -76,19 +78,16 @@ pub(crate) fn map_application_to_pipeline(
     );
     metadata.insert(
         "destination_cluster".to_string(),
-        serde_json::json!(app.spec.destination.server),
+        serde_json::json!(app.spec.destination.cluster()),
     );
     metadata.insert(
         "destination_namespace".to_string(),
         serde_json::json!(app.spec.destination.namespace),
     );
-    metadata.insert(
-        "repo_url".to_string(),
-        serde_json::json!(app.spec.source.repo_url),
-    );
+    metadata.insert("repo_url".to_string(), serde_json::json!(source.repo_url));
     metadata.insert(
         "target_revision".to_string(),
-        serde_json::json!(app.spec.source.target_revision),
+        serde_json::json!(source.target_revision),
     );
     metadata.insert(
         "auto_sync_enabled".to_string(),
@@ -122,7 +121,7 @@ pub(crate) fn map_application_to_pipeline(
 
     metadata.insert(
         "source_path".to_string(),
-        serde_json::json!(app.spec.source.path.as_deref().unwrap_or("/")),
+        serde_json::json!(source.path.as_deref().unwrap_or("/")),
     );
 
     if let Some(ref revision) = app.status.sync.revision {
@@ -173,9 +172,9 @@ pub(crate) fn map_application_to_pipeline(
         }
     }
 
-    let source_type = if app.spec.source.chart.is_some() {
+    let source_type = if source.chart.is_some() {
         "Helm"
-    } else if let Some(ref path) = app.spec.source.path {
+    } else if let Some(path) = &source.path {
         if path.to_lowercase().contains("kustomize") || path.ends_with("kustomization.yaml") {
             "Kustomize"
         } else {
@@ -186,7 +185,7 @@ pub(crate) fn map_application_to_pipeline(
     };
     metadata.insert("source_type".to_string(), serde_json::json!(source_type));
 
-    let repository = config::parse_repository_name(&app.spec.source.repo_url);
+    let repository = config::parse_repository_name(&source.repo_url);
 
     Pipeline {
         id: config::build_pipeline_id(provider_id, &namespace, &app.metadata.name),
@@ -197,8 +196,8 @@ pub(crate) fn map_application_to_pipeline(
         last_run,
         last_updated: Utc::now(),
         repository,
-        branch: Some(app.spec.source.target_revision.clone()),
-        workflow_file: app.spec.source.path.clone(),
+        branch: source.target_revision.clone(),
+        workflow_file: source.path.clone(),
         metadata,
     }
 }
@@ -225,7 +224,7 @@ pub(crate) fn map_history_to_run(
     let mut metadata = HashMap::new();
     metadata.insert(
         "sync_revision".to_string(),
-        serde_json::json!(history.revision),
+        serde_json::json!(history.primary_revision()),
     );
     metadata.insert("history_id".to_string(), serde_json::json!(history.id));
 
@@ -268,7 +267,7 @@ pub(crate) fn map_history_to_run(
     );
     metadata.insert(
         "destination_cluster".to_string(),
-        serde_json::json!(app.spec.destination.server),
+        serde_json::json!(app.spec.destination.cluster()),
     );
 
     let run_number = history.deployed_at.timestamp();
@@ -282,9 +281,9 @@ pub(crate) fn map_history_to_run(
         concluded_at: Some(history.deployed_at),
         duration_seconds: None,
         logs_url,
-        commit_sha: Some(history.revision.clone()),
+        commit_sha: history.primary_revision().map(str::to_string),
         commit_message: None,
-        branch: Some(app.spec.source.target_revision.clone()),
+        branch: app.spec.primary_source().target_revision.clone(),
         actor: None,
         inputs: None,
         metadata,
@@ -330,9 +329,10 @@ pub(crate) fn map_operation_to_run(
         metadata.insert("operation_message".to_string(), serde_json::json!(msg));
     }
 
-    let source_type = if app.spec.source.chart.is_some() {
+    let source = app.spec.primary_source();
+    let source_type = if source.chart.is_some() {
         "Helm"
-    } else if let Some(ref path) = app.spec.source.path {
+    } else if let Some(path) = &source.path {
         if path.to_lowercase().contains("kustomize") || path.ends_with("kustomization.yaml") {
             "Kustomize"
         } else {
@@ -357,7 +357,7 @@ pub(crate) fn map_operation_to_run(
         serde_json::json!(app.spec.destination.namespace),
     );
 
-    if let Some(ref path) = app.spec.source.path {
+    if let Some(path) = &source.path {
         metadata.insert("source_path".to_string(), serde_json::json!(path));
     }
 
@@ -374,7 +374,7 @@ pub(crate) fn map_operation_to_run(
         logs_url,
         commit_sha: app.status.sync.revision.clone(),
         commit_message: None,
-        branch: Some(app.spec.source.target_revision.clone()),
+        branch: source.target_revision.clone(),
         actor: None,
         inputs: None,
         metadata,
@@ -384,10 +384,11 @@ pub(crate) fn map_operation_to_run(
 pub(crate) fn map_available_pipeline(app: &types::Application) -> AvailablePipeline {
     let app_name = app.metadata.name.clone();
     let project_name = app.spec.project.clone();
+    let source = app.spec.primary_source();
 
-    let repo_full_name = config::parse_repository_name(&app.spec.source.repo_url);
+    let repo_full_name = config::parse_repository_name(&source.repo_url);
 
-    let git_org_raw = config::extract_git_org(&app.spec.source.repo_url);
+    let git_org_raw = config::extract_git_org(&source.repo_url);
 
     let (git_org, repo_name, unique_id) = if git_org_raw == "unknown" || git_org_raw.is_empty() {
         (None, None, app_name.clone())
@@ -395,13 +396,11 @@ pub(crate) fn map_available_pipeline(app: &types::Application) -> AvailablePipel
         (Some(git_org_raw), Some(repo_full_name), app_name.clone())
     };
 
-    let cluster_name = app
-        .spec
-        .destination
-        .server
+    let cluster = app.spec.destination.cluster();
+    let cluster_name = cluster
         .split("//")
         .last()
-        .unwrap_or(&app.spec.destination.server)
+        .unwrap_or(cluster)
         .split(':')
         .next()
         .unwrap_or("unknown");
@@ -409,9 +408,9 @@ pub(crate) fn map_available_pipeline(app: &types::Application) -> AvailablePipel
     let description = format!(
         "Project: {} | Path: {} | Target: {} | Namespace: {} | Cluster: {}",
         project_name,
-        app.spec.source.path.as_deref().unwrap_or("/"),
-        app.spec.source.target_revision,
-        app.spec.destination.namespace,
+        source.path.as_deref().unwrap_or("/"),
+        source.target_revision.as_deref().unwrap_or("HEAD"),
+        app.spec.destination.namespace.as_deref().unwrap_or("-"),
         cluster_name
     );
 
@@ -421,5 +420,62 @@ pub(crate) fn map_available_pipeline(app: &types::Application) -> AvailablePipel
         description: Some(description),
         organization: git_org,
         repository: repo_name,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app(spec: &str, status_extra: &str) -> types::Application {
+        serde_json::from_str(&format!(
+            r#"{{"metadata":{{"name":"web","namespace":"argocd"}},"spec":{spec},"status":{{"sync":{{"status":"Synced"}},"health":{{"status":"Healthy"}}{status_extra}}}}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn multi_source_app_uses_first_source() {
+        let app = app(
+            r#"{"sources":[{"repoURL":"https://github.com/acme/web","path":"deploy","targetRevision":"release"},{"repoURL":"https://charts.acme.dev","chart":"redis","targetRevision":"18.1.0"}],"destination":{"server":"https://10.0.0.1:6443","namespace":"web"},"project":"default"}"#,
+            r#","history":[{"deployedAt":"2026-10-20T10:00:00Z","id":3,"source":{"repoURL":""},"revisions":["abc123","18.1.0"]}]"#,
+        );
+
+        let pipeline = map_application_to_pipeline(&app, 1, "https://argocd.acme.dev");
+        assert_eq!(pipeline.repository, "acme/web");
+        assert_eq!(pipeline.branch.as_deref(), Some("release"));
+        assert_eq!(pipeline.workflow_file.as_deref(), Some("deploy"));
+
+        let history = &app.status.history.as_ref().unwrap()[0];
+        let run = map_history_to_run(history, &app, 1, "https://argocd.acme.dev");
+        assert_eq!(run.commit_sha.as_deref(), Some("abc123"));
+
+        let available = map_available_pipeline(&app);
+        assert_eq!(available.organization.as_deref(), Some("acme"));
+        assert_eq!(
+            available.description.as_deref(),
+            Some("Project: default | Path: deploy | Target: release | Namespace: web | Cluster: 10.0.0.1")
+        );
+    }
+
+    #[test]
+    fn app_with_destination_name_and_no_target_revision() {
+        let app = app(
+            r#"{"source":{"repoURL":"https://github.com/acme/web","path":"deploy"},"destination":{"name":"in-cluster"},"project":"default"}"#,
+            "",
+        );
+
+        let pipeline = map_application_to_pipeline(&app, 1, "https://argocd.acme.dev");
+        assert_eq!(pipeline.branch, None);
+        assert_eq!(
+            pipeline.metadata.get("destination_cluster"),
+            Some(&serde_json::json!("in-cluster"))
+        );
+
+        let available = map_available_pipeline(&app);
+        assert_eq!(
+            available.description.as_deref(),
+            Some("Project: default | Path: deploy | Target: HEAD | Namespace: - | Cluster: in-cluster")
+        );
     }
 }
