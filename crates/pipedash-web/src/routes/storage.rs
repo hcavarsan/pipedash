@@ -394,6 +394,7 @@ async fn execute_migration(
     if result.success {
         if let Some(ref password) = token_password {
             std::env::set_var("PIPEDASH_VAULT_PASSWORD", password);
+            state.set_api_token(password);
             tracing::info!("Vault password set in environment for this session");
         }
 
