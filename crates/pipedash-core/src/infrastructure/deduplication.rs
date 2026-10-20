@@ -1,67 +1,96 @@
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::future::Future;
 use std::hash::{
     Hash,
     Hasher,
 };
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use sha2::{
     Digest,
     Sha256,
 };
-use tokio::sync::{
-    oneshot,
-    Mutex,
-};
+use tokio::sync::oneshot;
 
 type RequestId = u64;
+type InFlight<T> = DashMap<RequestId, Vec<oneshot::Sender<Arc<T>>>>;
 
 pub struct RequestDeduplicator<T: Clone> {
-    #[allow(clippy::type_complexity)]
-    in_flight: Arc<Mutex<HashMap<RequestId, Vec<oneshot::Sender<Arc<T>>>>>>,
+    in_flight: Arc<InFlight<T>>,
+}
+
+struct InFlightGuard<'a, T> {
+    in_flight: &'a InFlight<T>,
+    request_id: RequestId,
+    armed: bool,
+}
+
+impl<T> InFlightGuard<'_, T> {
+    fn take_waiters(mut self) -> Vec<oneshot::Sender<Arc<T>>> {
+        self.armed = false;
+        self.in_flight
+            .remove(&self.request_id)
+            .map(|(_, waiters)| waiters)
+            .unwrap_or_default()
+    }
+}
+
+impl<T> Drop for InFlightGuard<'_, T> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.in_flight.remove(&self.request_id);
+        }
+    }
 }
 
 impl<T: Clone> RequestDeduplicator<T> {
     pub fn new() -> Self {
         Self {
-            in_flight: Arc::new(Mutex::new(HashMap::new())),
+            in_flight: Arc::new(DashMap::new()),
         }
     }
 
     pub async fn deduplicate<F, Fut, E>(&self, request_id: RequestId, operation: F) -> Result<T, E>
     where
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<T, E>>,
+        Fut: Future<Output = Result<T, E>>,
     {
-        let (tx, rx) = oneshot::channel();
+        let waiter = match self.in_flight.entry(request_id) {
+            dashmap::Entry::Occupied(mut entry) => {
+                let (tx, rx) = oneshot::channel();
+                entry.get_mut().push(tx);
+                Some(rx)
+            }
+            dashmap::Entry::Vacant(entry) => {
+                entry.insert(Vec::new());
+                None
+            }
+        };
 
-        let mut in_flight = self.in_flight.lock().await;
-
-        if let Some(waiters) = in_flight.get_mut(&request_id) {
-            waiters.push(tx);
-            drop(in_flight);
-
-            match rx.await {
+        if let Some(rx) = waiter {
+            return match rx.await {
                 Ok(result) => Ok((*result).clone()),
-                Err(_) => operation().await, // Fallback if sender dropped
-            }
-        } else {
-            in_flight.insert(request_id, vec![tx]);
-            drop(in_flight);
-
-            let result = operation().await?;
-            let shared_result = Arc::new(result.clone());
-
-            let mut in_flight = self.in_flight.lock().await;
-            if let Some(waiters) = in_flight.remove(&request_id) {
-                for waiter in waiters {
-                    let _ = waiter.send(shared_result.clone());
-                }
-            }
-
-            Ok(result)
+                Err(_) => operation().await,
+            };
         }
+
+        let guard = InFlightGuard {
+            in_flight: &self.in_flight,
+            request_id,
+            armed: true,
+        };
+        let result = operation().await;
+        let waiters = guard.take_waiters();
+
+        if let Ok(value) = &result {
+            let shared_result = Arc::new(value.clone());
+            for waiter in waiters {
+                let _ = waiter.send(shared_result.clone());
+            }
+        }
+
+        result
     }
 }
 
@@ -149,6 +178,73 @@ mod tests {
         assert_eq!(r2.unwrap().unwrap(), 42);
 
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_request_does_not_block_the_next_one() {
+        let dedup = RequestDeduplicator::<i32>::new();
+        let request_id = hash_request(1, "fetch_runs_x_100");
+
+        let first = dedup
+            .deduplicate(request_id, || async { Err::<i32, &str>("provider error") })
+            .await;
+        assert_eq!(first, Err("provider error"));
+
+        let second = tokio::time::timeout(
+            tokio::time::Duration::from_secs(2),
+            dedup.deduplicate(request_id, || async { Ok::<_, &str>(7) }),
+        )
+        .await;
+        assert_eq!(second, Ok(Ok(7)));
+    }
+
+    #[tokio::test]
+    async fn dropped_request_does_not_block_the_next_one() {
+        let dedup = RequestDeduplicator::<i32>::new();
+        let request_id = hash_request(1, "fetch_pipelines");
+
+        let abandoned = tokio::time::timeout(
+            tokio::time::Duration::from_millis(20),
+            dedup.deduplicate(request_id, || async {
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                Ok::<_, &str>(1)
+            }),
+        )
+        .await;
+        assert!(abandoned.is_err());
+
+        let next = tokio::time::timeout(
+            tokio::time::Duration::from_secs(2),
+            dedup.deduplicate(request_id, || async { Ok::<_, &str>(2) }),
+        )
+        .await;
+        assert_eq!(next, Ok(Ok(2)));
+    }
+
+    #[tokio::test]
+    async fn waiter_runs_its_own_request_when_the_first_one_fails() {
+        let dedup = RequestDeduplicator::<i32>::new();
+        let request_id = hash_request(1, "fetch_pipelines");
+
+        let leader = dedup.clone();
+        let first = tokio::spawn(async move {
+            leader
+                .deduplicate(request_id, || async {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    Err::<i32, &str>("provider error")
+                })
+                .await
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        let waiter = tokio::time::timeout(
+            tokio::time::Duration::from_secs(2),
+            dedup.deduplicate(request_id, || async { Ok::<_, &str>(3) }),
+        )
+        .await;
+
+        assert_eq!(first.await.unwrap(), Err("provider error"));
+        assert_eq!(waiter, Ok(Ok(3)));
     }
 
     #[test]
