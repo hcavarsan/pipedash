@@ -162,7 +162,7 @@ impl GitLabClient {
                         )
                     } else {
                         format!(
-                            "{}/groups/{}/projects?per_page={}&page={}",
+                            "{}/groups/{}/projects?include_subgroups=true&per_page={}&page={}",
                             self.api_url, gid, params.page_size, params.page
                         )
                     }
