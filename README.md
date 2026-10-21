@@ -9,10 +9,11 @@
   </a>
 </div>
 
+<!-- The animated loop is served by pipedash.app from the pipedash-website repo (public/video). -->
 <p align="center">
-<div align="center">
-<img src="./public/pipedashbg.png" alt="Pipedash Screenshot" style="box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); border-radius: 8px;"/>
-</div>
+  <a href="https://pipedash.app">
+    <img src="https://pipedash.app/video/pipedash-hero-v5.webp" alt="Pipedash demo: the provider list, a workflow triggered with inputs, pinned workflows, a run history and build metrics" width="100%" />
+  </a>
 </p>
 
 
