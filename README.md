@@ -118,6 +118,8 @@ Launch the app and add a provider via the sidebar. Each provider needs an API to
 
 **GitLab CI**: Personal Access Token with `api` scope. Works with GitLab.com and self-hosted.
 
+On desktop and web, selecting a GitLab group also lists projects from all its subgroups. The organization and repository columns show each project's full path, which stays the same in saved providers and TOML config.
+
 **Buildkite**: API Access Token with read permissions and your org slug.
 
 **Jenkins**: API token, username, and server URL.

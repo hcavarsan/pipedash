@@ -347,3 +347,188 @@ impl Plugin for GitLabPlugin {
         vec![]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::{
+        AsyncReadExt,
+        AsyncWriteExt,
+    };
+
+    use super::*;
+
+    async fn stub_gitlab() -> (GitLabPlugin, tokio::task::JoinHandle<()>) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let count = stream.read(&mut buffer).await.unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                let target = request.split_whitespace().nth(1).unwrap();
+                let url = reqwest::Url::parse(&format!("http://{addr}{target}")).unwrap();
+                let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
+                let mut total = 0;
+                let body = match url.path() {
+                    "/api/v4/user" => serde_json::json!({
+                        "id": 7, "username": "alice", "name": "Alice"
+                    }),
+                    "/api/v4/projects/102/pipelines" => serde_json::json!([]),
+                    "/api/v4/groups/42/projects"
+                    | "/api/v4/projects"
+                    | "/api/v4/users/7/projects" => {
+                        let recursive = url.path() == "/api/v4/projects"
+                            || query
+                                .get("include_subgroups")
+                                .is_some_and(|value| value == "true");
+                        let projects: Vec<_> = [
+                            (101, "team / root"),
+                            (102, "team / backend / api"),
+                            (103, "team / frontend / api"),
+                            (104, "team / backend / nested / worker"),
+                        ]
+                        .into_iter()
+                        .filter(|(_, path)| recursive || *path == "team / root")
+                        .filter(|(_, path)| {
+                            query
+                                .get("search")
+                                .is_none_or(|search| path.contains(search))
+                        })
+                        .map(|(id, path)| {
+                            serde_json::json!({
+                                "id": id,
+                                "name": path.rsplit(" / ").next().unwrap(),
+                                "name_with_namespace": path,
+                                "web_url": format!("http://{addr}/{}", path.replace(" / ", "/"))
+                            })
+                        })
+                        .collect();
+                        total = projects.len();
+                        let page = query.get("page").unwrap().parse::<usize>().unwrap();
+                        let page_size = query.get("per_page").unwrap().parse::<usize>().unwrap();
+                        serde_json::Value::Array(
+                            projects
+                                .into_iter()
+                                .skip((page - 1) * page_size)
+                                .take(page_size)
+                                .collect(),
+                        )
+                    }
+                    path => panic!("Unexpected stub path: {path}"),
+                }
+                .to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Total: {total}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        let mut plugin = GitLabPlugin::new();
+        plugin
+            .initialize(
+                1,
+                HashMap::from([
+                    ("base_url".to_string(), format!("http://{addr}")),
+                    ("token".to_string(), "stub-token".to_string()),
+                ]),
+                None,
+            )
+            .unwrap();
+        (plugin, server)
+    }
+
+    #[tokio::test]
+    async fn parent_group_discovers_nested_projects_with_distinct_paths() {
+        let (plugin, server) = stub_gitlab().await;
+        let response = plugin
+            .fetch_available_pipelines_filtered(Some("42".to_string()), None, None)
+            .await
+            .unwrap();
+
+        let paths: Vec<_> = response.items.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "team/root",
+                "team/backend/api",
+                "team/frontend/api",
+                "team/backend/nested/worker"
+            ]
+        );
+        let displayed_paths: Vec<_> = response
+            .items
+            .iter()
+            .map(|item| {
+                format!(
+                    "{}/{}",
+                    item.organization.as_deref().unwrap(),
+                    item.repository.as_deref().unwrap()
+                )
+                .replace(' ', "")
+            })
+            .collect();
+        assert_eq!(displayed_paths, paths);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn subgroup_search_keeps_pagination_and_total_count() {
+        let (plugin, server) = stub_gitlab().await;
+        for (page, expected, has_more) in [
+            (1, vec!["team/backend/api"], true),
+            (2, vec!["team/frontend/api"], true),
+            (3, vec![], false),
+        ] {
+            let response = plugin
+                .fetch_available_pipelines_filtered(
+                    Some("42".to_string()),
+                    Some("api".to_string()),
+                    Some(PaginationParams { page, page_size: 1 }),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response
+                    .items
+                    .iter()
+                    .map(|item| item.id.as_str())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(response.total_count, 2);
+            assert_eq!(response.page, page);
+            assert_eq!(response.has_more, has_more);
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn saved_subgroup_selection_still_matches_during_refresh() {
+        let (mut plugin, server) = stub_gitlab().await;
+        plugin
+            .config
+            .insert("selected_items".to_string(), "team/backend/api".to_string());
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+        assert_eq!(
+            pipelines
+                .iter()
+                .map(|pipeline| pipeline.id.as_str())
+                .collect::<Vec<_>>(),
+            ["gitlab__1__102"]
+        );
+        assert_eq!(pipelines[0].repository, "team/backend/api");
+        server.abort();
+    }
+}
