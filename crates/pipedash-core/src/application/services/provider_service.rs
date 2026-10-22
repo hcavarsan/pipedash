@@ -1013,8 +1013,10 @@ mod tests {
         );
     }
 
+    type Gate = Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>;
+
     async fn stub_github(
-        remaining: u64, reset: i64, delay: Duration,
+        remaining: u64, reset: i64, gate: Gate,
     ) -> (String, Arc<Mutex<Vec<String>>>) {
         use tokio::io::{
             AsyncReadExt,
@@ -1042,7 +1044,10 @@ mod tests {
                 let path = request.split_whitespace().nth(1).unwrap_or_default();
                 let path = path.split('?').next().unwrap().to_string();
                 let (status, body) = if path == "/api/v3/rate_limit" {
-                    tokio::time::sleep(delay).await;
+                    if let Some((arrived, release)) = &gate {
+                        arrived.notify_one();
+                        release.notified().await;
+                    }
                     let rate = serde_json::json!({
                         "limit": 5000, "used": 5000 - remaining, "remaining": remaining, "reset": reset
                     });
@@ -1072,7 +1077,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let repository = temp_repository(&temp_dir, "quota.db").await;
         let reset = Utc::now().timestamp() + 1200;
-        let (base_url, requests) = stub_github(0, reset, Duration::ZERO).await;
+        let (base_url, requests) = stub_github(0, reset, None).await;
         let id = repository
             .add_provider(&provider(
                 "github",
@@ -1111,8 +1116,7 @@ mod tests {
     async fn refresh_fetches_a_github_provider_with_quota_left() {
         let temp_dir = TempDir::new().unwrap();
         let repository = temp_repository(&temp_dir, "quota.db").await;
-        let (base_url, requests) =
-            stub_github(4000, Utc::now().timestamp() + 1200, Duration::ZERO).await;
+        let (base_url, requests) = stub_github(4000, Utc::now().timestamp() + 1200, None).await;
         let id = repository
             .add_provider(&provider(
                 "github",
@@ -1151,7 +1155,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let repository = temp_repository(&temp_dir, "quota.db").await;
         let reset = Utc::now().timestamp() + 1200;
-        let (base_url, _) = stub_github(0, reset, Duration::from_millis(500)).await;
+        let arrived = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let (base_url, _) = stub_github(0, reset, Some((arrived.clone(), release.clone()))).await;
         let id = repository
             .add_provider(&provider(
                 "github",
@@ -1172,12 +1178,13 @@ mod tests {
             let service = service.clone();
             async move { service.check_quota(id).await }
         });
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        arrived.notified().await;
         let replacement = service
             .create_provider(&repository.get_provider(id).await.unwrap())
             .unwrap();
         service.providers.write().await.insert(id, replacement);
         service.quota_pauses.remove(&id);
+        release.notify_one();
 
         assert_eq!(check.await.unwrap(), None);
         assert_eq!(service.paused_until(id), None);
