@@ -66,6 +66,58 @@ impl BackupManager {
         })
     }
 
+    async fn restore_sqlite_database(backup: &Path, dst: &Path) -> DomainResult<()> {
+        let source = backup.to_str().ok_or_else(|| {
+            DomainError::DatabaseError(format!(
+                "Backup path is not valid UTF-8: {}",
+                backup.display()
+            ))
+        })?;
+        let restore_error = |e: sqlx::Error| {
+            DomainError::DatabaseError(format!("Failed to restore source database: {}", e))
+        };
+        let mut connection = SqliteConnection::connect_with(
+            &SqliteConnectOptions::new()
+                .filename(dst)
+                .foreign_keys(false),
+        )
+        .await
+        .map_err(restore_error)?;
+
+        sqlx::query("ATTACH DATABASE ? AS backup")
+            .bind(source)
+            .execute(&mut connection)
+            .await
+            .map_err(restore_error)?;
+        let tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM backup.sqlite_master WHERE type = 'table' \
+             AND (name NOT LIKE 'sqlite\\_%' ESCAPE '\\' OR name = 'sqlite_sequence')",
+        )
+        .fetch_all(&mut connection)
+        .await
+        .map_err(restore_error)?;
+
+        let mut transaction = connection.begin().await.map_err(restore_error)?;
+        for table in &tables {
+            let table = table.replace('"', "\"\"");
+            let sql = format!(
+                "DELETE FROM main.\"{0}\"; INSERT INTO main.\"{0}\" SELECT * FROM backup.\"{0}\"",
+                table
+            );
+            sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                .execute(&mut *transaction)
+                .await
+                .map_err(restore_error)?;
+        }
+        transaction.commit().await.map_err(restore_error)?;
+
+        sqlx::query("DETACH DATABASE backup")
+            .execute(&mut connection)
+            .await
+            .map_err(restore_error)?;
+        connection.close().await.map_err(restore_error)
+    }
+
     pub async fn create_backups(
         &self, source_config: &PipedashConfig, target_config: &PipedashConfig,
         source_backend: Option<&dyn ConfigBackend>,
@@ -219,14 +271,7 @@ impl BackupManager {
                     source_db.parent().unwrap().join("pipedash.db")
                 };
 
-                tokio::fs::copy(source_db, &original_path)
-                    .await
-                    .map_err(|e| {
-                        DomainError::DatabaseError(format!(
-                            "Failed to restore source database: {}",
-                            e
-                        ))
-                    })?;
+                Self::restore_sqlite_database(source_db, &original_path).await?;
                 tracing::info!("Source database restored from: {:?}", source_db);
             }
         }
@@ -392,6 +437,59 @@ mod tests {
     #[tokio::test]
     async fn target_backup_includes_committed_wal_providers() {
         check_wal_backup(true).await;
+    }
+
+    #[tokio::test]
+    async fn restore_keeps_open_wal_source_consistent() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = PipedashConfig::default();
+        config.storage.data_dir = dir.path().to_str().unwrap().to_owned();
+        let pool = crate::infrastructure::database::init_database(config.db_path())
+            .await
+            .unwrap();
+        let mut writer = pool.acquire().await.unwrap();
+        for statement in [
+            "PRAGMA wal_autocheckpoint = 0",
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200) \
+             INSERT INTO providers (name, provider_type, token_encrypted) \
+             SELECT 'bulk' || i, 'jenkins', hex(randomblob(1000)) FROM n",
+            "PRAGMA wal_checkpoint(TRUNCATE)",
+            "DELETE FROM providers",
+            "INSERT INTO providers (id, name, provider_type, token_encrypted) VALUES (42, 'kept', 'jenkins', '')",
+        ] {
+            sqlx::query(statement).execute(&mut *writer).await.unwrap();
+        }
+
+        let manager = BackupManager::new(dir.path().to_path_buf());
+        let source_db = manager
+            .backup_source_database(&config, None, "restore")
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO providers (name, provider_type, token_encrypted) VALUES ('failed', 'jenkins', '')")
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        let backups = BackupPaths {
+            source_db,
+            source_config: dir.path().join("missing-config.toml.backup"),
+            target_db: None,
+            timestamp: "restore".into(),
+        };
+        manager.restore_backups(&backups).await.unwrap();
+
+        let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+            .fetch_one(&mut *writer)
+            .await
+            .unwrap();
+        assert_eq!(integrity, "ok");
+        let providers: Vec<(i64, String)> =
+            sqlx::query_as("SELECT id, name FROM providers ORDER BY id")
+                .fetch_all(&mut *writer)
+                .await
+                .unwrap();
+        assert_eq!(providers, vec![(42, "kept".to_owned())]);
+        drop(writer);
+        pool.close().await;
     }
 
     #[tokio::test]
