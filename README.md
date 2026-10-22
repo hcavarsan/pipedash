@@ -50,6 +50,7 @@ What you can do:
 - See pipeline status across all your providers
 - Browse run history with commit info and execution times
 - Trigger workflows with parameters (Pipedash loads them from each provider)
+- Export your providers to a TOML file for another machine, with tokens left out as `${VAR}` references
 - Rerun previous executions with the same parameters
 - Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
 - Pin workflows to the top of the table with the pin icon on a workflow row. Pins stay in the desktop app or in your browser, so each person on a shared web instance keeps their own

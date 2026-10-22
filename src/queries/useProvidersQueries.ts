@@ -6,6 +6,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { ProviderConfig, ProviderSummary } from '../types'
+import { saveTextFile } from '../utils/saveTextFile'
 import { invalidateProviderPipelines, setProviderPipelines } from './usePipelinesQueries'
 
 export function useProviders(options?: { enabled?: boolean }) {
@@ -156,6 +157,30 @@ export function useRemoveProvider() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't remove provider",
+        message: error.message || 'Unknown error',
+        color: 'red',
+      })
+    },
+  })
+}
+
+export function useExportProviders() {
+  return useMutation({
+    mutationFn: async () => saveTextFile('pipedash-providers.toml', await service.exportProviders()),
+
+    onSuccess: (saved) => {
+      if (saved) {
+        notifications.show({
+          title: 'Providers exported',
+          message: 'Tokens are not in the file. Set each token variable on the other machine.',
+          color: 'green',
+        })
+      }
+    },
+
+    onError: (error: Error) => {
+      notifications.show({
+        title: "Couldn't export providers",
         message: error.message || 'Unknown error',
         color: 'red',
       })

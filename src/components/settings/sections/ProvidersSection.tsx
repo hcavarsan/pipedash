@@ -14,13 +14,14 @@ import {
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import { IconEdit, IconSettings, IconTrash } from '@tabler/icons-react'
+import { IconDownload, IconEdit, IconSettings, IconTrash } from '@tabler/icons-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
 import { logger } from '../../../lib/logger'
 import { useProviderDetails } from '../../../queries/useProviderDetailsQuery'
 import {
+  useExportProviders,
   useProviders,
   useRemoveProvider,
   useUpdateProvider,
@@ -49,6 +50,7 @@ export const ProvidersSection = () => {
   const { mutateAsync: updateProviderMutation } = useUpdateProvider()
   const { mutateAsync: removeProviderMutation } = useRemoveProvider()
   const updateRefreshIntervalMutation = useUpdateProviderRefreshInterval()
+  const exportProvidersMutation = useExportProviders()
 
   const [editingId, setEditingId] = useState<number | null>(null)
   const [refreshValues, setRefreshValues] = useState<Record<number, number>>({})
@@ -157,9 +159,22 @@ export const ProvidersSection = () => {
   return (
     <>
       <Box>
-        <Title order={2} size="lg" fw={600} mb="lg">
-          Providers
-        </Title>
+        <Group justify="space-between" mb="lg">
+          <Title order={2} size="lg" fw={600}>
+            Providers
+          </Title>
+          <Button
+            size="compact-sm"
+            variant="light"
+            color="gray"
+            leftSection={<IconDownload size={14} />}
+            onClick={() => exportProvidersMutation.mutate()}
+            loading={exportProvidersMutation.isPending}
+            disabled={loading || providers.length === 0}
+          >
+            Export
+          </Button>
+        </Group>
 
         {loading ? (
           <LoadingState message="Loading providers..." />
