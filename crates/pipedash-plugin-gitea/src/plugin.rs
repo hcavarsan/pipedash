@@ -228,19 +228,7 @@ impl Plugin for GiteaPlugin {
         let id = config::parse_pipeline_id(&params.workflow_id)?;
         let client = self.client()?;
 
-        let mut inputs = params
-            .inputs
-            .and_then(|inputs| inputs.as_object().cloned())
-            .unwrap_or_default();
-        let ref_value = inputs
-            .remove("ref")
-            .and_then(|v| v.as_str().map(str::to_string))
-            .unwrap_or_else(|| "main".to_string());
-
-        let mut body = serde_json::json!({ "ref": ref_value });
-        if !inputs.is_empty() {
-            body["inputs"] = serde_json::Value::Object(inputs);
-        }
+        let body = mapper::dispatch_body(params.inputs);
 
         client
             .dispatch_workflow(id.owner, id.repo, id.workflow, &body)
@@ -413,9 +401,9 @@ mod tests {
             .unwrap();
         assert_eq!(
             params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
-            ["ref", "greeting"]
+            ["ref", "inputs.greeting"]
         );
-        assert_eq!(params[1].description.as_deref(), Some("Greeting"));
+        assert_eq!(params[1].label.as_deref(), Some("greeting"));
         server.abort();
     }
 

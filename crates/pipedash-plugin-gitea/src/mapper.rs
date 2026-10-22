@@ -150,6 +150,8 @@ impl<'de> Deserialize<'de> for Inputs {
     }
 }
 
+const INPUT_PREFIX: &str = "inputs.";
+
 pub(crate) fn dispatch_inputs(workflow_source: &str) -> PluginResult<Vec<WorkflowParameter>> {
     let file: WorkflowFile = serde_saphyr::from_str(workflow_source)
         .map_err(|e| PluginError::ApiError(format!("Failed to parse workflow file: {e}")))?;
@@ -165,8 +167,8 @@ pub(crate) fn dispatch_inputs(workflow_source: &str) -> PluginResult<Vec<Workflo
     Ok(inputs
         .into_iter()
         .map(|(name, input)| WorkflowParameter {
-            name,
-            label: None,
+            name: format!("{INPUT_PREFIX}{name}"),
+            label: Some(name),
             description: input
                 .get("description")
                 .and_then(Value::as_str)
@@ -178,6 +180,31 @@ pub(crate) fn dispatch_inputs(workflow_source: &str) -> PluginResult<Vec<Workflo
                 .unwrap_or(false),
         })
         .collect())
+}
+
+pub(crate) fn dispatch_body(inputs: Option<Value>) -> Value {
+    let mut values = inputs
+        .and_then(|inputs| inputs.as_object().cloned())
+        .unwrap_or_default();
+    let ref_value = values
+        .remove("ref")
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| "main".to_string());
+    let inputs: serde_json::Map<String, Value> = values
+        .into_iter()
+        .map(|(key, value)| {
+            (
+                key.strip_prefix(INPUT_PREFIX).unwrap_or(&key).to_string(),
+                value,
+            )
+        })
+        .collect();
+
+    let mut body = serde_json::json!({ "ref": ref_value });
+    if !inputs.is_empty() {
+        body["inputs"] = Value::Object(inputs);
+    }
+    body
 }
 
 fn input_type(input: &Value) -> WorkflowParameterType {
@@ -234,27 +261,41 @@ mod tests {
             summary,
             [
                 (
-                    "version",
+                    "inputs.version",
                     true,
                     serde_json::json!({"type": "string", "default": null})
                 ),
                 (
-                    "dry_run",
+                    "inputs.dry_run",
                     false,
                     serde_json::json!({"type": "boolean", "default": true})
                 ),
                 (
-                    "level",
+                    "inputs.level",
                     false,
                     serde_json::json!({"type": "choice", "options": ["debug", "info"], "default": "info"})
                 ),
                 (
-                    "retries",
+                    "inputs.retries",
                     false,
                     serde_json::json!({"type": "number", "default": 3.0})
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn dispatch_body_keeps_a_workflow_input_named_ref_separate_from_the_branch() {
+        let body = dispatch_body(Some(serde_json::json!({
+            "ref": "release",
+            "inputs.ref": "abc123",
+            "inputs.greeting": "hi"
+        })));
+        assert_eq!(
+            body,
+            serde_json::json!({"ref": "release", "inputs": {"ref": "abc123", "greeting": "hi"}})
+        );
+        assert_eq!(dispatch_body(None), serde_json::json!({"ref": "main"}));
     }
 
     #[test]

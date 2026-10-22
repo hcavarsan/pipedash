@@ -204,19 +204,13 @@ impl GiteaClient {
         &self, owner: &str, repo: &str, workflow: &str, body: &serde_json::Value,
     ) -> PluginResult<()> {
         let path = format!("/repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches");
-        self.retry_policy
-            .retry(|| async {
-                let response = self
-                    .request(Method::POST, &path, &[])?
-                    .json(body)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to dispatch workflow: {e}"))
-                    })?;
-                self.check_status(response).await.map(drop)
-            })
+        let response = self
+            .request(Method::POST, &path, &[])?
+            .json(body)
+            .send()
             .await
+            .map_err(|e| PluginError::NetworkError(format!("Failed to dispatch workflow: {e}")))?;
+        self.check_status(response).await.map(drop)
     }
 
     pub async fn cancel_run(&self, owner: &str, repo: &str, run_id: i64) -> PluginResult<()> {
