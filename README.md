@@ -57,6 +57,7 @@ What you can do:
 - Approve or reject a GitHub run that waits for a deployment review, from its row in run history (needs a required reviewer's token)
 - Pin workflows to the top of the table with the pin icon on a workflow row. Pins stay in the desktop app or in your browser, so each person on a shared web instance keeps their own
 - Get a system notification when a refresh moves a pipeline to failed. Turn it on under Settings > General. It's off by default and set per device. In the web UI, browsers allow it only over HTTPS or on localhost
+- See when a running pipeline takes far longer than usual. Past 3 times the median duration of its recent successful runs, the status reads "Running longer than usual". With notifications on, you also get one system notification for that run. Flux resources are left out
 - Add multiple instances of the same provider (e.g., two GitHub orgs)
 - Keep watching GitHub repos without running out of API quota. With less than 10% of the hourly quota left, Pipedash stops refreshing that GitHub provider until the quota resets. The sidebar and Settings > Providers show "Paused until" with the reset time
 - Pick a dark, light, or system theme in Settings → General

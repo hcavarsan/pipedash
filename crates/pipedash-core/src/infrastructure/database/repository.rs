@@ -1687,6 +1687,7 @@ impl Repository {
             branch,
             workflow_file,
             metadata,
+            overdue_run: None,
         })
     }
 }
