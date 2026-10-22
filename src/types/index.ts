@@ -28,6 +28,7 @@ export interface Pipeline {
   branch: string | null
   workflow_file: string | null
   metadata?: Record<string, unknown>
+  overdue?: boolean
 }
 
 export interface PipelineRun {

@@ -62,6 +62,8 @@ pub struct Pipeline {
     pub workflow_file: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub overdue: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -258,6 +258,20 @@ impl RefreshManager {
                                 false
                             };
 
+                            if pipeline_service.update_overdue_pipelines().await {
+                                if let Ok(pipelines) =
+                                    pipeline_service.get_cached_pipelines(None).await
+                                {
+                                    event_bus
+                                        .emit(CoreEvent::PipelinesUpdated {
+                                            pipelines,
+                                            provider_id: None,
+                                            timestamp,
+                                        })
+                                        .await;
+                                }
+                            }
+
                             let mut interval = current_interval.lock().await;
                             let mut count = no_change_count.lock().await;
 
