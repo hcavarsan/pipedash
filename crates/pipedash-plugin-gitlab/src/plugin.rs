@@ -378,6 +378,7 @@ mod tests {
                 let url = reqwest::Url::parse(&format!("http://{addr}{target}")).unwrap();
                 let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
                 let mut total = 0;
+                let mut next_page = String::new();
                 let body = match url.path() {
                     "/api/v4/user" => serde_json::json!({
                         "id": 7, "username": "alice", "name": "Alice"
@@ -423,11 +424,39 @@ mod tests {
                                 .collect(),
                         )
                     }
+                    "/api/v4/groups" => {
+                        let groups: Vec<_> = (1..=105)
+                            .map(|id| {
+                                let (name, full_path) = match id {
+                                    1 => ("backend".to_string(), "team-a/backend".to_string()),
+                                    2 => ("backend".to_string(), "team-b/backend".to_string()),
+                                    _ => (format!("group-{id}"), format!("group-{id}")),
+                                };
+                                serde_json::json!({"id": id, "name": name, "full_path": full_path})
+                            })
+                            .collect();
+                        total = groups.len();
+                        let page = query.get("page").map_or(1, |p| p.parse::<usize>().unwrap());
+                        let page_size = query
+                            .get("per_page")
+                            .map_or(20, |p| p.parse::<usize>().unwrap())
+                            .min(100);
+                        if page < total.div_ceil(page_size) {
+                            next_page = (page + 1).to_string();
+                        }
+                        serde_json::Value::Array(
+                            groups
+                                .into_iter()
+                                .skip((page - 1) * page_size)
+                                .take(page_size)
+                                .collect(),
+                        )
+                    }
                     path => panic!("Unexpected stub path: {path}"),
                 }
                 .to_string();
                 let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Total: {total}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Total: {total}\r\nX-Next-Page: {next_page}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 stream.write_all(response.as_bytes()).await.unwrap();
@@ -530,5 +559,18 @@ mod tests {
         );
         assert_eq!(pipelines[0].repository, "team/backend/api");
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn group_picker_lists_every_group_by_full_path() {
+        let (plugin, server) = stub_gitlab().await;
+        let orgs = plugin.fetch_organizations().await.unwrap();
+        server.abort();
+
+        assert_eq!(orgs.len(), 106);
+        assert_eq!(orgs[0].name, "alice");
+        assert_eq!(orgs[1].name, "team-a/backend");
+        assert_eq!(orgs[2].name, "team-b/backend");
+        assert!(orgs.iter().any(|org| org.id == "105"));
     }
 }

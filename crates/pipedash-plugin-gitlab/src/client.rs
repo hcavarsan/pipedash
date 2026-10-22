@@ -71,38 +71,61 @@ impl GitLabClient {
             description: Some(user.name.clone()),
         }];
 
-        let groups_result = self
-            .retry_policy
-            .retry(|| async {
-                let url = format!("{}/groups?per_page=100", self.api_url);
-                let response = self
-                    .http_client
-                    .get(&url)
-                    .header("PRIVATE-TOKEN", &self.token)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to list groups: {}", e))
-                    })?;
-
-                let groups: Vec<serde_json::Value> = self.handle_response(response).await?;
-
-                Ok(groups
-                    .into_iter()
-                    .map(|g| pipedash_plugin_api::Organization {
-                        id: g["id"].as_i64().unwrap_or(0).to_string(),
-                        name: g["name"].as_str().unwrap_or("").to_string(),
-                        description: g["description"].as_str().map(|s| s.to_string()),
-                    })
-                    .collect::<Vec<_>>())
-            })
-            .await;
-
-        if let Ok(mut groups) = groups_result {
-            orgs.append(&mut groups);
+        match self.list_all_groups().await {
+            Ok(mut groups) => orgs.append(&mut groups),
+            Err(e) => tracing::warn!(error = %e, "Failed to list GitLab groups"),
         }
 
         Ok(orgs)
+    }
+
+    async fn list_all_groups(&self) -> PluginResult<Vec<pipedash_plugin_api::Organization>> {
+        let mut groups = Vec::new();
+        let mut page = Some(1);
+
+        while let Some(current) = page {
+            let (mut items, next_page) = self
+                .retry_policy
+                .retry(|| async {
+                    let url = format!("{}/groups?per_page=100&page={current}", self.api_url);
+                    let response = self
+                        .http_client
+                        .get(&url)
+                        .header("PRIVATE-TOKEN", &self.token)
+                        .send()
+                        .await
+                        .map_err(|e| {
+                            PluginError::NetworkError(format!("Failed to list groups: {}", e))
+                        })?;
+                    let next_page = response
+                        .headers()
+                        .get("x-next-page")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<usize>().ok());
+                    let items: Vec<serde_json::Value> = self.handle_response(response).await?;
+
+                    Ok((
+                        items
+                            .into_iter()
+                            .map(|g| pipedash_plugin_api::Organization {
+                                id: g["id"].as_i64().unwrap_or(0).to_string(),
+                                name: g["full_path"]
+                                    .as_str()
+                                    .or_else(|| g["name"].as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                description: g["description"].as_str().map(|s| s.to_string()),
+                            })
+                            .collect::<Vec<_>>(),
+                        next_page,
+                    ))
+                })
+                .await?;
+            groups.append(&mut items);
+            page = next_page.filter(|next| *next > current);
+        }
+
+        Ok(groups)
     }
 
     pub async fn list_projects(
