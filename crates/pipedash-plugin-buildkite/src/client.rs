@@ -12,7 +12,10 @@ use pipedash_plugin_api::{
     PluginResult,
     RetryPolicy,
 };
-use reqwest::Client;
+use reqwest::{
+    Client,
+    StatusCode,
+};
 
 use crate::{
     config,
@@ -22,10 +25,28 @@ use crate::{
 
 const BASE_URL: &str = "https://api.buildkite.com/v2";
 
+fn check_status(response: reqwest::Response) -> PluginResult<reqwest::Response> {
+    let status = response.status();
+    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        return Err(PluginError::AuthenticationFailed(format!(
+            "Buildkite rejected the API token for {} (HTTP {status})",
+            response.url()
+        )));
+    }
+    if !status.is_success() {
+        return Err(PluginError::ApiError(format!(
+            "Buildkite returned HTTP {status} for {}",
+            response.url()
+        )));
+    }
+    Ok(response)
+}
+
 pub(crate) struct BuildkiteClient {
     http_client: std::sync::Arc<Client>,
     token: String,
     retry_policy: RetryPolicy,
+    base_url: String,
 }
 
 impl BuildkiteClient {
@@ -34,13 +55,14 @@ impl BuildkiteClient {
             http_client,
             token,
             retry_policy: RetryPolicy::default(),
+            base_url: BASE_URL.to_string(),
         }
     }
 
     pub async fn fetch_organizations(&self) -> PluginResult<Vec<types::Organization>> {
         self.retry_policy
             .retry(|| async {
-                let url = format!("{BASE_URL}/organizations");
+                let url = format!("{}/organizations", self.base_url);
 
                 let orgs = self
                     .http_client
@@ -53,7 +75,8 @@ impl BuildkiteClient {
                     .await
                     .map_err(|e| {
                         PluginError::ApiError(format!("Failed to fetch organizations: {e}"))
-                    })?
+                    })
+                    .and_then(check_status)?
                     .json()
                     .await
                     .map_err(|e| {
@@ -71,7 +94,8 @@ impl BuildkiteClient {
         self.retry_policy
             .retry(|| async {
                 let url = format!(
-                    "{BASE_URL}/organizations/{org_slug}/pipelines?per_page={per_page}&page={page}"
+                    "{}/organizations/{org_slug}/pipelines?per_page={per_page}&page={page}",
+                    self.base_url
                 );
 
                 let pipelines: Vec<types::Pipeline> = self
@@ -87,7 +111,8 @@ impl BuildkiteClient {
                         PluginError::ApiError(format!(
                             "Failed to fetch pipelines for {org_slug}: {e}"
                         ))
-                    })?
+                    })
+                    .and_then(check_status)?
                     .json()
                     .await
                     .map_err(|e| {
@@ -118,7 +143,8 @@ impl BuildkiteClient {
     ) -> PluginResult<Pipeline> {
         self.retry_policy
             .retry(|| async {
-                let pipeline_url = format!("{BASE_URL}/organizations/{org}/pipelines/{slug}");
+                let pipeline_url =
+                    format!("{}/organizations/{org}/pipelines/{slug}", self.base_url);
 
                 let pipeline: types::Pipeline = self
                     .http_client
@@ -129,13 +155,16 @@ impl BuildkiteClient {
                     )
                     .send()
                     .await
-                    .map_err(|e| PluginError::ApiError(format!("Failed to fetch pipeline: {e}")))?
+                    .map_err(|e| PluginError::ApiError(format!("Failed to fetch pipeline: {e}")))
+                    .and_then(check_status)?
                     .json()
                     .await
                     .map_err(|e| PluginError::ApiError(format!("Failed to parse pipeline: {e}")))?;
 
-                let builds_url =
-                    format!("{BASE_URL}/organizations/{org}/pipelines/{slug}/builds?per_page=1");
+                let builds_url = format!(
+                    "{}/organizations/{org}/pipelines/{slug}/builds?per_page=1",
+                    self.base_url
+                );
 
                 let builds: Vec<types::Build> = self
                     .http_client
@@ -146,7 +175,8 @@ impl BuildkiteClient {
                     )
                     .send()
                     .await
-                    .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))?
+                    .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))
+                    .and_then(check_status)?
                     .json()
                     .await
                     .map_err(|e| PluginError::ApiError(format!("Failed to parse builds: {e}")))?;
@@ -200,8 +230,8 @@ impl BuildkiteClient {
 
         for page in 1..=total_pages.min(10) {
             let url = format!(
-                "{BASE_URL}/organizations/{org}/pipelines/{slug}/builds?per_page={}&page={}",
-                per_page, page
+                "{}/organizations/{org}/pipelines/{slug}/builds?per_page={}&page={}",
+                self.base_url, per_page, page
             );
 
             let builds: Vec<types::Build> = self
@@ -213,7 +243,8 @@ impl BuildkiteClient {
                 )
                 .send()
                 .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))?
+                .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))
+                .and_then(check_status)?
                 .json()
                 .await
                 .map_err(|e| PluginError::ApiError(format!("Failed to parse builds: {e}")))?;
@@ -241,7 +272,10 @@ impl BuildkiteClient {
 
         self.retry_policy
             .retry(|| async {
-                let url = format!("{BASE_URL}/organizations/{org}/pipelines/{slug}/builds");
+                let url = format!(
+                    "{}/organizations/{org}/pipelines/{slug}/builds",
+                    self.base_url
+                );
 
                 let mut body = serde_json::json!({
                     "branch": branch.clone(),
@@ -292,7 +326,7 @@ impl BuildkiteClient {
     }
 
     pub async fn fetch_agents(&self, org: &str) -> PluginResult<Vec<types::Agent>> {
-        let url = format!("{BASE_URL}/organizations/{org}/agents");
+        let url = format!("{}/organizations/{org}/agents", self.base_url);
 
         let agents = self
             .http_client
@@ -303,7 +337,8 @@ impl BuildkiteClient {
             )
             .send()
             .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch agents: {e}")))?
+            .map_err(|e| PluginError::ApiError(format!("Failed to fetch agents: {e}")))
+            .and_then(check_status)?
             .json()
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to parse agents: {e}")))?;
@@ -314,7 +349,10 @@ impl BuildkiteClient {
     pub async fn fetch_artifacts(
         &self, org: &str, build_id: &str,
     ) -> PluginResult<Vec<types::Artifact>> {
-        let url = format!("{BASE_URL}/organizations/{org}/builds/{build_id}/artifacts");
+        let url = format!(
+            "{}/organizations/{org}/builds/{build_id}/artifacts",
+            self.base_url
+        );
 
         let artifacts = self
             .http_client
@@ -325,7 +363,8 @@ impl BuildkiteClient {
             )
             .send()
             .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch artifacts: {e}")))?
+            .map_err(|e| PluginError::ApiError(format!("Failed to fetch artifacts: {e}")))
+            .and_then(check_status)?
             .json()
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to parse artifacts: {e}")))?;
@@ -339,39 +378,48 @@ impl BuildkiteClient {
         let org = org.to_string();
         let pipeline_slug = pipeline_slug.to_string();
 
-        self.retry_policy.retry(|| async {
-            let url = format!(
-                "{BASE_URL}/organizations/{org}/pipelines/{pipeline_slug}/builds/{build_number}/cancel"
-            );
+        self.retry_policy
+            .retry(|| async {
+                let url = format!(
+                    "{}/organizations/{org}/pipelines/{pipeline_slug}/builds/{build_number}/cancel",
+                    self.base_url
+                );
 
-            tracing::info!(
-                build_number = build_number,
-                org = %org,
-                pipeline = %pipeline_slug,
-                "Cancelling Buildkite build"
-            );
+                tracing::info!(
+                    build_number = build_number,
+                    org = %org,
+                    pipeline = %pipeline_slug,
+                    "Cancelling Buildkite build"
+                );
 
-            let response = self
-                .http_client
-                .put(&url)
-                .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", self.token))
-                .send()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to cancel build: {e}")))?;
-
-            if !response.status().is_success() {
-                let error_text = response
-                    .text()
+                let response = self
+                    .http_client
+                    .put(&url)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", self.token),
+                    )
+                    .send()
                     .await
-                    .unwrap_or_else(|_| "Unknown error".to_string());
-                return Err(PluginError::ApiError(format!(
-                    "Failed to cancel build: {error_text}"
-                )));
-            }
+                    .map_err(|e| PluginError::ApiError(format!("Failed to cancel build: {e}")))?;
 
-            tracing::info!(build_number = build_number, "Buildkite build cancelled successfully");
-            Ok(())
-        }).await
+                if !response.status().is_success() {
+                    let error_text = response
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "Unknown error".to_string());
+                    return Err(PluginError::ApiError(format!(
+                        "Failed to cancel build: {error_text}"
+                    )));
+                }
+
+                tracing::info!(
+                    build_number = build_number,
+                    "Buildkite build cancelled successfully"
+                );
+                Ok(())
+            })
+            .await
     }
 }
 
@@ -594,4 +642,82 @@ pub(crate) async fn fetch_available_pipelines_filtered(
         params.page_size,
         total_count,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
+    use std::sync::Arc;
+
+    use tokio::io::{
+        AsyncReadExt,
+        AsyncWriteExt,
+    };
+
+    use super::*;
+
+    async fn rejecting_server(requests: Arc<AtomicUsize>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = stream.read(&mut buffer).await.unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..n]);
+                }
+                requests.fetch_add(1, Ordering::SeqCst);
+                let body = r#"{"message":"Authentication required. Please supply a valid API Access Token"}"#;
+                let response = format!(
+                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn rejected_token_fails_as_auth_error_without_retry() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let client = BuildkiteClient {
+            http_client: Arc::new(Client::new()),
+            token: "wrong-token".to_string(),
+            retry_policy: RetryPolicy::default(),
+            base_url: rejecting_server(requests.clone()).await,
+        };
+
+        let results = [
+            client.fetch_organizations().await.err(),
+            client
+                .fetch_org_pipelines("acme".to_string(), 1, 10)
+                .await
+                .err(),
+            client
+                .fetch_pipeline(1, "acme".to_string(), "app".to_string())
+                .await
+                .err(),
+            client.fetch_builds("acme", "app", 10).await.err(),
+            client.fetch_agents("acme").await.err(),
+            client.fetch_artifacts("acme", "build-1").await.err(),
+        ];
+
+        for error in results {
+            assert!(
+                matches!(error, Some(PluginError::AuthenticationFailed(_))),
+                "{error:?}"
+            );
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 6);
+    }
 }

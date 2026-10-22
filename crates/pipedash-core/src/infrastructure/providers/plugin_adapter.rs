@@ -30,7 +30,7 @@ impl PluginAdapter {
     fn map_error(e: pipedash_plugin_api::PluginError) -> DomainError {
         match e {
             pipedash_plugin_api::PluginError::AuthenticationFailed(msg) => {
-                DomainError::AuthenticationFailed(msg)
+                DomainError::ProviderAuthenticationFailed(msg)
             }
             pipedash_plugin_api::PluginError::PermissionDenied(msg) => {
                 DomainError::PermissionDenied(msg)
