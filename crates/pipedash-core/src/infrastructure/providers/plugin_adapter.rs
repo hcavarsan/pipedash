@@ -182,6 +182,13 @@ impl Provider for PluginAdapter {
             .map_err(Self::map_error)
     }
 
+    async fn fetch_rate_limit(&self) -> DomainResult<Option<pipedash_plugin_api::RateLimit>> {
+        self.plugin
+            .fetch_rate_limit()
+            .await
+            .map_err(Self::map_error)
+    }
+
     async fn validate_credentials(&self) -> DomainResult<bool> {
         self.plugin
             .validate_credentials()

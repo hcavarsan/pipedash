@@ -170,6 +170,10 @@ pub trait Plugin: Send + Sync {
         ))
     }
 
+    async fn fetch_rate_limit(&self) -> PluginResult<Option<RateLimit>> {
+        Ok(None)
+    }
+
     fn get_migrations(&self) -> Vec<String> {
         Vec::new()
     }

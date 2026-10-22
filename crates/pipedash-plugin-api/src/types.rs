@@ -251,6 +251,13 @@ pub struct PermissionStatus {
     pub metadata: HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RateLimit {
+    pub limit: u64,
+    pub remaining: u64,
+    pub reset_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Feature {
     pub id: String,

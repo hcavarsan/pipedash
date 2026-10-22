@@ -1,14 +1,22 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
+use chrono::{
+    DateTime,
+    Utc,
+};
+use dashmap::DashMap;
 use pipedash_plugin_api::{
     Plugin as PluginTrait,
     PluginRegistry,
+    RateLimit,
 };
 use tokio::sync::{
     Mutex,
     RwLock,
 };
+use tokio::time::timeout;
 
 use crate::domain::{
     DomainError,
@@ -28,6 +36,8 @@ use crate::infrastructure::database::Repository;
 use crate::infrastructure::providers::PluginAdapter;
 use crate::plugins;
 
+const QUOTA_PAUSE_PERCENT: u64 = 10;
+
 pub struct ProviderService {
     repository: Arc<Repository>,
     http_client_manager: Arc<crate::infrastructure::HttpClientManager>,
@@ -35,6 +45,7 @@ pub struct ProviderService {
     plugin_registry: Arc<PluginRegistry>,
     parameter_fetches: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     event_bus: Arc<dyn EventBus>,
+    quota_pauses: Arc<DashMap<i64, DateTime<Utc>>>,
 }
 
 impl ProviderService {
@@ -52,6 +63,7 @@ impl ProviderService {
             plugin_registry: Arc::new(plugin_registry),
             parameter_fetches: Arc::new(Mutex::new(HashMap::new())),
             event_bus,
+            quota_pauses: Arc::new(DashMap::new()),
         }
     }
 
@@ -195,6 +207,7 @@ impl ProviderService {
             last_fetch_status: fetch_status_enum,
             last_fetch_error,
             last_fetch_at: last_fetch_at_parsed,
+            paused_until: self.paused_until(id),
             version: fresh_config.version.unwrap_or(1),
         };
 
@@ -297,6 +310,7 @@ impl ProviderService {
                 last_fetch_status: fetch_status_enum,
                 last_fetch_error,
                 last_fetch_at: last_fetch_at_parsed,
+                paused_until: self.paused_until(provider_id),
                 version: config.version.unwrap_or(1),
             });
         }
@@ -356,6 +370,7 @@ impl ProviderService {
             let mut map = providers.write().await;
             map.insert(id, new_provider)
         };
+        self.quota_pauses.remove(&id);
 
         if old_provider.is_some() {
             tokio::spawn(async move {
@@ -436,6 +451,7 @@ impl ProviderService {
             last_fetch_status: fetch_status_enum,
             last_fetch_error,
             last_fetch_at: last_fetch_at_parsed,
+            paused_until: self.paused_until(id),
             version: fresh_config.version.unwrap_or(1),
         };
 
@@ -533,12 +549,14 @@ impl ProviderService {
             last_fetch_status: fetch_status_enum,
             last_fetch_error,
             last_fetch_at: last_fetch_at_parsed,
+            paused_until: None,
             version: fresh_config.version.unwrap_or(1),
         };
 
         let pipelines = cached_pipelines;
 
         self.repository.remove_provider(id).await?;
+        self.quota_pauses.remove(&id);
 
         let providers = Arc::clone(&self.providers);
         tokio::spawn(async move {
@@ -583,6 +601,53 @@ impl ProviderService {
         providers.insert(id, Arc::clone(&provider));
 
         Ok(provider)
+    }
+
+    pub fn paused_until(&self, provider_id: i64) -> Option<DateTime<Utc>> {
+        self.quota_pauses
+            .get(&provider_id)
+            .map(|until| *until)
+            .filter(|until| *until > Utc::now())
+    }
+
+    pub async fn check_quota(&self, provider_id: i64) -> Option<DateTime<Utc>> {
+        if let Some(until) = self.paused_until(provider_id) {
+            return Some(until);
+        }
+
+        let provider = self.get_provider(provider_id).await.ok()?;
+        let rate_limit = match timeout(Duration::from_secs(10), provider.fetch_rate_limit()).await {
+            Ok(Ok(rate_limit)) => rate_limit,
+            Ok(Err(e)) => {
+                tracing::debug!(provider_id, error = %e, "Rate limit check failed");
+                None
+            }
+            Err(_) => {
+                tracing::debug!(provider_id, "Rate limit check timed out");
+                None
+            }
+        };
+        let paused_until = rate_limit.and_then(|rate_limit| quota_pause(&rate_limit, Utc::now()));
+        let providers = self.providers.read().await;
+        if !providers
+            .get(&provider_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &provider))
+        {
+            return None;
+        }
+        let changed = match paused_until {
+            Some(until) => {
+                tracing::info!(provider_id, %until, "API quota almost used up, pausing provider");
+                self.quota_pauses.insert(provider_id, until) != Some(until)
+            }
+            None => self.quota_pauses.remove(&provider_id).is_some(),
+        };
+        drop(providers);
+        if changed {
+            self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+        }
+
+        paused_until
     }
 
     pub async fn get_provider_instance(&self, id: i64) -> DomainResult<Arc<dyn Provider>> {
@@ -773,10 +838,17 @@ impl ProviderService {
     }
 }
 
+fn quota_pause(rate_limit: &RateLimit, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    let low = rate_limit.remaining * 100 < rate_limit.limit * QUOTA_PAUSE_PERCENT;
+
+    (low && rate_limit.reset_at > now).then_some(rate_limit.reset_at)
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
 
+    use super::super::pipeline_service::PipelineService;
     use super::*;
     use crate::event::NoOpEventBus;
     use crate::infrastructure::config::ConfigLoader;
@@ -907,5 +979,214 @@ mod tests {
             assert_eq!(imported.refresh_interval, original.refresh_interval);
             assert_eq!(imported.config, original.config);
         }
+    }
+
+    #[test]
+    fn quota_pause_starts_under_ten_percent_until_reset() {
+        let now = Utc::now();
+        let reset_at = now + chrono::Duration::minutes(20);
+        let pause = |remaining, reset_at| {
+            quota_pause(
+                &RateLimit {
+                    limit: 5000,
+                    remaining,
+                    reset_at,
+                },
+                now,
+            )
+        };
+
+        assert_eq!(pause(500, reset_at), None);
+        assert_eq!(pause(499, reset_at), Some(reset_at));
+        assert_eq!(pause(0, reset_at), Some(reset_at));
+        assert_eq!(pause(0, now), None);
+        assert_eq!(
+            quota_pause(
+                &RateLimit {
+                    limit: 0,
+                    remaining: 0,
+                    reset_at,
+                },
+                now,
+            ),
+            None
+        );
+    }
+
+    type Gate = Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>;
+
+    async fn stub_github(
+        remaining: u64, reset: i64, gate: Gate,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
+        use tokio::io::{
+            AsyncReadExt,
+            AsyncWriteExt,
+        };
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests: Arc<Mutex<Vec<String>>> = Arc::default();
+        let log = requests.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let count = stream.read(&mut buffer).await.unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                let path = request.split_whitespace().nth(1).unwrap_or_default();
+                let path = path.split('?').next().unwrap().to_string();
+                let (status, body) = if path == "/api/v3/rate_limit" {
+                    if let Some((arrived, release)) = &gate {
+                        arrived.notify_one();
+                        release.notified().await;
+                    }
+                    let rate = serde_json::json!({
+                        "limit": 5000, "used": 5000 - remaining, "remaining": remaining, "reset": reset
+                    });
+                    let search = serde_json::json!({"limit": 30, "used": 0, "remaining": 30, "reset": reset});
+                    let body = serde_json::json!({
+                        "resources": {"core": rate, "search": search},
+                        "rate": rate
+                    });
+                    ("200 OK", body.to_string())
+                } else {
+                    ("404 Not Found", r#"{"message":"Not Found"}"#.to_string())
+                };
+                log.lock().await.push(path);
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            }
+        });
+
+        (format!("http://{addr}"), requests)
+    }
+
+    #[tokio::test]
+    async fn refresh_skips_a_github_provider_with_its_quota_almost_used_up() {
+        let temp_dir = TempDir::new().unwrap();
+        let repository = temp_repository(&temp_dir, "quota.db").await;
+        let reset = Utc::now().timestamp() + 1200;
+        let (base_url, requests) = stub_github(0, reset, None).await;
+        let id = repository
+            .add_provider(&provider(
+                "github",
+                "github",
+                "ghp_stub",
+                30,
+                &[("base_url", &base_url), ("selected_items", "acme/app")],
+            ))
+            .await
+            .unwrap();
+        let provider_service = Arc::new(ProviderService::new(
+            repository.clone(),
+            Arc::new(HttpClientManager::new().unwrap()),
+            Arc::new(NoOpEventBus),
+        ));
+        let pipeline_service = PipelineService::new(
+            repository,
+            provider_service.clone(),
+            None,
+            Arc::new(NoOpEventBus),
+        );
+
+        pipeline_service.fetch_providers(vec![id]).await.unwrap();
+        pipeline_service.fetch_pipelines(Some(id)).await.unwrap();
+        let summaries = provider_service.list_providers().await.unwrap();
+
+        assert_eq!(*requests.lock().await, ["/api/v3/rate_limit"]);
+        assert_eq!(
+            summaries[0].paused_until,
+            DateTime::from_timestamp(reset, 0)
+        );
+        assert!(matches!(summaries[0].last_fetch_status, FetchStatus::Never));
+    }
+
+    #[tokio::test]
+    async fn refresh_fetches_a_github_provider_with_quota_left() {
+        let temp_dir = TempDir::new().unwrap();
+        let repository = temp_repository(&temp_dir, "quota.db").await;
+        let (base_url, requests) = stub_github(4000, Utc::now().timestamp() + 1200, None).await;
+        let id = repository
+            .add_provider(&provider(
+                "github",
+                "github",
+                "ghp_stub",
+                30,
+                &[("base_url", &base_url), ("selected_items", "acme/app")],
+            ))
+            .await
+            .unwrap();
+        let provider_service = Arc::new(ProviderService::new(
+            repository.clone(),
+            Arc::new(HttpClientManager::new().unwrap()),
+            Arc::new(NoOpEventBus),
+        ));
+        let pipeline_service = PipelineService::new(
+            repository,
+            provider_service.clone(),
+            None,
+            Arc::new(NoOpEventBus),
+        );
+
+        pipeline_service.fetch_providers(vec![id]).await.unwrap();
+        let summaries = provider_service.list_providers().await.unwrap();
+        let requests = requests.lock().await;
+
+        assert_eq!(requests[0], "/api/v3/rate_limit");
+        assert!(requests
+            .iter()
+            .any(|path| path.starts_with("/api/v3/repos/acme/app")));
+        assert_eq!(summaries[0].paused_until, None);
+    }
+
+    #[tokio::test]
+    async fn quota_answer_for_replaced_credentials_does_not_pause_the_new_ones() {
+        let temp_dir = TempDir::new().unwrap();
+        let repository = temp_repository(&temp_dir, "quota.db").await;
+        let reset = Utc::now().timestamp() + 1200;
+        let arrived = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let (base_url, _) = stub_github(0, reset, Some((arrived.clone(), release.clone()))).await;
+        let id = repository
+            .add_provider(&provider(
+                "github",
+                "github",
+                "ghp_old",
+                30,
+                &[("base_url", &base_url), ("selected_items", "acme/app")],
+            ))
+            .await
+            .unwrap();
+        let service = Arc::new(ProviderService::new(
+            repository.clone(),
+            Arc::new(HttpClientManager::new().unwrap()),
+            Arc::new(NoOpEventBus),
+        ));
+
+        let check = tokio::spawn({
+            let service = service.clone();
+            async move { service.check_quota(id).await }
+        });
+        arrived.notified().await;
+        let replacement = service
+            .create_provider(&repository.get_provider(id).await.unwrap())
+            .unwrap();
+        service.providers.write().await.insert(id, replacement);
+        service.quota_pauses.remove(&id);
+        release.notify_one();
+
+        assert_eq!(check.await.unwrap(), None);
+        assert_eq!(service.paused_until(id), None);
     }
 }

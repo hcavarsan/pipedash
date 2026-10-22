@@ -137,6 +137,10 @@ impl Plugin for GitHubPlugin {
             .await
     }
 
+    async fn fetch_rate_limit(&self) -> PluginResult<Option<RateLimit>> {
+        self.client()?.fetch_rate_limit().await.map(Some)
+    }
+
     async fn fetch_available_pipelines(
         &self, params: Option<PaginationParams>,
     ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {

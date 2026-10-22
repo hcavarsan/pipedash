@@ -58,6 +58,7 @@ What you can do:
 - Pin workflows to the top of the table with the pin icon on a workflow row. Pins stay in the desktop app or in your browser, so each person on a shared web instance keeps their own
 - Get a system notification when a refresh moves a pipeline to failed. Turn it on under Settings > General. It's off by default and set per device. In the web UI, browsers allow it only over HTTPS or on localhost
 - Add multiple instances of the same provider (e.g., two GitHub orgs)
+- Keep watching GitHub repos without running out of API quota. With less than 10% of the hourly quota left, Pipedash stops refreshing that GitHub provider until the quota resets. The sidebar and Settings > Providers show "Paused until" with the reset time
 - Pick a dark, light, or system theme in Settings → General
 
 When you trigger or rerun a workflow, Pipedash fetches available parameters from the plugin (workflow inputs for GitHub Actions, pipeline variables for GitLab CI, build parameters for Jenkins/Buildkite) and shows them in a form.
