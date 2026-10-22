@@ -22,7 +22,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <MantineProvider theme={theme} defaultColorScheme="dark" cssVariablesResolver={v8CssVariablesResolver}>
-        <BrowserRouter basename={BASE_PATH}>
+        <BrowserRouter basename={BASE_PATH.replace(/\/$/, '') || '/'}>
           <ErrorBoundary scope="app">
             <ModalsProvider>
               <PluginProvider>

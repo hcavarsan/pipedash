@@ -162,4 +162,25 @@ mod tests {
                 || response.status() == StatusCode::INTERNAL_SERVER_ERROR
         );
     }
+
+    #[tokio::test]
+    async fn built_index_html_carries_the_configured_base_href() {
+        let index = StaticAssets::get(INDEX_HTML).expect("dist/index.html");
+        if String::from_utf8_lossy(&index.data).contains("Frontend not built") {
+            return;
+        }
+
+        for uri in ["/", "/pipelines/some-id"] {
+            let response = serve_static(uri.parse().unwrap(), "/pipedash/");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let html = String::from_utf8_lossy(&body);
+
+            assert!(
+                html.contains(r#"<base href="/pipedash/" />"#),
+                "{uri}: {html}"
+            );
+        }
+    }
 }
