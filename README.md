@@ -140,7 +140,7 @@ Deleted selected resources appear as "Not found" while the remaining resources k
 
 Pipedash shows Flux conditions, controller messages, source revisions and native reconciliation or Helm release history. Flux limits this history and groups repeated reconciliations. Pipedash retains observed entries in its cache and labels cached details when Flux no longer retains them. Clearing the cache removes those older entries.
 
-History follows the latest observation time while record identities stay stable. Metrics describe grouped native records. Later observations update a group's time and duration without duplicating it.
+History follows the latest observation time while record identities stay stable. Metrics describe grouped native records. Later observations update a group's time and duration without duplicating it. Reading history does not recreate metrics outside the configured retention window.
 
 **Reconcile** applies the resource's current configuration. It does not restore a historical revision. Suspended resources stay suspended. Manage suspension in Flux. Reconciliation is asynchronous and cannot be cancelled through Pipedash.
 

@@ -122,12 +122,19 @@ impl MetricsService {
         if !config.enabled {
             return Ok(0);
         }
+        let retention_cutoff = chrono::Duration::try_days(config.retention_days)
+            .and_then(|retention| Utc::now().checked_sub_signed(retention))
+            .ok_or_else(|| {
+                DomainError::InvalidConfig(
+                    "Metrics retention is outside the supported date range".to_string(),
+                )
+            })?;
 
         let mut records = Vec::new();
         let mut has_regular_runs = false;
         for run in runs.iter().filter(|run| !is_snapshot(run)) {
             if is_native_history(run) {
-                if is_final(&run.status) {
+                if is_final(&run.status) && run.started_at >= retention_cutoff {
                     records.push(record_metrics(pipeline_id, run));
                 }
             } else {
@@ -528,9 +535,17 @@ mod tests {
             .await
             .unwrap();
         let (older, newer) = (1_760_000_000_000_011, 1_760_000_600_000_022);
+        let started = chrono::DateTime::from_timestamp_millis(Utc::now().timestamp_millis())
+            .unwrap()
+            - chrono::Duration::hours(1);
         let snapshot = snapshot_run(pipeline_id, newer + 1);
-        let newest = native_run(pipeline_id, newer, "2026-10-21T00:10:00Z", Some(7));
-        let mut grouped = native_run(pipeline_id, older, "2026-10-21T00:00:00Z", Some(10));
+        let newest = native_run(
+            pipeline_id,
+            newer,
+            &(started + chrono::Duration::minutes(10)).to_rfc3339(),
+            Some(7),
+        );
+        let mut grouped = native_run(pipeline_id, older, &started.to_rfc3339(), Some(10));
         let batch = |grouped: &PipelineRun| vec![snapshot.clone(), newest.clone(), grouped.clone()];
 
         let first = service
@@ -551,7 +566,7 @@ mod tests {
         assert_eq!(ids(&unchanged, older), ids(&before, older));
         assert_eq!(ids(&unchanged, newer), ids(&before, newer));
 
-        grouped.started_at = "2026-10-21T00:20:00Z".parse().unwrap();
+        grouped.started_at = started + chrono::Duration::minutes(20);
         grouped.duration_seconds = Some(25);
         grouped
             .metadata
@@ -573,7 +588,7 @@ mod tests {
             .sum();
         assert_eq!(frequency, 2.0);
 
-        grouped.started_at = "2026-10-21T00:21:00Z".parse().unwrap();
+        grouped.started_at = started + chrono::Duration::minutes(21);
         grouped.duration_seconds = None;
         service
             .extract_and_store_metrics(pipeline_id, &batch(&grouped))
@@ -618,7 +633,7 @@ mod tests {
         let runs = [native_run(
             pipeline_id,
             1_760_000_000_000_033,
-            "2026-10-21T00:00:00Z",
+            &Utc::now().to_rfc3339(),
             Some(5),
         )];
 
@@ -709,11 +724,13 @@ mod tests {
         let suffix = Utc::now().timestamp_nanos_opt().unwrap();
         let refresh_id = format!("fluxcd__postgres__Kustomization__refresh__{suffix}");
         let concurrent_id = format!("fluxcd__postgres__Kustomization__concurrent__{suffix}");
+        let retention_id = format!("fluxcd__postgres__HelmRelease__retention__{suffix}");
 
         assert_native_history_refresh(&service, &refresh_id).await;
         assert_concurrent_refresh_is_deduplicated(&service, &concurrent_id).await;
+        assert_native_retention(&service, &retention_id).await;
 
-        for pipeline_id in [&refresh_id, &concurrent_id] {
+        for pipeline_id in [&refresh_id, &concurrent_id, &retention_id] {
             service
                 .flush_metrics(Some(pipeline_id.as_str()), true)
                 .await
@@ -725,5 +742,79 @@ mod tests {
                 .unwrap();
         }
         pool.close().await;
+    }
+
+    async fn assert_native_retention(service: &MetricsService, pipeline_id: &str) {
+        let now = chrono::DateTime::from_timestamp_millis(Utc::now().timestamp_millis()).unwrap();
+        service
+            .update_pipeline_config(pipeline_id, true, 30)
+            .await
+            .unwrap();
+        let mut expired = native_run(
+            pipeline_id,
+            1,
+            &(now - chrono::Duration::days(2)).to_rfc3339(),
+            Some(10),
+        );
+        let recent = native_run(
+            pipeline_id,
+            2,
+            &(now - chrono::Duration::hours(1)).to_rfc3339(),
+            Some(5),
+        );
+        service
+            .extract_and_store_metrics(pipeline_id, &[expired.clone(), recent.clone()])
+            .await
+            .unwrap();
+        assert_eq!(stored(service, pipeline_id).await.len(), 6);
+
+        service
+            .update_pipeline_config(pipeline_id, true, 1)
+            .await
+            .unwrap();
+        assert_eq!(
+            service
+                .repository
+                .delete_old_metrics(Some(pipeline_id))
+                .await
+                .unwrap(),
+            3
+        );
+        let remaining = stored(service, pipeline_id).await;
+        assert_eq!(remaining.len(), 3);
+        assert!(remaining
+            .iter()
+            .all(|entry| entry.run_number == recent.run_number));
+
+        let restored = service
+            .extract_and_store_metrics(pipeline_id, &[expired.clone(), recent.clone()])
+            .await
+            .unwrap();
+        assert_eq!(restored, 0);
+        let after_read = stored(service, pipeline_id).await;
+        assert_eq!(after_read.len(), 3);
+        assert_eq!(
+            ids(&after_read, recent.run_number),
+            ids(&remaining, recent.run_number)
+        );
+
+        expired.started_at = now - chrono::Duration::minutes(1);
+        expired.duration_seconds = Some(25);
+        service
+            .extract_and_store_metrics(pipeline_id, &[expired.clone(), recent])
+            .await
+            .unwrap();
+        let renewed = stored(service, pipeline_id).await;
+        assert_eq!(renewed.len(), 6);
+        let metric = find(&renewed, expired.run_number, MetricType::RunDuration).unwrap();
+        assert_eq!(metric.value, 25.0);
+        assert_eq!(metric.timestamp, expired.started_at);
+    }
+
+    #[tokio::test]
+    async fn expired_native_history_does_not_restore_deleted_metrics() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = sqlite_service(&dir).await;
+        assert_native_retention(&service, "fluxcd__1__HelmRelease__apps__retention").await;
     }
 }
