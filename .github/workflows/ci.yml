@@ -152,24 +152,6 @@ jobs:
       - name: Install mise tools
         run: mise install
 
-      - name: Install OpenSSL on Windows
-        if: matrix.os == 'windows-latest'
-        run: choco install openssl
-
-      - name: Set up Perl on Windows
-        if: matrix.os == 'windows-latest'
-        uses: shogo82148/actions-setup-perl@8b574cdc2dffdae49f803204a4f2b716a2fa1db7 # v1.44.2
-        with:
-          perl-version: "5.32"
-          distribution: "strawberry"
-
-      - name: Set Perl environment variables
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          echo "PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          echo "OPENSSL_SRC_PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
       - name: Configure Rust targets
         env:
           RUST_TARGET: ${{ matrix.rust_target }}

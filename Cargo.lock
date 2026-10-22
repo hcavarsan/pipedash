@@ -4104,6 +4104,7 @@ dependencies = [
  "pipedash-plugin-argocd",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
+ "pipedash-plugin-gitea",
  "pipedash-plugin-github",
  "pipedash-plugin-gitlab",
  "pipedash-plugin-jenkins",
@@ -4144,6 +4145,7 @@ dependencies = [
  "pipedash-plugin-argocd",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
+ "pipedash-plugin-gitea",
  "pipedash-plugin-github",
  "pipedash-plugin-gitlab",
  "pipedash-plugin-jenkins",
@@ -4221,6 +4223,23 @@ dependencies = [
  "pipedash-plugin-api",
  "reqwest",
  "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-gitea"
+version = "0.2.3"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde-saphyr",
  "serde_json",
  "tokio",
  "tracing",
