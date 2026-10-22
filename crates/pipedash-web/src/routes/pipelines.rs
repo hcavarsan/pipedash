@@ -17,7 +17,10 @@ use pipedash_core::domain::{
     PipelineRun,
     TriggerParams,
 };
-use pipedash_plugin_api::WorkflowParameter;
+use pipedash_plugin_api::{
+    ReviewDecision,
+    WorkflowParameter,
+};
 use serde::{
     Deserialize,
     Serialize,
@@ -70,6 +73,11 @@ pub struct TriggerPipelineRequest {
     pub inputs: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ReviewRunRequest {
+    pub decision: ReviewDecision,
+}
+
 #[derive(Debug, Serialize)]
 pub struct TriggerResponse {
     pub run_id: String,
@@ -85,6 +93,7 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/runs/{run_number}", get(get_run_details))
         .route("/{id}/trigger", post(trigger_pipeline))
         .route("/{id}/runs/{run_number}/cancel", post(cancel_run))
+        .route("/{id}/runs/{run_number}/review", post(review_run))
         .route("/{id}/workflow-params", get(get_workflow_parameters))
 }
 
@@ -157,6 +166,18 @@ async fn cancel_run(
     let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
     core.pipeline_service
         .cancel_run(&pipeline_id, run_number)
+        .await?;
+    Ok(())
+}
+
+async fn review_run(
+    State(state): State<AppState>, Path((pipeline_id, run_number)): Path<(String, i64)>,
+    Json(request): Json<ReviewRunRequest>,
+) -> ApiResult<()> {
+    let inner = state.inner.read().await;
+    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+    core.pipeline_service
+        .review_run(&pipeline_id, run_number, request.decision)
         .await?;
     Ok(())
 }

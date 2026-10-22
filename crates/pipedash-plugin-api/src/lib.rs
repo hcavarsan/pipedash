@@ -38,6 +38,7 @@ pub use types::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    ReviewDecision,
     TriggerParams,
     WorkflowParameter,
     WorkflowParameterType,

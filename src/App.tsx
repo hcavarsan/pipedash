@@ -20,14 +20,14 @@ import { logger } from './lib/logger'
 import { queryKeys } from './lib/queryKeys'
 import { usePipelines } from './queries/usePipelinesQueries'
 import { useProviders } from './queries/useProvidersQueries'
-import { useCancelRun } from './queries/useRunHistoryQueries'
+import { useCancelRun, useReviewRun } from './queries/useRunHistoryQueries'
 import { useStoragePaths } from './queries/useStorageQueries'
 import { useVaultStatus } from './queries/useVaultQueries'
 import { PipelineDetailRoute, SettingsRoute, UnlockRoute } from './routes'
 import { service } from './services'
 import { useAuthStore } from './stores/authStore'
 import { useModalStore } from './stores/modalStore'
-import type { Pipeline, PipelineRun } from './types'
+import type { Pipeline, PipelineRun, ReviewDecision } from './types'
 import { displayErrorNotification } from './utils/errorDisplay'
 import { getReconcileBlockReason } from './utils/pipelinePresentation'
 
@@ -77,6 +77,7 @@ function AppContent() {
   })
 
   const { mutate: cancelRun } = useCancelRun()
+  const { mutateAsync: reviewRun } = useReviewRun()
 
   useEffect(() => {
     if (providerParam && providersSuccess && selectedProviderId === undefined) {
@@ -186,6 +187,13 @@ function AppContent() {
     [cancelRun]
   )
 
+  const handleReview = useCallback(
+    async (_pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => {
+      await reviewRun({ pipelineId: run.pipeline_id, runNumber: run.run_number, decision }).catch(() => undefined)
+    },
+    [reviewRun]
+  )
+
   const loading = providersLoading || pipelinesLoading
 
   const triggerPipeline = pipelines.find((p) => p.id === triggerModal.pipelineId) ?? null
@@ -225,6 +233,7 @@ function AppContent() {
                 onViewRun={handleViewRun}
                 onRerun={handleRerun}
                 onCancel={handleCancel}
+                onReview={handleReview}
               />
             </ErrorBoundary>
           }

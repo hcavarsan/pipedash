@@ -20,6 +20,13 @@ pub enum PipelineStatus {
     Skipped,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewDecision {
+    Approve,
+    Reject,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AvailablePipeline {
     pub id: String,

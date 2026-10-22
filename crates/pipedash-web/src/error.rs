@@ -90,6 +90,10 @@ impl From<DomainError> for AppError {
             DomainError::PipelineNotFound(_) => AppError::not_found(err.to_string()),
             DomainError::InvalidConfig(_) => AppError::bad_request(err.to_string()),
             DomainError::AuthenticationFailed(_) => AppError::unauthorized(err.to_string()),
+            DomainError::PermissionDenied(_) => AppError::new(
+                StatusCode::FORBIDDEN,
+                ApiError::new("FORBIDDEN", err.to_string()),
+            ),
             DomainError::InvalidProviderType(_) => AppError::bad_request(err.to_string()),
             DomainError::NotSupported(_) => AppError::new(
                 StatusCode::NOT_IMPLEMENTED,

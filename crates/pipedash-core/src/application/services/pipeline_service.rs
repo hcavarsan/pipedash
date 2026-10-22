@@ -679,6 +679,28 @@ impl PipelineService {
         Ok(())
     }
 
+    pub async fn review_run(
+        &self, pipeline_id: &str, run_number: i64, decision: pipedash_plugin_api::ReviewDecision,
+    ) -> DomainResult<()> {
+        let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
+        let pipeline = cached_pipelines
+            .iter()
+            .find(|p| p.id == pipeline_id)
+            .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+
+        let provider = self
+            .provider_service
+            .get_provider(pipeline.provider_id)
+            .await?;
+        provider
+            .review_run(pipeline_id, run_number, decision)
+            .await?;
+
+        self.invalidate_run_cache(pipeline_id).await;
+
+        Ok(())
+    }
+
     pub async fn refresh_all(&self) -> DomainResult<()> {
         self.fetch_pipelines(None).await?;
         Ok(())

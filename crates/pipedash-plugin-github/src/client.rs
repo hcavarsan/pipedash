@@ -13,6 +13,7 @@ use pipedash_plugin_api::{
     PluginError,
     PluginResult,
     RetryPolicy,
+    ReviewDecision,
 };
 use tracing::debug;
 
@@ -544,6 +545,62 @@ impl GitHubClient {
             .await
     }
 
+    pub async fn review_pending_deployments(
+        &self, owner: &str, repo: &str, run_id: u64, run_number: i64, decision: ReviewDecision,
+    ) -> PluginResult<()> {
+        let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments");
+
+        let pending: Vec<types::PendingDeployment> = self
+            .retry_policy
+            .retry(|| async {
+                self.octocrab.get(&url, None::<&()>).await.map_err(|e| {
+                    PluginError::ApiError(format!("Failed to fetch pending deployments: {e}"))
+                })
+            })
+            .await?;
+
+        if pending.is_empty() {
+            return Err(PluginError::PipelineNotFound(format!(
+                "Run #{run_number} isn't waiting for a deployment review"
+            )));
+        }
+
+        let environment_ids: Vec<u64> = pending
+            .iter()
+            .filter(|deployment| deployment.current_user_can_approve)
+            .map(|deployment| deployment.environment.id)
+            .collect();
+
+        if environment_ids.is_empty() {
+            let names: Vec<&str> = pending
+                .iter()
+                .map(|deployment| deployment.environment.name.as_str())
+                .collect();
+            return Err(PluginError::PermissionDenied(format!(
+                "The token's account isn't a required reviewer for {}. Use a token from a required reviewer.",
+                names.join(", ")
+            )));
+        }
+
+        let (state, comment) = match decision {
+            ReviewDecision::Approve => ("approved", "Approved in Pipedash"),
+            ReviewDecision::Reject => ("rejected", "Rejected in Pipedash"),
+        };
+        let body = serde_json::json!({
+            "environment_ids": environment_ids,
+            "state": state,
+            "comment": comment,
+        });
+
+        let _: serde_json::Value = self
+            .octocrab
+            .post(&url, Some(&body))
+            .await
+            .map_err(|e| PluginError::ApiError(format!("Failed to review run: {e}")))?;
+
+        Ok(())
+    }
+
     pub async fn check_token_permissions(&self) -> PluginResult<PermissionStatus> {
         self.permission_checker.check_token_permissions().await
     }
@@ -575,6 +632,10 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
     let mut metadata = HashMap::new();
     metadata.insert("event".to_string(), serde_json::json!(&run.event));
     metadata.insert("run_id".to_string(), serde_json::json!(run.id.0));
+
+    if run.status == "waiting" {
+        metadata.insert("awaiting_review".to_string(), serde_json::json!(true));
+    }
 
     if let Some(owner) = run.repository.owner.as_ref() {
         metadata.insert("owner".to_string(), serde_json::json!(&owner.login));

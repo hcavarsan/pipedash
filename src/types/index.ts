@@ -1,5 +1,7 @@
 export type PipelineStatus = 'success' | 'failed' | 'running' | 'pending' | 'cancelled' | 'skipped'
 
+export type ReviewDecision = 'approve' | 'reject'
+
 export interface AvailablePipeline {
   id: string
   name: string
