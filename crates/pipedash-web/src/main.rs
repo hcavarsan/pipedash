@@ -49,6 +49,7 @@ struct ApiServerConfig {
     bind_addr: SocketAddr,
     cors_allow_all: bool,
     enable_embedded_frontend: bool,
+    base_path: String,
 }
 
 fn token_matches(provided: &str, expected: &str) -> bool {
@@ -103,15 +104,18 @@ async fn auth_middleware(
     }
 }
 
-fn app(state: AppState, enable_embedded_frontend: bool) -> Router {
-    Router::new()
+fn app(state: AppState, frontend_base_path: Option<String>) -> Router {
+    let router = Router::new()
         .nest("/api/v1", routes::api_router())
-        .route("/api/v1/ws", get(ws::ws_handler))
-        .fallback(if enable_embedded_frontend {
-            get(static_files::serve_static)
-        } else {
-            get(|| async { StatusCode::NOT_FOUND })
-        })
+        .route("/api/v1/ws", get(ws::ws_handler));
+    let router = match frontend_base_path {
+        Some(base_path) => router.fallback(get(move |uri| {
+            let base_path = base_path.clone();
+            async move { static_files::serve_static(uri, &base_path) }
+        })),
+        None => router.fallback(get(|| async { StatusCode::NOT_FOUND })),
+    };
+    router
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -176,19 +180,42 @@ fn env_flag(value: &str) -> bool {
     value == "true" || value == "1"
 }
 
+fn normalize_base_path(raw: &str) -> anyhow::Result<String> {
+    let trimmed = raw.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return Ok("/".to_string());
+    }
+
+    let valid_chars = trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "-._~/".contains(c));
+    let valid_segments = trimmed
+        .split('/')
+        .all(|segment| !segment.is_empty() && segment != "." && segment != "..");
+    if !valid_chars || !valid_segments {
+        anyhow::bail!(
+            "Invalid base path {raw:?}: use path segments made of letters, digits, '-', '.', '_' and '~'"
+        );
+    }
+
+    Ok(format!("/{trimmed}/"))
+}
+
 impl ApiServerConfig {
     fn resolve(file: Option<&ServerConfig>) -> anyhow::Result<Self> {
         Self::from_sources(
             std::env::var("PIPEDASH_BIND_ADDR").ok().as_deref(),
             std::env::var("PIPEDASH_CORS_ALLOW_ALL").ok().as_deref(),
             std::env::var("PIPEDASH_EMBEDDED_FRONTEND").ok().as_deref(),
+            std::env::var("PIPEDASH_BASE_PATH").ok().as_deref(),
             file,
         )
     }
 
     fn from_sources(
         env_bind_addr: Option<&str>, env_cors_allow_all: Option<&str>,
-        env_embedded_frontend: Option<&str>, file: Option<&ServerConfig>,
+        env_embedded_frontend: Option<&str>, env_base_path: Option<&str>,
+        file: Option<&ServerConfig>,
     ) -> anyhow::Result<Self> {
         let defaults = ServerConfig::default();
         let file = file.unwrap_or(&defaults);
@@ -202,6 +229,7 @@ impl ApiServerConfig {
             bind_addr,
             cors_allow_all: env_cors_allow_all.map_or(file.cors_allow_all, env_flag),
             enable_embedded_frontend: env_embedded_frontend.is_none_or(env_flag),
+            base_path: normalize_base_path(env_base_path.unwrap_or(&file.base_path))?,
         })
     }
 }
@@ -322,8 +350,9 @@ async fn main() -> anyhow::Result<()> {
 
     if api_config.enable_embedded_frontend {
         tracing::info!(
-            "Serving embedded frontend at http://{}",
-            api_config.bind_addr
+            "Serving embedded frontend at http://{}{}",
+            api_config.bind_addr,
+            api_config.base_path
         );
     } else {
         tracing::info!(
@@ -331,7 +360,12 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    let mut app = app(app_state, api_config.enable_embedded_frontend);
+    let mut app = app(
+        app_state,
+        api_config
+            .enable_embedded_frontend
+            .then_some(api_config.base_path),
+    );
 
     if !api_config.cors_allow_all {
         app = app.layer(axum::middleware::from_fn(reject_cross_origin_writes));
@@ -364,7 +398,7 @@ mod tests {
     fn app_with_token() -> Router {
         let state = AppState::config_error(Arc::new(WebSocketEventBus::new()), "test".into());
         state.set_api_token(TOKEN);
-        app(state, false)
+        app(state, None)
     }
 
     async fn send(app: &Router, method: Method, uri: &str, auth: Option<&str>) -> StatusCode {
@@ -478,7 +512,7 @@ mod tests {
         let state = AppState::config_error(Arc::new(WebSocketEventBus::new()), "test".into());
         state.inner.write().await.storage_manager = Some(locked_sqlite_vault(&data_dir).await);
         state.set_api_token(TOKEN);
-        let app = app(state.clone(), false);
+        let app = app(state.clone(), None);
 
         let response = app
             .clone()
@@ -516,7 +550,7 @@ mod tests {
         state.inner.write().await.storage_manager =
             Some(StorageManager::from_config(config, false).await.unwrap());
         state.set_api_token(TOKEN);
-        let app = app(state.clone(), false);
+        let app = app(state.clone(), None);
 
         for uri in ["/api/v1/vault/lock", "/api/v1/vault/unlock"] {
             assert_eq!(
@@ -571,12 +605,13 @@ mod tests {
         ServerConfig {
             bind_addr: bind_addr.to_string(),
             cors_allow_all,
+            base_path: String::new(),
         }
     }
 
     #[test]
     fn setup_mode_falls_back_to_secure_defaults() {
-        let config = ApiServerConfig::from_sources(None, None, None, None).unwrap();
+        let config = ApiServerConfig::from_sources(None, None, None, None, None).unwrap();
 
         assert_eq!(config.bind_addr, "127.0.0.1:8080".parse().unwrap());
         assert!(!config.cors_allow_all);
@@ -587,7 +622,7 @@ mod tests {
     fn config_values_apply_when_env_is_unset() {
         let file = server_config("0.0.0.0:9090", true);
 
-        let config = ApiServerConfig::from_sources(None, None, None, Some(&file)).unwrap();
+        let config = ApiServerConfig::from_sources(None, None, None, None, Some(&file)).unwrap();
 
         assert_eq!(config.bind_addr, "0.0.0.0:9090".parse().unwrap());
         assert!(config.cors_allow_all);
@@ -601,6 +636,7 @@ mod tests {
             Some("127.0.0.1:7070"),
             Some("false"),
             Some("false"),
+            None,
             Some(&file),
         )
         .unwrap();
@@ -610,7 +646,8 @@ mod tests {
         assert!(!config.enable_embedded_frontend);
 
         let file = server_config("0.0.0.0:9090", false);
-        let config = ApiServerConfig::from_sources(None, Some("1"), None, Some(&file)).unwrap();
+        let config =
+            ApiServerConfig::from_sources(None, Some("1"), None, None, Some(&file)).unwrap();
 
         assert!(config.cors_allow_all);
     }
@@ -619,13 +656,33 @@ mod tests {
     fn invalid_bind_addr_is_an_error() {
         let file = server_config("not-an-address", false);
 
-        assert!(ApiServerConfig::from_sources(None, None, None, Some(&file)).is_err());
-        assert!(ApiServerConfig::from_sources(Some("nope"), None, None, None).is_err());
+        assert!(ApiServerConfig::from_sources(None, None, None, None, Some(&file)).is_err());
+        assert!(ApiServerConfig::from_sources(Some("nope"), None, None, None, None).is_err());
+    }
+
+    #[test]
+    fn base_path_comes_from_env_or_file_with_slashes_added() {
+        let mut file = server_config("127.0.0.1:8080", false);
+        let resolve = |env: Option<&str>, file: &ServerConfig| {
+            ApiServerConfig::from_sources(None, None, None, env, Some(file)).map(|c| c.base_path)
+        };
+
+        assert_eq!(resolve(None, &file).unwrap(), "/");
+        file.base_path = "pipedash".into();
+        assert_eq!(resolve(None, &file).unwrap(), "/pipedash/");
+        assert_eq!(resolve(Some("/tools/ci/"), &file).unwrap(), "/tools/ci/");
+        assert_eq!(resolve(Some("/"), &file).unwrap(), "/");
+        for invalid in ["/a\"><script>", "/a b", "/../x", "/a//b"] {
+            assert!(
+                resolve(Some(invalid), &file).is_err(),
+                "accepted {invalid:?}"
+            );
+        }
     }
 
     #[tokio::test]
     async fn default_cors_does_not_allow_other_origins() {
-        let config = ApiServerConfig::from_sources(None, None, None, None).unwrap();
+        let config = ApiServerConfig::from_sources(None, None, None, None, None).unwrap();
         let app = Router::new()
             .route("/api/v1/providers", get(|| async { "ok" }))
             .layer(cors_layer(config.cors_allow_all));

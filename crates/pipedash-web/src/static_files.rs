@@ -6,31 +6,29 @@ use axum::{
         StatusCode,
         Uri,
     },
-    response::{
-        IntoResponse,
-        Response,
-    },
+    response::Response,
 };
 use rust_embed::Embed;
 
 const INDEX_HTML: &str = "index.html";
+const DEFAULT_BASE_HREF: &str = r#"<base href="/" />"#;
 
 #[derive(Embed)]
 #[folder = "dist/"]
 pub struct StaticAssets;
 
-pub async fn serve_static(uri: Uri) -> impl IntoResponse {
+pub fn serve_static(uri: Uri, base_path: &str) -> Response {
     let path = uri.path().trim_start_matches('/');
 
     if path.is_empty() || path == INDEX_HTML {
-        return serve_index_html();
+        return serve_index_html(base_path);
     }
 
     match StaticAssets::get(path) {
         Some(content) => serve_file_content(content.data.as_ref(), path),
         None => {
             if path_has_no_extension(path) {
-                serve_index_html()
+                serve_index_html(base_path)
             } else {
                 not_found()
             }
@@ -53,19 +51,30 @@ fn serve_file_content(content: &[u8], path: &str) -> Response {
         .unwrap()
 }
 
-fn serve_index_html() -> Response {
+fn serve_index_html(base_path: &str) -> Response {
     match StaticAssets::get(INDEX_HTML) {
         Some(content) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
             .header(header::CACHE_CONTROL, "no-cache")
-            .body(Body::from(content.data))
+            .body(Body::from(with_base_href(
+                &String::from_utf8_lossy(&content.data),
+                base_path,
+            )))
             .unwrap(),
         None => Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .body(Body::from("Frontend not built. Run: bun run build"))
             .unwrap(),
     }
+}
+
+fn with_base_href(html: &str, base_path: &str) -> String {
+    html.replacen(
+        DEFAULT_BASE_HREF,
+        &format!(r#"<base href="{base_path}" />"#),
+        1,
+    )
 }
 
 fn not_found() -> Response {
@@ -116,30 +125,62 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_serve_static_root() {
+    #[test]
+    fn index_html_gets_the_configured_base_href() {
+        let html = r#"<head><base href="/" /><script src="./assets/index.js"></script></head>"#;
+
+        assert_eq!(with_base_href(html, "/"), html);
+        assert_eq!(
+            with_base_href(html, "/pipedash/"),
+            r#"<head><base href="/pipedash/" /><script src="./assets/index.js"></script></head>"#
+        );
+    }
+
+    #[test]
+    fn test_serve_static_root() {
         let uri: Uri = "/".parse().unwrap();
-        let response = serve_static(uri).await.into_response();
+        let response = serve_static(uri, "/");
         assert!(
             response.status() == StatusCode::OK
                 || response.status() == StatusCode::INTERNAL_SERVER_ERROR
         );
     }
 
-    #[tokio::test]
-    async fn test_serve_static_missing_file() {
+    #[test]
+    fn test_serve_static_missing_file() {
         let uri: Uri = "/nonexistent.xyz".parse().unwrap();
-        let response = serve_static(uri).await.into_response();
+        let response = serve_static(uri, "/");
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
-    #[tokio::test]
-    async fn test_serve_static_spa_route() {
+    #[test]
+    fn test_serve_static_spa_route() {
         let uri: Uri = "/pipelines".parse().unwrap();
-        let response = serve_static(uri).await.into_response();
+        let response = serve_static(uri, "/");
         assert!(
             response.status() == StatusCode::OK
                 || response.status() == StatusCode::INTERNAL_SERVER_ERROR
         );
+    }
+
+    #[tokio::test]
+    async fn built_index_html_carries_the_configured_base_href() {
+        let index = StaticAssets::get(INDEX_HTML).expect("dist/index.html");
+        if String::from_utf8_lossy(&index.data).contains("Frontend not built") {
+            return;
+        }
+
+        for uri in ["/", "/pipelines/some-id"] {
+            let response = serve_static(uri.parse().unwrap(), "/pipedash/");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let html = String::from_utf8_lossy(&body);
+
+            assert!(
+                html.contains(r#"<base href="/pipedash/" />"#),
+                "{uri}: {html}"
+            );
+        }
     }
 }

@@ -151,6 +151,9 @@ pub struct ServerConfig {
 
     #[serde(default = "default_cors_allow_all")]
     pub cors_allow_all: bool,
+
+    #[serde(default)]
+    pub base_path: String,
 }
 
 impl Default for ServerConfig {
@@ -158,6 +161,7 @@ impl Default for ServerConfig {
         Self {
             bind_addr: default_bind_addr(),
             cors_allow_all: default_cors_allow_all(),
+            base_path: String::new(),
         }
     }
 }

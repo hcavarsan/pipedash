@@ -1,3 +1,4 @@
+import { withBasePath } from '../lib/basePath'
 import { logger } from '../lib/logger'
 import { getToken, useAuthStore } from '../stores/authStore'
 
@@ -29,7 +30,7 @@ const getWsUrl = (): string => {
     return `${protocol}//${window.location.host}${apiUrl}/ws`
   }
 
-  return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/ws`
+  return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}${withBasePath('/api/v1/ws')}`
 }
 
 const WS_URL = getWsUrl()

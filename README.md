@@ -330,6 +330,7 @@ The API server serves the frontend directly (it's embedded in the binary). A sin
 | `PIPEDASH_VAULT_PASSWORD` | Auto-generated | Password for encrypted token storage and API authentication |
 | `PIPEDASH_EMBEDDED_FRONTEND` | `true` | Serve frontend from API binary |
 | `PIPEDASH_CORS_ALLOW_ALL` | `false` | Allow cross-origin API requests, including writes, from any site. Overrides `server.cors_allow_all` in the config file |
+| `PIPEDASH_BASE_PATH` | `/` | Path the web UI runs under behind a reverse proxy, for example `/pipedash`. Overrides `server.base_path` in the config file |
 | `PIPEDASH_CONFIG_PATH` | Auto-discovered | Path to TOML configuration file |
 | `PIPEDASH_POSTGRES_URL` | – | PostgreSQL connection string |
 | `RUST_LOG` | `info` | Log level (debug, info, warn, error) |
@@ -346,6 +347,7 @@ default_refresh_interval = 30
 [server]
 bind_addr = "0.0.0.0:8080"
 cors_allow_all = false
+base_path = "/"
 
 [storage]
 backend = "sqlite"  # or "postgres"
@@ -376,7 +378,9 @@ selected_items = "team/backend,team/frontend"
 
 Use `${VAR}` syntax to reference environment variables in config values.
 
-The `[server]` values are read when the API server starts. Until a config file exists (setup mode), the server uses the defaults `127.0.0.1:8080` and `cors_allow_all = false`, so restart the server after setup to apply them. `PIPEDASH_BIND_ADDR` and `PIPEDASH_CORS_ALLOW_ALL` take precedence over the file.
+The `[server]` values are read when the API server starts. Until a config file exists (setup mode), the server uses the defaults `127.0.0.1:8080` and `cors_allow_all = false`, so restart the server after setup to apply them. `PIPEDASH_BIND_ADDR`, `PIPEDASH_CORS_ALLOW_ALL` and `PIPEDASH_BASE_PATH` take precedence over the file.
+
+To serve the web UI under a path such as `https://tools.example.com/pipedash/`, set `base_path = "/pipedash"`. The reverse proxy must strip that path before it forwards requests, including the `/api/v1/ws` websocket. The desktop app ignores this setting.
 
 **Cargo features**
 

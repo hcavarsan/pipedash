@@ -9,6 +9,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { PluginProvider } from './contexts/PluginContext'
+import { BASE_PATH } from './lib/basePath'
 import { queryClient } from './lib/queryClient'
 import { theme } from './theme'
 
@@ -21,7 +22,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <MantineProvider theme={theme} defaultColorScheme="dark" cssVariablesResolver={v8CssVariablesResolver}>
-        <BrowserRouter>
+        <BrowserRouter basename={BASE_PATH.replace(/\/$/, '') || '/'}>
           <ErrorBoundary scope="app">
             <ModalsProvider>
               <PluginProvider>

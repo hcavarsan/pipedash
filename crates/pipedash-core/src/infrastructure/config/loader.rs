@@ -377,6 +377,7 @@ impl ConfigSources {
             "general.default_refresh_interval" => Some("PIPEDASH_DEFAULT_REFRESH_INTERVAL"),
             "server.bind_addr" => Some("PIPEDASH_BIND_ADDR"),
             "server.cors_allow_all" => Some("PIPEDASH_CORS_ALLOW_ALL"),
+            "server.base_path" => Some("PIPEDASH_BASE_PATH"),
             "storage.data_dir" => Some("PIPEDASH_DATA_DIR"),
             "storage.backend" => Some("PIPEDASH_STORAGE_BACKEND"),
             "storage.postgres.connection_string" => Some("PIPEDASH_POSTGRES_URL"),

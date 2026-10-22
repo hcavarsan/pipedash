@@ -1,5 +1,7 @@
 import { Image, Indicator, Text, ThemeIcon } from '@mantine/core'
 
+import { withBasePath } from '../../../lib/basePath'
+
 interface ProviderIconProps {
   name: string
   icon: string | null
@@ -17,7 +19,7 @@ export const ProviderIcon = ({ name, icon, size, failed = false }: ProviderIconP
   <Indicator color="red" size={Math.max(8, size / 3)} offset={1} withBorder disabled={!failed}>
     <ThemeIcon size={size} variant="transparent" color="gray" aria-hidden>
       {icon ? (
-        <Image src={icon} alt="" w={size * 0.65} h={size * 0.65} fit="contain" />
+        <Image src={withBasePath(icon)} alt="" w={size * 0.65} h={size * 0.65} fit="contain" />
       ) : (
         <Text fz={size * 0.4} fw={700} lh={1}>
           {initials(name)}

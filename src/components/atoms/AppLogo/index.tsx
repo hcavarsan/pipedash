@@ -1,7 +1,9 @@
 import { Image } from '@mantine/core'
 
+import { withBasePath } from '../../../lib/basePath'
+
 const LOGO_WIDTHS = [28, 56, 84, 112, 168]
-const SRC_SET = LOGO_WIDTHS.map((width) => `/app-logo/${width}.png ${width}w`).join(', ')
+const SRC_SET = LOGO_WIDTHS.map((width) => `${withBasePath(`/app-logo/${width}.png`)} ${width}w`).join(', ')
 
 interface AppLogoProps {
   size: number | { base: number; sm?: number }
@@ -13,7 +15,7 @@ export const AppLogo = ({ size, alt = '' }: AppLogoProps) => {
 
   return (
     <Image
-      src="/app-logo/56.png"
+      src={withBasePath('/app-logo/56.png')}
       srcSet={SRC_SET}
       sizes={`${largest}px`}
       alt={alt}
