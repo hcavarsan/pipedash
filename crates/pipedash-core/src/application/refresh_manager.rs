@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{
     Duration,
@@ -60,6 +61,7 @@ pub struct RefreshManager {
     no_change_count: Arc<Mutex<u32>>,
     current_interval: Arc<Mutex<Duration>>,
     priority_queue: Arc<Mutex<Vec<i64>>>,
+    last_fetched: Arc<Mutex<HashMap<i64, Instant>>>,
 }
 
 impl RefreshManager {
@@ -78,6 +80,7 @@ impl RefreshManager {
             no_change_count: Arc::new(Mutex::new(0)),
             current_interval: Arc::new(Mutex::new(Duration::from_secs(10))),
             priority_queue: Arc::new(Mutex::new(Vec::new())),
+            last_fetched: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -110,6 +113,7 @@ impl RefreshManager {
         let no_change_count = Arc::clone(&self.no_change_count);
         let current_interval = Arc::clone(&self.current_interval);
         let priority_queue = Arc::clone(&self.priority_queue);
+        let last_fetched = Arc::clone(&self.last_fetched);
 
         tokio::spawn(async move {
             let mut tick_interval = interval(Duration::from_secs(5));
@@ -170,9 +174,38 @@ impl RefreshManager {
                         *last = Some(Instant::now());
                     }
 
+                    let providers = match pipeline_service.provider_refresh_intervals().await {
+                        Ok(providers) => providers,
+                        Err(e) => {
+                            let error_msg = format!("Refresh error: {e:?}");
+                            event_bus
+                                .emit(CoreEvent::RefreshError { error: error_msg })
+                                .await;
+                            continue;
+                        }
+                    };
+                    let due = {
+                        let mut fetched = last_fetched.lock().await;
+                        fetched.retain(|id, _| providers.iter().any(|(pid, _)| pid == id));
+                        let now = Instant::now();
+                        let due = Self::due_providers(&providers, &fetched, now);
+                        for id in &due {
+                            fetched.insert(*id, now);
+                        }
+                        due
+                    };
+                    if due.is_empty() {
+                        continue;
+                    }
+
                     let old_cached = pipeline_service.get_cached_pipelines(None).await.ok();
 
-                    match pipeline_service.fetch_pipelines(None).await {
+                    let refreshed = match pipeline_service.fetch_providers(due).await {
+                        Ok(_) => pipeline_service.get_cached_pipelines(None).await,
+                        Err(e) => Err(e),
+                    };
+
+                    match refreshed {
                         Ok(pipelines) => {
                             let timestamp = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -314,6 +347,21 @@ impl RefreshManager {
         *count = 0;
     }
 
+    fn due_providers(
+        providers: &[(i64, i64)], last_fetched: &HashMap<i64, Instant>, now: Instant,
+    ) -> Vec<i64> {
+        providers
+            .iter()
+            .filter(|(id, interval_secs)| {
+                *interval_secs > 0
+                    && last_fetched.get(id).is_none_or(|last| {
+                        now.duration_since(*last) >= Duration::from_secs(*interval_secs as u64)
+                    })
+            })
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
     fn has_changes(old: &[Pipeline], new: &[Pipeline]) -> bool {
         if old.len() != new.len() {
             return true;
@@ -333,5 +381,30 @@ impl RefreshManager {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn due_providers_waits_for_each_provider_interval() {
+        let start = Instant::now();
+        let providers = [(1, 10), (2, 600), (3, 0), (4, 30)];
+        let last_fetched = HashMap::from([(1, start), (2, start), (3, start)]);
+
+        let due = |secs| {
+            RefreshManager::due_providers(
+                &providers,
+                &last_fetched,
+                start + Duration::from_secs(secs),
+            )
+        };
+
+        assert_eq!(due(5), vec![4]);
+        assert_eq!(due(60), vec![1, 4]);
+        assert_eq!(due(599), vec![1, 4]);
+        assert_eq!(due(600), vec![1, 2, 4]);
     }
 }

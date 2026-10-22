@@ -124,118 +124,14 @@ impl PipelineService {
                 }
             }
         } else {
-            let provider_summaries = self.provider_service.list_providers().await?;
-
-            let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_PROVIDER_FETCHES));
-
-            let futures: Vec<_> = provider_summaries
+            let provider_ids = self
+                .provider_service
+                .list_providers()
+                .await?
                 .into_iter()
-                .map(|summary| {
-                    let semaphore = semaphore.clone();
-                    let provider_service = self.provider_service.clone();
-                    let deduplicator = self.deduplicator.clone();
-                    let repository = self.repository.clone();
-                    let event_bus = self.event_bus.clone();
-                    let provider_id = summary.id;
-                    async move {
-                        let _permit = semaphore.acquire().await.expect("semaphore closed");
-                        let request_id = hash_request(provider_id, "fetch_pipelines");
-
-                        let result = timeout(
-                            Duration::from_secs(30),
-                            deduplicator.deduplicate(request_id, || async {
-                                let provider = provider_service.get_provider(provider_id).await?;
-                                provider.fetch_pipelines().await
-                            }),
-                        )
-                        .await;
-
-                        match result {
-                            Ok(Ok(pipelines)) => {
-                                if let Ok(changed) = repository
-                                    .update_provider_fetch_status(provider_id, true, None)
-                                    .await
-                                {
-                                    if changed {
-                                        event_bus.emit(CoreEvent::ProvidersChanged).await;
-                                    }
-                                }
-
-                                Ok((provider_id, pipelines))
-                            }
-                            Ok(Err(e)) => {
-                                let error_msg = format!("{e}");
-                                if let Ok(changed) = repository
-                                    .update_provider_fetch_status(
-                                        provider_id,
-                                        false,
-                                        Some(error_msg),
-                                    )
-                                    .await
-                                {
-                                    if changed {
-                                        event_bus.emit(CoreEvent::ProvidersChanged).await;
-                                    }
-                                }
-
-                                Err(e)
-                            }
-                            Err(_elapsed) => {
-                                let error_msg =
-                                    "Connection timeout - provider did not respond".to_string();
-                                if let Ok(changed) = repository
-                                    .update_provider_fetch_status(
-                                        provider_id,
-                                        false,
-                                        Some(error_msg.clone()),
-                                    )
-                                    .await
-                                {
-                                    if changed {
-                                        event_bus.emit(CoreEvent::ProvidersChanged).await;
-                                    }
-                                }
-
-                                Err(DomainError::ProviderError(error_msg))
-                            }
-                        }
-                    }
-                })
+                .map(|summary| summary.id)
                 .collect();
-
-            let results =
-                timeout(Duration::from_secs(60), futures::future::join_all(futures)).await;
-
-            let results = match results {
-                Ok(results) => results,
-                Err(_) => {
-                    tracing::warn!("Overall provider fetch timeout (60s exceeded)");
-                    return Err(DomainError::ProviderError(
-                        "Overall provider fetch timeout (60s exceeded)".into(),
-                    ));
-                }
-            };
-
-            let mut all_pipelines = Vec::new();
-            for result in results {
-                match result {
-                    Ok((provider_id, pipelines)) => {
-                        self.repository
-                            .update_pipelines_cache(provider_id, &pipelines)
-                            .await?;
-
-                        self.event_bus
-                            .emit(CoreEvent::PipelineCacheInvalidated {
-                                provider_id: Some(provider_id),
-                                reason: CacheInvalidationReason::Fetch,
-                            })
-                            .await;
-
-                        all_pipelines.extend(pipelines);
-                    }
-                    Err(_e) => {}
-                }
-            }
+            let all_pipelines = self.fetch_providers(provider_ids).await?;
 
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -252,6 +148,125 @@ impl PipelineService {
 
             Ok(all_pipelines)
         }
+    }
+
+    pub async fn provider_refresh_intervals(&self) -> DomainResult<Vec<(i64, i64)>> {
+        Ok(self
+            .provider_service
+            .list_providers()
+            .await?
+            .into_iter()
+            .map(|summary| (summary.id, summary.refresh_interval))
+            .collect())
+    }
+
+    pub async fn fetch_providers(&self, provider_ids: Vec<i64>) -> DomainResult<Vec<Pipeline>> {
+        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_PROVIDER_FETCHES));
+
+        let futures: Vec<_> = provider_ids
+            .into_iter()
+            .map(|provider_id| {
+                let semaphore = semaphore.clone();
+                let provider_service = self.provider_service.clone();
+                let deduplicator = self.deduplicator.clone();
+                let repository = self.repository.clone();
+                let event_bus = self.event_bus.clone();
+                async move {
+                    let _permit = semaphore.acquire().await.expect("semaphore closed");
+                    let request_id = hash_request(provider_id, "fetch_pipelines");
+
+                    let result = timeout(
+                        Duration::from_secs(30),
+                        deduplicator.deduplicate(request_id, || async {
+                            let provider = provider_service.get_provider(provider_id).await?;
+                            provider.fetch_pipelines().await
+                        }),
+                    )
+                    .await;
+
+                    match result {
+                        Ok(Ok(pipelines)) => {
+                            if let Ok(changed) = repository
+                                .update_provider_fetch_status(provider_id, true, None)
+                                .await
+                            {
+                                if changed {
+                                    event_bus.emit(CoreEvent::ProvidersChanged).await;
+                                }
+                            }
+
+                            Ok((provider_id, pipelines))
+                        }
+                        Ok(Err(e)) => {
+                            let error_msg = format!("{e}");
+                            if let Ok(changed) = repository
+                                .update_provider_fetch_status(provider_id, false, Some(error_msg))
+                                .await
+                            {
+                                if changed {
+                                    event_bus.emit(CoreEvent::ProvidersChanged).await;
+                                }
+                            }
+
+                            Err(e)
+                        }
+                        Err(_elapsed) => {
+                            let error_msg =
+                                "Connection timeout - provider did not respond".to_string();
+                            if let Ok(changed) = repository
+                                .update_provider_fetch_status(
+                                    provider_id,
+                                    false,
+                                    Some(error_msg.clone()),
+                                )
+                                .await
+                            {
+                                if changed {
+                                    event_bus.emit(CoreEvent::ProvidersChanged).await;
+                                }
+                            }
+
+                            Err(DomainError::ProviderError(error_msg))
+                        }
+                    }
+                }
+            })
+            .collect();
+
+        let results = timeout(Duration::from_secs(60), futures::future::join_all(futures)).await;
+
+        let results = match results {
+            Ok(results) => results,
+            Err(_) => {
+                tracing::warn!("Overall provider fetch timeout (60s exceeded)");
+                return Err(DomainError::ProviderError(
+                    "Overall provider fetch timeout (60s exceeded)".into(),
+                ));
+            }
+        };
+
+        let mut all_pipelines = Vec::new();
+        for result in results {
+            match result {
+                Ok((provider_id, pipelines)) => {
+                    self.repository
+                        .update_pipelines_cache(provider_id, &pipelines)
+                        .await?;
+
+                    self.event_bus
+                        .emit(CoreEvent::PipelineCacheInvalidated {
+                            provider_id: Some(provider_id),
+                            reason: CacheInvalidationReason::Fetch,
+                        })
+                        .await;
+
+                    all_pipelines.extend(pipelines);
+                }
+                Err(_e) => {}
+            }
+        }
+
+        Ok(all_pipelines)
     }
 
     pub async fn get_cached_pipelines(
