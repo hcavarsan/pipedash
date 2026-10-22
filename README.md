@@ -120,7 +120,7 @@ Launch the app and add a provider via the sidebar. Each provider needs an API to
 
 **GitHub Actions**: Personal Access Token with `repo` and `workflow` scopes. You can set a custom base URL for GitHub Enterprise.
 
-**Gitea Actions**: Access token with `read:user`, `read:organization`, and `read/write:repository` scopes, plus your Gitea base URL. Requires Gitea 1.24 or newer; cancelling runs needs the newer `/cancel` API.
+**Gitea Actions**: Access token with `read:user`, `read:organization`, and `read/write:repository` scopes, plus your Gitea base URL. Requires Gitea 1.25 or newer; cancelling runs needs the newer `/cancel` API.
 
 **GitLab CI**: Personal Access Token with `api` scope. Works with GitLab.com and self-hosted.
 
