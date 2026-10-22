@@ -71,9 +71,9 @@ impl PipelineService {
     }
 
     pub async fn fetch_pipelines(&self, provider_id: Option<i64>) -> DomainResult<Vec<Pipeline>> {
-        if let Err(_e) = self.repository.clear_workflow_parameters_cache().await {}
-
         if let Some(pid) = provider_id {
+            if let Err(_e) = self.repository.clear_workflow_parameters_cache().await {}
+
             let provider = self.provider_service.get_provider(pid).await?;
 
             let result = timeout(Duration::from_secs(30), provider.fetch_pipelines()).await;
@@ -161,6 +161,8 @@ impl PipelineService {
     }
 
     pub async fn fetch_providers(&self, provider_ids: Vec<i64>) -> DomainResult<Vec<Pipeline>> {
+        if let Err(_e) = self.repository.clear_workflow_parameters_cache().await {}
+
         let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_PROVIDER_FETCHES));
 
         let futures: Vec<_> = provider_ids

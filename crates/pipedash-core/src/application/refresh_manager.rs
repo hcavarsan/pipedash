@@ -155,7 +155,11 @@ impl RefreshManager {
                     }
                 }
 
-                if current_mode == RefreshMode::Active {
+                'refresh: {
+                    if current_mode != RefreshMode::Active {
+                        break 'refresh;
+                    }
+
                     let refresh_interval = *current_interval.lock().await;
                     let should_refresh = {
                         let last = last_refresh.lock().await;
@@ -166,7 +170,7 @@ impl RefreshManager {
                     };
 
                     if !should_refresh {
-                        continue;
+                        break 'refresh;
                     }
 
                     {
@@ -181,7 +185,7 @@ impl RefreshManager {
                             event_bus
                                 .emit(CoreEvent::RefreshError { error: error_msg })
                                 .await;
-                            continue;
+                            break 'refresh;
                         }
                     };
                     let due = {
@@ -195,7 +199,7 @@ impl RefreshManager {
                         due
                     };
                     if due.is_empty() {
-                        continue;
+                        break 'refresh;
                     }
 
                     let old_cached = pipeline_service.get_cached_pipelines(None).await.ok();
