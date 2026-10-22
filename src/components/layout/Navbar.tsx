@@ -38,11 +38,11 @@ interface NavbarProps {
 }
 
 const providerStatusText = (provider: ProviderSummary) => {
-  if (provider.last_fetch_status === 'error') {
-    return 'Fetch failed'
-  }
   if (provider.paused_until) {
     return `Paused until ${formatTime(provider.paused_until)}`
+  }
+  if (provider.last_fetch_status === 'error') {
+    return 'Fetch failed'
   }
 
   return formatCount(provider.pipeline_count, 'pipeline')

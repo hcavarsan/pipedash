@@ -628,6 +628,13 @@ impl ProviderService {
             }
         };
         let paused_until = rate_limit.and_then(|rate_limit| quota_pause(&rate_limit, Utc::now()));
+        let providers = self.providers.read().await;
+        if !providers
+            .get(&provider_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &provider))
+        {
+            return None;
+        }
         let changed = match paused_until {
             Some(until) => {
                 tracing::info!(provider_id, %until, "API quota almost used up, pausing provider");
@@ -635,6 +642,7 @@ impl ProviderService {
             }
             None => self.quota_pauses.remove(&provider_id).is_some(),
         };
+        drop(providers);
         if changed {
             self.event_bus.emit(CoreEvent::ProvidersChanged).await;
         }
@@ -1005,7 +1013,9 @@ mod tests {
         );
     }
 
-    async fn stub_github(remaining: u64, reset: i64) -> (String, Arc<Mutex<Vec<String>>>) {
+    async fn stub_github(
+        remaining: u64, reset: i64, delay: Duration,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
         use tokio::io::{
             AsyncReadExt,
             AsyncWriteExt,
@@ -1032,6 +1042,7 @@ mod tests {
                 let path = request.split_whitespace().nth(1).unwrap_or_default();
                 let path = path.split('?').next().unwrap().to_string();
                 let (status, body) = if path == "/api/v3/rate_limit" {
+                    tokio::time::sleep(delay).await;
                     let rate = serde_json::json!({
                         "limit": 5000, "used": 5000 - remaining, "remaining": remaining, "reset": reset
                     });
@@ -1061,7 +1072,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let repository = temp_repository(&temp_dir, "quota.db").await;
         let reset = Utc::now().timestamp() + 1200;
-        let (base_url, requests) = stub_github(0, reset).await;
+        let (base_url, requests) = stub_github(0, reset, Duration::ZERO).await;
         let id = repository
             .add_provider(&provider(
                 "github",
@@ -1100,7 +1111,8 @@ mod tests {
     async fn refresh_fetches_a_github_provider_with_quota_left() {
         let temp_dir = TempDir::new().unwrap();
         let repository = temp_repository(&temp_dir, "quota.db").await;
-        let (base_url, requests) = stub_github(4000, Utc::now().timestamp() + 1200).await;
+        let (base_url, requests) =
+            stub_github(4000, Utc::now().timestamp() + 1200, Duration::ZERO).await;
         let id = repository
             .add_provider(&provider(
                 "github",
@@ -1132,5 +1144,42 @@ mod tests {
             .iter()
             .any(|path| path.starts_with("/api/v3/repos/acme/app")));
         assert_eq!(summaries[0].paused_until, None);
+    }
+
+    #[tokio::test]
+    async fn quota_answer_for_replaced_credentials_does_not_pause_the_new_ones() {
+        let temp_dir = TempDir::new().unwrap();
+        let repository = temp_repository(&temp_dir, "quota.db").await;
+        let reset = Utc::now().timestamp() + 1200;
+        let (base_url, _) = stub_github(0, reset, Duration::from_millis(500)).await;
+        let id = repository
+            .add_provider(&provider(
+                "github",
+                "github",
+                "ghp_old",
+                30,
+                &[("base_url", &base_url), ("selected_items", "acme/app")],
+            ))
+            .await
+            .unwrap();
+        let service = Arc::new(ProviderService::new(
+            repository.clone(),
+            Arc::new(HttpClientManager::new().unwrap()),
+            Arc::new(NoOpEventBus),
+        ));
+
+        let check = tokio::spawn({
+            let service = service.clone();
+            async move { service.check_quota(id).await }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let replacement = service
+            .create_provider(&repository.get_provider(id).await.unwrap())
+            .unwrap();
+        service.providers.write().await.insert(id, replacement);
+        service.quota_pauses.remove(&id);
+
+        assert_eq!(check.await.unwrap(), None);
+        assert_eq!(service.paused_until(id), None);
     }
 }
