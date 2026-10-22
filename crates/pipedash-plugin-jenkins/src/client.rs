@@ -9,13 +9,33 @@ use pipedash_plugin_api::{
     PluginResult,
     RetryPolicy,
 };
-use reqwest::Client;
+use reqwest::{
+    Client,
+    StatusCode,
+};
 
 use crate::{
     config,
     mapper,
     types,
 };
+
+fn check_status(response: reqwest::Response) -> PluginResult<reqwest::Response> {
+    let status = response.status();
+    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        return Err(PluginError::AuthenticationFailed(format!(
+            "Jenkins rejected the username or API token for {} (HTTP {status})",
+            response.url()
+        )));
+    }
+    if !status.is_success() {
+        return Err(PluginError::ApiError(format!(
+            "Jenkins returned HTTP {status} for {}",
+            response.url()
+        )));
+    }
+    Ok(response)
+}
 
 pub(crate) struct JenkinsClient {
     http_client: std::sync::Arc<Client>,
@@ -89,7 +109,8 @@ impl JenkinsClient {
             .header(reqwest::header::AUTHORIZATION, &self.auth_header)
             .send()
             .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch jobs: {e}")))?
+            .map_err(|e| PluginError::ApiError(format!("Failed to fetch jobs: {e}")))
+            .and_then(check_status)?
             .json()
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to parse jobs: {e}")))?;
@@ -116,7 +137,8 @@ impl JenkinsClient {
                     .await
                     .map_err(|e| {
                         PluginError::ApiError(format!("Failed to fetch job {job_path}: {e}"))
-                    })?
+                    })
+                    .and_then(check_status)?
                     .json()
                     .await
                     .map_err(|e| {
@@ -148,7 +170,8 @@ impl JenkinsClient {
                 .timeout(Duration::from_secs(10))
                 .send()
                 .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch build: {e}")))?;
+                .map_err(|e| PluginError::ApiError(format!("Failed to fetch build: {e}")))
+                .and_then(check_status)?;
 
             let response_text = response.text().await
                 .map_err(|e| PluginError::ApiError(format!("Failed to read response: {e}")))?;
@@ -180,7 +203,8 @@ impl JenkinsClient {
             .header(reqwest::header::AUTHORIZATION, &self.auth_header)
             .send()
             .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))?
+            .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))
+            .and_then(check_status)?
             .json()
             .await
             .map_err(|e| PluginError::ApiError(format!("Failed to parse builds: {e}")))?;
@@ -207,7 +231,8 @@ impl JenkinsClient {
                 .timeout(Duration::from_secs(30))
                 .send()
                 .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch job parameters: {e}")))?
+                .map_err(|e| PluginError::ApiError(format!("Failed to fetch job parameters: {e}")))
+                .and_then(check_status)?
                 .json()
                 .await
                 .map_err(|e| PluginError::ApiError(format!("Failed to parse job parameters: {e}")))?;
@@ -426,5 +451,76 @@ impl JenkinsClient {
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
+    use std::sync::Arc;
+
+    use tokio::io::{
+        AsyncReadExt,
+        AsyncWriteExt,
+    };
+
+    use super::*;
+
+    async fn rejecting_server(requests: Arc<AtomicUsize>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = stream.read(&mut buffer).await.unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..n]);
+                }
+                requests.fetch_add(1, Ordering::SeqCst);
+                let body = "<html><body><h2>HTTP ERROR 401 Unauthorized</h2></body></html>";
+                let response = format!(
+                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn rejected_credentials_fail_as_auth_error_without_retry() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let server_url = rejecting_server(requests.clone()).await;
+        let client = JenkinsClient::new(
+            Arc::new(Client::new()),
+            server_url,
+            "Basic YWxpY2U6d3Jvbmc=".to_string(),
+        );
+
+        let results = [
+            client.discover_all_jobs().await.err(),
+            client.fetch_job_details("build").await.err(),
+            client.fetch_build_details("build", 1).await.err(),
+            client.fetch_build_history("build", 10).await.err(),
+            client.fetch_job_parameters("build").await.err(),
+        ];
+
+        for error in results {
+            assert!(
+                matches!(error, Some(PluginError::AuthenticationFailed(_))),
+                "{error:?}"
+            );
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 5);
     }
 }

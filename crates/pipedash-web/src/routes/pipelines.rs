@@ -228,6 +228,10 @@ async fn get_workflow_parameters(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{
+        AtomicBool,
+        Ordering,
+    };
     use std::sync::Arc;
 
     use axum::body::Body;
@@ -235,6 +239,11 @@ mod tests {
     use axum::http::{
         Request,
         StatusCode,
+    };
+    use axum::middleware::Next;
+    use axum::response::{
+        IntoResponse,
+        Response,
     };
     use pipedash_core::infrastructure::{
         PipedashConfig,
@@ -284,10 +293,23 @@ mod tests {
         Json(jenkins_build(number))
     }
 
-    async fn start_jenkins_stub() -> String {
+    async fn reject_when_set(
+        State(reject): State<Arc<AtomicBool>>, request: Request<Body>, next: Next,
+    ) -> Response {
+        if reject.load(Ordering::SeqCst) {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        next.run(request).await
+    }
+
+    async fn start_jenkins_stub(reject: Arc<AtomicBool>) -> String {
         let stub = Router::new()
             .route("/job/build/api/json", get(jenkins_job))
-            .route("/job/build/{number}/api/json", get(jenkins_build_details));
+            .route("/job/build/{number}/api/json", get(jenkins_build_details))
+            .layer(axum::middleware::from_fn_with_state(
+                reject,
+                reject_when_set,
+            ));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
@@ -295,7 +317,9 @@ mod tests {
         format!("http://{addr}")
     }
 
-    async fn app_with_jenkins(data_dir: &std::path::Path) -> (Router, i64) {
+    async fn app_with_jenkins(
+        data_dir: &std::path::Path, reject: Arc<AtomicBool>,
+    ) -> (Router, i64) {
         std::env::set_var("PIPEDASH_CONFIG_PATH", data_dir.join("config.toml"));
         let mut config = PipedashConfig::default();
         config.storage.backend = StorageBackendType::Sqlite;
@@ -309,7 +333,7 @@ mod tests {
             provider_type: "jenkins".into(),
             token: String::new(),
             config: [
-                ("server_url".to_string(), start_jenkins_stub().await),
+                ("server_url".to_string(), start_jenkins_stub(reject).await),
                 ("username".to_string(), "admin".to_string()),
                 ("selected_items".to_string(), "build".to_string()),
             ]
@@ -356,7 +380,7 @@ mod tests {
     async fn run_details_load_a_run_older_than_the_latest_100() {
         let data_dir =
             std::env::temp_dir().join(format!("pipedash-run-details-{}", std::process::id()));
-        let (app, provider_id) = app_with_jenkins(&data_dir).await;
+        let (app, provider_id) = app_with_jenkins(&data_dir, Arc::default()).await;
         let pipeline_id = format!("jenkins__{provider_id}__build");
 
         let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
@@ -368,5 +392,29 @@ mod tests {
         assert_eq!(page["runs"][0]["run_number"], 50);
         assert_eq!(status, StatusCode::OK, "{run}");
         assert_eq!(run["run_number"], 30);
+    }
+
+    #[tokio::test]
+    async fn rejected_provider_token_is_not_a_failed_api_login() {
+        let data_dir =
+            std::env::temp_dir().join(format!("pipedash-rejected-token-{}", std::process::id()));
+        let reject = Arc::new(AtomicBool::new(false));
+        let (app, provider_id) = app_with_jenkins(&data_dir, reject.clone()).await;
+        let pipeline_id = format!("jenkins__{provider_id}__build");
+
+        let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
+        assert_eq!(status, StatusCode::OK);
+        reject.store(true, Ordering::SeqCst);
+        let (status, body) = get_json(&app, &format!("/{pipeline_id}/runs")).await;
+        let _ = std::fs::remove_dir_all(&data_dir);
+
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "{body}");
+        assert!(
+            body["message"]
+                .as_str()
+                .unwrap()
+                .contains("Authentication failed"),
+            "{body}"
+        );
     }
 }
