@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{
     Arc,
     OnceLock,
@@ -118,6 +119,26 @@ impl GiteaClient {
             )
             .await?;
         Ok(list.workflow_runs)
+    }
+
+    pub async fn latest_runs(
+        &self, owner: &str, repo: &str, workflows: &[String],
+    ) -> PluginResult<HashMap<String, Run>> {
+        let mut latest = HashMap::new();
+        for page in 1..=MAX_RUN_PAGES {
+            let batch = self.list_runs(owner, repo, page).await?;
+            let last_page = batch.len() < RUNS_PAGE_SIZE;
+            for run in batch {
+                let workflow = run.workflow_file().to_string();
+                if workflows.contains(&workflow) {
+                    latest.entry(workflow).or_insert(run);
+                }
+            }
+            if latest.len() == workflows.len() || last_page {
+                break;
+            }
+        }
+        Ok(latest)
     }
 
     pub async fn workflow_runs(

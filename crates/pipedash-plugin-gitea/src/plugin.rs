@@ -52,15 +52,14 @@ impl GiteaPlugin {
     ) -> PluginResult<Vec<Pipeline>> {
         let (owner, repo) = config::parse_repo(repo_full_name)?;
         let client = self.client()?;
-        let (workflows, runs) = futures::try_join!(
-            client.list_workflows(owner, repo),
-            client.list_runs(owner, repo, 1)
-        )?;
+        let workflows = client.list_workflows(owner, repo).await?;
+        let workflow_ids: Vec<String> = workflows.iter().map(|w| w.id.clone()).collect();
+        let latest_runs = client.latest_runs(owner, repo, &workflow_ids).await?;
 
         Ok(workflows
             .iter()
             .map(|workflow| {
-                let latest_run = runs.iter().find(|run| run.workflow_file() == workflow.id);
+                let latest_run = latest_runs.get(&workflow.id);
                 mapper::map_pipeline(provider_id, owner, repo, workflow, latest_run)
             })
             .collect())
@@ -301,20 +300,37 @@ mod tests {
                             {"id": "lint.yaml", "name": "Lint", "path": ".gitea/workflows/lint.yaml"}
                         ]}),
                     ),
-                    ("GET", "/api/v1/repos/claude/smoke__ci/actions/runs") => (
-                        200,
-                        serde_json::json!({"workflow_runs": [
-                            {"id": 3, "run_number": 3, "status": "completed", "conclusion": "failure",
+                    ("GET", "/api/v1/repos/claude/smoke__ci/actions/runs") => {
+                        let page: usize = url
+                            .query_pairs()
+                            .find(|(key, _)| key == "page")
+                            .map(|(_, value)| value.parse().unwrap())
+                            .unwrap();
+                        let runs: Vec<_> = if page == 1 {
+                            (0..50)
+                            .map(|i| {
+                                serde_json::json!({
+                                    "id": 100 - i, "run_number": 100 - i, "status": "queued",
+                                    "path": "build__test.yaml@refs/heads/main", "head_branch": "main",
+                                    "html_url": format!("http://g/claude/smoke__ci/actions/runs/{}", 100 - i)
+                                })
+                            })
+                            .collect()
+                        } else {
+                            vec![
+                                serde_json::json!({"id": 3, "run_number": 3, "status": "completed", "conclusion": "failure",
                              "path": "lint.yaml@refs/heads/main", "head_branch": "main",
-                             "html_url": "http://g/claude/smoke__ci/actions/runs/3"},
-                            {"id": 2, "run_number": 2, "status": "queued",
+                             "html_url": "http://g/claude/smoke__ci/actions/runs/3"}),
+                                serde_json::json!({"id": 2, "run_number": 2, "status": "queued",
                              "path": "build__test.yaml@refs/heads/main", "head_branch": "main",
-                             "html_url": "http://g/claude/smoke__ci/actions/runs/2"},
-                            {"id": 1, "run_number": 1, "status": "completed", "conclusion": "success",
+                             "html_url": "http://g/claude/smoke__ci/actions/runs/2"}),
+                                serde_json::json!({"id": 1, "run_number": 1, "status": "completed", "conclusion": "success",
                              "path": "build__test.yaml@refs/heads/main", "head_branch": "main",
-                             "html_url": "http://g/claude/smoke__ci/actions/runs/1"}
-                        ]}),
-                    ),
+                             "html_url": "http://g/claude/smoke__ci/actions/runs/1"}),
+                            ]
+                        };
+                        (200, serde_json::json!({"workflow_runs": runs}))
+                    }
                     ("POST", "/api/v1/repos/claude/smoke__ci/actions/runs/2/cancel") => {
                         (404, serde_json::json!({"message": "not found"}))
                     }
@@ -344,7 +360,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pipelines_take_latest_run_of_their_own_workflow() {
+    async fn pipelines_find_latest_run_of_each_workflow_beyond_first_page() {
         let (plugin, server) = stub_gitea().await;
         let pipelines = plugin.fetch_pipelines().await.unwrap();
 
@@ -376,7 +392,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(runs.iter().map(|r| r.run_number).collect::<Vec<_>>(), [2]);
+        assert_eq!(runs.iter().map(|r| r.run_number).collect::<Vec<_>>(), [100]);
         let details = plugin
             .fetch_run_details("gitea__1__claude/smoke__ci/build__test.yaml", 1)
             .await
