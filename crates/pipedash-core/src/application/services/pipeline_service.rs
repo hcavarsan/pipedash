@@ -1,7 +1,4 @@
-use std::collections::{
-    HashMap,
-    HashSet,
-};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,7 +6,10 @@ use chrono::{
     DateTime,
     Utc,
 };
-use dashmap::DashSet;
+use dashmap::{
+    DashMap,
+    DashSet,
+};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
 
@@ -50,7 +50,7 @@ pub struct PipelineService {
     deduplicator: Arc<RequestDeduplicator<Vec<Pipeline>>>,
     run_deduplicator: Arc<RequestDeduplicator<Vec<PipelineRun>>>,
     cache_write_tracker: Arc<DashSet<String>>,
-    overdue_pipelines: Arc<DashSet<String>>,
+    overdue_pipelines: Arc<DashMap<String, Option<DateTime<Utc>>>>,
 }
 
 impl PipelineService {
@@ -66,7 +66,7 @@ impl PipelineService {
             deduplicator: Arc::new(RequestDeduplicator::new()),
             run_deduplicator: Arc::new(RequestDeduplicator::new()),
             cache_write_tracker: Arc::new(DashSet::new()),
-            overdue_pipelines: Arc::new(DashSet::new()),
+            overdue_pipelines: Arc::new(DashMap::new()),
         }
     }
 
@@ -295,7 +295,7 @@ impl PipelineService {
     fn mark_overdue(&self, mut pipelines: Vec<Pipeline>) -> Vec<Pipeline> {
         for pipeline in &mut pipelines {
             pipeline.overdue = pipeline.status == PipelineStatus::Running
-                && self.overdue_pipelines.contains(&pipeline.id);
+                && self.overdue_pipelines.contains_key(&pipeline.id);
         }
 
         pipelines
@@ -319,27 +319,30 @@ impl PipelineService {
                 async move {
                     let _permit = permits.acquire().await.ok()?;
                     match self.recent_runs(&pipeline.id).await {
-                        Ok(runs) => is_overdue(&runs, now).then(|| pipeline.id.clone()),
+                        Ok(runs) => is_overdue(&runs, now)
+                            .then(|| (pipeline.id.clone(), pipeline.last_run)),
                         Err(e) => {
                             tracing::debug!(pipeline_id = %pipeline.id, error = %e, "Overdue check failed");
                             self.overdue_pipelines
-                                .contains(&pipeline.id)
-                                .then(|| pipeline.id.clone())
+                                .get(&pipeline.id)
+                                .filter(|flagged_run| **flagged_run == pipeline.last_run)
+                                .map(|_| (pipeline.id.clone(), pipeline.last_run))
                         }
                     }
                 }
             });
-        let overdue: HashSet<String> = futures::future::join_all(checks)
+        let overdue: HashMap<String, Option<DateTime<Utc>>> = futures::future::join_all(checks)
             .await
             .into_iter()
             .flatten()
             .collect();
 
         let before = self.overdue_pipelines.len();
-        self.overdue_pipelines.retain(|id| overdue.contains(id));
+        self.overdue_pipelines
+            .retain(|id, last_run| overdue.get(id) == Some(last_run));
         let mut changed = self.overdue_pipelines.len() != before;
-        for id in overdue {
-            changed |= self.overdue_pipelines.insert(id);
+        for (id, last_run) in overdue {
+            changed |= self.overdue_pipelines.insert(id, last_run).is_none();
         }
 
         changed
@@ -1010,14 +1013,16 @@ mod tests {
             })
             .await
             .unwrap();
-        let pipeline: Pipeline = serde_json::from_value(json!({
-            "id": "jenkins__1__build", "provider_id": provider_id, "provider_type": "jenkins",
-            "name": "build", "status": "running", "repository": "build",
-            "last_updated": Utc::now()
-        }))
-        .unwrap();
+        let pipeline = |last_run: Option<DateTime<Utc>>| -> Pipeline {
+            serde_json::from_value(json!({
+                "id": "jenkins__1__build", "provider_id": provider_id, "provider_type": "jenkins",
+                "name": "build", "status": "running", "repository": "build",
+                "last_run": last_run, "last_updated": Utc::now()
+            }))
+            .unwrap()
+        };
         repository
-            .update_pipelines_cache(provider_id, &[pipeline])
+            .update_pipelines_cache(provider_id, &[pipeline(None)])
             .await
             .unwrap();
         repository
@@ -1046,6 +1051,12 @@ mod tests {
             .unwrap();
         let after_failed_lookup = service.update_overdue_pipelines().await;
         let kept = service.get_cached_pipelines(None).await.unwrap();
+        repository
+            .update_pipelines_cache(provider_id, &[pipeline(Some(Utc::now()))])
+            .await
+            .unwrap();
+        let new_run_failed_lookup = service.update_overdue_pipelines().await;
+        let new_run = service.get_cached_pipelines(None).await.unwrap();
 
         assert!(!before[0].overdue);
         assert!(changed);
@@ -1053,5 +1064,7 @@ mod tests {
         assert!(after[0].overdue);
         assert!(!after_failed_lookup);
         assert!(kept[0].overdue);
+        assert!(new_run_failed_lookup);
+        assert!(!new_run[0].overdue);
     }
 }
