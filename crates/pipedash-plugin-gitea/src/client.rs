@@ -105,26 +105,33 @@ impl GiteaClient {
         &self, uid: i64, exclusive: bool, search: Option<&str>, params: &PaginationParams,
     ) -> PluginResult<PaginatedResponse<Repository>> {
         let start = (params.page - 1) * params.page_size;
-        let (first, total) = self
-            .search_page(uid, exclusive, search, 1, params.page_size)
+        let (requested, total) = self
+            .search_page(uid, exclusive, search, params.page, params.page_size)
             .await?;
-        let served = first.data.len();
-        let total = total.or((served < params.page_size).then_some(served));
-        let limit = match total {
-            Some(total) if served < params.page_size.min(total) => served,
-            _ => params.page_size,
-        };
-        let end = total.map_or(start + params.page_size, |total| {
-            total.min(start + params.page_size)
-        });
+        let mut items = requested.data;
 
-        let mut items: Vec<Repository> = first.data.into_iter().skip(start).collect();
-        let from = start + items.len();
-        if from < end && limit > 0 {
-            items.extend(
-                self.search_window(uid, exclusive, search, from..end, limit)
-                    .await?,
-            );
+        if let Some(total) = total.filter(|_| items.len() < params.page_size) {
+            let limit = if params.page == 1 {
+                items.len()
+            } else {
+                let (probe, _) = self
+                    .search_page(uid, exclusive, search, 1, params.page_size)
+                    .await?;
+                probe.data.len()
+            };
+            if limit > 0 && limit < params.page_size.min(total) {
+                let end = total.min(start + params.page_size);
+                if params.page > 1 {
+                    items.clear();
+                }
+                let from = start + items.len();
+                if from < end {
+                    items.extend(
+                        self.search_window(uid, exclusive, search, from..end, limit)
+                            .await?,
+                    );
+                }
+            }
         }
 
         let total_count = total.unwrap_or(start + items.len());
