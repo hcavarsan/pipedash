@@ -103,6 +103,7 @@ interface PluginCapabilities {
   pipelines: boolean
   pipeline_runs: boolean
   trigger: boolean
+  cancel: boolean
   agents: boolean
   artifacts: boolean
   queues: boolean

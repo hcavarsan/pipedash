@@ -1,8 +1,15 @@
-use std::collections::HashSet;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 
 use indexmap::IndexMap;
 
-use super::schema::ProviderFileConfig;
+use super::schema::{
+    PipedashConfig,
+    ProviderFileConfig,
+};
+use super::state::ConfigState;
 use super::token_ref::TokenReference;
 use crate::domain::{
     DomainResult,
@@ -12,6 +19,10 @@ use crate::infrastructure::{
     ConfigBackend,
     TokenStore,
 };
+
+const EXPORT_HEADER: &str = "# Pipedash providers export.\n# Tokens are not included. Set each token variable in the environment or enter the token in Settings > Providers.\n\n";
+
+const EXPORT_TOKEN_PREFIX: &str = "PIPEDASH_TOKEN_";
 
 #[derive(Debug, Clone, Default)]
 pub struct SyncResult {
@@ -211,6 +222,94 @@ impl Default for ProviderSyncService {
     }
 }
 
+impl ProviderSyncService {
+    pub fn export_toml(db_providers: &[ProviderConfig]) -> DomainResult<String> {
+        let mut sorted: Vec<&ProviderConfig> = db_providers.iter().collect();
+        sorted.sort_by_key(|p| p.id);
+
+        let mut used_vars: HashSet<String> = sorted
+            .iter()
+            .filter_map(|db| Self::preserved_token_var(&db.token))
+            .map(str::to_string)
+            .collect();
+        let mut providers = IndexMap::new();
+
+        for db in sorted {
+            let mut config: HashMap<String, String> = db.config.clone();
+            let name = config.remove("display_name");
+
+            let token = match Self::preserved_token_var(&db.token) {
+                Some(var_name) => format!("${{{var_name}:-}}"),
+                None => Self::generated_token_ref(&db.name, &mut used_vars),
+            };
+
+            providers.insert(
+                db.name.clone(),
+                ProviderFileConfig {
+                    name,
+                    provider_type: db.provider_type.clone(),
+                    token,
+                    refresh_interval: u32::try_from(db.refresh_interval)
+                        .unwrap_or(super::schema::DEFAULT_REFRESH_INTERVAL_SECS),
+                    config,
+                },
+            );
+        }
+
+        let config = PipedashConfig {
+            providers,
+            ..Default::default()
+        };
+        let body = ConfigState::update_toml_preserving_comments("", &config)?;
+
+        Ok(format!("{EXPORT_HEADER}{body}"))
+    }
+
+    fn preserved_token_var(stored: &str) -> Option<&str> {
+        let inner = stored.trim().strip_prefix("${")?.strip_suffix('}')?;
+        let var_name = inner.split(":-").next().unwrap_or(inner);
+        let mut chars = var_name.chars();
+        let first = chars.next()?;
+
+        if !(first.is_ascii_alphabetic() || first == '_')
+            || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return None;
+        }
+
+        Some(var_name)
+    }
+
+    fn generated_token_ref(key: &str, used_vars: &mut HashSet<String>) -> String {
+        let mut suffix = String::new();
+        for c in key.chars() {
+            if c.is_ascii_alphanumeric() {
+                suffix.push(c.to_ascii_uppercase());
+            } else if !suffix.ends_with('_') {
+                suffix.push('_');
+            }
+        }
+        let suffix = suffix.trim_matches('_');
+        let base = format!(
+            "{EXPORT_TOKEN_PREFIX}{}",
+            if suffix.is_empty() {
+                "PROVIDER"
+            } else {
+                suffix
+            }
+        );
+
+        let mut var_name = base.clone();
+        let mut n = 2;
+        while !used_vars.insert(var_name.clone()) {
+            var_name = format!("{base}_{n}");
+            n += 1;
+        }
+
+        format!("${{{var_name}:-}}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -407,5 +506,37 @@ mod tests {
 
         let db_providers = backend.list_providers().await.unwrap();
         assert_eq!(db_providers.len(), 2);
+    }
+
+    #[test]
+    fn test_export_toml_generated_var_never_reuses_preserved_var() {
+        let provider = |id: i64, name: &str, token: &str| ProviderConfig {
+            id: Some(id),
+            name: name.to_string(),
+            provider_type: "github".to_string(),
+            token: token.to_string(),
+            config: HashMap::new(),
+            refresh_interval: 30,
+            version: None,
+        };
+        let preserved = provider(1, "other", "${PIPEDASH_TOKEN_PROD}");
+        let literal = provider(2, "prod", "ghp_literal_secret");
+
+        for providers in [
+            [preserved.clone(), literal.clone()],
+            [
+                literal.clone(),
+                ProviderConfig {
+                    id: Some(3),
+                    ..preserved
+                },
+            ],
+        ] {
+            let exported = ProviderSyncService::export_toml(&providers).unwrap();
+
+            assert!(!exported.contains("ghp_literal_secret"));
+            assert_eq!(exported.matches("${PIPEDASH_TOKEN_PROD:-}").count(), 1);
+            assert!(exported.contains("${PIPEDASH_TOKEN_PROD_2:-}"));
+        }
     }
 }

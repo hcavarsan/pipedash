@@ -13,6 +13,7 @@ import { TriggerWorkflowModal } from './components/pipeline/TriggerWorkflowModal
 import { WorkflowLogsModal } from './components/pipeline/WorkflowLogsModal'
 import { SetupWizard } from './components/setup/SetupWizard'
 import { UnifiedPipelinesView } from './components/table/UnifiedPipelinesView'
+import { usePlugins } from './contexts/PluginContext'
 import { useFailureNotifications } from './hooks/useFailureNotifications'
 import { useEventSync } from './lib/eventSync'
 import { logger } from './lib/logger'
@@ -28,11 +29,13 @@ import { useAuthStore } from './stores/authStore'
 import { useModalStore } from './stores/modalStore'
 import type { Pipeline, PipelineRun, ReviewDecision } from './types'
 import { displayErrorNotification } from './utils/errorDisplay'
+import { getReconcileBlockReason } from './utils/pipelinePresentation'
 
 function AppContent() {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
+  const { getPluginByType } = usePlugins()
 
   useEventSync()
   useFailureNotifications()
@@ -149,6 +152,10 @@ function AppContent() {
 
   const handleRerun = useCallback(
     async (pipeline: Pipeline, run: PipelineRun) => {
+      if (pipeline.provider_type === 'fluxcd') {
+        useModalStore.getState().openTriggerModal(pipeline.id)
+        return
+      }
       useModalStore.getState().setRerunLoading(pipeline.id, run.run_number)
       try {
         const runDetails = await queryClient.fetchQuery({
@@ -190,6 +197,7 @@ function AppContent() {
   const loading = providersLoading || pipelinesLoading
 
   const triggerPipeline = pipelines.find((p) => p.id === triggerModal.pipelineId) ?? null
+  const logsPipeline = pipelines.find((p) => p.id === logsModal.pipelineId)
 
   return (
     <AppLayout onRefreshAll={handleRefreshAll} refreshing={loading} onOpenSettings={handleOpenSettings}>
@@ -264,7 +272,11 @@ function AppContent() {
           onClose={closeLogsModal}
           pipelineId={logsModal.pipelineId}
           runNumber={logsModal.runNumber}
-          providerId={pipelines.find((p) => p.id === logsModal.pipelineId)?.provider_id}
+          providerId={logsPipeline?.provider_id}
+          providerType={logsPipeline?.provider_type}
+          canTrigger={!!logsPipeline && !getReconcileBlockReason(logsPipeline)}
+          triggerBlockedReason={logsPipeline ? getReconcileBlockReason(logsPipeline) : undefined}
+          canCancel={!!logsPipeline && !!getPluginByType(logsPipeline.provider_type)?.capabilities.cancel}
           onRerunSuccess={async (pipelineId, newRunNumber) => {
             await handleRefreshAll()
             openLogsModal(pipelineId, newRunNumber)

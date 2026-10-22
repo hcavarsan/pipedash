@@ -23,6 +23,21 @@ use crate::domain::{
     PipelineMetricsStats,
 };
 
+pub struct RecordMetrics {
+    pub run_number: i64,
+    pub run_hash: String,
+    pub entries: [Option<MetricEntry>; 3],
+}
+
+const METRICS_LOCK_NAMESPACE: i32 = 0x6d65_7472;
+
+fn metadata_json(metric: &MetricEntry) -> String {
+    metric
+        .metadata
+        .as_ref()
+        .map_or_else(|| "null".to_string(), ToString::to_string)
+}
+
 pub struct MetricsRepository {
     pool: DatabasePool,
 }
@@ -567,6 +582,136 @@ impl MetricsRepository {
         );
 
         Ok(total_inserted)
+    }
+
+    pub async fn refresh_record_metrics(
+        &self, pipeline_id: &str, records: &[RecordMetrics],
+    ) -> DomainResult<usize> {
+        if records.is_empty() {
+            return Ok(0);
+        }
+
+        let mut affected_rows = 0;
+
+        match &self.pool {
+            DatabasePool::Sqlite(p) => {
+                let mut tx = p
+                    .begin()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                for record in records {
+                    let deleted = sqlx::query(
+                        "DELETE FROM pipeline_metrics
+                         WHERE pipeline_id = ? AND run_number = ?
+                           AND (run_hash IS NULL OR run_hash <> ?)",
+                    )
+                    .bind(pipeline_id)
+                    .bind(record.run_number)
+                    .bind(&record.run_hash)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    affected_rows += deleted.rows_affected() as usize;
+
+                    for metric in record.entries.iter().flatten() {
+                        let result = sqlx::query(
+                            "INSERT INTO pipeline_metrics (pipeline_id, run_number, timestamp, metric_type, value, metadata_json, created_at, run_hash)
+                             SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                             WHERE NOT EXISTS (
+                                 SELECT 1 FROM pipeline_metrics
+                                 WHERE pipeline_id = ? AND run_number = ? AND metric_type = ?
+                             )",
+                        )
+                        .bind(pipeline_id)
+                        .bind(record.run_number)
+                        .bind(metric.timestamp.to_rfc3339())
+                        .bind(metric.metric_type.as_str())
+                        .bind(metric.value)
+                        .bind(metadata_json(metric))
+                        .bind(metric.created_at.to_rfc3339())
+                        .bind(&record.run_hash)
+                        .bind(pipeline_id)
+                        .bind(record.run_number)
+                        .bind(metric.metric_type.as_str())
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                        affected_rows += result.rows_affected() as usize;
+                    }
+                }
+
+                tx.commit()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            }
+            DatabasePool::Postgres(p) => {
+                let mut tx = p
+                    .begin()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                sqlx::query("SELECT pg_advisory_xact_lock($1, hashtext($2))")
+                    .bind(METRICS_LOCK_NAMESPACE)
+                    .bind(pipeline_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                for record in records {
+                    let deleted = sqlx::query(
+                        "DELETE FROM pipeline_metrics
+                         WHERE pipeline_id = $1 AND run_number = $2
+                           AND (run_hash IS NULL OR run_hash <> $3)",
+                    )
+                    .bind(pipeline_id)
+                    .bind(record.run_number)
+                    .bind(&record.run_hash)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                    affected_rows += deleted.rows_affected() as usize;
+
+                    for metric in record.entries.iter().flatten() {
+                        let result = sqlx::query(
+                            "INSERT INTO pipeline_metrics (pipeline_id, run_number, timestamp, metric_type, value, metadata_json, created_at, run_hash)
+                             SELECT $1, $2, $3, $4, $5, $6, $7, $8
+                             WHERE NOT EXISTS (
+                                 SELECT 1 FROM pipeline_metrics
+                                 WHERE pipeline_id = $1 AND run_number = $2 AND metric_type = $4
+                             )",
+                        )
+                        .bind(pipeline_id)
+                        .bind(record.run_number)
+                        .bind(metric.timestamp)
+                        .bind(metric.metric_type.as_str())
+                        .bind(metric.value)
+                        .bind(metadata_json(metric))
+                        .bind(metric.created_at)
+                        .bind(&record.run_hash)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+
+                        affected_rows += result.rows_affected() as usize;
+                    }
+                }
+
+                tx.commit()
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            }
+        }
+
+        tracing::debug!(
+            pipeline_id = %pipeline_id,
+            records = records.len(),
+            affected_rows,
+            "Refreshed record metrics"
+        );
+
+        Ok(affected_rows)
     }
 
     pub async fn query_metrics(&self, query: MetricsQuery) -> DomainResult<Vec<MetricEntry>> {

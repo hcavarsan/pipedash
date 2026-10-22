@@ -131,6 +131,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_providers))
         .route("/", post(create_provider))
+        .route("/export", get(export_providers))
         .route("/{id}", get(get_provider))
         .route("/{id}", put(update_provider))
         .route("/{id}", delete(remove_provider))
@@ -145,6 +146,14 @@ pub fn router() -> Router<AppState> {
         .route("/permissions/check", post(check_permissions))
         .route("/preview", post(preview_pipelines))
         .route("/field-options", post(get_field_options))
+}
+
+async fn export_providers(State(state): State<AppState>) -> ApiResult<Json<String>> {
+    let inner = state.inner.read().await;
+    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+    let toml = core.provider_service.export_providers_toml().await?;
+
+    Ok(Json(toml))
 }
 
 async fn list_providers(

@@ -22,6 +22,7 @@ use crate::event::{
     CoreEvent,
     EventBus,
 };
+use crate::infrastructure::config::sync::ProviderSyncService;
 use crate::infrastructure::config::token_ref::TokenReference;
 use crate::infrastructure::database::Repository;
 use crate::infrastructure::providers::PluginAdapter;
@@ -139,7 +140,7 @@ impl ProviderService {
             .config
             .get("selected_items")
             .map(|items| {
-                if fresh_config.provider_type == "argocd" {
+                if matches!(fresh_config.provider_type.as_str(), "argocd" | "fluxcd") {
                     return Vec::new();
                 }
 
@@ -212,6 +213,12 @@ impl ProviderService {
         Ok(id)
     }
 
+    pub async fn export_providers_toml(&self) -> DomainResult<String> {
+        let providers = self.repository.config_backend().list_providers().await?;
+
+        ProviderSyncService::export_toml(&providers)
+    }
+
     pub async fn get_provider_config(&self, id: i64) -> DomainResult<ProviderConfig> {
         self.repository.get_provider(id).await
     }
@@ -234,7 +241,7 @@ impl ProviderService {
                 .config
                 .get("selected_items")
                 .map(|items| {
-                    if config.provider_type == "argocd" {
+                    if matches!(config.provider_type.as_str(), "argocd" | "fluxcd") {
                         return Vec::new();
                     }
 
@@ -374,7 +381,7 @@ impl ProviderService {
             .config
             .get("selected_items")
             .map(|items| {
-                if fresh_config.provider_type == "argocd" {
+                if matches!(fresh_config.provider_type.as_str(), "argocd" | "fluxcd") {
                     return Vec::new();
                 }
 
@@ -471,7 +478,7 @@ impl ProviderService {
             .config
             .get("selected_items")
             .map(|items| {
-                if fresh_config.provider_type == "argocd" {
+                if matches!(fresh_config.provider_type.as_str(), "argocd" | "fluxcd") {
                     return Vec::new();
                 }
 
@@ -763,5 +770,142 @@ impl ProviderService {
             .await?;
 
         Ok(status)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+    use crate::event::NoOpEventBus;
+    use crate::infrastructure::config::ConfigLoader;
+    use crate::infrastructure::database::{
+        init_database,
+        DatabasePool,
+    };
+    use crate::infrastructure::{
+        HttpClientManager,
+        MemoryTokenStore,
+        SqliteConfigBackend,
+    };
+    use crate::test_env::EnvGuard;
+
+    const GITHUB_SECRET: &str = "ghp_exampleSECRET0123456789";
+    const GITLAB_SECRET: &str = "glpat-SECRET-VALUE";
+    const JENKINS_DEFAULT_SECRET: &str = "hunter2-default";
+
+    async fn temp_repository(temp_dir: &TempDir, name: &str) -> Arc<Repository> {
+        let pool = init_database(temp_dir.path().join(name)).await.unwrap();
+
+        Arc::new(Repository::new(
+            Arc::new(SqliteConfigBackend::new(pool.clone())),
+            DatabasePool::Sqlite(pool),
+            Arc::new(MemoryTokenStore::new()),
+        ))
+    }
+
+    fn provider(
+        name: &str, provider_type: &str, token: &str, refresh_interval: i64,
+        config: &[(&str, &str)],
+    ) -> ProviderConfig {
+        ProviderConfig {
+            id: None,
+            name: name.to_string(),
+            provider_type: provider_type.to_string(),
+            token: token.to_string(),
+            config: config
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            refresh_interval,
+            version: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_export_providers_toml_round_trips_without_tokens() {
+        let temp_dir = TempDir::new().unwrap();
+        let repository = temp_repository(&temp_dir, "source.db").await;
+        let service = ProviderService::new(
+            repository.clone(),
+            Arc::new(HttpClientManager::new().unwrap()),
+            Arc::new(NoOpEventBus),
+        );
+
+        let originals = [
+            provider(
+                "github-main",
+                "github",
+                GITHUB_SECRET,
+                45,
+                &[("selected_items", "acme/api,acme/web")],
+            ),
+            provider(
+                "My Jenkins",
+                "jenkins",
+                &format!("${{JENKINS_API_TOKEN:-{JENKINS_DEFAULT_SECRET}}}"),
+                120,
+                &[
+                    ("display_name", "Prod Jenkins"),
+                    ("server_url", "http://127.0.0.1:9"),
+                    ("username", "ci"),
+                    ("selected_items", "(root)/deploy"),
+                ],
+            ),
+            provider("gitlab_main", "gitlab", GITLAB_SECRET, 30, &[]),
+        ];
+        for original in &originals {
+            repository.add_provider(original).await.unwrap();
+        }
+
+        let exported = service.export_providers_toml().await.unwrap();
+
+        for secret in [GITHUB_SECRET, GITLAB_SECRET, JENKINS_DEFAULT_SECRET] {
+            assert!(!exported.contains(secret), "export leaked {secret}");
+        }
+        assert!(exported.contains("token = \"${PIPEDASH_TOKEN_GITHUB_MAIN:-}\""));
+        assert!(exported.contains("token = \"${JENKINS_API_TOKEN:-}\""));
+        assert!(exported.contains("token = \"${PIPEDASH_TOKEN_GITLAB_MAIN:-}\""));
+
+        let _env = EnvGuard::set(&[
+            ("PIPEDASH_TOKEN_GITHUB_MAIN", Some("env-github-token")),
+            ("JENKINS_API_TOKEN", Some("env-jenkins-token")),
+            ("PIPEDASH_TOKEN_GITLAB_MAIN", None),
+        ]);
+        let parsed = ConfigLoader::parse(&exported).unwrap();
+
+        let mut keys: Vec<_> = parsed.providers.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["My Jenkins", "github-main", "gitlab_main"]);
+        assert_eq!(parsed.providers["github-main"].token, "env-github-token");
+        assert_eq!(parsed.providers["My Jenkins"].token, "env-jenkins-token");
+        assert_eq!(parsed.providers["gitlab_main"].token, "");
+        assert_eq!(
+            parsed.providers["My Jenkins"].name.as_deref(),
+            Some("Prod Jenkins")
+        );
+
+        let target = temp_repository(&temp_dir, "target.db").await;
+        ProviderSyncService::new()
+            .sync_toml_to_db(
+                parsed.providers,
+                target.config_backend().as_ref(),
+                &MemoryTokenStore::new(),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let imported = target.config_backend().list_providers().await.unwrap();
+
+        assert_eq!(imported.len(), originals.len());
+        for original in &originals {
+            let imported = imported.iter().find(|p| p.name == original.name).unwrap();
+            assert_eq!(imported.name, original.name);
+            assert_eq!(imported.provider_type, original.provider_type);
+            assert_eq!(imported.refresh_interval, original.refresh_interval);
+            assert_eq!(imported.config, original.config);
+        }
     }
 }

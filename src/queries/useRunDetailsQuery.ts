@@ -77,6 +77,7 @@ export function useRerunWorkflow() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.runs.list(pipelineId),
       })
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       if (newRunNumber > 0) {
         queryClient.prefetchQuery({
@@ -85,11 +86,19 @@ export function useRerunWorkflow() {
         })
       }
 
-      displaySuccessNotification('Workflow rerun started', 'Workflow triggered')
+      displaySuccessNotification(
+        pipelineId.startsWith('fluxcd__')
+          ? 'Flux will reconcile the current resource configuration.'
+          : 'Workflow rerun started',
+        pipelineId.startsWith('fluxcd__') ? 'Reconciliation requested' : 'Workflow triggered'
+      )
     },
 
-    onError: (error: Error) => {
-      displayErrorNotification(error, "Couldn't rerun workflow")
+    onError: (error: Error, { pipelineId }) => {
+      displayErrorNotification(
+        error,
+        pipelineId.startsWith('fluxcd__') ? "Couldn't request reconciliation" : "Couldn't rerun workflow"
+      )
     },
   })
 }

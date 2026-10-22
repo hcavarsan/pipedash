@@ -15,7 +15,8 @@
     "format:check": "biome format .",
     "taze": "taze major -I",
     "taze:minor": "taze minor -w",
-    "knip": "knip"
+    "knip": "knip",
+    "test": "tsc -p tsconfig.test.json && bun test src"
   },
   "dependencies": {
     "@mantine/core": "^9.7.3",

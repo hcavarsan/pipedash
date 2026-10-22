@@ -7,6 +7,7 @@ import { useIsMobile } from '../../../hooks/useIsMobile'
 import type { ProviderConfig } from '../../../types'
 import { isAuthError, isNetworkError, isValidationError, toPipedashError } from '../../../types/errors'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
+import { getPipelineLabels } from '../../../utils/pipelinePresentation'
 import { FormErrorDisplay } from '../../common/FormErrorDisplay'
 import { LoadingState } from '../../common/LoadingState'
 import { StandardModal } from '../../common/StandardModal'
@@ -32,6 +33,9 @@ export function AddProviderModal({
 
   const [state, dispatch] = useReducer(formReducer, initialFormState)
   const { step, selectedPlugin, providerName, configValues, selectedPipelines, submitting, error } = state
+  const labels = getPipelineLabels(selectedPlugin?.provider_type)
+  const isFlux = selectedPlugin?.provider_type === 'fluxcd'
+  const selectionNeedsRefresh = editMode && !!existingProvider?.config.selected_items && !configValues.selected_items
 
   const providerConfig = useMemo<ProviderConfig>(
     () => ({
@@ -133,7 +137,7 @@ export function AddProviderModal({
 
   const handleSubmit = useCallback(async () => {
     if (!selectedPlugin || selectedPipelines.size === 0) {
-      dispatch({ type: 'SET_ERROR', error: 'Please select at least one pipeline' })
+      dispatch({ type: 'SET_ERROR', error: `Please select at least one ${labels.item}` })
 
       return
     }
@@ -155,7 +159,7 @@ export function AddProviderModal({
         provider_type: selectedPlugin.provider_type,
         token,
         config: finalConfig,
-        refresh_interval: 30,
+        refresh_interval: existingProvider?.refresh_interval ?? 30,
       }
 
       if (editMode && existingProvider && onUpdate) {
@@ -193,6 +197,7 @@ export function AddProviderModal({
     onUpdate,
     onAdd,
     onClose,
+    labels.item,
   ])
 
   const handleSaveCredentialsOnly = useCallback(async () => {
@@ -214,7 +219,7 @@ export function AddProviderModal({
         provider_type: selectedPlugin.provider_type,
         token,
         config: finalConfig,
-        refresh_interval: 30,
+        refresh_interval: existingProvider?.refresh_interval ?? 30,
       }
 
       if (existingProvider && onUpdate) {
@@ -237,9 +242,19 @@ export function AddProviderModal({
             {selectedPlugin && selectedPlugin.required_permissions.length > 0 && (
               <PermissionCheckButton
                 onClick={permission.checkPermissions}
-                disabled={!configValues.token || submitting}
+                disabled={
+                  submitting ||
+                  selectedPlugin.config_schema.fields.some(
+                    (field) => field.required && !configValues[field.key]?.trim()
+                  )
+                }
                 loading={permission.checking}
               />
+            )}
+            {selectionNeedsRefresh && (
+              <Text size="xs" c="dimmed">
+                Select {labels.items} again after changing connection scope.
+              </Text>
             )}
           </Group>
 
@@ -252,7 +267,7 @@ export function AddProviderModal({
                 size="sm"
                 onClick={handleSaveCredentialsOnly}
                 loading={submitting}
-                disabled={!selectedPlugin || !providerName.trim()}
+                disabled={!selectedPlugin || !providerName.trim() || selectionNeedsRefresh}
               >
                 Save
               </Button>
@@ -263,7 +278,7 @@ export function AddProviderModal({
               onClick={handleNext}
               disabled={!selectedPlugin || !providerName.trim()}
             >
-              {isMobile ? 'Next' : 'Next: select pipelines'}
+              {isMobile ? 'Next' : `Next: select ${labels.items}`}
             </Button>
           </Group>
         </Group>
@@ -295,7 +310,7 @@ export function AddProviderModal({
   }, [
     step,
     selectedPlugin,
-    configValues.token,
+    configValues,
     submitting,
     permission,
     editMode,
@@ -307,6 +322,8 @@ export function AddProviderModal({
     handleSubmit,
     handleSaveCredentialsOnly,
     onClose,
+    labels.items,
+    selectionNeedsRefresh,
   ])
 
   const activeStepIndex = step === 'credentials' ? 0 : 1
@@ -317,6 +334,7 @@ export function AddProviderModal({
       onClose={onClose}
       title={editMode ? 'Edit provider' : 'Add provider'}
       loading={submitting}
+      closable={!permission.modalOpen}
       footer={footer}
       contentPadding={false}
       size="lg"
@@ -328,21 +346,23 @@ export function AddProviderModal({
             <Stepper.Step
               aria-label="Step 1: Credentials"
               label={isMobile ? undefined : 'Credentials'}
-              description={isMobile ? undefined : 'Enter your API credentials'}
+              description={
+                isMobile ? undefined : isFlux ? 'Connect to your Kubernetes cluster' : 'Enter your API credentials'
+              }
               icon={<IconKey size={18} />}
               completedIcon={<IconCheck size={18} />}
             />
             <Stepper.Step
-              aria-label="Step 2: Select pipelines"
-              label={isMobile ? undefined : 'Select pipelines'}
-              description={isMobile ? undefined : 'Choose pipelines to monitor'}
+              aria-label={`Step 2: Select ${labels.items}`}
+              label={isMobile ? undefined : `Select ${labels.items}`}
+              description={isMobile ? undefined : `Choose ${labels.items} to monitor`}
               icon={<IconList size={18} />}
               completedIcon={<IconCheck size={18} />}
             />
           </Stepper>
           {isMobile && (
             <Text size="sm" fw={500} ta="center" mt="xs">
-              Step {activeStepIndex + 1} of 2: {activeStepIndex === 0 ? 'Credentials' : 'Select pipelines'}
+              Step {activeStepIndex + 1} of 2: {activeStepIndex === 0 ? 'Credentials' : `Select ${labels.items}`}
             </Text>
           )}
         </Box>
@@ -365,14 +385,7 @@ export function AddProviderModal({
             )}
 
             {step === 'pipelines' && (
-              <PipelinesStep
-                state={state}
-                dispatch={dispatch}
-                providerConfig={providerConfig}
-                editMode={editMode}
-                existingProvider={existingProvider}
-                isMobile={isMobile}
-              />
+              <PipelinesStep state={state} dispatch={dispatch} providerConfig={providerConfig} isMobile={isMobile} />
             )}
           </>
         )}

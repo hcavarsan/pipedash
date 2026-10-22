@@ -56,6 +56,6 @@ selected_items = "hcavarsan/pipedash,hcavarsan/kftray"
 # refresh_interval = 60
 #
 # [providers.jenkins-legacy.config]
-# base_url = "https://jenkins.company.com"
+# server_url = "https://jenkins.company.com"
 # username = "${JENKINS_USER}"
 # selected_items = "legacy-app-build,legacy-app-deploy"

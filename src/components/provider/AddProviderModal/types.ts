@@ -9,7 +9,6 @@ export interface FormState {
   providerName: string
 
   configValues: Record<string, string>
-  dynamicOptions: Record<string, string[]>
 
   selectedOrganization: string
   selectedPipelines: Set<string>
@@ -35,12 +34,10 @@ export type FormAction =
   | { type: 'SET_PROVIDER_NAME'; name: string }
   | { type: 'UPDATE_CONFIG'; key: string; value: string }
   | { type: 'SET_CONFIG_VALUES'; values: Record<string, string> }
-  | { type: 'SET_DYNAMIC_OPTIONS'; options: Record<string, string[]> }
   | { type: 'SET_ORGANIZATION'; organization: string }
   | { type: 'TOGGLE_PIPELINE'; pipelineId: string }
-  | { type: 'SET_SELECTED_PIPELINES'; pipelineIds: Set<string> }
   | { type: 'SELECT_ALL_PIPELINES'; pipelineIds: string[] }
-  | { type: 'CLEAR_SELECTED_PIPELINES' }
+  | { type: 'DESELECT_PIPELINES'; pipelineIds: string[] }
   | { type: 'SET_REPOSITORY_SEARCH'; search: string }
   | { type: 'SET_SUBMITTING'; submitting: boolean }
   | { type: 'SET_ERROR'; error: string | null }
@@ -64,7 +61,6 @@ export const initialFormState: FormState = {
   selectedPlugin: null,
   providerName: '',
   configValues: {},
-  dynamicOptions: {},
   selectedOrganization: '',
   selectedPipelines: new Set(),
   repositorySearch: '',

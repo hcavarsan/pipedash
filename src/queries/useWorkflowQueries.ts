@@ -26,17 +26,22 @@ export function useTriggerWorkflow() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.runs.list(variables.workflow_id),
       })
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
-        title: 'Workflow triggered',
-        message: 'Workflow has been triggered successfully',
+        title: variables.workflow_id.startsWith('fluxcd__') ? 'Reconciliation requested' : 'Workflow triggered',
+        message: variables.workflow_id.startsWith('fluxcd__')
+          ? 'Flux will reconcile the resource using its current configuration.'
+          : 'Workflow has been triggered successfully',
         color: 'green',
       })
     },
 
-    onError: (error: Error) => {
+    onError: (error: Error, variables) => {
       notifications.show({
-        title: "Couldn't trigger workflow",
+        title: variables.workflow_id.startsWith('fluxcd__')
+          ? "Couldn't request reconciliation"
+          : "Couldn't trigger workflow",
         message: error.message || 'Unknown error',
         color: 'red',
       })

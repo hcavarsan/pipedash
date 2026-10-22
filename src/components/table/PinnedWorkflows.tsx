@@ -2,6 +2,7 @@ import { Card, Group, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/c
 
 import type { Pipeline, ProviderSummary } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
+import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusIcon } from '../atoms/StatusBadge'
 
 import { WorkflowActions } from './PipelineRowParts'
@@ -31,7 +32,7 @@ export function PinnedWorkflows({
             <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
               <UnstyledButton
                 onClick={() => onViewHistory(pipeline)}
-                aria-label={`View run history for ${pipeline.name}`}
+                aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${pipeline.name}`}
                 miw={0}
                 flex={1}
               >
@@ -42,7 +43,7 @@ export function PinnedWorkflows({
                   {pipeline.repository}
                 </Text>
               </UnstyledButton>
-              <StatusIcon status={pipeline.status} />
+              <StatusIcon status={pipeline.status} label={getStatusLabel(pipeline)} />
             </Group>
 
             <Group justify="space-between" wrap="nowrap" gap="sm">

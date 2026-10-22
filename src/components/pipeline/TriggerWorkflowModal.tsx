@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useTriggerWorkflow, useWorkflowParameters } from '../../queries/useWorkflowQueries'
 import type { Pipeline, WorkflowParameter } from '../../types'
+import { getPipelineLabels, getReconcileBlockReason } from '../../utils/pipelinePresentation'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
@@ -52,6 +53,9 @@ export const TriggerWorkflowModal = ({
   const { isMobile } = useIsMobile()
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({})
   const isSubmittingRef = useRef(false)
+  const labels = getPipelineLabels(pipeline.provider_type)
+  const isFlux = pipeline.provider_type === 'fluxcd'
+  const blockedReason = getReconcileBlockReason(pipeline)
 
   const {
     data: parameters = [],
@@ -121,7 +125,7 @@ export const TriggerWorkflowModal = ({
 
           if (runNumber > 0) {
             onSuccess?.(pipeline.id, runNumber)
-          } else {
+          } else if (!isFlux) {
             notifications.show({
               title: 'Run number not available yet',
               message: 'The workflow was triggered. Check the pipeline list for the new run.',
@@ -216,9 +220,9 @@ export const TriggerWorkflowModal = ({
         size="sm"
         onClick={handleTrigger}
         loading={triggerMutation.isPending}
-        disabled={fetchingParams || !!fetchError}
+        disabled={fetchingParams || !!fetchError || !!blockedReason}
       >
-        {isRerun ? 'Rerun workflow' : 'Trigger workflow'}
+        {isFlux ? labels.trigger : isRerun ? 'Rerun workflow' : 'Trigger workflow'}
       </Button>
     </Group>
   )
@@ -239,6 +243,20 @@ export const TriggerWorkflowModal = ({
         />
       )
     }
+    if (isFlux) {
+      return (
+        <Stack gap="sm">
+          <Text size="sm">
+            Reconcile this resource using its current configuration in the cluster. This does not roll back to a
+            previous revision.
+          </Text>
+          <Text size="sm" c={blockedReason ? 'orange' : 'dimmed'}>
+            {blockedReason ??
+              'Flux processes the request asynchronously. Its status and history update after the controller handles it.'}
+          </Text>
+        </Stack>
+      )
+    }
 
     if (parameters.length === 0) {
       return (
@@ -256,7 +274,7 @@ export const TriggerWorkflowModal = ({
       opened={opened}
       onClose={onClose}
       size="md"
-      title={isRerun ? `Rerun: ${pipeline.name}` : `Trigger: ${pipeline.name}`}
+      title={isFlux ? `Reconcile: ${pipeline.name}` : isRerun ? `Rerun: ${pipeline.name}` : `Trigger: ${pipeline.name}`}
       loading={triggerMutation.isPending}
       footer={footer}
     >
