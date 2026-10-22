@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::{
     Arc,
     OnceLock,
@@ -31,6 +32,7 @@ use crate::types::{
 
 const RUNS_PAGE_SIZE: usize = 50;
 const MAX_RUN_PAGES: usize = 10;
+const ORGS_PAGE_SIZE: usize = 50;
 
 pub(crate) struct GiteaClient {
     http_client: Arc<reqwest::Client>,
@@ -66,7 +68,25 @@ impl GiteaClient {
 
     pub async fn list_organizations(&self) -> PluginResult<Vec<Organization>> {
         let user = self.get_user().await?;
-        let orgs: Vec<crate::types::Organization> = self.get("/user/orgs", &[]).await?;
+        let mut orgs = Vec::new();
+        for page in 1.. {
+            let (batch, total): (Vec<crate::types::Organization>, _) = self
+                .get_with_total(
+                    "/user/orgs",
+                    &[
+                        ("page", page.to_string()),
+                        ("limit", ORGS_PAGE_SIZE.to_string()),
+                    ],
+                )
+                .await?;
+            if batch.is_empty() {
+                break;
+            }
+            orgs.extend(batch);
+            if total.is_some_and(|total| orgs.len() >= total) {
+                break;
+            }
+        }
 
         Ok(std::iter::once(Organization {
             id: user.id.to_string(),
@@ -84,21 +104,81 @@ impl GiteaClient {
     pub async fn search_repositories(
         &self, uid: i64, exclusive: bool, search: Option<&str>, params: &PaginationParams,
     ) -> PluginResult<PaginatedResponse<Repository>> {
+        let start = (params.page - 1) * params.page_size;
+        let (requested, total) = self
+            .search_page(uid, exclusive, search, params.page, params.page_size)
+            .await?;
+        let mut items = requested.data;
+
+        if let Some(total) = total.filter(|_| items.len() < params.page_size) {
+            let limit = if params.page == 1 {
+                items.len()
+            } else {
+                let (probe, _) = self
+                    .search_page(uid, exclusive, search, 1, params.page_size)
+                    .await?;
+                probe.data.len()
+            };
+            if limit > 0 && limit < params.page_size.min(total) {
+                let end = total.min(start + params.page_size);
+                if params.page > 1 {
+                    items.clear();
+                }
+                let from = start + items.len();
+                if from < end {
+                    items.extend(
+                        self.search_window(uid, exclusive, search, from..end, limit)
+                            .await?,
+                    );
+                }
+            }
+        }
+
+        let total_count = total.unwrap_or(start + items.len());
+        let mut response =
+            PaginatedResponse::new(items, params.page, params.page_size, total_count);
+        response.has_more = start + response.items.len() < total_count;
+        Ok(response)
+    }
+
+    async fn search_window(
+        &self, uid: i64, exclusive: bool, search: Option<&str>, window: Range<usize>, limit: usize,
+    ) -> PluginResult<Vec<Repository>> {
+        let mut items = Vec::with_capacity(window.len());
+        let mut page = window.start / limit + 1;
+        while (page - 1) * limit < window.end {
+            let (batch, _) = self
+                .search_page(uid, exclusive, search, page, limit)
+                .await?;
+            let batch_start = (page - 1) * limit;
+            let batch_len = batch.data.len();
+            items.extend(
+                batch
+                    .data
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(i, _)| window.contains(&(batch_start + i)))
+                    .map(|(_, repo)| repo),
+            );
+            if batch_len < limit {
+                break;
+            }
+            page += 1;
+        }
+        Ok(items)
+    }
+
+    async fn search_page(
+        &self, uid: i64, exclusive: bool, search: Option<&str>, page: usize, limit: usize,
+    ) -> PluginResult<(SearchResults, Option<usize>)> {
         let query = [
             ("uid", uid.to_string()),
             ("exclusive", exclusive.to_string()),
             ("q", search.unwrap_or_default().to_string()),
-            ("page", params.page.to_string()),
-            ("limit", params.page_size.to_string()),
+            ("page", page.to_string()),
+            ("limit", limit.to_string()),
         ];
-        let (results, total): (SearchResults, _) =
-            self.get_with_total("/repos/search", &query).await?;
-        let total_count = total.unwrap_or(results.data.len());
-
-        let mut response =
-            PaginatedResponse::new(results.data, params.page, params.page_size, total_count);
-        response.has_more = params.page * params.page_size < total_count;
-        Ok(response)
+        self.get_with_total("/repos/search", &query).await
     }
 
     pub async fn list_workflows(&self, owner: &str, repo: &str) -> PluginResult<Vec<Workflow>> {
