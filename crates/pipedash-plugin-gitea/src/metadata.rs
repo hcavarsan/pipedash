@@ -24,7 +24,7 @@ fn create_config_schema() -> ConfigSchema {
             key: "base_url".to_string(),
             label: "Gitea Base URL".to_string(),
             description: Some(
-                "URL of your Gitea instance (e.g., https://gitea.example.com). Requires Gitea 1.24 or newer"
+                "URL of your Gitea instance (e.g., https://gitea.example.com). Requires Gitea 1.25 or newer"
                     .to_string(),
             ),
             field_type: ConfigFieldType::Text,
