@@ -159,7 +159,7 @@ export function AddProviderModal({
         provider_type: selectedPlugin.provider_type,
         token,
         config: finalConfig,
-        refresh_interval: 30,
+        refresh_interval: existingProvider?.refresh_interval ?? 30,
       }
 
       if (editMode && existingProvider && onUpdate) {
@@ -219,7 +219,7 @@ export function AddProviderModal({
         provider_type: selectedPlugin.provider_type,
         token,
         config: finalConfig,
-        refresh_interval: 30,
+        refresh_interval: existingProvider?.refresh_interval ?? 30,
       }
 
       if (existingProvider && onUpdate) {
