@@ -68,7 +68,7 @@ impl PluginAdapter {
             branch: plugin_pipeline.branch,
             workflow_file: plugin_pipeline.workflow_file,
             metadata: plugin_pipeline.metadata,
-            overdue: false,
+            overdue_run: None,
         }
     }
 

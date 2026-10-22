@@ -13,7 +13,7 @@ export function useFailureNotifications() {
 
   useEffect(() => {
     const lastStatuses = new Map<string, PipelineStatus>()
-    const lastOverdue = new Map<string, boolean>()
+    const notifiedOverdueRuns = new Map<string, string>()
 
     return queryClient.getQueryCache().subscribe((event) => {
       if (event.type !== 'updated' || event.action.type !== 'success') {
@@ -35,11 +35,14 @@ export function useFailureNotifications() {
 
       for (const pipeline of pipelines) {
         const previous = lastStatuses.get(pipeline.id)
-        const wasOverdue = lastOverdue.get(pipeline.id)
-        const isOverdue = pipeline.overdue === true
+        const overdueRun = pipeline.overdue_run
+        const newOverdueRun =
+          previous !== undefined && !!overdueRun && notifiedOverdueRuns.get(pipeline.id) !== overdueRun
 
         lastStatuses.set(pipeline.id, pipeline.status)
-        lastOverdue.set(pipeline.id, isOverdue)
+        if (overdueRun) {
+          notifiedOverdueRuns.set(pipeline.id, overdueRun)
+        }
 
         if (!enabled) {
           continue
@@ -52,7 +55,7 @@ export function useFailureNotifications() {
           showSystemNotification(`${pipeline.name} failed`, details)
         }
 
-        if (wasOverdue === false && isOverdue) {
+        if (newOverdueRun) {
           showSystemNotification(`${pipeline.name} is running longer than usual`, details)
         }
       }

@@ -50,7 +50,7 @@ pub struct PipelineService {
     deduplicator: Arc<RequestDeduplicator<Vec<Pipeline>>>,
     run_deduplicator: Arc<RequestDeduplicator<Vec<PipelineRun>>>,
     cache_write_tracker: Arc<DashSet<String>>,
-    overdue_pipelines: Arc<DashMap<String, Option<DateTime<Utc>>>>,
+    overdue_runs: Arc<DashMap<String, String>>,
 }
 
 impl PipelineService {
@@ -66,7 +66,7 @@ impl PipelineService {
             deduplicator: Arc::new(RequestDeduplicator::new()),
             run_deduplicator: Arc::new(RequestDeduplicator::new()),
             cache_write_tracker: Arc::new(DashSet::new()),
-            overdue_pipelines: Arc::new(DashMap::new()),
+            overdue_runs: Arc::new(DashMap::new()),
         }
     }
 
@@ -294,8 +294,9 @@ impl PipelineService {
 
     fn mark_overdue(&self, mut pipelines: Vec<Pipeline>) -> Vec<Pipeline> {
         for pipeline in &mut pipelines {
-            pipeline.overdue = pipeline.status == PipelineStatus::Running
-                && self.overdue_pipelines.contains_key(&pipeline.id);
+            pipeline.overdue_run = (pipeline.status == PipelineStatus::Running)
+                .then(|| self.overdue_runs.get(&pipeline.id).map(|run| run.clone()))
+                .flatten();
         }
 
         pipelines
@@ -319,30 +320,26 @@ impl PipelineService {
                 async move {
                     let _permit = permits.acquire().await.ok()?;
                     match self.recent_runs(&pipeline.id).await {
-                        Ok(runs) => is_overdue(&runs, now)
-                            .then(|| (pipeline.id.clone(), pipeline.last_run)),
+                        Ok(runs) => overdue_run(&runs, now).map(|run| (pipeline.id.clone(), run)),
                         Err(e) => {
                             tracing::debug!(pipeline_id = %pipeline.id, error = %e, "Overdue check failed");
-                            self.overdue_pipelines
-                                .get(&pipeline.id)
-                                .filter(|flagged_run| **flagged_run == pipeline.last_run)
-                                .map(|_| (pipeline.id.clone(), pipeline.last_run))
+                            None
                         }
                     }
                 }
             });
-        let overdue: HashMap<String, Option<DateTime<Utc>>> = futures::future::join_all(checks)
+        let overdue: HashMap<String, String> = futures::future::join_all(checks)
             .await
             .into_iter()
             .flatten()
             .collect();
 
-        let before = self.overdue_pipelines.len();
-        self.overdue_pipelines
-            .retain(|id, last_run| overdue.get(id) == Some(last_run));
-        let mut changed = self.overdue_pipelines.len() != before;
-        for (id, last_run) in overdue {
-            changed |= self.overdue_pipelines.insert(id, last_run).is_none();
+        let before = self.overdue_runs.len();
+        self.overdue_runs
+            .retain(|id, run| overdue.get(id) == Some(run));
+        let mut changed = self.overdue_runs.len() != before;
+        for (id, run) in overdue {
+            changed |= self.overdue_runs.insert(id, run).is_none();
         }
 
         changed
@@ -836,13 +833,10 @@ impl PipelineService {
     }
 }
 
-fn is_overdue(runs: &[PipelineRun], now: DateTime<Utc>) -> bool {
-    let Some(running) = runs
+fn overdue_run(runs: &[PipelineRun], now: DateTime<Utc>) -> Option<String> {
+    let running = runs
         .iter()
-        .find(|run| run.status == PipelineStatus::Running)
-    else {
-        return false;
-    };
+        .find(|run| run.status == PipelineStatus::Running)?;
     let mut durations: Vec<i64> = runs
         .iter()
         .filter(|run| run.status == PipelineStatus::Success)
@@ -850,7 +844,7 @@ fn is_overdue(runs: &[PipelineRun], now: DateTime<Utc>) -> bool {
         .filter(|seconds| *seconds > 0)
         .collect();
     if durations.len() < OVERDUE_MIN_SUCCESSFUL_RUNS {
-        return false;
+        return None;
     }
     durations.sort_unstable();
     let middle = durations.len() / 2;
@@ -860,7 +854,7 @@ fn is_overdue(runs: &[PipelineRun], now: DateTime<Utc>) -> bool {
         durations[middle]
     };
 
-    (now - running.started_at).num_seconds() > OVERDUE_FACTOR * median
+    ((now - running.started_at).num_seconds() > OVERDUE_FACTOR * median).then(|| running.id.clone())
 }
 
 fn is_archivable_flux_run(pipeline: &Pipeline, run: &PipelineRun) -> bool {
@@ -984,10 +978,13 @@ mod tests {
     fn a_run_is_overdue_past_three_times_the_median_success() {
         let now = Utc::now();
 
-        assert!(is_overdue(&ten_minute_history(45), now));
-        assert!(!is_overdue(&ten_minute_history(25), now));
-        assert!(!is_overdue(&ten_minute_history(45)[..3], now));
-        assert!(!is_overdue(&ten_minute_history(45)[1..], now));
+        assert_eq!(
+            overdue_run(&ten_minute_history(45), now),
+            Some("5".to_string())
+        );
+        assert_eq!(overdue_run(&ten_minute_history(25), now), None);
+        assert_eq!(overdue_run(&ten_minute_history(45)[..3], now), None);
+        assert_eq!(overdue_run(&ten_minute_history(45)[1..], now), None);
     }
 
     #[tokio::test]
@@ -1013,16 +1010,14 @@ mod tests {
             })
             .await
             .unwrap();
-        let pipeline = |last_run: Option<DateTime<Utc>>| -> Pipeline {
-            serde_json::from_value(json!({
-                "id": "jenkins__1__build", "provider_id": provider_id, "provider_type": "jenkins",
-                "name": "build", "status": "running", "repository": "build",
-                "last_run": last_run, "last_updated": Utc::now()
-            }))
-            .unwrap()
-        };
+        let pipeline: Pipeline = serde_json::from_value(json!({
+            "id": "jenkins__1__build", "provider_id": provider_id, "provider_type": "jenkins",
+            "name": "build", "status": "running", "repository": "build",
+            "last_updated": Utc::now()
+        }))
+        .unwrap();
         repository
-            .update_pipelines_cache(provider_id, &[pipeline(None)])
+            .update_pipelines_cache(provider_id, &[pipeline])
             .await
             .unwrap();
         repository
@@ -1050,21 +1045,20 @@ mod tests {
             .await
             .unwrap();
         let after_failed_lookup = service.update_overdue_pipelines().await;
-        let kept = service.get_cached_pipelines(None).await.unwrap();
+        let unknown = service.get_cached_pipelines(None).await.unwrap();
         repository
-            .update_pipelines_cache(provider_id, &[pipeline(Some(Utc::now()))])
+            .cache_run_history("jenkins__1__build", &ten_minute_history(45))
             .await
             .unwrap();
-        let new_run_failed_lookup = service.update_overdue_pipelines().await;
-        let new_run = service.get_cached_pipelines(None).await.unwrap();
+        service.update_overdue_pipelines().await;
+        let again = service.get_cached_pipelines(None).await.unwrap();
 
-        assert!(!before[0].overdue);
+        assert_eq!(before[0].overdue_run, None);
         assert!(changed);
         assert!(!unchanged);
-        assert!(after[0].overdue);
-        assert!(!after_failed_lookup);
-        assert!(kept[0].overdue);
-        assert!(new_run_failed_lookup);
-        assert!(!new_run[0].overdue);
+        assert_eq!(after[0].overdue_run.as_deref(), Some("5"));
+        assert!(after_failed_lookup);
+        assert_eq!(unknown[0].overdue_run, None);
+        assert_eq!(again[0].overdue_run.as_deref(), Some("5"));
     }
 }

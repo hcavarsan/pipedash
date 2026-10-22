@@ -42,8 +42,8 @@ const fluxLabels: PipelineLabels = {
 
 export const getPipelineLabels = (providerType?: string) => (providerType === 'fluxcd' ? fluxLabels : pipelineLabels)
 
-export const getStatusLabel = (resource: Pick<Pipeline, 'metadata' | 'overdue'>) => {
-  if (resource.overdue) {
+export const getStatusLabel = (resource: Pick<Pipeline, 'metadata' | 'overdue_run'>) => {
+  if (resource.overdue_run) {
     return 'Running longer than usual'
   }
 
