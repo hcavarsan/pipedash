@@ -255,6 +255,24 @@ mod tests {
 
     use super::*;
 
+    const STUB_REPOS: usize = 130;
+    const STUB_ORGS: usize = 40;
+    const MAX_RESPONSE_ITEMS: usize = 50;
+    const DEFAULT_PAGING_NUM: usize = 30;
+
+    fn stub_page(url: &reqwest::Url, total: usize) -> std::ops::Range<usize> {
+        let query = |key: &str| {
+            url.query_pairs()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.parse::<usize>().unwrap())
+        };
+        let limit = query("limit")
+            .unwrap_or(DEFAULT_PAGING_NUM)
+            .min(MAX_RESPONSE_ITEMS);
+        let page = query("page").unwrap_or(1);
+        ((page - 1) * limit).min(total)..(page * limit).min(total)
+    }
+
     async fn stub_gitea() -> (GiteaPlugin, tokio::task::JoinHandle<()>) {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -276,7 +294,28 @@ mod tests {
                 let method = head.next().unwrap();
                 let url =
                     reqwest::Url::parse(&format!("http://{addr}{}", head.next().unwrap())).unwrap();
+                let mut total_count = None;
                 let (status, body) = match (method, url.path()) {
+                    ("GET", "/api/v1/repos/search") => {
+                        total_count = Some(STUB_REPOS);
+                        let data: Vec<_> = stub_page(&url, STUB_REPOS)
+                            .map(|i| {
+                                serde_json::json!({
+                                    "name": format!("r{i}"),
+                                    "full_name": format!("org/r{i}"),
+                                    "owner": {"login": "org"}
+                                })
+                            })
+                            .collect();
+                        (200, serde_json::json!({"data": data}))
+                    }
+                    ("GET", "/api/v1/user/orgs") => {
+                        total_count = Some(STUB_ORGS);
+                        let orgs: Vec<_> = stub_page(&url, STUB_ORGS)
+                            .map(|i| serde_json::json!({"id": 100 + i, "username": format!("o{i}")}))
+                            .collect();
+                        (200, serde_json::json!(orgs))
+                    }
                     ("GET", "/api/v1/user") => {
                         (200, serde_json::json!({"id": 2, "login": "claude"}))
                     }
@@ -333,8 +372,11 @@ mod tests {
                     serde_json::Value::String(raw) => raw,
                     json => json.to_string(),
                 };
+                let total_header = total_count
+                    .map(|total| format!("X-Total-Count: {total}\r\n"))
+                    .unwrap_or_default();
                 let response = format!(
-                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n{total_header}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 stream.write_all(response.as_bytes()).await.unwrap();
@@ -437,5 +479,43 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, PluginError::NotSupported(_)), "{error}");
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn repo_picker_pages_reach_every_repo_when_gitea_caps_the_limit() {
+        let (plugin, server) = stub_gitea().await;
+        let mut names = Vec::new();
+        let mut has_more = true;
+        let mut page = 1;
+        while has_more {
+            let response = plugin
+                .fetch_available_pipelines_filtered(
+                    Some("7".into()),
+                    None,
+                    Some(PaginationParams {
+                        page,
+                        page_size: 100,
+                    }),
+                )
+                .await
+                .unwrap();
+            names.extend(response.items.into_iter().map(|item| item.name));
+            has_more = response.has_more;
+            page += 1;
+        }
+        server.abort();
+
+        let expected: Vec<_> = (0..STUB_REPOS).map(|i| format!("org/r{i}")).collect();
+        assert_eq!(names, expected);
+    }
+
+    #[tokio::test]
+    async fn organizations_include_every_page() {
+        let (plugin, server) = stub_gitea().await;
+        let orgs = plugin.fetch_organizations().await.unwrap();
+        server.abort();
+
+        assert_eq!(orgs.len(), STUB_ORGS + 1);
+        assert_eq!(orgs.last().unwrap().name, format!("o{}", STUB_ORGS - 1));
     }
 }
