@@ -1,4 +1,5 @@
 import { API_TIMEOUTS } from '../constants/timeouts'
+import { withBasePath } from '../lib/basePath'
 import { logger } from '../lib/logger'
 import { getToken, useAuthStore } from '../stores/authStore'
 import type {
@@ -40,7 +41,7 @@ import type {
 import { getHttpStatus } from '../types/errors'
 import { DEFAULT_RETRY_CONFIG, withRetry } from '../utils/retryLogic'
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
+const API_BASE = import.meta.env.VITE_API_URL || withBasePath('/api/v1')
 
 const OPERATION_TIMEOUTS: Record<string, number> = {
   '/factory-reset': API_TIMEOUTS.EXTENDED,
