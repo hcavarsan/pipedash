@@ -498,8 +498,7 @@ mod tests {
         pool.close().await;
     }
 
-    #[tokio::test]
-    async fn restore_drops_committed_target_writes() {
+    async fn check_target_restore(postgres_source: bool) {
         let source_dir = tempfile::tempdir().unwrap();
         let target_dir = tempfile::tempdir().unwrap();
         let mut target_config = PipedashConfig::default();
@@ -521,8 +520,17 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        let source_db = if postgres_source {
+            let json_backup = source_dir.path().join("postgres_backup_target.json");
+            tokio::fs::write(&json_backup, "{\"providers\": []}")
+                .await
+                .unwrap();
+            Some(json_backup)
+        } else {
+            None
+        };
         let backups = BackupPaths {
-            source_db: None,
+            source_db,
             source_config: source_dir.path().join("missing-config.toml.backup"),
             target_db,
             timestamp: "target".into(),
@@ -536,6 +544,16 @@ mod tests {
                 .unwrap();
         assert_eq!(providers, vec![(7, "original".to_owned())]);
         pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn restore_drops_committed_target_writes() {
+        check_target_restore(false).await;
+    }
+
+    #[tokio::test]
+    async fn restore_drops_committed_target_writes_after_postgres_source() {
+        check_target_restore(true).await;
     }
 
     #[tokio::test]
