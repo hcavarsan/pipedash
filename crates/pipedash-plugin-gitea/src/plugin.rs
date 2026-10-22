@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::future::join_all;
+use futures::future::try_join_all;
 use pipedash_plugin_api::*;
 
 use crate::{
@@ -161,29 +161,14 @@ impl Plugin for GiteaPlugin {
             ));
         }
 
-        let results = join_all(
+        let results = try_join_all(
             repositories
                 .iter()
                 .map(|repo| self.fetch_repo_pipelines(provider_id, repo)),
         )
-        .await;
+        .await?;
 
-        let mut pipelines = Vec::new();
-        let mut first_error = None;
-        for result in results {
-            match result {
-                Ok(repo_pipelines) => pipelines.extend(repo_pipelines),
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to fetch Gitea workflows");
-                    first_error.get_or_insert(e);
-                }
-            }
-        }
-
-        match first_error {
-            Some(e) if pipelines.is_empty() => Err(e),
-            _ => Ok(pipelines),
-        }
+        Ok(results.into_iter().flatten().collect())
     }
 
     async fn fetch_run_history(
@@ -212,9 +197,21 @@ impl Plugin for GiteaPlugin {
     }
 
     async fn fetch_workflow_parameters(
-        &self, _workflow_id: &str,
+        &self, workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {
-        Ok(vec![WorkflowParameter {
+        let id = config::parse_pipeline_id(workflow_id)?;
+        let client = self.client()?;
+        let workflows = client.list_workflows(id.owner, id.repo).await?;
+        let path = workflows
+            .iter()
+            .find(|workflow| workflow.id == id.workflow)
+            .map(|workflow| workflow.path.as_str())
+            .ok_or_else(|| {
+                PluginError::PipelineNotFound(format!("Workflow {} not found", id.workflow))
+            })?;
+        let source = client.raw_file(id.owner, id.repo, path).await?;
+
+        let mut parameters = vec![WorkflowParameter {
             name: "ref".to_string(),
             label: Some("Ref".to_string()),
             description: Some("Branch, tag, or commit SHA to run workflow on".to_string()),
@@ -222,7 +219,9 @@ impl Plugin for GiteaPlugin {
                 default: Some("main".to_string()),
             },
             required: true,
-        }])
+        }];
+        parameters.extend(mapper::dispatch_inputs(&source)?);
+        Ok(parameters)
     }
 
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String> {
@@ -334,9 +333,18 @@ mod tests {
                     ("POST", "/api/v1/repos/claude/smoke__ci/actions/runs/2/cancel") => {
                         (404, serde_json::json!({"message": "not found"}))
                     }
+                    ("GET", "/api/v1/repos/claude/missing/actions/workflows") => {
+                        (404, serde_json::json!({"message": "not found"}))
+                    }
+                    ("GET", "/api/v1/repos/claude/smoke__ci/raw/.gitea/workflows/build__test.yaml") => {
+                        (200, serde_json::json!("on:\n  workflow_dispatch:\n    inputs:\n      greeting:\n        description: Greeting\n        default: hi\n"))
+                    }
                     (method, path) => panic!("Unexpected stub request: {method} {path}"),
                 };
-                let body = body.to_string();
+                let body = match body {
+                    serde_json::Value::String(raw) => raw,
+                    json => json.to_string(),
+                };
                 let response = format!(
                     "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
@@ -381,6 +389,33 @@ mod tests {
                 ),
             ]
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn one_failing_repository_fails_the_whole_fetch() {
+        let (mut plugin, server) = stub_gitea().await;
+        plugin.config.insert(
+            "selected_items".to_string(),
+            "claude/smoke__ci,claude/missing".to_string(),
+        );
+        let error = plugin.fetch_pipelines().await.unwrap_err();
+        assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn workflow_parameters_include_dispatch_inputs_after_ref() {
+        let (plugin, server) = stub_gitea().await;
+        let params = plugin
+            .fetch_workflow_parameters("gitea__1__claude/smoke__ci/build__test.yaml")
+            .await
+            .unwrap();
+        assert_eq!(
+            params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+            ["ref", "greeting"]
+        );
+        assert_eq!(params[1].description.as_deref(), Some("Greeting"));
         server.abort();
     }
 

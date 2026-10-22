@@ -121,6 +121,24 @@ impl GiteaClient {
         Ok(list.workflow_runs)
     }
 
+    pub async fn raw_file(&self, owner: &str, repo: &str, path: &str) -> PluginResult<String> {
+        let path = format!("/repos/{owner}/{repo}/raw/{path}");
+        self.retry_policy
+            .retry(|| async {
+                let response = self
+                    .request(Method::GET, &path, &[])?
+                    .send()
+                    .await
+                    .map_err(|e| PluginError::NetworkError(format!("Failed to GET {path}: {e}")))?;
+                self.check_status(response)
+                    .await?
+                    .text()
+                    .await
+                    .map_err(|e| PluginError::ApiError(format!("Failed to read {path}: {e}")))
+            })
+            .await
+    }
+
     pub async fn latest_runs(
         &self, owner: &str, repo: &str, workflows: &[String],
     ) -> PluginResult<HashMap<String, Run>> {
@@ -219,9 +237,11 @@ impl GiteaClient {
     fn request(
         &self, method: Method, path: &str, query: &[(&str, String)],
     ) -> PluginResult<reqwest::RequestBuilder> {
-        let url =
-            reqwest::Url::parse_with_params(&format!("{}/api/v1{path}", self.base_url), query)
-                .map_err(|e| PluginError::InvalidConfig(format!("Invalid Gitea URL: {e}")))?;
+        let mut url = reqwest::Url::parse(&format!("{}/api/v1{path}", self.base_url))
+            .map_err(|e| PluginError::InvalidConfig(format!("Invalid Gitea URL: {e}")))?;
+        if !query.is_empty() {
+            url.query_pairs_mut().extend_pairs(query);
+        }
         Ok(self
             .http_client
             .request(method, url)
