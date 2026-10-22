@@ -142,6 +142,14 @@ export const tauriService = {
     }
   },
 
+  exportProviders: async (): Promise<string> => {
+    try {
+      return await invoke<string>('export_providers')
+    } catch (error) {
+      throw toPipedashError(error)
+    }
+  },
+
   fetchProviderOrganizations: async (providerType: string, config: Record<string, string>): Promise<Organization[]> => {
     return invokeWithTimeout<Organization[]>('fetch_provider_organizations', {
       providerType,
