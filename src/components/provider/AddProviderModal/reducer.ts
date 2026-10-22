@@ -48,14 +48,23 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       const newFieldErrors = { ...state.fieldErrors }
 
       delete newFieldErrors[action.key]
+      const scopeChanged =
+        (action.key === 'kubeconfig' || action.key === 'context' || action.key === 'namespaces') &&
+        state.configValues[action.key] !== action.value
+      const configValues = { ...state.configValues, [action.key]: action.value }
+
+      if (scopeChanged) {
+        delete configValues.selected_items
+        if (action.key === 'kubeconfig') {
+          configValues.context = ''
+        }
+      }
 
       return {
         ...state,
-        configValues: {
-          ...state.configValues,
-          ...(state.selectedPlugin?.provider_type === 'fluxcd' && action.key === 'kubeconfig' ? { context: '' } : {}),
-          [action.key]: action.value,
-        },
+        configValues,
+        selectedPipelines: scopeChanged ? new Set() : state.selectedPipelines,
+        repositorySearch: scopeChanged ? '' : state.repositorySearch,
         selectedOrganization: '',
         fieldErrors: newFieldErrors,
       }

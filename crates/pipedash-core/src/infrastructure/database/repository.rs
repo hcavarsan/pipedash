@@ -109,6 +109,34 @@ where
     }
 }
 
+fn run_order(pipeline_id: &str) -> &'static str {
+    if pipeline_id.starts_with("fluxcd__") {
+        "started_at_ms DESC, run_number DESC"
+    } else {
+        "run_number DESC"
+    }
+}
+
+fn run_cache_row(run: &PipelineRun) -> DomainResult<(i64, String, String, i64)> {
+    let run_data =
+        serde_json::to_string(run).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+    let run_hash = hash_pipeline_run(
+        run.run_number,
+        run.status.as_str(),
+        run.branch.as_deref(),
+        &run.started_at.to_rfc3339(),
+        run.duration_seconds,
+        run.commit_sha.as_deref(),
+    );
+
+    Ok((
+        run.run_number,
+        run_data,
+        run_hash,
+        run.started_at.timestamp_millis(),
+    ))
+}
+
 pub struct Repository {
     config_backend: Arc<dyn ConfigBackend>,
     cache_pool: DatabasePool,
@@ -153,66 +181,6 @@ impl Repository {
         match self.cache_pool {
             DatabasePool::Sqlite(_) => "?".to_string(),
             DatabasePool::Postgres(_) => format!("${}", index),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn build_batch_run_history_upsert(&self, batch_size: usize) -> String {
-        let columns: [&str; 5] = [
-            "pipeline_id",
-            "run_number",
-            "run_data",
-            "fetched_at",
-            "run_hash",
-        ];
-        let params_per_row = 4; // pipeline_id, run_number, run_data, run_hash
-                                // (fetched_at is datetime)
-
-        match self.cache_pool {
-            DatabasePool::Sqlite(_) => {
-                let mut param_idx = 0;
-                let values_clauses: Vec<String> = (0..batch_size)
-                    .map(|_| {
-                        let clause = format!(
-                            "({}, {}, {}, datetime('now'), {})",
-                            self.placeholder(param_idx + 1),
-                            self.placeholder(param_idx + 2),
-                            self.placeholder(param_idx + 3),
-                            self.placeholder(param_idx + 4)
-                        );
-                        param_idx += params_per_row;
-                        clause
-                    })
-                    .collect();
-
-                format!(
-                    "INSERT OR REPLACE INTO run_history_cache ({}) VALUES {}",
-                    columns.join(", "),
-                    values_clauses.join(", ")
-                )
-            }
-            DatabasePool::Postgres(_) => {
-                let mut param_idx = 0;
-                let values_clauses: Vec<String> = (0..batch_size)
-                    .map(|_| {
-                        let clause = format!(
-                            "({}, {}, {}, NOW(), {})",
-                            self.placeholder(param_idx + 1),
-                            self.placeholder(param_idx + 2),
-                            self.placeholder(param_idx + 3),
-                            self.placeholder(param_idx + 4)
-                        );
-                        param_idx += params_per_row;
-                        clause
-                    })
-                    .collect();
-
-                format!(
-                    "INSERT INTO run_history_cache ({}) VALUES {} ON CONFLICT (pipeline_id, run_number) DO UPDATE SET run_data = EXCLUDED.run_data, fetched_at = EXCLUDED.fetched_at, run_hash = EXCLUDED.run_hash",
-                    columns.join(", "),
-                    values_clauses.join(", ")
-                )
-            }
         }
     }
 
@@ -733,42 +701,30 @@ impl Repository {
                         let mut tx = p.begin().await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
                         for chunk in runs_clone.chunks(BATCH_SIZE) {
-                            let prepared_data: Vec<(i64, String, String)> = chunk
+                            let prepared_data = chunk
                                 .iter()
-                                .map(|run| {
-                                    let run_data = serde_json::to_string(run)
-                                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                                    let status_str = run.status.as_str();
-                                    let run_hash = hash_pipeline_run(
-                                        run.run_number,
-                                        status_str,
-                                        run.branch.as_deref(),
-                                        &run.started_at.to_rfc3339(),
-                                        run.duration_seconds,
-                                        run.commit_sha.as_deref(),
-                                    );
-                                    Ok((run.run_number, run_data, run_hash))
-                                })
-                                .collect::<Result<Vec<_>, DomainError>>()?;
+                                .map(run_cache_row)
+                                .collect::<DomainResult<Vec<_>>>()?;
 
                             let values_clause = prepared_data
                                 .iter()
-                                .map(|_| "(?, ?, ?, datetime('now'), ?)")
+                                .map(|_| "(?, ?, ?, datetime('now'), ?, ?)")
                                 .collect::<Vec<_>>()
                                 .join(", ");
 
                             let sql = format!(
-                                "INSERT OR REPLACE INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash) VALUES {}",
+                                "INSERT OR REPLACE INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash, started_at_ms) VALUES {}",
                                 values_clause
                             );
 
                             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
-                            for (run_number, run_data, run_hash) in &prepared_data {
+                            for (run_number, run_data, run_hash, started_at_ms) in &prepared_data {
                                 query = query
                                     .bind(&pipeline_id_clone)
                                     .bind(run_number)
                                     .bind(run_data)
-                                    .bind(run_hash);
+                                    .bind(run_hash)
+                                    .bind(started_at_ms);
                             }
 
                             query.execute(&mut *tx).await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
@@ -780,49 +736,37 @@ impl Repository {
                         let mut tx = p.begin().await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
                         for chunk in runs_clone.chunks(BATCH_SIZE) {
-                            let prepared_data: Vec<(i64, String, String)> = chunk
+                            let prepared_data = chunk
                                 .iter()
-                                .map(|run| {
-                                    let run_data = serde_json::to_string(run)
-                                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                                    let status_str = run.status.as_str();
-                                    let run_hash = hash_pipeline_run(
-                                        run.run_number,
-                                        status_str,
-                                        run.branch.as_deref(),
-                                        &run.started_at.to_rfc3339(),
-                                        run.duration_seconds,
-                                        run.commit_sha.as_deref(),
-                                    );
-                                    Ok((run.run_number, run_data, run_hash))
-                                })
-                                .collect::<Result<Vec<_>, DomainError>>()?;
+                                .map(run_cache_row)
+                                .collect::<DomainResult<Vec<_>>>()?;
 
                             let mut param_idx = 0;
                             let values_clauses: Vec<String> = prepared_data
                                 .iter()
                                 .map(|_| {
                                     let clause = format!(
-                                        "(${}, ${}, ${}, NOW(), ${})",
-                                        param_idx + 1, param_idx + 2, param_idx + 3, param_idx + 4
+                                        "(${}, ${}, ${}, NOW(), ${}, ${})",
+                                        param_idx + 1, param_idx + 2, param_idx + 3, param_idx + 4, param_idx + 5
                                     );
-                                    param_idx += 4;
+                                    param_idx += 5;
                                     clause
                                 })
                                 .collect();
 
                             let sql = format!(
-                                "INSERT INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash) VALUES {} ON CONFLICT (pipeline_id, run_number) DO UPDATE SET run_data = EXCLUDED.run_data, fetched_at = EXCLUDED.fetched_at, run_hash = EXCLUDED.run_hash",
+                                "INSERT INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash, started_at_ms) VALUES {} ON CONFLICT (pipeline_id, run_number) DO UPDATE SET run_data = EXCLUDED.run_data, fetched_at = EXCLUDED.fetched_at, run_hash = EXCLUDED.run_hash, started_at_ms = EXCLUDED.started_at_ms",
                                 values_clauses.join(", ")
                             );
 
                             let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
-                            for (run_number, run_data, run_hash) in &prepared_data {
+                            for (run_number, run_data, run_hash, started_at_ms) in &prepared_data {
                                 query = query
                                     .bind(&pipeline_id_clone)
                                     .bind(run_number)
                                     .bind(run_data)
-                                    .bind(run_hash);
+                                    .bind(run_hash)
+                                    .bind(started_at_ms);
                             }
 
                             query.execute(&mut *tx).await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
@@ -854,9 +798,10 @@ impl Repository {
         let sql = format!(
             "SELECT run_data FROM run_history_cache
              WHERE pipeline_id = {}
-             ORDER BY run_number DESC
+             ORDER BY {}
              LIMIT {}",
             self.placeholder(1),
+            run_order(pipeline_id),
             self.placeholder(2)
         );
         let rows = match &self.cache_pool {
@@ -1052,42 +997,31 @@ impl Repository {
 
                         if !all_runs.is_empty() {
                             for chunk in all_runs.chunks(BATCH_SIZE) {
-                                let prepared_data: Vec<(i64, String, String)> = chunk
+                                let prepared_data = chunk
                                     .iter()
-                                    .map(|run| {
-                                        let run_data = serde_json::to_string(run)
-                                            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                                        let status_str = run.status.as_str();
-                                        let run_hash = hash_pipeline_run(
-                                            run.run_number,
-                                            status_str,
-                                            run.branch.as_deref(),
-                                            &run.started_at.to_rfc3339(),
-                                            run.duration_seconds,
-                                            run.commit_sha.as_deref(),
-                                        );
-                                        Ok((run.run_number, run_data, run_hash))
-                                    })
-                                    .collect::<Result<Vec<_>, DomainError>>()?;
+                                    .copied()
+                                    .map(run_cache_row)
+                                    .collect::<DomainResult<Vec<_>>>()?;
 
                                 let values_clause = prepared_data
                                     .iter()
-                                    .map(|_| "(?, ?, ?, datetime('now'), ?)")
+                                    .map(|_| "(?, ?, ?, datetime('now'), ?, ?)")
                                     .collect::<Vec<_>>()
                                     .join(", ");
 
                                 let sql = format!(
-                                    "INSERT OR REPLACE INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash) VALUES {}",
+                                    "INSERT OR REPLACE INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash, started_at_ms) VALUES {}",
                                     values_clause
                                 );
 
                                 let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
-                                for (run_number, run_data, run_hash) in &prepared_data {
+                                for (run_number, run_data, run_hash, started_at_ms) in &prepared_data {
                                     query = query
                                         .bind(&pipeline_id_clone)
                                         .bind(run_number)
                                         .bind(run_data)
-                                        .bind(run_hash);
+                                        .bind(run_hash)
+                                        .bind(started_at_ms);
                                 }
 
                                 query.execute(&mut *tx).await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
@@ -1118,49 +1052,38 @@ impl Repository {
 
                         if !all_runs.is_empty() {
                             for chunk in all_runs.chunks(BATCH_SIZE) {
-                                let prepared_data: Vec<(i64, String, String)> = chunk
+                                let prepared_data = chunk
                                     .iter()
-                                    .map(|run| {
-                                        let run_data = serde_json::to_string(run)
-                                            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                                        let status_str = run.status.as_str();
-                                        let run_hash = hash_pipeline_run(
-                                            run.run_number,
-                                            status_str,
-                                            run.branch.as_deref(),
-                                            &run.started_at.to_rfc3339(),
-                                            run.duration_seconds,
-                                            run.commit_sha.as_deref(),
-                                        );
-                                        Ok((run.run_number, run_data, run_hash))
-                                    })
-                                    .collect::<Result<Vec<_>, DomainError>>()?;
+                                    .copied()
+                                    .map(run_cache_row)
+                                    .collect::<DomainResult<Vec<_>>>()?;
 
                                 let mut param_idx = 0;
                                 let values_clauses: Vec<String> = prepared_data
                                     .iter()
                                     .map(|_| {
                                         let clause = format!(
-                                            "(${}, ${}, ${}, NOW(), ${})",
-                                            param_idx + 1, param_idx + 2, param_idx + 3, param_idx + 4
+                                            "(${}, ${}, ${}, NOW(), ${}, ${})",
+                                            param_idx + 1, param_idx + 2, param_idx + 3, param_idx + 4, param_idx + 5
                                         );
-                                        param_idx += 4;
+                                        param_idx += 5;
                                         clause
                                     })
                                     .collect();
 
                                 let sql = format!(
-                                    "INSERT INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash) VALUES {} ON CONFLICT (pipeline_id, run_number) DO UPDATE SET run_data = EXCLUDED.run_data, fetched_at = EXCLUDED.fetched_at, run_hash = EXCLUDED.run_hash",
+                                    "INSERT INTO run_history_cache (pipeline_id, run_number, run_data, fetched_at, run_hash, started_at_ms) VALUES {} ON CONFLICT (pipeline_id, run_number) DO UPDATE SET run_data = EXCLUDED.run_data, fetched_at = EXCLUDED.fetched_at, run_hash = EXCLUDED.run_hash, started_at_ms = EXCLUDED.started_at_ms",
                                     values_clauses.join(", ")
                                 );
 
                                 let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
-                                for (run_number, run_data, run_hash) in &prepared_data {
+                                for (run_number, run_data, run_hash, started_at_ms) in &prepared_data {
                                     query = query
                                         .bind(&pipeline_id_clone)
                                         .bind(run_number)
                                         .bind(run_data)
-                                        .bind(run_hash);
+                                        .bind(run_hash)
+                                        .bind(started_at_ms);
                                 }
 
                                 query.execute(&mut *tx).await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
@@ -1629,9 +1552,10 @@ impl Repository {
         let sql = format!(
             "SELECT run_data FROM run_history_cache
              WHERE pipeline_id = {}
-             ORDER BY run_number DESC
+             ORDER BY {}
              LIMIT {} OFFSET {}",
             self.placeholder(1),
+            run_order(pipeline_id),
             self.placeholder(2),
             self.placeholder(3)
         );
@@ -1778,17 +1702,50 @@ mod tests {
         StorageManager,
     };
 
-    #[tokio::test]
-    async fn pipeline_cache_preserves_metadata_and_metadata_only_updates() {
-        let dir = tempfile::tempdir().unwrap();
+    async fn test_repository(dir: &tempfile::TempDir) -> (StorageManager, Repository) {
         let mut config = PipedashConfig::default();
         config.storage.data_dir = dir.path().display().to_string();
         let manager =
             StorageManager::with_token_store(config, Arc::new(MemoryTokenStore::new()), true)
                 .await
                 .unwrap();
-        let backend = manager.config_backend();
-        let provider_id = backend
+        let repository = Repository::new(
+            manager.config_backend(),
+            manager.database_pool(),
+            manager.token_store().await,
+        );
+
+        (manager, repository)
+    }
+
+    fn cached_run(pipeline_id: &str, run_number: i64, started_at: &str) -> PipelineRun {
+        serde_json::from_value(json!({
+            "id": format!("{pipeline_id}__{run_number}"), "pipeline_id": pipeline_id,
+            "run_number": run_number, "status": "success", "started_at": started_at,
+            "logs_url": "", "metadata": {}
+        }))
+        .unwrap()
+    }
+
+    async fn run_pages(repository: &Repository, pipeline_id: &str) -> Vec<Vec<i64>> {
+        let mut pages = Vec::new();
+        for page in 1..=3 {
+            let runs = repository
+                .get_paginated_runs(pipeline_id, page, 2)
+                .await
+                .unwrap();
+            pages.push(runs.iter().map(|run| run.run_number).collect());
+        }
+
+        pages
+    }
+
+    #[tokio::test]
+    async fn pipeline_cache_preserves_metadata_and_metadata_only_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let (manager, repository) = test_repository(&dir).await;
+        let provider_id = manager
+            .config_backend()
             .create_provider(&ProviderConfig {
                 id: None,
                 name: "Flux".to_string(),
@@ -1800,11 +1757,6 @@ mod tests {
             })
             .await
             .unwrap();
-        let repository = Repository::new(
-            backend,
-            manager.database_pool(),
-            manager.token_store().await,
-        );
         let mut pipeline: Pipeline = serde_json::from_value(json!({
             "id": "fluxcd__1__Kustomization__apps__web", "provider_id": provider_id,
             "provider_type": "fluxcd", "name": "Kustomization/web", "status": "success",
@@ -1832,5 +1784,138 @@ mod tests {
         let changed = repository.get_cached_pipelines(None).await.unwrap();
         assert_eq!(changed[0].metadata, pipeline.metadata);
         assert_eq!(changed[0].status, pipeline.status);
+    }
+
+    #[tokio::test]
+    async fn native_run_cache_lists_the_latest_activity_first_on_every_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_manager, repository) = test_repository(&dir).await;
+        let flux = "fluxcd__1__Kustomization__apps__web";
+        let other = "github__1__acme__web";
+        let runs = |pipeline_id: &str| {
+            [
+                cached_run(pipeline_id, 100, "2026-10-22T10:00:00Z"),
+                cached_run(pipeline_id, 200, "2026-10-20T10:00:00Z"),
+                cached_run(pipeline_id, 300, "2026-10-21T10:00:00.500Z"),
+                cached_run(pipeline_id, 400, "2026-10-21T10:00:00Z"),
+                cached_run(pipeline_id, 500, "2026-10-21T10:00:00Z"),
+            ]
+        };
+        repository
+            .cache_run_history(flux, &runs(flux))
+            .await
+            .unwrap();
+        repository
+            .cache_run_history(other, &runs(other))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            run_pages(&repository, flux).await,
+            vec![vec![100, 300], vec![500, 400], vec![200]]
+        );
+        assert_eq!(
+            run_pages(&repository, other).await,
+            vec![vec![500, 400], vec![300, 200], vec![100]]
+        );
+
+        let mut reconciled_again = runs(flux)[1].clone();
+        reconciled_again.started_at = "2026-10-23T10:00:00Z".parse().unwrap();
+        let mut archived = runs(flux)[0].clone();
+        archived
+            .metadata
+            .insert("archived".to_string(), json!(true));
+        repository
+            .merge_run_cache(
+                flux,
+                Vec::new(),
+                vec![reconciled_again, archived],
+                Vec::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            run_pages(&repository, flux).await,
+            vec![vec![200, 100], vec![300, 500], vec![400]]
+        );
+        let newest = repository.get_cached_run_history(flux, 3).await.unwrap();
+        assert_eq!(
+            newest.iter().map(|run| run.run_number).collect::<Vec<_>>(),
+            vec![200, 100, 300]
+        );
+        let kept = repository.get_cached_run(flux, 100).await.unwrap().unwrap();
+        assert_eq!(kept.metadata["archived"], json!(true));
+        assert_eq!(repository.get_cached_run_count(flux).await.unwrap(), 5);
+    }
+
+    #[tokio::test]
+    async fn sqlite_migration_backfills_the_order_key_of_cached_flux_runs() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE run_history_cache (
+                pipeline_id TEXT NOT NULL,
+                run_number INTEGER NOT NULL,
+                run_data TEXT NOT NULL,
+                PRIMARY KEY (pipeline_id, run_number)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let timestamps = [
+            "2026-10-21T10:00:00Z",
+            "2026-10-21T10:00:00.1Z",
+            "2026-10-21T10:00:00.500999Z",
+            "2026-10-21T10:00:00.999999Z",
+        ];
+        let pipelines = [
+            "fluxcd__1__Kustomization__apps__web",
+            "github__1__acme__web",
+        ];
+        for pipeline_id in pipelines {
+            for (index, timestamp) in timestamps.iter().enumerate() {
+                sqlx::query("INSERT INTO run_history_cache (pipeline_id, run_number, run_data) VALUES (?, ?, ?)")
+                    .bind(pipeline_id)
+                    .bind((index + 1) as i64)
+                    .bind(json!({ "started_at": timestamp }).to_string())
+                    .execute(&pool).await.unwrap();
+            }
+        }
+
+        sqlx::raw_sql(include_str!(
+            "../../../migrations/sqlite/20261021000001_run_history_started_at.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let keys: Vec<(String, i64, i64)> = sqlx::query_as(
+            "SELECT pipeline_id, run_number, started_at_ms FROM run_history_cache ORDER BY pipeline_id, run_number",
+        ).fetch_all(&pool).await.unwrap();
+        let expected: Vec<_> = pipelines
+            .iter()
+            .flat_map(|pipeline_id| {
+                timestamps
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, timestamp)| {
+                        let millis = if pipeline_id.starts_with("fluxcd__") {
+                            timestamp
+                                .parse::<DateTime<Utc>>()
+                                .unwrap()
+                                .timestamp_millis()
+                        } else {
+                            0
+                        };
+                        (pipeline_id.to_string(), (index + 1) as i64, millis)
+                    })
+            })
+            .collect();
+        assert_eq!(keys, expected);
     }
 }

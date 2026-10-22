@@ -136,7 +136,11 @@ On desktop and web, selecting a GitLab group also lists projects from all its su
 
 Use namespace-scoped `get` and `list` permissions to monitor resources. Leaving namespaces empty requires cluster-wide list permission. Requesting reconciliation also requires `patch` permission. The permission check shows these permissions separately.
 
+Deleted selected resources appear as "Not found" while the remaining resources keep updating. Changing kubeconfig, context or namespaces requires selecting resources again.
+
 Pipedash shows Flux conditions, controller messages, source revisions and native reconciliation or Helm release history. Flux limits this history and groups repeated reconciliations. Pipedash retains observed entries in its cache and labels cached details when Flux no longer retains them. Clearing the cache removes those older entries.
+
+History follows the latest observation time while record identities stay stable. Metrics describe grouped native records. Later observations update a group's time and duration without duplicating it.
 
 **Reconcile** applies the resource's current configuration. It does not restore a historical revision. Suspended resources stay suspended. Manage suspension in Flux. Reconciliation is asynchronous and cannot be cancelled through Pipedash.
 

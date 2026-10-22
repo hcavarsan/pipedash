@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useTriggerWorkflow, useWorkflowParameters } from '../../queries/useWorkflowQueries'
 import type { Pipeline, WorkflowParameter } from '../../types'
-import { getPipelineLabels } from '../../utils/pipelinePresentation'
+import { getPipelineLabels, getReconcileBlockReason } from '../../utils/pipelinePresentation'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
@@ -55,7 +55,7 @@ export const TriggerWorkflowModal = ({
   const isSubmittingRef = useRef(false)
   const labels = getPipelineLabels(pipeline.provider_type)
   const isFlux = pipeline.provider_type === 'fluxcd'
-  const suspended = pipeline.metadata?.suspended === true
+  const blockedReason = getReconcileBlockReason(pipeline)
 
   const {
     data: parameters = [],
@@ -220,7 +220,7 @@ export const TriggerWorkflowModal = ({
         size="sm"
         onClick={handleTrigger}
         loading={triggerMutation.isPending}
-        disabled={fetchingParams || !!fetchError || suspended}
+        disabled={fetchingParams || !!fetchError || !!blockedReason}
       >
         {isFlux ? labels.trigger : isRerun ? 'Rerun workflow' : 'Trigger workflow'}
       </Button>
@@ -250,10 +250,9 @@ export const TriggerWorkflowModal = ({
             Reconcile this resource using its current configuration in the cluster. This does not roll back to a
             previous revision.
           </Text>
-          <Text size="sm" c={suspended ? 'orange' : 'dimmed'}>
-            {suspended
-              ? 'This resource is suspended. Resume it in Flux before requesting reconciliation.'
-              : 'Flux processes the request asynchronously. Its status and history update after the controller handles it.'}
+          <Text size="sm" c={blockedReason ? 'orange' : 'dimmed'}>
+            {blockedReason ??
+              'Flux processes the request asynchronously. Its status and history update after the controller handles it.'}
           </Text>
         </Stack>
       )

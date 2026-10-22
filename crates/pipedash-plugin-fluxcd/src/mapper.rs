@@ -763,7 +763,7 @@ pub(crate) fn build_runs(
         .map(|candidate| candidate.run)
         .chain(snapshot)
         .collect();
-    runs.sort_by_key(|run| std::cmp::Reverse(run.run_number));
+    runs.sort_by_key(|run| std::cmp::Reverse((run.started_at.timestamp_millis(), run.run_number)));
 
     Ok(runs)
 }
@@ -1000,6 +1000,22 @@ mod tests {
         })
     }
 
+    fn number_of(runs: &[PipelineRun], digest: &str) -> Option<i64> {
+        runs.iter()
+            .find(|run| {
+                run.metadata
+                    .get("digest")
+                    .is_some_and(|value| value == digest)
+            })
+            .map(|run| run.run_number)
+    }
+
+    fn digests(runs: &[PipelineRun]) -> Vec<&str> {
+        runs.iter()
+            .filter_map(|run| run.metadata.get("digest")?.as_str())
+            .collect()
+    }
+
     #[test]
     fn kustomization_history_keeps_native_times_durations_and_labels() {
         let resource = kustomization_with_history(
@@ -1138,15 +1154,6 @@ mod tests {
             "HealthCheckFailed",
         );
         let ready = vec![cond("Ready", "True", "ReconciliationSucceeded", 2, CREATED)];
-        let number_of = |runs: &[PipelineRun], digest: &str| {
-            runs.iter()
-                .find(|run| {
-                    run.metadata
-                        .get("digest")
-                        .is_some_and(|value| value == digest)
-                })
-                .map(|run| run.run_number)
-        };
 
         let forward =
             build_runs(&kustomization_with_history(json!([a, b]), ready.clone()), 1).unwrap();
@@ -1171,6 +1178,78 @@ mod tests {
             number_of(&evicted, "sha256:b")
         );
         assert_eq!(number_of(&evicted, "sha256:a"), None);
+    }
+
+    #[test]
+    fn history_lists_the_latest_reconciliation_first_without_changing_identities() {
+        let ready = vec![cond("Ready", "True", "ReconciliationSucceeded", 2, CREATED)];
+        let reconciled = |last: &str| {
+            entry(
+                "sha256:a",
+                "2026-10-10T10:00:00Z",
+                last,
+                "10s",
+                "ReconciliationSucceeded",
+            )
+        };
+        let middle = entry(
+            "sha256:b",
+            "2026-10-15T10:00:00Z",
+            "2026-10-16T10:00:10Z",
+            "10s",
+            "ReconciliationSucceeded",
+        );
+        let build = |history: Vec<Value>| {
+            build_runs(
+                &kustomization_with_history(json!(history), ready.clone()),
+                1,
+            )
+            .unwrap()
+        };
+
+        let before = build(vec![reconciled("2026-10-14T10:00:10Z"), middle.clone()]);
+        let after = build(vec![middle, reconciled("2026-10-22T10:00:10Z")]);
+        let evicted = build(vec![reconciled("2026-10-22T10:00:10Z")]);
+
+        assert_eq!(digests(&before), ["sha256:b", "sha256:a"]);
+        assert_eq!(digests(&after), ["sha256:a", "sha256:b"]);
+        assert!(number_of(&after, "sha256:a") < number_of(&after, "sha256:b"));
+        assert_eq!(
+            number_of(&before, "sha256:a"),
+            number_of(&after, "sha256:a")
+        );
+        assert_eq!(
+            number_of(&before, "sha256:b"),
+            number_of(&after, "sha256:b")
+        );
+        assert_eq!(
+            number_of(&evicted, "sha256:a"),
+            number_of(&after, "sha256:a")
+        );
+        assert_eq!(number_of(&evicted, "sha256:b"), None);
+    }
+
+    #[test]
+    fn records_observed_at_the_same_time_order_by_identity_in_any_input_order() {
+        let ready = vec![cond("Ready", "True", "ReconciliationSucceeded", 2, CREATED)];
+        let record = |digest: &str| {
+            entry(
+                digest,
+                "2026-10-20T10:00:00Z",
+                "2026-10-21T10:00:10Z",
+                "10s",
+                "ReconciliationSucceeded",
+            )
+        };
+        let (a, b) = (record("sha256:a"), record("sha256:b"));
+
+        let forward =
+            build_runs(&kustomization_with_history(json!([a, b]), ready.clone()), 1).unwrap();
+        let reverse = build_runs(&kustomization_with_history(json!([b, a]), ready), 1).unwrap();
+
+        assert_eq!(forward[0].started_at, forward[1].started_at);
+        assert!(forward[0].run_number > forward[1].run_number);
+        assert_eq!(digests(&forward), digests(&reverse));
     }
 
     #[test]

@@ -8,7 +8,10 @@ mod sqlite_backend;
 #[cfg(feature = "postgres")]
 mod postgres_backend;
 
-pub use metrics_repository::MetricsRepository;
+pub use metrics_repository::{
+    MetricsRepository,
+    RecordMetrics,
+};
 #[cfg(feature = "postgres")]
 pub use postgres_backend::PostgresConfigBackend;
 pub use repository::{

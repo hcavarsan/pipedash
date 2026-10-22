@@ -40,6 +40,7 @@ import {
   useSaveTablePreferences,
   useTablePreferences,
 } from '../../queries/useRunHistoryQueries'
+import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { events } from '../../services'
 import { useModalStore } from '../../stores/modalStore'
 import { TYPOGRAPHY } from '../../theme/typography'
@@ -109,10 +110,16 @@ export const RunHistoryPage = ({
   const { search, status: statusFilter, branch: branchFilter, actor: actorFilter, dateRange, page } = filters
 
   const [cancellingRunNumber, setCancellingRunNumber] = useState<number | null>(null)
-  const [sortStatus, setSortStatus] = useState<DataTableSortStatus<PipelineRun>>({
-    columnAccessor: 'run_number',
-    direction: 'desc',
-  })
+  const { data: runsTable } = useTableDefinition(pipeline?.provider_id ?? 0, 'pipeline_runs')
+  const defaultSortStatus = useMemo<DataTableSortStatus<PipelineRun>>(
+    () => ({
+      columnAccessor: runsTable?.default_sort_column ?? 'run_number',
+      direction: runsTable?.default_sort_direction === 'asc' ? 'asc' : 'desc',
+    }),
+    [runsTable?.default_sort_column, runsTable?.default_sort_direction]
+  )
+  const [sortOverride, setSortOverride] = useState<DataTableSortStatus<PipelineRun> | null>(null)
+  const sortStatus = sortOverride ?? defaultSortStatus
   const [activeTab, setActiveTab] = useState<string>(initialTab)
   const [customizeModalOpened, { open: openCustomizeModal, close: closeCustomizeModal }] = useDisclosure(false)
   const [accumulatedRuns, setAccumulatedRuns] = useState<PipelineRun[]>([])
@@ -737,7 +744,7 @@ export const RunHistoryPage = ({
             isRecordSelectable: isRunCancellable,
           })}
           sortStatus={sortStatus}
-          onSortStatusChange={setSortStatus}
+          onSortStatusChange={setSortOverride}
           fetching={pageLoading}
           totalRecords={effectiveTotalRecords}
           recordsPerPage={PAGE_SIZE}
@@ -755,8 +762,7 @@ export const RunHistoryPage = ({
     )
   }
 
-  const isHistoryLoading =
-    isLoadingPipeline || loading || !preferencesLoaded || (!isMobile && schemaLoading) || !pipeline?.id
+  const isHistoryLoading = isLoadingPipeline || loading || !preferencesLoaded || schemaLoading || !pipeline?.id
 
   return (
     <PageContainer>

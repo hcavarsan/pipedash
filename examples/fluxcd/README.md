@@ -53,6 +53,8 @@ The resource list shows Ready, Not ready and Suspended states. Open a resource t
 
 Flux retains limited history. Pipedash preserves observed native entries in its cache and labels entries that Flux no longer retains. Clearing the cache removes them. Current-state snapshots are not executions and do not contribute to metrics.
 
+History sorts by the latest observation, including groups reconciled again after newer groups. Metrics update those groups without adding duplicate executions. Missing selected resources appear as "Not found" without stopping the other resources from refreshing.
+
 The failed Kustomization uses a missing path. The failed HelmRelease uses a nonexistent image tag and a 30-second timeout. Its controller message may describe an installation timeout rather than the image pull failure.
 
 ## Check

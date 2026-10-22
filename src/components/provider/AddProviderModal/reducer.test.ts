@@ -86,3 +86,43 @@ test('changing the Flux kubeconfig clears its previous context', () => {
 
   assert.deepEqual(next.configValues, { kubeconfig: '/new/config', context: '' })
 })
+
+for (const key of ['kubeconfig', 'context', 'namespaces']) {
+  test(`changing ${key} clears saved and pending resource selections`, () => {
+    const selectedId = 'Kustomization__team-a__web'
+    const state = {
+      ...initialFormState,
+      selectedPlugin: fluxPlugin,
+      configValues: { [key]: 'old-scope', selected_items: selectedId },
+      selectedOrganization: 'team-a',
+      selectedPipelines: new Set([selectedId]),
+      repositorySearch: 'web',
+    }
+    const next = formReducer(state, { type: 'UPDATE_CONFIG', key, value: 'new-scope' })
+
+    assert.equal(next.configValues.selected_items, undefined)
+    assert.equal(next.selectedPipelines.size, 0)
+    assert.equal(next.selectedOrganization, '')
+    assert.equal(next.repositorySearch, '')
+    assert.equal(state.selectedPipelines.has(selectedId), true)
+  })
+}
+
+test('editing credentials without changing scope preserves resource selections', () => {
+  const selectedId = 'Kustomization__team-a__web'
+  const state = {
+    ...initialFormState,
+    selectedPlugin: fluxPlugin,
+    configValues: { namespaces: 'team-a', selected_items: selectedId },
+    selectedPipelines: new Set([selectedId]),
+  }
+
+  for (const action of [
+    { type: 'UPDATE_CONFIG', key: 'token', value: 'updated' },
+    { type: 'UPDATE_CONFIG', key: 'namespaces', value: 'team-a' },
+  ] as const) {
+    const next = formReducer(state, action)
+    assert.equal(next.configValues.selected_items, selectedId)
+    assert.deepEqual(next.selectedPipelines, state.selectedPipelines)
+  }
+})

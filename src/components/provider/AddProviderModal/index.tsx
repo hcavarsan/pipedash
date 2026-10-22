@@ -35,6 +35,7 @@ export function AddProviderModal({
   const { step, selectedPlugin, providerName, configValues, selectedPipelines, submitting, error } = state
   const labels = getPipelineLabels(selectedPlugin?.provider_type)
   const isFlux = selectedPlugin?.provider_type === 'fluxcd'
+  const selectionNeedsRefresh = editMode && !!existingProvider?.config.selected_items && !configValues.selected_items
 
   const providerConfig = useMemo<ProviderConfig>(
     () => ({
@@ -250,6 +251,11 @@ export function AddProviderModal({
                 loading={permission.checking}
               />
             )}
+            {selectionNeedsRefresh && (
+              <Text size="xs" c="dimmed">
+                Select {labels.items} again after changing connection scope.
+              </Text>
+            )}
           </Group>
 
           <Group gap="xs">
@@ -261,7 +267,7 @@ export function AddProviderModal({
                 size="sm"
                 onClick={handleSaveCredentialsOnly}
                 loading={submitting}
-                disabled={!selectedPlugin || !providerName.trim()}
+                disabled={!selectedPlugin || !providerName.trim() || selectionNeedsRefresh}
               >
                 Save
               </Button>
@@ -317,6 +323,7 @@ export function AddProviderModal({
     handleSaveCredentialsOnly,
     onClose,
     labels.items,
+    selectionNeedsRefresh,
   ])
 
   const activeStepIndex = step === 'credentials' ? 0 : 1

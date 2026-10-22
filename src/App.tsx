@@ -29,6 +29,7 @@ import { useAuthStore } from './stores/authStore'
 import { useModalStore } from './stores/modalStore'
 import type { Pipeline, PipelineRun } from './types'
 import { displayErrorNotification } from './utils/errorDisplay'
+import { getReconcileBlockReason } from './utils/pipelinePresentation'
 
 function AppContent() {
   const navigate = useNavigate()
@@ -264,7 +265,8 @@ function AppContent() {
           runNumber={logsModal.runNumber}
           providerId={logsPipeline?.provider_id}
           providerType={logsPipeline?.provider_type}
-          canTrigger={!!logsPipeline && logsPipeline.metadata?.suspended !== true}
+          canTrigger={!!logsPipeline && !getReconcileBlockReason(logsPipeline)}
+          triggerBlockedReason={logsPipeline ? getReconcileBlockReason(logsPipeline) : undefined}
           canCancel={!!logsPipeline && !!getPluginByType(logsPipeline.provider_type)?.capabilities.cancel}
           onRerunSuccess={async (pipelineId, newRunNumber) => {
             await handleRefreshAll()

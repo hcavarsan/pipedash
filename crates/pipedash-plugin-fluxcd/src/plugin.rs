@@ -23,6 +23,7 @@ use pipedash_plugin_api::{
     PermissionStatus,
     Pipeline,
     PipelineRun,
+    PipelineStatus,
     Plugin,
     PluginError,
     PluginMetadata,
@@ -73,6 +74,35 @@ fn flux_not_installed() -> PluginError {
     PluginError::InvalidConfig(
         "The Flux Kustomization (kustomize.toolkit.fluxcd.io/v1) and HelmRelease (helm.toolkit.fluxcd.io/v2) APIs are not served by this cluster. Install Flux (https://fluxcd.io/flux/installation/) or select the kubeconfig context where Flux runs.".to_string(),
     )
+}
+
+fn missing_pipeline(target: &Target, provider_id: i64) -> Pipeline {
+    let message = format!(
+        "{target} was not found in this cluster. Update your resource selection or recreate it in Flux."
+    );
+
+    Pipeline {
+        id: target.pipeline_id(provider_id),
+        provider_id,
+        provider_type: config::PROVIDER_TYPE.to_string(),
+        name: format!("{}/{}", target.kind, target.name),
+        status: PipelineStatus::Pending,
+        last_run: None,
+        last_updated: Utc::now(),
+        repository: format!("{}/(missing)", target.namespace),
+        branch: None,
+        workflow_file: None,
+        metadata: HashMap::from([
+            ("kind".to_string(), json!(target.kind.as_str())),
+            ("namespace".to_string(), json!(target.namespace)),
+            ("name".to_string(), json!(target.name)),
+            ("missing".to_string(), json!(true)),
+            ("reason".to_string(), json!("ResourceNotFound")),
+            ("status_label".to_string(), json!("Not found")),
+            ("message".to_string(), json!(message)),
+            ("history_scope".to_string(), json!("bounded_reconciliation")),
+        ]),
+    }
 }
 
 fn paginate<T>(
@@ -182,7 +212,9 @@ impl FluxcdPlugin {
         self.list_scopes(scopes).await
     }
 
-    async fn selected(&self, selection: &[Target]) -> PluginResult<Vec<FluxResource>> {
+    async fn selected(
+        &self, selection: &[Target],
+    ) -> PluginResult<(Vec<FluxResource>, Vec<Target>)> {
         let scopes: BTreeSet<(Kind, &str)> = selection
             .iter()
             .map(|target| (target.kind, target.namespace.as_str()))
@@ -201,18 +233,19 @@ impl FluxcdPlugin {
             .collect();
 
         let present: HashSet<Target> = found.iter().map(mapper::target_of).collect();
-        match selection.iter().find(|target| !present.contains(*target)) {
-            Some(missing) => Err(PluginError::PipelineNotFound(format!(
-                "{missing} is selected but does not exist in this cluster"
-            ))),
-            None => Ok(found),
-        }
+        let missing = selection
+            .iter()
+            .filter(|target| !present.contains(*target))
+            .cloned()
+            .collect();
+
+        Ok((found, missing))
     }
 
-    async fn monitored(&self) -> PluginResult<Vec<FluxResource>> {
+    async fn monitored(&self) -> PluginResult<(Vec<FluxResource>, Vec<Target>)> {
         let settings = self.settings()?;
         if settings.selection.is_empty() {
-            self.discover(&settings.namespaces).await
+            Ok((self.discover(&settings.namespaces).await?, Vec::new()))
         } else {
             self.selected(&settings.selection).await
         }
@@ -342,12 +375,16 @@ impl Plugin for FluxcdPlugin {
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
         let provider_id = self.provider_id()?;
+        let (found, missing) = self.monitored().await?;
 
-        Ok(self
-            .monitored()
-            .await?
+        Ok(found
             .iter()
             .map(|resource| mapper::map_pipeline(resource, provider_id))
+            .chain(
+                missing
+                    .iter()
+                    .map(|target| missing_pipeline(target, provider_id)),
+            )
             .collect())
     }
 
@@ -931,9 +968,80 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn selected_resource_missing_from_the_cluster_is_reported_by_namespace_and_name() {
+    async fn deleting_one_selected_resource_keeps_its_healthy_peer_and_marks_the_missing_one() {
         let dir = tempfile::tempdir().unwrap();
         let stub = cluster(vec![kustomization("ci", "app")], vec![]);
+        let plugin = plugin(
+            &stub.server,
+            &dir,
+            &[(
+                "selected_items",
+                "Kustomization__ci__app,Kustomization__ci__gone",
+            )],
+        );
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+        assert_eq!(pipelines.len(), 2);
+        let healthy = &pipelines[0];
+        assert_eq!(healthy.id, "fluxcd__1__Kustomization__ci__app");
+        assert_eq!(healthy.status, PipelineStatus::Success);
+        assert!(!healthy.metadata.contains_key("missing"));
+        assert!(healthy.last_run.is_some());
+
+        let missing = &pipelines[1];
+        assert_eq!(missing.id, "fluxcd__1__Kustomization__ci__gone");
+        assert_eq!(missing.name, "Kustomization/gone");
+        assert_eq!(missing.repository, "ci/(missing)");
+        assert_eq!(missing.status, PipelineStatus::Pending);
+        assert_eq!(missing.last_run, None);
+        assert_eq!(missing.branch, None);
+        assert_eq!(missing.workflow_file, None);
+        assert_eq!(missing.metadata["missing"], json!(true));
+        assert_eq!(missing.metadata["reason"], json!("ResourceNotFound"));
+        assert_eq!(missing.metadata["namespace"], json!("ci"));
+        assert_eq!(missing.metadata["name"], json!("gone"));
+        assert!(!missing.metadata.contains_key("uid"));
+        assert_eq!(stub.recorded().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn missing_selected_resource_has_no_runs_and_cannot_be_triggered() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = cluster(vec![kustomization("ci", "app")], vec![]);
+        let plugin = plugin(
+            &stub.server,
+            &dir,
+            &[(
+                "selected_items",
+                "Kustomization__ci__app,Kustomization__ci__gone",
+            )],
+        );
+        let gone = "fluxcd__1__Kustomization__ci__gone";
+
+        let history = plugin.fetch_run_history(gone, 10).await.unwrap_err();
+        let details = plugin.fetch_run_details(gone, 1).await.unwrap_err();
+        let trigger = plugin
+            .trigger_pipeline(TriggerParams {
+                workflow_id: gone.to_string(),
+                inputs: None,
+            })
+            .await
+            .unwrap_err();
+
+        for error in [history, details, trigger] {
+            assert!(
+                matches!(&error, PluginError::PipelineNotFound(message) if message.contains("Kustomization ci/gone")),
+                "{error:?}"
+            );
+        }
+        assert!(stub.recorded().iter().all(|(method, _, _)| method == "GET"));
+    }
+
+    #[tokio::test]
+    async fn forbidden_listing_of_a_selected_namespace_is_not_reported_as_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = stub(|_, _, _| (403, status_json(403, "Forbidden", "cannot list resource")));
         let plugin = plugin(
             &stub.server,
             &dir,
@@ -946,7 +1054,7 @@ mod tests {
         let error = plugin.fetch_pipelines().await.unwrap_err();
 
         assert!(
-            matches!(&error, PluginError::PipelineNotFound(message) if message.contains("Kustomization ci/gone")),
+            matches!(&error, PluginError::AuthenticationFailed(message) if message.contains("namespace ci") && message.contains("cannot list resource")),
             "{error:?}"
         );
     }

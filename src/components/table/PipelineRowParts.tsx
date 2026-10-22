@@ -11,7 +11,7 @@ import type { ReactNode } from 'react'
 
 import type { Pipeline, PipelineStatus } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
-import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
+import { getPipelineLabels, getReconcileBlockReason, getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusBadge } from '../atoms/StatusBadge'
 
 interface SectionHeadingProps {
@@ -127,7 +127,7 @@ export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, on
   const pinLabel = `${isPinned ? 'Unpin' : 'Pin'} ${pipeline.name}`
   const metricsLabel = `View metrics for ${pipeline.name}`
   const triggerLabel = `${getPipelineLabels(pipeline.provider_type).trigger} ${pipeline.name}`
-  const suspended = pipeline.metadata?.suspended === true
+  const blockedReason = getReconcileBlockReason(pipeline)
 
   return (
     <Group gap="xs" wrap="nowrap">
@@ -143,14 +143,14 @@ export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, on
           </ActionIcon>
         </Tooltip>
       )}
-      <Tooltip label={suspended ? 'Resume this resource in Flux before reconciling.' : triggerLabel}>
+      <Tooltip label={blockedReason ?? triggerLabel}>
         <ActionIcon
           variant="subtle"
           color="gray"
           aria-label={triggerLabel}
-          aria-disabled={suspended}
+          aria-disabled={!!blockedReason}
           onClick={() => {
-            if (!suspended) {
+            if (!blockedReason) {
               onTrigger(pipeline)
             }
           }}

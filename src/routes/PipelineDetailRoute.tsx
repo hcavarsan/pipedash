@@ -5,6 +5,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary'
 import { RunHistoryPage } from '../components/table/RunHistoryPage'
 import { usePlugins } from '../contexts/PluginContext'
 import type { Pipeline, PipelineComponentProps } from '../types'
+import { getReconcileBlockReason } from '../utils/pipelinePresentation'
 
 interface PipelineDetailRouteProps extends Omit<PipelineComponentProps, 'pipeline'> {
   pipelines: Pipeline[]
@@ -65,7 +66,7 @@ export function PipelineDetailRoute({
         initialTab={tab}
         onBack={handleBack}
         onViewRun={onViewRun || (() => undefined)}
-        onRerun={actualPipeline?.metadata?.suspended === true ? undefined : onRerun}
+        onRerun={actualPipeline && getReconcileBlockReason(actualPipeline) ? undefined : onRerun}
         onCancel={
           actualPipeline && getPluginByType(actualPipeline.provider_type)?.capabilities.cancel ? onCancel : undefined
         }

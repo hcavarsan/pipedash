@@ -62,3 +62,14 @@ const fluxStatusOptions = [
 
 export const getStatusOptions = (providerType?: string) =>
   providerType === 'fluxcd' ? fluxStatusOptions : STATUS_OPTIONS
+
+export const getReconcileBlockReason = (pipeline: Pick<Pipeline, 'metadata'>) => {
+  if (pipeline.metadata?.missing === true) {
+    return 'This resource was not found. Update the selection or recreate it in Flux.'
+  }
+  if (pipeline.metadata?.suspended === true) {
+    return 'This resource is suspended. Resume it in Flux before requesting reconciliation.'
+  }
+
+  return undefined
+}

@@ -29,6 +29,7 @@ interface WorkflowLogsModalProps {
   providerId?: number
   providerType?: string
   canTrigger: boolean
+  triggerBlockedReason?: string
   canCancel: boolean
   onRerunSuccess?: (pipelineId: string, newRunNumber: number) => void
   onCancelSuccess?: () => void
@@ -61,6 +62,7 @@ export const WorkflowLogsModal = ({
   providerId,
   providerType,
   canTrigger,
+  triggerBlockedReason,
   canCancel,
   onRerunSuccess,
   onCancelSuccess,
@@ -224,9 +226,8 @@ export const WorkflowLogsModal = ({
     <Stack gap="xs">
       {isFlux && (
         <Text size="sm" c="dimmed">
-          {canTrigger
-            ? 'Reconcile uses the current resource configuration. It does not restore this historical revision.'
-            : 'This resource is suspended. Resume it in Flux before requesting reconciliation.'}
+          {triggerBlockedReason ??
+            'Reconcile uses the current resource configuration. It does not restore this historical revision.'}
         </Text>
       )}
       {isPending && canCancel && (

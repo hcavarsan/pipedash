@@ -128,7 +128,7 @@ fn create_runs_table() -> TableDefinition {
             always(column(
                 "started_at",
                 "Observed",
-                "Timestamp taken from Flux status. See Time source for what it represents; it is not always the start of a reconciliation.",
+                "Timestamp taken from Flux status, newest first by default. See Time source for what it represents; it is not always the start of a reconciliation.",
                 "started_at",
                 ColumnDataType::DateTime,
                 CellRenderer::DateTime,
@@ -216,7 +216,7 @@ fn create_runs_table() -> TableDefinition {
                 160,
             )),
         ],
-        default_sort_column: Some("run_number".to_string()),
+        default_sort_column: Some("started_at".to_string()),
         default_sort_direction: Some("desc".to_string()),
     }
 }
