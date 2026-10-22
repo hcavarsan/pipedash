@@ -47,3 +47,6 @@ cert.sh
 cert_gen.sh
 certificate-base64.txt
 DeveloperID_*
+
+# OpenQodex local review config
+.openqodex/
