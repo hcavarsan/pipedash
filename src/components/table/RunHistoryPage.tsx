@@ -284,6 +284,7 @@ export const RunHistoryPage = ({
       const rerunLabel = `Rerun run #${run.run_number}`
       const detailsLabel = `View details for run #${run.run_number}`
       const isAwaitingReview = run.metadata?.awaiting_review === true
+      const isReviewBusy = reviewingRunNumber !== null
       const isReviewing = reviewingRunNumber === run.run_number
       const approveLabel = `Approve deployment review for run #${run.run_number}`
       const rejectLabel = `Reject deployment review for run #${run.run_number}`
@@ -299,7 +300,7 @@ export const RunHistoryPage = ({
                 title={approveLabel}
                 aria-label={approveLabel}
                 loading={isReviewing}
-                disabled={isReviewing}
+                disabled={isReviewBusy}
                 onClick={(e) => {
                   e.stopPropagation()
                   handleReviewRun(pipeline, run, 'approve')
@@ -313,7 +314,7 @@ export const RunHistoryPage = ({
                 size="md"
                 title={rejectLabel}
                 aria-label={rejectLabel}
-                disabled={isReviewing}
+                disabled={isReviewBusy}
                 onClick={(e) => {
                   e.stopPropagation()
                   handleReviewRun(pipeline, run, 'reject')
