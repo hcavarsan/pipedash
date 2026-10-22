@@ -152,6 +152,8 @@ On first launch (or via settings), a setup wizard walks you through config. Work
 
 You can switch storage backends anytime. The wizard offers to migrate your existing data (providers, credentials, pipeline history) or start fresh.
 
+Before migrating, Pipedash backs up the source database and any existing SQLite target. SQLite backups include committed data still in the write-ahead log (WAL).
+
 ## How it works
 
 **Architecture**
