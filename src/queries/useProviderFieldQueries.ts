@@ -11,7 +11,7 @@ export function useProviderOrganizations(providerType: string, config: ProviderC
     queryFn: () => service.fetchProviderOrganizations(providerType, config.config || {}),
     staleTime: STALE_TIMES.MODERATE,
     gcTime: GC_TIMES.SHORT,
-    enabled: enableQuery && !!providerType && !!config.token && Object.keys(config.config || {}).length > 0,
+    enabled: enableQuery && !!providerType,
   })
 }
 
@@ -36,11 +36,8 @@ export function usePipelinePreview(
     getNextPageParam: (lastPage: PaginatedAvailablePipelines) =>
       lastPage.has_more ? (lastPage.page ?? 0) + 1 : undefined,
     initialPageParam: 1,
-    placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[3] === organization ? previousData : undefined,
     staleTime: STALE_TIMES.MODERATE,
     gcTime: GC_TIMES.SHORT,
-    enabled:
-      enableQuery && !!providerType && !!config.token && Object.keys(config.config || {}).length > 0 && !!organization,
+    enabled: enableQuery && !!providerType && !!organization,
   })
 }

@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { RunHistoryPage } from '../components/table/RunHistoryPage'
+import { usePlugins } from '../contexts/PluginContext'
 import type { Pipeline, PipelineComponentProps } from '../types'
 
 interface PipelineDetailRouteProps extends Omit<PipelineComponentProps, 'pipeline'> {
@@ -20,6 +21,7 @@ export function PipelineDetailRoute({
   const { pipelineId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { getPluginByType } = usePlugins()
 
   const tab = (searchParams.get('tab') || 'history') as 'history' | 'metrics'
 
@@ -63,8 +65,10 @@ export function PipelineDetailRoute({
         initialTab={tab}
         onBack={handleBack}
         onViewRun={onViewRun || (() => undefined)}
-        onRerun={onRerun}
-        onCancel={onCancel}
+        onRerun={actualPipeline?.metadata?.suspended === true ? undefined : onRerun}
+        onCancel={
+          actualPipeline && getPluginByType(actualPipeline.provider_type)?.capabilities.cancel ? onCancel : undefined
+        }
         isLoadingPipeline={loading && !actualPipeline}
       />
     </ErrorBoundary>

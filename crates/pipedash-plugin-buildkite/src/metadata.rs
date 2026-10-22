@@ -40,6 +40,7 @@ fn create_capabilities() -> PluginCapabilities {
         pipelines: true,
         pipeline_runs: true,
         trigger: true,
+        cancel: true,
         agents: true,
         artifacts: true,
         queues: false,

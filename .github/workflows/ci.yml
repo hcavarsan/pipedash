@@ -47,6 +47,9 @@ jobs:
       - name: Lint and format check
         run: mise run lint:front
 
+      - name: Test frontend
+        run: bun run test
+
   zizmor:
     name: zizmor
     runs-on: ubuntu-22.04

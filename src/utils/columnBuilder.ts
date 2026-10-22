@@ -5,6 +5,7 @@ import type { ColumnDefinition, PipelineRun } from '../types'
 
 import { renderCellValue } from './dynamicRenderers'
 import { getValueByPath } from './objectPath'
+import { getStatusLabel } from './pipelinePresentation'
 
 const RIGHT_ALIGNED_TYPES: ColumnDefinition['data_type'][] = ['Number', 'Duration']
 
@@ -31,7 +32,7 @@ export function buildColumnsFromSchema(
       render: (record) => {
         const value = getValueByPath(record, def.field_path)
 
-        return renderCellValue(def.renderer, value)
+        return renderCellValue(def.renderer, value, getStatusLabel(record))
       },
     }
 

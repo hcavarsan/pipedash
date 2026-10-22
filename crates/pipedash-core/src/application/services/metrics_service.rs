@@ -137,6 +137,11 @@ impl MetricsService {
             .iter()
             .filter(|run| {
                 run.run_number > last_processed
+                    && run
+                        .metadata
+                        .get("snapshot")
+                        .and_then(serde_json::Value::as_bool)
+                        != Some(true)
                     && matches!(
                         run.status,
                         PipelineStatus::Success
@@ -364,5 +369,52 @@ impl MetricsService {
         tracing::info!(pipeline_id = %pipeline_id, "Resetting metrics processing state");
         self.repository.reset_processing_state(pipeline_id).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn state_snapshots_do_not_count_as_failed_reconciliations() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = crate::infrastructure::database::init_database(dir.path().join("metrics.db"))
+            .await
+            .unwrap();
+        let service = MetricsService::new(Arc::new(MetricsRepository::new(pool.clone())));
+        service.update_global_config(true, 30).await.unwrap();
+        let mut run: PipelineRun = serde_json::from_value(json!({
+            "id": "snapshot", "pipeline_id": "fluxcd__1__Kustomization__apps__web", "run_number": 1,
+            "status": "failed", "started_at": "2026-10-21T00:00:00Z", "logs_url": "",
+            "metadata": { "snapshot": true }
+        }))
+        .unwrap();
+
+        service
+            .extract_and_store_metrics(&run.pipeline_id, std::slice::from_ref(&run))
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pipeline_metrics")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+
+        run.metadata.clear();
+        run.status = PipelineStatus::Success;
+        service
+            .extract_and_store_metrics(&run.pipeline_id, std::slice::from_ref(&run))
+            .await
+            .unwrap();
+        let success: f64 = sqlx::query_scalar(
+            "SELECT value FROM pipeline_metrics WHERE metric_type = 'success_rate'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(success, 100.0);
     }
 }

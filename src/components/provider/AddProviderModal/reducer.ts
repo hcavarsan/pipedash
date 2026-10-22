@@ -19,7 +19,10 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         selectedPlugin: action.plugin,
         providerName: action.isEditMode ? state.providerName : action.plugin.name,
         configValues: initialConfig,
-        dynamicOptions: {},
+        selectedOrganization: '',
+        selectedPipelines: new Set(),
+        repositorySearch: '',
+        fieldErrors: {},
       }
     }
 
@@ -29,7 +32,10 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         selectedPlugin: null,
         configValues: {},
         providerName: '',
-        dynamicOptions: {},
+        selectedOrganization: '',
+        selectedPipelines: new Set(),
+        repositorySearch: '',
+        fieldErrors: {},
       }
 
     case 'SET_PROVIDER_NAME': {
@@ -45,16 +51,18 @@ export function formReducer(state: FormState, action: FormAction): FormState {
 
       return {
         ...state,
-        configValues: { ...state.configValues, [action.key]: action.value },
+        configValues: {
+          ...state.configValues,
+          ...(state.selectedPlugin?.provider_type === 'fluxcd' && action.key === 'kubeconfig' ? { context: '' } : {}),
+          [action.key]: action.value,
+        },
+        selectedOrganization: '',
         fieldErrors: newFieldErrors,
       }
     }
 
     case 'SET_CONFIG_VALUES':
       return { ...state, configValues: action.values }
-
-    case 'SET_DYNAMIC_OPTIONS':
-      return { ...state, dynamicOptions: { ...state.dynamicOptions, ...action.options } }
 
     case 'SET_ORGANIZATION':
       return {
@@ -75,14 +83,18 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       return { ...state, selectedPipelines: newSet }
     }
 
-    case 'SET_SELECTED_PIPELINES':
-      return { ...state, selectedPipelines: action.pipelineIds }
-
     case 'SELECT_ALL_PIPELINES':
-      return { ...state, selectedPipelines: new Set(action.pipelineIds) }
+      return { ...state, selectedPipelines: new Set([...state.selectedPipelines, ...action.pipelineIds]) }
 
-    case 'CLEAR_SELECTED_PIPELINES':
-      return { ...state, selectedPipelines: new Set() }
+    case 'DESELECT_PIPELINES': {
+      const selectedPipelines = new Set(state.selectedPipelines)
+
+      for (const id of action.pipelineIds) {
+        selectedPipelines.delete(id)
+      }
+
+      return { ...state, selectedPipelines }
+    }
 
     case 'SET_REPOSITORY_SEARCH':
       return { ...state, repositorySearch: action.search }
@@ -125,6 +137,12 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         selectedPlugin: action.plugin,
         providerName: action.provider.name,
         configValues: initialConfig,
+        selectedPipelines: new Set(
+          (initialConfig.selected_items ?? '')
+            .split(',')
+            .map((id) => id.trim())
+            .filter(Boolean)
+        ),
       }
     }
 

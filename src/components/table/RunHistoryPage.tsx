@@ -48,7 +48,9 @@ import { getDateRangeStart } from '../../utils/dateRange'
 import { formatCount } from '../../utils/formatCount'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { formatDuration } from '../../utils/formatDuration'
+import { getPipelineLabels, getStatusLabel, getStatusOptions } from '../../utils/pipelinePresentation'
 import { TableCells } from '../../utils/tableCells'
+import { StatusBadge } from '../atoms/StatusBadge'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
 import { FilterBar } from '../common/FilterBar'
@@ -100,6 +102,8 @@ export const RunHistoryPage = ({
   isLoadingPipeline = false,
 }: RunHistoryPageProps) => {
   const { isMobile } = useIsMobile()
+  const labels = getPipelineLabels(pipeline?.provider_type)
+  const isFlux = pipeline?.provider_type === 'fluxcd'
 
   const { filters, setFilter, clearFilters } = useRunHistoryFilters()
   const { search, status: statusFilter, branch: branchFilter, actor: actorFilter, dateRange, page } = filters
@@ -262,8 +266,8 @@ export const RunHistoryPage = ({
       const cancelLabel = isPending
         ? `Cancel unavailable for pending run #${run.run_number}`
         : `Cancel run #${run.run_number}`
-      const rerunLabel = `Rerun run #${run.run_number}`
-      const detailsLabel = `View details for run #${run.run_number}`
+      const rerunLabel = isFlux ? `Reconcile ${pipeline.name}` : `Rerun run #${run.run_number}`
+      const detailsLabel = `View details for ${labels.run} #${run.run_number}`
 
       return (
         <Group gap="xs" wrap="nowrap" justify="flex-end">
@@ -320,7 +324,7 @@ export const RunHistoryPage = ({
         </Group>
       )
     },
-    [cancellingRunNumber, handleCancelRun, onCancel, onRerun, onViewRun, pipeline, rerunLoading]
+    [cancellingRunNumber, handleCancelRun, onCancel, onRerun, onViewRun, pipeline, rerunLoading, isFlux, labels.run]
   )
 
   const actionsColumn = useMemo(
@@ -579,38 +583,44 @@ export const RunHistoryPage = ({
                   )}
                   <UnstyledButton
                     className="interactive-surface"
-                    aria-label={`View details for run #${run.run_number}`}
+                    aria-label={`View details for ${labels.run} #${run.run_number}`}
                     onClick={() => onViewRun(currentPipeline.id, run.run_number)}
                   >
                     <Group gap="xs" wrap="nowrap">
                       <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight}>
-                        #{run.run_number}
+                        {isFlux ? String(run.metadata?.run_label ?? 'Reconciliation') : `#${run.run_number}`}
                       </Text>
-                      {TableCells.status(run.status)}
+                      <StatusBadge status={run.status} label={getStatusLabel(run)} />
                     </Group>
                   </UnstyledButton>
                 </Group>
                 {renderRunActions(run, false)}
               </Group>
 
-              <Group gap="lg" wrap="nowrap" align="flex-start">
-                <RunField icon={<IconGitBranch size={14} />} label="Branch">
-                  <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>
-                    {run.branch || '—'}
-                  </Text>
-                </RunField>
-                <RunField icon={<IconUser size={14} />} label="Actor">
-                  <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>
-                    {run.actor || '—'}
-                  </Text>
-                </RunField>
-              </Group>
+              {isFlux ? (
+                <Text size="sm" c="dimmed">
+                  {String(run.metadata?.message ?? run.commit_message ?? '')}
+                </Text>
+              ) : (
+                <Group gap="lg" wrap="nowrap" align="flex-start">
+                  <RunField icon={<IconGitBranch size={14} />} label="Branch">
+                    <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>
+                      {run.branch || '—'}
+                    </Text>
+                  </RunField>
+                  <RunField icon={<IconUser size={14} />} label="Actor">
+                    <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>
+                      {run.actor || '—'}
+                    </Text>
+                  </RunField>
+                </Group>
+              )}
 
               <Group gap="lg" wrap="nowrap" align="flex-start">
                 <RunField icon={<IconClock size={14} />} label="Duration">
                   <Text size={TYPOGRAPHY.FIELD_VALUE.size}>{formatDuration(run.duration_seconds)}</Text>
                 </RunField>
-                <RunField icon={<IconCalendar size={14} />} label="Started">
+                <RunField icon={<IconCalendar size={14} />} label={isFlux ? 'Recorded' : 'Started'}>
                   <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>
                     {run.started_at ? formatDateTime(run.started_at) : '—'}
                   </Text>
@@ -628,13 +638,13 @@ export const RunHistoryPage = ({
           <Group justify="center" gap="xs" role="status">
             <Loader size="sm" />
             <Text size="sm" c="dimmed">
-              Loading more runs...
+              Loading more {labels.runs}...
             </Text>
           </Group>
         )}
         {!hasMore && sortedRuns.length > 0 && (
           <Text size="sm" c="dimmed" ta="center">
-            {isComplete ? `All ${formatCount(totalCount, 'run')}` : `${totalCount}+ runs`}
+            {isComplete ? `All available ${formatCount(totalCount, labels.run)}` : `${totalCount}+ ${labels.runs}`}
           </Text>
         )}
       </Box>
@@ -645,7 +655,7 @@ export const RunHistoryPage = ({
     if (isError) {
       return (
         <ErrorState
-          title="Couldn't load run history"
+          title={`Couldn't load ${labels.history.toLowerCase()}`}
           error={runsError}
           onRetry={() => refetchRuns()}
           retrying={pageLoading}
@@ -669,28 +679,32 @@ export const RunHistoryPage = ({
         sourceRuns.length === 0 ? (
           <EmptyState
             icon={<IconHistory size={24} />}
-            title="No runs yet"
-            description="This workflow has no recorded runs. Runs appear here after the workflow runs on its provider."
+            title={`No ${labels.runs} yet`}
+            description={
+              isFlux
+                ? 'Flux has not recorded a reconciliation for this resource yet.'
+                : 'This workflow has no recorded runs.'
+            }
             action={
               <Button variant="default" size="sm" leftSection={<IconRefresh size={16} />} onClick={() => refetchRuns()}>
-                Refresh runs
+                Refresh {labels.runs}
               </Button>
             }
           />
         ) : (
           <EmptyState
             icon={<IconHistory size={24} />}
-            title="No runs match your filters"
+            title={`No ${labels.runs} match your filters`}
             description={
               hasMore
-                ? 'None of the loaded runs match the current search or filters. More runs can still be loaded.'
-                : 'None of the runs match the current search or filters.'
+                ? `None of the loaded ${labels.runs} match the current search or filters. More can still be loaded.`
+                : `None of the ${labels.runs} match the current search or filters.`
             }
             action={
               <Group gap="sm">
                 {hasMore && isMobile && (
                   <Button variant="default" size="sm" onClick={() => setFilter('page', page + 1)}>
-                    Load more runs
+                    Load more {labels.runs}
                   </Button>
                 )}
                 <Button variant="default" size="sm" onClick={clearFilters}>
@@ -733,8 +747,8 @@ export const RunHistoryPage = ({
             pageLoading
               ? 'Loading...'
               : isComplete
-                ? `Showing ${from}-${to} of ${formatCount(totalCount, 'run')}`
-                : `Showing ${from}-${to} runs`
+                ? `Showing ${from}-${to} of ${formatCount(totalCount, labels.run)}`
+                : `Showing ${from}-${to} ${labels.runs}`
           }
         />
       </Box>
@@ -753,6 +767,20 @@ export const RunHistoryPage = ({
         onBack={onBack}
         actions={headerActions}
       />
+      {isFlux && pipeline && (
+        <Group gap="sm" align="flex-start" mb="sm">
+          <StatusBadge status={pipeline.status} label={getStatusLabel(pipeline)} size="md" />
+          <Text size="sm" style={{ overflowWrap: 'anywhere', flex: 1 }}>
+            {String(pipeline.metadata?.message ?? '')}
+          </Text>
+        </Group>
+      )}
+      {pipeline?.metadata?.history_scope === 'bounded_reconciliation' && (
+        <Text size="sm" c="dimmed" mb="sm">
+          FluxCD retains a limited reconciliation history. Repeated reconciliations may be grouped, and older entries
+          may be unavailable.
+        </Text>
+      )}
 
       <Tabs
         value={activeTab}
@@ -761,7 +789,7 @@ export const RunHistoryPage = ({
       >
         <Tabs.List mb="sm">
           <Tabs.Tab value="history" leftSection={<IconHistory size={16} />}>
-            Run history
+            {labels.history}
           </Tabs.Tab>
           <Tabs.Tab value="metrics" leftSection={<IconChartLine size={16} />}>
             Metrics
@@ -780,7 +808,7 @@ export const RunHistoryPage = ({
           }}
         >
           {isHistoryLoading || !pipeline ? (
-            <LoadingState message="Loading run history..." />
+            <LoadingState message={`Loading ${labels.history.toLowerCase()}...`} />
           ) : (
             <>
               <Group justify="space-between" align="flex-start" wrap="nowrap">
@@ -790,11 +818,12 @@ export const RunHistoryPage = ({
                     search: {
                       value: search,
                       onChange: (value) => setFilter('search', value),
-                      placeholder: 'Search runs...',
+                      placeholder: `Search ${labels.runs}...`,
                     },
                     status: {
                       value: statusFilter,
                       onChange: (value) => setFilter('status', value),
+                      options: getStatusOptions(pipeline.provider_type),
                     },
                     branch: {
                       value: branchFilter,

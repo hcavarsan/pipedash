@@ -200,8 +200,10 @@ impl RefreshManager {
                                         if let Some(old_pipeline) =
                                             cached.iter().find(|p| p.id == new_pipeline.id)
                                         {
-                                            if old_pipeline.status != new_pipeline.status
-                                                || old_pipeline.last_run != new_pipeline.last_run
+                                            if new_pipeline.provider_type != "fluxcd"
+                                                && (old_pipeline.status != new_pipeline.status
+                                                    || old_pipeline.last_run
+                                                        != new_pipeline.last_run)
                                             {
                                                 tracing::debug!(
                                                     pipeline = %new_pipeline.name,

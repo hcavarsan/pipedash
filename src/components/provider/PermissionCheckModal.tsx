@@ -45,7 +45,7 @@ export const PermissionCheckModal = ({
   opened,
   onClose,
   onRetry,
-  metadata: _metadata,
+  metadata,
   status,
   features,
   loading,
@@ -53,7 +53,7 @@ export const PermissionCheckModal = ({
 }: PermissionCheckModalProps) => {
   const modalTitle = (
     <Group justify="space-between" w="100%">
-      <Text fw={600}>Token permissions</Text>
+      <Text fw={600}>{metadata?.provider_type === 'fluxcd' ? 'Kubernetes permissions' : 'Token permissions'}</Text>
       {status?.metadata?.token_type && (
         <Badge size="md" variant="light" color="gray">
           {status.metadata.token_type === 'classic_pat' ? 'Classic PAT' : 'Fine-grained token'}
@@ -130,9 +130,7 @@ export const PermissionCheckModal = ({
       ) : (
         <Alert icon={<IconAlertCircle size={16} />} color="gray" variant="light" title="Permission details unavailable">
           <Stack gap="sm" align="flex-start">
-            <Text size="sm">
-              Permission details could not be retrieved, so the token's permissions are not verified.
-            </Text>
+            <Text size="sm">Permission details could not be retrieved. These credentials have not been verified.</Text>
             <Button size="xs" variant="default" leftSection={<IconRefresh size={14} />} onClick={onRetry}>
               Retry
             </Button>

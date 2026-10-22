@@ -562,7 +562,7 @@ impl Repository {
     ) -> DomainResult<Vec<Pipeline>> {
         if let Some(pid) = provider_id {
             let sql = format!(
-                "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type
+                "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json
                 FROM pipelines_cache
                 WHERE provider_id = {}
                 ORDER BY last_updated DESC",
@@ -587,7 +587,7 @@ impl Repository {
                 }
             }
         } else {
-            let sql = "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type
+            let sql = "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json
                 FROM pipelines_cache
                 ORDER BY last_updated DESC";
             match &self.cache_pool {
@@ -880,6 +880,37 @@ impl Repository {
             .collect();
 
         Ok(runs)
+    }
+
+    pub async fn get_cached_run(
+        &self, pipeline_id: &str, run_number: i64,
+    ) -> DomainResult<Option<PipelineRun>> {
+        let sql = format!(
+            "SELECT run_data FROM run_history_cache WHERE pipeline_id = {} AND run_number = {}",
+            self.placeholder(1),
+            self.placeholder(2)
+        );
+        let row = match &self.cache_pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
+                    .bind(pipeline_id)
+                    .bind(run_number)
+                    .fetch_optional(pool)
+                    .await
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
+                    .bind(pipeline_id)
+                    .bind(run_number)
+                    .fetch_optional(pool)
+                    .await
+            }
+        }
+        .map_err(|error| DomainError::DatabaseError(error.to_string()))?;
+
+        row.map(|json| serde_json::from_str(&json))
+            .transpose()
+            .map_err(|error| DomainError::DatabaseError(format!("Invalid cached run: {error}")))
     }
 
     pub async fn clear_cached_run_history(&self, pipeline_id: &str) -> DomainResult<()> {
@@ -1196,11 +1227,11 @@ impl Repository {
             let is_pg = is_postgres;
             async move {
                 let select_sql = if is_pg {
-                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type
+                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json
                     FROM pipelines_cache
                     WHERE provider_id = $1"
                 } else {
-                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type
+                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json
                     FROM pipelines_cache
                     WHERE provider_id = ?"
                 };
@@ -1243,81 +1274,12 @@ impl Repository {
                             .await
                             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-                let mut existing: HashMap<String, Pipeline> = HashMap::new();
-                for row in existing_rows.iter() {
-                    let id: String = row
-                        .try_get(0)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    let provider_id_val: i64 = row
-                        .try_get(1)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    let name: String = row
-                        .try_get(2)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    let status_str: String = row
-                        .try_get(3)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    let repository: String = row
-                        .try_get(4)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    let branch: Option<String> = row
-                        .try_get(5)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    let workflow_file: Option<String> = row
-                        .try_get(6)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    let last_run_str: Option<String> = row
-                        .try_get(7)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    let last_updated_str: String = row
-                        .try_get(8)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    let provider_type: String = row
-                        .try_get(9)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-                    let status: PipelineStatus = if status_str.trim().is_empty() {
-                        PipelineStatus::Pending
-                    } else if status_str.starts_with('"') {
-                        serde_json::from_str(&status_str).map_err(|e| {
-                            DomainError::DatabaseError(format!(
-                                "Failed to parse status '{}': {}",
-                                status_str, e
-                            ))
-                        })?
-                    } else {
-                        let quoted = format!("\"{}\"", status_str);
-                        serde_json::from_str(&quoted).map_err(|e| {
-                            DomainError::DatabaseError(format!(
-                                "Failed to parse status '{}': {}",
-                                status_str, e
-                            ))
-                        })?
-                    };
-                    let last_run = last_run_str
-                        .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-                        .map(|dt| dt.with_timezone(&Utc));
-                    let last_updated = DateTime::parse_from_rfc3339(&last_updated_str)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?
-                        .with_timezone(&Utc);
-
-                    existing.insert(
-                        id.clone(),
-                        Pipeline {
-                            id,
-                            provider_id: provider_id_val,
-                            provider_type,
-                            name,
-                            status,
-                            last_run,
-                            last_updated,
-                            repository,
-                            branch,
-                            workflow_file,
-                            metadata: std::collections::HashMap::new(),
-                        },
-                    );
-                }
+                        let existing: HashMap<String, Pipeline> = existing_rows.iter()
+                            .map(|row| {
+                                let pipeline = self.pipeline_from_row(row)?;
+                                Ok((pipeline.id.clone(), pipeline))
+                            })
+                            .collect::<DomainResult<_>>()?;
 
                         let new_ids: HashMap<String, &Pipeline> =
                             new_pipelines_clone.iter().map(|p| (p.id.clone(), p)).collect();
@@ -1329,6 +1291,10 @@ impl Repository {
                                     || old.name != pipeline.name
                                     || old.provider_id != provider_id
                                     || old.provider_type != pipeline.provider_type
+                                    || old.repository != pipeline.repository
+                                    || old.branch != pipeline.branch
+                                    || old.workflow_file != pipeline.workflow_file
+                                    || old.metadata != pipeline.metadata
                                 {
                                     sqlx::query(update_sql)
                                         .bind(provider_id)
@@ -1339,7 +1305,7 @@ impl Repository {
                                         .bind(&pipeline.workflow_file)
                                         .bind(pipeline.last_run.as_ref().map(|dt| dt.to_rfc3339()))
                                         .bind(Utc::now().to_rfc3339())
-                                        .bind("{}")
+                                        .bind(serde_json::to_string(&pipeline.metadata).map_err(|e| DomainError::DatabaseError(e.to_string()))?)
                                         .bind(&pipeline.provider_type)
                                         .bind(&pipeline.id)
                                         .execute(&mut *tx)
@@ -1357,7 +1323,7 @@ impl Repository {
                                     .bind(&pipeline.workflow_file)
                                     .bind(pipeline.last_run.as_ref().map(|dt| dt.to_rfc3339()))
                                     .bind(Utc::now().to_rfc3339())
-                                    .bind("{}")
+                                    .bind(serde_json::to_string(&pipeline.metadata).map_err(|e| DomainError::DatabaseError(e.to_string()))?)
                                     .bind(&pipeline.provider_type)
                                     .execute(&mut *tx)
                                     .await
@@ -1386,50 +1352,33 @@ impl Repository {
                             .await
                             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
 
-                        let mut existing: HashMap<String, Pipeline> = HashMap::new();
-                        for row in existing_rows.iter() {
-                            let id: String = row.try_get(0).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                            let provider_id_val: i64 = row.try_get(1).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                            let name: String = row.try_get(2).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                            let status_str: String = row.try_get(3).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                            let repository: String = row.try_get(4).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                            let branch: Option<String> = row.try_get(5).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                            let workflow_file: Option<String> = row.try_get(6).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                            let last_run: Option<DateTime<Utc>> = row.try_get(7).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                            let last_updated: DateTime<Utc> = row.try_get(8).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                            let provider_type: String = row.try_get(9).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-
-                            let status: PipelineStatus = if status_str.trim().is_empty() {
-                                PipelineStatus::Pending
-                            } else if status_str.starts_with('"') {
-                                serde_json::from_str(&status_str).map_err(|e| DomainError::DatabaseError(format!("Failed to parse status '{}': {}", status_str, e)))?
-                            } else {
-                                let quoted = format!("\"{}\"", status_str);
-                                serde_json::from_str(&quoted).map_err(|e| DomainError::DatabaseError(format!("Failed to parse status '{}': {}", status_str, e)))?
-                            };
-
-                            existing.insert(id.clone(), Pipeline {
-                                id, provider_id: provider_id_val, provider_type, name, status,
-                                last_run, last_updated, repository, branch, workflow_file,
-                                metadata: std::collections::HashMap::new(),
-                            });
-                        }
+                        let existing: HashMap<String, Pipeline> = existing_rows.iter()
+                            .map(|row| {
+                                let pipeline = self.pipeline_from_row(row)?;
+                                Ok((pipeline.id.clone(), pipeline))
+                            })
+                            .collect::<DomainResult<_>>()?;
 
                         let new_ids: HashMap<String, &Pipeline> = new_pipelines_clone.iter().map(|p| (p.id.clone(), p)).collect();
 
                         for pipeline in &new_pipelines_clone {
                             let now = Utc::now();
                             if let Some(old) = existing.get(&pipeline.id) {
-                                if old.status != pipeline.status || old.last_run != pipeline.last_run || old.name != pipeline.name || old.provider_id != provider_id || old.provider_type != pipeline.provider_type {
+                                if old.status != pipeline.status || old.last_run != pipeline.last_run || old.name != pipeline.name || old.provider_id != provider_id || old.provider_type != pipeline.provider_type
+                                    || old.repository != pipeline.repository || old.branch != pipeline.branch || old.workflow_file != pipeline.workflow_file || old.metadata != pipeline.metadata {
                                     sqlx::query(update_sql)
                                         .bind(provider_id).bind(&pipeline.name).bind(pipeline.status.as_str()).bind(&pipeline.repository).bind(&pipeline.branch)
-                                        .bind(&pipeline.workflow_file).bind(pipeline.last_run).bind(now).bind("{}").bind(&pipeline.provider_type).bind(&pipeline.id)
+                                        .bind(&pipeline.workflow_file).bind(pipeline.last_run).bind(now)
+                                        .bind(serde_json::to_string(&pipeline.metadata).map_err(|e| DomainError::DatabaseError(e.to_string()))?)
+                                        .bind(&pipeline.provider_type).bind(&pipeline.id)
                                         .execute(&mut *tx).await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                                 }
                             } else {
                                 sqlx::query(insert_sql)
                                     .bind(&pipeline.id).bind(provider_id).bind(&pipeline.name).bind(pipeline.status.as_str()).bind(&pipeline.repository).bind(&pipeline.branch)
-                                    .bind(&pipeline.workflow_file).bind(pipeline.last_run).bind(now).bind("{}").bind(&pipeline.provider_type)
+                                    .bind(&pipeline.workflow_file).bind(pipeline.last_run).bind(now)
+                                    .bind(serde_json::to_string(&pipeline.metadata).map_err(|e| DomainError::DatabaseError(e.to_string()))?)
+                                    .bind(&pipeline.provider_type)
                                     .execute(&mut *tx).await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                             }
                         }
@@ -1795,6 +1744,12 @@ impl Repository {
         let provider_type: String = row
             .try_get(9)
             .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        let metadata_json: String = row
+            .try_get(10)
+            .map_err(|error| DomainError::DatabaseError(error.to_string()))?;
+        let metadata = serde_json::from_str(&metadata_json).map_err(|error| {
+            DomainError::DatabaseError(format!("Invalid pipeline metadata: {error}"))
+        })?;
 
         Ok(Pipeline {
             id,
@@ -1807,7 +1762,75 @@ impl Repository {
             repository,
             branch,
             workflow_file,
-            metadata: std::collections::HashMap::new(),
+            metadata,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::infrastructure::{
+        MemoryTokenStore,
+        PipedashConfig,
+        StorageManager,
+    };
+
+    #[tokio::test]
+    async fn pipeline_cache_preserves_metadata_and_metadata_only_updates() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = PipedashConfig::default();
+        config.storage.data_dir = dir.path().display().to_string();
+        let manager =
+            StorageManager::with_token_store(config, Arc::new(MemoryTokenStore::new()), true)
+                .await
+                .unwrap();
+        let backend = manager.config_backend();
+        let provider_id = backend
+            .create_provider(&ProviderConfig {
+                id: None,
+                name: "Flux".to_string(),
+                provider_type: "fluxcd".to_string(),
+                token: String::new(),
+                config: HashMap::new(),
+                refresh_interval: 30,
+                version: None,
+            })
+            .await
+            .unwrap();
+        let repository = Repository::new(
+            backend,
+            manager.database_pool(),
+            manager.token_store().await,
+        );
+        let mut pipeline: Pipeline = serde_json::from_value(json!({
+            "id": "fluxcd__1__Kustomization__apps__web", "provider_id": provider_id,
+            "provider_type": "fluxcd", "name": "Kustomization/web", "status": "success",
+            "repository": "apps/source", "last_updated": "2026-10-21T00:00:00Z",
+            "metadata": { "uid": "resource-1", "status_label": "Ready", "message": "Applied revision a" }
+        })).unwrap();
+
+        repository
+            .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+            .await
+            .unwrap();
+        let first = repository
+            .get_cached_pipelines(Some(provider_id))
+            .await
+            .unwrap();
+        assert_eq!(first[0].metadata, pipeline.metadata);
+
+        pipeline
+            .metadata
+            .insert("message".to_string(), json!("Applied revision b"));
+        repository
+            .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+            .await
+            .unwrap();
+        let changed = repository.get_cached_pipelines(None).await.unwrap();
+        assert_eq!(changed[0].metadata, pipeline.metadata);
+        assert_eq!(changed[0].status, pipeline.status);
     }
 }

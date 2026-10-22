@@ -47,6 +47,7 @@ export const StandardModal = ({
     closeOnClickOutside: closable && !loading,
     closeOnEscape: closable && !loading,
     withCloseButton: closable && !loading,
+    closeButtonProps: { 'aria-label': 'Close dialog' },
     zIndex: 300,
   }
 
