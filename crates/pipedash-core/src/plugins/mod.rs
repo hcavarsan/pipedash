@@ -8,6 +8,7 @@ pub fn create_plugin_registry() -> PluginRegistry {
     let mut registry = PluginRegistry::new();
 
     registry.register(Box::new(pipedash_plugin_github::GitHubPlugin::new()));
+    registry.register(Box::new(pipedash_plugin_gitea::GiteaPlugin::new()));
     registry.register(Box::new(pipedash_plugin_gitlab::GitLabPlugin::new()));
     registry.register(Box::new(pipedash_plugin_bitbucket::BitbucketPlugin::new()));
     registry.register(Box::new(pipedash_plugin_buildkite::BuildkitePlugin::new()));
@@ -31,6 +32,7 @@ pub fn get_all_plugin_metadata() -> Vec<PluginMetadata> {
 pub fn create_plugin(provider_type: &str) -> Option<Box<dyn PluginTrait>> {
     match provider_type {
         "github" => Some(Box::new(pipedash_plugin_github::GitHubPlugin::new())),
+        "gitea" => Some(Box::new(pipedash_plugin_gitea::GiteaPlugin::new())),
         "gitlab" => Some(Box::new(pipedash_plugin_gitlab::GitLabPlugin::new())),
         "bitbucket" => Some(Box::new(pipedash_plugin_bitbucket::BitbucketPlugin::new())),
         "buildkite" => Some(Box::new(pipedash_plugin_buildkite::BuildkitePlugin::new())),

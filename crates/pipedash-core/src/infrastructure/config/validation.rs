@@ -170,6 +170,7 @@ impl ConfigValidator {
             } else {
                 let valid_types = [
                     "github",
+                    "gitea",
                     "gitlab",
                     "bitbucket",
                     "buildkite",

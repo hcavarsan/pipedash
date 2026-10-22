@@ -32,6 +32,7 @@ Pipedash pulls your pipeline data from all these providers and shows it together
 ## Supported providers
 
 - GitHub Actions
+- Gitea Actions
 - GitLab CI
 - Bitbucket Pipelines
 - Buildkite
@@ -116,6 +117,8 @@ Launch the app and add a provider via the sidebar. Each provider needs an API to
 
 **GitHub Actions**: Personal Access Token with `repo` and `workflow` scopes. You can set a custom base URL for GitHub Enterprise.
 
+**Gitea Actions**: Access token with `read:user`, `read:organization`, and `read/write:repository` scopes, plus your Gitea base URL. Requires Gitea 1.24 or newer; cancelling runs needs the newer `/cancel` API.
+
 **GitLab CI**: Personal Access Token with `api` scope. Works with GitLab.com and self-hosted.
 
 On desktop and web, selecting a GitLab group also lists projects from all its subgroups. The organization and repository columns show each project's full path, which stays the same in saved providers and TOML config.
@@ -175,7 +178,7 @@ Each provider has its own refresh interval (default: 30 seconds). Adjust based o
 
 **Plugin system**
 
-Each CI/CD provider is a plugin with a common interface. The core app doesn't know the specifics of GitHub Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton, or ArgoCD—it just calls methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
+Each CI/CD provider is a plugin with a common interface. The core app doesn't know the specifics of GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton, or ArgoCD—it just calls methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
 
 We compile plugins into the app at build time (not loaded dynamically at runtime). This keeps things simpler and avoids security concerns with runtime plugin loading.
 
@@ -196,7 +199,7 @@ Each plugin follows this structure:
 
 After you implement the plugin, register it in the main app's plugin registry and add any provider-specific UI in the frontend.
 
-Check out the existing plugins (GitHub Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton CD, ArgoCD) as reference implementations.
+Check out the existing plugins (GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton CD, ArgoCD) as reference implementations.
 
 
 
@@ -389,6 +392,7 @@ The `[server]` values are read when the API server starts. Until a config file e
 
 **CI/CD providers**
 - [x] GitHub Actions
+- [x] Gitea Actions
 - [x] GitLab CI
 - [x] Bitbucket Pipelines
 - [x] Buildkite

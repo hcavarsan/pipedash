@@ -109,14 +109,14 @@ function AppContent() {
 
   const handleViewHistory = useCallback(
     (pipeline: { id: string }) => {
-      navigate(`/pipelines/${pipeline.id}`, { state: { from: listLocation } })
+      navigate(`/pipelines/${encodeURIComponent(pipeline.id)}`, { state: { from: listLocation } })
     },
     [navigate, listLocation]
   )
 
   const handleViewMetrics = useCallback(
     (pipeline: { id: string }) => {
-      navigate(`/pipelines/${pipeline.id}?tab=metrics`, { state: { from: listLocation } })
+      navigate(`/pipelines/${encodeURIComponent(pipeline.id)}?tab=metrics`, { state: { from: listLocation } })
     },
     [navigate, listLocation]
   )
