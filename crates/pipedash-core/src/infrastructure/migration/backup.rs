@@ -74,7 +74,7 @@ impl BackupManager {
             ))
         })?;
         let restore_error = |e: sqlx::Error| {
-            DomainError::DatabaseError(format!("Failed to restore source database: {}", e))
+            DomainError::DatabaseError(format!("Failed to restore SQLite database: {}", e))
         };
         let mut connection = SqliteConnection::connect_with(
             &SqliteConnectOptions::new()
@@ -262,17 +262,23 @@ impl BackupManager {
 
         if let Some(source_db) = &backups.source_db {
             if source_db.exists() {
-                let original_path = if source_db.extension().is_some_and(|ext| ext == "json") {
+                if source_db.extension().is_some_and(|ext| ext == "json") {
                     tracing::warn!(
                         "PostgreSQL source backup exists but cannot be automatically restored"
                     );
-                    return Ok(());
                 } else {
-                    source_db.parent().unwrap().join("pipedash.db")
-                };
+                    let original_path = source_db.parent().unwrap().join("pipedash.db");
+                    Self::restore_sqlite_database(source_db, &original_path).await?;
+                    tracing::info!("Source database restored from: {:?}", source_db);
+                }
+            }
+        }
 
-                Self::restore_sqlite_database(source_db, &original_path).await?;
-                tracing::info!("Source database restored from: {:?}", source_db);
+        if let Some(target_db) = &backups.target_db {
+            if target_db.exists() {
+                let original_path = target_db.parent().unwrap().join("pipedash.db");
+                Self::restore_sqlite_database(target_db, &original_path).await?;
+                tracing::info!("Target database restored from: {:?}", target_db);
             }
         }
 
@@ -489,6 +495,46 @@ mod tests {
                 .unwrap();
         assert_eq!(providers, vec![(42, "kept".to_owned())]);
         drop(writer);
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn restore_drops_committed_target_writes() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let target_dir = tempfile::tempdir().unwrap();
+        let mut target_config = PipedashConfig::default();
+        target_config.storage.data_dir = target_dir.path().to_str().unwrap().to_owned();
+        let pool = crate::infrastructure::database::init_database(target_config.db_path())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO providers (id, name, provider_type, token_encrypted) VALUES (7, 'original', 'jenkins', '')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let manager = BackupManager::new(source_dir.path().to_path_buf());
+        let target_db = manager
+            .backup_target_database(&target_config, "target")
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO providers (name, provider_type, token_encrypted) VALUES ('first', 'jenkins', '')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let backups = BackupPaths {
+            source_db: None,
+            source_config: source_dir.path().join("missing-config.toml.backup"),
+            target_db,
+            timestamp: "target".into(),
+        };
+        manager.restore_backups(&backups).await.unwrap();
+
+        let providers: Vec<(i64, String)> =
+            sqlx::query_as("SELECT id, name FROM providers ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(providers, vec![(7, "original".to_owned())]);
         pool.close().await;
     }
 
