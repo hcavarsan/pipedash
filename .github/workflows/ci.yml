@@ -218,3 +218,8 @@ jobs:
 
       - name: Run PostgreSQL tests
         run: mise run test:postgres
+
+      - name: Verify FluxCD package
+        env:
+          K8S_OPENAPI_ENABLED_VERSION: "1.32"
+        run: cargo package -p pipedash-plugin-api -p pipedash-plugin-fluxcd

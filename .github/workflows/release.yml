@@ -506,6 +506,7 @@ jobs:
       - name: Publish pipedash-plugin-fluxcd
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-fluxcd.outputs.token }}
+          K8S_OPENAPI_ENABLED_VERSION: "1.32"
         run: |
           "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-fluxcd wait
 

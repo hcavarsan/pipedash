@@ -64,3 +64,14 @@ kubectl -n pipedash-examples get kustomizations,helmreleases
 kubectl -n pipedash-examples annotate kustomization/podinfo-healthy --overwrite \
   reconcile.fluxcd.io/requestedAt="$(date +%s)"
 ```
+
+## Standalone library checks
+
+The consuming application chooses the Kubernetes API model. For standalone verification, use the workspace model:
+
+```sh
+K8S_OPENAPI_ENABLED_VERSION=1.32 cargo check -p pipedash-plugin-fluxcd --lib
+K8S_OPENAPI_ENABLED_VERSION=1.32 cargo package -p pipedash-plugin-api -p pipedash-plugin-fluxcd
+```
+
+Package both crates together so verification uses the API from this checkout rather than its previously published version.
