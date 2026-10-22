@@ -25,6 +25,7 @@ import { mostSevereStatus } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { getDateRangeStart } from '../../utils/dateRange'
+import { getPipelineLabels, getStatusLabel, getStatusOptions } from '../../utils/pipelinePresentation'
 import { TableCells } from '../../utils/tableCells'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
@@ -165,7 +166,13 @@ export const UnifiedPipelinesView = ({
   } = filters
   const [searchParams] = useSearchParams()
   const pinnedView = searchParams.get('view') === 'pinned'
-  const title = pinnedView ? 'Pinned' : 'Pipelines'
+  const activeProviders = providerFilter
+    ? providers.filter((provider) => String(provider.id) === providerFilter)
+    : providers
+  const isFluxView =
+    activeProviders.length > 0 && activeProviders.every((provider) => provider.provider_type === 'fluxcd')
+  const labels = getPipelineLabels(isFluxView ? 'fluxcd' : undefined)
+  const title = pinnedView ? 'Pinned' : isFluxView ? 'FluxCD resources' : 'Pipelines'
 
   const pinnedKeys = usePinnedStore((s) => s.pinnedKeys)
   const togglePin = usePinnedStore((s) => s.togglePin)
@@ -395,6 +402,8 @@ export const UnifiedPipelinesView = ({
         (latest, p) => (p.last_run && (!latest || p.last_run > latest) ? p.last_run : latest),
         null
       )
+      const status = mostSevereStatus(workflows.map((pipeline) => pipeline.status))
+      const statusPipeline = workflows.find((pipeline) => pipeline.status === status)
 
       return [
         {
@@ -408,7 +417,8 @@ export const UnifiedPipelinesView = ({
             providerLabel: providerNames.sort(collator.compare).join(', '),
             providerErrors,
             hasPendingFetch,
-            status: mostSevereStatus(workflows.map((p) => p.status)),
+            status,
+            statusLabel: statusPipeline ? getStatusLabel(statusPipeline) : undefined,
             lastRun,
           },
           workflows: workflows.map(buildWorkflowRow).sort((a, b) => compareRows(a, b, sortStatus)),
@@ -521,11 +531,13 @@ export const UnifiedPipelinesView = ({
   const noMatches = (
     <EmptyState
       icon={<IconFilterOff size={24} />}
-      title="No matching workflows"
+      title={isFluxView ? 'No matching resources' : 'No matching workflows'}
       description={
-        pinnedView
-          ? 'No pinned workflows match the current filters.'
-          : 'No repositories or workflows match the current filters.'
+        isFluxView
+          ? 'No resources match the current filters.'
+          : pinnedView
+            ? 'No pinned workflows match the current filters.'
+            : 'No repositories or workflows match the current filters.'
       }
       action={
         <Button variant="default" size="sm" onClick={clearFilters}>
@@ -544,11 +556,12 @@ export const UnifiedPipelinesView = ({
           search: {
             value: search,
             onChange: (value) => setFilter('search', value),
-            placeholder: 'Search repositories, workflows...',
+            placeholder: isFluxView ? 'Search resources, namespaces, sources...' : 'Search repositories, workflows...',
           },
           status: {
             value: statusFilter,
             onChange: (value) => setFilter('status', value),
+            options: getStatusOptions(isFluxView ? 'fluxcd' : undefined),
           },
           provider: {
             value: providerFilter,
@@ -559,6 +572,8 @@ export const UnifiedPipelinesView = ({
             value: organizationFilter,
             onChange: (value) => setFilter('organization', value),
             options: uniqueOrganizations,
+            label: labels.groupTitle,
+            allLabel: `All ${labels.groups}`,
           },
           dateRange: {
             value: dateRange,
@@ -576,11 +591,11 @@ export const UnifiedPipelinesView = ({
         ) : (
           <EmptyState
             icon={<IconPin size={24} />}
-            title="No pinned workflows"
-            description="Pin a workflow with the pin icon in its row to keep it here."
+            title={isFluxView ? 'No pinned resources' : 'No pinned workflows'}
+            description={`Use the pin icon on a ${labels.item} to keep it here.`}
             action={
               <Button component={Link} to="/pipelines" variant="default" size="sm">
-                Browse pipelines
+                Browse {labels.items}
               </Button>
             }
           />
@@ -603,7 +618,7 @@ export const UnifiedPipelinesView = ({
             {showPinnedSection && rows.length > 0 && (
               <SectionHeading
                 icon={<IconFolder size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
-                label="Repositories"
+                label={isFluxView ? 'Sources' : 'Repositories'}
                 count={sections.length}
               />
             )}
@@ -613,15 +628,19 @@ export const UnifiedPipelinesView = ({
                 noMatches
               ) : fetchErrors.length > 0 ? (
                 <ErrorState
-                  title={`Couldn't fetch workflows from ${fetchErrors.map((p) => p.name).join(', ')}`}
+                  title={`Couldn't fetch ${labels.items} from ${fetchErrors.map((p) => p.name).join(', ')}`}
                   error={fetchErrors[0].last_fetch_error}
                   hint="Check the provider credentials in Settings → Providers. Pipedash retries on the next refresh."
                 />
               ) : (
                 <EmptyState
                   icon={<IconFolder size={24} />}
-                  title="No workflows yet"
-                  description="Workflows appear here after they run on your configured providers."
+                  title={isFluxView ? 'No FluxCD resources found' : 'No workflows yet'}
+                  description={
+                    isFluxView
+                      ? 'Check the configured namespaces and resource selection in Settings → Providers.'
+                      : 'Workflows appear here after they run on your configured providers.'
+                  }
                 />
               )
             ) : isMobile ? (
@@ -675,7 +694,7 @@ export const UnifiedPipelinesView = ({
                             w="100%"
                             pl="xl"
                             onClick={() => onViewHistory(pipeline)}
-                            aria-label={`View run history for ${row.name}`}
+                            aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
                           >
                             <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
                               <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
@@ -687,7 +706,7 @@ export const UnifiedPipelinesView = ({
                     },
                     {
                       accessor: 'organization',
-                      title: 'Organization',
+                      title: labels.groupTitle,
                       sortable: true,
                       width: 160,
                       textAlign: 'left' as const,

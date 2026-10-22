@@ -35,6 +35,7 @@ pub struct PluginCapabilities {
     pub pipelines: bool,
     pub pipeline_runs: bool,
     pub trigger: bool,
+    pub cancel: bool,
     pub agents: bool,
     pub artifacts: bool,
     pub queues: bool,
@@ -134,6 +135,14 @@ pub trait Plugin: Send + Sync {
     async fn cancel_run(&self, _pipeline_id: &str, _run_number: i64) -> PluginResult<()> {
         Err(crate::error::PluginError::NotSupported(
             "Run cancellation not supported by this provider".to_string(),
+        ))
+    }
+
+    async fn review_run(
+        &self, _pipeline_id: &str, _run_number: i64, _decision: ReviewDecision,
+    ) -> PluginResult<()> {
+        Err(crate::error::PluginError::NotSupported(
+            "Run review not supported by this provider".to_string(),
         ))
     }
 

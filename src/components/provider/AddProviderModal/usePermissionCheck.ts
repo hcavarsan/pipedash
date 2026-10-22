@@ -69,7 +69,7 @@ export function usePermissionCheck({
         }))
 
         if (data.permission_status?.all_granted) {
-          displaySuccessNotification('All permissions granted')
+          displaySuccessNotification('Required permissions granted')
         }
       }
     } catch (err: unknown) {

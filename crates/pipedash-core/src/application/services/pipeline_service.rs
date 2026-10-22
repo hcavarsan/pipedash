@@ -71,9 +71,9 @@ impl PipelineService {
     }
 
     pub async fn fetch_pipelines(&self, provider_id: Option<i64>) -> DomainResult<Vec<Pipeline>> {
-        if let Err(_e) = self.repository.clear_workflow_parameters_cache().await {}
-
         if let Some(pid) = provider_id {
+            if let Err(_e) = self.repository.clear_workflow_parameters_cache().await {}
+
             let provider = self.provider_service.get_provider(pid).await?;
 
             let result = timeout(Duration::from_secs(30), provider.fetch_pipelines()).await;
@@ -124,118 +124,14 @@ impl PipelineService {
                 }
             }
         } else {
-            let provider_summaries = self.provider_service.list_providers().await?;
-
-            let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_PROVIDER_FETCHES));
-
-            let futures: Vec<_> = provider_summaries
+            let provider_ids = self
+                .provider_service
+                .list_providers()
+                .await?
                 .into_iter()
-                .map(|summary| {
-                    let semaphore = semaphore.clone();
-                    let provider_service = self.provider_service.clone();
-                    let deduplicator = self.deduplicator.clone();
-                    let repository = self.repository.clone();
-                    let event_bus = self.event_bus.clone();
-                    let provider_id = summary.id;
-                    async move {
-                        let _permit = semaphore.acquire().await.expect("semaphore closed");
-                        let request_id = hash_request(provider_id, "fetch_pipelines");
-
-                        let result = timeout(
-                            Duration::from_secs(30),
-                            deduplicator.deduplicate(request_id, || async {
-                                let provider = provider_service.get_provider(provider_id).await?;
-                                provider.fetch_pipelines().await
-                            }),
-                        )
-                        .await;
-
-                        match result {
-                            Ok(Ok(pipelines)) => {
-                                if let Ok(changed) = repository
-                                    .update_provider_fetch_status(provider_id, true, None)
-                                    .await
-                                {
-                                    if changed {
-                                        event_bus.emit(CoreEvent::ProvidersChanged).await;
-                                    }
-                                }
-
-                                Ok((provider_id, pipelines))
-                            }
-                            Ok(Err(e)) => {
-                                let error_msg = format!("{e}");
-                                if let Ok(changed) = repository
-                                    .update_provider_fetch_status(
-                                        provider_id,
-                                        false,
-                                        Some(error_msg),
-                                    )
-                                    .await
-                                {
-                                    if changed {
-                                        event_bus.emit(CoreEvent::ProvidersChanged).await;
-                                    }
-                                }
-
-                                Err(e)
-                            }
-                            Err(_elapsed) => {
-                                let error_msg =
-                                    "Connection timeout - provider did not respond".to_string();
-                                if let Ok(changed) = repository
-                                    .update_provider_fetch_status(
-                                        provider_id,
-                                        false,
-                                        Some(error_msg.clone()),
-                                    )
-                                    .await
-                                {
-                                    if changed {
-                                        event_bus.emit(CoreEvent::ProvidersChanged).await;
-                                    }
-                                }
-
-                                Err(DomainError::ProviderError(error_msg))
-                            }
-                        }
-                    }
-                })
+                .map(|summary| summary.id)
                 .collect();
-
-            let results =
-                timeout(Duration::from_secs(60), futures::future::join_all(futures)).await;
-
-            let results = match results {
-                Ok(results) => results,
-                Err(_) => {
-                    tracing::warn!("Overall provider fetch timeout (60s exceeded)");
-                    return Err(DomainError::ProviderError(
-                        "Overall provider fetch timeout (60s exceeded)".into(),
-                    ));
-                }
-            };
-
-            let mut all_pipelines = Vec::new();
-            for result in results {
-                match result {
-                    Ok((provider_id, pipelines)) => {
-                        self.repository
-                            .update_pipelines_cache(provider_id, &pipelines)
-                            .await?;
-
-                        self.event_bus
-                            .emit(CoreEvent::PipelineCacheInvalidated {
-                                provider_id: Some(provider_id),
-                                reason: CacheInvalidationReason::Fetch,
-                            })
-                            .await;
-
-                        all_pipelines.extend(pipelines);
-                    }
-                    Err(_e) => {}
-                }
-            }
+            let all_pipelines = self.fetch_providers(provider_ids).await?;
 
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -252,6 +148,127 @@ impl PipelineService {
 
             Ok(all_pipelines)
         }
+    }
+
+    pub async fn provider_refresh_intervals(&self) -> DomainResult<Vec<(i64, i64)>> {
+        Ok(self
+            .provider_service
+            .list_providers()
+            .await?
+            .into_iter()
+            .map(|summary| (summary.id, summary.refresh_interval))
+            .collect())
+    }
+
+    pub async fn fetch_providers(&self, provider_ids: Vec<i64>) -> DomainResult<Vec<Pipeline>> {
+        if let Err(_e) = self.repository.clear_workflow_parameters_cache().await {}
+
+        let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_PROVIDER_FETCHES));
+
+        let futures: Vec<_> = provider_ids
+            .into_iter()
+            .map(|provider_id| {
+                let semaphore = semaphore.clone();
+                let provider_service = self.provider_service.clone();
+                let deduplicator = self.deduplicator.clone();
+                let repository = self.repository.clone();
+                let event_bus = self.event_bus.clone();
+                async move {
+                    let _permit = semaphore.acquire().await.expect("semaphore closed");
+                    let request_id = hash_request(provider_id, "fetch_pipelines");
+
+                    let result = timeout(
+                        Duration::from_secs(30),
+                        deduplicator.deduplicate(request_id, || async {
+                            let provider = provider_service.get_provider(provider_id).await?;
+                            provider.fetch_pipelines().await
+                        }),
+                    )
+                    .await;
+
+                    match result {
+                        Ok(Ok(pipelines)) => {
+                            if let Ok(changed) = repository
+                                .update_provider_fetch_status(provider_id, true, None)
+                                .await
+                            {
+                                if changed {
+                                    event_bus.emit(CoreEvent::ProvidersChanged).await;
+                                }
+                            }
+
+                            Ok((provider_id, pipelines))
+                        }
+                        Ok(Err(e)) => {
+                            let error_msg = format!("{e}");
+                            if let Ok(changed) = repository
+                                .update_provider_fetch_status(provider_id, false, Some(error_msg))
+                                .await
+                            {
+                                if changed {
+                                    event_bus.emit(CoreEvent::ProvidersChanged).await;
+                                }
+                            }
+
+                            Err(e)
+                        }
+                        Err(_elapsed) => {
+                            let error_msg =
+                                "Connection timeout - provider did not respond".to_string();
+                            if let Ok(changed) = repository
+                                .update_provider_fetch_status(
+                                    provider_id,
+                                    false,
+                                    Some(error_msg.clone()),
+                                )
+                                .await
+                            {
+                                if changed {
+                                    event_bus.emit(CoreEvent::ProvidersChanged).await;
+                                }
+                            }
+
+                            Err(DomainError::ProviderError(error_msg))
+                        }
+                    }
+                }
+            })
+            .collect();
+
+        let results = timeout(Duration::from_secs(60), futures::future::join_all(futures)).await;
+
+        let results = match results {
+            Ok(results) => results,
+            Err(_) => {
+                tracing::warn!("Overall provider fetch timeout (60s exceeded)");
+                return Err(DomainError::ProviderError(
+                    "Overall provider fetch timeout (60s exceeded)".into(),
+                ));
+            }
+        };
+
+        let mut all_pipelines = Vec::new();
+        for result in results {
+            match result {
+                Ok((provider_id, pipelines)) => {
+                    self.repository
+                        .update_pipelines_cache(provider_id, &pipelines)
+                        .await?;
+
+                    self.event_bus
+                        .emit(CoreEvent::PipelineCacheInvalidated {
+                            provider_id: Some(provider_id),
+                            reason: CacheInvalidationReason::Fetch,
+                        })
+                        .await;
+
+                    all_pipelines.extend(pipelines);
+                }
+                Err(_e) => {}
+            }
+        }
+
+        Ok(all_pipelines)
     }
 
     pub async fn get_cached_pipelines(
@@ -348,8 +365,8 @@ impl PipelineService {
         let mut deleted_run_numbers = Vec::new();
 
         for (run_number, (run, api_hash)) in &api_map {
-            if let Some((_, cached_hash)) = cached_with_hashes.get(run_number) {
-                if api_hash != cached_hash {
+            if let Some((cached_run, cached_hash)) = cached_with_hashes.get(run_number) {
+                if api_hash != cached_hash || cached_run.metadata != run.metadata {
                     changed_runs.push(run.clone());
                 }
             } else {
@@ -362,8 +379,25 @@ impl PipelineService {
             .map(|r| r.run_number)
             .min()
             .unwrap_or(i64::MAX);
-        for run_number in cached_with_hashes.keys() {
-            if *run_number >= min_api_run_number && !api_map.contains_key(run_number) {
+        let bounded_history = pipeline.provider_type == "fluxcd";
+        for (run_number, (cached_run, _)) in &cached_with_hashes {
+            let snapshot = cached_run
+                .metadata
+                .get("snapshot")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true);
+            if api_map.contains_key(run_number) {
+                continue;
+            }
+            if bounded_history && is_archivable_flux_run(pipeline, cached_run) {
+                if cached_run.metadata.get("archived") != Some(&serde_json::Value::Bool(true)) {
+                    let mut archived = cached_run.clone();
+                    archived
+                        .metadata
+                        .insert("archived".to_string(), serde_json::Value::Bool(true));
+                    changed_runs.push(archived);
+                }
+            } else if *run_number >= min_api_run_number || snapshot || bounded_history {
                 deleted_run_numbers.push(*run_number);
             }
         }
@@ -386,12 +420,19 @@ impl PipelineService {
     pub async fn fetch_run_history_paginated(
         &self, pipeline_id: &str, page: usize, page_size: usize,
     ) -> DomainResult<PaginatedRunHistory> {
-        let start_idx = (page - 1) * page_size;
-        let end_idx = start_idx + page_size;
+        let params = pipedash_plugin_api::PaginationParams { page, page_size };
+        params.validate().map_err(DomainError::InvalidConfig)?;
+        let start_idx = params
+            .calculate_offset()
+            .map_err(DomainError::InvalidConfig)?;
+        let end_idx = start_idx
+            .checked_add(page_size)
+            .ok_or_else(|| DomainError::InvalidConfig("Pagination offset overflow".to_string()))?;
+        let bounded_history = pipeline_id.starts_with("fluxcd__");
 
         let cached_count = self.repository.get_cached_run_count(pipeline_id).await?;
 
-        if cached_count >= end_idx {
+        if !bounded_history && cached_count >= end_idx {
             let runs = self
                 .repository
                 .get_paginated_runs(pipeline_id, page, page_size)
@@ -458,10 +499,14 @@ impl PipelineService {
             });
         }
 
-        let needed_runs = page * page_size;
+        let needed_runs = end_idx;
 
         let github_pages_needed = (needed_runs / 100) + 1;
-        let fetch_limit = (github_pages_needed * 100).min(1000);
+        let fetch_limit = if bounded_history {
+            usize::MAX
+        } else {
+            github_pages_needed.min(10) * 100
+        };
 
         tracing::debug!(
             page = page,
@@ -476,22 +521,24 @@ impl PipelineService {
 
         let is_complete = total_count < fetch_limit;
 
-        let repository = self.repository.clone();
-        let pipeline_id_for_cache = pipeline_id.to_string();
-        let runs_to_cache = all_runs.clone();
-        let cache_tracker = self.cache_write_tracker.clone();
-        tokio::spawn(async move {
-            if !cache_tracker.insert(pipeline_id_for_cache.clone()) {
-                return;
-            }
-            if let Err(e) = repository
-                .cache_run_history(&pipeline_id_for_cache, &runs_to_cache)
-                .await
-            {
-                tracing::warn!(error = %e, pipeline_id = %pipeline_id_for_cache, "Failed to cache run history");
-            }
-            cache_tracker.remove(&pipeline_id_for_cache);
-        });
+        if !bounded_history {
+            let repository = self.repository.clone();
+            let pipeline_id_for_cache = pipeline_id.to_string();
+            let runs_to_cache = all_runs.clone();
+            let cache_tracker = self.cache_write_tracker.clone();
+            tokio::spawn(async move {
+                if !cache_tracker.insert(pipeline_id_for_cache.clone()) {
+                    return;
+                }
+                if let Err(e) = repository
+                    .cache_run_history(&pipeline_id_for_cache, &runs_to_cache)
+                    .await
+                {
+                    tracing::warn!(error = %e, pipeline_id = %pipeline_id_for_cache, "Failed to cache run history");
+                }
+                cache_tracker.remove(&pipeline_id_for_cache);
+            });
+        }
 
         if let Some(metrics_service) = &self.metrics_service {
             let pipeline_id_clone = pipeline_id.to_string();
@@ -521,6 +568,23 @@ impl PipelineService {
                         );
                     }
                 }
+            });
+        }
+
+        if bounded_history {
+            let total_count = self.repository.get_cached_run_count(pipeline_id).await?;
+            let runs = self
+                .repository
+                .get_paginated_runs(pipeline_id, page, page_size)
+                .await?;
+            return Ok(PaginatedRunHistory {
+                runs,
+                total_count,
+                has_more: end_idx < total_count,
+                is_complete: true,
+                page,
+                page_size,
+                total_pages: total_count.div_ceil(page_size),
             });
         }
 
@@ -557,7 +621,18 @@ impl PipelineService {
             .provider_service
             .get_provider(pipeline.provider_id)
             .await?;
-        provider.fetch_run_details(pipeline_id, run_number).await
+        match provider.fetch_run_details(pipeline_id, run_number).await {
+            Err(error @ DomainError::PipelineNotFound(_)) if pipeline.provider_type == "fluxcd" => {
+                let cached = self
+                    .repository
+                    .get_cached_run(pipeline_id, run_number)
+                    .await?;
+                cached
+                    .and_then(|run| archived_flux_run(pipeline, run))
+                    .ok_or(error)
+            }
+            result => result,
+        }
     }
 
     pub async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<String> {
@@ -600,6 +675,28 @@ impl PipelineService {
                 pipeline_id: pipeline_id.to_string(),
             })
             .await;
+
+        Ok(())
+    }
+
+    pub async fn review_run(
+        &self, pipeline_id: &str, run_number: i64, decision: pipedash_plugin_api::ReviewDecision,
+    ) -> DomainResult<()> {
+        let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
+        let pipeline = cached_pipelines
+            .iter()
+            .find(|p| p.id == pipeline_id)
+            .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+
+        let provider = self
+            .provider_service
+            .get_provider(pipeline.provider_id)
+            .await?;
+        provider
+            .review_run(pipeline_id, run_number, decision)
+            .await?;
+
+        self.invalidate_run_cache(pipeline_id).await;
 
         Ok(())
     }
@@ -651,5 +748,91 @@ impl PipelineService {
         self.repository
             .get_cached_run_history(pipeline_id, limit)
             .await
+    }
+}
+
+fn is_archivable_flux_run(pipeline: &Pipeline, run: &PipelineRun) -> bool {
+    let Some(uid) = pipeline
+        .metadata
+        .get("uid")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+    run.metadata.get("uid").and_then(serde_json::Value::as_str) == Some(uid)
+        && run
+            .metadata
+            .get("record_source")
+            .and_then(serde_json::Value::as_str)
+            == Some("status.history")
+        && !matches!(
+            run.status,
+            crate::domain::PipelineStatus::Running | crate::domain::PipelineStatus::Pending
+        )
+}
+
+fn archived_flux_run(pipeline: &Pipeline, mut run: PipelineRun) -> Option<PipelineRun> {
+    if !is_archivable_flux_run(pipeline, &run) {
+        return None;
+    }
+    run.metadata
+        .insert("archived".to_string(), serde_json::Value::Bool(true));
+    Some(run)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::domain::PipelineStatus;
+
+    fn history_fixture() -> (Pipeline, PipelineRun) {
+        let pipeline = serde_json::from_value(json!({
+            "id": "fluxcd__1__HelmRelease__apps__web", "provider_id": 1,
+            "provider_type": "fluxcd", "name": "web", "status": "success",
+            "repository": "apps/charts", "last_updated": "2026-10-21T00:00:00Z",
+            "metadata": { "uid": "resource-1" }
+        }))
+        .unwrap();
+        let run = serde_json::from_value(json!({
+            "id": "release-1", "pipeline_id": "fluxcd__1__HelmRelease__apps__web",
+            "run_number": 1, "status": "success", "started_at": "2026-10-20T00:00:00Z",
+            "logs_url": "", "metadata": { "uid": "resource-1", "record_source": "status.history", "release_version": 1 }
+        })).unwrap();
+        (pipeline, run)
+    }
+
+    #[test]
+    fn retained_native_history_is_marked_as_archived() {
+        let (pipeline, run) = history_fixture();
+        let archived = archived_flux_run(&pipeline, run).unwrap();
+        assert_eq!(archived.id, "release-1");
+        assert_eq!(archived.metadata["archived"], json!(true));
+        assert_eq!(archived.metadata["release_version"], json!(1));
+    }
+
+    #[test]
+    fn recreated_resources_do_not_reuse_old_history() {
+        let (mut pipeline, run) = history_fixture();
+        pipeline
+            .metadata
+            .insert("uid".to_string(), json!("resource-2"));
+        assert!(archived_flux_run(&pipeline, run).is_none());
+    }
+
+    #[test]
+    fn current_state_snapshots_are_not_archived_as_executions() {
+        let (pipeline, mut run) = history_fixture();
+        run.metadata
+            .insert("record_source".to_string(), json!("current_snapshot"));
+        assert!(archived_flux_run(&pipeline, run).is_none());
+    }
+
+    #[test]
+    fn unfinished_history_is_not_presented_as_a_final_state() {
+        let (pipeline, mut run) = history_fixture();
+        run.status = PipelineStatus::Running;
+        assert!(archived_flux_run(&pipeline, run).is_none());
     }
 }

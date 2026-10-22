@@ -32,6 +32,9 @@ impl PluginAdapter {
             pipedash_plugin_api::PluginError::AuthenticationFailed(msg) => {
                 DomainError::ProviderAuthenticationFailed(msg)
             }
+            pipedash_plugin_api::PluginError::PermissionDenied(msg) => {
+                DomainError::PermissionDenied(msg)
+            }
             pipedash_plugin_api::PluginError::ApiError(msg) => DomainError::ApiError(msg),
             pipedash_plugin_api::PluginError::InvalidConfig(msg) => DomainError::InvalidConfig(msg),
             pipedash_plugin_api::PluginError::PipelineNotFound(msg) => {
@@ -157,6 +160,15 @@ impl Provider for PluginAdapter {
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
         self.plugin
             .cancel_run(pipeline_id, run_number)
+            .await
+            .map_err(Self::map_error)
+    }
+
+    async fn review_run(
+        &self, pipeline_id: &str, run_number: i64, decision: pipedash_plugin_api::ReviewDecision,
+    ) -> DomainResult<()> {
+        self.plugin
+            .review_run(pipeline_id, run_number, decision)
             .await
             .map_err(Self::map_error)
     }

@@ -333,7 +333,7 @@ impl ConfigState {
         Ok(())
     }
 
-    fn update_toml_preserving_comments(
+    pub(super) fn update_toml_preserving_comments(
         existing: &str, config: &PipedashConfig,
     ) -> DomainResult<String> {
         use toml_edit::{
@@ -379,7 +379,9 @@ impl ConfigState {
 
                 if !provider.config.is_empty() {
                     let mut config_table = toml_edit::Table::new();
-                    for (k, v) in &provider.config {
+                    let mut entries: Vec<_> = provider.config.iter().collect();
+                    entries.sort();
+                    for (k, v) in entries {
                         config_table[k] = value(v);
                     }
                     provider_table["config"] = Item::Table(config_table);

@@ -1,5 +1,6 @@
 import { Anchor, Badge, Code } from '@mantine/core'
 
+import { StatusBadge } from '../components/atoms/StatusBadge'
 import { STATUS_META } from '../theme/status'
 import type { CellRenderer, PipelineStatus } from '../types'
 
@@ -37,12 +38,6 @@ const renderDuration = (value: CellValue): React.ReactNode => {
   return Number.isNaN(duration) ? renderEmpty() : TableCells.text(formatDuration(duration))
 }
 
-const renderStatusBadge = (value: CellValue): React.ReactNode => {
-  const status = String(value).toLowerCase()
-
-  return status in STATUS_META ? TableCells.status(status as PipelineStatus) : renderText(value)
-}
-
 const renderLink = (value: CellValue): React.ReactNode => {
   const url = String(value)
 
@@ -75,7 +70,6 @@ const RENDERER_MAP: Partial<Record<CellRenderer & string, (value: CellValue) => 
   Badge: renderBadge,
   DateTime: renderDateTime,
   Duration: renderDuration,
-  StatusBadge: renderStatusBadge,
   Commit: (value) => TableCells.commit(String(value)),
   Avatar: renderText,
   TruncatedText: (value) => TableCells.truncated(String(value)),
@@ -83,9 +77,18 @@ const RENDERER_MAP: Partial<Record<CellRenderer & string, (value: CellValue) => 
   JsonViewer: renderJsonViewer,
 }
 
-export const renderCellValue = (renderer: CellRenderer, value: CellValue): React.ReactNode => {
+export const renderCellValue = (renderer: CellRenderer, value: CellValue, statusLabel?: string): React.ReactNode => {
   if (value === null || value === undefined) {
     return renderEmpty()
+  }
+  if (renderer === 'StatusBadge') {
+    const status = String(value).toLowerCase()
+
+    return status in STATUS_META ? (
+      <StatusBadge status={status as PipelineStatus} label={statusLabel} />
+    ) : (
+      renderText(value)
+    )
   }
 
   const render = typeof renderer === 'string' ? RENDERER_MAP[renderer] : undefined

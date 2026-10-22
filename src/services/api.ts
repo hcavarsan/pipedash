@@ -27,6 +27,7 @@ import type {
   PluginMetadata,
   ProviderConfig,
   ProviderSummary,
+  ReviewDecision,
   SetupStatus,
   StorageConfigResponse,
   StoragePathsResponse,
@@ -210,6 +211,10 @@ class ApiClient {
     await this.delete(`/providers/${id}`)
   }
 
+  async exportProviders(): Promise<string> {
+    return this.get<string>('/providers/export')
+  }
+
   async fetchProviderOrganizations(providerType: string, config: Record<string, string>): Promise<Organization[]> {
     return this.post<Organization[]>('/providers/organizations', {
       provider_type: providerType,
@@ -375,6 +380,10 @@ class ApiClient {
 
   async cancelPipelineRun(pipelineId: string, runNumber: number): Promise<void> {
     await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/cancel`)
+  }
+
+  async reviewPipelineRun(pipelineId: string, runNumber: number, decision: ReviewDecision): Promise<void> {
+    await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/review`, { decision })
   }
 
   async openUrl(url: string): Promise<void> {

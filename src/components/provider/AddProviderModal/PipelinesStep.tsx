@@ -21,6 +21,7 @@ import { useDebounce } from '../../../hooks/useDebounce'
 import { usePipelinePreview, useProviderOrganizations } from '../../../queries/useProviderFieldQueries'
 import { TYPOGRAPHY } from '../../../theme/typography'
 import type { AvailablePipeline, ProviderConfig } from '../../../types'
+import { getPipelineLabels, type PipelineLabels } from '../../../utils/pipelinePresentation'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
@@ -31,20 +32,12 @@ interface PipelinesStepProps {
   state: FormState
   dispatch: Dispatch<FormAction>
   providerConfig: ProviderConfig
-  editMode: boolean
-  existingProvider?: ProviderConfig & { id: number }
   isMobile: boolean
 }
 
-export function PipelinesStep({
-  state,
-  dispatch,
-  providerConfig,
-  editMode,
-  existingProvider,
-  isMobile,
-}: PipelinesStepProps) {
+export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: PipelinesStepProps) {
   const { selectedPlugin, selectedOrganization, selectedPipelines, repositorySearch } = state
+  const labels = getPipelineLabels(selectedPlugin?.provider_type)
 
   const debouncedSearch = useDebounce(repositorySearch, DEBOUNCE_DELAYS.FILTER)
 
@@ -79,38 +72,11 @@ export function PipelinesStep({
   const availablePipelines = useMemo(() => pipelinesData?.pages.flatMap((page) => page.items) || [], [pipelinesData])
   const allPipelines = useMemo(() => pipelinesData?.pages[pipelinesData.pages.length - 1] || null, [pipelinesData])
 
-  const filteredPipelines = useMemo(() => {
-    if (!repositorySearch.trim()) {
-      return availablePipelines
-    }
-    const searchLower = repositorySearch.toLowerCase()
-
-    return availablePipelines.filter((pipeline) => {
-      return pipeline.repository?.toLowerCase().includes(searchLower)
-    })
-  }, [availablePipelines, repositorySearch])
-
   useEffect(() => {
     if (availableOrganizations.length === 1 && !selectedOrganization) {
       dispatch({ type: 'SET_ORGANIZATION', organization: availableOrganizations[0].id })
     }
-
-    if (editMode && existingProvider && availablePipelines.length > 0) {
-      const existingPipelineIds = new Set<string>()
-      const selectedItems = existingProvider.config.selected_items || ''
-
-      if (selectedItems) {
-        selectedItems.split(',').forEach((id) => {
-          const trimmed = id.trim()
-
-          if (trimmed) {
-            existingPipelineIds.add(trimmed)
-          }
-        })
-      }
-      dispatch({ type: 'SET_SELECTED_PIPELINES', pipelineIds: existingPipelineIds })
-    }
-  }, [availableOrganizations, selectedOrganization, editMode, existingProvider, availablePipelines.length, dispatch])
+  }, [availableOrganizations, selectedOrganization, dispatch])
 
   const handleOrganizationSelect = (org: string | null) => {
     if (org) {
@@ -127,11 +93,12 @@ export function PipelinesStep({
   }
 
   const handleSelectAll = () => {
-    if (selectedPipelines.size === filteredPipelines.length) {
-      dispatch({ type: 'CLEAR_SELECTED_PIPELINES' })
-    } else {
-      dispatch({ type: 'SELECT_ALL_PIPELINES', pipelineIds: filteredPipelines.map((p) => p.id) })
-    }
+    dispatch({
+      type: availablePipelines.every((pipeline) => selectedPipelines.has(pipeline.id))
+        ? 'DESELECT_PIPELINES'
+        : 'SELECT_ALL_PIPELINES',
+      pipelineIds: availablePipelines.map((pipeline) => pipeline.id),
+    })
   }
 
   const handleLoadMore = () => {
@@ -144,7 +111,7 @@ export function PipelinesStep({
     if (organizationsFailed) {
       return (
         <ErrorState
-          title="Couldn't load organizations"
+          title={`Couldn't load ${labels.groups}`}
           error={organizationsError}
           onRetry={() => refetchOrganizations()}
           retrying={fetchingOrganizations}
@@ -153,15 +120,15 @@ export function PipelinesStep({
     }
 
     if (loadingOrganizations) {
-      return <LoadingState variant="section" message="Loading organizations..." />
+      return <LoadingState variant="section" message={`Loading ${labels.groups}...`} />
     }
 
     if (availableOrganizations.length === 0) {
       return (
         <EmptyState
           icon={<IconBuildingSkyscraper size={24} />}
-          title="No organizations found"
-          description="This token can't access any organizations. Go back and check the credentials."
+          title={`No ${labels.groups} found`}
+          description={`No accessible ${labels.items} were found. Check the cluster, namespace scope and credentials.`}
         />
       )
     }
@@ -170,8 +137,8 @@ export function PipelinesStep({
       return (
         <EmptyState
           icon={<IconBuildingSkyscraper size={24} />}
-          title="Select an organization"
-          description="Choose an organization above to list its pipelines."
+          title={`Select a ${labels.group}`}
+          description={`Choose a ${labels.group} above to list its ${labels.items}.`}
         />
       )
     }
@@ -179,7 +146,7 @@ export function PipelinesStep({
     if (pipelinesFailed) {
       return (
         <ErrorState
-          title="Couldn't load pipelines"
+          title={`Couldn't load ${labels.items}`}
           error={pipelinesError}
           onRetry={() => refetchPipelines()}
           retrying={searchingPipelines}
@@ -188,20 +155,16 @@ export function PipelinesStep({
     }
 
     if (loadingPipelines) {
-      return <LoadingState variant="section" message="Loading pipelines..." />
+      return <LoadingState variant="section" message={`Loading ${labels.items}...`} />
     }
 
     const results =
-      filteredPipelines.length === 0 ? (
+      availablePipelines.length === 0 ? (
         repositorySearch.trim() ? (
           <EmptyState
             icon={<IconSearch size={24} />}
-            title="No pipelines match your search"
-            description={
-              allPipelines?.has_more
-                ? 'No loaded pipeline matches the current search. Load more to search further.'
-                : 'No pipeline repository matches the current search.'
-            }
+            title={`No ${labels.items} match your search`}
+            description={`Try a different name, type or source.`}
             action={
               <Button variant="default" size="sm" onClick={() => handleSearchChange('')}>
                 Clear search
@@ -211,17 +174,18 @@ export function PipelinesStep({
         ) : (
           <EmptyState
             icon={<IconStack2 size={24} />}
-            title="No pipelines found"
-            description="This organization has no pipelines available to this token."
+            title={`No ${labels.items} found`}
+            description={`This ${labels.group} has no accessible ${labels.items}.`}
           />
         )
       ) : (
         <ScrollArea style={{ flex: 1, minHeight: 0 }} type="auto">
           {isMobile ? (
             <Stack gap="xs">
-              {filteredPipelines.map((pipeline) => (
+              {availablePipelines.map((pipeline) => (
                 <MobilePipelineCard
                   key={pipeline.id}
+                  labels={labels}
                   pipeline={pipeline}
                   isSelected={selectedPipelines.has(pipeline.id)}
                   onToggle={() => handlePipelineToggle(pipeline.id)}
@@ -230,7 +194,8 @@ export function PipelinesStep({
             </Stack>
           ) : (
             <PipelinesTable
-              pipelines={filteredPipelines}
+              pipelines={availablePipelines}
+              labels={labels}
               selectedPipelines={selectedPipelines}
               onToggle={handlePipelineToggle}
               onSelectAll={handleSelectAll}
@@ -261,8 +226,8 @@ export function PipelinesStep({
             <Group gap="sm" wrap="nowrap" align="flex-start">
               {availableOrganizations.length > 1 && (
                 <Select
-                  aria-label="Organization"
-                  placeholder="Select organization"
+                  aria-label={labels.groupTitle}
+                  placeholder={`Select ${labels.group}`}
                   value={selectedOrganization}
                   onChange={handleOrganizationSelect}
                   data={availableOrganizations.map((org) => ({ value: org.id, label: org.name }))}
@@ -271,8 +236,8 @@ export function PipelinesStep({
                 />
               )}
               <TextInput
-                aria-label="Search pipelines by repository"
-                placeholder="Search repositories..."
+                aria-label={`Search ${labels.items}`}
+                placeholder={`Search ${labels.items}...`}
                 value={repositorySearch}
                 onChange={(e) => handleSearchChange(e.currentTarget.value)}
                 leftSection={
@@ -299,9 +264,10 @@ interface MobilePipelineCardProps {
   pipeline: AvailablePipeline
   isSelected: boolean
   onToggle: () => void
+  labels: PipelineLabels
 }
 
-function MobilePipelineCard({ pipeline, isSelected, onToggle }: MobilePipelineCardProps) {
+function MobilePipelineCard({ pipeline, isSelected, onToggle, labels }: MobilePipelineCardProps) {
   return (
     <MantineCheckbox.Card checked={isSelected} onClick={onToggle} p="xs" aria-label={pipeline.name}>
       <Stack gap={4}>
@@ -315,7 +281,7 @@ function MobilePipelineCard({ pipeline, isSelected, onToggle }: MobilePipelineCa
         <Group gap="xs" wrap="nowrap" align="flex-start">
           <Box style={{ flex: 1, minWidth: 0 }}>
             <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed">
-              Org
+              {labels.groupTitle}
             </Text>
             <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} truncate>
               {pipeline.organization || '—'}
@@ -323,7 +289,7 @@ function MobilePipelineCard({ pipeline, isSelected, onToggle }: MobilePipelineCa
           </Box>
           <Box style={{ flex: 1, minWidth: 0 }}>
             <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed">
-              Repo
+              {labels.sourceTitle}
             </Text>
             <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} truncate>
               {pipeline.repository || '—'}
@@ -346,9 +312,11 @@ interface PipelinesTableProps {
   selectedPipelines: Set<string>
   onToggle: (id: string) => void
   onSelectAll: () => void
+  labels: PipelineLabels
 }
 
-function PipelinesTable({ pipelines, selectedPipelines, onToggle, onSelectAll }: PipelinesTableProps) {
+function PipelinesTable({ pipelines, selectedPipelines, onToggle, onSelectAll, labels }: PipelinesTableProps) {
+  const selectedCount = pipelines.filter((pipeline) => selectedPipelines.has(pipeline.id)).length
   return (
     <Table
       highlightOnHover
@@ -363,16 +331,16 @@ function PipelinesTable({ pipelines, selectedPipelines, onToggle, onSelectAll }:
         <Table.Tr>
           <Table.Th style={{ width: 50 }}>
             <MantineCheckbox
-              aria-label="Select all displayed pipelines"
-              checked={selectedPipelines.size === pipelines.length}
-              indeterminate={selectedPipelines.size > 0 && selectedPipelines.size < pipelines.length}
+              aria-label={`Select all displayed ${labels.items}`}
+              checked={pipelines.length > 0 && selectedCount === pipelines.length}
+              indeterminate={selectedCount > 0 && selectedCount < pipelines.length}
               onChange={onSelectAll}
             />
           </Table.Th>
-          <Table.Th style={{ width: '25%' }}>Name</Table.Th>
-          <Table.Th style={{ width: '15%' }}>Organization</Table.Th>
-          <Table.Th style={{ width: '20%' }}>Repository</Table.Th>
-          <Table.Th style={{ width: '40%' }}>Description</Table.Th>
+          <Table.Th style={{ width: '35%' }}>Name</Table.Th>
+          <Table.Th style={{ width: '20%' }}>{labels.groupTitle}</Table.Th>
+          <Table.Th style={{ width: '20%' }}>{labels.sourceTitle}</Table.Th>
+          <Table.Th style={{ width: '25%' }}>Description</Table.Th>
         </Table.Tr>
       </Table.Thead>
       <Table.Tbody>

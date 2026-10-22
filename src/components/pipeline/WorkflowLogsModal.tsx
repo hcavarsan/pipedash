@@ -14,6 +14,7 @@ import { filterVisibleColumns } from '../../utils/columnBuilder'
 import { type CellValue, renderCellValue } from '../../utils/dynamicRenderers'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 import { getValueByPath } from '../../utils/objectPath'
+import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { CopyButton } from '../atoms/CopyButton'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { ErrorState } from '../common/ErrorState'
@@ -26,6 +27,10 @@ interface WorkflowLogsModalProps {
   pipelineId: string
   runNumber: number
   providerId?: number
+  providerType?: string
+  canTrigger: boolean
+  triggerBlockedReason?: string
+  canCancel: boolean
   onRerunSuccess?: (pipelineId: string, newRunNumber: number) => void
   onCancelSuccess?: () => void
 }
@@ -55,12 +60,18 @@ export const WorkflowLogsModal = ({
   pipelineId,
   runNumber,
   providerId,
+  providerType,
+  canTrigger,
+  triggerBlockedReason,
+  canCancel,
   onRerunSuccess,
   onCancelSuccess,
 }: WorkflowLogsModalProps) => {
   const [cancelling, setCancelling] = useState(false)
   const { isMobile } = useIsMobile()
   const abortRef = useRef(false)
+  const labels = getPipelineLabels(providerType)
+  const isFlux = providerType === 'fluxcd'
 
   useEffect(() => {
     abortRef.current = false
@@ -175,7 +186,15 @@ export const WorkflowLogsModal = ({
 
   const renderValue = (field: DetailField, value: unknown) => {
     if (field.id === 'status' && isPipelineStatus(value)) {
-      return <StatusBadge status={value} size="md" />
+      return <StatusBadge status={value} label={runDetails ? getStatusLabel(runDetails) : undefined} size="md" />
+    }
+
+    if (field.id === 'message') {
+      return (
+        <Text size="sm" style={{ overflowWrap: 'anywhere' }}>
+          {String(value)}
+        </Text>
+      )
     }
 
     if (field.id === 'run_number') {
@@ -205,24 +224,32 @@ export const WorkflowLogsModal = ({
 
   const footer = runDetails ? (
     <Stack gap="xs">
-      {isPending && (
+      {isFlux && (
+        <Text size="sm" c="dimmed">
+          {triggerBlockedReason ??
+            'Reconcile uses the current resource configuration. It does not restore this historical revision.'}
+        </Text>
+      )}
+      {isPending && canCancel && (
         <Text size={TYPOGRAPHY.FIELD_VALUE_SMALL.size} c="dimmed">
           This run is pending. It can be stopped or rerun once it starts.
         </Text>
       )}
       <Group justify="flex-end" gap="sm" grow={isMobile}>
-        <Button
-          component="a"
-          href={runDetails.logs_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          variant="default"
-          size="sm"
-          rightSection={<IconExternalLink size={16} />}
-        >
-          {isMobile ? 'Logs' : 'View full logs'}
-        </Button>
-        {isRunning ? (
+        {runDetails.logs_url && (
+          <Button
+            component="a"
+            href={runDetails.logs_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="default"
+            size="sm"
+            rightSection={<IconExternalLink size={16} />}
+          >
+            {isMobile ? 'Logs' : 'View full logs'}
+          </Button>
+        )}
+        {isRunning && canCancel && (
           <Button
             color="red"
             size="sm"
@@ -233,14 +260,15 @@ export const WorkflowLogsModal = ({
           >
             {isMobile ? 'Stop' : 'Stop workflow'}
           </Button>
-        ) : (
+        )}
+        {!isRunning && canTrigger && (
           <Button
             size="sm"
             leftSection={<IconPlayerPlay size={16} />}
             onClick={handleRerun}
             loading={rerunMutation.isPending}
           >
-            {isMobile ? 'Rerun' : 'Rerun workflow'}
+            {isFlux ? labels.trigger : isMobile ? 'Rerun' : 'Rerun workflow'}
           </Button>
         )}
       </Group>
@@ -275,8 +303,18 @@ export const WorkflowLogsModal = ({
 
     return (
       <Stack gap={isMobile ? 'xs' : 'md'}>
+        {runDetails.metadata?.archived === true && (
+          <Alert color="gray" title="Cached reconciliation">
+            Flux no longer retains this entry. These details come from Pipedash's cache and will disappear if the cache
+            is cleared.
+          </Alert>
+        )}
         {isRunning && (
-          <Alert color="blue" icon={<IconRefresh size={16} />} title="Run in progress">
+          <Alert
+            color="blue"
+            icon={<IconRefresh size={16} />}
+            title={isFlux ? 'Reconciliation in progress' : 'Run in progress'}
+          >
             <Text size={TYPOGRAPHY.HELPER_TEXT.size}>Details refresh automatically every 10 seconds.</Text>
           </Alert>
         )}
@@ -305,7 +343,13 @@ export const WorkflowLogsModal = ({
   }
 
   return (
-    <StandardModal opened={opened} onClose={onClose} size="lg" title="Run details" footer={footer}>
+    <StandardModal
+      opened={opened}
+      onClose={onClose}
+      size="lg"
+      title={isFlux ? 'Reconciliation details' : 'Run details'}
+      footer={footer}
+    >
       {renderContent()}
     </StandardModal>
   )

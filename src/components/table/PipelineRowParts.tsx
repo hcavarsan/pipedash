@@ -1,9 +1,17 @@
 import { ActionIcon, Group, Loader, Text, Tooltip } from '@mantine/core'
-import { IconAlertTriangle, IconChartLine, IconPin, IconPinFilled, IconPlayerPlayFilled } from '@tabler/icons-react'
+import {
+  IconAlertTriangle,
+  IconChartLine,
+  IconPin,
+  IconPinFilled,
+  IconPlayerPlayFilled,
+  IconRefresh,
+} from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import type { Pipeline, PipelineStatus } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
+import { getPipelineLabels, getReconcileBlockReason, getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusBadge } from '../atoms/StatusBadge'
 
 interface SectionHeadingProps {
@@ -46,6 +54,7 @@ export interface TableRow {
   providerErrors?: ProviderFetchError[]
   hasPendingFetch?: boolean
   status?: PipelineStatus | null
+  statusLabel?: string
   lastRun?: string | null
   pipeline?: Pipeline
 }
@@ -59,9 +68,17 @@ export function RowStatus({ row }: { row: TableRow }) {
   const lastActivity = row.lastRun ? formatDateTime(row.lastRun) : 'Never'
 
   return (
-    <Tooltip label={`${prefix}Last activity: ${lastActivity}`}>
+    <Tooltip
+      multiline
+      maw={480}
+      label={
+        row.pipeline?.provider_type === 'fluxcd'
+          ? String(row.pipeline.metadata?.message ?? `Last activity: ${lastActivity}`)
+          : `${prefix}Last activity: ${lastActivity}`
+      }
+    >
       <span>
-        <StatusBadge status={row.status} />
+        <StatusBadge status={row.status} label={row.pipeline ? getStatusLabel(row.pipeline) : row.statusLabel} />
       </span>
     </Tooltip>
   )
@@ -109,7 +126,8 @@ interface WorkflowActionsProps {
 export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, onViewMetrics }: WorkflowActionsProps) {
   const pinLabel = `${isPinned ? 'Unpin' : 'Pin'} ${pipeline.name}`
   const metricsLabel = `View metrics for ${pipeline.name}`
-  const triggerLabel = `Trigger ${pipeline.name}`
+  const triggerLabel = `${getPipelineLabels(pipeline.provider_type).trigger} ${pipeline.name}`
+  const blockedReason = getReconcileBlockReason(pipeline)
 
   return (
     <Group gap="xs" wrap="nowrap">
@@ -125,9 +143,19 @@ export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, on
           </ActionIcon>
         </Tooltip>
       )}
-      <Tooltip label={triggerLabel}>
-        <ActionIcon variant="subtle" color="gray" aria-label={triggerLabel} onClick={() => onTrigger(pipeline)}>
-          <IconPlayerPlayFilled size={16} />
+      <Tooltip label={blockedReason ?? triggerLabel}>
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          aria-label={triggerLabel}
+          aria-disabled={!!blockedReason}
+          onClick={() => {
+            if (!blockedReason) {
+              onTrigger(pipeline)
+            }
+          }}
+        >
+          {pipeline.provider_type === 'fluxcd' ? <IconRefresh size={16} /> : <IconPlayerPlayFilled size={16} />}
         </ActionIcon>
       </Tooltip>
     </Group>

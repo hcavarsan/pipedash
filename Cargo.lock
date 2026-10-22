@@ -4104,6 +4104,7 @@ dependencies = [
  "pipedash-plugin-argocd",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
+ "pipedash-plugin-fluxcd",
  "pipedash-plugin-gitea",
  "pipedash-plugin-github",
  "pipedash-plugin-gitlab",
@@ -4145,6 +4146,7 @@ dependencies = [
  "pipedash-plugin-argocd",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
+ "pipedash-plugin-fluxcd",
  "pipedash-plugin-gitea",
  "pipedash-plugin-github",
  "pipedash-plugin-gitlab",
@@ -4230,6 +4232,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "pipedash-plugin-fluxcd"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dirs 7.0.0",
+ "futures",
+ "http",
+ "k8s-openapi",
+ "kube",
+ "pipedash-plugin-api",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "shellexpand",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "pipedash-plugin-gitea"
 version = "0.3.0"
 dependencies = [
@@ -4256,6 +4279,7 @@ dependencies = [
  "octocrab",
  "pipedash-plugin-api",
  "reqwest",
+ "rustls",
  "secrecy",
  "serde",
  "serde_json",

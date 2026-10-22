@@ -427,6 +427,36 @@ impl Plugin for GitHubPlugin {
         let run_id_u64: u64 = run.id.0;
         client.cancel_run(owner, repo, run_id_u64).await
     }
+
+    async fn review_run(
+        &self, pipeline_id: &str, run_number: i64, decision: ReviewDecision,
+    ) -> PluginResult<()> {
+        let parts: Vec<&str> = pipeline_id.split("__").collect();
+        if parts.len() != 5 {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid pipeline ID format: {} (expected 5 parts, got {})",
+                pipeline_id,
+                parts.len()
+            )));
+        }
+
+        let owner = parts[2];
+        let repo = parts[3];
+        let workflow_id_str = parts[4];
+        let workflow_id: u64 = workflow_id_str.parse().map_err(|_| {
+            PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id_str}"))
+        })?;
+
+        let client = self.client()?;
+        let run = client
+            .fetch_run_by_number(owner, repo, workflow_id, run_number)
+            .await?;
+
+        client
+            .review_pending_deployments(owner, repo, run.id.0, run_number, decision)
+            .await
+    }
+
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
         let client = self.client()?;
         client.check_token_permissions().await
@@ -476,5 +506,231 @@ impl Plugin for GitHubPlugin {
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::io::{
+        AsyncReadExt,
+        AsyncWriteExt,
+    };
+    use tokio::sync::Mutex;
+
+    use super::*;
+
+    const PIPELINE_ID: &str = "github__1__acme__app__42";
+    const PENDING_PATH: &str = "/api/v3/repos/acme/app/actions/runs/9001/pending_deployments";
+
+    type Recorded = Arc<Mutex<Vec<(String, String, String)>>>;
+
+    fn waiting_run() -> serde_json::Value {
+        let url = "http://stub.invalid/acme/app";
+        serde_json::json!({
+            "id": 9001, "workflow_id": 42, "node_id": "n", "name": "Deploy",
+            "head_branch": "main", "head_sha": "abc", "run_number": 7, "event": "push",
+            "status": "waiting", "conclusion": null,
+            "created_at": "2026-10-20T10:00:00Z", "updated_at": "2026-10-20T10:01:00Z",
+            "url": url, "html_url": url, "jobs_url": url, "logs_url": url,
+            "check_suite_url": url, "artifacts_url": url, "cancel_url": url,
+            "rerun_url": url, "workflow_url": url,
+            "head_commit": {
+                "id": "abc", "tree_id": "def", "message": "ship it",
+                "timestamp": "2026-10-20T09:59:00Z",
+                "author": {"name": "Ada", "email": "ada@example.com"},
+                "committer": {"name": "Ada", "email": "ada@example.com"}
+            },
+            "repository": {"id": 1, "name": "app", "url": url}
+        })
+    }
+
+    async fn read_request(stream: &mut tokio::net::TcpStream) -> (String, String, String) {
+        let mut request = Vec::new();
+        let mut buffer = [0; 4096];
+        let head_end = loop {
+            if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+            let count = stream.read(&mut buffer).await.unwrap();
+            assert_ne!(count, 0, "stub client closed early");
+            request.extend_from_slice(&buffer[..count]);
+        };
+        let head = String::from_utf8(request[..head_end].to_vec()).unwrap();
+        let length: usize = head
+            .lines()
+            .find_map(|line| {
+                line.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(str::to_string)
+            })
+            .map(|value| value.trim().parse().unwrap())
+            .unwrap_or(0);
+        while request.len() < head_end + length {
+            let count = stream.read(&mut buffer).await.unwrap();
+            request.extend_from_slice(&buffer[..count]);
+        }
+        let body = String::from_utf8(request[head_end..head_end + length].to_vec()).unwrap();
+        let mut first_line = head.split_whitespace();
+        let method = first_line.next().unwrap().to_string();
+        let target = first_line.next().unwrap();
+        let path = target.split('?').next().unwrap().to_string();
+        (method, path, body)
+    }
+
+    async fn stub_github(
+        pending_deployments: serde_json::Value,
+    ) -> (GitHubPlugin, Recorded, tokio::task::JoinHandle<()>) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let recorded: Recorded = Arc::default();
+        let log = recorded.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let (method, path, body) = read_request(&mut stream).await;
+                let response = match (method.as_str(), path.as_str()) {
+                    ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => {
+                        serde_json::json!({"total_count": 1, "workflow_runs": [waiting_run()]})
+                    }
+                    ("GET", PENDING_PATH) => pending_deployments.clone(),
+                    ("POST", PENDING_PATH) => serde_json::json!([]),
+                    (method, path) => panic!("Unexpected stub request: {method} {path}"),
+                };
+                log.lock().await.push((method, path, body));
+                let body = response.to_string();
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(reply.as_bytes()).await.unwrap();
+            }
+        });
+        let mut plugin = GitHubPlugin::new();
+        plugin
+            .initialize(
+                1,
+                HashMap::from([
+                    ("base_url".to_string(), format!("http://{addr}")),
+                    ("token".to_string(), "stub-token".to_string()),
+                ]),
+                None,
+            )
+            .unwrap();
+        (plugin, recorded, server)
+    }
+
+    fn pending(id: u64, name: &str, can_approve: bool) -> serde_json::Value {
+        serde_json::json!({
+            "environment": {"id": id, "name": name},
+            "wait_timer": 0,
+            "current_user_can_approve": can_approve,
+            "reviewers": []
+        })
+    }
+
+    async fn posts(recorded: &Recorded) -> Vec<serde_json::Value> {
+        recorded
+            .lock()
+            .await
+            .iter()
+            .filter(|(method, _, _)| method == "POST")
+            .map(|(_, _, body)| serde_json::from_str(body).unwrap())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn approve_posts_only_environments_the_token_can_approve() {
+        let (plugin, recorded, server) = stub_github(serde_json::json!([
+            pending(11, "production", true),
+            pending(12, "staging", true),
+            pending(13, "audit", false),
+        ]))
+        .await;
+
+        plugin
+            .review_run(PIPELINE_ID, 7, ReviewDecision::Approve)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            posts(&recorded).await,
+            [serde_json::json!({
+                "environment_ids": [11, 12],
+                "state": "approved",
+                "comment": "Approved in Pipedash"
+            })]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn reject_posts_rejected_state() {
+        let (plugin, recorded, server) =
+            stub_github(serde_json::json!([pending(11, "production", true)])).await;
+
+        plugin
+            .review_run(PIPELINE_ID, 7, ReviewDecision::Reject)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            posts(&recorded).await,
+            [serde_json::json!({
+                "environment_ids": [11],
+                "state": "rejected",
+                "comment": "Rejected in Pipedash"
+            })]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn review_fails_without_posting_when_token_can_approve_none() {
+        let (plugin, recorded, server) = stub_github(serde_json::json!([
+            pending(11, "production", false),
+            pending(12, "staging", false),
+        ]))
+        .await;
+
+        let error = plugin
+            .review_run(PIPELINE_ID, 7, ReviewDecision::Approve)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
+        assert!(error.to_string().contains("production, staging"), "{error}");
+        assert!(posts(&recorded).await.is_empty());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn review_fails_without_posting_when_run_waits_for_nothing() {
+        let (plugin, recorded, server) = stub_github(serde_json::json!([])).await;
+
+        let error = plugin
+            .review_run(PIPELINE_ID, 7, ReviewDecision::Approve)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+        assert!(posts(&recorded).await.is_empty());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn waiting_run_is_pending_and_flagged_for_review() {
+        let (plugin, _recorded, server) = stub_github(serde_json::json!([])).await;
+
+        let run = plugin.fetch_run_details(PIPELINE_ID, 7).await.unwrap();
+
+        assert_eq!(run.status, PipelineStatus::Pending);
+        assert_eq!(
+            run.metadata.get("awaiting_review"),
+            Some(&serde_json::json!(true))
+        );
+        server.abort();
     }
 }

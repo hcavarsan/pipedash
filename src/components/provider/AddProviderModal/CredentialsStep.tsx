@@ -1,5 +1,6 @@
 import {
   Box,
+  Loader,
   MultiSelect,
   NumberInput,
   PasswordInput,
@@ -11,11 +12,11 @@ import {
   Textarea,
   TextInput,
 } from '@mantine/core'
-import { type Dispatch, useEffect, useMemo, useRef } from 'react'
+import { useQueries } from '@tanstack/react-query'
+import { type Dispatch, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
-import { logger } from '../../../lib/logger'
 import { service } from '../../../services'
 import type { ConfigField, PluginMetadata } from '../../../types'
 
@@ -38,68 +39,28 @@ export function CredentialsStep({
   editMode,
   isMobile,
 }: CredentialsStepProps) {
-  const { selectedPlugin, providerName, configValues, dynamicOptions, fieldErrors, submitting } = state
+  const { selectedPlugin, providerName, configValues, fieldErrors, submitting } = state
 
   const configValuesKey = useMemo(() => JSON.stringify(configValues), [configValues])
   const debouncedConfigValuesKey = useDebounce(configValuesKey, DEBOUNCE_DELAYS.FILTER)
 
-  const loadedOptionsRef = useRef<{
-    pluginType: string | null
-    configKey: string
-  }>({ pluginType: null, configKey: '' })
-
-  useEffect(() => {
-    if (!selectedPlugin) {
-      return
-    }
-
-    const currentKey = `${selectedPlugin.provider_type}:${debouncedConfigValuesKey}`
-
-    if (
-      loadedOptionsRef.current.pluginType === selectedPlugin.provider_type &&
-      loadedOptionsRef.current.configKey === currentKey
-    ) {
-      return
-    }
-
-    let isMounted = true
-
-    const loadDynamicOptions = async () => {
-      const newDynamicOptions: Record<string, string[]> = {}
-      const parsedConfig = JSON.parse(debouncedConfigValuesKey) as Record<string, string>
-
-      for (const field of selectedPlugin.config_schema.fields) {
-        if (
-          (field.field_type === 'Select' || field.field_type === 'MultiSelect') &&
-          (!field.options || field.options.length === 0)
-        ) {
-          try {
-            const options = await service.getProviderFieldOptions(selectedPlugin.provider_type, field.key, parsedConfig)
-
-            if (options.length > 0 && isMounted) {
-              newDynamicOptions[field.key] = options
-            }
-          } catch (err) {
-            logger.error('CredentialsStep', `Failed to load options for ${field.key}`, err)
-          }
-        }
-      }
-
-      if (isMounted && Object.keys(newDynamicOptions).length > 0) {
-        dispatch({ type: 'SET_DYNAMIC_OPTIONS', options: newDynamicOptions })
-        loadedOptionsRef.current = {
-          pluginType: selectedPlugin.provider_type,
-          configKey: currentKey,
-        }
-      }
-    }
-
-    loadDynamicOptions()
-
-    return () => {
-      isMounted = false
-    }
-  }, [selectedPlugin, debouncedConfigValuesKey, dispatch])
+  const dynamicFields =
+    selectedPlugin?.config_schema.fields.filter(
+      (field) => (field.field_type === 'Select' || field.field_type === 'MultiSelect') && !field.options?.length
+    ) ?? []
+  const optionQueries = useQueries({
+    queries: dynamicFields.map((field) => ({
+      queryKey: ['providerFieldOptions', selectedPlugin?.provider_type, field.key, debouncedConfigValuesKey],
+      queryFn: () =>
+        service.getProviderFieldOptions(
+          selectedPlugin?.provider_type ?? '',
+          field.key,
+          JSON.parse(debouncedConfigValuesKey) as Record<string, string>
+        ),
+      enabled: !!selectedPlugin,
+      retry: false,
+    })),
+  })
 
   const handlePluginSelect = (providerType: string | null) => {
     if (!providerType) {
@@ -121,11 +82,13 @@ export function CredentialsStep({
 
   const renderConfigField = (field: ConfigField) => {
     const value = configValues[field.key] || ''
+    const fieldOptions = optionQueries[dynamicFields.findIndex((candidate) => candidate.key === field.key)]
+    const loadingOptions = !!fieldOptions && (fieldOptions.isFetching || debouncedConfigValuesKey !== configValuesKey)
     const commonProps = {
       label: field.label,
       description: field.description ?? undefined,
       value,
-      error: fieldErrors[field.key],
+      error: fieldErrors[field.key] || fieldOptions?.error?.message,
       withAsterisk: field.required,
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | string) => {
         const newValue = typeof e === 'string' ? e : e?.currentTarget?.value
@@ -152,7 +115,9 @@ export function CredentialsStep({
           <Select
             key={field.key}
             {...commonProps}
-            data={dynamicOptions[field.key] ?? field.options ?? []}
+            data={fieldOptions?.data ?? field.options ?? []}
+            rightSection={loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined}
+            disabled={submitting || loadingOptions}
             onChange={(val) => handleConfigChange(field.key, val || '')}
             searchable
             clearable
@@ -164,7 +129,9 @@ export function CredentialsStep({
             key={field.key}
             {...commonProps}
             value={value ? value.split(',').filter(Boolean) : []}
-            data={dynamicOptions[field.key] ?? field.options ?? []}
+            data={fieldOptions?.data ?? field.options ?? []}
+            rightSection={loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined}
+            disabled={submitting || loadingOptions}
             onChange={(values) => handleConfigChange(field.key, values.join(','))}
             searchable
             clearable
@@ -212,7 +179,9 @@ export function CredentialsStep({
               <TextInput
                 label="Provider name"
                 description="A friendly name to identify this provider"
-                placeholder="e.g. GitHub (work)"
+                placeholder={
+                  selectedPlugin.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)'
+                }
                 value={providerName}
                 onChange={(e) => dispatch({ type: 'SET_PROVIDER_NAME', name: e.currentTarget.value })}
                 disabled={submitting}

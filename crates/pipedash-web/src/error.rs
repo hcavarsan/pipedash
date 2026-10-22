@@ -94,6 +94,10 @@ impl From<DomainError> for AppError {
                 StatusCode::FORBIDDEN,
                 ApiError::new("PROVIDER_AUTH_FAILED", err.to_string()),
             ),
+            DomainError::PermissionDenied(_) => AppError::new(
+                StatusCode::FORBIDDEN,
+                ApiError::new("FORBIDDEN", err.to_string()),
+            ),
             DomainError::InvalidProviderType(_) => AppError::bad_request(err.to_string()),
             DomainError::NotSupported(_) => AppError::new(
                 StatusCode::NOT_IMPLEMENTED,

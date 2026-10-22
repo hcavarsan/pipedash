@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
+import type { ReviewDecision } from '../types'
 import { formatCount } from '../utils/formatCount'
 
 export function useRunHistory(pipelineId: string, page = 1, pageSize = 20) {
@@ -151,6 +152,45 @@ export function useCancelRun() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't cancel run",
+        message: error.message || 'Unknown error',
+        color: 'red',
+      })
+    },
+  })
+}
+
+export function useReviewRun() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      pipelineId,
+      runNumber,
+      decision,
+    }: {
+      pipelineId: string
+      runNumber: number
+      decision: ReviewDecision
+    }) => service.reviewPipelineRun(pipelineId, runNumber, decision),
+
+    onSuccess: (_data, { pipelineId, runNumber, decision }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.runs.detail(pipelineId, runNumber),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.runs.list(pipelineId),
+      })
+
+      notifications.show({
+        title: decision === 'approve' ? 'Run approved' : 'Run rejected',
+        message: `Deployment review for run #${runNumber} sent`,
+        color: decision === 'approve' ? 'green' : 'gray',
+      })
+    },
+
+    onError: (error: Error, { decision }) => {
+      notifications.show({
+        title: decision === 'approve' ? "Couldn't approve run" : "Couldn't reject run",
         message: error.message || 'Unknown error',
         color: 'red',
       })

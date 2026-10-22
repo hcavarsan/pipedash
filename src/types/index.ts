@@ -1,5 +1,7 @@
 export type PipelineStatus = 'success' | 'failed' | 'running' | 'pending' | 'cancelled' | 'skipped'
 
+export type ReviewDecision = 'approve' | 'reject'
+
 export interface AvailablePipeline {
   id: string
   name: string
@@ -101,6 +103,7 @@ interface PluginCapabilities {
   pipelines: boolean
   pipeline_runs: boolean
   trigger: boolean
+  cancel: boolean
   agents: boolean
   artifacts: boolean
   queues: boolean

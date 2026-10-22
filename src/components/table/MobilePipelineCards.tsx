@@ -4,7 +4,9 @@ import type { ReactNode } from 'react'
 
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, ProviderSummary } from '../../types'
+import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { TableCells } from '../../utils/tableCells'
+import { StatusBadge } from '../atoms/StatusBadge'
 
 import { type ProviderFetchError, RepositoryFetchIndicator, type TableRow, WorkflowActions } from './PipelineRowParts'
 
@@ -59,6 +61,9 @@ export function MobilePipelineCards({
     <Stack gap="sm">
       {rows.map((row) => {
         if (row.type === 'repository') {
+          const isFluxGroup =
+            !!row.providerIds?.size &&
+            Array.from(row.providerIds).every((id) => getProvider(id)?.provider_type === 'fluxcd')
           return (
             <Card key={row.id} padding="xs">
               <Group wrap="nowrap" align="flex-start" gap="xs">
@@ -83,12 +88,12 @@ export function MobilePipelineCards({
                           {row.name}
                         </Text>
                       </Group>
-                      {row.status && TableCells.status(row.status)}
+                      {row.status && <StatusBadge status={row.status} label={row.statusLabel} />}
                     </Group>
 
                     <Group gap="md" wrap="wrap">
-                      <Field label="Organization">{row.organization}</Field>
-                      <Field label="Workflows">{row.pipelineCount}</Field>
+                      <Field label={isFluxGroup ? 'Namespace' : 'Organization'}>{row.organization}</Field>
+                      <Field label={isFluxGroup ? 'Resources' : 'Workflows'}>{row.pipelineCount}</Field>
                     </Group>
 
                     {renderProviders(row, 'Providers')}
@@ -112,7 +117,7 @@ export function MobilePipelineCards({
               <UnstyledButton
                 className="interactive-surface"
                 onClick={() => onViewHistory(pipeline)}
-                aria-label={`View run history for ${row.name}`}
+                aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
                 p="xs"
                 bdrs="sm"
               >
@@ -124,11 +129,11 @@ export function MobilePipelineCards({
                         {row.name}
                       </Text>
                     </Group>
-                    {row.status && TableCells.status(row.status)}
+                    {row.status && <StatusBadge status={row.status} label={getStatusLabel(pipeline)} />}
                   </Group>
 
                   <Group gap="md" wrap="wrap">
-                    <Field label="Organization">{row.organization}</Field>
+                    <Field label={getPipelineLabels(pipeline.provider_type).groupTitle}>{row.organization}</Field>
                     {pipeline.branch && <Field label="Branch">{pipeline.branch}</Field>}
                   </Group>
 

@@ -171,6 +171,20 @@ pub async fn remove_provider(
 }
 
 #[tauri::command]
+pub async fn export_providers(
+    maybe_core: State<'_, crate::MaybeCoreContext>,
+) -> Result<String, ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+    core.provider_service
+        .export_providers_toml()
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_available_plugins(
     maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<Vec<pipedash_plugin_api::PluginMetadata>, ErrorResponse> {
@@ -617,6 +631,21 @@ pub async fn cancel_pipeline_run(
     core.pipeline_service
         .invalidate_run_cache(&pipeline_id)
         .await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn review_pipeline_run(
+    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
+    decision: pipedash_plugin_api::ReviewDecision,
+) -> Result<(), ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+    core.pipeline_service
+        .review_run(&pipeline_id, run_number, decision)
+        .await?;
     Ok(())
 }
 

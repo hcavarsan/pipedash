@@ -39,6 +39,7 @@ Pipedash pulls your pipeline data from all these providers and shows it together
 - Jenkins
 - Tekton CD
 - ArgoCD
+- FluxCD
 
 The plugin system makes it easy to add more.
 
@@ -50,8 +51,10 @@ What you can do:
 - See pipeline status across all your providers
 - Browse run history with commit info and execution times
 - Trigger workflows with parameters (Pipedash loads them from each provider)
+- Export your providers to a TOML file for another machine, with tokens left out as `${VAR}` references
 - Rerun previous executions with the same parameters
 - Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
+- Approve or reject a GitHub run that waits for a deployment review, from its row in run history (needs a required reviewer's token)
 - Pin workflows to the top of the table with the pin icon on a workflow row. Pins stay in the desktop app or in your browser, so each person on a shared web instance keeps their own
 - Get a system notification when a refresh moves a pipeline to failed. Turn it on under Settings > General. It's off by default and set per device. In the web UI, browsers allow it only over HTTPS or on localhost
 - Add multiple instances of the same provider (e.g., two GitHub orgs)
@@ -131,6 +134,20 @@ On desktop and web, selecting a GitLab group also lists projects from all its su
 
 **ArgoCD**: Server URL and auth token. You can filter by Git orgs. Pipedash monitors sync status, health, and deployment history.
 
+**FluxCD**: Kubeconfig path on the machine running Pipedash, Kubernetes context and optional comma-separated namespaces. No separate token is needed. Supports `Kustomization` (`kustomize.toolkit.fluxcd.io/v1`) and `HelmRelease` (`helm.toolkit.fluxcd.io/v2`).
+
+Use namespace-scoped `get` and `list` permissions to monitor resources. Leaving namespaces empty requires cluster-wide list permission. Requesting reconciliation also requires `patch` permission. The permission check shows these permissions separately.
+
+Deleted selected resources appear as "Not found" while the remaining resources keep updating. Changing kubeconfig, context or namespaces requires selecting resources again.
+
+Pipedash shows Flux conditions, controller messages, source revisions and native reconciliation or Helm release history. Flux limits this history and groups repeated reconciliations. Pipedash retains observed entries in its cache and labels cached details when Flux no longer retains them. Clearing the cache removes those older entries.
+
+History follows the latest observation time while record identities stay stable. Metrics describe grouped native records. Later observations update a group's time and duration without duplicating it. Reading history does not recreate metrics outside the configured retention window.
+
+**Reconcile** applies the resource's current configuration. It does not restore a historical revision. Suspended resources stay suspended. Manage suspension in Flux. Reconciliation is asynchronous and cannot be cancelled through Pipedash.
+
+See the [FluxCD kind examples](examples/fluxcd/README.md) for healthy, failed and suspended resources and read-only RBAC.
+
 **Bitbucket Pipelines**: App password with `repository` and `pipeline` read permissions. Works with Bitbucket Cloud and self-hosted.
 
 After you add a provider, Pipedash validates your credentials and fetches available repos. Pick which ones to monitor and save. Your pipelines will show up in the main view and refresh automatically.
@@ -180,7 +197,7 @@ Each provider has its own refresh interval (default: 30 seconds). Adjust based o
 
 **Plugin system**
 
-Each CI/CD provider is a plugin with a common interface. The core app doesn't know the specifics of GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton, or ArgoCD—it just calls methods like `fetch_pipelines()` or `trigger_pipeline()` and the plugin handles the details.
+Each CI/CD provider implements the same plugin interface. The core calls methods such as `fetch_pipelines()` and `trigger_pipeline()`. Each plugin translates its provider's resources and actions.
 
 We compile plugins into the app at build time (not loaded dynamically at runtime). This keeps things simpler and avoids security concerns with runtime plugin loading.
 
@@ -201,7 +218,7 @@ Each plugin follows this structure:
 
 After you implement the plugin, register it in the main app's plugin registry and add any provider-specific UI in the frontend.
 
-Check out the existing plugins (GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton CD, ArgoCD) as reference implementations.
+Use the existing plugins, including Tekton, ArgoCD and FluxCD, as reference implementations.
 
 
 
@@ -402,7 +419,7 @@ The `[server]` values are read when the API server starts. Until a config file e
 - [x] Tekton CD
 - [x] ArgoCD
 - [ ] CircleCI
-- [ ] Flux CD
+- [x] FluxCD
 - [ ] Azure Pipelines
 - [ ] AWS CodePipeline
 - [ ] Google Cloud Build

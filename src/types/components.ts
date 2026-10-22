@@ -1,4 +1,4 @@
-import type { Pipeline, PipelineRun } from '.'
+import type { Pipeline, PipelineRun, ReviewDecision } from '.'
 
 export interface ModalBaseProps {
   opened: boolean
@@ -12,4 +12,5 @@ export interface PipelineComponentProps {
   onViewRun?: (pipelineId: string, runNumber: number) => void
   onRerun?: (pipeline: Pipeline, run: PipelineRun) => void
   onCancel?: (pipeline: Pipeline, run: PipelineRun) => void
+  onReview?: (pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => Promise<void>
 }
