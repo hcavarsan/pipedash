@@ -32,45 +32,74 @@ fn interpolate_with_depth(input: &str, depth: usize) -> InterpolationResult<Stri
         return Err(InterpolationError::RecursionLimit);
     }
 
-    let mut result = input.to_string();
-    let mut changed = true;
+    let mut result = String::with_capacity(input.len());
+    let mut rest = input;
 
-    while changed {
-        changed = false;
+    while let Some(start) = rest.find("${") {
+        result.push_str(&rest[..start]);
+        let body = &rest[start + 2..];
 
-        let matches: Vec<_> = VAR_PATTERN
-            .captures_iter(&result)
-            .map(|cap| {
-                let full_match = cap.get(0).unwrap();
-                let var_name = cap.get(1).unwrap().as_str().to_string();
-                let default = cap.get(2).map(|m| m.as_str().to_string());
-                (
-                    full_match.start(),
-                    full_match.end(),
-                    full_match.as_str().to_string(),
-                    var_name,
-                    default,
-                )
-            })
-            .collect();
+        let Some((var_name, default, consumed)) = parse_reference(body) else {
+            result.push_str("${");
+            rest = body;
+            continue;
+        };
 
-        for (_, _, full_match, var_name, default) in matches.into_iter().rev() {
-            let replacement = match std::env::var(&var_name) {
-                Ok(value) => value,
-                Err(_) => match default {
-                    Some(def) => interpolate_with_depth(&def, depth + 1)?,
-                    None => {
-                        return Err(InterpolationError::RequiredVarNotFound(var_name));
-                    }
-                },
-            };
+        match std::env::var(var_name) {
+            Ok(value) => result.push_str(&value),
+            Err(_) => match default {
+                Some(def) => result.push_str(&interpolate_with_depth(def, depth + 1)?),
+                None => {
+                    return Err(InterpolationError::RequiredVarNotFound(
+                        var_name.to_string(),
+                    ));
+                }
+            },
+        }
 
-            result = result.replace(&full_match, &replacement);
-            changed = true;
+        rest = &body[consumed..];
+    }
+
+    result.push_str(rest);
+    Ok(result)
+}
+
+fn parse_reference(body: &str) -> Option<(&str, Option<&str>, usize)> {
+    let name_len = body
+        .char_indices()
+        .find(|&(i, c)| !(c == '_' || c.is_ascii_alphabetic() || (i > 0 && c.is_ascii_digit())))
+        .map_or(body.len(), |(i, _)| i);
+    if name_len == 0 {
+        return None;
+    }
+
+    let name = &body[..name_len];
+    let after_name = &body[name_len..];
+
+    if after_name.starts_with('}') {
+        return Some((name, None, name_len + 1));
+    }
+
+    let default_body = after_name.strip_prefix(":-")?;
+    let default_start = name_len + 2;
+    let mut open = 0usize;
+    let mut chars = default_body.char_indices().peekable();
+
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '$' if chars.peek().is_some_and(|&(_, next)| next == '{') => {
+                chars.next();
+                open += 1;
+            }
+            '}' if open == 0 => {
+                return Some((name, Some(&default_body[..i]), default_start + i + 1));
+            }
+            '}' => open -= 1,
+            _ => {}
         }
     }
 
-    Ok(result)
+    None
 }
 
 pub fn interpolate_toml(value: &mut toml::Value) -> InterpolationResult<()> {
@@ -282,5 +311,26 @@ mod tests {
 
         let result = interpolate("${TEST_HOST:-127.0.0.1}:${TEST_PORT:-8080}").unwrap();
         assert_eq!(result, "127.0.0.1:8080");
+    }
+
+    #[test]
+    fn test_env_values_are_inserted_verbatim() {
+        std::env::set_var("TEST_VERBATIM_SET", "expanded");
+        std::env::set_var("TEST_VERBATIM_A", "tok${TEST_VERBATIM_SET}en");
+        std::env::set_var("TEST_VERBATIM_B", "pa${TEST_VERBATIM_UNSET}ss");
+        std::env::set_var("TEST_VERBATIM_SELF", "x${TEST_VERBATIM_SELF}");
+
+        assert_eq!(
+            interpolate("${TEST_VERBATIM_A}").unwrap(),
+            "tok${TEST_VERBATIM_SET}en"
+        );
+        assert_eq!(
+            interpolate("${TEST_VERBATIM_B}").unwrap(),
+            "pa${TEST_VERBATIM_UNSET}ss"
+        );
+        assert_eq!(
+            interpolate("${TEST_VERBATIM_SELF}").unwrap(),
+            "x${TEST_VERBATIM_SELF}"
+        );
     }
 }
