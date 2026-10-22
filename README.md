@@ -52,6 +52,7 @@ What you can do:
 - Trigger workflows with parameters (Pipedash loads them from each provider)
 - Rerun previous executions with the same parameters
 - Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
+- Approve or reject a GitHub run that waits for a deployment review, from its row in run history (needs a required reviewer's token)
 - Pin workflows to the top of the table with the pin icon on a workflow row. Pins stay in the desktop app or in your browser, so each person on a shared web instance keeps their own
 - Get a system notification when a refresh moves a pipeline to failed. Turn it on under Settings > General. It's off by default and set per device. In the web UI, browsers allow it only over HTTPS or on localhost
 - Add multiple instances of the same provider (e.g., two GitHub orgs)

@@ -621,6 +621,21 @@ pub async fn cancel_pipeline_run(
 }
 
 #[tauri::command]
+pub async fn review_pipeline_run(
+    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
+    decision: pipedash_plugin_api::ReviewDecision,
+) -> Result<(), ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+    core.pipeline_service
+        .review_run(&pipeline_id, run_number, decision)
+        .await?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_workflow_parameters(
     maybe_core: State<'_, crate::MaybeCoreContext>, workflow_id: String,
 ) -> Result<Vec<pipedash_plugin_api::WorkflowParameter>, ErrorResponse> {

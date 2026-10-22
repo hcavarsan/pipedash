@@ -29,6 +29,7 @@ import {
   type PluginMetadata,
   type ProviderConfig,
   type ProviderSummary,
+  type ReviewDecision,
   type SetupStatus,
   type StorageConfigResponse,
   type StoragePathsResponse,
@@ -312,6 +313,14 @@ export const tauriService = {
     return invoke<void>('cancel_pipeline_run', {
       pipelineId,
       runNumber,
+    })
+  },
+
+  reviewPipelineRun: async (pipelineId: string, runNumber: number, decision: ReviewDecision): Promise<void> => {
+    return invoke<void>('review_pipeline_run', {
+      pipelineId,
+      runNumber,
+      decision,
     })
   },
 

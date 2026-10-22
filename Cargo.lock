@@ -4255,6 +4255,7 @@ dependencies = [
  "octocrab",
  "pipedash-plugin-api",
  "reqwest",
+ "rustls",
  "secrecy",
  "serde",
  "serde_json",

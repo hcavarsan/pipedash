@@ -16,6 +16,7 @@ export function PipelineDetailRoute({
   onViewRun,
   onRerun,
   onCancel,
+  onReview,
 }: PipelineDetailRouteProps) {
   const { pipelineId } = useParams()
   const [searchParams] = useSearchParams()
@@ -65,6 +66,7 @@ export function PipelineDetailRoute({
         onViewRun={onViewRun || (() => undefined)}
         onRerun={onRerun}
         onCancel={onCancel}
+        onReview={onReview}
         isLoadingPipeline={loading && !actualPipeline}
       />
     </ErrorBoundary>

@@ -27,6 +27,7 @@ import type {
   PluginMetadata,
   ProviderConfig,
   ProviderSummary,
+  ReviewDecision,
   SetupStatus,
   StorageConfigResponse,
   StoragePathsResponse,
@@ -375,6 +376,10 @@ class ApiClient {
 
   async cancelPipelineRun(pipelineId: string, runNumber: number): Promise<void> {
     await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/cancel`)
+  }
+
+  async reviewPipelineRun(pipelineId: string, runNumber: number, decision: ReviewDecision): Promise<void> {
+    await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/review`, { decision })
   }
 
   async openUrl(url: string): Promise<void> {

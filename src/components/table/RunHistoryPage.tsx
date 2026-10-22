@@ -18,6 +18,7 @@ import {
   IconAdjustments,
   IconCalendar,
   IconChartLine,
+  IconCheck,
   IconClock,
   IconFileText,
   IconGitBranch,
@@ -25,6 +26,7 @@ import {
   IconRefresh,
   IconSquare,
   IconUser,
+  IconX,
 } from '@tabler/icons-react'
 import type { DataTableSortStatus } from 'mantine-datatable'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -43,7 +45,7 @@ import {
 import { events } from '../../services'
 import { useModalStore } from '../../stores/modalStore'
 import { TYPOGRAPHY } from '../../theme/typography'
-import type { Pipeline, PipelineRun } from '../../types'
+import type { Pipeline, PipelineRun, ReviewDecision } from '../../types'
 import { getDateRangeStart } from '../../utils/dateRange'
 import { formatCount } from '../../utils/formatCount'
 import { formatDateTime } from '../../utils/formatDateTime'
@@ -66,6 +68,7 @@ interface RunHistoryPageProps {
   onViewRun: (pipelineId: string, runNumber: number) => void
   onRerun?: (pipeline: Pipeline, run: PipelineRun) => void
   onCancel?: (pipeline: Pipeline, run: PipelineRun) => void
+  onReview?: (pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => Promise<void>
   refreshTrigger?: number
   onLoadingChange?: (loading: boolean) => void
   initialTab?: 'history' | 'metrics'
@@ -94,6 +97,7 @@ export const RunHistoryPage = ({
   onViewRun,
   onRerun,
   onCancel,
+  onReview,
   refreshTrigger,
   onLoadingChange,
   initialTab = 'history',
@@ -105,6 +109,7 @@ export const RunHistoryPage = ({
   const { search, status: statusFilter, branch: branchFilter, actor: actorFilter, dateRange, page } = filters
 
   const [cancellingRunNumber, setCancellingRunNumber] = useState<number | null>(null)
+  const [reviewingRunNumber, setReviewingRunNumber] = useState<number | null>(null)
   const [sortStatus, setSortStatus] = useState<DataTableSortStatus<PipelineRun>>({
     columnAccessor: 'run_number',
     direction: 'desc',
@@ -247,6 +252,20 @@ export const RunHistoryPage = ({
     [onCancel]
   )
 
+  const handleReviewRun = useCallback(
+    async (pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => {
+      setReviewingRunNumber(run.run_number)
+      try {
+        if (onReview) {
+          await onReview(pipeline, run, decision)
+        }
+      } finally {
+        setReviewingRunNumber(null)
+      }
+    },
+    [onReview]
+  )
+
   const rerunLoading = useModalStore((s) => s.rerunLoading)
 
   const renderRunActions = useCallback(
@@ -264,11 +283,49 @@ export const RunHistoryPage = ({
         : `Cancel run #${run.run_number}`
       const rerunLabel = `Rerun run #${run.run_number}`
       const detailsLabel = `View details for run #${run.run_number}`
+      const isAwaitingReview = run.metadata?.awaiting_review === true
+      const isReviewing = reviewingRunNumber === run.run_number
+      const approveLabel = `Approve deployment review for run #${run.run_number}`
+      const rejectLabel = `Reject deployment review for run #${run.run_number}`
 
       return (
         <Group gap="xs" wrap="nowrap" justify="flex-end">
+          {isAwaitingReview && onReview && (
+            <>
+              <ActionIcon
+                variant="subtle"
+                color="green"
+                size="md"
+                title={approveLabel}
+                aria-label={approveLabel}
+                loading={isReviewing}
+                disabled={isReviewing}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleReviewRun(pipeline, run, 'approve')
+                }}
+              >
+                <IconCheck size={16} />
+              </ActionIcon>
+              <ActionIcon
+                variant="subtle"
+                color="red"
+                size="md"
+                title={rejectLabel}
+                aria-label={rejectLabel}
+                disabled={isReviewing}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleReviewRun(pipeline, run, 'reject')
+                }}
+              >
+                <IconX size={16} />
+              </ActionIcon>
+            </>
+          )}
           {isActive
-            ? onCancel && (
+            ? onCancel &&
+              !isAwaitingReview && (
                 <ActionIcon
                   variant="subtle"
                   color="gray"
@@ -320,7 +377,18 @@ export const RunHistoryPage = ({
         </Group>
       )
     },
-    [cancellingRunNumber, handleCancelRun, onCancel, onRerun, onViewRun, pipeline, rerunLoading]
+    [
+      cancellingRunNumber,
+      handleCancelRun,
+      handleReviewRun,
+      onCancel,
+      onRerun,
+      onReview,
+      onViewRun,
+      pipeline,
+      rerunLoading,
+      reviewingRunNumber,
+    ]
   )
 
   const actionsColumn = useMemo(
