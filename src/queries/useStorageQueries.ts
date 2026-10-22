@@ -91,7 +91,17 @@ export function useTestStorageConnection() {
   return useMutation({
     mutationFn: (config: PipedashConfig) => service.testStorageConnection(config),
 
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (!result.success) {
+        notifications.show({
+          title: 'Connection failed',
+          message: result.message || 'Failed to connect to storage',
+          color: 'red',
+        })
+
+        return
+      }
+
       notifications.show({
         title: 'Connection successful',
         message: 'Storage connection test passed',
