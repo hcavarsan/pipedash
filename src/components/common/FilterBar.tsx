@@ -16,6 +16,8 @@ interface ValueFilter {
 
 interface OptionFilter extends ValueFilter {
   options: FilterOption[]
+  label?: string
+  allLabel?: string
 }
 
 interface FilterConfig {
@@ -24,7 +26,7 @@ interface FilterConfig {
     onChange: (value: string) => void
     placeholder?: string
   }
-  status?: ValueFilter
+  status?: ValueFilter & { options?: { value: string; label: string }[] }
   provider?: OptionFilter
   organization?: OptionFilter
   repository?: OptionFilter
@@ -38,8 +40,6 @@ interface FilterBarProps {
   filters: FilterConfig
   onClearAll?: () => void
 }
-
-const statusOptions = [{ value: '', label: 'All statuses' }, ...STATUS_OPTIONS]
 
 const dateRangeOptions = [{ value: '', label: 'All time' }, ...DATE_RANGE_OPTIONS]
 
@@ -199,7 +199,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
         {filters.status && (
           <FilterSelect
             label="Status"
-            data={statusOptions}
+            data={[{ value: '', label: 'All statuses' }, ...(filters.status.options ?? STATUS_OPTIONS)]}
             value={filters.status.value}
             onChange={filters.status.onChange}
             leftSection={<IconFilter size={14} />}
@@ -216,9 +216,9 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
           return (
             <FilterSelect
               key={key}
-              label={label}
+              label={filter.label ?? label}
               data={[
-                { value: '', label: allLabel },
+                { value: '', label: filter.allLabel ?? allLabel },
                 ...filter.options.map((option) =>
                   typeof option === 'string' ? { value: option, label: option } : option
                 ),

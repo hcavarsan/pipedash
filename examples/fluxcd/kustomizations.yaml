@@ -1,0 +1,47 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: podinfo-healthy
+  namespace: pipedash-examples
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 3m
+  path: ./kustomize
+  prune: true
+  wait: true
+  targetNamespace: podinfo-healthy
+  sourceRef:
+    kind: GitRepository
+    name: podinfo
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: podinfo-failed
+  namespace: pipedash-examples
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 3m
+  path: ./does-not-exist
+  prune: true
+  targetNamespace: podinfo-failed
+  sourceRef:
+    kind: GitRepository
+    name: podinfo
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: podinfo-suspended
+  namespace: pipedash-examples
+spec:
+  suspend: true
+  interval: 10m
+  path: ./kustomize
+  prune: true
+  targetNamespace: podinfo-suspended
+  sourceRef:
+    kind: GitRepository
+    name: podinfo

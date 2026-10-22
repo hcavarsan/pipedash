@@ -177,6 +177,7 @@ impl ConfigValidator {
                     "jenkins",
                     "tekton",
                     "argocd",
+                    "fluxcd",
                 ];
                 if !valid_types.contains(&provider.provider_type.as_str()) {
                     result.add_warning(ConfigWarning {

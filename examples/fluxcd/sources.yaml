@@ -1,0 +1,19 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: podinfo
+  namespace: pipedash-examples
+spec:
+  interval: 10m
+  url: https://github.com/stefanprodan/podinfo
+  ref:
+    tag: 6.7.1
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: podinfo
+  namespace: pipedash-examples
+spec:
+  interval: 10m
+  url: https://stefanprodan.github.io/podinfo

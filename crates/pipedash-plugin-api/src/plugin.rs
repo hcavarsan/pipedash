@@ -35,6 +35,7 @@ pub struct PluginCapabilities {
     pub pipelines: bool,
     pub pipeline_runs: bool,
     pub trigger: bool,
+    pub cancel: bool,
     pub agents: bool,
     pub artifacts: bool,
     pub queues: bool,

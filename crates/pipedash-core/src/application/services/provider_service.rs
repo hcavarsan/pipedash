@@ -139,7 +139,7 @@ impl ProviderService {
             .config
             .get("selected_items")
             .map(|items| {
-                if fresh_config.provider_type == "argocd" {
+                if matches!(fresh_config.provider_type.as_str(), "argocd" | "fluxcd") {
                     return Vec::new();
                 }
 
@@ -234,7 +234,7 @@ impl ProviderService {
                 .config
                 .get("selected_items")
                 .map(|items| {
-                    if config.provider_type == "argocd" {
+                    if matches!(config.provider_type.as_str(), "argocd" | "fluxcd") {
                         return Vec::new();
                     }
 
@@ -374,7 +374,7 @@ impl ProviderService {
             .config
             .get("selected_items")
             .map(|items| {
-                if fresh_config.provider_type == "argocd" {
+                if matches!(fresh_config.provider_type.as_str(), "argocd" | "fluxcd") {
                     return Vec::new();
                 }
 
@@ -471,7 +471,7 @@ impl ProviderService {
             .config
             .get("selected_items")
             .map(|items| {
-                if fresh_config.provider_type == "argocd" {
+                if matches!(fresh_config.provider_type.as_str(), "argocd" | "fluxcd") {
                     return Vec::new();
                 }
 

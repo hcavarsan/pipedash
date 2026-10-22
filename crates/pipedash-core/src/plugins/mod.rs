@@ -15,6 +15,7 @@ pub fn create_plugin_registry() -> PluginRegistry {
     registry.register(Box::new(pipedash_plugin_jenkins::JenkinsPlugin::new()));
     registry.register(Box::new(pipedash_plugin_tekton::TektonPlugin::new()));
     registry.register(Box::new(pipedash_plugin_argocd::ArgocdPlugin::new()));
+    registry.register(Box::new(pipedash_plugin_fluxcd::FluxcdPlugin::new()));
 
     registry
 }
@@ -39,6 +40,7 @@ pub fn create_plugin(provider_type: &str) -> Option<Box<dyn PluginTrait>> {
         "jenkins" => Some(Box::new(pipedash_plugin_jenkins::JenkinsPlugin::new())),
         "tekton" => Some(Box::new(pipedash_plugin_tekton::TektonPlugin::new())),
         "argocd" => Some(Box::new(pipedash_plugin_argocd::ArgocdPlugin::new())),
+        "fluxcd" => Some(Box::new(pipedash_plugin_fluxcd::FluxcdPlugin::new())),
         _ => None,
     }
 }
