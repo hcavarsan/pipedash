@@ -382,17 +382,17 @@ jobs:
           echo "Publishing $crate_name..."
           cd "$crate_path"
 
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r --arg n "$crate_name" '.packages[] | select(.name == $n) | .version')
+          if curl -sf -A "pipedash-release" "https://crates.io/api/v1/crates/$crate_name/$version" >/dev/null; then
+            echo "$crate_name $version already published, skipping"
+            exit 0
+          fi
+
           for attempt in $(seq 1 "$max_retries"); do
             echo "Attempt $attempt/$max_retries for $crate_name"
 
             if cargo publish "${publish_args[@]}"; then
               echo "Successfully published $crate_name"
-              exit 0
-            fi
-
-            # Check if already published
-            if cargo publish --dry-run "${publish_args[@]}" 2>&1 | grep -q "already uploaded\|already exists"; then
-              echo "$crate_name already published, skipping"
               exit 0
             fi
 
