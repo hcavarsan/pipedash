@@ -149,12 +149,16 @@ async fn trigger_pipeline(
 ) -> ApiResult<Json<TriggerResponse>> {
     let inner = state.inner.read().await;
     let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+    let workflow_id = req.workflow_id.clone();
     let params = TriggerParams {
         workflow_id: req.workflow_id,
         inputs: req.inputs,
     };
 
     let run_id = core.pipeline_service.trigger_pipeline(params).await?;
+    core.pipeline_service
+        .invalidate_run_cache(&workflow_id)
+        .await;
 
     Ok(Json(TriggerResponse { run_id }))
 }
@@ -167,6 +171,9 @@ async fn cancel_run(
     core.pipeline_service
         .cancel_run(&pipeline_id, run_number)
         .await?;
+    core.pipeline_service
+        .invalidate_run_cache(&pipeline_id)
+        .await;
     Ok(())
 }
 
@@ -286,14 +293,42 @@ mod tests {
 
     const LATEST_BUILD: i64 = 150;
 
-    fn jenkins_build(number: i64) -> Value {
-        json!({ "number": number, "result": "SUCCESS", "timestamp": 0, "duration": 1000 })
+    #[derive(Clone, Default)]
+    struct JenkinsStub {
+        reject: Arc<AtomicBool>,
+        stopped: Arc<AtomicBool>,
+        triggered: Arc<AtomicBool>,
     }
 
-    async fn jenkins_job(RawQuery(query): RawQuery) -> Json<Value> {
+    impl JenkinsStub {
+        fn latest_build(&self) -> i64 {
+            if self.triggered.load(Ordering::SeqCst) {
+                LATEST_BUILD + 1
+            } else {
+                LATEST_BUILD
+            }
+        }
+
+        fn build(&self, number: i64) -> Value {
+            if number == LATEST_BUILD && !self.stopped.load(Ordering::SeqCst) {
+                return json!({ "number": number, "result": null, "building": true, "timestamp": 0, "duration": 0 });
+            }
+            if number == LATEST_BUILD {
+                return json!({ "number": number, "result": "ABORTED", "building": false, "timestamp": 0, "duration": 1000 });
+            }
+
+            json!({ "number": number, "result": "SUCCESS", "timestamp": 0, "duration": 1000 })
+        }
+    }
+
+    async fn jenkins_job(
+        State(stub): State<JenkinsStub>, RawQuery(query): RawQuery,
+    ) -> Json<Value> {
         let query = query.unwrap_or_default();
         if !query.contains("builds") {
-            return Json(json!({ "name": "build", "lastBuild": { "number": LATEST_BUILD } }));
+            return Json(
+                json!({ "name": "build", "lastBuild": { "number": stub.latest_build() } }),
+            );
         }
         let limit: i64 = query
             .rsplit(',')
@@ -301,17 +336,31 @@ mod tests {
             .and_then(|tail| tail.split(['}', '%']).next())
             .and_then(|limit| limit.parse().ok())
             .unwrap();
-        let builds: Vec<Value> = (1..=LATEST_BUILD)
+        let builds: Vec<Value> = (1..=stub.latest_build())
             .rev()
             .take(limit as usize)
-            .map(jenkins_build)
+            .map(|number| stub.build(number))
             .collect();
 
         Json(json!({ "builds": builds }))
     }
 
-    async fn jenkins_build_details(Path(number): Path<i64>) -> Json<Value> {
-        Json(jenkins_build(number))
+    async fn jenkins_build_details(
+        State(stub): State<JenkinsStub>, Path(number): Path<i64>,
+    ) -> Json<Value> {
+        Json(stub.build(number))
+    }
+
+    async fn jenkins_stop(State(stub): State<JenkinsStub>) -> StatusCode {
+        stub.stopped.store(true, Ordering::SeqCst);
+
+        StatusCode::FOUND
+    }
+
+    async fn jenkins_trigger(State(stub): State<JenkinsStub>) -> StatusCode {
+        stub.triggered.store(true, Ordering::SeqCst);
+
+        StatusCode::CREATED
     }
 
     async fn reject_when_set(
@@ -323,10 +372,14 @@ mod tests {
         next.run(request).await
     }
 
-    async fn start_jenkins_stub(reject: Arc<AtomicBool>) -> String {
+    async fn start_jenkins_stub(stub: JenkinsStub) -> String {
+        let reject = stub.reject.clone();
         let stub = Router::new()
             .route("/job/build/api/json", get(jenkins_job))
             .route("/job/build/{number}/api/json", get(jenkins_build_details))
+            .route("/job/build/{number}/stop", post(jenkins_stop))
+            .route("/job/build/buildWithParameters", post(jenkins_trigger))
+            .with_state(stub)
             .layer(axum::middleware::from_fn_with_state(
                 reject,
                 reject_when_set,
@@ -338,9 +391,7 @@ mod tests {
         format!("http://{addr}")
     }
 
-    async fn app_with_jenkins(
-        data_dir: &std::path::Path, reject: Arc<AtomicBool>,
-    ) -> (Router, i64) {
+    async fn app_with_jenkins(data_dir: &std::path::Path, stub: JenkinsStub) -> (Router, i64) {
         std::env::set_var("PIPEDASH_CONFIG_PATH", data_dir.join("config.toml"));
         let mut config = PipedashConfig::default();
         config.storage.backend = StorageBackendType::Sqlite;
@@ -354,7 +405,7 @@ mod tests {
             provider_type: "jenkins".into(),
             token: String::new(),
             config: [
-                ("server_url".to_string(), start_jenkins_stub(reject).await),
+                ("server_url".to_string(), start_jenkins_stub(stub).await),
                 ("username".to_string(), "admin".to_string()),
                 ("selected_items".to_string(), "build".to_string()),
             ]
@@ -397,11 +448,26 @@ mod tests {
         (status, serde_json::from_slice(&body).unwrap())
     }
 
+    async fn post_status(app: &Router, uri: &str, body: Value) -> StatusCode {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(uri)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        response.status()
+    }
+
     #[tokio::test]
     async fn run_details_load_a_run_older_than_the_latest_100() {
         let data_dir =
             std::env::temp_dir().join(format!("pipedash-run-details-{}", std::process::id()));
-        let (app, provider_id) = app_with_jenkins(&data_dir, Arc::default()).await;
+        let (app, provider_id) = app_with_jenkins(&data_dir, JenkinsStub::default()).await;
         let pipeline_id = format!("jenkins__{provider_id}__build");
 
         let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
@@ -419,8 +485,9 @@ mod tests {
     async fn rejected_provider_token_is_not_a_failed_api_login() {
         let data_dir =
             std::env::temp_dir().join(format!("pipedash-rejected-token-{}", std::process::id()));
-        let reject = Arc::new(AtomicBool::new(false));
-        let (app, provider_id) = app_with_jenkins(&data_dir, reject.clone()).await;
+        let stub = JenkinsStub::default();
+        let reject = stub.reject.clone();
+        let (app, provider_id) = app_with_jenkins(&data_dir, stub).await;
         let pipeline_id = format!("jenkins__{provider_id}__build");
 
         let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
@@ -438,5 +505,55 @@ mod tests {
                 .contains("Authentication failed"),
             "{body}"
         );
+    }
+
+    #[tokio::test]
+    async fn run_history_shows_a_cancelled_run_as_cancelled() {
+        let data_dir = std::env::temp_dir().join(format!("pipedash-cancel-{}", std::process::id()));
+        let (app, provider_id) = app_with_jenkins(&data_dir, JenkinsStub::default()).await;
+        let pipeline_id = format!("jenkins__{provider_id}__build");
+        let history = format!("/{pipeline_id}/runs?page=1&page_size=20");
+
+        let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, before) = get_json(&app, &history).await;
+        let cancel = post_status(
+            &app,
+            &format!("/{pipeline_id}/runs/{LATEST_BUILD}/cancel"),
+            Value::Null,
+        )
+        .await;
+        let (_, after) = get_json(&app, &history).await;
+        let _ = std::fs::remove_dir_all(&data_dir);
+
+        assert_eq!(before["runs"][0]["status"], "running");
+        assert_eq!(cancel, StatusCode::OK);
+        assert_eq!(after["runs"][0]["run_number"], LATEST_BUILD);
+        assert_eq!(after["runs"][0]["status"], "cancelled");
+    }
+
+    #[tokio::test]
+    async fn run_history_shows_a_triggered_run() {
+        let data_dir =
+            std::env::temp_dir().join(format!("pipedash-trigger-{}", std::process::id()));
+        let (app, provider_id) = app_with_jenkins(&data_dir, JenkinsStub::default()).await;
+        let pipeline_id = format!("jenkins__{provider_id}__build");
+        let history = format!("/{pipeline_id}/runs?page=1&page_size=20");
+
+        let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, before) = get_json(&app, &history).await;
+        let trigger = post_status(
+            &app,
+            &format!("/{pipeline_id}/trigger"),
+            json!({ "workflow_id": pipeline_id }),
+        )
+        .await;
+        let (_, after) = get_json(&app, &history).await;
+        let _ = std::fs::remove_dir_all(&data_dir);
+
+        assert_eq!(before["runs"][0]["run_number"], LATEST_BUILD);
+        assert_eq!(trigger, StatusCode::OK);
+        assert_eq!(after["runs"][0]["run_number"], LATEST_BUILD + 1);
     }
 }
