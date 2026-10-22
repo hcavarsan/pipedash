@@ -17,6 +17,7 @@ const MAX_CONCURRENT_PROVIDER_FETCHES: usize = 10;
 const OVERDUE_FACTOR: i64 = 3;
 const OVERDUE_MIN_SUCCESSFUL_RUNS: usize = 3;
 const OVERDUE_RECENT_RUNS: usize = 20;
+const OVERDUE_CONCURRENT_CHECKS: usize = 4;
 
 use super::metrics_service::MetricsService;
 use super::provider_service::ProviderService;
@@ -309,15 +310,22 @@ impl PipelineService {
             }
         };
         let now = Utc::now();
+        let permits = Semaphore::new(OVERDUE_CONCURRENT_CHECKS);
         let checks = pipelines
             .iter()
             .filter(|p| p.status == PipelineStatus::Running && p.provider_type != "fluxcd")
-            .map(|pipeline| async move {
-                match self.recent_runs(&pipeline.id).await {
-                    Ok(runs) => is_overdue(&runs, now).then(|| pipeline.id.clone()),
-                    Err(e) => {
-                        tracing::debug!(pipeline_id = %pipeline.id, error = %e, "Overdue check failed");
-                        None
+            .map(|pipeline| {
+                let permits = &permits;
+                async move {
+                    let _permit = permits.acquire().await.ok()?;
+                    match self.recent_runs(&pipeline.id).await {
+                        Ok(runs) => is_overdue(&runs, now).then(|| pipeline.id.clone()),
+                        Err(e) => {
+                            tracing::debug!(pipeline_id = %pipeline.id, error = %e, "Overdue check failed");
+                            self.overdue_pipelines
+                                .contains(&pipeline.id)
+                                .then(|| pipeline.id.clone())
+                        }
                     }
                 }
             });
@@ -1021,17 +1029,29 @@ mod tests {
             Arc::new(HttpClientManager::new().unwrap()),
             Arc::new(NoOpEventBus),
         ));
-        let service =
-            PipelineService::new(repository, provider_service, None, Arc::new(NoOpEventBus));
+        let service = PipelineService::new(
+            repository.clone(),
+            provider_service,
+            None,
+            Arc::new(NoOpEventBus),
+        );
 
         let before = service.get_cached_pipelines(None).await.unwrap();
         let changed = service.update_overdue_pipelines().await;
         let unchanged = service.update_overdue_pipelines().await;
         let after = service.get_cached_pipelines(None).await.unwrap();
+        repository
+            .clear_cached_run_history("jenkins__1__build")
+            .await
+            .unwrap();
+        let after_failed_lookup = service.update_overdue_pipelines().await;
+        let kept = service.get_cached_pipelines(None).await.unwrap();
 
         assert!(!before[0].overdue);
         assert!(changed);
         assert!(!unchanged);
         assert!(after[0].overdue);
+        assert!(!after_failed_lookup);
+        assert!(kept[0].overdue);
     }
 }
