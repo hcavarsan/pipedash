@@ -153,13 +153,13 @@ description = "Full release build"
 depends = ["ci", "build"]
 
 [tasks."bump:patch"]
-run = "cd hacks && cargo run --bin bump_version patch && cd .. && cargo update --workspace"
+run = "cd hacks && cargo run --bin bump_version patch && cd .. && cargo update"
 
 [tasks."bump:minor"]
-run = "cd hacks && cargo run --bin bump_version minor && cd .. && cargo update --workspace"
+run = "cd hacks && cargo run --bin bump_version minor && cd .. && cargo update"
 
 [tasks."bump:major"]
-run = "cd hacks && cargo run --bin bump_version major && cd .. && cargo update --workspace"
+run = "cd hacks && cargo run --bin bump_version major && cd .. && cargo update"
 
 # ------------------------------------------------------------------------------
 # Setup
