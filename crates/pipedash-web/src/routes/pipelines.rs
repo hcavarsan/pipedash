@@ -409,6 +409,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data_dir);
 
         assert_ne!(status, StatusCode::UNAUTHORIZED, "{body}");
+        assert!(status.is_client_error(), "{status} {body}");
         assert!(
             body["message"]
                 .as_str()

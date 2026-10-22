@@ -17,6 +17,9 @@ pub enum DomainError {
     #[error("Authentication failed: {0}")]
     AuthenticationFailed(String),
 
+    #[error("Authentication failed: {0}")]
+    ProviderAuthenticationFailed(String),
+
     #[error("API error: {0}")]
     ApiError(String),
 
