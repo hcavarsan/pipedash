@@ -49,6 +49,7 @@ export function useAddProvider() {
                 last_fetch_status: 'never',
                 last_fetch_error: null,
                 last_fetch_at: null,
+                paused_until: null,
                 configured_repositories: [],
               },
             ]

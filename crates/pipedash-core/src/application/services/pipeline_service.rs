@@ -74,6 +74,10 @@ impl PipelineService {
         if let Some(pid) = provider_id {
             if let Err(_e) = self.repository.clear_workflow_parameters_cache().await {}
 
+            if self.provider_service.check_quota(pid).await.is_some() {
+                return self.repository.get_cached_pipelines(Some(pid)).await;
+            }
+
             let provider = self.provider_service.get_provider(pid).await?;
 
             let result = timeout(Duration::from_secs(30), provider.fetch_pipelines()).await;
@@ -175,6 +179,9 @@ impl PipelineService {
                 let event_bus = self.event_bus.clone();
                 async move {
                     let _permit = semaphore.acquire().await.expect("semaphore closed");
+                    if provider_service.check_quota(provider_id).await.is_some() {
+                        return Ok((provider_id, None));
+                    }
                     let request_id = hash_request(provider_id, "fetch_pipelines");
 
                     let result = timeout(
@@ -197,7 +204,7 @@ impl PipelineService {
                                 }
                             }
 
-                            Ok((provider_id, pipelines))
+                            Ok((provider_id, Some(pipelines)))
                         }
                         Ok(Err(e)) => {
                             let error_msg = format!("{e}");
@@ -250,7 +257,7 @@ impl PipelineService {
         let mut all_pipelines = Vec::new();
         for result in results {
             match result {
-                Ok((provider_id, pipelines)) => {
+                Ok((provider_id, Some(pipelines))) => {
                     self.repository
                         .update_pipelines_cache(provider_id, &pipelines)
                         .await?;
@@ -263,6 +270,13 @@ impl PipelineService {
                         .await;
 
                     all_pipelines.extend(pipelines);
+                }
+                Ok((provider_id, None)) => {
+                    all_pipelines.extend(
+                        self.repository
+                            .get_cached_pipelines(Some(provider_id))
+                            .await?,
+                    );
                 }
                 Err(_e) => {}
             }

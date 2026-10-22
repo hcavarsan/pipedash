@@ -60,6 +60,8 @@ pub struct ProviderSummary {
     pub last_fetch_status: FetchStatus,
     pub last_fetch_error: Option<String>,
     pub last_fetch_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub paused_until: Option<chrono::DateTime<chrono::Utc>>,
     pub version: i64,
 }
 
@@ -110,6 +112,8 @@ pub trait Provider: Send + Sync {
     async fn get_workflow_parameters(
         &self, workflow_id: &str,
     ) -> DomainResult<Vec<pipedash_plugin_api::WorkflowParameter>>;
+
+    async fn fetch_rate_limit(&self) -> DomainResult<Option<pipedash_plugin_api::RateLimit>>;
 
     #[allow(dead_code)]
     async fn validate_credentials(&self) -> DomainResult<bool>;

@@ -26,6 +26,7 @@ import { useProviderStore } from '../../stores/providerStore'
 import type { ProviderConfig, ProviderSummary } from '../../types'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 import { formatCount } from '../../utils/formatCount'
+import { formatTime } from '../../utils/formatDateTime'
 import { ProviderIcon } from '../atoms/ProviderIcon'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
@@ -36,8 +37,16 @@ interface NavbarProps {
   compact?: boolean
 }
 
-const providerStatusText = (provider: ProviderSummary) =>
-  provider.last_fetch_status === 'error' ? 'Fetch failed' : formatCount(provider.pipeline_count, 'pipeline')
+const providerStatusText = (provider: ProviderSummary) => {
+  if (provider.last_fetch_status === 'error') {
+    return 'Fetch failed'
+  }
+  if (provider.paused_until) {
+    return `Paused until ${formatTime(provider.paused_until)}`
+  }
+
+  return formatCount(provider.pipeline_count, 'pipeline')
+}
 
 const ICON_TILE = { rail: 30, list: 28 } as const
 

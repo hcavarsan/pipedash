@@ -30,6 +30,7 @@ import {
 import { useProviderStore } from '../../../stores/providerStore'
 import type { ProviderConfig } from '../../../types'
 import { formatCount } from '../../../utils/formatCount'
+import { formatTime } from '../../../utils/formatDateTime'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
@@ -215,6 +216,17 @@ export const ProvidersSection = () => {
                             <Tooltip label={provider.last_fetch_error || 'Failed to fetch'} multiline w={300}>
                               <Text size="xs" c="red">
                                 Error
+                              </Text>
+                            </Tooltip>
+                          )}
+                          {provider.paused_until && (
+                            <Tooltip
+                              label="The API quota is almost used up. Pipedash resumes refreshing at the reset time."
+                              multiline
+                              w={300}
+                            >
+                              <Text size="xs" c="dimmed">
+                                Paused until {formatTime(provider.paused_until)}
                               </Text>
                             </Tooltip>
                           )}

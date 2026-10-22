@@ -12,6 +12,7 @@ use pipedash_plugin_api::{
     PipelineRun,
     PluginError,
     PluginResult,
+    RateLimit,
     RetryPolicy,
     ReviewDecision,
 };
@@ -39,6 +40,26 @@ impl GitHubClient {
             octocrab,
             retry_policy: RetryPolicy::default(),
             permission_checker,
+        })
+    }
+
+    pub async fn fetch_rate_limit(&self) -> PluginResult<RateLimit> {
+        let rate = self
+            .octocrab
+            .ratelimit()
+            .get()
+            .await
+            .map_err(|e| PluginError::ApiError(format!("Failed to fetch rate limit: {e}")))?
+            .resources
+            .core;
+        let reset_at = chrono::DateTime::from_timestamp(rate.reset as i64, 0).ok_or_else(|| {
+            PluginError::ApiError(format!("Invalid rate limit reset time: {}", rate.reset))
+        })?;
+
+        Ok(RateLimit {
+            limit: rate.limit as u64,
+            remaining: rate.remaining as u64,
+            reset_at,
         })
     }
 
