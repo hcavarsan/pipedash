@@ -255,8 +255,8 @@ mod tests {
 
     use super::*;
 
-    const STUB_REPOS: usize = 130;
-    const STUB_ORGS: usize = 40;
+    const STUB_REPOS: usize = 150;
+    const STUB_ORGS: usize = 70;
     const MAX_RESPONSE_ITEMS: usize = 50;
     const DEFAULT_PAGING_NUM: usize = 30;
 
