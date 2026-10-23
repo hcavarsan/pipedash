@@ -1,6 +1,7 @@
 [general]
 metrics_enabled = true
 default_refresh_interval = 30
+status_pages_enabled = true
 
 [server]
 bind_addr = "0.0.0.0:8080"
