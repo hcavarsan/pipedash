@@ -4,13 +4,24 @@ use std::sync::{
     RwLock as StdRwLock,
 };
 
-use pipedash_core::infrastructure::StorageManager;
+use pipedash_core::application::{
+    PipelineService,
+    ProviderService,
+};
+use pipedash_core::infrastructure::{
+    ConfigState,
+    StorageManager,
+};
 use pipedash_core::CoreContext;
 use tokio::sync::{
     Mutex,
     RwLock,
 };
 
+use crate::error::{
+    ApiResult,
+    AppError,
+};
 use crate::ws::WebSocketEventBus;
 
 pub struct AppStateInner {
@@ -89,5 +100,23 @@ impl AppState {
             .api_token
             .write()
             .unwrap_or_else(PoisonError::into_inner) = Some(token.into());
+    }
+
+    pub async fn provider_service(&self) -> ApiResult<Arc<ProviderService>> {
+        let inner = self.inner.read().await;
+        let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+        Ok(Arc::clone(&core.provider_service))
+    }
+
+    pub async fn pipeline_service(&self) -> ApiResult<Arc<PipelineService>> {
+        let inner = self.inner.read().await;
+        let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+        Ok(Arc::clone(&core.pipeline_service))
+    }
+
+    pub async fn config_state(&self) -> ApiResult<Arc<ConfigState>> {
+        let inner = self.inner.read().await;
+        let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+        Ok(Arc::clone(&core.config_state))
     }
 }

@@ -29,6 +29,7 @@ pub use migration::ConfigMigrator;
 pub use schema::{
     ConfigKey,
     GeneralConfig,
+    GeneralSettingsUpdate,
     PipedashConfig,
     PostgresConfig,
     ProviderFileConfig,

@@ -27,7 +27,7 @@ impl PluginAdapter {
         }
     }
 
-    fn map_error(e: pipedash_plugin_api::PluginError) -> DomainError {
+    pub(crate) fn map_error(e: pipedash_plugin_api::PluginError) -> DomainError {
         match e {
             pipedash_plugin_api::PluginError::AuthenticationFailed(msg) => {
                 DomainError::ProviderAuthenticationFailed(msg)
@@ -50,6 +50,21 @@ impl PluginAdapter {
             pipedash_plugin_api::PluginError::DatabaseError(msg) => DomainError::DatabaseError(msg),
             pipedash_plugin_api::PluginError::NotSupported(msg) => DomainError::NotSupported(msg),
             pipedash_plugin_api::PluginError::Internal(msg) => DomainError::InternalError(msg),
+            pipedash_plugin_api::PluginError::RateLimited {
+                message,
+                retry_after,
+            } => DomainError::RateLimited {
+                message,
+                retry_after,
+            },
+            pipedash_plugin_api::PluginError::ServiceUnavailable {
+                message,
+                retry_after,
+            } => DomainError::ServiceUnavailable {
+                message,
+                retry_after,
+            },
+            pipedash_plugin_api::PluginError::Tls(msg) => DomainError::Tls(msg),
             e => DomainError::ApiError(e.to_string()),
         }
     }
@@ -200,5 +215,17 @@ impl Provider for PluginAdapter {
 
     fn provider_type(&self) -> &str {
         &self.provider_type
+    }
+
+    fn capabilities(&self) -> &pipedash_plugin_api::PluginCapabilities {
+        &self.plugin.metadata().capabilities
+    }
+
+    fn status_source(&self) -> Option<&pipedash_plugin_api::StatusSource> {
+        self.plugin.status_source()
+    }
+
+    async fn check_health(&self) -> DomainResult<Vec<pipedash_plugin_api::ComponentHealth>> {
+        self.plugin.check_health().await.map_err(Self::map_error)
     }
 }

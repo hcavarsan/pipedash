@@ -5,10 +5,7 @@ use std::collections::{
 
 use indexmap::IndexMap;
 
-use super::schema::{
-    PipedashConfig,
-    ProviderFileConfig,
-};
+use super::schema::ProviderFileConfig;
 use super::state::ConfigState;
 use super::token_ref::TokenReference;
 use crate::domain::{
@@ -256,13 +253,10 @@ impl ProviderSyncService {
             );
         }
 
-        let config = PipedashConfig {
-            providers,
-            ..Default::default()
-        };
-        let body = ConfigState::update_toml_preserving_comments("", &config)?;
+        let mut doc = toml_edit::DocumentMut::new();
+        ConfigState::write_providers(&mut doc, &providers);
 
-        Ok(format!("{EXPORT_HEADER}{body}"))
+        Ok(format!("{EXPORT_HEADER}{doc}"))
     }
 
     fn preserved_token_var(stored: &str) -> Option<&str> {
@@ -538,5 +532,13 @@ mod tests {
             assert_eq!(exported.matches("${PIPEDASH_TOKEN_PROD:-}").count(), 1);
             assert!(exported.contains("${PIPEDASH_TOKEN_PROD_2:-}"));
         }
+    }
+
+    #[test]
+    fn test_export_toml_is_providers_only() {
+        let exported = ProviderSyncService::export_toml(&[]).unwrap();
+
+        assert!(!exported.contains("[general]"));
+        assert!(exported.starts_with("# Pipedash providers export."));
     }
 }

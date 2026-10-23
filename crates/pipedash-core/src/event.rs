@@ -6,8 +6,22 @@ use serde::{
 
 use crate::domain::{
     provider::ProviderSummary,
+    HealthLevel,
     Pipeline,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlertLinkKind {
+    Incident,
+    StatusPage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AlertLink {
+    pub url: String,
+    pub kind: AlertLinkKind,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -22,14 +36,6 @@ pub enum CacheInvalidationReason {
 pub enum CoreEvent {
     ProvidersChanged,
 
-    PipelinesFetched {
-        provider_id: i64,
-    },
-
-    PipelinesFetchError {
-        error: String,
-    },
-
     PipelinesUpdated {
         pipelines: Vec<Pipeline>,
         provider_id: Option<i64>,
@@ -37,7 +43,7 @@ pub enum CoreEvent {
     },
 
     PipelineStatusChanged {
-        pipelines: Vec<Pipeline>,
+        pipeline_ids: Vec<String>,
     },
 
     RunTriggered {
@@ -46,10 +52,6 @@ pub enum CoreEvent {
 
     RunCancelled {
         pipeline_id: String,
-    },
-
-    RefreshError {
-        error: String,
     },
 
     MetricsGenerated {
@@ -67,7 +69,18 @@ pub enum CoreEvent {
     },
 
     ProviderStatusUpdated {
-        provider_id: i64,
+        provider: ProviderSummary,
+    },
+
+    ProviderHealthAlert {
+        alert_id: String,
+        notification_key: String,
+        provider_ids: Vec<i64>,
+        level: HealthLevel,
+        title: String,
+        body: String,
+        link: Option<AlertLink>,
+        recovered: bool,
     },
 
     MigrationProgress {
@@ -113,18 +126,16 @@ impl CoreEvent {
     pub fn event_name(&self) -> &'static str {
         match self {
             CoreEvent::ProvidersChanged => "providers-changed",
-            CoreEvent::PipelinesFetched { .. } => "pipelines-fetched",
-            CoreEvent::PipelinesFetchError { .. } => "pipelines-fetch-error",
             CoreEvent::PipelinesUpdated { .. } => "pipelines-updated",
             CoreEvent::PipelineStatusChanged { .. } => "pipeline-status-changed",
             CoreEvent::RunTriggered { .. } => "run-triggered",
             CoreEvent::RunCancelled { .. } => "run-cancelled",
-            CoreEvent::RefreshError { .. } => "refresh-error",
             CoreEvent::MetricsGenerated { .. } => "metrics-generated",
             CoreEvent::MetricsGlobalConfigChanged => "metrics-global-config-changed",
             CoreEvent::MetricsConfigChanged { .. } => "metrics-config-changed",
             CoreEvent::MetricsFlushed { .. } => "metrics-flushed",
             CoreEvent::ProviderStatusUpdated { .. } => "provider-status-updated",
+            CoreEvent::ProviderHealthAlert { .. } => "provider-health-alert",
             CoreEvent::MigrationProgress { .. } => "migration-progress",
             CoreEvent::MigrationComplete { .. } => "migration-complete",
             CoreEvent::ProviderAdded { .. } => "provider-added",
@@ -139,8 +150,6 @@ impl CoreEvent {
     pub fn to_json_payload(&self) -> serde_json::Value {
         match self {
             CoreEvent::ProvidersChanged => serde_json::json!({}),
-            CoreEvent::PipelinesFetched { provider_id } => serde_json::json!(provider_id),
-            CoreEvent::PipelinesFetchError { error } => serde_json::json!(error),
             CoreEvent::PipelinesUpdated {
                 pipelines,
                 provider_id,
@@ -155,12 +164,11 @@ impl CoreEvent {
                 }
                 json
             }
-            CoreEvent::PipelineStatusChanged { pipelines } => {
-                serde_json::to_value(pipelines).unwrap_or_default()
-            }
+            CoreEvent::PipelineStatusChanged { pipeline_ids } => serde_json::json!({
+                "pipeline_ids": pipeline_ids,
+            }),
             CoreEvent::RunTriggered { workflow_id } => serde_json::json!(workflow_id),
             CoreEvent::RunCancelled { pipeline_id } => serde_json::json!(pipeline_id),
-            CoreEvent::RefreshError { error } => serde_json::json!(error),
             CoreEvent::MetricsGenerated { pipeline_id } => serde_json::json!(pipeline_id),
             CoreEvent::MetricsGlobalConfigChanged => serde_json::json!({}),
             CoreEvent::MetricsConfigChanged { pipeline_id } => serde_json::json!(pipeline_id),
@@ -171,7 +179,28 @@ impl CoreEvent {
                 }
                 json
             }
-            CoreEvent::ProviderStatusUpdated { provider_id } => serde_json::json!(provider_id),
+            CoreEvent::ProviderStatusUpdated { provider } => serde_json::json!({
+                "provider": provider,
+            }),
+            CoreEvent::ProviderHealthAlert {
+                alert_id,
+                notification_key,
+                provider_ids,
+                level,
+                title,
+                body,
+                link,
+                recovered,
+            } => serde_json::json!({
+                "alert_id": alert_id,
+                "notification_key": notification_key,
+                "provider_ids": provider_ids,
+                "level": level,
+                "title": title,
+                "body": body,
+                "link": link,
+                "recovered": recovered,
+            }),
             CoreEvent::MigrationProgress {
                 step,
                 step_index,
@@ -262,16 +291,65 @@ mod tests {
             "providers-changed"
         );
         assert_eq!(
-            CoreEvent::PipelinesFetched { provider_id: 1 }.event_name(),
-            "pipelines-fetched"
+            CoreEvent::PipelineStatusChanged {
+                pipeline_ids: vec!["a".to_string()]
+            }
+            .event_name(),
+            "pipeline-status-changed"
         );
     }
 
     #[test]
     fn test_event_serialization() {
-        let event = CoreEvent::PipelinesFetched { provider_id: 42 };
+        let event = CoreEvent::PipelineStatusChanged {
+            pipeline_ids: vec!["github__1__web".to_string(), "github__1__api".to_string()],
+        };
         let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("PipelinesFetched"));
-        assert!(json.contains("42"));
+        assert!(json.contains("PipelineStatusChanged"));
+        assert!(json.contains("github__1__web"));
+        assert_eq!(
+            event.to_json_payload(),
+            serde_json::json!({ "pipeline_ids": ["github__1__web", "github__1__api"] })
+        );
+    }
+
+    #[test]
+    fn test_provider_health_alert_wire_format() {
+        let alert = |link| CoreEvent::ProviderHealthAlert {
+            alert_id: "alert-7".to_string(),
+            notification_key: "status-page:feed".to_string(),
+            provider_ids: vec![1, 2],
+            level: HealthLevel::MajorOutage,
+            title: "GitHub is down".to_string(),
+            body: "Investigating".to_string(),
+            link,
+            recovered: false,
+        };
+        let with_link = alert(Some(AlertLink {
+            url: "https://www.githubstatus.com/incidents/abc".to_string(),
+            kind: AlertLinkKind::Incident,
+        }));
+
+        assert_eq!(with_link.event_name(), "provider-health-alert");
+        assert_eq!(
+            with_link.to_json_payload(),
+            serde_json::json!({
+                "alert_id": "alert-7",
+                "notification_key": "status-page:feed",
+                "provider_ids": [1, 2],
+                "level": "major_outage",
+                "title": "GitHub is down",
+                "body": "Investigating",
+                "link": {
+                    "url": "https://www.githubstatus.com/incidents/abc",
+                    "kind": "incident"
+                },
+                "recovered": false,
+            })
+        );
+        assert_eq!(
+            alert(None).to_json_payload()["link"],
+            serde_json::Value::Null
+        );
     }
 }
