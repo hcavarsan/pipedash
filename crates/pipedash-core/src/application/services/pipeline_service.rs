@@ -330,7 +330,7 @@ impl PipelineService {
         self.event_bus
             .emit(CoreEvent::PipelinesUpdated {
                 pipelines: applied.pipelines,
-                provider_id: Some(id),
+                provider_id: id,
                 timestamp: Utc::now().timestamp_millis(),
             })
             .await;
@@ -375,7 +375,7 @@ impl PipelineService {
                         self.event_bus
                             .emit(CoreEvent::PipelinesUpdated {
                                 pipelines,
-                                provider_id: Some(lease.id),
+                                provider_id: lease.id,
                                 timestamp: Utc::now().timestamp_millis(),
                             })
                             .await;
@@ -1295,7 +1295,7 @@ mod tests {
         h.bus
             .wait_for("the late result", |events| {
                 events.iter().any(|event| {
-                    matches!(event, CoreEvent::PipelinesUpdated { provider_id: Some(id), .. } if *id == hanging)
+                    matches!(event, CoreEvent::PipelinesUpdated { provider_id, .. } if *provider_id == hanging)
                 })
             })
             .await;
@@ -1493,7 +1493,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        let updated: Vec<Option<i64>> = events
+        let updated: Vec<i64> = events
             .iter()
             .filter_map(|event| match event {
                 CoreEvent::PipelinesUpdated { provider_id, .. } => Some(*provider_id),
@@ -1501,7 +1501,7 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(updated, vec![Some(id); 4]);
+        assert_eq!(updated, vec![id; 4]);
         assert_eq!(h.bus.count("pipeline-cache-invalidated"), 4);
         assert_eq!(
             changed,

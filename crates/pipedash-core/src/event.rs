@@ -38,7 +38,7 @@ pub enum CoreEvent {
 
     PipelinesUpdated {
         pipelines: Vec<Pipeline>,
-        provider_id: Option<i64>,
+        provider_id: i64,
         timestamp: i64,
     },
 
@@ -154,16 +154,11 @@ impl CoreEvent {
                 pipelines,
                 provider_id,
                 timestamp,
-            } => {
-                let mut json = serde_json::json!({
-                    "pipelines": pipelines,
-                    "timestamp": timestamp,
-                });
-                if let Some(pid) = provider_id {
-                    json["providerId"] = serde_json::json!(pid);
-                }
-                json
-            }
+            } => serde_json::json!({
+                "pipelines": pipelines,
+                "providerId": provider_id,
+                "timestamp": timestamp,
+            }),
             CoreEvent::PipelineStatusChanged { pipeline_ids } => serde_json::json!({
                 "pipeline_ids": pipeline_ids,
             }),
