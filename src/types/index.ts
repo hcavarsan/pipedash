@@ -81,6 +81,99 @@ export interface ProviderConfig {
 
 export type FetchStatus = 'success' | 'error' | 'never'
 
+export type HealthLevel = 'operational' | 'maintenance' | 'degraded' | 'partial_outage' | 'major_outage'
+
+export type FailureKind =
+  | 'network'
+  | 'timeout'
+  | 'tls'
+  | 'rate_limited'
+  | 'unavailable'
+  | 'auth'
+  | 'permission'
+  | 'config'
+  | 'not_found'
+  | 'other'
+
+export type SignalKind = 'status_page' | 'instance' | 'connection' | 'rate_limit'
+
+export type RefreshState = 'ok' | 'failed' | 'pending' | 'recent' | 'not_found'
+
+export interface ComponentHealth {
+  name: string
+  level: HealthLevel
+  detail: string | null
+}
+
+export interface Incident {
+  id: string
+  name: string
+  level: HealthLevel
+  phase: string
+  latest_update: string | null
+  url: string | null
+  started_at: string | null
+  updated_at: string
+}
+
+export interface Maintenance {
+  id: string
+  name: string
+  in_progress: boolean
+  starts_at: string | null
+  ends_at: string | null
+  url: string | null
+}
+
+export interface HealthSignal {
+  kind: SignalKind
+  episode_id: string
+  level: HealthLevel
+  evidence: 'fresh' | 'stale'
+  observed_at: string
+  title: string
+  detail: string | null
+  reported_by: string
+  url: string | null
+  components: ComponentHealth[]
+  incidents: Incident[]
+  maintenances: Maintenance[]
+  updated_at: string
+}
+
+export interface StatusPageRef {
+  name: string
+  url: string
+  checked_at: string | null
+  error: string | null
+}
+
+export interface ProviderHealth {
+  level: HealthLevel
+  signals: HealthSignal[]
+  next_attempt_at: string | null
+  in_flight: boolean
+  status_page: StatusPageRef | null
+}
+
+export interface RefreshResult {
+  provider_id: number
+  state: RefreshState
+  kind: FailureKind | null
+  message: string | null
+}
+
+export interface ProviderHealthAlert {
+  alert_id: string
+  notification_key: string
+  provider_ids: number[]
+  level: HealthLevel
+  title: string
+  body: string
+  link: { url: string; kind: 'incident' | 'status_page' } | null
+  recovered: boolean
+}
+
 export interface ProviderSummary {
   id: number
   name: string
@@ -92,8 +185,10 @@ export interface ProviderSummary {
   configured_repositories: string[]
   last_fetch_status: FetchStatus
   last_fetch_error: string | null
+  last_fetch_error_kind: FailureKind | null
   last_fetch_at: string | null
   paused_until: string | null
+  health: ProviderHealth
 }
 
 export interface TriggerParams {
@@ -110,6 +205,7 @@ interface PluginCapabilities {
   artifacts: boolean
   queues: boolean
   custom_tables: boolean
+  retains_run_history: boolean
 }
 
 type ConfigFieldType = 'Text' | 'Password' | 'TextArea' | 'Boolean' | 'Select' | 'MultiSelect' | 'Number'
@@ -338,6 +434,7 @@ export interface StorageConfig {
 export interface GeneralConfig {
   metrics_enabled: boolean
   default_refresh_interval: number
+  status_pages_enabled: boolean
 }
 
 export interface ServerConfig {

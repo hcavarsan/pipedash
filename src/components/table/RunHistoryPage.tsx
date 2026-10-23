@@ -62,6 +62,7 @@ import { PageContainer } from '../common/PageContainer'
 import { PageHeader } from '../common/PageHeader'
 import { StandardTable } from '../common/StandardTable'
 import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
+import { ProviderHealthBanner } from '../provider/ProviderHealthBanner'
 
 import { TableCustomizationModal } from './TableCustomizationModal'
 
@@ -844,6 +845,7 @@ export const RunHistoryPage = ({
         onBack={onBack}
         actions={headerActions}
       />
+      <ProviderHealthBanner providerIds={pipeline ? [pipeline.provider_id] : []} />
       {isFlux && pipeline && (
         <Group gap="sm" align="flex-start" mb="sm">
           <StatusBadge status={pipeline.status} label={getStatusLabel(pipeline)} size="md" />

@@ -9,9 +9,10 @@ import {
 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
-import type { Pipeline, PipelineStatus } from '../../types'
+import type { FailureKind, Pipeline, PipelineStatus } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getReconcileBlockReason, getStatusLabel } from '../../utils/pipelinePresentation'
+import type { AttentionTone } from '../../utils/providerAttention'
 import { StatusBadge } from '../atoms/StatusBadge'
 
 interface SectionHeadingProps {
@@ -38,7 +39,12 @@ export function SectionHeading({ id, icon, label, count }: SectionHeadingProps) 
 export interface ProviderFetchError {
   id: number
   name: string
-  error: string
+  tone: AttentionTone
+  color: string
+  kind: FailureKind | null
+  headline: string
+  detail: string | null
+  hint: string | null
 }
 
 export interface TableRow {
@@ -90,28 +96,31 @@ interface RepositoryFetchIndicatorProps {
 }
 
 export function RepositoryFetchIndicator({ row, onShowError }: RepositoryFetchIndicatorProps) {
-  if (row.hasPendingFetch) {
-    return (
-      <Tooltip label="Fetching pipelines…">
-        <Loader size="sm" aria-label="Fetching pipelines" />
-      </Tooltip>
-    )
-  }
+  const errors = row.providerErrors ?? []
 
-  const error = row.providerErrors?.[0]
-
-  if (!error) {
+  if (!row.hasPendingFetch && errors.length === 0) {
     return null
   }
 
-  const label = `View ${error.name} fetch error`
-
   return (
-    <Tooltip label={label}>
-      <ActionIcon variant="subtle" color="orange" aria-label={label} onClick={() => onShowError(error)}>
-        <IconAlertTriangle size={16} />
-      </ActionIcon>
-    </Tooltip>
+    <Group gap={4} wrap="nowrap">
+      {row.hasPendingFetch && (
+        <Tooltip label="Fetching pipelines…">
+          <Loader size="sm" aria-label="Fetching pipelines" />
+        </Tooltip>
+      )}
+      {errors.map((error) => {
+        const label = `View ${error.name} status`
+
+        return (
+          <Tooltip key={error.id} label={label}>
+            <ActionIcon variant="subtle" color={error.color} aria-label={label} onClick={() => onShowError(error)}>
+              <IconAlertTriangle size={16} aria-hidden />
+            </ActionIcon>
+          </Tooltip>
+        )
+      })}
+    </Group>
   )
 }
 

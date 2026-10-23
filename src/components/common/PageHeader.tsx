@@ -30,7 +30,15 @@ export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', action
             </ActionIcon>
           )}
           <Stack gap={2} flex={1} miw={0}>
-            <Title order={2} fw={600} size={isMobile ? 'h5' : 'h4'} lineClamp={1} miw={0}>
+            <Title
+              order={2}
+              fw={600}
+              size={isMobile ? 'h5' : 'h4'}
+              lineClamp={1}
+              miw={0}
+              tabIndex={-1}
+              data-page-heading
+            >
               {title}
             </Title>
             {subtitle && (

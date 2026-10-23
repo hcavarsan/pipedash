@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import type { ProviderSummary, RefreshResult } from '../types'
+
+import { describeRefreshResult, summarizeRefresh } from './refreshSummary'
+
+const result = (provider_id: number, overrides: Partial<RefreshResult> = {}): RefreshResult => ({
+  provider_id,
+  state: 'ok',
+  kind: null,
+  message: null,
+  ...overrides,
+})
+
+const provider = (id: number, name: string) => ({ id, name }) as ProviderSummary
+
+test('summarizes a clean refresh with the number of providers', () => {
+  assert.deepEqual(summarizeRefresh([result(1)], []), { message: 'Refreshed 1 provider', color: 'green' })
+  assert.deepEqual(summarizeRefresh([result(1), result(2, { state: 'recent' }), result(3), result(4)], []), {
+    message: 'Refreshed 4 providers',
+    color: 'green',
+  })
+})
+
+test('names failures and counts providers that are still running', () => {
+  const summary = summarizeRefresh(
+    [
+      result(1),
+      result(2),
+      result(3),
+      result(4, { state: 'failed', kind: 'rate_limited' }),
+      result(5, { state: 'pending' }),
+    ],
+    [provider(4, 'GitLab')]
+  )
+
+  assert.deepEqual(summary, {
+    message: 'Refreshed 3 of 5 · GitLab: rate limited · 1 still running',
+    color: 'orange',
+  })
+})
+
+test('describes a single result for the retry action', () => {
+  assert.equal(describeRefreshResult(result(1, { state: 'recent' })), 'Checked a moment ago')
+  assert.equal(describeRefreshResult(result(1, { state: 'failed', kind: 'auth', message: 'bad token' })), 'bad token')
+  assert.equal(describeRefreshResult(result(1, { state: 'failed', kind: 'timeout' })), 'timed out')
+})

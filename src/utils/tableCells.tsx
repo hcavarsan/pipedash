@@ -7,6 +7,7 @@ import { TruncatedText } from '../components/atoms/TruncatedText'
 import type { PipelineStatus, ProviderSummary } from '../types'
 
 import { formatDateTime } from './formatDateTime'
+import { providerAttention } from './providerAttention'
 
 const TABLE_CELL_STYLES = {
   text: {
@@ -111,17 +112,23 @@ export const TableCells = {
     </Group>
   ),
 
-  provider: (provider: ProviderSummary | undefined) => (
-    <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
-      <ProviderIcon
-        name={provider?.name ?? 'Unknown'}
-        icon={provider?.icon ?? null}
-        size={22}
-        failed={provider?.last_fetch_status === 'error'}
-      />
-      <Text size={TABLE_CELL_STYLES.text.size} truncate>
-        {provider?.name ?? 'Unknown'}
-      </Text>
-    </Group>
-  ),
+  provider: (provider: ProviderSummary | undefined) => {
+    const attention = provider ? providerAttention(provider) : null
+
+    return (
+      <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
+        <ProviderIcon
+          name={provider?.name ?? 'Unknown'}
+          icon={provider?.icon ?? null}
+          size={22}
+          attention={
+            attention?.tone && attention.headline ? { tone: attention.tone, label: attention.headline } : undefined
+          }
+        />
+        <Text size={TABLE_CELL_STYLES.text.size} truncate>
+          {provider?.name ?? 'Unknown'}
+        </Text>
+      </Group>
+    )
+  },
 }

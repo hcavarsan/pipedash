@@ -1,14 +1,20 @@
 import {
   type Icon,
+  IconAlertTriangle,
   IconCircleCaretRightFilled,
+  IconCircleCheck,
   IconCircleCheckFilled,
   IconCircleChevronsRightFilled,
   IconCircleRectangleFilled,
   IconCircleXFilled,
   IconClockFilled,
+  IconClockPause,
+  IconCloudOff,
+  IconPlugConnectedX,
+  IconTool,
 } from '@tabler/icons-react'
 
-import type { PipelineStatus } from '../types'
+import type { HealthLevel, PipelineStatus, SignalKind } from '../types'
 
 type StatusTone = 'success' | 'failed' | 'running' | 'pending' | 'neutral'
 
@@ -30,3 +36,16 @@ const SEVERITY_ORDER: PipelineStatus[] = ['failed', 'running', 'pending', 'cance
 
 export const mostSevereStatus = (statuses: PipelineStatus[]): PipelineStatus | null =>
   SEVERITY_ORDER.find((status) => statuses.includes(status)) ?? null
+
+export const HEALTH_META: Record<HealthLevel, { label: string; color: string; icon: Icon }> = {
+  operational: { label: 'Operational', color: 'green', icon: IconCircleCheck },
+  maintenance: { label: 'Maintenance', color: 'gray', icon: IconTool },
+  degraded: { label: 'Degraded', color: 'orange', icon: IconAlertTriangle },
+  partial_outage: { label: 'Partial outage', color: 'orange', icon: IconAlertTriangle },
+  major_outage: { label: 'Major outage', color: 'orange', icon: IconCloudOff },
+}
+
+export const SIGNAL_ICONS: Partial<Record<SignalKind, Icon>> = {
+  connection: IconPlugConnectedX,
+  rate_limit: IconClockPause,
+}

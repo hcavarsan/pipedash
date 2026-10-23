@@ -16,13 +16,17 @@ export async function requestSystemNotificationPermission(): Promise<boolean> {
   return (await Notification.requestPermission()) === 'granted'
 }
 
-export function showSystemNotification(title: string, body: string): void {
+export function showSystemNotification(title: string, body: string, onClick?: () => void): void {
   if (!systemNotificationsSupported() || Notification.permission !== 'granted') {
     return
   }
 
   try {
-    new Notification(title, { body })
+    const notification = new Notification(title, { body })
+
+    if (onClick) {
+      notification.onclick = onClick
+    }
   } catch (error) {
     logger.warn('systemNotifications', "Couldn't show notification", error)
   }

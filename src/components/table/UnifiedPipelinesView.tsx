@@ -26,6 +26,7 @@ import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { getDateRangeStart } from '../../utils/dateRange'
 import { getPipelineLabels, getStatusLabel, getStatusOptions } from '../../utils/pipelinePresentation'
+import { providerAttention } from '../../utils/providerAttention'
 import { TableCells } from '../../utils/tableCells'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
@@ -35,6 +36,7 @@ import { PageContainer } from '../common/PageContainer'
 import { PageHeader } from '../common/PageHeader'
 import { StandardModal } from '../common/StandardModal'
 import { StandardTable } from '../common/StandardTable'
+import { attentionColor, ProviderHealthBanner, ProviderRecoveryActions } from '../provider/ProviderHealthBanner'
 
 import { MobilePipelineCards } from './MobilePipelineCards'
 import { PinnedWorkflows } from './PinnedWorkflows'
@@ -129,6 +131,36 @@ const pipelineMatches = (pipeline: Pipeline, repository: string, organization: s
       value?.toLowerCase().includes(filters.query)
     )
   )
+}
+
+const toProviderIssue = (provider: ProviderSummary): ProviderFetchError | null => {
+  const attention = providerAttention(provider)
+  const { tone, headline } = attention
+  const base = { id: provider.id, name: provider.name, kind: attention.kind }
+
+  if (tone && headline) {
+    return {
+      ...base,
+      tone,
+      color: attentionColor(provider, tone),
+      headline,
+      detail: attention.detail,
+      hint: attention.hint,
+    }
+  }
+
+  if (provider.last_fetch_status === 'error' && provider.last_fetch_error) {
+    return {
+      ...base,
+      tone: 'danger',
+      color: attentionColor(provider, 'danger'),
+      headline: 'Fetch failed',
+      detail: provider.last_fetch_error,
+      hint: null,
+    }
+  }
+
+  return null
 }
 
 interface UnifiedPipelinesViewProps {
@@ -393,8 +425,10 @@ export const UnifiedPipelinesView = ({
           hasPendingFetch = true
         }
 
-        if (provider?.last_fetch_status === 'error' && provider.last_fetch_error) {
-          providerErrors.push({ id: provider.id, name: provider.name, error: provider.last_fetch_error })
+        const issue = provider && toProviderIssue(provider)
+
+        if (issue) {
+          providerErrors.push(issue)
         }
       })
 
@@ -466,17 +500,23 @@ export const UnifiedPipelinesView = ({
       .sort((a, b) => collator.compare(a.label, b.label))
   }, [repoGroups, providers])
 
-  const fetchErrors = providers.filter(
-    (provider) =>
-      provider.last_fetch_status === 'error' &&
-      provider.last_fetch_error &&
-      (rowFilters.providerId === undefined || provider.id === rowFilters.providerId)
+  const emptyTableIssues = providers
+    .filter((provider) => rowFilters.providerId === undefined || provider.id === rowFilters.providerId)
+    .map(toProviderIssue)
+    .filter((issue): issue is ProviderFetchError => issue !== null && issue.tone !== 'info')
+  const firstIssue = emptyTableIssues[0]
+
+  const pageHeading = (
+    <>
+      <PageHeader title={title} />
+      <ProviderHealthBanner providerIds={rowFilters.providerId === undefined ? undefined : [rowFilters.providerId]} />
+    </>
   )
 
   if (error) {
     return (
       <PageContainer>
-        <PageHeader title={title} />
+        {pageHeading}
         <ErrorState title="Couldn't load pipelines" error={error} onRetry={onRetry} retrying={loading} />
       </PageContainer>
     )
@@ -485,7 +525,7 @@ export const UnifiedPipelinesView = ({
   if (!loading && providers.length === 0) {
     return (
       <PageContainer>
-        <PageHeader title={title} />
+        {pageHeading}
         <EmptyState
           icon={<IconPlugConnected size={24} />}
           title="No providers configured"
@@ -503,7 +543,7 @@ export const UnifiedPipelinesView = ({
   if (loading) {
     return (
       <PageContainer>
-        <PageHeader title={title} />
+        {pageHeading}
         <LoadingState variant="page" message="Loading pipelines…" />
       </PageContainer>
     )
@@ -549,7 +589,7 @@ export const UnifiedPipelinesView = ({
 
   return (
     <PageContainer>
-      <PageHeader title={title} />
+      {pageHeading}
 
       <FilterBar
         filters={{
@@ -626,11 +666,12 @@ export const UnifiedPipelinesView = ({
             {rows.length === 0 ? (
               filtersActive ? (
                 noMatches
-              ) : fetchErrors.length > 0 ? (
+              ) : firstIssue ? (
                 <ErrorState
-                  title={`Couldn't fetch ${labels.items} from ${fetchErrors.map((p) => p.name).join(', ')}`}
-                  error={fetchErrors[0].last_fetch_error}
-                  hint="Check the provider credentials in Settings → Providers. Pipedash retries on the next refresh."
+                  title={`Couldn't fetch ${labels.items} from ${emptyTableIssues.map((issue) => issue.name).join(', ')}`}
+                  error={[firstIssue.headline, firstIssue.detail].filter(Boolean).join(': ')}
+                  hint={firstIssue.hint}
+                  actions={<ProviderRecoveryActions providerId={firstIssue.id} kind={firstIssue.kind} />}
                 />
               ) : (
                 <EmptyState
@@ -780,7 +821,7 @@ export const UnifiedPipelinesView = ({
       <StandardModal
         opened={errorModalOpened}
         onClose={closeErrorModal}
-        title="Provider fetch error"
+        title="Provider status"
         size="md"
         footer={
           <Group justify="flex-end" gap="sm">
@@ -792,18 +833,30 @@ export const UnifiedPipelinesView = ({
       >
         {selectedError && (
           <Stack gap="md">
-            <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light" title={selectedError.name}>
-              <Text size={TYPOGRAPHY.HELPER_TEXT.size}>Couldn't fetch pipelines from this provider.</Text>
+            <Alert
+              icon={<IconAlertCircle size={16} />}
+              color={selectedError.color}
+              variant="light"
+              title={selectedError.name}
+            >
+              <Text size={TYPOGRAPHY.HELPER_TEXT.size}>{selectedError.headline}</Text>
+              {selectedError.hint && (
+                <Text size={TYPOGRAPHY.HELPER_TEXT.size} c="dimmed">
+                  {selectedError.hint}
+                </Text>
+              )}
             </Alert>
 
-            <Box>
-              <Text size={TYPOGRAPHY.FIELD_LABEL.size} fw={500} c="dimmed" mb="xs">
-                Error details
-              </Text>
-              <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                {selectedError.error}
-              </Code>
-            </Box>
+            {selectedError.detail && (
+              <Box>
+                <Text size={TYPOGRAPHY.FIELD_LABEL.size} fw={500} c="dimmed" mb="xs">
+                  Details
+                </Text>
+                <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {selectedError.detail}
+                </Code>
+              </Box>
+            )}
           </Stack>
         )}
       </StandardModal>
