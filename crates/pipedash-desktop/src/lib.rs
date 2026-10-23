@@ -628,9 +628,12 @@ mod tests {
 
     fn assert_generated_config_loads(with_legacy_db: bool) {
         let root = tempfile::tempdir().unwrap();
-        let app_data_dir = root
-            .path()
-            .join(r"C:\Users\alice\AppData\Roaming\com.henrique.pipedash");
+        let app_data_dir = if cfg!(windows) {
+            root.path().join("com.henrique.pipedash")
+        } else {
+            root.path()
+                .join(r"C:\Users\alice\AppData\Roaming\com.henrique.pipedash")
+        };
         std::fs::create_dir_all(&app_data_dir).unwrap();
         if with_legacy_db {
             std::fs::write(app_data_dir.join("pipedash.db"), b"legacy").unwrap();
