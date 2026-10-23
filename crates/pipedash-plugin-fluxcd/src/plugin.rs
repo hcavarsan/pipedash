@@ -15,7 +15,9 @@ use futures::{
     TryStreamExt,
 };
 use pipedash_plugin_api::{
+    custom_status_source,
     AvailablePipeline,
+    ComponentHealth,
     Organization,
     PaginatedResponse,
     PaginationParams,
@@ -28,6 +30,7 @@ use pipedash_plugin_api::{
     PluginError,
     PluginMetadata,
     PluginResult,
+    StatusSource,
     TriggerParams,
 };
 use serde_json::json;
@@ -62,6 +65,7 @@ pub struct FluxcdPlugin {
     client: OnceCell<FluxClient>,
     provider_id: Option<i64>,
     settings: Option<Settings>,
+    status_source: Option<StatusSource>,
 }
 
 impl Default for FluxcdPlugin {
@@ -133,6 +137,7 @@ impl FluxcdPlugin {
             client: OnceCell::new(),
             provider_id: None,
             settings: None,
+            status_source: None,
         }
     }
 
@@ -293,11 +298,18 @@ impl Plugin for FluxcdPlugin {
         &mut self, provider_id: i64, config: HashMap<String, String>,
         _http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
-        self.settings = Some(Settings::from_config(&config)?);
+        let settings = Settings::from_config(&config)?;
+        let status_source = custom_status_source(&config)?;
+        self.settings = Some(settings);
+        self.status_source = status_source;
         self.provider_id = Some(provider_id);
         self.client = OnceCell::new();
 
         Ok(())
+    }
+
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
     }
 
     async fn validate_credentials(&self) -> PluginResult<bool> {
@@ -464,7 +476,10 @@ impl Plugin for FluxcdPlugin {
                         .await?;
 
                 match client.namespaces().await {
-                    Err(PluginError::AuthenticationFailed(reason)) => {
+                    Err(
+                        PluginError::AuthenticationFailed(reason)
+                        | PluginError::PermissionDenied(reason),
+                    ) => {
                         tracing::debug!(%reason, "Namespaces cannot be listed; suggestions unavailable");
                         Ok(Vec::new())
                     }
@@ -478,23 +493,33 @@ impl Plugin for FluxcdPlugin {
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
         let client = self.client().await?;
         let scopes = self.scopes()?;
-        let checks: Vec<(usize, &'static str, Kind, Option<String>)> = PERMISSIONS
-            .iter()
-            .enumerate()
-            .flat_map(|(index, spec)| {
-                let scopes = &scopes;
-                spec.verbs.iter().flat_map(move |verb| {
-                    scopes
-                        .iter()
-                        .map(move |scope| (index, *verb, spec.kind, scope.clone()))
-                })
-            })
-            .collect();
+        let flux_scope = [Some(self.settings()?.flux_namespace.clone())];
+        let mut checks = Vec::new();
+        for (index, spec) in PERMISSIONS.iter().enumerate() {
+            let (spec_scopes, names): (&[Option<String>], Vec<Option<&str>>) =
+                if spec.names.is_empty() {
+                    (scopes.as_slice(), vec![None])
+                } else {
+                    (
+                        flux_scope.as_slice(),
+                        spec.names.iter().copied().map(Some).collect(),
+                    )
+                };
+            for verb in spec.verbs {
+                for scope in spec_scopes {
+                    for name in &names {
+                        checks.push((index, spec, *verb, scope.as_deref(), *name));
+                    }
+                }
+            }
+        }
         let mut reviews = Vec::with_capacity(checks.len());
         for batch in checks.chunks(CONCURRENCY) {
             let results = futures::future::try_join_all(batch.iter().map(
-                |(index, verb, kind, scope)| async move {
-                    let allowed = client.can_i(verb, *kind, scope.as_deref()).await?;
+                |(index, spec, verb, scope, name)| async move {
+                    let allowed = client
+                        .can_i(spec.group, spec.resource, *scope, verb, *name)
+                        .await?;
                     Ok::<_, PluginError>((*index, allowed))
                 },
             ))
@@ -529,6 +554,24 @@ impl Plugin for FluxcdPlugin {
             metadata: HashMap::from([("scope".to_string(), scope)]),
         })
     }
+
+    async fn check_health(&self) -> PluginResult<Vec<ComponentHealth>> {
+        let client = self.client().await?;
+        let namespace = self.settings()?.flux_namespace.as_str();
+        let controllers =
+            futures::future::try_join_all(config::CONTROLLERS.iter().map(|name| async move {
+                match client.deployment(namespace, name).await {
+                    Ok(deployment) => Ok(deployment.health(name)),
+                    Err(PluginError::PipelineNotFound(_) | PluginError::PermissionDenied(_)) => {
+                        Ok(None)
+                    }
+                    Err(error) => Err(error),
+                }
+            }))
+            .await?;
+
+        Ok(controllers.into_iter().flatten().collect())
+    }
 }
 
 #[cfg(test)]
@@ -543,8 +586,10 @@ mod tests {
             TcpStream,
         },
         sync::mpsc,
+        time::Duration,
     };
 
+    use pipedash_plugin_api::HealthLevel;
     use serde_json::{
         json,
         Value,
@@ -597,6 +642,8 @@ mod tests {
             403 => "Forbidden",
             404 => "Not Found",
             409 => "Conflict",
+            429 => "Too Many Requests",
+            503 => "Service Unavailable",
             _ => "Internal Server Error",
         }
     }
@@ -1054,7 +1101,7 @@ mod tests {
         let error = plugin.fetch_pipelines().await.unwrap_err();
 
         assert!(
-            matches!(&error, PluginError::AuthenticationFailed(message) if message.contains("namespace ci") && message.contains("cannot list resource")),
+            matches!(&error, PluginError::PermissionDenied(message) if message.contains("namespace ci") && message.contains("cannot list resource")),
             "{error:?}"
         );
     }
@@ -1228,7 +1275,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forbidden_requests_are_authentication_failures_naming_the_resource() {
+    async fn forbidden_requests_are_permission_denials_naming_the_resource() {
         let dir = tempfile::tempdir().unwrap();
         let object = kustomization("ci", "app");
         let stub = stub(move |method, _, _| {
@@ -1256,7 +1303,7 @@ mod tests {
             .unwrap_err();
 
         assert!(
-            matches!(&error, PluginError::AuthenticationFailed(message) if message.contains("Kustomization ci/app") && message.contains("cannot patch")),
+            matches!(&error, PluginError::PermissionDenied(message) if message.contains("Kustomization ci/app") && message.contains("cannot patch")),
             "{error:?}"
         );
     }
@@ -1276,13 +1323,13 @@ mod tests {
         let error = plugin.fetch_pipelines().await.unwrap_err();
 
         assert!(
-            matches!(&error, PluginError::AuthenticationFailed(message) if message.contains("namespace denied") && message.contains("cannot list resource")),
+            matches!(&error, PluginError::PermissionDenied(message) if message.contains("namespace denied") && message.contains("cannot list resource")),
             "{error:?}"
         );
     }
 
     #[tokio::test]
-    async fn missing_and_failing_resources_report_not_found_and_api_errors_with_names() {
+    async fn missing_and_failing_resources_report_not_found_and_unavailable_with_names() {
         let dir = tempfile::tempdir().unwrap();
         let stub = stub(|_, target, _| {
             if target.ends_with("/app") {
@@ -1307,7 +1354,7 @@ mod tests {
             "{missing:?}"
         );
         assert!(
-            matches!(&failing, PluginError::ApiError(message) if message.contains("HelmRelease ci/web") && message.contains("etcd unavailable")),
+            matches!(&failing, PluginError::ServiceUnavailable { message, .. } if message.contains("HelmRelease ci/web") && message.contains("etcd unavailable")),
             "{failing:?}"
         );
     }
@@ -1387,7 +1434,7 @@ mod tests {
         );
         assert!(matches!(one, Ok(true)));
         assert!(
-            matches!(denied, Err(PluginError::AuthenticationFailed(_))),
+            matches!(denied, Err(PluginError::PermissionDenied(_))),
             "{denied:?}"
         );
     }
@@ -1425,15 +1472,16 @@ mod tests {
                 ("Read HelmReleases", false),
                 ("Request Kustomization reconciliation", false),
                 ("Request HelmRelease reconciliation", false),
+                ("Read Flux controller deployments", false),
             ]
         );
         assert!(!status.all_granted);
         assert_eq!(status.metadata["scope"], "namespaces: ci");
         let reviewed = stub.recorded();
-        assert_eq!(reviewed.len(), 2 * 2 + 2);
-        assert!(reviewed
-            .iter()
-            .all(|(method, _, body)| method == "POST" && body.contains("\"namespace\":\"ci\"")));
+        assert_eq!(reviewed.len(), 2 * 2 + 2 + 3);
+        assert!(reviewed.iter().all(|(method, _, body)| method == "POST"
+            && (body.contains("\"namespace\":\"ci\"")
+                || body.contains("\"namespace\":\"flux-system\""))));
     }
 
     #[tokio::test]
@@ -1458,9 +1506,346 @@ mod tests {
         let result = plugin.check_permissions().await;
 
         assert!(
-            matches!(&result, Err(PluginError::ApiError(message)) if message.contains("review failed")),
+            matches!(&result, Err(PluginError::ServiceUnavailable { message, .. }) if message.contains("review failed")),
             "{result:?}"
         );
+    }
+
+    fn controller_stub(respond: impl Fn(&str) -> (u16, String) + Send + 'static) -> Stub {
+        stub(move |_, target, _| respond(target.rsplit('/').next().unwrap_or_default()))
+    }
+
+    fn controller(replicas: i64, available: Option<i64>, condition: Option<&str>) -> (u16, String) {
+        let mut status = json!({});
+        if let Some(available) = available {
+            status["availableReplicas"] = json!(available);
+        }
+        if let Some(condition) = condition {
+            status["conditions"] = json!([{ "type": "Available", "status": condition }]);
+        }
+
+        (
+            200,
+            json!({ "kind": "Deployment", "spec": { "replicas": replicas }, "status": status })
+                .to_string(),
+        )
+    }
+
+    fn ready() -> (u16, String) {
+        controller(1, Some(1), Some("True"))
+    }
+
+    fn outage(name: &str, level: HealthLevel, detail: &str) -> ComponentHealth {
+        ComponentHealth {
+            name: name.to_string(),
+            level,
+            detail: Some(detail.to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn healthy_controllers_are_left_out_of_the_report() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = controller_stub(|_| ready());
+        let plugin = plugin(&stub.server, &dir, &[]);
+
+        let health = plugin.check_health().await.unwrap();
+
+        assert!(health.is_empty(), "{health:?}");
+        let mut paths: Vec<String> = stub
+            .recorded()
+            .into_iter()
+            .map(|(method, target, _)| format!("{method} {target}"))
+            .collect();
+        paths.sort();
+        assert_eq!(
+            paths,
+            [
+                "GET /apis/apps/v1/namespaces/flux-system/deployments/helm-controller",
+                "GET /apis/apps/v1/namespaces/flux-system/deployments/kustomize-controller",
+                "GET /apis/apps/v1/namespaces/flux-system/deployments/source-controller",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_controller_scaled_to_zero_is_a_major_outage() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = controller_stub(|name| {
+            if name == "kustomize-controller" {
+                controller(0, None, Some("False"))
+            } else {
+                ready()
+            }
+        });
+        let plugin = plugin(&stub.server, &dir, &[]);
+
+        let health = plugin.check_health().await.unwrap();
+
+        assert_eq!(
+            health,
+            vec![outage(
+                "kustomize-controller",
+                HealthLevel::MajorOutage,
+                "scaled to zero"
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn partly_available_controllers_are_degraded_even_when_the_available_condition_is_false()
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = controller_stub(|name| match name {
+            "source-controller" => controller(3, Some(2), Some("False")),
+            "helm-controller" => controller(2, Some(0), Some("False")),
+            _ => ready(),
+        });
+        let plugin = plugin(&stub.server, &dir, &[]);
+
+        let health = plugin.check_health().await.unwrap();
+
+        assert_eq!(
+            health,
+            vec![
+                outage(
+                    "source-controller",
+                    HealthLevel::Degraded,
+                    "2/3 replicas available"
+                ),
+                outage("helm-controller", HealthLevel::MajorOutage, "not running"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn forbidden_and_missing_controllers_are_left_out_without_hiding_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = controller_stub(|name| match name {
+            "source-controller" => (403, status_json(403, "Forbidden", "cannot get deployments")),
+            "helm-controller" => (404, status_json(404, "NotFound", "deployment not found")),
+            _ => controller(0, None, None),
+        });
+        let plugin = plugin(&stub.server, &dir, &[]);
+
+        let health = plugin.check_health().await.unwrap();
+
+        assert_eq!(
+            health,
+            vec![outage(
+                "kustomize-controller",
+                HealthLevel::MajorOutage,
+                "scaled to zero"
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn controllers_are_read_from_the_configured_flux_namespace() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = controller_stub(|_| ready());
+        let plugin = plugin(&stub.server, &dir, &[("flux_namespace", " gitops ")]);
+
+        plugin.check_health().await.unwrap();
+
+        let recorded = stub.recorded();
+        assert_eq!(recorded.len(), 3);
+        assert!(recorded
+            .iter()
+            .all(|(_, target, _)| target.starts_with("/apis/apps/v1/namespaces/gitops/")));
+    }
+
+    #[test]
+    fn an_invalid_flux_namespace_is_rejected_when_initializing() {
+        let mut plugin = FluxcdPlugin::new();
+        let config = HashMap::from([("flux_namespace".to_string(), "Not_Valid".to_string())]);
+
+        let result = plugin.initialize(1, config, None);
+
+        assert!(matches!(result, Err(PluginError::InvalidConfig(_))));
+    }
+
+    #[tokio::test]
+    async fn unavailable_and_throttled_clusters_fail_the_whole_health_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let unavailable = controller_stub(|name| {
+            if name == "helm-controller" {
+                (
+                    503,
+                    status_json(503, "ServiceUnavailable", "apiserver overloaded"),
+                )
+            } else {
+                ready()
+            }
+        });
+        let throttled = controller_stub(|_| {
+            (
+                429,
+                json!({
+                    "kind": "Status",
+                    "apiVersion": "v1",
+                    "status": "Failure",
+                    "message": "too many requests",
+                    "reason": "TooManyRequests",
+                    "details": { "retryAfterSeconds": 7 },
+                    "code": 429
+                })
+                .to_string(),
+            )
+        });
+
+        let unavailable_result = plugin(&unavailable.server, &dir, &[]).check_health().await;
+        let throttled_result = plugin(&throttled.server, &dir, &[]).check_health().await;
+
+        assert!(
+            matches!(&unavailable_result, Err(PluginError::ServiceUnavailable { message, retry_after: None }) if message.contains("apiserver overloaded")),
+            "{unavailable_result:?}"
+        );
+        assert!(
+            matches!(&throttled_result, Err(PluginError::RateLimited { retry_after: Some(wait), .. }) if *wait == Duration::from_secs(7)),
+            "{throttled_result:?}"
+        );
+        for stub in [&unavailable, &throttled] {
+            let mut targets: Vec<String> = stub
+                .recorded()
+                .into_iter()
+                .map(|(_, target, _)| target)
+                .collect();
+            let sent = targets.len();
+            targets.sort();
+            targets.dedup();
+            assert_eq!(targets.len(), sent, "a request was sent twice");
+        }
+    }
+
+    #[tokio::test]
+    async fn can_i_scopes_deployment_reviews_to_namespace_and_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = review_stub(|attributes| {
+            attributes["group"] == "apps"
+                && attributes["resource"] == "deployments"
+                && attributes["namespace"] == "flux-system"
+                && attributes["name"] == "source-controller"
+        });
+        let plugin = plugin(&stub.server, &dir, &[]);
+        let client = plugin.client().await.unwrap();
+
+        let allowed = client
+            .can_i(
+                "apps",
+                "deployments",
+                Some("flux-system"),
+                "get",
+                Some("source-controller"),
+            )
+            .await
+            .unwrap();
+        let other_name = client
+            .can_i(
+                "apps",
+                "deployments",
+                Some("flux-system"),
+                "get",
+                Some("helm-controller"),
+            )
+            .await
+            .unwrap();
+        let other_namespace = client
+            .can_i(
+                "apps",
+                "deployments",
+                Some("other"),
+                "get",
+                Some("source-controller"),
+            )
+            .await
+            .unwrap();
+
+        assert!(allowed);
+        assert!(!other_name);
+        assert!(!other_namespace);
+    }
+
+    #[tokio::test]
+    async fn controller_health_permission_is_checked_for_each_controller_in_the_flux_namespace() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = review_stub(|attributes| {
+            attributes["resource"] == "deployments"
+                && attributes["name"] != "helm-controller"
+                && attributes["namespace"] == "gitops"
+        });
+        let plugin = plugin(&stub.server, &dir, &[("flux_namespace", "gitops")]);
+
+        let status = plugin.check_permissions().await.unwrap();
+
+        let controllers = status
+            .permissions
+            .iter()
+            .find(|check| check.permission.name == "Read Flux controller deployments")
+            .unwrap();
+        assert!(!controllers.granted);
+        assert!(!controllers.permission.required);
+        let mut names: Vec<String> = stub
+            .recorded()
+            .into_iter()
+            .filter_map(|(_, _, body)| {
+                let review: Value = serde_json::from_str(&body).ok()?;
+                let attributes = &review["spec"]["resourceAttributes"];
+                (attributes["resource"] == "deployments").then(|| {
+                    format!(
+                        "{}/{}/{}",
+                        attributes["namespace"].as_str().unwrap_or_default(),
+                        attributes["verb"].as_str().unwrap_or_default(),
+                        attributes["name"].as_str().unwrap_or_default()
+                    )
+                })
+            })
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "gitops/get/helm-controller",
+                "gitops/get/kustomize-controller",
+                "gitops/get/source-controller",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_custom_status_page_becomes_the_status_source_and_garbage_is_rejected() {
+        let mut plugin = FluxcdPlugin::new();
+        assert!(plugin.status_source().is_none());
+
+        plugin
+            .initialize(
+                1,
+                HashMap::from([(
+                    "status_page_url".to_string(),
+                    "https://status.example.com".to_string(),
+                )]),
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            plugin
+                .status_source()
+                .map(|source| source.feed_url.as_str()),
+            Some("https://status.example.com/api/v2/summary.json")
+        );
+
+        plugin.initialize(1, HashMap::new(), None).unwrap();
+        assert!(plugin.status_source().is_none());
+
+        let result = plugin.initialize(
+            1,
+            HashMap::from([(
+                "status_page_url".to_string(),
+                "javascript:alert(1)".to_string(),
+            )]),
+            None,
+        );
+        assert!(matches!(result, Err(PluginError::InvalidConfig(_))));
     }
 
     #[tokio::test]

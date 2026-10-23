@@ -21,6 +21,7 @@ pub use health::{
     FeedFormat,
     HealthLevel,
     StatusSource,
+    CONTROLLER_HEALTH_FEATURE,
     STATUS_PAGE_URL_KEY,
 };
 pub use http::{

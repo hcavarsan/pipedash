@@ -1,5 +1,6 @@
 mod client;
 mod config;
+mod health;
 mod mapper;
 mod metadata;
 mod plugin;

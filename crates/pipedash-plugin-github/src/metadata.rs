@@ -19,20 +19,22 @@ pub fn create_metadata() -> PluginMetadata {
 }
 
 fn create_config_schema() -> ConfigSchema {
-    ConfigSchema::new().add_field(ConfigField {
-        key: "token".to_string(),
-        label: "API Token".to_string(),
-        description: Some(
-            "GitHub Personal Access Token or Fine-grained token with repo and workflow permissions"
-                .to_string(),
-        ),
-        field_type: ConfigFieldType::Password,
-        required: true,
-        default_value: None,
-        options: None,
-        validation_regex: None,
-        validation_message: None,
-    })
+    ConfigSchema::new()
+        .add_field(ConfigField {
+            key: "token".to_string(),
+            label: "API Token".to_string(),
+            description: Some(
+                "GitHub Personal Access Token or Fine-grained token with repo and workflow permissions"
+                    .to_string(),
+            ),
+            field_type: ConfigFieldType::Password,
+            required: true,
+            default_value: None,
+            options: None,
+            validation_regex: None,
+            validation_message: None,
+        })
+        .add_field(status_page_field())
 }
 
 fn create_capabilities() -> PluginCapabilities {

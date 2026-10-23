@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     path::Path,
+    time::Duration,
 };
 
 use kube::{
@@ -20,6 +21,7 @@ use kube::{
     },
 };
 use pipedash_plugin_api::{
+    from_status,
     PluginError,
     PluginResult,
 };
@@ -37,6 +39,7 @@ use serde_json::{
 
 use crate::{
     config::Target,
+    health::Deployment,
     types::{
         FluxResource,
         Kind,
@@ -126,12 +129,15 @@ pub(crate) async fn available_contexts(paths: Vec<String>) -> PluginResult<Vec<S
 fn map_error(error: kube::Error, context: &str) -> PluginError {
     match error {
         kube::Error::Api(status) => {
+            let retry_after = status
+                .details
+                .as_ref()
+                .map(|details| details.retry_after_seconds)
+                .filter(|seconds| *seconds > 0)
+                .map(|seconds| Duration::from_secs(seconds.into()));
             let detail = format!("{context}: {} (HTTP {})", status.message, status.code);
-            match status.code {
-                401 | 403 => PluginError::AuthenticationFailed(detail),
-                404 => PluginError::PipelineNotFound(detail),
-                _ => PluginError::ApiError(detail),
-            }
+
+            from_status(status.code, detail, retry_after)
         }
         kube::Error::Auth(error) => {
             PluginError::AuthenticationFailed(format!("{context}: {error}"))
@@ -159,11 +165,12 @@ impl FluxClient {
                 context,
                 ..Default::default()
             };
-            let config = runtime
+            let mut config = runtime
                 .block_on(kube::Config::from_custom_kubeconfig(kubeconfig, &options))
                 .map_err(|error| {
                     PluginError::InvalidConfig(format!("Failed to load kubeconfig: {error}"))
                 })?;
+            config.default_retry = false;
 
             kube::Client::try_from(config).map_err(|error| {
                 PluginError::InvalidConfig(format!("Failed to create Kubernetes client: {error}"))
@@ -270,14 +277,25 @@ impl FluxClient {
         Ok(())
     }
 
+    pub async fn deployment(&self, namespace: &str, name: &str) -> PluginResult<Deployment> {
+        let request = Request::new(format!("/apis/apps/v1/namespaces/{namespace}/deployments"));
+
+        self.exec(
+            request.get(name, &GetParams::default()),
+            &format!("get deployment {namespace}/{name}"),
+        )
+        .await
+    }
+
     pub async fn can_i(
-        &self, verb: &str, kind: Kind, namespace: Option<&str>,
+        &self, group: &str, resource: &str, namespace: Option<&str>, verb: &str, name: Option<&str>,
     ) -> PluginResult<bool> {
         let scope = namespace.map_or_else(
             || "all namespaces".to_string(),
             |namespace| format!("namespace {namespace}"),
         );
-        let context = format!("check permission to {verb} {} in {scope}", kind.plural());
+        let target = name.map_or_else(|| resource.to_string(), |name| format!("{resource}/{name}"));
+        let context = format!("check permission to {verb} {target} in {scope}");
         let body = serde_json::to_vec(&json!({
             "apiVersion": "authorization.k8s.io/v1",
             "kind": "SelfSubjectAccessReview",
@@ -285,8 +303,9 @@ impl FluxClient {
                 "resourceAttributes": {
                     "namespace": namespace,
                     "verb": verb,
-                    "group": kind.group(),
-                    "resource": kind.plural(),
+                    "group": group,
+                    "resource": resource,
+                    "name": name,
                 }
             }
         }))

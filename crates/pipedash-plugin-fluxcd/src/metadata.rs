@@ -1,4 +1,5 @@
 use pipedash_plugin_api::{
+    status_page_field,
     ConfigField,
     ConfigFieldType,
     ConfigSchema,
@@ -6,6 +7,7 @@ use pipedash_plugin_api::{
     Permission,
     PluginCapabilities,
     PluginMetadata,
+    CONTROLLER_HEALTH_FEATURE,
 };
 
 use crate::{
@@ -16,13 +18,16 @@ use crate::{
 
 const NAMESPACE_LIST_REGEX: &str =
     r"^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\s*,\s*[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$";
+const FLUX_NAMESPACE_REGEX: &str = r"^$|^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$";
 
 pub(crate) struct PermissionSpec {
     pub name: &'static str,
     pub description: &'static str,
     pub required: bool,
-    pub kind: Kind,
+    pub group: &'static str,
+    pub resource: &'static str,
     pub verbs: &'static [&'static str],
+    pub names: &'static [&'static str],
 }
 
 impl PermissionSpec {
@@ -39,35 +44,53 @@ const READ_KUSTOMIZATIONS: &str = "Read Kustomizations";
 const READ_HELMRELEASES: &str = "Read HelmReleases";
 const RECONCILE_KUSTOMIZATIONS: &str = "Request Kustomization reconciliation";
 const RECONCILE_HELMRELEASES: &str = "Request HelmRelease reconciliation";
+const READ_CONTROLLERS: &str = "Read Flux controller deployments";
 
-pub(crate) const PERMISSIONS: [PermissionSpec; 4] = [
+pub(crate) const PERMISSIONS: [PermissionSpec; 5] = [
     PermissionSpec {
         name: READ_KUSTOMIZATIONS,
         description: "get and list kustomizations.kustomize.toolkit.fluxcd.io to show status, conditions and history",
         required: true,
-        kind: Kind::Kustomization,
+        group: Kind::Kustomization.group(),
+        resource: Kind::Kustomization.plural(),
         verbs: &["get", "list"],
+        names: &[],
     },
     PermissionSpec {
         name: READ_HELMRELEASES,
         description: "get and list helmreleases.helm.toolkit.fluxcd.io to show status, conditions and release history",
         required: true,
-        kind: Kind::HelmRelease,
+        group: Kind::HelmRelease.group(),
+        resource: Kind::HelmRelease.plural(),
         verbs: &["get", "list"],
+        names: &[],
     },
     PermissionSpec {
         name: RECONCILE_KUSTOMIZATIONS,
         description: "patch kustomizations.kustomize.toolkit.fluxcd.io to set the reconcile.fluxcd.io/requestedAt annotation",
         required: false,
-        kind: Kind::Kustomization,
+        group: Kind::Kustomization.group(),
+        resource: Kind::Kustomization.plural(),
         verbs: &["patch"],
+        names: &[],
     },
     PermissionSpec {
         name: RECONCILE_HELMRELEASES,
         description: "patch helmreleases.helm.toolkit.fluxcd.io to set the reconcile.fluxcd.io/requestedAt annotation",
         required: false,
-        kind: Kind::HelmRelease,
+        group: Kind::HelmRelease.group(),
+        resource: Kind::HelmRelease.plural(),
         verbs: &["patch"],
+        names: &[],
+    },
+    PermissionSpec {
+        name: READ_CONTROLLERS,
+        description: "get deployments.apps named source-controller, kustomize-controller and helm-controller in the Flux namespace to show controller health",
+        required: false,
+        group: "apps",
+        resource: "deployments",
+        verbs: &["get"],
+        names: &config::CONTROLLERS,
     },
 ];
 
@@ -134,6 +157,26 @@ fn create_config_schema() -> ConfigSchema {
                     .to_string(),
             ),
         })
+        .add_field(ConfigField {
+            key: "flux_namespace".to_string(),
+            label: "Flux namespace".to_string(),
+            description: Some(
+                "Namespace where the Flux controllers run. Pipedash reads the source-controller, kustomize-controller and helm-controller deployments there to report controller health. Leave empty to use flux-system."
+                    .to_string(),
+            ),
+            field_type: ConfigFieldType::Text,
+            required: false,
+            default_value: Some(serde_json::Value::String(
+                config::DEFAULT_FLUX_NAMESPACE.to_string(),
+            )),
+            options: None,
+            validation_regex: Some(FLUX_NAMESPACE_REGEX.to_string()),
+            validation_message: Some(
+                "Use a Kubernetes namespace name: lowercase letters, numbers and hyphens, starting and ending with a letter or number, up to 63 characters."
+                    .to_string(),
+            ),
+        })
+        .add_field(status_page_field())
 }
 
 fn create_capabilities() -> PluginCapabilities {
@@ -173,6 +216,14 @@ fn create_features() -> Vec<Feature> {
                 RECONCILE_KUSTOMIZATIONS.to_string(),
                 RECONCILE_HELMRELEASES.to_string(),
             ],
+        },
+        Feature {
+            id: CONTROLLER_HEALTH_FEATURE.to_string(),
+            name: "Controller health".to_string(),
+            description:
+                "Report when the Flux controllers are scaled to zero, not running or only partly available"
+                    .to_string(),
+            required_permissions: vec![READ_CONTROLLERS.to_string()],
         },
     ]
 }

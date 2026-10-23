@@ -14,6 +14,12 @@ use pipedash_plugin_api::{
 use crate::types::Kind;
 
 pub(crate) const PROVIDER_TYPE: &str = "fluxcd";
+pub(crate) const DEFAULT_FLUX_NAMESPACE: &str = "flux-system";
+pub(crate) const CONTROLLERS: [&str; 3] = [
+    "source-controller",
+    "kustomize-controller",
+    "helm-controller",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Target {
@@ -187,6 +193,7 @@ pub(crate) struct Settings {
     pub context: Option<String>,
     pub namespaces: Vec<String>,
     pub selection: Vec<Target>,
+    pub flux_namespace: String,
 }
 
 impl Settings {
@@ -203,11 +210,23 @@ impl Settings {
             .map(|item| parse_selection(item))
             .collect::<PluginResult<Vec<_>>>()?;
 
+        let flux_namespace = config
+            .get("flux_namespace")
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .unwrap_or(DEFAULT_FLUX_NAMESPACE);
+        if !is_namespace(flux_namespace) {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid namespace '{flux_namespace}' in 'flux_namespace': expected a Kubernetes namespace name"
+            )));
+        }
+
         let settings = Self {
             kubeconfig_paths: kubeconfig_paths(config),
             context: context(config),
             namespaces,
             selection,
+            flux_namespace: flux_namespace.to_string(),
         };
         if let Some(outside) = settings
             .selection

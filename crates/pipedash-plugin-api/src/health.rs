@@ -16,6 +16,7 @@ use crate::schema::{
 };
 
 pub const STATUS_PAGE_URL_KEY: &str = "status_page_url";
+pub const CONTROLLER_HEALTH_FEATURE: &str = "controller_health";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
