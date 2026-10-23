@@ -193,6 +193,11 @@ export interface ProviderSummary {
   health: ProviderHealth
 }
 
+export interface ProviderImportResult {
+  added: string[]
+  skipped: string[]
+}
+
 export interface TriggerParams {
   workflow_id: string
   inputs?: Record<string, unknown>

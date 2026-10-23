@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Divider,
+  FileButton,
   Group,
   NumberInput,
   SimpleGrid,
@@ -14,8 +15,8 @@ import {
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import { IconDownload, IconEdit, IconExternalLink, IconSettings, IconTrash } from '@tabler/icons-react'
-import { useCallback, useEffect, useState } from 'react'
+import { IconDownload, IconEdit, IconExternalLink, IconSettings, IconTrash, IconUpload } from '@tabler/icons-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
 import { useNow } from '../../../hooks/useNow'
@@ -23,6 +24,7 @@ import { logger } from '../../../lib/logger'
 import { useProviderDetails } from '../../../queries/useProviderDetailsQuery'
 import {
   useExportProviders,
+  useImportProviders,
   useProviders,
   useRemoveProvider,
   useUpdateProvider,
@@ -129,6 +131,8 @@ export const ProvidersSection = () => {
   const { mutateAsync: removeProviderMutation } = useRemoveProvider()
   const updateRefreshIntervalMutation = useUpdateProviderRefreshInterval()
   const exportProvidersMutation = useExportProviders()
+  const importProvidersMutation = useImportProviders()
+  const importResetRef = useRef<() => void>(null)
   const now = useNow(30_000)
   const statusPagesEnabled = useStorageConfig().data?.config.general.status_pages_enabled !== false
 
@@ -243,17 +247,43 @@ export const ProvidersSection = () => {
           <Title order={2} size="lg" fw={600}>
             Providers
           </Title>
-          <Button
-            size="compact-sm"
-            variant="light"
-            color="gray"
-            leftSection={<IconDownload size={14} />}
-            onClick={() => exportProvidersMutation.mutate()}
-            loading={exportProvidersMutation.isPending}
-            disabled={loading || providers.length === 0}
-          >
-            Export
-          </Button>
+          <Group gap="xs">
+            <FileButton
+              accept=".toml"
+              resetRef={importResetRef}
+              onChange={(file) => {
+                if (file) {
+                  importProvidersMutation.mutate(file)
+                  importResetRef.current?.()
+                }
+              }}
+            >
+              {(props) => (
+                <Button
+                  {...props}
+                  size="compact-sm"
+                  variant="light"
+                  color="gray"
+                  leftSection={<IconUpload size={14} />}
+                  loading={importProvidersMutation.isPending}
+                  disabled={loading}
+                >
+                  Import
+                </Button>
+              )}
+            </FileButton>
+            <Button
+              size="compact-sm"
+              variant="light"
+              color="gray"
+              leftSection={<IconDownload size={14} />}
+              onClick={() => exportProvidersMutation.mutate()}
+              loading={exportProvidersMutation.isPending}
+              disabled={loading || providers.length === 0}
+            >
+              Export
+            </Button>
+          </Group>
         </Group>
 
         {loading ? (

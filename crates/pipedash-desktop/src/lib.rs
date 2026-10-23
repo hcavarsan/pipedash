@@ -10,6 +10,10 @@ use std::path::{
 };
 use std::sync::Arc;
 
+use pipedash_core::infrastructure::config::{
+    ConfigLoader,
+    PipedashConfig,
+};
 use pipedash_core::CoreContext;
 use tauri::Manager;
 
@@ -39,51 +43,32 @@ fn ensure_desktop_config(app_data_dir: &Path, config_path: &Path) -> Result<bool
         false
     };
 
-    let config_content = if is_legacy_migration {
-        format!(
-            r#"# Auto-generated configuration for legacy database
-# Created: {}
-# This config was automatically created to maintain backward compatibility
+    let mut config = PipedashConfig::default();
+    config.general.default_refresh_interval = 300;
+    config.storage.data_dir = app_data_dir.display().to_string();
 
-[general]
-metrics_enabled = true
-default_refresh_interval = 300
-status_pages_enabled = true
+    let config_toml =
+        ConfigLoader::to_toml(&config).map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-[server]
-bind_addr = "127.0.0.1:8080"
-cors_allow_all = false
-
-[storage]
-data_dir = "{}"
-backend = "sqlite"
-"#,
-            chrono::Utc::now().to_rfc3339(),
-            app_data_dir.display()
+    let (title, note) = if is_legacy_migration {
+        (
+            "Auto-generated configuration for legacy database",
+            "This config was automatically created to maintain backward compatibility",
         )
     } else {
-        format!(
-            r#"# Pipedash Desktop Configuration
-# Created: {}
-# Desktop uses SQLite with system keyring for secure credential storage
-
-[general]
-metrics_enabled = true
-default_refresh_interval = 300
-status_pages_enabled = true
-
-[server]
-bind_addr = "127.0.0.1:8080"
-cors_allow_all = false
-
-[storage]
-data_dir = "{}"
-backend = "sqlite"
-"#,
-            chrono::Utc::now().to_rfc3339(),
-            app_data_dir.display()
+        (
+            "Pipedash Desktop Configuration",
+            "Desktop uses SQLite with system keyring for secure credential storage",
         )
     };
+
+    let config_content = format!(
+        "# {}\n# Created: {}\n# {}\n\n{}",
+        title,
+        chrono::Utc::now().to_rfc3339(),
+        note,
+        config_toml
+    );
 
     std::fs::write(config_path, &config_content)
         .map_err(|e| format!("Failed to write config: {}", e))?;
@@ -255,6 +240,7 @@ use commands::{
     get_vault_status,
     get_workflow_parameters,
     get_workflow_run_details,
+    import_providers,
     list_plugin_metadata,
     list_providers,
     lock_vault,
@@ -323,8 +309,6 @@ pub fn run() {
                 "Set PIPEDASH_CONFIG_PATH to: {}",
                 config_path.display()
             );
-
-            use pipedash_core::infrastructure::config::ConfigLoader;
 
             let maybe_core_context = Arc::new(tokio::sync::RwLock::new(None));
 
@@ -580,6 +564,7 @@ pub fn run() {
             update_provider_refresh_interval,
             remove_provider,
             export_providers,
+            import_providers,
             get_available_plugins,
             list_plugin_metadata,
             get_provider_field_options,
@@ -647,9 +632,39 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use pipedash_core::infrastructure::ConfigLoader;
-
     use super::*;
+
+    fn assert_generated_config_loads(with_legacy_db: bool) {
+        let root = tempfile::tempdir().unwrap();
+        let app_data_dir = if cfg!(windows) {
+            root.path().join("com.henrique.pipedash")
+        } else {
+            root.path()
+                .join(r"C:\Users\alice\AppData\Roaming\com.henrique.pipedash")
+        };
+        std::fs::create_dir_all(&app_data_dir).unwrap();
+        if with_legacy_db {
+            std::fs::write(app_data_dir.join("pipedash.db"), b"legacy").unwrap();
+        }
+        let config_path = app_data_dir.join("config.toml");
+
+        assert_eq!(ensure_desktop_config(&app_data_dir, &config_path), Ok(true));
+
+        let config = ConfigLoader::load(&config_path).expect("generated config.toml must load");
+        assert_eq!(config.data_dir(), app_data_dir);
+        assert!(config.storage.backend.is_sqlite());
+        assert_eq!(config.general.default_refresh_interval, 300);
+    }
+
+    #[test]
+    fn fresh_config_loads_from_a_windows_style_data_dir() {
+        assert_generated_config_loads(false);
+    }
+
+    #[test]
+    fn legacy_config_loads_from_a_windows_style_data_dir() {
+        assert_generated_config_loads(true);
+    }
 
     #[test]
     fn the_desktop_config_templates_turn_status_pages_on() {

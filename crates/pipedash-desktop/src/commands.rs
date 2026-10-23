@@ -21,6 +21,7 @@ use pipedash_core::{
         Pipeline,
         PipelineRun,
         ProviderConfig,
+        ProviderImportResult,
         ProviderSummary,
         RefreshResult,
         RefreshState,
@@ -191,6 +192,20 @@ pub async fn export_providers(
     })?;
     core.provider_service
         .export_providers_toml()
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn import_providers(
+    maybe_core: State<'_, crate::MaybeCoreContext>, content: String,
+) -> Result<ProviderImportResult, ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+    core.provider_service
+        .import_providers_toml(&content)
         .await
         .map_err(Into::into)
 }

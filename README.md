@@ -51,7 +51,7 @@ What you can do:
 - See pipeline status across all your providers
 - Browse run history with commit info and execution times
 - Trigger workflows with parameters (Pipedash loads them from each provider)
-- Export your providers to a TOML file for another machine, with tokens left out as `${VAR}` references
+- Export your providers to a TOML file for another machine, with tokens left out as `${VAR}` references. On the other machine, Import under Settings > Providers adds each provider from the file that isn't set up there yet. It never reads tokens, so you add each one in the provider's edit dialog
 - Rerun previous executions with the same parameters
 - Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
 - Approve or reject a GitHub run that waits for a deployment review, from its row in run history (needs a required reviewer's token)
@@ -382,7 +382,7 @@ base_url = "https://gitlab.company.com"
 selected_items = "team/backend,team/frontend"
 ```
 
-Use `${VAR}` syntax to reference environment variables in config values.
+Use `${VAR}` syntax to reference environment variables in config values. When `VAR` is unset, Pipedash reads the value from the file named in `VAR_FILE` and drops the trailing newline. Docker and Kubernetes secrets work this way, for example `GITHUB_TOKEN_FILE=/run/secrets/github_token` or `PIPEDASH_POSTGRES_URL_FILE=/run/secrets/postgres_url`. `PIPEDASH_VAULT_PASSWORD` has no `_FILE` form.
 
 The `[server]` values are read when the API server starts. Until a config file exists (setup mode), the server uses the defaults `127.0.0.1:8080` and `cors_allow_all = false`, so restart the server after setup to apply them. `PIPEDASH_BIND_ADDR`, `PIPEDASH_CORS_ALLOW_ALL` and `PIPEDASH_BASE_PATH` take precedence over the file.
 
