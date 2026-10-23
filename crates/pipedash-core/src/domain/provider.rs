@@ -51,6 +51,12 @@ pub enum FetchStatus {
     Never,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderImportResult {
+    pub added: Vec<String>,
+    pub skipped: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderSummary {
     pub id: i64,

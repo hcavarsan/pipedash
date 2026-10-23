@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,6 +48,7 @@ use crate::domain::{
     Provider,
     ProviderConfig,
     ProviderHealth,
+    ProviderImportResult,
     ProviderSummary,
 };
 use crate::event::{
@@ -53,6 +57,7 @@ use crate::event::{
 };
 use crate::infrastructure::config::sync::ProviderSyncService;
 use crate::infrastructure::config::token_ref::TokenReference;
+use crate::infrastructure::config::ConfigLoader;
 use crate::infrastructure::database::{
     Repository,
     FETCH_STATUS_ERROR,
@@ -547,6 +552,71 @@ impl ProviderService {
         let providers = self.repository.config_backend().list_providers().await?;
 
         ProviderSyncService::export_toml(&providers)
+    }
+
+    pub async fn import_providers_toml(&self, content: &str) -> DomainResult<ProviderImportResult> {
+        let file = ConfigLoader::parse_raw(content).map_err(|e| {
+            DomainError::InvalidConfig(format!("Couldn't read the providers file: {e}"))
+        })?;
+        if file.providers.is_empty() {
+            return Err(DomainError::InvalidConfig(
+                "The file has no [providers] entries".to_string(),
+            ));
+        }
+        if let Some((key, provider)) = file
+            .providers
+            .iter()
+            .find(|(_, provider)| !self.plugin_registry.is_registered(&provider.provider_type))
+        {
+            return Err(DomainError::InvalidProviderType(format!(
+                "Provider '{key}' has an unknown type '{}'",
+                provider.provider_type
+            )));
+        }
+
+        let existing: HashSet<String> = self
+            .repository
+            .config_backend()
+            .list_providers()
+            .await?
+            .into_iter()
+            .map(|provider| provider.name)
+            .collect();
+        let mut result = ProviderImportResult::default();
+        let mut failure = None;
+
+        for (key, provider) in &file.providers {
+            let name = provider.display_name(key).to_string();
+            if existing.contains(key) {
+                result.skipped.push(name);
+                continue;
+            }
+
+            let config = ProviderSyncService::provider_config(key, provider, String::new());
+            match self.repository.add_provider(&config).await {
+                Ok(_) => result.added.push(name),
+                Err(e) => {
+                    let added_elsewhere = matches!(e, DomainError::InvalidConfig(_))
+                        && self
+                            .repository
+                            .config_backend()
+                            .list_providers()
+                            .await
+                            .is_ok_and(|providers| providers.iter().any(|p| p.name == *key));
+                    if !added_elsewhere {
+                        failure = Some(e);
+                        break;
+                    }
+                    result.skipped.push(name);
+                }
+            }
+        }
+
+        if !result.added.is_empty() {
+            self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+        }
+
+        failure.map_or(Ok(result), Err)
     }
 
     pub async fn get_provider_config(&self, id: i64) -> DomainResult<ProviderConfig> {
@@ -1084,6 +1154,107 @@ mod tests {
             assert_eq!(imported.refresh_interval, original.refresh_interval);
             assert_eq!(imported.config, original.config);
         }
+    }
+
+    #[tokio::test]
+    async fn test_import_providers_toml_adds_missing_providers_without_tokens() {
+        let source = Harness::with_real_plugins().await;
+        let jenkins = provider(
+            "My Jenkins",
+            "jenkins",
+            "${JENKINS_API_TOKEN}",
+            120,
+            &[
+                ("display_name", "Prod Jenkins"),
+                ("server_url", "http://127.0.0.1:9"),
+                ("username", "ci"),
+                ("selected_items", "(root)/deploy"),
+            ],
+        );
+        for original in [
+            provider(
+                "github-main",
+                "github",
+                GITHUB_SECRET,
+                45,
+                &[("selected_items", "acme/api")],
+            ),
+            jenkins.clone(),
+        ] {
+            source.repository.add_provider(&original).await.unwrap();
+        }
+        let exported = source
+            .provider_service
+            .export_providers_toml()
+            .await
+            .unwrap();
+
+        let target = Harness::with_real_plugins().await;
+        let kept = provider(
+            "github-main",
+            "github",
+            "target-token",
+            300,
+            &[("selected_items", "acme/web")],
+        );
+        let kept_id = target.repository.add_provider(&kept).await.unwrap();
+
+        let _env = EnvGuard::set(&[("JENKINS_API_TOKEN", Some("env-jenkins-token"))]);
+        let result = target
+            .provider_service
+            .import_providers_toml(&exported)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result,
+            ProviderImportResult {
+                added: vec!["Prod Jenkins".to_string()],
+                skipped: vec!["github-main".to_string()],
+            }
+        );
+        let unchanged = target.repository.get_provider(kept_id).await.unwrap();
+        assert_eq!(unchanged.token, kept.token);
+        assert_eq!(unchanged.refresh_interval, kept.refresh_interval);
+        assert_eq!(unchanged.config, kept.config);
+
+        let imported = target.repository.list_providers().await.unwrap();
+        let imported = imported.iter().find(|p| p.name == jenkins.name).unwrap();
+        let row = target
+            .repository
+            .config_backend()
+            .get_provider(imported.id.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(imported.token, "");
+        assert_eq!(row.token, "");
+        assert_eq!(imported.provider_type, jenkins.provider_type);
+        assert_eq!(imported.refresh_interval, jenkins.refresh_interval);
+        assert_eq!(imported.config, jenkins.config);
+        assert_eq!(target.bus.count("providers-changed"), 1);
+    }
+
+    #[tokio::test]
+    async fn test_import_providers_toml_rejects_unknown_type_before_adding() {
+        let h = Harness::with_real_plugins().await;
+        let content = r#"
+[providers.github-main]
+type = "github"
+
+[providers.mystery]
+type = "travis"
+"#;
+
+        let err = h
+            .provider_service
+            .import_providers_toml(content)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, DomainError::InvalidProviderType(_)), "{err}");
+        assert!(h.repository.list_providers().await.unwrap().is_empty());
+        assert_eq!(h.bus.count("providers-changed"), 0);
     }
 
     #[test]

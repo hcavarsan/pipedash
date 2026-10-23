@@ -50,6 +50,7 @@ pub use provider::{
     FetchStatus,
     Provider,
     ProviderConfig,
+    ProviderImportResult,
     ProviderSummary,
 };
 pub use refresh::{

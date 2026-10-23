@@ -50,20 +50,8 @@ impl ProviderSyncService {
 
             match existing_db {
                 None => {
-                    let mut config = toml_provider.config.clone();
-                    if let Some(display_name) = &toml_provider.name {
-                        config.insert("display_name".to_string(), display_name.clone());
-                    }
-
-                    let provider_config = ProviderConfig {
-                        id: None,
-                        name: id.clone(), // ID for database lookups
-                        provider_type: toml_provider.provider_type.clone(),
-                        token: toml_provider.token.clone(),
-                        config,
-                        refresh_interval: toml_provider.refresh_interval as i64,
-                        version: None,
-                    };
+                    let provider_config =
+                        Self::provider_config(&id, &toml_provider, toml_provider.token.clone());
 
                     let new_provider_id = config_backend.create_provider(&provider_config).await?;
 
@@ -89,19 +77,14 @@ impl ProviderSyncService {
                 }
                 Some(db_provider) => {
                     if self.needs_update(&toml_provider, db_provider) {
-                        let mut config = toml_provider.config.clone();
-                        if let Some(display_name) = &toml_provider.name {
-                            config.insert("display_name".to_string(), display_name.clone());
-                        }
-
                         let provider_config = ProviderConfig {
                             id: db_provider.id,
-                            name: id.clone(), // ID for database lookups
-                            provider_type: toml_provider.provider_type.clone(),
-                            token: toml_provider.token.clone(),
-                            config,
-                            refresh_interval: toml_provider.refresh_interval as i64,
                             version: db_provider.version,
+                            ..Self::provider_config(
+                                &id,
+                                &toml_provider,
+                                toml_provider.token.clone(),
+                            )
                         };
 
                         if let Some(db_id) = db_provider.id {
@@ -152,6 +135,25 @@ impl ProviderSyncService {
         }
 
         Ok(result)
+    }
+
+    pub(crate) fn provider_config(
+        key: &str, file: &ProviderFileConfig, token: String,
+    ) -> ProviderConfig {
+        let mut config = file.config.clone();
+        if let Some(display_name) = &file.name {
+            config.insert("display_name".to_string(), display_name.clone());
+        }
+
+        ProviderConfig {
+            id: None,
+            name: key.to_string(),
+            provider_type: file.provider_type.clone(),
+            token,
+            config,
+            refresh_interval: file.refresh_interval as i64,
+            version: None,
+        }
     }
 
     fn needs_update(&self, toml: &ProviderFileConfig, db: &ProviderConfig) -> bool {

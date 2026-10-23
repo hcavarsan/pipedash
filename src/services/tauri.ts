@@ -29,6 +29,7 @@ import {
   type PipelineRun,
   type PluginMetadata,
   type ProviderConfig,
+  type ProviderImportResult,
   type ProviderSummary,
   type RefreshResult,
   type ReviewDecision,
@@ -147,6 +148,14 @@ export const tauriService = {
   exportProviders: async (): Promise<string> => {
     try {
       return await invoke<string>('export_providers')
+    } catch (error) {
+      throw toPipedashError(error)
+    }
+  },
+
+  importProviders: async (content: string): Promise<ProviderImportResult> => {
+    try {
+      return await invoke<ProviderImportResult>('import_providers', { content })
     } catch (error) {
       throw toPipedashError(error)
     }

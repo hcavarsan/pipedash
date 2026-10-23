@@ -28,6 +28,7 @@ import type {
   PipelineRun,
   PluginMetadata,
   ProviderConfig,
+  ProviderImportResult,
   ProviderSummary,
   RefreshResult,
   ReviewDecision,
@@ -227,6 +228,10 @@ class ApiClient {
 
   async exportProviders(): Promise<string> {
     return this.get<string>('/providers/export')
+  }
+
+  async importProviders(content: string): Promise<ProviderImportResult> {
+    return this.post<ProviderImportResult>('/providers/import', { content })
   }
 
   async fetchProviderOrganizations(providerType: string, config: Record<string, string>): Promise<Organization[]> {
