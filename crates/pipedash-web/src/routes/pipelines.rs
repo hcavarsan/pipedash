@@ -317,7 +317,7 @@ mod tests {
             .route("/job/build/api/json", get(jenkins_job))
             .route("/job/build/{number}/api/json", get(jenkins_build_details))
             .route("/job/build/{number}/stop", post(jenkins_stop))
-            .route("/job/build/buildWithParameters", post(jenkins_trigger))
+            .route("/job/build/build", post(jenkins_trigger))
             .with_state(stub)
             .layer(axum::middleware::from_fn_with_state(
                 reject,

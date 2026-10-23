@@ -274,7 +274,12 @@ impl Plugin for JenkinsPlugin {
             }
         }
 
-        if form_data.is_empty() {
+        if form_data.is_empty()
+            && !self
+                .fetch_workflow_parameters(&params.workflow_id)
+                .await?
+                .is_empty()
+        {
             form_data.push(("json".to_string(), serde_json::json!({}).to_string()));
         }
 
@@ -386,7 +391,10 @@ impl Plugin for JenkinsPlugin {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
     use std::sync::Arc;
 
     use super::*;
@@ -470,5 +478,77 @@ mod tests {
 
         let rejected = initialized("ok", &[("status_page_url", "javascript:alert(1)")]).await;
         assert!(matches!(rejected, Err(PluginError::InvalidConfig(_))));
+    }
+
+    fn jenkins_core(path: &str) -> Reply {
+        let json = "Content-Type: application/json\r\n";
+        if path.starts_with("/job/plain/api/json") {
+            Reply {
+                status: "200 OK",
+                headers: json,
+                body: r#"{"property":[{"_class":"jenkins.model.BuildDiscarderProperty"}]}"#,
+            }
+        } else if path.starts_with("/job/release/api/json") {
+            Reply {
+                status: "200 OK",
+                headers: json,
+                body: r#"{"property":[{"_class":"hudson.model.ParametersDefinitionProperty","parameterDefinitions":[{"_class":"hudson.model.StringParameterDefinition","name":"BRANCH","defaultParameterValue":{"value":"main"}}]}]}"#,
+            }
+        } else if path == "/job/plain/build" || path == "/job/release/buildWithParameters" {
+            Reply {
+                status: "201 Created",
+                headers: "",
+                body: "",
+            }
+        } else {
+            Reply {
+                status: "400 Bad Request",
+                headers: "",
+                body: "job is not parameterized",
+            }
+        }
+    }
+
+    async fn trigger_without_inputs(job: &str) -> (PluginResult<String>, usize) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let server_url = stub_server(requests.clone(), Duration::ZERO, jenkins_core).await;
+        let mut plugin = JenkinsPlugin::new();
+        plugin
+            .initialize(
+                1,
+                HashMap::from([
+                    ("server_url".to_string(), server_url),
+                    ("username".to_string(), "alice".to_string()),
+                    ("token".to_string(), "secret".to_string()),
+                ]),
+                None,
+            )
+            .unwrap();
+
+        let result = plugin
+            .trigger_pipeline(TriggerParams {
+                workflow_id: format!("jenkins__1__{job}"),
+                inputs: None,
+            })
+            .await;
+
+        (result, requests.load(Ordering::SeqCst))
+    }
+
+    #[tokio::test]
+    async fn trigger_posts_to_build_for_a_job_without_parameters() {
+        let (result, requests) = trigger_without_inputs("plain").await;
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(requests, 2);
+    }
+
+    #[tokio::test]
+    async fn trigger_posts_to_build_with_parameters_for_a_parameterized_job() {
+        let (result, requests) = trigger_without_inputs("release").await;
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(requests, 2);
     }
 }
