@@ -288,18 +288,18 @@ mod tests {
 
     async fn status_error(response: impl Into<String>) -> PluginError {
         let url = serve_once(response);
-        let resp = reqwest::Client::new().get(url).send().await.unwrap();
+        let resp = client().get(url).send().await.unwrap();
         check_response(resp).await.unwrap_err()
     }
 
     #[tokio::test]
     async fn check_response_maps_every_status_row() {
         let ok = serve_once("HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n");
-        let resp = reqwest::Client::new().get(ok).send().await.unwrap();
+        let resp = client().get(ok).send().await.unwrap();
         assert!(check_response(resp).await.is_ok());
 
         let redirect = serve_once("HTTP/1.1 304 Not Modified\r\nContent-Length: 0\r\n\r\n");
-        let resp = reqwest::Client::new().get(redirect).send().await.unwrap();
+        let resp = client().get(redirect).send().await.unwrap();
         assert!(check_response(resp).await.is_ok());
 
         assert!(matches!(
@@ -370,6 +370,11 @@ mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
 
+    fn client() -> reqwest::Client {
+        install_crypto_provider();
+        reqwest::Client::new()
+    }
+
     fn spawn_tls_server() -> Url {
         install_crypto_provider();
         let cert = rustls::pki_types::CertificateDer::from(
@@ -405,11 +410,7 @@ mod tests {
     #[tokio::test]
     async fn map_send_error_detects_untrusted_certificate() {
         let url = spawn_tls_server();
-        let err = reqwest::Client::new()
-            .get(url.clone())
-            .send()
-            .await
-            .unwrap_err();
+        let err = client().get(url.clone()).send().await.unwrap_err();
         let mapped = map_send_error(err, &url);
         assert!(matches!(mapped, PluginError::Tls(_)), "{mapped:?}");
         assert!(!mapped.to_string().contains("token=secret"));
@@ -421,11 +422,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         drop(listener);
         let url = Url::parse(&format!("http://{addr}/?token=secret")).unwrap();
-        let err = reqwest::Client::new()
-            .get(url.clone())
-            .send()
-            .await
-            .unwrap_err();
+        let err = client().get(url.clone()).send().await.unwrap_err();
         let mapped = map_send_error(err, &url);
         assert!(matches!(mapped, PluginError::NetworkError(_)), "{mapped:?}");
         assert!(!mapped.to_string().contains("token=secret"));

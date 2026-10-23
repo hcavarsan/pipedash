@@ -491,6 +491,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_is_not_resent_after_a_server_error() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));

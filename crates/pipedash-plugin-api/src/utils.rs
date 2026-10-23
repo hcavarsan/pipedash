@@ -108,6 +108,11 @@ mod tests {
         RetryPolicy::new(3, Duration::from_millis(5), false)
     }
 
+    fn client(timeout: Duration) -> reqwest::Client {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        reqwest::Client::builder().timeout(timeout).build().unwrap()
+    }
+
     async fn attempts_for(error: fn() -> PluginError) -> usize {
         let attempts = AtomicUsize::new(0);
         let result: PluginResult<()> = fast_policy()
@@ -206,7 +211,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         drop(listener);
         let url = Url::parse(&format!("http://{addr}/trigger")).unwrap();
-        let client = reqwest::Client::new();
+        let client = client(Duration::from_secs(5));
         let attempts = AtomicUsize::new(0);
 
         let result = fast_policy()
@@ -237,10 +242,7 @@ mod tests {
             }
         });
         let url = Url::parse(&format!("http://{addr}/trigger")).unwrap();
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(50))
-            .build()
-            .unwrap();
+        let client = client(Duration::from_millis(50));
 
         let result = fast_policy()
             .retry_unsent(&url, || client.post(url.clone()).send())
