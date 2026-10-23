@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { HealthLevel, HealthSignal, Maintenance, ProviderHealth, ProviderSummary } from '../types'
 
 import { formatTime } from './formatDateTime'
-import { isOutageLevel, providerAttention, upcomingMaintenance } from './providerAttention'
+import { isOutageLevel, providerAttention, providerIssues, upcomingMaintenance } from './providerAttention'
 
 const signal = (overrides: Partial<HealthSignal> = {}): HealthSignal => ({
   kind: 'status_page',
@@ -267,4 +267,28 @@ test('outage levels start at partial outage', () => {
   assert.equal(isOutageLevel('degraded'), false)
   assert.equal(isOutageLevel('partial_outage'), true)
   assert.equal(isOutageLevel('major_outage'), true)
+})
+
+test('issues list only providers that need attention, worst tone first', () => {
+  const issues = providerIssues([
+    summary({ id: 1, name: 'Healthy' }),
+    summary({
+      id: 2,
+      name: 'Maintenance',
+      health: health('maintenance', [
+        signal({ level: 'maintenance', maintenances: [maintenance({ in_progress: true })] }),
+      ]),
+    }),
+    summary({ id: 3, name: 'Outage', health: health('major_outage', [signal()]) }),
+    summary({ id: 4, name: 'Broken token', last_fetch_status: 'error', last_fetch_error_kind: 'auth' }),
+  ])
+
+  assert.deepEqual(
+    issues.map((issue) => [issue.provider.name, issue.tone]),
+    [
+      ['Broken token', 'danger'],
+      ['Outage', 'warning'],
+      ['Maintenance', 'info'],
+    ]
+  )
 })

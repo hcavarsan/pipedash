@@ -21,7 +21,7 @@ import { usePipelineFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
 import { pinKey, usePinnedStore } from '../../stores/pinnedStore'
 import { useProviderStore } from '../../stores/providerStore'
-import { mostSevereStatus } from '../../theme/status'
+import { attentionColor, mostSevereStatus } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { getDateRangeStart } from '../../utils/dateRange'
@@ -36,7 +36,7 @@ import { PageContainer } from '../common/PageContainer'
 import { PageHeader } from '../common/PageHeader'
 import { StandardModal } from '../common/StandardModal'
 import { StandardTable } from '../common/StandardTable'
-import { attentionColor, ProviderHealthBanner, ProviderRecoveryActions } from '../provider/ProviderHealthBanner'
+import { ProviderRecoveryActions } from '../provider/ProviderRecoveryActions'
 
 import { MobilePipelineCards } from './MobilePipelineCards'
 import { PinnedWorkflows } from './PinnedWorkflows'
@@ -506,12 +506,7 @@ export const UnifiedPipelinesView = ({
     .filter((issue): issue is ProviderFetchError => issue !== null && issue.tone !== 'info')
   const firstIssue = emptyTableIssues[0]
 
-  const pageHeading = (
-    <>
-      <PageHeader title={title} />
-      <ProviderHealthBanner providerIds={rowFilters.providerId === undefined ? undefined : [rowFilters.providerId]} />
-    </>
-  )
+  const pageHeading = <PageHeader title={title} />
 
   if (error) {
     return (

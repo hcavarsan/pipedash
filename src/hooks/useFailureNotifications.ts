@@ -2,10 +2,32 @@ import { matchQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
 import { queryKeys } from '../lib/queryKeys'
+import { type CenterNotificationTone, useNotificationCenterStore } from '../stores/notificationCenterStore'
 import { useNotificationStore } from '../stores/notificationStore'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../types'
 import { isOutageLevel, providerAttention } from '../utils/providerAttention'
-import { showSystemNotification } from '../utils/systemNotifications'
+import { focusAppWindow, showSystemNotification } from '../utils/systemNotifications'
+
+const notify = (pipeline: Pipeline, tone: CenterNotificationTone, title: string, body: string, system: boolean) => {
+  const id = useNotificationCenterStore.getState().push({
+    key: `pipeline:${pipeline.id}`,
+    at: Date.now(),
+    tone,
+    level: null,
+    title,
+    body,
+    providerIds: [],
+    pipelineId: pipeline.id,
+    link: null,
+  })
+
+  if (system) {
+    showSystemNotification(title, body, () => {
+      focusAppWindow()
+      useNotificationCenterStore.getState().open({ type: 'notification', id })
+    })
+  }
+}
 
 const pipelineListsFilter = { queryKey: [...queryKeys.pipelines.all, 'list'] }
 
@@ -45,7 +67,9 @@ export function useFailureNotifications() {
           notifiedOverdueRuns.set(pipeline.id, overdueRun)
         }
 
-        if (!enabled) {
+        const failed = previous !== undefined && previous !== 'failed' && pipeline.status === 'failed'
+
+        if (!failed && !newOverdueRun) {
           continue
         }
 
@@ -56,12 +80,12 @@ export function useFailureNotifications() {
           .filter(Boolean)
           .join(' · ')
 
-        if (previous !== undefined && previous !== 'failed' && pipeline.status === 'failed') {
-          showSystemNotification(`${pipeline.name} failed`, details)
+        if (failed) {
+          notify(pipeline, 'danger', `${pipeline.name} failed`, details, enabled)
         }
 
         if (newOverdueRun) {
-          showSystemNotification(`${pipeline.name} is running longer than usual`, details)
+          notify(pipeline, 'warning', `${pipeline.name} is running longer than usual`, details, enabled)
         }
       }
     })

@@ -1,5 +1,18 @@
+import { getCurrentWindow } from '@tauri-apps/api/window'
+
 import { logger } from '../lib/logger'
 import { isTauri } from '../services'
+
+export function focusAppWindow(): void {
+  if (!isTauri()) {
+    window.focus()
+    return
+  }
+
+  getCurrentWindow()
+    .setFocus()
+    .catch((error: unknown) => logger.warn('systemNotifications', "Couldn't focus the window", error))
+}
 
 export const systemNotificationsSupported = (): boolean =>
   'Notification' in window && (isTauri() || window.isSecureContext)

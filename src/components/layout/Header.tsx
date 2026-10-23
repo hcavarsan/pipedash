@@ -21,6 +21,7 @@ import { platform } from '../../utils/platform'
 import { AppLogo } from '../atoms/AppLogo'
 import { ConnectionStatus } from '../common/ConnectionStatus'
 import { WindowControls } from '../common/WindowControls'
+import { NotificationCenter } from '../notifications/NotificationCenter'
 
 interface HeaderProps {
   onToggleNavbar?: () => void
@@ -158,6 +159,8 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
                 </ActionIcon>
               </Tooltip>
             )}
+
+            <NotificationCenter />
 
             <Tooltip label="Refresh all" position="bottom">
               <ActionIcon

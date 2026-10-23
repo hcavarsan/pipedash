@@ -162,3 +162,23 @@ export function upcomingMaintenance(summary: ProviderSummary, now: number): Main
 
   return next
 }
+
+export interface ProviderIssue {
+  provider: ProviderSummary
+  attention: ProviderAttention
+  tone: AttentionTone
+  headline: string
+}
+
+const TONE_RANK: Record<AttentionTone, number> = { info: 0, warning: 1, danger: 2 }
+
+export function providerIssues(providers: ProviderSummary[]): ProviderIssue[] {
+  return providers
+    .flatMap((provider): ProviderIssue[] => {
+      const attention = providerAttention(provider)
+      const { tone, headline } = attention
+
+      return tone && headline ? [{ provider, attention, tone, headline }] : []
+    })
+    .sort((a, b) => TONE_RANK[b.tone] - TONE_RANK[a.tone])
+}
