@@ -50,6 +50,7 @@ impl PluginAdapter {
             pipedash_plugin_api::PluginError::DatabaseError(msg) => DomainError::DatabaseError(msg),
             pipedash_plugin_api::PluginError::NotSupported(msg) => DomainError::NotSupported(msg),
             pipedash_plugin_api::PluginError::Internal(msg) => DomainError::InternalError(msg),
+            e => DomainError::ApiError(e.to_string()),
         }
     }
 
