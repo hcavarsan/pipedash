@@ -259,7 +259,12 @@ impl Plugin for JenkinsPlugin {
             }
         }
 
-        if form_data.is_empty() {
+        if form_data.is_empty()
+            && !self
+                .fetch_workflow_parameters(&params.workflow_id)
+                .await?
+                .is_empty()
+        {
             form_data.push(("json".to_string(), serde_json::json!({}).to_string()));
         }
 
@@ -366,5 +371,122 @@ impl Plugin for JenkinsPlugin {
         let job_path = parts[2];
         let client = self.client()?;
         client.cancel_build(job_path, run_number).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::io::{
+        AsyncReadExt,
+        AsyncWriteExt,
+    };
+    use tokio::sync::Mutex;
+
+    use super::*;
+
+    async fn jenkins_stub(requests: Arc<Mutex<Vec<String>>>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = stream.read(&mut buffer).await.unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..n]);
+                }
+                let line = String::from_utf8_lossy(&request)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                requests.lock().await.push(line.clone());
+
+                let (status, body) = if line.starts_with("GET /job/plain/api/json") {
+                    (
+                        "200 OK",
+                        r#"{"property":[{"_class":"jenkins.model.BuildDiscarderProperty"}]}"#,
+                    )
+                } else if line.starts_with("GET /job/release/api/json") {
+                    (
+                        "200 OK",
+                        r#"{"property":[{"_class":"hudson.model.ParametersDefinitionProperty","parameterDefinitions":[{"_class":"hudson.model.StringParameterDefinition","name":"BRANCH","defaultParameterValue":{"value":"main"}}]}]}"#,
+                    )
+                } else if line.starts_with("POST /job/plain/build ")
+                    || line.starts_with("POST /job/release/buildWithParameters ")
+                {
+                    ("201 Created", "")
+                } else {
+                    ("400 Bad Request", "job is not parameterized")
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    async fn trigger_without_inputs(job: &str) -> (PluginResult<String>, Vec<String>) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let server_url = jenkins_stub(requests.clone()).await;
+        let mut plugin = JenkinsPlugin::new();
+        plugin
+            .initialize(
+                1,
+                HashMap::from([
+                    ("server_url".to_string(), server_url),
+                    ("username".to_string(), "alice".to_string()),
+                    ("token".to_string(), "secret".to_string()),
+                ]),
+                None,
+            )
+            .unwrap();
+
+        let result = plugin
+            .trigger_pipeline(TriggerParams {
+                workflow_id: format!("jenkins__1__{job}"),
+                inputs: None,
+            })
+            .await;
+        let requests = requests.lock().await.clone();
+
+        (result, requests)
+    }
+
+    fn posts(requests: &[String]) -> Vec<&str> {
+        requests
+            .iter()
+            .filter(|line| line.starts_with("POST "))
+            .map(String::as_str)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn trigger_posts_to_build_for_a_job_without_parameters() {
+        let (result, requests) = trigger_without_inputs("plain").await;
+
+        assert!(result.is_ok(), "{result:?}, requests: {requests:?}");
+        assert_eq!(posts(&requests), ["POST /job/plain/build HTTP/1.1"]);
+    }
+
+    #[tokio::test]
+    async fn trigger_posts_to_build_with_parameters_for_a_parameterized_job() {
+        let (result, requests) = trigger_without_inputs("release").await;
+
+        assert!(result.is_ok(), "{result:?}, requests: {requests:?}");
+        assert_eq!(
+            posts(&requests),
+            ["POST /job/release/buildWithParameters HTTP/1.1"]
+        );
     }
 }
