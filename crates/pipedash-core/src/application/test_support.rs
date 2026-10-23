@@ -102,6 +102,10 @@ impl Gate {
     pub(crate) fn open(&self) {
         self.open.send_replace(true);
     }
+
+    pub(crate) fn close(&self) {
+        self.open.send_replace(false);
+    }
 }
 
 pub(crate) fn pipeline(provider_id: i64, name: &str, status: PipelineStatus) -> Pipeline {

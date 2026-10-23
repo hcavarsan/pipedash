@@ -261,6 +261,7 @@ impl PipelineService {
         if let Some(view) = view {
             let changed = status_changed
                 || content_changed
+                || self.provider_service.published_in_flight(id)
                 || before.is_none_or(|before| {
                     before.failures != view.failures || before.last_failure != view.last_failure
                 });
@@ -1544,6 +1545,38 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_fetch_clears_a_published_in_flight_summary() {
+        let h = Harness::new().await;
+        let gate = Gate::new();
+        let (id, _) = h.add_stub(|id| StubProvider::new(id).gated(&gate)).await;
+        let lease = h.provider_service.acquire(id).await.unwrap();
+        gate.open();
+        h.fetch_directly(id).await;
+        gate.arrived().await;
+        gate.close();
+        let fetch = h.spawn_fetch(id).await;
+        gate.arrived().await;
+
+        h.provider_service
+            .publish_summary(id, lease.generation)
+            .await;
+        gate.open();
+        fetch.await.unwrap();
+
+        let last = h
+            .bus
+            .events()
+            .into_iter()
+            .rev()
+            .find_map(|event| match event {
+                CoreEvent::ProviderStatusUpdated { provider } => Some(provider),
+                _ => None,
+            })
+            .unwrap();
+        assert!(!last.health.in_flight);
     }
 
     #[tokio::test]
