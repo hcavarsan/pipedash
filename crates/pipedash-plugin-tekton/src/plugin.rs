@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use futures::future::try_join_all;
+use futures::future::{
+    join_all,
+    try_join_all,
+};
 use k8s_openapi::api::apps::v1::Deployment;
 use pipedash_plugin_api::*;
 use tokio::sync::OnceCell;
@@ -252,18 +255,15 @@ impl Plugin for TektonPlugin {
         let client = self.client().await?;
         let namespace = config::get_controller_namespace(&self.config);
 
-        let components = try_join_all(CONTROLLER_DEPLOYMENTS.iter().map(|name| async {
-            match client.get_deployment(&namespace, name).await {
-                Ok(deployment) => Ok(classify_controller(name, &deployment)),
-                Err(PluginError::PipelineNotFound(_) | PluginError::PermissionDenied(_)) => {
-                    Ok(None)
-                }
-                Err(error) => Err(error),
-            }
+        let checks = join_all(CONTROLLER_DEPLOYMENTS.iter().map(|name| async {
+            client
+                .get_deployment(&namespace, name)
+                .await
+                .map(|deployment| classify_controller(name, &deployment))
         }))
-        .await?;
+        .await;
 
-        Ok(components.into_iter().flatten().collect())
+        collect_controller_health(checks)
     }
 
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
@@ -1091,17 +1091,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_health_leaves_out_forbidden_and_missing_deployments() {
+    async fn check_health_is_denied_on_403_and_not_installed_when_every_deployment_is_missing() {
         let dir = tempfile::tempdir().unwrap();
-        let server = health_stub(
+        let denied = health_stub(
             "tekton-pipelines",
             status_json(403, "Forbidden", 0),
             status_json(404, "NotFound", 0),
         );
+        let missing = health_stub(
+            "tekton-pipelines",
+            status_json(404, "NotFound", 0),
+            status_json(404, "NotFound", 0),
+        );
+        let one_missing = health_stub(
+            "tekton-pipelines",
+            deployment_json(CONTROLLER, 0, Some(0), None),
+            status_json(404, "NotFound", 0),
+        );
 
-        let health = plugin(&server, &dir).check_health().await.unwrap();
-
-        assert_eq!(health, Vec::new());
+        assert!(matches!(
+            plugin(&denied, &dir).check_health().await,
+            Err(PluginError::PermissionDenied(_))
+        ));
+        assert!(matches!(
+            plugin(&missing, &dir).check_health().await,
+            Err(PluginError::PipelineNotFound(_))
+        ));
+        let health = plugin(&one_missing, &dir).check_health().await.unwrap();
+        assert_eq!(health.len(), 1);
+        assert_eq!(health[0].name, CONTROLLER);
     }
 
     #[test]

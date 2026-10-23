@@ -145,6 +145,38 @@ fn is_literal_loopback(url: &Url) -> bool {
     matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
 }
 
+pub fn collect_controller_health(
+    checks: Vec<PluginResult<Option<ComponentHealth>>>,
+) -> PluginResult<Vec<ComponentHealth>> {
+    let mut components = Vec::new();
+    let mut denied = None;
+    let mut missing = None;
+    let total = checks.len();
+    let mut missing_count = 0;
+
+    for check in checks {
+        match check {
+            Ok(component) => components.extend(component),
+            Err(PluginError::PermissionDenied(message)) => {
+                denied.get_or_insert(message);
+            }
+            Err(PluginError::PipelineNotFound(message)) => {
+                missing_count += 1;
+                missing.get_or_insert(message);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    if let Some(message) = denied {
+        return Err(PluginError::PermissionDenied(message));
+    }
+    match missing {
+        Some(message) if missing_count == total => Err(PluginError::PipelineNotFound(message)),
+        _ => Ok(components),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +185,61 @@ mod tests {
         let mut config = HashMap::new();
         config.insert(STATUS_PAGE_URL_KEY.to_string(), url.to_string());
         custom_status_source(&config)
+    }
+
+    fn controller(name: &str) -> ComponentHealth {
+        ComponentHealth {
+            name: name.to_string(),
+            level: HealthLevel::MajorOutage,
+            detail: Some("scaled to zero".to_string()),
+        }
+    }
+
+    #[test]
+    fn controller_health_leaves_out_healthy_and_single_missing_controllers() {
+        let result = collect_controller_health(vec![
+            Ok(None),
+            Ok(Some(controller("kustomize-controller"))),
+            Err(PluginError::PipelineNotFound("helm-controller".into())),
+        ]);
+
+        assert_eq!(result.unwrap(), vec![controller("kustomize-controller")]);
+    }
+
+    #[test]
+    fn any_denied_controller_makes_the_check_denied() {
+        let result = collect_controller_health(vec![
+            Ok(Some(controller("kustomize-controller"))),
+            Err(PluginError::PermissionDenied("forbidden".into())),
+        ]);
+
+        assert!(matches!(result, Err(PluginError::PermissionDenied(_))));
+    }
+
+    #[test]
+    fn every_controller_missing_means_not_installed() {
+        let result = collect_controller_health(vec![
+            Err(PluginError::PipelineNotFound("a".into())),
+            Err(PluginError::PipelineNotFound("b".into())),
+        ]);
+
+        assert!(matches!(result, Err(PluginError::PipelineNotFound(_))));
+    }
+
+    #[test]
+    fn other_errors_fail_the_whole_check() {
+        let result = collect_controller_health(vec![
+            Err(PluginError::PermissionDenied("forbidden".into())),
+            Err(PluginError::ServiceUnavailable {
+                message: "503".into(),
+                retry_after: None,
+            }),
+        ]);
+
+        assert!(matches!(
+            result,
+            Err(PluginError::ServiceUnavailable { .. })
+        ));
     }
 
     #[test]

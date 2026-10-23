@@ -13,6 +13,7 @@ pub use error::{
     PluginResult,
 };
 pub use health::{
+    collect_controller_health,
     custom_status_source,
     status_page_field,
     ClientOptions,

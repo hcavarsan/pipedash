@@ -15,6 +15,7 @@ use futures::{
     TryStreamExt,
 };
 use pipedash_plugin_api::{
+    collect_controller_health,
     custom_status_source,
     AvailablePipeline,
     ComponentHealth,
@@ -558,19 +559,15 @@ impl Plugin for FluxcdPlugin {
     async fn check_health(&self) -> PluginResult<Vec<ComponentHealth>> {
         let client = self.client().await?;
         let namespace = self.settings()?.flux_namespace.as_str();
-        let controllers =
-            futures::future::try_join_all(config::CONTROLLERS.iter().map(|name| async move {
-                match client.deployment(namespace, name).await {
-                    Ok(deployment) => Ok(deployment.health(name)),
-                    Err(PluginError::PipelineNotFound(_) | PluginError::PermissionDenied(_)) => {
-                        Ok(None)
-                    }
-                    Err(error) => Err(error),
-                }
-            }))
-            .await?;
+        let checks = futures::future::join_all(config::CONTROLLERS.iter().map(|name| async move {
+            client
+                .deployment(namespace, name)
+                .await
+                .map(|deployment| deployment.health(name))
+        }))
+        .await;
 
-        Ok(controllers.into_iter().flatten().collect())
+        collect_controller_health(checks)
     }
 }
 
@@ -1619,25 +1616,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn forbidden_and_missing_controllers_are_left_out_without_hiding_the_others() {
+    async fn a_missing_controller_is_left_out_and_a_forbidden_one_denies_the_check() {
         let dir = tempfile::tempdir().unwrap();
-        let stub = controller_stub(|name| match name {
-            "source-controller" => (403, status_json(403, "Forbidden", "cannot get deployments")),
+        let missing = controller_stub(|name| match name {
             "helm-controller" => (404, status_json(404, "NotFound", "deployment not found")),
             _ => controller(0, None, None),
         });
-        let plugin = plugin(&stub.server, &dir, &[]);
+        let forbidden = controller_stub(|name| match name {
+            "source-controller" => (403, status_json(403, "Forbidden", "cannot get deployments")),
+            _ => ready(),
+        });
 
-        let health = plugin.check_health().await.unwrap();
+        let health = plugin(&missing.server, &dir, &[])
+            .check_health()
+            .await
+            .unwrap();
+        let denied = plugin(&forbidden.server, &dir, &[]).check_health().await;
 
         assert_eq!(
             health,
-            vec![outage(
-                "kustomize-controller",
-                HealthLevel::MajorOutage,
-                "scaled to zero"
-            )]
+            vec![
+                outage(
+                    "source-controller",
+                    HealthLevel::MajorOutage,
+                    "scaled to zero"
+                ),
+                outage(
+                    "kustomize-controller",
+                    HealthLevel::MajorOutage,
+                    "scaled to zero"
+                ),
+            ]
         );
+        assert!(matches!(denied, Err(PluginError::PermissionDenied(_))));
     }
 
     #[tokio::test]
