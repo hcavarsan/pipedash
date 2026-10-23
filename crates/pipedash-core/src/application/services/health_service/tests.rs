@@ -1198,9 +1198,7 @@ async fn controller_checks_run_four_at_a_time_and_time_out_after_ten_seconds() {
     quiesce().await;
 
     let hanging = Gate::new();
-    let slow = w
-        .instance_provider(|stub| stub.health_gated(&hanging))
-        .await;
+    let slow = busy(w.instance_provider(|stub| stub.health_gated(&hanging))).await;
     w.outcome(&slow, None, 0);
     until("the hanging check", || slow.stub.health_check_count() == 1).await;
     advance(10).await;
