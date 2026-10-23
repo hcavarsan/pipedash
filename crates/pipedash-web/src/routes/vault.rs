@@ -147,18 +147,14 @@ async fn unlock_vault(
                 .await
             {
                 Ok(new_core) => {
-                    {
-                        let inner = state.inner.read().await;
-                        if let Some(old_core) = inner.core.as_ref() {
-                            old_core.shutdown().await;
-                        }
-                    }
-
-                    {
+                    let old_core = {
                         let mut inner = state.inner.write().await;
                         inner.storage_manager = Some(new_manager);
-                        inner.core = Some(new_core);
                         inner.token_store_ready = true;
+                        inner.core.replace(new_core)
+                    };
+                    if let Some(old_core) = old_core {
+                        old_core.shutdown().await;
                     }
                     std::env::set_var("PIPEDASH_VAULT_PASSWORD", &req.password);
                     state.set_api_token(&req.password);

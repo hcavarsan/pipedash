@@ -7,7 +7,7 @@ import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { ProviderConfig, ProviderSummary } from '../types'
 import { saveTextFile } from '../utils/saveTextFile'
-import { invalidateProviderPipelines, setProviderPipelines } from './usePipelinesQueries'
+import { invalidateProviderPipelines } from './usePipelinesQueries'
 
 export function useProviders(options?: { enabled?: boolean }) {
   return useQuery({
@@ -48,20 +48,20 @@ export function useAddProvider() {
                 refresh_interval: config.refresh_interval,
                 last_fetch_status: 'never',
                 last_fetch_error: null,
+                last_fetch_error_kind: null,
                 last_fetch_at: null,
                 paused_until: null,
+                health: {
+                  level: 'operational',
+                  signals: [],
+                  next_attempt_at: null,
+                  in_flight: false,
+                  status_page: null,
+                },
                 configured_repositories: [],
               },
             ]
       )
-
-      service
-        .fetchPipelines(newProviderId)
-        .then((pipelines) => setProviderPipelines(queryClient, newProviderId, pipelines))
-        .catch((error) => {
-          logger.error('useAddProvider', 'Initial pipeline fetch failed', error)
-          invalidateProviderPipelines(queryClient, newProviderId)
-        })
 
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
 

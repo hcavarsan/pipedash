@@ -10,12 +10,10 @@ import { Navbar } from './Navbar'
 
 interface AppLayoutProps {
   children: ReactNode
-  onRefreshAll?: () => void
-  refreshing?: boolean
   onOpenSettings?: () => void
 }
 
-export const AppLayout = ({ children, onRefreshAll, refreshing = false, onOpenSettings }: AppLayoutProps) => {
+export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
   const location = useLocation()
   const isSettingsPage = location.pathname.startsWith('/settings')
   const { isMobile } = useIsMobile()
@@ -49,11 +47,9 @@ export const AppLayout = ({ children, onRefreshAll, refreshing = false, onOpenSe
     >
       <AppShell.Header>
         <Header
-          onRefreshAll={onRefreshAll}
           onToggleNavbar={isMobile || !isSettingsPage ? toggle : undefined}
           navbarOpened={opened}
           onOpenSettings={onOpenSettings}
-          refreshing={refreshing}
         />
       </AppShell.Header>
 

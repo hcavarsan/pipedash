@@ -6,6 +6,7 @@ import { events, wsClient } from '../services'
 import type { EventPayloadMap } from '../types/events'
 
 import { logger } from './logger'
+import { applyProviderStatus } from './providerStatusSync'
 import { queryKeys } from './queryKeys'
 
 const BATCH_WINDOW_MS = 300
@@ -24,7 +25,7 @@ export function useEventSync() {
     invalidateAll: false,
     timestamp: Date.now(),
   })
-  const batchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const batchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const processBatch = useCallback(() => {
     const batch = batchedInvalidations.current
@@ -47,7 +48,7 @@ export function useEventSync() {
       invalidateAll: false,
       timestamp: Date.now(),
     }
-    batchTimeout.current = null
+    batchTimeout.current = undefined
   }, [queryClient])
 
   const scheduleBatchedInvalidation = useCallback(
@@ -58,244 +59,207 @@ export function useEventSync() {
         batchedInvalidations.current.providerIds.add(providerId)
       }
 
-      if (batchTimeout.current) {
-        clearTimeout(batchTimeout.current)
-      }
+      clearTimeout(batchTimeout.current)
 
       batchTimeout.current = setTimeout(processBatch, BATCH_WINDOW_MS)
     },
     [processBatch]
   )
 
-  const cleanupFnsRef = useRef<Array<() => void>>([])
-
   useEffect(() => {
     let mounted = true
+    const cleanupFns: Array<() => void> = []
 
-    async function setupListeners() {
-      const cleanupFns: Array<() => void> = []
-
+    async function register<T>(name: string, handler: (payload: T) => void | Promise<void>) {
       try {
-        const unlistenProviderAdded = await events.listen<EventPayloadMap['provider-added']>(
-          'provider-added',
-          (payload) => {
-            if (!payload?.provider) {
-              logger.warn('EventSync', 'provider-added: Invalid payload')
-
-              return
-            }
-            logger.debug('EventSync', 'provider-added', { providerId: payload.provider.id })
-            queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
-            scheduleBatchedInvalidation(payload.provider.id)
-          }
-        )
-
-        const unlistenProviderUpdated = await events.listen<EventPayloadMap['provider-updated']>(
-          'provider-updated',
-          (payload) => {
-            if (!payload?.provider) {
-              logger.warn('EventSync', 'provider-updated: Invalid payload')
-
-              return
-            }
-            logger.debug('EventSync', 'provider-updated', { providerId: payload.provider.id })
-            queryClient.invalidateQueries({
-              queryKey: queryKeys.providers.detail(payload.provider.id),
-            })
-            queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-          }
-        )
-
-        const unlistenProviderRemoved = await events.listen<EventPayloadMap['provider-removed']>(
-          'provider-removed',
-          (payload) => {
-            if (!payload?.provider) {
-              logger.warn('EventSync', 'provider-removed: Invalid payload')
-
-              return
-            }
-            logger.debug('EventSync', 'provider-removed', { providerId: payload.provider.id })
-            queryClient.removeQueries({
-              queryKey: queryKeys.providers.detail(payload.provider.id),
-            })
-            queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-            scheduleBatchedInvalidation(payload.provider.id)
-          }
-        )
-
-        const unlistenProvidersChanged = await events.onProvidersChanged(() => {
-          logger.debug('EventSync', 'providers-changed')
-          queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-        })
-
-        const unlistenPipelinesUpdated = await events.onPipelinesUpdated<EventPayloadMap['pipelines-updated']>(
-          async (payload) => {
-            if (!payload?.pipelines) {
-              logger.warn('EventSync', 'pipelines-updated: Invalid payload, invalidating cache', payload)
-              scheduleBatchedInvalidation(payload?.providerId ?? undefined)
-
-              return
-            }
-
-            const normalizedProviderId = payload.providerId ?? undefined
-
-            logger.debug('EventSync', 'pipelines-updated', {
-              count: payload.pipelines.length,
-              providerId: normalizedProviderId,
-              timestamp: payload.timestamp,
-            })
-
-            if (normalizedProviderId === undefined) {
-              const allKey = queryKeys.pipelines.list()
-
-              await queryClient.cancelQueries({ queryKey: allKey, exact: true })
-              queryClient.setQueryData(allKey, payload.pipelines)
-
-              return
-            }
-
-            await queryClient.cancelQueries({
-              queryKey: queryKeys.pipelines.list({ providerId: normalizedProviderId }),
-              exact: true,
-            })
-            setProviderPipelines(queryClient, normalizedProviderId, payload.pipelines)
-
-            logger.debug('EventSync', 'pipelines-updated: Cache updated', {
-              providerId: normalizedProviderId,
-              pipelineCount: payload.pipelines.length,
-            })
-          }
-        )
-
-        const unlistenCacheInvalidated = await events.listen<EventPayloadMap['pipeline-cache-invalidated']>(
-          'pipeline-cache-invalidated',
-          (payload) => {
-            if (!payload) {
-              logger.warn('EventSync', 'cache-invalidated: Invalid payload, invalidating all')
-              queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
-
-              return
-            }
-
-            const normalizedProviderId = payload.providerId ?? undefined
-
-            logger.debug('EventSync', 'cache-invalidated', {
-              reason: payload.reason || 'unknown',
-              providerId: normalizedProviderId,
-            })
-
-            if (normalizedProviderId !== undefined) {
-              invalidateProviderPipelines(queryClient, normalizedProviderId)
-            } else {
-              queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
-            }
-          }
-        )
-
-        const unlistenStorageUpdated = await events.listen<unknown>('storage-updated', () => {
-          logger.debug('EventSync', 'storage-updated')
-          queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
-          queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
-        })
-
-        const unlistenCacheCleared = await events.listen<unknown>('cache-cleared', () => {
-          logger.debug('EventSync', 'cache-cleared')
-          queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
-          scheduleBatchedInvalidation()
-        })
-
-        const unlistenSchemaUpdated = await events.listen<{ providerId: number }>('schema-updated', (payload) => {
-          if (!payload?.providerId) {
-            logger.warn('EventSync', 'schema-updated: Invalid payload, invalidating all')
-            queryClient.invalidateQueries({ queryKey: queryKeys.tableSchema.all })
-
-            return
-          }
-
-          logger.debug('EventSync', 'schema-updated', { providerId: payload.providerId })
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.tableSchema.detail(payload.providerId),
-          })
-        })
-
-        const unlistenVaultUnlocked = await events.listen<unknown>('vault-unlocked', async () => {
-          logger.info('EventSync', 'vault-unlocked: CoreContext now available, refreshing data')
-
-          await queryClient.cancelQueries()
-
-          await queryClient.invalidateQueries({
-            queryKey: queryKeys.vault.all,
-            refetchType: 'active',
-          })
-
-          await queryClient.invalidateQueries({
-            queryKey: queryKeys.providers.all,
-            refetchType: 'active',
-          })
-
-          await queryClient.invalidateQueries({
-            queryKey: queryKeys.pipelines.all,
-            refetchType: 'active',
-          })
-
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.storage.all,
-            refetchType: 'none',
-          })
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.tableSchema.all,
-            refetchType: 'none',
-          })
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.cache.all,
-            refetchType: 'none',
-          })
-        })
-
-        cleanupFns.push(
-          unlistenProviderAdded,
-          unlistenProviderUpdated,
-          unlistenProviderRemoved,
-          unlistenProvidersChanged,
-          unlistenPipelinesUpdated,
-          unlistenCacheInvalidated,
-          unlistenStorageUpdated,
-          unlistenCacheCleared,
-          unlistenSchemaUpdated,
-          unlistenVaultUnlocked
-        )
+        const unlisten = await events.listen<T>(name, handler)
 
         if (mounted) {
-          cleanupFnsRef.current = cleanupFns
-          logger.debug('EventSync', 'All listeners registered successfully')
+          cleanupFns.push(unlisten)
         } else {
-          logger.debug('EventSync', 'Component unmounted during setup, cleaning up listeners')
-          cleanupFns.forEach((fn) => {
-            try {
-              fn()
-            } catch (error) {
-              logger.error('EventSync', 'Error during immediate cleanup', error)
-            }
-          })
+          unlisten()
         }
       } catch (error) {
-        logger.error('EventSync', 'Failed to setup listeners', error)
+        logger.error('EventSync', `Failed to listen to ${name}`, error)
       }
     }
 
-    setupListeners()
+    register<EventPayloadMap['provider-added']>('provider-added', (payload) => {
+      if (!payload?.provider) {
+        logger.warn('EventSync', 'provider-added: Invalid payload')
+
+        return
+      }
+      logger.debug('EventSync', 'provider-added', { providerId: payload.provider.id })
+      queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
+      scheduleBatchedInvalidation(payload.provider.id)
+    })
+
+    register<EventPayloadMap['provider-updated']>('provider-updated', (payload) => {
+      if (!payload?.provider) {
+        logger.warn('EventSync', 'provider-updated: Invalid payload')
+
+        return
+      }
+      logger.debug('EventSync', 'provider-updated', { providerId: payload.provider.id })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.providers.detail(payload.provider.id),
+      })
+      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+    })
+
+    register<EventPayloadMap['provider-removed']>('provider-removed', (payload) => {
+      if (!payload?.provider) {
+        logger.warn('EventSync', 'provider-removed: Invalid payload')
+
+        return
+      }
+      logger.debug('EventSync', 'provider-removed', { providerId: payload.provider.id })
+      queryClient.removeQueries({
+        queryKey: queryKeys.providers.detail(payload.provider.id),
+      })
+      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      scheduleBatchedInvalidation(payload.provider.id)
+    })
+
+    register<EventPayloadMap['provider-status-updated']>('provider-status-updated', async (payload) => {
+      if (!payload?.provider) {
+        logger.warn('EventSync', 'provider-status-updated: Invalid payload')
+
+        return
+      }
+      logger.debug('EventSync', 'provider-status-updated', { providerId: payload.provider.id })
+      await applyProviderStatus(queryClient, payload.provider)
+    })
+
+    register<EventPayloadMap['providers-changed']>('providers-changed', () => {
+      logger.debug('EventSync', 'providers-changed')
+      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+    })
+
+    register<EventPayloadMap['pipelines-updated']>('pipelines-updated', async (payload) => {
+      if (!payload?.pipelines || payload.providerId === undefined) {
+        logger.warn('EventSync', 'pipelines-updated: Invalid payload, invalidating cache', payload)
+        scheduleBatchedInvalidation(payload?.providerId)
+
+        return
+      }
+
+      logger.debug('EventSync', 'pipelines-updated', {
+        count: payload.pipelines.length,
+        providerId: payload.providerId,
+        timestamp: payload.timestamp,
+      })
+
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.pipelines.list({ providerId: payload.providerId }),
+        exact: true,
+      })
+      setProviderPipelines(queryClient, payload.providerId, payload.pipelines)
+
+      logger.debug('EventSync', 'pipelines-updated: Cache updated', {
+        providerId: payload.providerId,
+        pipelineCount: payload.pipelines.length,
+      })
+    })
+
+    register<EventPayloadMap['pipeline-cache-invalidated']>('pipeline-cache-invalidated', (payload) => {
+      if (!payload) {
+        logger.warn('EventSync', 'cache-invalidated: Invalid payload, invalidating all')
+        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+
+        return
+      }
+
+      const normalizedProviderId = payload.providerId ?? undefined
+
+      logger.debug('EventSync', 'cache-invalidated', {
+        reason: payload.reason || 'unknown',
+        providerId: normalizedProviderId,
+      })
+
+      if (normalizedProviderId !== undefined) {
+        invalidateProviderPipelines(queryClient, normalizedProviderId)
+      } else {
+        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+      }
+    })
+
+    register<unknown>('storage-updated', () => {
+      logger.debug('EventSync', 'storage-updated')
+      queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
+    })
+
+    register<unknown>('cache-cleared', () => {
+      logger.debug('EventSync', 'cache-cleared')
+      queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
+      scheduleBatchedInvalidation()
+    })
+
+    register<{ providerId: number }>('schema-updated', (payload) => {
+      if (!payload?.providerId) {
+        logger.warn('EventSync', 'schema-updated: Invalid payload, invalidating all')
+        queryClient.invalidateQueries({ queryKey: queryKeys.tableSchema.all })
+
+        return
+      }
+
+      logger.debug('EventSync', 'schema-updated', { providerId: payload.providerId })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tableSchema.detail(payload.providerId),
+      })
+    })
+
+    register<unknown>('vault-unlocked', async () => {
+      logger.info('EventSync', 'vault-unlocked: CoreContext now available, refreshing data')
+
+      await queryClient.cancelQueries()
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.vault.all,
+        refetchType: 'active',
+      })
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.providers.all,
+        refetchType: 'active',
+      })
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.pipelines.all,
+        refetchType: 'active',
+      })
+
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.storage.all,
+        refetchType: 'none',
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tableSchema.all,
+        refetchType: 'none',
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.cache.all,
+        refetchType: 'none',
+      })
+    })
 
     return () => {
       mounted = false
       logger.debug('EventSync', 'Cleaning up listeners')
-      cleanupFnsRef.current.forEach((fn) => {
+
+      clearTimeout(batchTimeout.current)
+      batchTimeout.current = undefined
+
+      for (const fn of cleanupFns) {
         try {
           fn()
         } catch (error) {
           logger.error('EventSync', 'Error during listener cleanup', error)
         }
-      })
-      cleanupFnsRef.current = []
+      }
+      cleanupFns.length = 0
     }
   }, [queryClient, scheduleBatchedInvalidation])
 

@@ -1,12 +1,26 @@
 pub mod error;
+pub mod health;
 pub mod metrics;
 pub mod pipeline;
 pub mod provider;
+pub mod refresh;
 pub mod validation;
 
 pub use error::{
     DomainError,
     DomainResult,
+    FailureKind,
+};
+pub use health::{
+    ComponentHealth,
+    EvidenceView,
+    HealthLevel,
+    HealthSignal,
+    Incident,
+    Maintenance,
+    ProviderHealth,
+    SignalKind,
+    StatusPageRef,
 };
 pub use metrics::{
     AggregatedMetric,
@@ -37,6 +51,10 @@ pub use provider::{
     Provider,
     ProviderConfig,
     ProviderSummary,
+};
+pub use refresh::{
+    RefreshResult,
+    RefreshState,
 };
 pub use validation::{
     validate_config,

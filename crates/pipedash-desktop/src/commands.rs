@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use pipedash_core::{
-    application::RefreshMode,
+    application::{
+        PipelineService,
+        RefreshMode,
+    },
     domain::{
         AggregatedMetrics,
         AggregationPeriod,
@@ -19,6 +22,8 @@ use pipedash_core::{
         PipelineRun,
         ProviderConfig,
         ProviderSummary,
+        RefreshResult,
+        RefreshState,
         TriggerParams,
     },
     CoreContext,
@@ -75,15 +80,21 @@ pub async fn add_provider(
     })?;
     let id = core.provider_service.add_provider(config).await?;
 
-    if let Err(e) = core.pipeline_service.fetch_pipelines(Some(id)).await {
-        tracing::warn!(
-            provider_id = id,
-            error = %e,
-            "Failed to fetch initial pipelines for provider (will retry in background)"
-        );
+    if let Some(result) = core
+        .pipeline_service
+        .fetch_now(&[id], PipelineService::REFRESH_DEADLINE)
+        .await
+        .first()
+    {
+        if result.state == RefreshState::Failed {
+            tracing::warn!(
+                provider_id = id,
+                kind = ?result.kind,
+                message = ?result.message,
+                "Initial fetch for new provider failed"
+            );
+        }
     }
-
-    core.refresh_manager.prioritize_provider(id).await;
 
     Ok(id)
 }
@@ -233,12 +244,8 @@ pub async fn get_provider_field_options(
         error: e,
         details: None,
     })?;
-    let plugin = core
-        .provider_service
-        .create_uninitialized_plugin(&provider_type)?;
-
-    plugin
-        .get_field_options(&field_key, &config)
+    core.provider_service
+        .field_options(&provider_type, &field_key, config)
         .await
         .map_err(|e| ErrorResponse {
             error: format!("Failed to fetch field options: {e}"),
@@ -255,16 +262,9 @@ pub async fn fetch_provider_organizations(
         error: e,
         details: None,
     })?;
-    let mut plugin = core
+    let plugin = core
         .provider_service
-        .create_uninitialized_plugin(&provider_type)?;
-
-    plugin
-        .initialize(0, config, None)
-        .map_err(|e| ErrorResponse {
-            error: format!("Failed to initialize plugin: {e}"),
-            details: None,
-        })?;
+        .init_plugin(&provider_type, config, 0)?;
 
     plugin
         .validate_credentials()
@@ -293,16 +293,9 @@ pub async fn preview_provider_pipelines(
         error: e,
         details: None,
     })?;
-    let mut plugin = core
+    let plugin = core
         .provider_service
-        .create_uninitialized_plugin(&provider_type)?;
-
-    plugin
-        .initialize(0, config, None)
-        .map_err(|e| ErrorResponse {
-            error: format!("Failed to initialize plugin: {e}"),
-            details: None,
-        })?;
+        .init_plugin(&provider_type, config, 0)?;
 
     plugin
         .validate_credentials()
@@ -342,16 +335,9 @@ pub async fn validate_provider_credentials(
         error: e,
         details: None,
     })?;
-    let mut plugin = core
+    let plugin = core
         .provider_service
-        .create_uninitialized_plugin(&provider_type)?;
-
-    plugin
-        .initialize(0, config, None)
-        .map_err(|e| ErrorResponse {
-            error: format!("Failed to initialize plugin: {}", e),
-            details: None,
-        })?;
+        .init_plugin(&provider_type, config, 0)?;
 
     match plugin.validate_credentials().await {
         Ok(valid) if valid => Ok(ValidationResult {
@@ -378,16 +364,9 @@ pub async fn check_provider_permissions(
         error: e,
         details: None,
     })?;
-    let mut plugin = core
+    let plugin = core
         .provider_service
-        .create_uninitialized_plugin(&provider_type)?;
-
-    plugin
-        .initialize(0, config, None)
-        .map_err(|e| ErrorResponse {
-            error: format!("Failed to initialize plugin: {}", e),
-            details: None,
-        })?;
+        .init_plugin(&provider_type, config, 0)?;
 
     let permission_status = plugin.check_permissions().await.ok();
 
@@ -517,28 +496,6 @@ pub async fn get_provider_table_schema(
         })?;
 
     Ok(plugin_metadata.table_schema.clone())
-}
-
-#[tauri::command]
-pub async fn fetch_pipelines(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: Option<i64>,
-) -> Result<Vec<Pipeline>, ErrorResponse> {
-    tracing::debug!(
-        "[fetch_pipelines] Command invoked with provider_id: {:?}",
-        provider_id
-    );
-    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
-        error: e,
-        details: None,
-    })?;
-    let result = core.pipeline_service.fetch_pipelines(provider_id).await;
-    match &result {
-        Ok(pipelines) => {
-            tracing::debug!("[fetch_pipelines] Returning {} pipelines", pipelines.len())
-        }
-        Err(e) => tracing::error!("[fetch_pipelines] Error: {:?}", e),
-    }
-    result.map_err(Into::into)
 }
 
 #[tauri::command]
@@ -688,16 +645,26 @@ pub async fn get_workflow_parameters(
 #[tauri::command]
 pub async fn refresh_all(
     maybe_core: State<'_, crate::MaybeCoreContext>,
-) -> Result<(), ErrorResponse> {
+) -> Result<Vec<RefreshResult>, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
     })?;
-    core.pipeline_service.clear_all_run_history_caches().await;
     core.pipeline_service
         .refresh_all()
         .await
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn refresh_provider(
+    maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
+) -> Result<RefreshResult, ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+    Ok(core.pipeline_service.refresh_provider(id).await)
 }
 
 #[tauri::command]
@@ -709,7 +676,7 @@ pub async fn set_refresh_mode(
         details: None,
     })?;
     let refresh_mode = mode.parse::<RefreshMode>().unwrap_or(RefreshMode::Idle);
-    core.refresh_manager.set_mode(refresh_mode).await;
+    core.refresh_manager.set_mode(refresh_mode);
     Ok(())
 }
 
@@ -721,8 +688,22 @@ pub async fn get_refresh_mode(
         error: e,
         details: None,
     })?;
-    let mode = core.refresh_manager.get_mode().await;
+    let mode = core.refresh_manager.get_mode();
     Ok(mode.as_str().to_string())
+}
+
+#[tauri::command]
+pub async fn update_general_settings(
+    maybe_core: State<'_, crate::MaybeCoreContext>, update: GeneralSettingsUpdate,
+) -> Result<(), ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+    core.config_state
+        .update_general_settings(update)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -1182,6 +1163,7 @@ pub async fn get_default_table_preferences(
 use pipedash_core::infrastructure::{
     ConfigAnalysis,
     ConfigLoader,
+    GeneralSettingsUpdate,
     MigrationOptions,
     MigrationOrchestrator,
     MigrationPlan,
@@ -1259,9 +1241,12 @@ pub async fn bootstrap_app(
 
     let ctx_arc = Arc::new(core_context);
 
-    {
+    let old = {
         let mut guard = maybe_core_context.0.write().await;
-        *guard = Some(Arc::clone(&ctx_arc));
+        guard.replace(Arc::clone(&ctx_arc))
+    };
+    if let Some(old) = old {
+        old.shutdown().await;
     }
 
     app.manage(Arc::clone(&ctx_arc));
@@ -1511,9 +1496,12 @@ pub async fn unlock_vault(
         }
     };
 
-    {
+    let old = {
         let mut guard = maybe_core_context.0.write().await;
-        *guard = Some(Arc::clone(&core_context));
+        guard.replace(Arc::clone(&core_context))
+    };
+    if let Some(old) = old {
+        old.shutdown().await;
     }
 
     let core_clone = Arc::clone(&core_context);

@@ -104,6 +104,17 @@ pub(crate) fn get_namespaces(config: &HashMap<String, String>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+pub(crate) const DEFAULT_CONTROLLER_NAMESPACE: &str = "tekton-pipelines";
+
+pub(crate) fn get_controller_namespace(config: &HashMap<String, String>) -> String {
+    config
+        .get("tekton_namespace")
+        .map(|namespace| namespace.trim())
+        .filter(|namespace| !namespace.is_empty())
+        .unwrap_or(DEFAULT_CONTROLLER_NAMESPACE)
+        .to_string()
+}
+
 pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, String, String)> {
     let parts: Vec<&str> = id.split("__").collect();
 

@@ -17,7 +17,10 @@ use super::interpolation::{
     interpolate_toml,
     InterpolationError,
 };
-use super::schema::PipedashConfig;
+use super::schema::{
+    GeneralConfig,
+    PipedashConfig,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetupStatus {
@@ -277,17 +280,33 @@ impl ConfigLoader {
         Ok(())
     }
 
-    fn update_document(doc: &mut DocumentMut, config: &PipedashConfig) -> ConfigLoadResult<()> {
-        if let Some(general) = doc.get_mut("general").and_then(|v| v.as_table_like_mut()) {
-            general.insert(
-                "metrics_enabled",
-                Item::Value(config.general.metrics_enabled.into()),
-            );
-            general.insert(
+    pub(super) fn apply_general(doc: &mut DocumentMut, general: &GeneralConfig) {
+        let item = doc
+            .entry("general")
+            .or_insert_with(|| Item::Table(toml_edit::Table::new()));
+        let Some(table) = item.as_table_like_mut() else {
+            return;
+        };
+
+        for (key, value) in [
+            ("metrics_enabled", general.metrics_enabled.into()),
+            (
                 "default_refresh_interval",
-                Item::Value((config.general.default_refresh_interval as i64).into()),
-            );
+                i64::from(general.default_refresh_interval).into(),
+            ),
+            ("status_pages_enabled", general.status_pages_enabled.into()),
+        ] {
+            match table.get_mut(key) {
+                Some(existing) => *existing = Item::Value(value),
+                None => {
+                    table.insert(key, Item::Value(value));
+                }
+            }
         }
+    }
+
+    fn update_document(doc: &mut DocumentMut, config: &PipedashConfig) -> ConfigLoadResult<()> {
+        Self::apply_general(doc, &config.general);
 
         if let Some(server) = doc.get_mut("server").and_then(|v| v.as_table_like_mut()) {
             server.insert(
@@ -375,6 +394,7 @@ impl ConfigSources {
         let env_var_name = match key {
             "general.metrics_enabled" => Some("PIPEDASH_METRICS_ENABLED"),
             "general.default_refresh_interval" => Some("PIPEDASH_DEFAULT_REFRESH_INTERVAL"),
+            "general.status_pages_enabled" => Some("PIPEDASH_STATUS_PAGES_ENABLED"),
             "server.bind_addr" => Some("PIPEDASH_BIND_ADDR"),
             "server.cors_allow_all" => Some("PIPEDASH_CORS_ALLOW_ALL"),
             "server.base_path" => Some("PIPEDASH_BASE_PATH"),
@@ -513,6 +533,50 @@ bind_addr = "${NONEXISTENT_VAR:-127.0.0.1:8080}"
 
         assert!(toml_str.contains("[general]"));
         assert!(toml_str.contains("metrics_enabled"));
+    }
+
+    #[test]
+    fn test_save_creates_the_general_table_when_the_file_has_none() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        std::fs::write(&path, "# my config\n[storage]\nbackend = \"sqlite\"\n").unwrap();
+        let mut config = ConfigLoader::load(&path).unwrap();
+        assert!(config.general.status_pages_enabled);
+        config.general.status_pages_enabled = false;
+
+        ConfigLoader::save(&config, &path).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# my config"));
+        assert!(text.contains("[general]"));
+        let reloaded = ConfigLoader::load(&path).unwrap();
+        assert!(!reloaded.general.status_pages_enabled);
+        assert_eq!(reloaded.general.default_refresh_interval, 30);
+    }
+
+    #[test]
+    fn test_save_updates_an_existing_general_table_in_place() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "[general]\n# how often to refresh\ndefault_refresh_interval = 60\n",
+        )
+        .unwrap();
+        let mut config = ConfigLoader::load(&path).unwrap();
+        config.general.status_pages_enabled = false;
+
+        ConfigLoader::save(&config, &path).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# how often to refresh"));
+        assert_eq!(text.matches("[general]").count(), 1);
+        assert!(
+            !ConfigLoader::load(&path)
+                .unwrap()
+                .general
+                .status_pages_enabled
+        );
     }
 
     #[test]

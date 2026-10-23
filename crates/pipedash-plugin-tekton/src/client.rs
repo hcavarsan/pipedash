@@ -1,11 +1,15 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
+use k8s_openapi::api::apps::v1::Deployment;
 use kube::Client;
 use pipedash_plugin_api::{
+    from_status,
     PluginError,
     PluginResult,
     RetryPolicy,
 };
+use serde::Deserialize;
 
 use crate::{
     config,
@@ -20,6 +24,43 @@ use crate::{
 pub struct TektonClient {
     client: Client,
     retry_policy: RetryPolicy,
+}
+
+#[derive(Deserialize)]
+struct AccessReview {
+    status: AccessStatus,
+}
+
+#[derive(Deserialize)]
+struct AccessStatus {
+    allowed: bool,
+}
+
+const MAX_RETRY_AFTER_SECONDS: u32 = 3600;
+
+pub(crate) fn map_kube_error(error: kube::Error, context: &str) -> PluginError {
+    match error {
+        kube::Error::Api(status) => {
+            let retry_after = status
+                .details
+                .as_ref()
+                .map(|details| details.retry_after_seconds.min(MAX_RETRY_AFTER_SECONDS))
+                .filter(|seconds| *seconds > 0)
+                .map(|seconds| Duration::from_secs(seconds.into()));
+            from_status(
+                status.code,
+                format!("{context}: {} (HTTP {})", status.message, status.code),
+                retry_after,
+            )
+        }
+        kube::Error::Auth(error) => {
+            PluginError::AuthenticationFailed(format!("{context}: {error}"))
+        }
+        kube::Error::SerdeError(error) => {
+            PluginError::SerializationError(format!("{context}: {error}"))
+        }
+        other => PluginError::NetworkError(format!("{context}: {other}")),
+    }
 }
 
 impl TektonClient {
@@ -78,9 +119,10 @@ impl TektonClient {
             kube::config::KubeConfigOptions::default()
         };
 
-        let config = kube::Config::from_custom_kubeconfig(kubeconfig, &options)
+        let mut config = kube::Config::from_custom_kubeconfig(kubeconfig, &options)
             .await
             .map_err(|e| PluginError::InvalidConfig(format!("Failed to load kubeconfig: {}", e)))?;
+        config.default_retry = false;
 
         let client = Client::try_from(config).map_err(|e| {
             PluginError::InvalidConfig(format!("Failed to create Kubernetes client: {}", e))
@@ -103,13 +145,10 @@ impl TektonClient {
                 let namespaces_api: Api<k8s_openapi::api::core::v1::Namespace> =
                     Api::all(self.client.clone());
 
-                let namespaces =
-                    namespaces_api
-                        .list(&ListParams::default())
-                        .await
-                        .map_err(|e| {
-                            PluginError::ApiError(format!("Failed to list namespaces: {}", e))
-                        })?;
+                let namespaces = namespaces_api
+                    .list(&ListParams::default())
+                    .await
+                    .map_err(|e| map_kube_error(e, "Failed to list namespaces"))?;
 
                 Ok(namespaces
                     .items
@@ -135,47 +174,44 @@ impl TektonClient {
                 .into_iter()
                 .filter_map(|ns| ns.metadata.name)
                 .collect()),
-            Err(e) => {
-                if let kube::Error::Api(api_error) = &e {
-                    if api_error.code == 403 {
-                        return Err(PluginError::ApiError(
-                            "Missing cluster-wide namespace permissions. Please use 'custom' mode and specify namespaces manually in the configuration.".to_string()
-                        ));
-                    }
-                }
-                Err(PluginError::ApiError(format!(
-                    "Failed to list namespaces: {}",
-                    e
-                )))
+            Err(kube::Error::Api(status)) if status.code == 403 => {
+                Err(PluginError::PermissionDenied(
+                    "Missing cluster-wide namespace permissions. Please use 'custom' mode and specify namespaces manually in the configuration.".to_string()
+                ))
             }
+            Err(e) => Err(map_kube_error(e, "Failed to list namespaces")),
         }
     }
 
-    async fn filter_namespaces_with_pipelines(&self, namespaces: &[String]) -> Vec<String> {
-        use futures::future::join_all;
+    async fn filter_namespaces_with_pipelines(
+        &self, namespaces: &[String],
+    ) -> PluginResult<Vec<String>> {
+        use futures::future::try_join_all;
 
-        let check_futures = namespaces.iter().map(|namespace| {
-            let ns = namespace.clone();
-            async move {
-                if let Ok(pipelines) = self.list_pipelines(&ns).await {
-                    if !pipelines.is_empty() || self.has_pipelines(&ns).await {
-                        return Some(ns);
-                    }
+        let check_futures = namespaces.iter().map(|namespace| async move {
+            match self.list_pipelines(namespace).await {
+                Ok(pipelines) => Ok(
+                    (!pipelines.is_empty() || self.has_pipelines(namespace).await)
+                        .then(|| namespace.clone()),
+                ),
+                Err(e) if e.is_transient() => Err(e),
+                Err(e) => {
+                    tracing::warn!(namespace = %namespace, error = %e, "Skipping namespace whose pipelines cannot be listed");
+                    Ok(None)
                 }
-                None
             }
         });
 
-        join_all(check_futures)
-            .await
+        Ok(try_join_all(check_futures)
+            .await?
             .into_iter()
             .flatten()
-            .collect()
+            .collect())
     }
 
     pub async fn list_namespaces_with_pipelines(&self) -> PluginResult<Vec<String>> {
         let all_namespaces = self.list_namespaces().await?;
-        Ok(self.filter_namespaces_with_pipelines(&all_namespaces).await)
+        self.filter_namespaces_with_pipelines(&all_namespaces).await
     }
 
     pub async fn validate_namespaces_have_pipelines(
@@ -251,10 +287,11 @@ impl TektonClient {
                         PluginError::Internal(format!("Failed to build request: {}", e))
                     })?;
 
-                let response_body =
-                    self.client.request_text(request).await.map_err(|e| {
-                        PluginError::ApiError(format!("Failed to make request: {}", e))
-                    })?;
+                let response_body = self
+                    .client
+                    .request_text(request)
+                    .await
+                    .map_err(|e| map_kube_error(e, "Failed to make request"))?;
 
                 serde_json::from_str(&response_body).map_err(|e| {
                     PluginError::SerializationError(format!("Failed to parse response: {}", e))
@@ -266,34 +303,26 @@ impl TektonClient {
     async fn post_json<T: serde::de::DeserializeOwned>(
         &self, url: &str, body: &serde_json::Value,
     ) -> PluginResult<T> {
-        let url = url.to_string();
-        let body = body.clone();
+        let body_bytes = serde_json::to_vec(body).map_err(|e| {
+            PluginError::SerializationError(format!("Failed to serialize request: {}", e))
+        })?;
 
-        self.retry_policy
-            .retry(|| async {
-                let body_bytes = serde_json::to_vec(&body).map_err(|e| {
-                    PluginError::SerializationError(format!("Failed to serialize request: {}", e))
-                })?;
+        let request = http::Request::builder()
+            .uri(url)
+            .method(http::Method::POST)
+            .header("Content-Type", "application/json")
+            .body(body_bytes)
+            .map_err(|e| PluginError::Internal(format!("Failed to build request: {}", e)))?;
 
-                let request = http::Request::builder()
-                    .uri(&url)
-                    .method(http::Method::POST)
-                    .header("Content-Type", "application/json")
-                    .body(body_bytes)
-                    .map_err(|e| {
-                        PluginError::Internal(format!("Failed to build request: {}", e))
-                    })?;
-
-                let response_body =
-                    self.client.request_text(request).await.map_err(|e| {
-                        PluginError::ApiError(format!("Failed to make request: {}", e))
-                    })?;
-
-                serde_json::from_str(&response_body).map_err(|e| {
-                    PluginError::SerializationError(format!("Failed to parse response: {}", e))
-                })
-            })
+        let response_body = self
+            .client
+            .request_text(request)
             .await
+            .map_err(|e| map_kube_error(e, "Failed to make request"))?;
+
+        serde_json::from_str(&response_body).map_err(|e| {
+            PluginError::SerializationError(format!("Failed to parse response: {}", e))
+        })
     }
 
     pub async fn list_pipelines(&self, namespace: &str) -> PluginResult<Vec<TektonPipeline>> {
@@ -337,28 +366,53 @@ impl TektonClient {
     }
 
     pub async fn delete_pipelinerun(&self, namespace: &str, name: &str) -> PluginResult<()> {
-        let namespace = namespace.to_string();
-        let name = name.to_string();
+        let request = http::Request::builder()
+            .uri(format!(
+                "/apis/tekton.dev/v1/namespaces/{}/pipelineruns/{}",
+                namespace, name
+            ))
+            .method(http::Method::DELETE)
+            .body(Vec::new())
+            .map_err(|e| PluginError::Internal(format!("Failed to build request: {}", e)))?;
 
-        self.retry_policy
-            .retry(|| async {
-                let request = http::Request::builder()
-                    .uri(format!(
-                        "/apis/tekton.dev/v1/namespaces/{}/pipelineruns/{}",
-                        namespace, name
-                    ))
-                    .method(http::Method::DELETE)
-                    .body(Vec::new())
-                    .map_err(|e| {
-                        PluginError::Internal(format!("Failed to build request: {}", e))
-                    })?;
-
-                self.client.request_text(request).await.map_err(|e| {
-                    PluginError::ApiError(format!("Failed to delete pipelinerun: {}", e))
-                })?;
-
-                Ok(())
-            })
+        self.client
+            .request_text(request)
             .await
+            .map_err(|e| map_kube_error(e, "Failed to delete pipelinerun"))?;
+
+        Ok(())
+    }
+
+    pub async fn get_deployment(&self, namespace: &str, name: &str) -> PluginResult<Deployment> {
+        self.request_json(&format!(
+            "/apis/apps/v1/namespaces/{namespace}/deployments/{name}"
+        ))
+        .await
+    }
+
+    pub async fn can_i(
+        &self, namespace: &str, group: &str, resource: &str, verb: &str, name: &str,
+    ) -> PluginResult<bool> {
+        let body = serde_json::json!({
+            "apiVersion": "authorization.k8s.io/v1",
+            "kind": "SelfSubjectAccessReview",
+            "spec": {
+                "resourceAttributes": {
+                    "namespace": namespace,
+                    "verb": verb,
+                    "group": group,
+                    "resource": resource,
+                    "name": name,
+                }
+            }
+        });
+        let review: AccessReview = self
+            .post_json(
+                "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+                &body,
+            )
+            .await?;
+
+        Ok(review.status.allowed)
     }
 }

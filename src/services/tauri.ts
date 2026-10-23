@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
-
+import { REFRESH_TIMEOUT_MS } from '../constants/timeouts'
 import { logger } from '../lib/logger'
 import {
   type AggregatedMetrics,
@@ -10,6 +10,7 @@ import {
   type ConfigContentResponse,
   createError,
   type FeatureAvailability,
+  type GeneralConfig,
   type GlobalMetricsConfig,
   type MetricEntry,
   type MetricsConfig,
@@ -29,6 +30,7 @@ import {
   type PluginMetadata,
   type ProviderConfig,
   type ProviderSummary,
+  type RefreshResult,
   type ReviewDecision,
   type SetupStatus,
   type StorageConfigResponse,
@@ -47,7 +49,6 @@ const TAURI_COMMAND_TIMEOUTS: Record<string, number> = {
   factory_reset: 120000,
   list_pipelines: 90000,
   get_cached_pipelines: 90000,
-  fetch_pipelines: 90000,
   preview_provider_pipelines: 60000,
   fetch_provider_organizations: 60000,
   add_provider: 120000,
@@ -244,25 +245,6 @@ export const tauriService = {
     }
   },
 
-  fetchPipelines: async (providerId?: number): Promise<Pipeline[]> => {
-    logger.debug('tauriService', 'Invoking fetch_pipelines...', { providerId })
-
-    return withRetry(async () => {
-      try {
-        const result = await invoke<Pipeline[]>('fetch_pipelines', {
-          providerId: providerId ?? null,
-        })
-
-        logger.debug('tauriService', 'fetch_pipelines returned', { count: result?.length ?? 0, unit: 'items' })
-
-        return result
-      } catch (err) {
-        logger.error('tauriService', 'fetch_pipelines error', err)
-        throw err
-      }
-    }, DEFAULT_RETRY_CONFIG)
-  },
-
   getCachedPipelines: async (providerId?: number): Promise<Pipeline[]> => {
     logger.debug('tauriService', 'Invoking get_cached_pipelines...', { providerId })
 
@@ -298,16 +280,24 @@ export const tauriService = {
     return invoke<WorkflowParameter[]>('get_workflow_parameters', { workflowId })
   },
 
-  refreshAll: async (): Promise<void> => {
-    return invoke<void>('refresh_all')
+  refreshProvider: async (id: number): Promise<RefreshResult> => {
+    return invokeWithTimeout<RefreshResult>('refresh_provider', { id }, REFRESH_TIMEOUT_MS, false)
+  },
+
+  refreshAll: async (): Promise<RefreshResult[]> => {
+    return invokeWithTimeout<RefreshResult[]>('refresh_all', undefined, REFRESH_TIMEOUT_MS, false)
+  },
+
+  updateGeneralSettings: async (update: GeneralConfig): Promise<void> => {
+    return invokeWithTimeout<void>('update_general_settings', { update })
   },
 
   setRefreshMode: async (mode: 'active' | 'idle'): Promise<void> => {
     return invoke<void>('set_refresh_mode', { mode })
   },
 
-  getRefreshMode: async (): Promise<'active' | 'idle'> => {
-    return invoke<'active' | 'idle'>('get_refresh_mode')
+  showSystemNotification: async (title: string, body: string, target: string): Promise<void> => {
+    return invoke<void>('show_system_notification', { title, body, target })
   },
 
   getWorkflowRunDetails: async (pipelineId: string, runNumber: number): Promise<PipelineRun> => {

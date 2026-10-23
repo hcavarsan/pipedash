@@ -23,6 +23,7 @@ pub struct ArgocdPlugin {
     provider_id: Option<i64>,
     config: HashMap<String, String>,
     server_url: Option<String>,
+    status_source: Option<StatusSource>,
     organizations_filter: Option<Vec<String>>,
 }
 
@@ -40,6 +41,7 @@ impl ArgocdPlugin {
             provider_id: None,
             config: HashMap::new(),
             server_url: None,
+            status_source: None,
             organizations_filter: None,
         }
     }
@@ -67,6 +69,19 @@ impl Plugin for ArgocdPlugin {
         "argocd"
     }
 
+    fn client_options(&self, config: &HashMap<String, String>) -> ClientOptions {
+        ClientOptions {
+            origin: config::get_server_url(config)
+                .ok()
+                .and_then(|url| reqwest::Url::parse(&url).ok()),
+            accept_invalid_certs: config::is_insecure(config),
+        }
+    }
+
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
+    }
+
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
         http_client: Option<std::sync::Arc<reqwest::Client>>,
@@ -88,12 +103,18 @@ impl Plugin for ArgocdPlugin {
         let organizations_filter = config::parse_organizations_filter(&config);
         debug!(?organizations_filter, "Organizations filter configured");
 
-        let client = client::ArgocdClient::new(http_client, server_url.clone(), token, insecure)?;
+        let status_source = custom_status_source(&config)?;
+
+        let http_client = http_client.ok_or_else(|| {
+            PluginError::Internal("ArgoCD plugin requires an HTTP client".to_string())
+        })?;
+        let client = client::ArgocdClient::new(http_client, &server_url, &token);
         debug!("ArgoCD client created successfully");
 
         self.client = Some(client);
         self.provider_id = Some(provider_id);
         self.server_url = Some(server_url);
+        self.status_source = status_source;
         self.organizations_filter = organizations_filter;
         self.config = config;
 
@@ -540,16 +561,10 @@ impl Plugin for ArgocdPlugin {
     }
 
     async fn get_field_options(
-        &self, field_key: &str, config: &HashMap<String, String>,
+        &self, field_key: &str, _config: &HashMap<String, String>,
     ) -> PluginResult<Vec<String>> {
         if field_key == "organizations" {
-            let server_url = config::get_server_url(config)?;
-            let token = config::get_token(config)?;
-            let insecure = config::is_insecure(config);
-
-            let temp_client = client::ArgocdClient::new(None, server_url, token, insecure)?;
-
-            let apps = temp_client.list_applications(None).await?;
+            let apps = self.client()?.list_applications(None).await?;
 
             let mut git_orgs = std::collections::HashSet::new();
             for app in apps {
@@ -570,5 +585,79 @@ impl Plugin for ArgocdPlugin {
         } else {
             Ok(vec![])
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn client_options_parse_origin_and_insecure() {
+        let plugin = ArgocdPlugin::new();
+        let options = plugin.client_options(&cfg(&[
+            ("server_url", " https://Argo.example.com:8443/ "),
+            ("insecure", "true"),
+        ]));
+        assert_eq!(
+            options.origin.as_ref().map(|u| u.as_str()),
+            Some("https://argo.example.com:8443/")
+        );
+        assert!(options.accept_invalid_certs);
+    }
+
+    #[test]
+    fn client_options_default_secure_for_missing_or_bad_values() {
+        let plugin = ArgocdPlugin::new();
+        for insecure in ["false", "yes", ""] {
+            let options = plugin.client_options(&cfg(&[
+                ("server_url", "https://argo.example.com"),
+                ("insecure", insecure),
+            ]));
+            assert!(!options.accept_invalid_certs);
+        }
+        assert!(
+            !plugin
+                .client_options(&cfg(&[("server_url", "https://a.io")]))
+                .accept_invalid_certs
+        );
+    }
+
+    #[test]
+    fn client_options_origin_none_when_missing_or_invalid() {
+        let plugin = ArgocdPlugin::new();
+        assert_eq!(plugin.client_options(&cfg(&[])).origin, None);
+        assert_eq!(
+            plugin
+                .client_options(&cfg(&[("server_url", "not a url")]))
+                .origin,
+            None
+        );
+    }
+
+    #[test]
+    fn initialize_requires_client_and_validates_status_page() {
+        let base = [("server_url", "https://a.io"), ("token", "t")];
+        let mut plugin = ArgocdPlugin::new();
+
+        assert!(matches!(
+            plugin.initialize(1, cfg(&base), None),
+            Err(PluginError::Internal(_))
+        ));
+
+        let mut bad = base.to_vec();
+        bad.push(("status_page_url", "http://example.com"));
+        assert!(matches!(
+            plugin.initialize(1, cfg(&bad), None),
+            Err(PluginError::InvalidConfig(_))
+        ));
+        assert!(plugin.status_source().is_none());
     }
 }

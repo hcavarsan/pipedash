@@ -37,15 +37,15 @@ interface NavbarProps {
   compact?: boolean
 }
 
-const providerStatusText = (provider: ProviderSummary) => {
+const providerStatus = (provider: ProviderSummary) => {
   if (provider.paused_until) {
-    return `Paused until ${formatTime(provider.paused_until)}`
+    return { text: `Paused until ${formatTime(provider.paused_until)}`, failed: false }
   }
   if (provider.last_fetch_status === 'error') {
-    return 'Fetch failed'
+    return { text: 'Fetch failed', failed: true }
   }
 
-  return formatCount(provider.pipeline_count, 'pipeline')
+  return { text: formatCount(provider.pipeline_count, 'pipeline'), failed: false }
 }
 
 const ICON_TILE = { rail: 30, list: 28 } as const
@@ -57,8 +57,23 @@ const NavTile = ({ icon: Icon, size }: { icon: typeof IconStack2; size: number }
 )
 
 const ProviderAvatar = ({ provider, size }: { provider: ProviderSummary; size: number }) => (
-  <ProviderIcon name={provider.name} icon={provider.icon} size={size} failed={provider.last_fetch_status === 'error'} />
+  <ProviderIcon
+    name={provider.name}
+    icon={provider.icon}
+    size={size}
+    attention={provider.last_fetch_status === 'error' ? { tone: 'danger', label: 'Fetch failed' } : undefined}
+  />
 )
+
+const ProviderStatusLine = ({ provider }: { provider: ProviderSummary }) => {
+  const { text, failed } = providerStatus(provider)
+
+  return (
+    <Text size="xs" c={failed ? 'red' : 'dimmed'} truncate>
+      {text}
+    </Text>
+  )
+}
 
 export const Navbar = ({ compact = false }: NavbarProps) => {
   const { isMobile } = useIsMobile()
@@ -197,7 +212,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
         ) : (
           providers.map((provider) =>
             railItem(
-              `${provider.name} · ${providerStatusText(provider)}`,
+              `${provider.name} · ${providerStatus(provider).text}`,
               `/pipelines?provider=${provider.id}`,
               providerParam === String(provider.id),
               <ProviderAvatar provider={provider} size={ICON_TILE.rail} />
@@ -260,11 +275,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
                     {provider.name}
                   </Text>
                 }
-                description={
-                  <Text size="xs" c={provider.last_fetch_status === 'error' ? 'red' : 'dimmed'} truncate>
-                    {providerStatusText(provider)}
-                  </Text>
-                }
+                description={<ProviderStatusLine provider={provider} />}
                 active={providerParam === String(provider.id)}
                 component={Link}
                 to={`/pipelines?provider=${provider.id}`}

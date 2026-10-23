@@ -18,6 +18,7 @@ pub struct BitbucketPlugin {
     client: Option<client::BitbucketClient>,
     provider_id: Option<i64>,
     config: HashMap<String, String>,
+    status_source: Option<StatusSource>,
 }
 
 impl Default for BitbucketPlugin {
@@ -33,6 +34,7 @@ impl BitbucketPlugin {
             client: None,
             provider_id: None,
             config: HashMap::new(),
+            status_source: None,
         }
     }
 
@@ -96,6 +98,18 @@ impl BitbucketPlugin {
     }
 }
 
+fn collect_partial<T>(results: Vec<PluginResult<T>>, item: &str) -> PluginResult<Vec<T>> {
+    let mut kept = Vec::with_capacity(results.len());
+    for result in results {
+        match result {
+            Ok(value) => kept.push(value),
+            Err(e) if e.is_transient() => return Err(e),
+            Err(e) => tracing::warn!(error = %e, item, "Skipping failed Bitbucket item"),
+        }
+    }
+    Ok(kept)
+}
+
 #[async_trait]
 impl Plugin for BitbucketPlugin {
     fn metadata(&self) -> &PluginMetadata {
@@ -104,6 +118,10 @@ impl Plugin for BitbucketPlugin {
 
     fn provider_type(&self) -> &str {
         "bitbucket"
+    }
+
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
     }
 
     fn initialize(
@@ -133,6 +151,7 @@ impl Plugin for BitbucketPlugin {
             )
         });
 
+        self.status_source = Some(config::status_source()?);
         self.client = Some(client::BitbucketClient::new(client, api_url, auth_value));
         self.provider_id = Some(provider_id);
         self.config = config;
@@ -227,14 +246,12 @@ impl Plugin for BitbucketPlugin {
         let pipeline_futures = repos.iter().map(|repo| async move {
             let pipelines = client
                 .list_pipelines(&repo.workspace.slug, &repo.slug, 1)
-                .await
-                .ok()?;
+                .await?;
             let latest = pipelines.first();
-            Some(mapper::map_pipeline(repo, latest, provider_id))
+            Ok(mapper::map_pipeline(repo, latest, provider_id))
         });
 
-        let results: Vec<Option<Pipeline>> = join_all(pipeline_futures).await;
-        Ok(results.into_iter().flatten().collect())
+        collect_partial(join_all(pipeline_futures).await, "repository")
     }
 
     async fn fetch_run_history(
