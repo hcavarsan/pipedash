@@ -583,6 +583,7 @@ impl ProviderService {
             .map(|provider| provider.name)
             .collect();
         let mut result = ProviderImportResult::default();
+        let mut failure = None;
 
         for (key, provider) in &file.providers {
             let name = provider.display_name(key).to_string();
@@ -592,15 +593,30 @@ impl ProviderService {
             }
 
             let config = ProviderSyncService::provider_config(key, provider, String::new());
-            self.repository.add_provider(&config).await?;
-            result.added.push(name);
+            match self.repository.add_provider(&config).await {
+                Ok(_) => result.added.push(name),
+                Err(e) => {
+                    let added_elsewhere = matches!(e, DomainError::InvalidConfig(_))
+                        && self
+                            .repository
+                            .config_backend()
+                            .list_providers()
+                            .await
+                            .is_ok_and(|providers| providers.iter().any(|p| p.name == *key));
+                    if !added_elsewhere {
+                        failure = Some(e);
+                        break;
+                    }
+                    result.skipped.push(name);
+                }
+            }
         }
 
         if !result.added.is_empty() {
             self.event_bus.emit(CoreEvent::ProvidersChanged).await;
         }
 
-        Ok(result)
+        failure.map_or(Ok(result), Err)
     }
 
     pub async fn get_provider_config(&self, id: i64) -> DomainResult<ProviderConfig> {
