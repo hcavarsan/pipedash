@@ -1,8 +1,6 @@
-import { Alert, Box, Button, Code, Group, Stack, Text, UnstyledButton } from '@mantine/core'
-import { useDisclosure } from '@mantine/hooks'
+import { Box, Button, Group, Stack, UnstyledButton } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
-  IconAlertCircle,
   IconChevronDown,
   IconChevronRight,
   IconFilterOff,
@@ -21,12 +19,11 @@ import { usePipelineFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
 import { pinKey, usePinnedStore } from '../../stores/pinnedStore'
 import { useProviderStore } from '../../stores/providerStore'
-import { attentionColor, mostSevereStatus } from '../../theme/status'
-import { TYPOGRAPHY } from '../../theme/typography'
+import { mostSevereStatus } from '../../theme/status'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { getDateRangeStart } from '../../utils/dateRange'
 import { getPipelineLabels, getStatusLabel, getStatusOptions } from '../../utils/pipelinePresentation'
-import { providerAttention } from '../../utils/providerAttention'
+import { fetchHint, providerAttention } from '../../utils/providerAttention'
 import { TableCells } from '../../utils/tableCells'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
@@ -34,20 +31,13 @@ import { FilterBar } from '../common/FilterBar'
 import { LoadingState } from '../common/LoadingState'
 import { PageContainer } from '../common/PageContainer'
 import { PageHeader } from '../common/PageHeader'
-import { StandardModal } from '../common/StandardModal'
 import { StandardTable } from '../common/StandardTable'
 import { ProviderRecoveryActions } from '../provider/ProviderRecoveryActions'
+import { ProviderStatusButton } from '../provider/ProviderStatusButton'
 
 import { MobilePipelineCards } from './MobilePipelineCards'
 import { PinnedWorkflows } from './PinnedWorkflows'
-import {
-  type ProviderFetchError,
-  RepositoryFetchIndicator,
-  RowStatus,
-  SectionHeading,
-  type TableRow,
-  WorkflowActions,
-} from './PipelineRowParts'
+import { RepositoryFetchIndicator, RowStatus, SectionHeading, type TableRow, WorkflowActions } from './PipelineRowParts'
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
@@ -133,31 +123,25 @@ const pipelineMatches = (pipeline: Pipeline, repository: string, organization: s
   )
 }
 
-const toProviderIssue = (provider: ProviderSummary): ProviderFetchError | null => {
+interface EmptyTableIssue {
+  id: number
+  name: string
+  kind: ProviderSummary['last_fetch_error_kind']
+  headline: string
+  detail: string | null
+  hint: string | null
+}
+
+const toEmptyTableIssue = (provider: ProviderSummary): EmptyTableIssue | null => {
   const attention = providerAttention(provider)
-  const { tone, headline } = attention
   const base = { id: provider.id, name: provider.name, kind: attention.kind }
 
-  if (tone && headline) {
-    return {
-      ...base,
-      tone,
-      color: attentionColor(provider, tone),
-      headline,
-      detail: attention.detail,
-      hint: attention.hint,
-    }
+  if (attention.headline) {
+    return { ...base, headline: attention.headline, detail: attention.detail, hint: attention.hint }
   }
 
   if (provider.last_fetch_status === 'error' && provider.last_fetch_error) {
-    return {
-      ...base,
-      tone: 'danger',
-      color: attentionColor(provider, 'danger'),
-      headline: 'Fetch failed',
-      detail: provider.last_fetch_error,
-      hint: null,
-    }
+    return { ...base, headline: 'Fetch failed', detail: provider.last_fetch_error, hint: fetchHint(provider) }
   }
 
   return null
@@ -215,22 +199,11 @@ export const UnifiedPipelinesView = ({
     columnAccessor: 'name',
     direction: 'asc',
   })
-  const [errorModalOpened, { open: openErrorModal, close: closeErrorModal }] = useDisclosure(false)
-  const [selectedError, setSelectedError] = useState<ProviderFetchError | null>(null)
-
   const getProvider = useCallback(
     (providerId: number): ProviderSummary | undefined => {
       return providers.find((p) => p.id === providerId)
     },
     [providers]
-  )
-
-  const showProviderError = useCallback(
-    (error: ProviderFetchError) => {
-      setSelectedError(error)
-      openErrorModal()
-    },
-    [openErrorModal]
   )
 
   const parseRepositoryName = useCallback(
@@ -412,7 +385,6 @@ export const UnifiedPipelinesView = ({
         return []
       }
 
-      const providerErrors: ProviderFetchError[] = []
       const providerNames: string[] = []
       let hasPendingFetch = false
 
@@ -423,12 +395,6 @@ export const UnifiedPipelinesView = ({
 
         if (provider?.last_fetch_status === 'never') {
           hasPendingFetch = true
-        }
-
-        const issue = provider && toProviderIssue(provider)
-
-        if (issue) {
-          providerErrors.push(issue)
         }
       })
 
@@ -449,7 +415,6 @@ export const UnifiedPipelinesView = ({
             pipelineCount: workflows.length,
             providerIds: group.providerIds,
             providerLabel: providerNames.sort(collator.compare).join(', '),
-            providerErrors,
             hasPendingFetch,
             status,
             statusLabel: statusPipeline ? getStatusLabel(statusPipeline) : undefined,
@@ -502,8 +467,8 @@ export const UnifiedPipelinesView = ({
 
   const emptyTableIssues = providers
     .filter((provider) => rowFilters.providerId === undefined || provider.id === rowFilters.providerId)
-    .map(toProviderIssue)
-    .filter((issue): issue is ProviderFetchError => issue !== null && issue.tone !== 'info')
+    .map(toEmptyTableIssue)
+    .filter((issue): issue is EmptyTableIssue => issue !== null)
   const firstIssue = emptyTableIssues[0]
 
   const pageHeading = <PageHeader title={title} />
@@ -684,7 +649,6 @@ export const UnifiedPipelinesView = ({
                 rows={rows}
                 getProvider={getProvider}
                 onToggleRepo={toggleRepo}
-                onShowProviderError={showProviderError}
                 onViewHistory={onViewHistory}
                 onTrigger={onTrigger}
                 pinnedKeys={pinnedKeys}
@@ -763,9 +727,9 @@ export const UnifiedPipelinesView = ({
                       width: 200,
                       textAlign: 'left' as const,
                       render: (row) => (
-                        <Stack gap="xs">
+                        <Stack gap={4} align="flex-start">
                           {Array.from(row.providerIds ?? []).map((providerId) => (
-                            <div key={providerId}>{TableCells.provider(getProvider(providerId))}</div>
+                            <ProviderStatusButton key={providerId} provider={getProvider(providerId)} />
                           ))}
                         </Stack>
                       ),
@@ -779,7 +743,7 @@ export const UnifiedPipelinesView = ({
                         if (row.type === 'repository') {
                           return (
                             <Group justify="flex-end">
-                              <RepositoryFetchIndicator row={row} onShowError={showProviderError} />
+                              <RepositoryFetchIndicator row={row} />
                             </Group>
                           )
                         }
@@ -812,49 +776,6 @@ export const UnifiedPipelinesView = ({
           </Stack>
         </>
       )}
-
-      <StandardModal
-        opened={errorModalOpened}
-        onClose={closeErrorModal}
-        title="Provider status"
-        size="md"
-        footer={
-          <Group justify="flex-end" gap="sm">
-            <Button variant="default" size="sm" onClick={closeErrorModal}>
-              Close
-            </Button>
-          </Group>
-        }
-      >
-        {selectedError && (
-          <Stack gap="md">
-            <Alert
-              icon={<IconAlertCircle size={16} />}
-              color={selectedError.color}
-              variant="light"
-              title={selectedError.name}
-            >
-              <Text size={TYPOGRAPHY.HELPER_TEXT.size}>{selectedError.headline}</Text>
-              {selectedError.hint && (
-                <Text size={TYPOGRAPHY.HELPER_TEXT.size} c="dimmed">
-                  {selectedError.hint}
-                </Text>
-              )}
-            </Alert>
-
-            {selectedError.detail && (
-              <Box>
-                <Text size={TYPOGRAPHY.FIELD_LABEL.size} fw={500} c="dimmed" mb="xs">
-                  Details
-                </Text>
-                <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {selectedError.detail}
-                </Code>
-              </Box>
-            )}
-          </Stack>
-        )}
-      </StandardModal>
     </PageContainer>
   )
 }

@@ -451,12 +451,18 @@ fn derive(
                     url: source.page_url.to_string(),
                     checked_at: feed.observed.map(|observed| observed.wall),
                     error: feed.error.map(str::to_owned),
+                    components: Vec::new(),
+                    other_incidents: Vec::new(),
                 });
             }
             if let (Some(parsed), Some((view, observed))) =
                 (&feed.last_good, evidence.and_then(Evidence::shown))
             {
                 let eval = evaluate(parsed, &source.components, &source.page_url, wall);
+                if let Some(page) = status_page.as_mut() {
+                    page.components = eval.watched.clone();
+                    page.other_incidents = eval.other_incidents.clone();
+                }
                 if eval.filter_fallback && !feed.logged_fallback {
                     feed.logged_fallback = true;
                     tracing::warn!(

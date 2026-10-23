@@ -146,6 +146,8 @@ export interface StatusPageRef {
   url: string
   checked_at: string | null
   error: string | null
+  components: ComponentHealth[]
+  other_incidents: Incident[]
 }
 
 export interface ProviderHealth {

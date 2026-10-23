@@ -1,18 +1,10 @@
 import { ActionIcon, Group, Loader, Text, Tooltip } from '@mantine/core'
-import {
-  IconAlertTriangle,
-  IconChartLine,
-  IconPin,
-  IconPinFilled,
-  IconPlayerPlayFilled,
-  IconRefresh,
-} from '@tabler/icons-react'
+import { IconChartLine, IconPin, IconPinFilled, IconPlayerPlayFilled, IconRefresh } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
-import type { FailureKind, Pipeline, PipelineStatus } from '../../types'
+import type { Pipeline, PipelineStatus } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getReconcileBlockReason, getStatusLabel } from '../../utils/pipelinePresentation'
-import type { AttentionTone } from '../../utils/providerAttention'
 import { StatusBadge } from '../atoms/StatusBadge'
 
 interface SectionHeadingProps {
@@ -36,17 +28,6 @@ export function SectionHeading({ id, icon, label, count }: SectionHeadingProps) 
   )
 }
 
-export interface ProviderFetchError {
-  id: number
-  name: string
-  tone: AttentionTone
-  color: string
-  kind: FailureKind | null
-  headline: string
-  detail: string | null
-  hint: string | null
-}
-
 export interface TableRow {
   id: string
   type: 'repository' | 'workflow'
@@ -57,7 +38,6 @@ export interface TableRow {
   pipelineCount?: number
   providerIds?: Set<number>
   providerLabel?: string
-  providerErrors?: ProviderFetchError[]
   hasPendingFetch?: boolean
   status?: PipelineStatus | null
   statusLabel?: string
@@ -90,37 +70,15 @@ export function RowStatus({ row }: { row: TableRow }) {
   )
 }
 
-interface RepositoryFetchIndicatorProps {
-  row: TableRow
-  onShowError: (error: ProviderFetchError) => void
-}
-
-export function RepositoryFetchIndicator({ row, onShowError }: RepositoryFetchIndicatorProps) {
-  const errors = row.providerErrors ?? []
-
-  if (!row.hasPendingFetch && errors.length === 0) {
+export function RepositoryFetchIndicator({ row }: { row: TableRow }) {
+  if (!row.hasPendingFetch) {
     return null
   }
 
   return (
-    <Group gap={4} wrap="nowrap">
-      {row.hasPendingFetch && (
-        <Tooltip label="Fetching pipelines…">
-          <Loader size="sm" aria-label="Fetching pipelines" />
-        </Tooltip>
-      )}
-      {errors.map((error) => {
-        const label = `View ${error.name} status`
-
-        return (
-          <Tooltip key={error.id} label={label}>
-            <ActionIcon variant="subtle" color={error.color} aria-label={label} onClick={() => onShowError(error)}>
-              <IconAlertTriangle size={16} aria-hidden />
-            </ActionIcon>
-          </Tooltip>
-        )
-      })}
-    </Group>
+    <Tooltip label="Fetching pipelines…">
+      <Loader size="sm" aria-label="Fetching pipelines" />
+    </Tooltip>
   )
 }
 

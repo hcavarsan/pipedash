@@ -98,6 +98,8 @@ pub struct FeedSignal {
     pub maintenances: Vec<Maintenance>,
     pub incident_ids: Vec<String>,
     pub filter_fallback: bool,
+    pub watched: Vec<ComponentHealth>,
+    pub other_incidents: Vec<Incident>,
 }
 
 pub fn evaluate(
@@ -112,6 +114,10 @@ pub fn evaluate(
         Some(watched) => ids.is_empty() || ids.iter().any(|id| watched.contains(id.as_str())),
         None => true,
     };
+    let affects = |ids: &[String]| match &watched {
+        Some(watched) => ids.iter().any(|id| watched.contains(id.as_str())),
+        None => true,
+    };
     let base = with_trailing_slash(page_url);
     let link = |id: &str, shortlink: Option<&str>| {
         let candidate = match feed.format {
@@ -120,6 +126,29 @@ pub fn evaluate(
         };
         https_link(candidate.as_deref(), page_url)
     };
+
+    let to_health = |c: &FeedComponent| ComponentHealth {
+        name: c.name.clone(),
+        level: c.level,
+        detail: c.detail.map(str::to_owned),
+    };
+    let to_incident = |i: &FeedIncident, updated_at: DateTime<Utc>| Incident {
+        id: i.id.clone(),
+        name: i.name.clone(),
+        level: i.level,
+        phase: i.phase.to_owned(),
+        latest_update: i.latest_update.clone(),
+        url: link(&i.id, i.shortlink.as_deref()),
+        started_at: i.started_at,
+        updated_at,
+    };
+    let watched_components: Vec<ComponentHealth> = feed
+        .components
+        .iter()
+        .filter(|c| is_watched(c) && (watched.is_some() || c.level > HealthLevel::Operational))
+        .take(MAX_COMPONENTS)
+        .map(to_health)
+        .collect();
 
     let mut components: Vec<&FeedComponent> = feed
         .components
@@ -137,7 +166,7 @@ pub fn evaluate(
     let mut incidents: Vec<(&FeedIncident, DateTime<Utc>)> = feed
         .incidents
         .iter()
-        .filter(|i| applies(&i.components))
+        .filter(|i| affects(&i.components))
         .map(|i| (i, i.updated_at.unwrap_or(now)))
         .collect();
     level = level.max(
@@ -157,6 +186,18 @@ pub fn evaluate(
     incident_ids.sort();
     incident_ids.dedup();
     incidents.truncate(MAX_INCIDENTS);
+    let mut other_incidents: Vec<Incident> = feed
+        .incidents
+        .iter()
+        .filter(|i| !affects(&i.components))
+        .map(|i| to_incident(i, i.updated_at.unwrap_or(now)))
+        .collect();
+    other_incidents.sort_by(|a, b| {
+        b.updated_at
+            .cmp(&a.updated_at)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    other_incidents.truncate(MAX_INCIDENTS);
 
     let horizon = now + Duration::hours(MAINTENANCE_HORIZON_HOURS);
     let mut maintenances: Vec<&FeedMaintenance> = feed
@@ -182,26 +223,10 @@ pub fn evaluate(
 
     FeedSignal {
         level,
-        components: components
-            .into_iter()
-            .map(|c| ComponentHealth {
-                name: c.name.clone(),
-                level: c.level,
-                detail: c.detail.map(str::to_owned),
-            })
-            .collect(),
+        components: components.into_iter().map(to_health).collect(),
         incidents: incidents
             .into_iter()
-            .map(|(i, updated_at)| Incident {
-                id: i.id.clone(),
-                name: i.name.clone(),
-                level: i.level,
-                phase: i.phase.to_owned(),
-                latest_update: i.latest_update.clone(),
-                url: link(&i.id, i.shortlink.as_deref()),
-                started_at: i.started_at,
-                updated_at,
-            })
+            .map(|(i, updated_at)| to_incident(i, updated_at))
             .collect(),
         maintenances: maintenances
             .into_iter()
@@ -216,6 +241,8 @@ pub fn evaluate(
             .collect(),
         incident_ids,
         filter_fallback,
+        watched: watched_components,
+        other_incidents,
     }
 }
 
@@ -621,12 +648,15 @@ mod tests {
     }
 
     #[test]
-    fn page_wide_incidents_count_and_disjoint_ones_do_not() {
+    fn untagged_incidents_count_only_when_the_whole_page_is_watched() {
         let feed = sp(
-            json!([component("a", "operational"), component("b", "operational")]),
             json!([
-                incident("wide", "minor", &[]),
-                incident("mine", "major", &["a"]),
+                component("a", "operational"),
+                component("b", "partial_outage")
+            ]),
+            json!([
+                incident("wide", "major", &[]),
+                incident("mine", "minor", &["a"]),
                 incident("theirs", "critical", &["b"]),
             ]),
             json!([]),
@@ -635,12 +665,26 @@ mod tests {
         let signal = evaluate(&feed, &ids(&["a"]), &page(), now());
         let all = evaluate(&feed, &ComponentFilter::All, &page(), now());
 
-        assert_eq!(signal.incident_ids, ["mine", "wide"]);
-        assert_eq!(signal.level, HealthLevel::PartialOutage);
-        let order: Vec<_> = signal.incidents.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(order, ["mine", "wide"]);
+        assert_eq!(signal.incident_ids, ["mine"]);
+        assert_eq!(signal.level, HealthLevel::Degraded);
+        let others: Vec<_> = signal
+            .other_incidents
+            .iter()
+            .map(|i| i.id.as_str())
+            .collect();
+        assert_eq!(others.len(), 2);
+        assert!(others.contains(&"wide") && others.contains(&"theirs"));
+        let watched: Vec<_> = signal
+            .watched
+            .iter()
+            .map(|c| (c.name.as_str(), c.level))
+            .collect();
+        assert_eq!(watched, [("Component a", HealthLevel::Operational)]);
         assert_eq!(all.incident_ids, ["mine", "theirs", "wide"]);
         assert_eq!(all.level, HealthLevel::MajorOutage);
+        assert!(all.other_incidents.is_empty());
+        let all_watched: Vec<_> = all.watched.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(all_watched, ["Component b"]);
     }
 
     #[test]

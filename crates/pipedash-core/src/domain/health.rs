@@ -72,6 +72,10 @@ pub struct StatusPageRef {
     pub url: String,
     pub checked_at: Option<DateTime<Utc>>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub components: Vec<ComponentHealth>,
+    #[serde(default)]
+    pub other_incidents: Vec<Incident>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

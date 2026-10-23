@@ -7,7 +7,7 @@ export const MAX_CENTER_NOTIFICATIONS = 50
 
 type AlertLink = EventPayloadMap['provider-health-alert']['link']
 
-export type CenterNotificationTone = 'danger' | 'warning' | 'success' | 'info'
+export type CenterNotificationTone = 'danger' | 'warning' | 'success'
 
 export interface CenterNotification {
   id: string

@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { HealthLevel, HealthSignal, Maintenance, ProviderHealth, ProviderSummary } from '../types'
 
 import { formatTime } from './formatDateTime'
-import { isOutageLevel, providerAttention, providerIssues, upcomingMaintenance } from './providerAttention'
+import { isOutageLevel, providerAttention } from './providerAttention'
 
 const signal = (overrides: Partial<HealthSignal> = {}): HealthSignal => ({
   kind: 'status_page',
@@ -67,7 +67,7 @@ test('operational provider needs no attention', () => {
   assert.equal(result.headline, null)
   assert.equal(result.hint, null)
   assert.equal(result.episodeKey, null)
-  assert.equal(result.refreshingNormally, false)
+  assert.equal(result.refreshingNormally, true)
 })
 
 test('partial outage or worse is a warning headed by the lead signal title', () => {
@@ -94,7 +94,7 @@ test('an outage outranks a non-transient fetch error', () => {
   assert.equal(result.hint, 'The token was rejected. Update it in Settings → Providers.')
 })
 
-test('non-transient fetch errors are danger and outrank degraded', () => {
+test('non-transient fetch errors are danger even while the status page reports a minor issue', () => {
   for (const kind of ['auth', 'permission', 'config', 'tls', 'other', 'not_found'] as const) {
     const result = providerAttention(
       summary({
@@ -123,35 +123,19 @@ test('transient fetch errors alone do not raise attention', () => {
   }
 })
 
-test('degraded is a warning and maintenance in progress is info', () => {
-  const degraded = providerAttention(summary({ health: health('degraded', [signal({ level: 'degraded' })]) }))
-  const inProgress = providerAttention(
-    summary({
-      health: health('maintenance', [
-        signal({
-          level: 'maintenance',
-          title: 'Scheduled maintenance',
-          maintenances: [maintenance({ in_progress: true })],
-        }),
-      ]),
-    })
-  )
+test('degraded, maintenance and rate limits do not raise attention', () => {
+  const quiet = [
+    health('degraded', [signal({ level: 'degraded' })]),
+    health('degraded', [signal({ kind: 'rate_limit', level: 'degraded' })]),
+    health('maintenance', [signal({ level: 'maintenance', maintenances: [maintenance({ in_progress: true })] })]),
+    health('operational', [
+      signal({ level: 'operational', maintenances: [maintenance({ starts_at: '2099-01-01T00:00:00Z' })] }),
+    ]),
+  ]
 
-  assert.equal(degraded.tone, 'warning')
-  assert.equal(inProgress.tone, 'info')
-  assert.equal(inProgress.headline, 'Scheduled maintenance')
-})
-
-test('upcoming maintenance at operational level does not raise attention', () => {
-  const result = providerAttention(
-    summary({
-      health: health('operational', [
-        signal({ level: 'operational', maintenances: [maintenance({ starts_at: '2099-01-01T00:00:00Z' })] }),
-      ]),
-    })
-  )
-
-  assert.equal(result.tone, null)
+  for (const value of quiet) {
+    assert.equal(providerAttention(summary({ health: value })).tone, null, value.level)
+  }
 })
 
 test('stale signals do not set the tone and are described as unreachable', () => {
@@ -238,57 +222,8 @@ test('refreshing normally needs a successful fetch, no connection signal and no 
   )
 })
 
-test('upcoming maintenance picks the earliest future window of fresh signals', () => {
-  const now = Date.parse('2026-10-22T12:00:00Z')
-  const target = summary({
-    health: health('operational', [
-      signal({
-        level: 'operational',
-        maintenances: [
-          maintenance({ id: 'past', starts_at: '2026-10-21T00:00:00Z' }),
-          maintenance({ id: 'running', in_progress: true, starts_at: '2026-10-22T11:00:00Z' }),
-          maintenance({ id: 'later', starts_at: '2026-10-25T00:00:00Z' }),
-          maintenance({ id: 'soon', starts_at: '2026-10-23T00:00:00Z' }),
-          maintenance({ id: 'unscheduled' }),
-        ],
-      }),
-      signal({
-        evidence: 'stale',
-        maintenances: [maintenance({ id: 'stale', starts_at: '2026-10-22T13:00:00Z' })],
-      }),
-    ]),
-  })
-
-  assert.equal(upcomingMaintenance(target, now)?.id, 'soon')
-  assert.equal(upcomingMaintenance(summary(), now), null)
-})
-
 test('outage levels start at partial outage', () => {
   assert.equal(isOutageLevel('degraded'), false)
   assert.equal(isOutageLevel('partial_outage'), true)
   assert.equal(isOutageLevel('major_outage'), true)
-})
-
-test('issues list only providers that need attention, worst tone first', () => {
-  const issues = providerIssues([
-    summary({ id: 1, name: 'Healthy' }),
-    summary({
-      id: 2,
-      name: 'Maintenance',
-      health: health('maintenance', [
-        signal({ level: 'maintenance', maintenances: [maintenance({ in_progress: true })] }),
-      ]),
-    }),
-    summary({ id: 3, name: 'Outage', health: health('major_outage', [signal()]) }),
-    summary({ id: 4, name: 'Broken token', last_fetch_status: 'error', last_fetch_error_kind: 'auth' }),
-  ])
-
-  assert.deepEqual(
-    issues.map((issue) => [issue.provider.name, issue.tone]),
-    [
-      ['Broken token', 'danger'],
-      ['Outage', 'warning'],
-      ['Maintenance', 'info'],
-    ]
-  )
 })

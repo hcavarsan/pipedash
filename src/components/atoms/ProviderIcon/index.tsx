@@ -13,7 +13,6 @@ interface ProviderIconProps {
 const TONE_COLOR: Record<AttentionTone, string> = {
   warning: 'orange',
   danger: 'red',
-  info: 'gray',
 }
 
 const initials = (name: string) => {

@@ -12,33 +12,43 @@ import {
   UnstyledButton,
   VisuallyHidden,
 } from '@mantine/core'
-import { type Icon, IconBell, IconBellCheck } from '@tabler/icons-react'
+import { IconBell, IconBellCheck } from '@tabler/icons-react'
 import { listen } from '@tauri-apps/api/event'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useNow } from '../../hooks/useNow'
 import { logger } from '../../lib/logger'
 import { useProviders } from '../../queries/useProvidersQueries'
 import { isTauri } from '../../services'
-import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import { attentionColor, HEALTH_META } from '../../theme/status'
+import {
+  type CenterNotification,
+  type CenterNotificationTone,
+  useNotificationCenterStore,
+} from '../../stores/notificationCenterStore'
+import { HEALTH_META } from '../../theme/status'
 import type { HealthLevel } from '../../types'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
-import { providerIssues } from '../../utils/providerAttention'
 import { openNotificationDetails, SYSTEM_NOTIFICATION_CLICKED_EVENT } from '../../utils/systemNotifications'
 
-import { issueIcon, issueSummary, notificationIcon, notificationLabel } from './labels'
+import { notificationIcon, notificationLabel } from './labels'
 import { NotificationDetailsModal } from './NotificationDetailsModal'
+import { ProviderStatusModal } from './ProviderStatusModal'
 
-interface RowProps {
-  icon: Icon
-  title: string
-  subtitle: string
-  unread?: boolean
-  onClick: () => void
+const DOT_COLORS: Array<[CenterNotificationTone, string]> = [
+  ['danger', 'red'],
+  ['warning', 'orange'],
+  ['success', 'blue'],
+]
+
+function unreadDotColor(items: CenterNotification[]): string | null {
+  const unread = items.filter((item) => !item.read)
+
+  return DOT_COLORS.find(([tone]) => unread.some((item) => item.tone === tone))?.[1] ?? null
 }
 
-function Row({ icon: RowIcon, title, subtitle, unread = false, onClick }: RowProps) {
+function Row({ item, now, onClick }: { item: CenterNotification; now: number; onClick: () => void }) {
+  const RowIcon = notificationIcon(item)
+
   return (
     <UnstyledButton
       className="interactive-surface"
@@ -52,28 +62,20 @@ function Row({ icon: RowIcon, title, subtitle, unread = false, onClick }: RowPro
           <RowIcon size={16} aria-hidden />
         </Box>
         <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-          <Text size="sm" fw={unread ? 600 : 500} truncate>
-            {title}
+          <Text size="sm" fw={item.read ? 500 : 600} truncate>
+            {item.title}
           </Text>
           <Text size="xs" c="dimmed" lineClamp={2}>
-            {subtitle}
+            {notificationLabel(item)} · {formatRelativeTime(item.at, now)}
           </Text>
         </Stack>
-        {unread && (
+        {!item.read && (
           <Box w={6} h={6} mt={7} bg="blue" style={{ borderRadius: '50%', flexShrink: 0 }}>
             <VisuallyHidden>Unread</VisuallyHidden>
           </Box>
         )}
       </Group>
     </UnstyledButton>
-  )
-}
-
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <Text size="xs" c="dimmed" fw={500} px="sm" pt="xs">
-      {children}
-    </Text>
   )
 }
 
@@ -88,10 +90,8 @@ export function NotificationCenter() {
   const previousLevels = useRef<Map<number, HealthLevel> | null>(null)
   const now = useNow(30_000)
 
-  const issues = useMemo(() => providerIssues(providers ?? []), [providers])
   const unread = items.filter((item) => !item.read).length
-  const lead = issues[0]
-  const dotColor = lead ? attentionColor(lead.provider, lead.tone) : unread > 0 ? 'blue' : null
+  const dotColor = unreadDotColor(items)
 
   useEffect(() => {
     if (!isTauri()) {
@@ -150,17 +150,7 @@ export function NotificationCenter() {
     setOpened(next)
   }
 
-  const select = (selection: Parameters<typeof open>[0]) => {
-    toggle(false)
-    open(selection)
-  }
-
-  const label =
-    issues.length > 0
-      ? `Notifications, ${issues.length} ${issues.length === 1 ? 'provider needs' : 'providers need'} attention`
-      : unread > 0
-        ? `Notifications, ${unread} unread`
-        : 'Notifications'
+  const label = unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'
 
   return (
     <>
@@ -180,14 +170,21 @@ export function NotificationCenter() {
               <Text fw={600} size="sm">
                 Notifications
               </Text>
-              {unread > 0 && (
-                <Button size="compact-xs" variant="subtle" color="gray" onClick={markAllRead}>
-                  Mark all read
-                </Button>
-              )}
+              <Group gap={4}>
+                {unread > 0 && (
+                  <Button size="compact-xs" variant="subtle" color="gray" onClick={markAllRead}>
+                    Mark all read
+                  </Button>
+                )}
+                {items.length > 0 && (
+                  <Button size="compact-xs" variant="subtle" color="gray" onClick={clear}>
+                    Clear
+                  </Button>
+                )}
+              </Group>
             </Group>
 
-            {issues.length === 0 && items.length === 0 ? (
+            {items.length === 0 ? (
               <Stack align="center" gap={4} px="md" pb="lg" pt="xs">
                 <Box c="dimmed">
                   <IconBellCheck size={24} aria-hidden />
@@ -196,39 +193,21 @@ export function NotificationCenter() {
                   You're all caught up
                 </Text>
                 <Text size="xs" c="dimmed" ta="center">
-                  Provider problems and pipeline failures show up here.
+                  Provider outages and pipeline failures show up here.
                 </Text>
               </Stack>
             ) : (
               <ScrollArea.Autosize mah={440} type="auto">
                 <Stack gap={2} px={6} pb={6}>
-                  {issues.length > 0 && <SectionLabel>Provider status</SectionLabel>}
-                  {issues.map((issue) => (
-                    <Row
-                      key={issue.provider.id}
-                      icon={issueIcon(issue)}
-                      title={issue.provider.name}
-                      subtitle={issueSummary(issue)}
-                      onClick={() => select({ type: 'provider', providerId: issue.provider.id })}
-                    />
-                  ))}
-
-                  {items.length > 0 && (
-                    <Group justify="space-between" pr={4}>
-                      <SectionLabel>Recent</SectionLabel>
-                      <Button size="compact-xs" variant="subtle" color="gray" mt="xs" onClick={clear}>
-                        Clear
-                      </Button>
-                    </Group>
-                  )}
                   {items.map((item) => (
                     <Row
                       key={item.id}
-                      icon={notificationIcon(item)}
-                      title={item.title}
-                      subtitle={`${notificationLabel(item)} · ${formatRelativeTime(item.at, now)}`}
-                      unread={!item.read}
-                      onClick={() => select({ type: 'notification', id: item.id })}
+                      item={item}
+                      now={now}
+                      onClick={() => {
+                        toggle(false)
+                        open({ type: 'notification', id: item.id })
+                      }}
                     />
                   ))}
                 </Stack>
@@ -238,6 +217,7 @@ export function NotificationCenter() {
         </Popover>
       </Indicator>
       <NotificationDetailsModal />
+      <ProviderStatusModal />
     </>
   )
 }

@@ -19,7 +19,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useNow } from '../../hooks/useNow'
 import { logger } from '../../lib/logger'
 import { useProviderDetails } from '../../queries/useProviderDetailsQuery'
 import { useAddProvider, useProviders, useRemoveProvider, useUpdateProvider } from '../../queries/useProvidersQueries'
@@ -27,8 +26,7 @@ import { useProviderStore } from '../../stores/providerStore'
 import type { ProviderConfig, ProviderSummary } from '../../types'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 import { formatCount } from '../../utils/formatCount'
-import { formatDateTime, formatTime } from '../../utils/formatDateTime'
-import { providerAttention, upcomingMaintenance } from '../../utils/providerAttention'
+import { formatTime } from '../../utils/formatDateTime'
 import { ProviderIcon } from '../atoms/ProviderIcon'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
@@ -39,25 +37,15 @@ interface NavbarProps {
   compact?: boolean
 }
 
-const STATUS_TEXT_COLOR = { danger: 'red', warning: 'orange', info: 'dimmed' } as const
-
-const providerStatus = (provider: ProviderSummary, now: number) => {
-  const { tone, headline } = providerAttention(provider)
-
-  if (headline) {
-    return { text: headline, tone }
-  }
+const providerStatus = (provider: ProviderSummary) => {
   if (provider.paused_until) {
-    return { text: `Paused until ${formatTime(provider.paused_until)}`, tone: null }
+    return { text: `Paused until ${formatTime(provider.paused_until)}`, failed: false }
+  }
+  if (provider.last_fetch_status === 'error') {
+    return { text: 'Fetch failed', failed: true }
   }
 
-  const maintenance = upcomingMaintenance(provider, now)
-
-  if (maintenance?.starts_at) {
-    return { text: `Maintenance ${formatDateTime(maintenance.starts_at)}`, tone: null }
-  }
-
-  return { text: formatCount(provider.pipeline_count, 'pipeline'), tone: null }
+  return { text: formatCount(provider.pipeline_count, 'pipeline'), failed: false }
 }
 
 const ICON_TILE = { rail: 30, list: 28 } as const
@@ -68,24 +56,20 @@ const NavTile = ({ icon: Icon, size }: { icon: typeof IconStack2; size: number }
   </ThemeIcon>
 )
 
-const ProviderAvatar = ({ provider, size }: { provider: ProviderSummary; size: number }) => {
-  const { tone, headline } = providerAttention(provider)
+const ProviderAvatar = ({ provider, size }: { provider: ProviderSummary; size: number }) => (
+  <ProviderIcon
+    name={provider.name}
+    icon={provider.icon}
+    size={size}
+    attention={provider.last_fetch_status === 'error' ? { tone: 'danger', label: 'Fetch failed' } : undefined}
+  />
+)
+
+const ProviderStatusLine = ({ provider }: { provider: ProviderSummary }) => {
+  const { text, failed } = providerStatus(provider)
 
   return (
-    <ProviderIcon
-      name={provider.name}
-      icon={provider.icon}
-      size={size}
-      attention={tone && headline ? { tone, label: headline } : undefined}
-    />
-  )
-}
-
-const ProviderStatusLine = ({ provider, now }: { provider: ProviderSummary; now: number }) => {
-  const { text, tone } = providerStatus(provider, now)
-
-  return (
-    <Text size="xs" c={tone ? STATUS_TEXT_COLOR[tone] : 'dimmed'} truncate>
+    <Text size="xs" c={failed ? 'red' : 'dimmed'} truncate>
       {text}
     </Text>
   )
@@ -171,8 +155,6 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
     refetchProviders()
   }, [closeAddProviderModal, refetchProviders])
 
-  const now = useNow(30_000)
-
   const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
   const allActive = pathname === '/pipelines' && providerParam === null && !pinnedActive
 
@@ -230,7 +212,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
         ) : (
           providers.map((provider) =>
             railItem(
-              `${provider.name} · ${providerStatus(provider, now).text}`,
+              `${provider.name} · ${providerStatus(provider).text}`,
               `/pipelines?provider=${provider.id}`,
               providerParam === String(provider.id),
               <ProviderAvatar provider={provider} size={ICON_TILE.rail} />
@@ -293,7 +275,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
                     {provider.name}
                   </Text>
                 }
-                description={<ProviderStatusLine provider={provider} now={now} />}
+                description={<ProviderStatusLine provider={provider} />}
                 active={providerParam === String(provider.id)}
                 component={Link}
                 to={`/pipelines?provider=${provider.id}`}

@@ -1,8 +1,8 @@
-import type { FailureKind, HealthLevel, HealthSignal, Maintenance, ProviderSummary } from '../types'
+import type { FailureKind, HealthLevel, HealthSignal, ProviderSummary } from '../types'
 
 import { formatTime } from './formatDateTime'
 
-export type AttentionTone = 'warning' | 'danger' | 'info'
+export type AttentionTone = 'warning' | 'danger'
 
 export interface ProviderAttention {
   tone: AttentionTone | null
@@ -46,6 +46,24 @@ const HINTS: Partial<Record<FailureKind, string>> = {
 
 export const isOutageLevel = (level: HealthLevel): boolean => LEVEL_RANK[level] >= LEVEL_RANK.partial_outage
 
+export const fetchHint = (summary: ProviderSummary): string | null => {
+  if (summary.last_fetch_status !== 'error') {
+    return null
+  }
+
+  const kind = summary.last_fetch_error_kind
+
+  return (kind && HINTS[kind]) ?? summary.last_fetch_error
+}
+
+export const scheduleNote = ({ health }: ProviderSummary): string | null => {
+  if (health.in_flight) {
+    return 'Checking now'
+  }
+
+  return health.next_attempt_at ? `Next attempt after ${formatTime(health.next_attempt_at)}` : null
+}
+
 const staleNote = (signal: HealthSignal): string => {
   const source = signal.kind === 'status_page' ? 'Status page' : signal.reported_by
 
@@ -53,27 +71,24 @@ const staleNote = (signal: HealthSignal): string => {
 }
 
 interface Lead {
-  tone: NonNullable<ProviderAttention['tone']>
+  tone: AttentionTone
   headline: string
   detail: string | null
   episodeKey: string
   explainsFailure: boolean
 }
 
-const fromSignal = (summary: ProviderSummary, tone: Lead['tone'], signal: HealthSignal): Lead => ({
-  tone,
-  headline: signal.title,
-  detail: signal.detail,
-  episodeKey: `${summary.id}:${signal.episode_id}`,
-  explainsFailure: signal.kind === 'connection' || signal.kind === 'rate_limit',
-})
-
 function pickLead(summary: ProviderSummary, fresh: HealthSignal[], kind: FailureKind | null): Lead | null {
-  const { level } = summary.health
-  const first = fresh[0]
+  const [first] = fresh
 
-  if (first && isOutageLevel(level)) {
-    return fromSignal(summary, 'warning', first)
+  if (first && isOutageLevel(summary.health.level)) {
+    return {
+      tone: 'warning',
+      headline: first.title,
+      detail: first.detail,
+      episodeKey: `${summary.id}:${first.episode_id}`,
+      explainsFailure: first.kind === 'connection',
+    }
   }
 
   if (summary.last_fetch_status === 'error' && (kind === null || !TRANSIENT_KINDS[kind])) {
@@ -86,24 +101,19 @@ function pickLead(summary: ProviderSummary, fresh: HealthSignal[], kind: Failure
     }
   }
 
-  if (first && level === 'degraded') {
-    return fromSignal(summary, 'warning', first)
-  }
-
-  const maintenance = fresh.find(
-    (signal) => signal.level === 'maintenance' || signal.maintenances.some((item) => item.in_progress)
-  )
-
-  return maintenance ? fromSignal(summary, 'info', maintenance) : null
+  return null
 }
 
 export function providerAttention(summary: ProviderSummary): ProviderAttention {
   const { health } = summary
-  const failed = summary.last_fetch_status === 'error'
-  const kind = failed ? summary.last_fetch_error_kind : null
+  const kind = summary.last_fetch_status === 'error' ? summary.last_fetch_error_kind : null
   const fresh = health.signals.filter((signal) => signal.evidence === 'fresh')
   const staleNotes = health.signals.filter((signal) => signal.evidence === 'stale').map(staleNote)
   const lead = pickLead(summary, fresh, kind)
+  const refreshingNormally =
+    summary.last_fetch_status === 'success' &&
+    !health.signals.some((signal) => signal.kind === 'connection') &&
+    health.next_attempt_at === null
 
   if (!lead) {
     return {
@@ -113,72 +123,21 @@ export function providerAttention(summary: ProviderSummary): ProviderAttention {
       hint: null,
       kind,
       episodeKey: null,
-      refreshingNormally: false,
+      refreshingNormally,
       staleNotes,
     }
   }
 
-  const schedule = health.in_flight
-    ? 'Checking now'
-    : health.next_attempt_at
-      ? `Next attempt after ${formatTime(health.next_attempt_at)}`
-      : null
-  const base = failed && !lead.explainsFailure ? ((kind && HINTS[kind]) ?? summary.last_fetch_error) : null
-  const hint = [base, schedule].filter(Boolean).join(' ') || null
+  const base = lead.explainsFailure ? null : fetchHint(summary)
 
   return {
     tone: lead.tone,
     headline: lead.headline,
     detail: lead.detail,
-    hint,
+    hint: [base, scheduleNote(summary)].filter(Boolean).join(' ') || null,
     kind,
     episodeKey: lead.episodeKey,
-    refreshingNormally:
-      summary.last_fetch_status === 'success' &&
-      !health.signals.some((signal) => signal.kind === 'connection') &&
-      health.next_attempt_at === null,
+    refreshingNormally,
     staleNotes,
   }
-}
-
-export function upcomingMaintenance(summary: ProviderSummary, now: number): Maintenance | null {
-  let next: Maintenance | null = null
-  let nextStart = Number.POSITIVE_INFINITY
-
-  for (const signal of summary.health.signals) {
-    if (signal.evidence !== 'fresh') {
-      continue
-    }
-
-    for (const item of signal.maintenances) {
-      const start = item.starts_at ? Date.parse(item.starts_at) : Number.NaN
-
-      if (!item.in_progress && start > now && start < nextStart) {
-        next = item
-        nextStart = start
-      }
-    }
-  }
-
-  return next
-}
-
-export interface ProviderIssue {
-  provider: ProviderSummary
-  attention: ProviderAttention
-  tone: AttentionTone
-  headline: string
-}
-
-const TONE_RANK: Record<AttentionTone, number> = { info: 0, warning: 1, danger: 2 }
-
-export function providerIssues(providers: ProviderSummary[]): ProviderIssue[] {
-  return providers
-    .flatMap((provider): ProviderIssue[] => {
-      const attention = providerAttention(provider)
-      const { tone, headline } = attention
-
-      return tone && headline ? [{ provider, attention, tone, headline }] : []
-    })
-    .sort((a, b) => TONE_RANK[b.tone] - TONE_RANK[a.tone])
 }
