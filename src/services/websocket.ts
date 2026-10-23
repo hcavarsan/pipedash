@@ -185,8 +185,7 @@ class WebSocketClient {
         this.emitConnectionStatus('disconnected')
 
         if (this.shouldReconnect) {
-          this.emitConnectionStatus('reconnecting')
-          this.scheduleReconnect()
+          this.beginReconnect()
         }
       }
 
@@ -199,13 +198,18 @@ class WebSocketClient {
       this.isConnecting = false
 
       if (this.shouldReconnect) {
-        this.scheduleReconnect()
+        this.beginReconnect()
       }
     }
   }
 
-  private scheduleReconnect(): void {
+  private beginReconnect(): void {
     this.reconnectAttempts++
+    this.emitConnectionStatus('reconnecting')
+    this.scheduleReconnect()
+  }
+
+  private scheduleReconnect(): void {
     const delay = Math.min(this.reconnectDelay * 1.5 ** (this.reconnectAttempts - 1), 30000)
 
     logger.debug('WebSocket', `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
@@ -223,6 +227,10 @@ class WebSocketClient {
       this.ws.close()
       this.ws = null
     }
+  }
+
+  dispose(): void {
+    this.disconnect()
     this.listeners.clear()
   }
 
@@ -296,6 +304,8 @@ export const WS_EVENTS = {
   PIPELINES_UPDATED: 'pipelines-updated',
   PROVIDERS_CHANGED: 'providers-changed',
   REFRESH_STATUS: 'refresh-status',
+  PROVIDER_STATUS_UPDATED: 'provider-status-updated',
+  PROVIDER_HEALTH_ALERT: 'provider-health-alert',
   PIPELINE_TRIGGERED: 'pipeline-triggered',
   RUN_CANCELLED: 'run-cancelled',
   CONNECTION_STATUS: 'connection-status',

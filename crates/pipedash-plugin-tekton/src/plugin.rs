@@ -1,12 +1,13 @@
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
 use async_trait::async_trait;
 use futures::future::{
     join_all,
     try_join_all,
 };
+use k8s_openapi::api::apps::v1::Deployment;
 use pipedash_plugin_api::*;
+use tokio::sync::OnceCell;
 
 use crate::{
     client,
@@ -16,9 +17,13 @@ use crate::{
     types,
 };
 
+const CONTROLLER_DEPLOYMENTS: [&str; 2] =
+    ["tekton-pipelines-controller", "tekton-pipelines-webhook"];
+
 pub struct TektonPlugin {
     metadata: PluginMetadata,
-    client: OnceLock<client::TektonClient>,
+    client: OnceCell<client::TektonClient>,
+    status_source: Option<StatusSource>,
     provider_id: Option<i64>,
     config: HashMap<String, String>,
 }
@@ -33,25 +38,26 @@ impl TektonPlugin {
     pub fn new() -> Self {
         Self {
             metadata: metadata::create_metadata(),
-            client: OnceLock::new(),
+            client: OnceCell::new(),
+            status_source: None,
             provider_id: None,
             config: HashMap::new(),
         }
     }
 
     async fn client(&self) -> PluginResult<&client::TektonClient> {
-        if let Some(client) = self.client.get() {
-            return Ok(client);
-        }
+        self.client
+            .get_or_try_init(|| async {
+                let kubeconfig_path = config::get_kubeconfig_path(&self.config);
+                let context = config::get_context(&self.config);
 
-        let kubeconfig_path = config::get_kubeconfig_path(&self.config);
-        let context = config::get_context(&self.config);
-
-        let new_client =
-            client::TektonClient::from_kubeconfig(kubeconfig_path.as_deref(), context.as_deref())
-                .await?;
-
-        Ok(self.client.get_or_init(|| new_client))
+                client::TektonClient::from_kubeconfig(
+                    kubeconfig_path.as_deref(),
+                    context.as_deref(),
+                )
+                .await
+            })
+            .await
     }
 
     async fn fetch_all_pipelines_in_namespaces(&self) -> PluginResult<Vec<types::TektonPipeline>> {
@@ -102,12 +108,19 @@ impl TektonPlugin {
 
     async fn fetch_latest_run_for_pipeline(
         &self, namespace: &str, pipeline_name: &str,
-    ) -> Option<types::TektonPipelineRun> {
-        let client = self.client().await.ok()?;
-        let mut runs = client
+    ) -> PluginResult<Option<types::TektonPipelineRun>> {
+        let client = self.client().await?;
+        let mut runs = match client
             .list_pipelineruns(namespace, Some(pipeline_name))
             .await
-            .ok()?;
+        {
+            Ok(runs) => runs,
+            Err(PluginError::PipelineNotFound(message)) => {
+                tracing::warn!(namespace, pipeline_name, %message, "PipelineRuns not found for pipeline");
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
 
         runs.sort_by(|a, b| {
             let a_time = types::parse_timestamp(&a.metadata.creation_timestamp);
@@ -115,7 +128,7 @@ impl TektonPlugin {
             b_time.cmp(&a_time)
         });
 
-        runs.into_iter().next()
+        Ok(runs.into_iter().next())
     }
 
     fn get_available_contexts(&self, kubeconfig_path: Option<&str>) -> PluginResult<Vec<String>> {
@@ -182,6 +195,36 @@ fn find_run(
     }
 }
 
+fn classify_controller(name: &str, deployment: &Deployment) -> Option<ComponentHealth> {
+    let desired = deployment.spec.as_ref().and_then(|spec| spec.replicas);
+    let status = deployment.status.as_ref();
+    let available = status.and_then(|status| status.available_replicas);
+    let unavailable = status
+        .and_then(|status| status.conditions.as_ref())
+        .is_some_and(|conditions| {
+            conditions
+                .iter()
+                .any(|condition| condition.type_ == "Available" && condition.status == "False")
+        });
+
+    let (level, detail) = match (desired, available) {
+        (Some(0), _) => (HealthLevel::MajorOutage, "scaled to zero".to_string()),
+        (_, Some(0)) => (HealthLevel::MajorOutage, "not running".to_string()),
+        (Some(desired), Some(available)) if available < desired => (
+            HealthLevel::Degraded,
+            format!("{available}/{desired} replicas available"),
+        ),
+        (_, None) if unavailable => (HealthLevel::MajorOutage, "not available".to_string()),
+        _ => return None,
+    };
+
+    Some(ComponentHealth {
+        name: name.to_string(),
+        level,
+        detail: Some(detail),
+    })
+}
+
 #[async_trait]
 impl Plugin for TektonPlugin {
     fn metadata(&self) -> &PluginMetadata {
@@ -196,9 +239,59 @@ impl Plugin for TektonPlugin {
         &mut self, provider_id: i64, config: HashMap<String, String>,
         _http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
+        let status_source = custom_status_source(&config)?;
         self.provider_id = Some(provider_id);
         self.config = config;
+        self.status_source = status_source;
+        self.client = OnceCell::new();
         Ok(())
+    }
+
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
+    }
+
+    async fn check_health(&self) -> PluginResult<Vec<ComponentHealth>> {
+        let client = self.client().await?;
+        let namespace = config::get_controller_namespace(&self.config);
+
+        let checks = join_all(CONTROLLER_DEPLOYMENTS.iter().map(|name| async {
+            client
+                .get_deployment(&namespace, name)
+                .await
+                .map(|deployment| classify_controller(name, &deployment))
+        }))
+        .await;
+
+        collect_controller_health(checks)
+    }
+
+    async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
+        let client = self.client().await?;
+        let namespace = config::get_controller_namespace(&self.config);
+
+        let allowed = try_join_all(
+            CONTROLLER_DEPLOYMENTS
+                .iter()
+                .map(|name| client.can_i(&namespace, "apps", "deployments", "get", name)),
+        )
+        .await?;
+
+        let permissions = vec![PermissionCheck {
+            permission: metadata::controller_permission(),
+            granted: allowed.into_iter().all(|allowed| allowed),
+        }];
+        let all_granted = permissions
+            .iter()
+            .filter(|check| check.permission.required)
+            .all(|check| check.granted);
+
+        Ok(PermissionStatus {
+            permissions,
+            all_granted,
+            checked_at: chrono::Utc::now(),
+            metadata: HashMap::new(),
+        })
     }
 
     async fn validate_credentials(&self) -> PluginResult<bool> {
@@ -277,18 +370,20 @@ impl Plugin for TektonPlugin {
 
         let pipelines = self.fetch_all_pipelines_in_namespaces().await?;
 
-        let pipeline_futures = pipelines.iter().map(|pipeline| async move {
+        try_join_all(pipelines.iter().map(|pipeline| async move {
             let latest_run = self
                 .fetch_latest_run_for_pipeline(
                     &pipeline.metadata.namespace,
                     &pipeline.metadata.name,
                 )
-                .await;
-            mapper::map_pipeline(pipeline, latest_run.as_ref(), provider_id)
-        });
-
-        let results = join_all(pipeline_futures).await;
-        Ok(results)
+                .await?;
+            Ok(mapper::map_pipeline(
+                pipeline,
+                latest_run.as_ref(),
+                provider_id,
+            ))
+        }))
+        .await
     }
 
     async fn fetch_run_history(
@@ -549,7 +644,15 @@ mod tests {
         Write,
     };
     use std::net::TcpListener;
-    use std::sync::mpsc;
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
+    use std::sync::{
+        mpsc,
+        Arc,
+    };
+    use std::time::Duration;
 
     use super::*;
 
@@ -561,10 +664,7 @@ mod tests {
         )
     }
 
-    fn stub_apiserver(
-        runs: &'static [(&'static str, &'static str, &'static str)],
-    ) -> (String, mpsc::Receiver<String>) {
-        let (log, requests) = mpsc::channel();
+    fn serve(handler: impl Fn(&str, &str, &str) -> (u16, String) + Send + 'static) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
@@ -578,51 +678,72 @@ mod tests {
                     }
                 }
                 let head = String::from_utf8_lossy(&head).to_string();
+                let content_length = head
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                    .and_then(|(_, value)| value.trim().parse().ok())
+                    .unwrap_or(0);
+                let mut request_body = vec![0u8; content_length];
+                let _ = stream.read_exact(&mut request_body);
                 let mut parts = head.split_whitespace();
-                let method = parts.next().unwrap_or_default().to_string();
-                let target = parts.next().unwrap_or_default().to_string();
-                let _ = log.send(format!("{method} {target}"));
+                let method = parts.next().unwrap_or_default();
+                let target = parts.next().unwrap_or_default();
 
-                let body = if method == "GET" && target.contains("/pipelines") {
-                    let mut names: Vec<&str> =
-                        runs.iter().map(|(_, pipeline, _)| *pipeline).collect();
-                    names.dedup();
-                    let items: Vec<String> = names
-                        .iter()
-                        .map(|name| {
-                            format!(
-                                r#"{{"apiVersion":"tekton.dev/v1","kind":"Pipeline","metadata":{{"name":"{name}","namespace":"ci"}},"spec":{{}}}}"#
-                            )
-                        })
-                        .collect();
-                    format!(r#"{{"items":[{}]}}"#, items.join(","))
-                } else if method == "GET" {
-                    let selector = target.split("labelSelector=tekton.dev/pipeline=").nth(1);
-                    let items: Vec<String> = runs
-                        .iter()
-                        .filter(|(_, pipeline, _)| selector.is_none_or(|s| s == *pipeline))
-                        .map(|(name, pipeline, uid)| run_json(name, pipeline, uid))
-                        .collect();
-                    format!(r#"{{"items":[{}]}}"#, items.join(","))
-                } else {
-                    "{}".to_string()
-                };
-                let status = if target.contains("/namespaces/denied/") {
-                    "403 Forbidden"
-                } else {
-                    "200 OK"
-                };
+                let (status, body) =
+                    handler(method, target, &String::from_utf8_lossy(&request_body));
                 let response = format!(
-                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status} Stub\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = stream.write_all(response.as_bytes());
             }
         });
-        (format!("http://{addr}"), requests)
+        format!("http://{addr}")
     }
 
-    fn plugin(server: &str, dir: &tempfile::TempDir) -> TektonPlugin {
+    fn stub_apiserver(
+        runs: &'static [(&'static str, &'static str, &'static str)],
+    ) -> (String, mpsc::Receiver<String>) {
+        let (log, requests) = mpsc::channel();
+        let server = serve(move |method, target, _| {
+            let _ = log.send(format!("{method} {target}"));
+
+            let body = if method == "GET" && target.contains("/pipelines") {
+                let mut names: Vec<&str> = runs.iter().map(|(_, pipeline, _)| *pipeline).collect();
+                names.dedup();
+                let items: Vec<String> = names.iter().map(|name| pipeline_json(name)).collect();
+                format!(r#"{{"items":[{}]}}"#, items.join(","))
+            } else if method == "GET" {
+                let selector = target.split("labelSelector=tekton.dev/pipeline=").nth(1);
+                let items: Vec<String> = runs
+                    .iter()
+                    .filter(|(_, pipeline, _)| selector.is_none_or(|s| s == *pipeline))
+                    .map(|(name, pipeline, uid)| run_json(name, pipeline, uid))
+                    .collect();
+                format!(r#"{{"items":[{}]}}"#, items.join(","))
+            } else {
+                "{}".to_string()
+            };
+            let status = if target.contains("/namespaces/denied/") {
+                403
+            } else {
+                200
+            };
+            (status, body)
+        });
+        (server, requests)
+    }
+
+    fn pipeline_json(name: &str) -> String {
+        format!(
+            r#"{{"apiVersion":"tekton.dev/v1","kind":"Pipeline","metadata":{{"name":"{name}","namespace":"ci"}},"spec":{{}}}}"#
+        )
+    }
+
+    fn config_for(
+        server: &str, dir: &tempfile::TempDir, extra: &[(&str, &str)],
+    ) -> HashMap<String, String> {
         let kubeconfig = dir.path().join("kubeconfig");
         std::fs::write(
             &kubeconfig,
@@ -638,9 +759,22 @@ mod tests {
         );
         config.insert("namespace_mode".to_string(), "custom".to_string());
         config.insert("namespaces".to_string(), "ci".to_string());
+        for (key, value) in extra {
+            config.insert(key.to_string(), value.to_string());
+        }
+        config
+    }
+
+    fn plugin_with(server: &str, dir: &tempfile::TempDir, extra: &[(&str, &str)]) -> TektonPlugin {
         let mut plugin = TektonPlugin::new();
-        plugin.initialize(1, config, None).unwrap();
         plugin
+            .initialize(1, config_for(server, dir, extra), None)
+            .unwrap();
+        plugin
+    }
+
+    fn plugin(server: &str, dir: &tempfile::TempDir) -> TektonPlugin {
+        plugin_with(server, dir, &[])
     }
 
     fn deletes(requests: &mpsc::Receiver<String>) -> Vec<String> {
@@ -786,5 +920,310 @@ mod tests {
             .fetch_run_details("tekton__1__ci__lint", history[0].run_number)
             .await
             .is_err());
+    }
+
+    const CONTROLLER: &str = "tekton-pipelines-controller";
+    const WEBHOOK: &str = "tekton-pipelines-webhook";
+
+    fn status_json(code: u16, reason: &str, retry_after_seconds: u32) -> (u16, String) {
+        (
+            code,
+            format!(
+                r#"{{"kind":"Status","apiVersion":"v1","status":"Failure","message":"{reason}","reason":"{reason}","details":{{"retryAfterSeconds":{retry_after_seconds}}},"code":{code}}}"#
+            ),
+        )
+    }
+
+    fn deployment_json(
+        name: &str, replicas: i32, available: Option<i32>, available_condition: Option<&str>,
+    ) -> (u16, String) {
+        let available = available
+            .map(|count| format!(r#""availableReplicas":{count},"#))
+            .unwrap_or_default();
+        let conditions = available_condition
+            .map(|status| format!(r#""conditions":[{{"type":"Available","status":"{status}"}}],"#))
+            .unwrap_or_default();
+        (
+            200,
+            format!(
+                r#"{{"apiVersion":"apps/v1","kind":"Deployment","metadata":{{"name":"{name}"}},"spec":{{"replicas":{replicas},"selector":{{}},"template":{{}}}},"status":{{{available}{conditions}"replicas":{replicas}}}}}"#
+            ),
+        )
+    }
+
+    fn health_stub(
+        namespace: &'static str, controller: (u16, String), webhook: (u16, String),
+    ) -> String {
+        serve(move |_, target, _| {
+            let prefix = format!("/apis/apps/v1/namespaces/{namespace}/deployments/");
+            match target.strip_prefix(&prefix) {
+                Some(CONTROLLER) => controller.clone(),
+                Some(WEBHOOK) => webhook.clone(),
+                _ => status_json(404, "NotFound", 0),
+            }
+        })
+    }
+
+    fn access_stub(allowed_names: &'static [&'static str]) -> String {
+        serve(move |method, target, body| {
+            let review: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
+            let attributes = &review["spec"]["resourceAttributes"];
+            let allowed = method == "POST"
+                && target == "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews"
+                && attributes["namespace"] == "tekton-pipelines"
+                && attributes["group"] == "apps"
+                && attributes["resource"] == "deployments"
+                && attributes["verb"] == "get"
+                && allowed_names.iter().any(|name| attributes["name"] == *name);
+            (200, format!(r#"{{"status":{{"allowed":{allowed}}}}}"#))
+        })
+    }
+
+    async fn available_names(plugin: &TektonPlugin) -> Vec<String> {
+        let mut names: Vec<String> = plugin
+            .fetch_available_pipelines(None)
+            .await
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|pipeline| pipeline.name)
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[tokio::test]
+    async fn reinitialize_uses_the_new_cluster() {
+        let first_dir = tempfile::tempdir().unwrap();
+        let second_dir = tempfile::tempdir().unwrap();
+        let (first, _) = stub_apiserver(TWO_PIPELINES);
+        let (second, _) = stub_apiserver(&[(
+            "deploy-run-1",
+            "deploy",
+            "0000000c-0000-4000-8000-000000000000",
+        )]);
+        let mut plugin = plugin(&first, &first_dir);
+        assert_eq!(available_names(&plugin).await, vec!["build", "lint"]);
+
+        plugin
+            .initialize(1, config_for(&second, &second_dir, &[]), None)
+            .unwrap();
+
+        assert_eq!(available_names(&plugin).await, vec!["deploy"]);
+    }
+
+    #[test]
+    fn status_source_follows_the_configured_status_page() {
+        let mut plugin = TektonPlugin::new();
+        plugin.initialize(1, HashMap::new(), None).unwrap();
+        assert!(plugin.status_source().is_none());
+
+        let config = |url: &str| HashMap::from([("status_page_url".to_string(), url.to_string())]);
+        plugin
+            .initialize(1, config("https://status.example.com"), None)
+            .unwrap();
+        assert_eq!(
+            plugin.status_source().map(|source| source.name.as_str()),
+            Some("status.example.com")
+        );
+
+        assert!(matches!(
+            plugin.initialize(1, config("http://10.0.0.1"), None),
+            Err(PluginError::InvalidConfig(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn check_health_is_empty_when_controllers_are_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = health_stub(
+            "tekton-pipelines",
+            deployment_json(CONTROLLER, 1, Some(1), Some("True")),
+            deployment_json(WEBHOOK, 2, Some(2), None),
+        );
+
+        let health = plugin(&server, &dir).check_health().await.unwrap();
+
+        assert_eq!(health, Vec::new());
+    }
+
+    #[tokio::test]
+    async fn check_health_reports_scaled_to_zero_in_the_configured_namespace() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = health_stub(
+            "tekton-custom",
+            deployment_json(CONTROLLER, 0, None, Some("False")),
+            deployment_json(WEBHOOK, 1, Some(1), Some("True")),
+        );
+        let plugin = plugin_with(&server, &dir, &[("tekton_namespace", "tekton-custom")]);
+
+        let health = plugin.check_health().await.unwrap();
+
+        assert_eq!(
+            health,
+            vec![ComponentHealth {
+                name: CONTROLLER.to_string(),
+                level: HealthLevel::MajorOutage,
+                detail: Some("scaled to zero".to_string()),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn check_health_is_degraded_when_some_replicas_are_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = health_stub(
+            "tekton-pipelines",
+            deployment_json(CONTROLLER, 1, Some(1), Some("True")),
+            deployment_json(WEBHOOK, 3, Some(2), Some("False")),
+        );
+
+        let health = plugin(&server, &dir).check_health().await.unwrap();
+
+        assert_eq!(
+            health,
+            vec![ComponentHealth {
+                name: WEBHOOK.to_string(),
+                level: HealthLevel::Degraded,
+                detail: Some("2/3 replicas available".to_string()),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn check_health_is_denied_on_403_and_not_installed_when_every_deployment_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let denied = health_stub(
+            "tekton-pipelines",
+            status_json(403, "Forbidden", 0),
+            status_json(404, "NotFound", 0),
+        );
+        let missing = health_stub(
+            "tekton-pipelines",
+            status_json(404, "NotFound", 0),
+            status_json(404, "NotFound", 0),
+        );
+        let one_missing = health_stub(
+            "tekton-pipelines",
+            deployment_json(CONTROLLER, 0, Some(0), None),
+            status_json(404, "NotFound", 0),
+        );
+
+        assert!(matches!(
+            plugin(&denied, &dir).check_health().await,
+            Err(PluginError::PermissionDenied(_))
+        ));
+        assert!(matches!(
+            plugin(&missing, &dir).check_health().await,
+            Err(PluginError::PipelineNotFound(_))
+        ));
+        let health = plugin(&one_missing, &dir).check_health().await.unwrap();
+        assert_eq!(health.len(), 1);
+        assert_eq!(health[0].name, CONTROLLER);
+    }
+
+    #[test]
+    fn classify_controller_follows_the_row_order() {
+        let classify = |replicas, available, condition| {
+            let (_, json) = deployment_json(CONTROLLER, replicas, available, condition);
+            let deployment: Deployment = serde_json::from_str(&json).unwrap();
+            classify_controller(CONTROLLER, &deployment)
+        };
+
+        let not_running = classify(2, Some(0), Some("False")).unwrap();
+        assert_eq!(not_running.level, HealthLevel::MajorOutage);
+        assert_eq!(not_running.detail.as_deref(), Some("not running"));
+
+        let unavailable = classify(2, None, Some("False")).unwrap();
+        assert_eq!(unavailable.level, HealthLevel::MajorOutage);
+
+        assert_eq!(classify(2, None, Some("True")), None);
+        assert_eq!(classify(2, None, None), None);
+        assert_eq!(classify(2, Some(3), Some("True")), None);
+    }
+
+    #[tokio::test]
+    async fn check_permissions_reports_granted_when_every_deployment_is_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = access_stub(&[CONTROLLER, WEBHOOK]);
+        let plugin = plugin(&server, &dir);
+
+        let status = plugin.check_permissions().await.unwrap();
+
+        assert!(status.permissions.iter().all(|check| check.granted));
+        assert!(plugin
+            .get_feature_availability(&status)
+            .iter()
+            .all(|feature| feature.available));
+    }
+
+    #[tokio::test]
+    async fn check_permissions_reports_denied_when_a_deployment_is_not_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = access_stub(&[CONTROLLER]);
+        let plugin = plugin(&server, &dir);
+
+        let status = plugin.check_permissions().await.unwrap();
+
+        assert!(status.permissions.iter().all(|check| !check.granted));
+        assert!(status.all_granted);
+        let features = plugin.get_feature_availability(&status);
+        assert_eq!(features.len(), 1);
+        assert!(!features[0].available);
+        assert_eq!(
+            features[0].missing_permissions,
+            vec![metadata::CONTROLLER_HEALTH_PERMISSION]
+        );
+    }
+
+    #[tokio::test]
+    async fn kube_429_with_retry_after_is_rate_limited_without_retrying() {
+        let dir = tempfile::tempdir().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = hits.clone();
+        let server = serve(move |_, _, _| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            status_json(429, "TooManyRequests", 120)
+        });
+
+        let error = plugin(&server, &dir).fetch_pipelines().await.unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                PluginError::RateLimited { retry_after: Some(delay), .. }
+                    if delay == Duration::from_secs(120)
+            ),
+            "{error:?}"
+        );
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn fetch_pipelines_propagates_latest_run_errors_except_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let serve_runs_with = |code, reason| {
+            serve(move |_, target, _| {
+                if target.contains("/pipelineruns") {
+                    status_json(code, reason, 0)
+                } else {
+                    (200, format!(r#"{{"items":[{}]}}"#, pipeline_json("build")))
+                }
+            })
+        };
+
+        let missing = serve_runs_with(404, "NotFound");
+        let pipelines = plugin(&missing, &dir).fetch_pipelines().await.unwrap();
+        assert_eq!(pipelines.len(), 1);
+
+        let forbidden = serve_runs_with(403, "Forbidden");
+        let error = plugin(&forbidden, &dir)
+            .fetch_pipelines()
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, PluginError::PermissionDenied(_)),
+            "{error:?}"
+        );
     }
 }

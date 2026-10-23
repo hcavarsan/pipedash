@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Divider,
+  FileButton,
   Group,
   NumberInput,
   SimpleGrid,
@@ -14,27 +15,105 @@ import {
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import { IconDownload, IconEdit, IconSettings, IconTrash } from '@tabler/icons-react'
-import { useCallback, useEffect, useState } from 'react'
+import { IconDownload, IconEdit, IconExternalLink, IconSettings, IconTrash, IconUpload } from '@tabler/icons-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
+import { useNow } from '../../../hooks/useNow'
 import { logger } from '../../../lib/logger'
 import { useProviderDetails } from '../../../queries/useProviderDetailsQuery'
 import {
   useExportProviders,
+  useImportProviders,
   useProviders,
   useRemoveProvider,
   useUpdateProvider,
   useUpdateProviderRefreshInterval,
 } from '../../../queries/useProvidersQueries'
+import { useStorageConfig } from '../../../queries/useStorageQueries'
 import { useProviderStore } from '../../../stores/providerStore'
-import type { ProviderConfig } from '../../../types'
+import { HEALTH_META } from '../../../theme/status'
+import type { ProviderConfig, ProviderSummary } from '../../../types'
 import { formatCount } from '../../../utils/formatCount'
-import { formatTime } from '../../../utils/formatDateTime'
+import { formatDateTime, formatTime } from '../../../utils/formatDateTime'
+import { formatRelativeTime } from '../../../utils/formatRelativeTime'
+import { openExternal } from '../../../utils/openExternal'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
 import { AddProviderModal } from '../../provider/AddProviderModal'
+
+const CONNECTION_NOTE = 'Pipedash reports connection problems.'
+
+const ProviderStatusInfo = ({
+  provider,
+  statusPagesEnabled,
+  now,
+}: {
+  provider: ProviderSummary
+  statusPagesEnabled: boolean
+  now: number
+}) => {
+  const { status_page: page, signals, level } = provider.health
+  const upcoming = statusPagesEnabled
+    ? signals
+        .filter((signal) => signal.evidence === 'fresh')
+        .flatMap((signal) => signal.maintenances)
+        .flatMap((item) =>
+          !item.in_progress && item.starts_at ? [{ id: item.id, name: item.name, at: item.starts_at }] : []
+        )
+    : []
+  const reportedBy = signals.find((signal) => signal.kind === 'status_page')?.reported_by ?? page?.name
+  const summary = page
+    ? [
+        reportedBy,
+        HEALTH_META[level].label,
+        !page.error && page.checked_at && `checked ${formatRelativeTime(page.checked_at, now)}`,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : null
+
+  return (
+    <Stack gap={4}>
+      <Text size="xs" c="dimmed">
+        Status
+      </Text>
+      {statusPagesEnabled && page ? (
+        <Group gap="xs" wrap="wrap">
+          <Text size="sm">{summary}</Text>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="gray"
+            rightSection={<IconExternalLink size={14} aria-hidden />}
+            aria-label={`Open ${page.name} status page`}
+            onClick={() => {
+              void openExternal(page.url)
+            }}
+          >
+            Open status page
+          </Button>
+        </Group>
+      ) : (
+        <Text size="sm" c="dimmed">
+          {statusPagesEnabled ? `No public status page. ${CONNECTION_NOTE}` : CONNECTION_NOTE}
+        </Text>
+      )}
+      {statusPagesEnabled && page?.error && (
+        <Text size="xs" c="orange">
+          {page.error}
+          {page.checked_at && ` · last successful check ${formatDateTime(page.checked_at)}`}
+        </Text>
+      )}
+      {upcoming.map((item) => (
+        <Text key={item.id} size="xs" c="dimmed">
+          Maintenance: {item.name} · {formatDateTime(item.at)}
+        </Text>
+      ))}
+    </Stack>
+  )
+}
 
 export const ProvidersSection = () => {
   const { getPluginDisplayName } = usePlugins()
@@ -52,6 +131,10 @@ export const ProvidersSection = () => {
   const { mutateAsync: removeProviderMutation } = useRemoveProvider()
   const updateRefreshIntervalMutation = useUpdateProviderRefreshInterval()
   const exportProvidersMutation = useExportProviders()
+  const importProvidersMutation = useImportProviders()
+  const importResetRef = useRef<() => void>(null)
+  const now = useNow(30_000)
+  const statusPagesEnabled = useStorageConfig().data?.config.general.status_pages_enabled !== false
 
   const [editingId, setEditingId] = useState<number | null>(null)
   const [refreshValues, setRefreshValues] = useState<Record<number, number>>({})
@@ -164,17 +247,43 @@ export const ProvidersSection = () => {
           <Title order={2} size="lg" fw={600}>
             Providers
           </Title>
-          <Button
-            size="compact-sm"
-            variant="light"
-            color="gray"
-            leftSection={<IconDownload size={14} />}
-            onClick={() => exportProvidersMutation.mutate()}
-            loading={exportProvidersMutation.isPending}
-            disabled={loading || providers.length === 0}
-          >
-            Export
-          </Button>
+          <Group gap="xs">
+            <FileButton
+              accept=".toml"
+              resetRef={importResetRef}
+              onChange={(file) => {
+                if (file) {
+                  importProvidersMutation.mutate(file)
+                  importResetRef.current?.()
+                }
+              }}
+            >
+              {(props) => (
+                <Button
+                  {...props}
+                  size="compact-sm"
+                  variant="light"
+                  color="gray"
+                  leftSection={<IconUpload size={14} />}
+                  loading={importProvidersMutation.isPending}
+                  disabled={loading}
+                >
+                  Import
+                </Button>
+              )}
+            </FileButton>
+            <Button
+              size="compact-sm"
+              variant="light"
+              color="gray"
+              leftSection={<IconDownload size={14} />}
+              onClick={() => exportProvidersMutation.mutate()}
+              loading={exportProvidersMutation.isPending}
+              disabled={loading || providers.length === 0}
+            >
+              Export
+            </Button>
+          </Group>
         </Group>
 
         {loading ? (
@@ -289,6 +398,8 @@ export const ProvidersSection = () => {
                         )}
                       </Stack>
                     </SimpleGrid>
+
+                    <ProviderStatusInfo provider={provider} statusPagesEnabled={statusPagesEnabled} now={now} />
 
                     <Divider />
 

@@ -1,5 +1,8 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    OnceLock,
+};
 
 use tokio::sync::{
     broadcast,
@@ -12,8 +15,11 @@ use super::loader::{
 };
 use super::schema::{
     ConfigKey,
+    GeneralSettingsUpdate,
     PipedashConfig,
     ProviderFileConfig,
+    MAX_REFRESH_INTERVAL_SECS,
+    MIN_REFRESH_INTERVAL_SECS,
 };
 use super::sync::{
     ProviderSyncService,
@@ -21,6 +27,10 @@ use super::sync::{
 };
 use super::token_ref::TokenReference;
 use super::validation::ValidationResult;
+use crate::application::{
+    HealthHandle,
+    HealthInput,
+};
 use crate::domain::{
     DomainError,
     DomainResult,
@@ -77,6 +87,8 @@ pub struct ConfigState {
     platform: Platform,
 
     sync_service: ProviderSyncService,
+
+    health: OnceLock<HealthHandle>,
 }
 
 impl ConfigState {
@@ -114,6 +126,7 @@ impl ConfigState {
             token_store,
             platform,
             sync_service: ProviderSyncService::new(),
+            health: OnceLock::new(),
         });
 
         Ok(state)
@@ -131,6 +144,7 @@ impl ConfigState {
             token_store,
             platform: Platform::detect(),
             sync_service: ProviderSyncService::new(),
+            health: OnceLock::new(),
         })
     }
 
@@ -158,6 +172,16 @@ impl ConfigState {
 
     pub fn subscribe(&self) -> broadcast::Receiver<ConfigChangeEvent> {
         self.change_tx.subscribe()
+    }
+
+    pub fn attach_health(&self, health: HealthHandle) {
+        let _ = self.health.set(health);
+    }
+
+    fn notify_settings_changed(&self) {
+        if let Some(health) = self.health.get() {
+            health.send(HealthInput::SettingsChanged);
+        }
     }
 
     pub async fn resolve_token(
@@ -188,6 +212,7 @@ impl ConfigState {
         };
 
         let _ = self.change_tx.send(event.clone());
+        self.notify_settings_changed();
 
         tracing::info!("Config reloaded from {:?}", self.config_path);
         Ok(event)
@@ -277,23 +302,32 @@ impl ConfigState {
         Ok(())
     }
 
-    pub async fn update_general_settings(
-        &self, metrics_enabled: bool, default_refresh_interval: u32,
-    ) -> DomainResult<()> {
+    pub async fn update_general_settings(&self, update: GeneralSettingsUpdate) -> DomainResult<()> {
+        if !(MIN_REFRESH_INTERVAL_SECS..=MAX_REFRESH_INTERVAL_SECS)
+            .contains(&update.default_refresh_interval)
+        {
+            return Err(DomainError::InvalidConfig(format!(
+                "default_refresh_interval must be between {MIN_REFRESH_INTERVAL_SECS} and \
+                 {MAX_REFRESH_INTERVAL_SECS} seconds"
+            )));
+        }
+
         let current_config = self.config.read().await;
         let mut config = (**current_config).clone();
         drop(current_config);
 
-        config.general.metrics_enabled = metrics_enabled;
-        config.general.default_refresh_interval = default_refresh_interval;
+        config.general.metrics_enabled = update.metrics_enabled;
+        config.general.default_refresh_interval = update.default_refresh_interval;
+        config.general.status_pages_enabled = update.status_pages_enabled;
 
-        self.persist_config(&config).await?;
+        self.persist_general(&config).await?;
 
         let _ = self.change_tx.send(ConfigChangeEvent::ValueChanged {
             key: "general".to_string(),
             old_value: None,
             new_value: "updated".to_string(),
         });
+        self.notify_settings_changed();
 
         Ok(())
     }
@@ -333,26 +367,50 @@ impl ConfigState {
         Ok(())
     }
 
+    async fn persist_general(&self, config: &PipedashConfig) -> DomainResult<()> {
+        let content = match std::fs::read_to_string(&self.config_path) {
+            Ok(existing) => {
+                let mut doc: toml_edit::DocumentMut = existing.parse().map_err(|e| {
+                    DomainError::DatabaseError(format!("Failed to parse existing TOML: {}", e))
+                })?;
+                ConfigLoader::apply_general(&mut doc, &config.general);
+                doc.to_string()
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => ConfigLoader::to_toml(config)
+                .map_err(|e| {
+                    DomainError::DatabaseError(format!("Failed to serialize config: {}", e))
+                })?,
+            Err(e) => {
+                return Err(DomainError::DatabaseError(format!(
+                    "Failed to read config file: {}",
+                    e
+                )))
+            }
+        };
+
+        std::fs::write(&self.config_path, content).map_err(|e| {
+            DomainError::DatabaseError(format!("Failed to write config file: {}", e))
+        })?;
+
+        *self.config.write().await = Arc::new(config.clone());
+
+        tracing::debug!("General settings persisted to {:?}", self.config_path);
+        Ok(())
+    }
+
     pub(super) fn update_toml_preserving_comments(
         existing: &str, config: &PipedashConfig,
     ) -> DomainResult<String> {
         use toml_edit::{
             value,
             DocumentMut,
-            Item,
         };
 
         let mut doc: DocumentMut = existing.parse().map_err(|e| {
             DomainError::DatabaseError(format!("Failed to parse existing TOML: {}", e))
         })?;
 
-        if let Some(general) = doc.get_mut("general") {
-            if let Some(table) = general.as_table_mut() {
-                table["metrics_enabled"] = value(config.general.metrics_enabled);
-                table["default_refresh_interval"] =
-                    value(config.general.default_refresh_interval as i64);
-            }
-        }
+        ConfigLoader::apply_general(&mut doc, &config.general);
 
         if let Some(server) = doc.get_mut("server") {
             if let Some(table) = server.as_table_mut() {
@@ -361,39 +419,53 @@ impl ConfigState {
             }
         }
 
-        doc.remove("providers");
-
-        if !config.providers.is_empty() {
-            let mut providers_table = toml_edit::Table::new();
-
-            for (id, provider) in &config.providers {
-                let mut provider_table = toml_edit::Table::new();
-
-                if let Some(name) = &provider.name {
-                    provider_table["name"] = value(name);
-                }
-
-                provider_table["type"] = value(&provider.provider_type);
-                provider_table["token"] = value(&provider.token);
-                provider_table["refresh_interval"] = value(provider.refresh_interval as i64);
-
-                if !provider.config.is_empty() {
-                    let mut config_table = toml_edit::Table::new();
-                    let mut entries: Vec<_> = provider.config.iter().collect();
-                    entries.sort();
-                    for (k, v) in entries {
-                        config_table[k] = value(v);
-                    }
-                    provider_table["config"] = Item::Table(config_table);
-                }
-
-                providers_table[id] = Item::Table(provider_table);
-            }
-
-            doc["providers"] = Item::Table(providers_table);
-        }
+        Self::write_providers(&mut doc, &config.providers);
 
         Ok(doc.to_string())
+    }
+
+    pub(super) fn write_providers(
+        doc: &mut toml_edit::DocumentMut,
+        providers: &indexmap::IndexMap<String, ProviderFileConfig>,
+    ) {
+        use toml_edit::{
+            value,
+            Item,
+        };
+
+        doc.remove("providers");
+
+        if providers.is_empty() {
+            return;
+        }
+
+        let mut providers_table = toml_edit::Table::new();
+
+        for (id, provider) in providers {
+            let mut provider_table = toml_edit::Table::new();
+
+            if let Some(name) = &provider.name {
+                provider_table["name"] = value(name);
+            }
+
+            provider_table["type"] = value(&provider.provider_type);
+            provider_table["token"] = value(&provider.token);
+            provider_table["refresh_interval"] = value(provider.refresh_interval as i64);
+
+            if !provider.config.is_empty() {
+                let mut config_table = toml_edit::Table::new();
+                let mut entries: Vec<_> = provider.config.iter().collect();
+                entries.sort();
+                for (k, v) in entries {
+                    config_table[k] = value(v);
+                }
+                provider_table["config"] = Item::Table(config_table);
+            }
+
+            providers_table[id] = Item::Table(provider_table);
+        }
+
+        doc["providers"] = Item::Table(providers_table);
     }
 
     pub async fn get_string(&self, key: ConfigKey) -> String {
@@ -407,6 +479,7 @@ impl ConfigState {
             ConfigKey::DefaultRefreshInterval => {
                 config.general.default_refresh_interval.to_string()
             }
+            ConfigKey::StatusPagesEnabled => config.general.status_pages_enabled.to_string(),
             ConfigKey::BindAddr => config.server.bind_addr.clone(),
             ConfigKey::CorsAllowAll => config.server.cors_allow_all.to_string(),
             ConfigKey::DataDir => {
@@ -595,5 +668,141 @@ mod tests {
         let state = create_test_state(&temp_dir, token_store);
 
         assert!(!state.get_bool(ConfigKey::MetricsEnabled).await);
+    }
+
+    fn update(default_refresh_interval: u32, status_pages_enabled: bool) -> GeneralSettingsUpdate {
+        GeneralSettingsUpdate {
+            metrics_enabled: true,
+            default_refresh_interval,
+            status_pages_enabled,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_general_settings_creates_the_general_table_and_survives_a_reload() {
+        let _env = EnvGuard::set(&[("PIPEDASH_STATUS_PAGES_ENABLED", None)]);
+        let temp_dir = TempDir::new().unwrap();
+        let state = create_test_state(&temp_dir, Arc::new(MemoryTokenStore::new()));
+        let path = temp_dir.path().join("config.toml");
+        std::fs::write(&path, "# keep me\n[storage]\nbackend = \"sqlite\"\n").unwrap();
+        let (health, mut receivers) = HealthHandle::channel();
+        state.attach_health(health);
+
+        state
+            .update_general_settings(update(60, false))
+            .await
+            .unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        state.reload().await.unwrap();
+
+        assert!(saved.contains("# keep me"));
+        assert!(saved.contains("[general]"));
+        assert!(
+            !ConfigLoader::load(&path)
+                .unwrap()
+                .general
+                .status_pages_enabled
+        );
+        let config = state.get().await;
+        assert!(!config.general.status_pages_enabled);
+        assert_eq!(config.general.default_refresh_interval, 60);
+        assert!(!state.get_bool(ConfigKey::StatusPagesEnabled).await);
+        assert!(matches!(
+            receivers.inputs.try_recv(),
+            Ok(HealthInput::SettingsChanged)
+        ));
+        assert!(matches!(
+            receivers.inputs.try_recv(),
+            Ok(HealthInput::SettingsChanged)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_update_general_settings_rejects_intervals_outside_five_to_three_hundred() {
+        let temp_dir = TempDir::new().unwrap();
+        let state = create_test_state(&temp_dir, Arc::new(MemoryTokenStore::new()));
+        let (health, mut receivers) = HealthHandle::channel();
+        state.attach_health(health);
+
+        for interval in [0, 4, 301, 100_000] {
+            let result = state.update_general_settings(update(interval, false)).await;
+
+            assert!(
+                matches!(result, Err(DomainError::InvalidConfig(_))),
+                "{interval}"
+            );
+        }
+        assert!(state.get().await.general.status_pages_enabled);
+        assert!(!temp_dir.path().join("config.toml").exists());
+        assert!(receivers.inputs.try_recv().is_err());
+
+        for interval in [5, 300] {
+            state
+                .update_general_settings(update(interval, true))
+                .await
+                .unwrap();
+            assert_eq!(state.get().await.general.default_refresh_interval, interval);
+            assert!(matches!(
+                receivers.inputs.try_recv(),
+                Ok(HealthInput::SettingsChanged)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_general_settings_leaves_providers_and_secrets_alone() {
+        let _env = EnvGuard::set(&[("PIPEDASH_TEST_TOKEN", Some("secret-value"))]);
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        let original = "[general]\nmetrics_enabled = true\n\n[providers.main]\ntype = \"github\"\ntoken = \"${PIPEDASH_TEST_TOKEN}\"\nrefresh_interval = 45\n";
+        std::fs::write(&path, original).unwrap();
+        let config = ConfigLoader::load(&path).unwrap();
+        assert_eq!(config.providers["main"].token, "secret-value");
+        let state =
+            ConfigState::from_config(config, path.clone(), Arc::new(MemoryTokenStore::new()));
+
+        state
+            .update_general_settings(update(90, false))
+            .await
+            .unwrap();
+
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            saved.contains("token = \"${PIPEDASH_TEST_TOKEN}\""),
+            "{saved}"
+        );
+        assert!(!saved.contains("secret-value"), "{saved}");
+        assert!(saved.contains("refresh_interval = 45"));
+        assert!(saved.contains("status_pages_enabled = false"));
+        assert!(saved.contains("default_refresh_interval = 90"));
+    }
+
+    #[tokio::test]
+    async fn test_provider_persistence_creates_the_general_table_too() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        std::fs::write(&path, "# keep me\n[storage]\nbackend = \"sqlite\"\n").unwrap();
+        let mut config = PipedashConfig::default();
+        config.general.status_pages_enabled = false;
+        let state =
+            ConfigState::from_config(config, path.clone(), Arc::new(MemoryTokenStore::new()));
+
+        state
+            .add_provider(
+                "main".to_string(),
+                ProviderFileConfig {
+                    provider_type: "github".to_string(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("# keep me"));
+        assert!(saved.contains("[general]"));
+        let reloaded = ConfigLoader::load(&path).unwrap();
+        assert!(!reloaded.general.status_pages_enabled);
+        assert!(reloaded.providers.contains_key("main"));
     }
 }

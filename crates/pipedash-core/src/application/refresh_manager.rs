@@ -1,27 +1,35 @@
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{
-    Duration,
-    Instant,
-};
+use std::time::Duration;
 
 use serde::{
     Deserialize,
     Serialize,
 };
 use tokio::sync::{
+    mpsc,
+    watch,
     Mutex,
-    RwLock,
 };
-use tokio::time::interval;
+use tokio::task::{
+    JoinHandle,
+    JoinSet,
+};
+use tokio::time::{
+    interval,
+    Instant,
+    MissedTickBehavior,
+};
+use tokio_util::sync::CancellationToken;
 
+use super::fetch_scheduler::{
+    ClaimKind,
+    FetchClaim,
+};
 use super::services::metrics_service::MetricsService;
 use super::services::pipeline_service::PipelineService;
-use crate::domain::Pipeline;
-use crate::event::{
-    CoreEvent,
-    EventBus,
-};
+
+const TICK: Duration = Duration::from_secs(5);
+const METRICS_CLEANUP_INTERVAL: Duration = Duration::from_secs(6 * 3600);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -50,381 +58,270 @@ impl std::str::FromStr for RefreshMode {
     }
 }
 
+pub enum RefreshCommand {
+    FetchNow { claims: Vec<FetchClaim> },
+}
+
+#[derive(Clone)]
+pub struct RefreshDispatcher(mpsc::UnboundedSender<RefreshCommand>);
+
+impl RefreshDispatcher {
+    pub fn channel() -> (Self, mpsc::UnboundedReceiver<RefreshCommand>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        (Self(tx), rx)
+    }
+
+    pub fn fetch_now(&self, claims: Vec<FetchClaim>) {
+        let _ = self.0.send(RefreshCommand::FetchNow { claims });
+    }
+}
+
 pub struct RefreshManager {
     pipeline_service: Arc<PipelineService>,
     metrics_service: Option<Arc<MetricsService>>,
-    event_bus: Arc<dyn EventBus>,
-    mode: Arc<RwLock<RefreshMode>>,
-    running: Arc<RwLock<bool>>,
-    last_refresh: Arc<Mutex<Option<Instant>>>,
-    last_metrics_cleanup: Arc<Mutex<Option<Instant>>>,
-    no_change_count: Arc<Mutex<u32>>,
-    current_interval: Arc<Mutex<Duration>>,
-    priority_queue: Arc<Mutex<Vec<i64>>>,
-    last_fetched: Arc<Mutex<HashMap<i64, Instant>>>,
+    mode: watch::Sender<RefreshMode>,
+    commands: Mutex<Option<mpsc::UnboundedReceiver<RefreshCommand>>>,
+    cancel: CancellationToken,
+    task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl RefreshManager {
     pub fn new(
         pipeline_service: Arc<PipelineService>, metrics_service: Option<Arc<MetricsService>>,
-        event_bus: Arc<dyn EventBus>,
+        mode: watch::Sender<RefreshMode>, commands: mpsc::UnboundedReceiver<RefreshCommand>,
     ) -> Self {
         Self {
             pipeline_service,
             metrics_service,
-            event_bus,
-            mode: Arc::new(RwLock::new(RefreshMode::Active)),
-            running: Arc::new(RwLock::new(false)),
-            last_refresh: Arc::new(Mutex::new(None)),
-            last_metrics_cleanup: Arc::new(Mutex::new(None)),
-            no_change_count: Arc::new(Mutex::new(0)),
-            current_interval: Arc::new(Mutex::new(Duration::from_secs(10))),
-            priority_queue: Arc::new(Mutex::new(Vec::new())),
-            last_fetched: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    pub async fn prioritize_provider(&self, provider_id: i64) {
-        let mut queue = self.priority_queue.lock().await;
-        if !queue.contains(&provider_id) {
-            queue.push(provider_id);
-            tracing::debug!(
-                provider_id = provider_id,
-                "Provider added to priority queue"
-            );
+            mode,
+            commands: Mutex::new(Some(commands)),
+            cancel: CancellationToken::new(),
+            task: Mutex::new(None),
         }
     }
 
     pub async fn start(&self) {
-        let mut running = self.running.write().await;
-        if *running {
-            return; // Already running
+        let mut task = self.task.lock().await;
+        if task.is_some() || self.cancel.is_cancelled() {
+            return;
         }
-        *running = true;
-        drop(running);
+        let Some(commands) = self.commands.lock().await.take() else {
+            return;
+        };
 
-        let pipeline_service = Arc::clone(&self.pipeline_service);
-        let metrics_service = self.metrics_service.clone();
-        let event_bus = Arc::clone(&self.event_bus);
-        let mode = Arc::clone(&self.mode);
-        let running = Arc::clone(&self.running);
-        let last_refresh = Arc::clone(&self.last_refresh);
-        let last_metrics_cleanup = Arc::clone(&self.last_metrics_cleanup);
-        let no_change_count = Arc::clone(&self.no_change_count);
-        let current_interval = Arc::clone(&self.current_interval);
-        let priority_queue = Arc::clone(&self.priority_queue);
-        let last_fetched = Arc::clone(&self.last_fetched);
-
-        tokio::spawn(async move {
-            let mut tick_interval = interval(Duration::from_secs(5));
-
-            tracing::info!("RefreshManager started");
-
-            loop {
-                tick_interval.tick().await;
-
-                let is_running = *running.read().await;
-                if !is_running {
-                    break;
-                }
-
-                let current_mode = *mode.read().await;
-
-                {
-                    let mut queue = priority_queue.lock().await;
-                    if !queue.is_empty() {
-                        let providers_to_fetch: Vec<i64> = queue.drain(..).collect();
-
-                        tracing::debug!(
-                            count = providers_to_fetch.len(),
-                            "Processing priority queue"
-                        );
-
-                        for provider_id in providers_to_fetch {
-                            let service = Arc::clone(&pipeline_service);
-                            tokio::spawn(async move {
-                                if let Err(e) = service.fetch_pipelines(Some(provider_id)).await {
-                                    tracing::warn!(
-                                        provider_id = provider_id,
-                                        error = %e,
-                                        "Priority provider fetch failed"
-                                    );
-                                }
-                            });
-                        }
-                    }
-                }
-
-                'refresh: {
-                    if current_mode != RefreshMode::Active {
-                        break 'refresh;
-                    }
-
-                    let refresh_interval = *current_interval.lock().await;
-                    let should_refresh = {
-                        let last = last_refresh.lock().await;
-                        match *last {
-                            Some(last_time) => last_time.elapsed() >= refresh_interval,
-                            None => true,
-                        }
-                    };
-
-                    if !should_refresh {
-                        break 'refresh;
-                    }
-
-                    {
-                        let mut last = last_refresh.lock().await;
-                        *last = Some(Instant::now());
-                    }
-
-                    let providers = match pipeline_service.provider_refresh_intervals().await {
-                        Ok(providers) => providers,
-                        Err(e) => {
-                            let error_msg = format!("Refresh error: {e:?}");
-                            event_bus
-                                .emit(CoreEvent::RefreshError { error: error_msg })
-                                .await;
-                            break 'refresh;
-                        }
-                    };
-                    let due = {
-                        let mut fetched = last_fetched.lock().await;
-                        fetched.retain(|id, _| providers.iter().any(|(pid, _)| pid == id));
-                        let now = Instant::now();
-                        let due = Self::due_providers(&providers, &fetched, now);
-                        for id in &due {
-                            fetched.insert(*id, now);
-                        }
-                        due
-                    };
-                    if due.is_empty() {
-                        break 'refresh;
-                    }
-
-                    let old_cached = pipeline_service.get_cached_pipelines(None).await.ok();
-
-                    let refreshed = match pipeline_service.fetch_providers(due).await {
-                        Ok(_) => pipeline_service.get_cached_pipelines(None).await,
-                        Err(e) => Err(e),
-                    };
-
-                    match refreshed {
-                        Ok(pipelines) => {
-                            let timestamp = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_millis() as i64;
-
-                            event_bus
-                                .emit(CoreEvent::PipelinesUpdated {
-                                    pipelines: pipelines.clone(),
-                                    provider_id: None,
-                                    timestamp,
-                                })
-                                .await;
-
-                            let has_changes = if let Some(cached) = old_cached {
-                                let changes = Self::has_changes(&cached, &pipelines);
-                                if changes {
-                                    event_bus
-                                        .emit(CoreEvent::PipelineStatusChanged {
-                                            pipelines: pipelines.clone(),
-                                        })
-                                        .await;
-
-                                    for new_pipeline in &pipelines {
-                                        if let Some(old_pipeline) =
-                                            cached.iter().find(|p| p.id == new_pipeline.id)
-                                        {
-                                            if new_pipeline.provider_type != "fluxcd"
-                                                && (old_pipeline.status != new_pipeline.status
-                                                    || old_pipeline.last_run
-                                                        != new_pipeline.last_run)
-                                            {
-                                                tracing::debug!(
-                                                    pipeline = %new_pipeline.name,
-                                                    "Pipeline changed, invalidating run cache"
-                                                );
-                                                pipeline_service
-                                                    .invalidate_run_cache(&new_pipeline.id)
-                                                    .await;
-                                            }
-                                        }
-                                    }
-                                }
-                                changes
-                            } else {
-                                false
-                            };
-
-                            if pipeline_service.update_overdue_pipelines().await {
-                                if let Ok(pipelines) =
-                                    pipeline_service.get_cached_pipelines(None).await
-                                {
-                                    event_bus
-                                        .emit(CoreEvent::PipelinesUpdated {
-                                            pipelines,
-                                            provider_id: None,
-                                            timestamp,
-                                        })
-                                        .await;
-                                }
-                            }
-
-                            let mut interval = current_interval.lock().await;
-                            let mut count = no_change_count.lock().await;
-
-                            if has_changes {
-                                *interval = Duration::from_secs(10);
-                                *count = 0;
-                                if *interval > Duration::from_secs(10) {
-                                    tracing::debug!(
-                                        interval_secs = interval.as_secs(),
-                                        "Changes detected, decreased interval"
-                                    );
-                                }
-                            } else {
-                                *count += 1;
-                                if *count >= 3 && *interval < Duration::from_secs(300) {
-                                    *interval = Duration::from_secs((*interval).as_secs() * 2)
-                                        .min(Duration::from_secs(300));
-                                    tracing::debug!(
-                                        no_change_cycles = *count,
-                                        interval_secs = interval.as_secs(),
-                                        "No changes, increased interval"
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            let error_msg = format!("Refresh error: {e:?}");
-                            event_bus
-                                .emit(CoreEvent::RefreshError { error: error_msg })
-                                .await;
-                        }
-                    }
-                }
-
-                if let Some(ref metrics_svc) = metrics_service {
-                    let should_cleanup = {
-                        let last = last_metrics_cleanup.lock().await;
-                        match *last {
-                            Some(last_time) => last_time.elapsed() >= Duration::from_secs(6 * 3600),
-                            None => true,
-                        }
-                    };
-
-                    if should_cleanup {
-                        {
-                            let mut last = last_metrics_cleanup.lock().await;
-                            *last = Some(Instant::now());
-                        }
-
-                        match metrics_svc.cleanup_old_metrics().await {
-                            Ok(deleted) => {
-                                tracing::info!(deleted = deleted, "Metrics cleanup complete");
-                            }
-                            Err(e) => {
-                                tracing::error!(error = %e, "Metrics cleanup failed");
-                            }
-                        }
-                    }
-                }
-            }
-
-            tracing::info!("RefreshManager stopped");
-        });
+        *task = Some(tokio::spawn(run(
+            Arc::clone(&self.pipeline_service),
+            self.metrics_service.clone(),
+            self.mode.subscribe(),
+            self.cancel.clone(),
+            commands,
+        )));
     }
 
     pub async fn stop(&self) {
-        let mut running = self.running.write().await;
-        *running = false;
-    }
-
-    pub async fn get_mode(&self) -> RefreshMode {
-        *self.mode.read().await
-    }
-
-    pub async fn set_mode(&self, mode: RefreshMode) {
-        let mut current = self.mode.write().await;
-        *current = mode;
-        tracing::debug!(mode = mode.as_str(), "Refresh mode changed");
-    }
-
-    pub async fn is_running(&self) -> bool {
-        *self.running.read().await
-    }
-
-    pub async fn get_interval(&self) -> Duration {
-        *self.current_interval.lock().await
-    }
-
-    pub async fn reset_interval(&self) {
-        let mut interval = self.current_interval.lock().await;
-        let mut count = self.no_change_count.lock().await;
-        *interval = Duration::from_secs(10);
-        *count = 0;
-    }
-
-    fn due_providers(
-        providers: &[(i64, i64)], last_fetched: &HashMap<i64, Instant>, now: Instant,
-    ) -> Vec<i64> {
-        providers
-            .iter()
-            .filter(|(id, interval_secs)| {
-                *interval_secs > 0
-                    && last_fetched.get(id).is_none_or(|last| {
-                        now.duration_since(*last) >= Duration::from_secs(*interval_secs as u64)
-                    })
-            })
-            .map(|(id, _)| *id)
-            .collect()
-    }
-
-    fn has_changes(old: &[Pipeline], new: &[Pipeline]) -> bool {
-        if old.len() != new.len() {
-            return true;
-        }
-
-        for new_pipeline in new {
-            if let Some(old_pipeline) = old.iter().find(|p| p.id == new_pipeline.id) {
-                if old_pipeline.status != new_pipeline.status {
-                    return true;
-                }
-                if old_pipeline.last_run != new_pipeline.last_run {
-                    return true;
-                }
-            } else {
-                return true;
+        self.cancel.cancel();
+        let task = self.task.lock().await.take();
+        if let Some(task) = task {
+            if let Err(e) = task.await {
+                tracing::error!(error = %e, "RefreshManager task failed");
             }
         }
-
-        false
     }
+
+    pub fn get_mode(&self) -> RefreshMode {
+        *self.mode.borrow()
+    }
+
+    pub fn set_mode(&self, mode: RefreshMode) {
+        if self.mode.send_if_modified(|current| {
+            let changed = *current != mode;
+            *current = mode;
+            changed
+        }) {
+            tracing::debug!(mode = mode.as_str(), "Refresh mode changed");
+        }
+    }
+}
+
+impl Drop for RefreshManager {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
+}
+
+async fn run(
+    pipeline_service: Arc<PipelineService>, metrics_service: Option<Arc<MetricsService>>,
+    mode: watch::Receiver<RefreshMode>, cancel: CancellationToken,
+    mut commands: mpsc::UnboundedReceiver<RefreshCommand>,
+) {
+    let mut tick = interval(TICK);
+    tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut attempts: JoinSet<()> = JoinSet::new();
+    let mut last_cleanup: Option<Instant> = None;
+
+    tracing::info!("RefreshManager started");
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            _ = tick.tick() => {
+                let active = *mode.borrow() == RefreshMode::Active;
+                if active {
+                    for claim in pipeline_service.claim_due(Instant::now()).await {
+                        spawn_fetch(&mut attempts, &pipeline_service, claim, ClaimKind::Scheduled);
+                    }
+                }
+                if let Some(metrics_service) = &metrics_service {
+                    if last_cleanup.is_none_or(|last| last.elapsed() >= METRICS_CLEANUP_INTERVAL) {
+                        last_cleanup = Some(Instant::now());
+                        let metrics_service = Arc::clone(metrics_service);
+                        attempts.spawn(async move {
+                            match metrics_service.cleanup_old_metrics().await {
+                                Ok(deleted) => {
+                                    tracing::info!(deleted = deleted, "Metrics cleanup complete");
+                                }
+                                Err(e) => {
+                                    tracing::error!(error = %e, "Metrics cleanup failed");
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+            Some(command) = commands.recv() => match command {
+                RefreshCommand::FetchNow { claims } => {
+                    for claim in claims {
+                        spawn_fetch(&mut attempts, &pipeline_service, claim, ClaimKind::Forced);
+                    }
+                }
+            },
+            Some(finished) = attempts.join_next(), if !attempts.is_empty() => {
+                if let Err(e) = finished {
+                    tracing::error!(error = %e, "Provider fetch task failed");
+                }
+            }
+        }
+    }
+
+    attempts.shutdown().await;
+    tracing::info!("RefreshManager stopped");
+}
+
+fn spawn_fetch(
+    attempts: &mut JoinSet<()>, pipeline_service: &Arc<PipelineService>, claim: FetchClaim,
+    kind: ClaimKind,
+) {
+    let pipeline_service = Arc::clone(pipeline_service);
+    attempts.spawn(async move {
+        pipeline_service.fetch_provider(claim, kind).await;
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::test_support::{
+        Gate,
+        Harness,
+        StubProvider,
+    };
+    use crate::domain::RefreshState;
+    use crate::event::CoreEvent;
 
-    #[test]
-    fn due_providers_waits_for_each_provider_interval() {
-        let start = Instant::now();
-        let providers = [(1, 10), (2, 600), (3, 0), (4, 30)];
-        let last_fetched = HashMap::from([(1, start), (2, start), (3, start)]);
+    #[tokio::test]
+    async fn the_first_tick_fetches_each_due_provider_once() {
+        let h = Harness::new().await;
+        let (_, first) = h.add_stub(StubProvider::new).await;
+        let (_, second) = h.add_stub(StubProvider::new).await;
+        h.provider_service.load_all_providers().await.unwrap();
 
-        let due = |secs| {
-            RefreshManager::due_providers(
-                &providers,
-                &last_fetched,
-                start + Duration::from_secs(secs),
-            )
-        };
+        h.start().await;
+        h.start().await;
+        h.bus
+            .wait_for("both providers", |events| {
+                events
+                    .iter()
+                    .filter(|event| matches!(event, CoreEvent::PipelinesUpdated { .. }))
+                    .count()
+                    == 2
+            })
+            .await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        assert_eq!(due(5), vec![4]);
-        assert_eq!(due(60), vec![1, 4]);
-        assert_eq!(due(599), vec![1, 4]);
-        assert_eq!(due(600), vec![1, 2, 4]);
+        assert_eq!((first.fetch_count(), second.fetch_count()), (1, 1));
+        assert_eq!(h.bus.count("pipelines-updated"), 2);
+    }
+
+    #[tokio::test]
+    async fn providers_missing_from_the_startup_load_are_fetched_on_schedule() {
+        let h = Harness::new().await;
+        let (_, stub) = h.add_stub(StubProvider::new).await;
+
+        h.start().await;
+        h.bus
+            .wait_for("the unloaded provider", |events| {
+                events
+                    .iter()
+                    .any(|event| matches!(event, CoreEvent::PipelinesUpdated { .. }))
+            })
+            .await;
+
+        assert_eq!(stub.fetch_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn idle_mode_keeps_scheduled_fetches_from_starting() {
+        let h = Harness::new().await;
+        let (_, stub) = h.add_stub(StubProvider::new).await;
+        h.provider_service.load_all_providers().await.unwrap();
+        h.refresh_manager.set_mode(RefreshMode::Idle);
+        assert_eq!(h.refresh_manager.get_mode(), RefreshMode::Idle);
+
+        h.start().await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        assert_eq!(stub.fetch_count(), 0);
+        h.refresh_manager.set_mode(RefreshMode::Active);
+        assert_eq!(h.refresh_manager.get_mode(), RefreshMode::Active);
+    }
+
+    #[tokio::test]
+    async fn stopping_cancels_running_attempts_and_their_waiters() {
+        let h = Harness::new().await;
+        h.start().await;
+        let gate = Gate::new();
+        let (id, stub) = h.add_stub(|id| StubProvider::new(id).gated(&gate)).await;
+        let waiting = tokio::spawn({
+            let service = Arc::clone(&h.pipeline_service);
+            async move { service.fetch_now(&[id], Duration::from_secs(10)).await }
+        });
+        gate.arrived().await;
+
+        h.refresh_manager.stop().await;
+        let results = waiting.await.unwrap();
+        h.refresh_manager.start().await;
+
+        assert_eq!(results[0].state, RefreshState::Pending);
+        let view = h.scheduler.view(id, Instant::now()).unwrap();
+        assert_eq!((view.failures, view.in_flight), (0, false));
+        assert_eq!(stub.fetch_count(), 1);
+        assert_eq!(h.bus.count("pipelines-updated"), 0);
+        assert!(h.refresh_manager.task.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_stopped_manager_hands_new_claims_back_as_cancelled() {
+        let h = Harness::new().await;
+        h.start().await;
+        h.refresh_manager.stop().await;
+        let (id, _) = h.add_stub(StubProvider::new).await;
+
+        let results = h
+            .pipeline_service
+            .fetch_now(&[id], Duration::from_millis(300))
+            .await;
+
+        assert_eq!(results[0].state, RefreshState::Pending);
     }
 }

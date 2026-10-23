@@ -15,11 +15,13 @@ import { SetupWizard } from './components/setup/SetupWizard'
 import { UnifiedPipelinesView } from './components/table/UnifiedPipelinesView'
 import { usePlugins } from './contexts/PluginContext'
 import { useFailureNotifications } from './hooks/useFailureNotifications'
+import { useProviderHealthAlerts } from './hooks/useProviderHealthAlerts'
 import { useEventSync } from './lib/eventSync'
 import { logger } from './lib/logger'
 import { queryKeys } from './lib/queryKeys'
 import { usePipelines } from './queries/usePipelinesQueries'
 import { useProviders } from './queries/useProvidersQueries'
+import { useRefreshProvider } from './queries/useRefreshQueries'
 import { useCancelRun, useReviewRun } from './queries/useRunHistoryQueries'
 import { useStoragePaths } from './queries/useStorageQueries'
 import { useVaultStatus } from './queries/useVaultQueries'
@@ -39,6 +41,7 @@ function AppContent() {
 
   useEventSync()
   useFailureNotifications()
+  useProviderHealthAlerts()
 
   const { data: vaultStatus } = useVaultStatus()
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -77,6 +80,7 @@ function AppContent() {
   })
 
   const { mutate: cancelRun } = useCancelRun()
+  const { mutate: refreshProvider } = useRefreshProvider()
   const { mutateAsync: reviewRun } = useReviewRun()
 
   useEffect(() => {
@@ -102,12 +106,22 @@ function AppContent() {
     }
   }, [providerParam, providersSuccess, selectedProviderId, setSearchParams])
 
-  const handleRefreshAll = useCallback(async () => {
+  const invalidateAll = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
     ])
   }, [queryClient])
+
+  const syncAfterAction = useCallback(
+    async (providerId?: number) => {
+      if (providerId !== undefined) {
+        refreshProvider(providerId)
+      }
+      await invalidateAll()
+    },
+    [refreshProvider, invalidateAll]
+  )
 
   const listLocation = `${location.pathname}${location.search}`
 
@@ -181,10 +195,13 @@ function AppContent() {
   )
 
   const handleCancel = useCallback(
-    (_pipeline: Pipeline, run: PipelineRun) => {
-      cancelRun({ pipelineId: run.pipeline_id, runNumber: run.run_number })
+    (pipeline: Pipeline, run: PipelineRun) => {
+      cancelRun(
+        { pipelineId: run.pipeline_id, runNumber: run.run_number },
+        { onSuccess: () => refreshProvider(pipeline.provider_id) }
+      )
     },
-    [cancelRun]
+    [cancelRun, refreshProvider]
   )
 
   const handleReview = useCallback(
@@ -200,7 +217,7 @@ function AppContent() {
   const logsPipeline = pipelines.find((p) => p.id === logsModal.pipelineId)
 
   return (
-    <AppLayout onRefreshAll={handleRefreshAll} refreshing={loading} onOpenSettings={handleOpenSettings}>
+    <AppLayout onOpenSettings={handleOpenSettings}>
       <Routes>
         <Route path="/" element={<Navigate to="/pipelines" replace />} />
 
@@ -213,7 +230,7 @@ function AppContent() {
                 providers={providers}
                 loading={loading}
                 error={providersError ?? pipelinesError}
-                onRetry={handleRefreshAll}
+                onRetry={invalidateAll}
                 onViewHistory={handleViewHistory}
                 onTrigger={(p) => useModalStore.getState().openTriggerModal(p.id)}
                 onViewMetrics={handleViewMetrics}
@@ -245,7 +262,7 @@ function AppContent() {
           path="/settings/:section"
           element={
             <ErrorBoundary scope="route">
-              <SettingsRoute onRefresh={handleRefreshAll} />
+              <SettingsRoute onRefresh={invalidateAll} />
             </ErrorBoundary>
           }
         />
@@ -260,7 +277,7 @@ function AppContent() {
           pipeline={triggerPipeline}
           initialInputs={triggerModal.initialInputs}
           onSuccess={async (pipelineId, runNumber) => {
-            await handleRefreshAll()
+            await syncAfterAction(triggerPipeline.provider_id)
             openLogsModal(pipelineId, runNumber)
           }}
         />
@@ -278,10 +295,10 @@ function AppContent() {
           triggerBlockedReason={logsPipeline ? getReconcileBlockReason(logsPipeline) : undefined}
           canCancel={!!logsPipeline && !!getPluginByType(logsPipeline.provider_type)?.capabilities.cancel}
           onRerunSuccess={async (pipelineId, newRunNumber) => {
-            await handleRefreshAll()
+            await syncAfterAction(logsPipeline?.provider_id)
             openLogsModal(pipelineId, newRunNumber)
           }}
-          onCancelSuccess={handleRefreshAll}
+          onCancelSuccess={() => syncAfterAction(logsPipeline?.provider_id)}
         />
       )}
     </AppLayout>

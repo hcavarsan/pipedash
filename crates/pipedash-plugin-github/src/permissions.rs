@@ -4,12 +4,15 @@ use std::time::Duration;
 use chrono::Utc;
 use octocrab::Octocrab;
 use pipedash_plugin_api::{
+    check_response,
+    map_send_error,
     Permission,
     PermissionCheck,
     PermissionStatus,
     PluginError,
     PluginResult,
 };
+use reqwest::Url;
 use secrecy::{
     ExposeSecret,
     SecretString,
@@ -25,6 +28,7 @@ pub(crate) struct PermissionChecker {
     octocrab: Octocrab,
     token: SecretString,
     http_client: reqwest::Client, // Reuse across all permission checks
+    user_url: Url,
 }
 
 impl PermissionChecker {
@@ -60,12 +64,15 @@ impl PermissionChecker {
         ("workflow", &["workflow"]),
     ];
 
-    pub fn new(octocrab: Octocrab, token: SecretString) -> PluginResult<Self> {
+    pub fn new(octocrab: Octocrab, token: SecretString, api_url: &str) -> PluginResult<Self> {
         let http_client = Self::build_http_client()?;
+        let user_url = Url::parse(&format!("{}/user", api_url.trim_end_matches('/')))
+            .map_err(|e| PluginError::InvalidConfig(format!("Invalid API URL '{api_url}': {e}")))?;
         Ok(Self {
             octocrab,
             token,
             http_client,
+            user_url,
         })
     }
 
@@ -216,6 +223,7 @@ impl PermissionChecker {
                 debug!("Classic token scopes detected");
                 Ok(status)
             }
+            Err(e) if e.is_transient() => Err(e),
             Err(e) => {
                 warn!("Classic token check failed, trying fine-grained: {}", e);
                 self.check_fine_grained_permissions().await
@@ -226,14 +234,15 @@ impl PermissionChecker {
     async fn check_classic_token_scopes(&self) -> PluginResult<PermissionStatus> {
         let response = self
             .http_client
-            .get("https://api.github.com/user")
+            .get(self.user_url.clone())
             .header(
                 "Authorization",
                 format!("token {}", self.token.expose_secret()),
             )
             .send()
             .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to check token: {e}")))?;
+            .map_err(|e| map_send_error(e, &self.user_url))?;
+        let response = check_response(response).await?;
 
         debug!("Classic token check response status: {}", response.status());
 

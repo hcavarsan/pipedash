@@ -24,6 +24,7 @@ const fluxPlugin = {
     artifacts: false,
     queues: false,
     custom_tables: false,
+    retains_run_history: true,
   },
 }
 

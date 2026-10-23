@@ -7,6 +7,11 @@ use serde::{
 };
 
 use crate::error::PluginResult;
+use crate::health::{
+    ClientOptions,
+    ComponentHealth,
+    StatusSource,
+};
 use crate::schema::{
     ConfigSchema,
     TableSchema,
@@ -40,6 +45,8 @@ pub struct PluginCapabilities {
     pub artifacts: bool,
     pub queues: bool,
     pub custom_tables: bool,
+    #[serde(default)]
+    pub retains_run_history: bool,
 }
 
 #[async_trait]
@@ -50,6 +57,18 @@ pub trait Plugin: Send + Sync {
         &mut self, provider_id: i64, config: HashMap<String, String>,
         http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()>;
+
+    fn client_options(&self, _config: &HashMap<String, String>) -> ClientOptions {
+        ClientOptions::default()
+    }
+
+    fn status_source(&self) -> Option<&StatusSource> {
+        None
+    }
+
+    async fn check_health(&self) -> PluginResult<Vec<ComponentHealth>> {
+        Ok(Vec::new())
+    }
 
     async fn validate_credentials(&self) -> PluginResult<bool>;
 

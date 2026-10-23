@@ -1,6 +1,7 @@
 mod commands;
 pub mod fallback_store;
 pub mod keyring_store;
+mod system_notifications;
 pub mod tauri_event_bus;
 
 use std::path::{
@@ -9,6 +10,10 @@ use std::path::{
 };
 use std::sync::Arc;
 
+use pipedash_core::infrastructure::config::{
+    ConfigLoader,
+    PipedashConfig,
+};
 use pipedash_core::CoreContext;
 use tauri::Manager;
 
@@ -38,49 +43,32 @@ fn ensure_desktop_config(app_data_dir: &Path, config_path: &Path) -> Result<bool
         false
     };
 
-    let config_content = if is_legacy_migration {
-        format!(
-            r#"# Auto-generated configuration for legacy database
-# Created: {}
-# This config was automatically created to maintain backward compatibility
+    let mut config = PipedashConfig::default();
+    config.general.default_refresh_interval = 300;
+    config.storage.data_dir = app_data_dir.display().to_string();
 
-[general]
-metrics_enabled = true
-default_refresh_interval = 300
+    let config_toml =
+        ConfigLoader::to_toml(&config).map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-[server]
-bind_addr = "127.0.0.1:8080"
-cors_allow_all = false
-
-[storage]
-data_dir = "{}"
-backend = "sqlite"
-"#,
-            chrono::Utc::now().to_rfc3339(),
-            app_data_dir.display()
+    let (title, note) = if is_legacy_migration {
+        (
+            "Auto-generated configuration for legacy database",
+            "This config was automatically created to maintain backward compatibility",
         )
     } else {
-        format!(
-            r#"# Pipedash Desktop Configuration
-# Created: {}
-# Desktop uses SQLite with system keyring for secure credential storage
-
-[general]
-metrics_enabled = true
-default_refresh_interval = 300
-
-[server]
-bind_addr = "127.0.0.1:8080"
-cors_allow_all = false
-
-[storage]
-data_dir = "{}"
-backend = "sqlite"
-"#,
-            chrono::Utc::now().to_rfc3339(),
-            app_data_dir.display()
+        (
+            "Pipedash Desktop Configuration",
+            "Desktop uses SQLite with system keyring for secure credential storage",
         )
     };
+
+    let config_content = format!(
+        "# {}\n# Created: {}\n# {}\n\n{}",
+        title,
+        chrono::Utc::now().to_rfc3339(),
+        note,
+        config_toml
+    );
 
     std::fs::write(config_path, &config_content)
         .map_err(|e| format!("Failed to write config: {}", e))?;
@@ -226,7 +214,6 @@ use commands::{
     execute_storage_migration,
     export_providers,
     factory_reset,
-    fetch_pipelines,
     fetch_provider_organizations,
     fetch_run_history,
     flush_pipeline_metrics,
@@ -253,6 +240,7 @@ use commands::{
     get_vault_status,
     get_workflow_parameters,
     get_workflow_run_details,
+    import_providers,
     list_plugin_metadata,
     list_providers,
     lock_vault,
@@ -261,6 +249,7 @@ use commands::{
     query_aggregated_metrics,
     query_pipeline_metrics,
     refresh_all,
+    refresh_provider,
     remove_provider,
     reset_metrics_processing_state,
     restart_app,
@@ -272,6 +261,7 @@ use commands::{
     test_storage_connection,
     trigger_pipeline,
     unlock_vault,
+    update_general_settings,
     update_global_metrics_config,
     update_pipeline_metrics_config,
     update_provider,
@@ -319,8 +309,6 @@ pub fn run() {
                 "Set PIPEDASH_CONFIG_PATH to: {}",
                 config_path.display()
             );
-
-            use pipedash_core::infrastructure::config::ConfigLoader;
 
             let maybe_core_context = Arc::new(tokio::sync::RwLock::new(None));
 
@@ -559,6 +547,8 @@ pub fn run() {
 
             app.manage(MaybeCoreContext(maybe_core_context));
 
+            system_notifications::register(app.handle())?;
+
             app.manage(AppDataDir(app_data_dir));
 
             Ok(())
@@ -574,6 +564,7 @@ pub fn run() {
             update_provider_refresh_interval,
             remove_provider,
             export_providers,
+            import_providers,
             get_available_plugins,
             list_plugin_metadata,
             get_provider_field_options,
@@ -584,7 +575,6 @@ pub fn run() {
             get_provider_permissions,
             get_provider_features,
             get_provider_table_schema,
-            fetch_pipelines,
             get_cached_pipelines,
             fetch_run_history,
             get_workflow_run_details,
@@ -593,8 +583,10 @@ pub fn run() {
             review_pipeline_run,
             get_workflow_parameters,
             refresh_all,
+            refresh_provider,
             set_refresh_mode,
             get_refresh_mode,
+            update_general_settings,
             clear_run_history_cache,
             get_cache_stats,
             clear_pipelines_cache,
@@ -632,7 +624,67 @@ pub fn run() {
             execute_storage_migration,
             factory_reset,
             restart_app,
+            system_notifications::show_system_notification,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_generated_config_loads(with_legacy_db: bool) {
+        let root = tempfile::tempdir().unwrap();
+        let app_data_dir = if cfg!(windows) {
+            root.path().join("com.henrique.pipedash")
+        } else {
+            root.path()
+                .join(r"C:\Users\alice\AppData\Roaming\com.henrique.pipedash")
+        };
+        std::fs::create_dir_all(&app_data_dir).unwrap();
+        if with_legacy_db {
+            std::fs::write(app_data_dir.join("pipedash.db"), b"legacy").unwrap();
+        }
+        let config_path = app_data_dir.join("config.toml");
+
+        assert_eq!(ensure_desktop_config(&app_data_dir, &config_path), Ok(true));
+
+        let config = ConfigLoader::load(&config_path).expect("generated config.toml must load");
+        assert_eq!(config.data_dir(), app_data_dir);
+        assert!(config.storage.backend.is_sqlite());
+        assert_eq!(config.general.default_refresh_interval, 300);
+    }
+
+    #[test]
+    fn fresh_config_loads_from_a_windows_style_data_dir() {
+        assert_generated_config_loads(false);
+    }
+
+    #[test]
+    fn legacy_config_loads_from_a_windows_style_data_dir() {
+        assert_generated_config_loads(true);
+    }
+
+    #[test]
+    fn the_desktop_config_templates_turn_status_pages_on() {
+        let root =
+            std::env::temp_dir().join(format!("pipedash-desktop-config-{}", std::process::id()));
+        for legacy in [false, true] {
+            let data_dir = root.join(if legacy { "legacy" } else { "fresh" });
+            std::fs::create_dir_all(&data_dir).unwrap();
+            if legacy {
+                std::fs::write(data_dir.join("pipedash.db"), b"data").unwrap();
+            }
+            let config_path = data_dir.join("config.toml");
+
+            assert!(ensure_desktop_config(&data_dir, &config_path).unwrap());
+
+            let text = std::fs::read_to_string(&config_path).unwrap();
+            assert!(text.contains("status_pages_enabled = true"), "{text}");
+            let config = ConfigLoader::load(&config_path).unwrap();
+            assert!(config.general.status_pages_enabled);
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

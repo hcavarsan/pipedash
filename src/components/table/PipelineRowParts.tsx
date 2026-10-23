@@ -1,12 +1,5 @@
 import { ActionIcon, Group, Loader, Text, Tooltip } from '@mantine/core'
-import {
-  IconAlertTriangle,
-  IconChartLine,
-  IconPin,
-  IconPinFilled,
-  IconPlayerPlayFilled,
-  IconRefresh,
-} from '@tabler/icons-react'
+import { IconChartLine, IconPin, IconPinFilled, IconPlayerPlayFilled, IconRefresh } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import type { Pipeline, PipelineStatus } from '../../types'
@@ -35,12 +28,6 @@ export function SectionHeading({ id, icon, label, count }: SectionHeadingProps) 
   )
 }
 
-export interface ProviderFetchError {
-  id: number
-  name: string
-  error: string
-}
-
 export interface TableRow {
   id: string
   type: 'repository' | 'workflow'
@@ -51,7 +38,6 @@ export interface TableRow {
   pipelineCount?: number
   providerIds?: Set<number>
   providerLabel?: string
-  providerErrors?: ProviderFetchError[]
   hasPendingFetch?: boolean
   status?: PipelineStatus | null
   statusLabel?: string
@@ -84,33 +70,14 @@ export function RowStatus({ row }: { row: TableRow }) {
   )
 }
 
-interface RepositoryFetchIndicatorProps {
-  row: TableRow
-  onShowError: (error: ProviderFetchError) => void
-}
-
-export function RepositoryFetchIndicator({ row, onShowError }: RepositoryFetchIndicatorProps) {
-  if (row.hasPendingFetch) {
-    return (
-      <Tooltip label="Fetching pipelines…">
-        <Loader size="sm" aria-label="Fetching pipelines" />
-      </Tooltip>
-    )
-  }
-
-  const error = row.providerErrors?.[0]
-
-  if (!error) {
+export function RepositoryFetchIndicator({ row }: { row: TableRow }) {
+  if (!row.hasPendingFetch) {
     return null
   }
 
-  const label = `View ${error.name} fetch error`
-
   return (
-    <Tooltip label={label}>
-      <ActionIcon variant="subtle" color="orange" aria-label={label} onClick={() => onShowError(error)}>
-        <IconAlertTriangle size={16} />
-      </ActionIcon>
+    <Tooltip label="Fetching pipelines…">
+      <Loader size="sm" aria-label="Fetching pipelines" />
     </Tooltip>
   )
 }

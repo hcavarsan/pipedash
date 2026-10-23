@@ -1,8 +1,6 @@
-import { Alert, Box, Button, Code, Group, Stack, Text, UnstyledButton } from '@mantine/core'
-import { useDisclosure } from '@mantine/hooks'
+import { Box, Button, Group, Stack, UnstyledButton } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
-  IconAlertCircle,
   IconChevronDown,
   IconChevronRight,
   IconFilterOff,
@@ -22,10 +20,10 @@ import { logger } from '../../lib/logger'
 import { pinKey, usePinnedStore } from '../../stores/pinnedStore'
 import { useProviderStore } from '../../stores/providerStore'
 import { mostSevereStatus } from '../../theme/status'
-import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { getDateRangeStart } from '../../utils/dateRange'
 import { getPipelineLabels, getStatusLabel, getStatusOptions } from '../../utils/pipelinePresentation'
+import { fetchHint, providerAttention } from '../../utils/providerAttention'
 import { TableCells } from '../../utils/tableCells'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
@@ -33,19 +31,13 @@ import { FilterBar } from '../common/FilterBar'
 import { LoadingState } from '../common/LoadingState'
 import { PageContainer } from '../common/PageContainer'
 import { PageHeader } from '../common/PageHeader'
-import { StandardModal } from '../common/StandardModal'
 import { StandardTable } from '../common/StandardTable'
+import { ProviderRecoveryActions } from '../provider/ProviderRecoveryActions'
+import { ProviderStatusButton } from '../provider/ProviderStatusButton'
 
 import { MobilePipelineCards } from './MobilePipelineCards'
 import { PinnedWorkflows } from './PinnedWorkflows'
-import {
-  type ProviderFetchError,
-  RepositoryFetchIndicator,
-  RowStatus,
-  SectionHeading,
-  type TableRow,
-  WorkflowActions,
-} from './PipelineRowParts'
+import { RepositoryFetchIndicator, RowStatus, SectionHeading, type TableRow, WorkflowActions } from './PipelineRowParts'
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
@@ -131,6 +123,30 @@ const pipelineMatches = (pipeline: Pipeline, repository: string, organization: s
   )
 }
 
+interface EmptyTableIssue {
+  id: number
+  name: string
+  kind: ProviderSummary['last_fetch_error_kind']
+  headline: string
+  detail: string | null
+  hint: string | null
+}
+
+const toEmptyTableIssue = (provider: ProviderSummary): EmptyTableIssue | null => {
+  const attention = providerAttention(provider)
+  const base = { id: provider.id, name: provider.name, kind: attention.kind }
+
+  if (attention.headline) {
+    return { ...base, headline: attention.headline, detail: attention.detail, hint: attention.hint }
+  }
+
+  if (provider.last_fetch_status === 'error' && provider.last_fetch_error) {
+    return { ...base, headline: 'Fetch failed', detail: provider.last_fetch_error, hint: fetchHint(provider) }
+  }
+
+  return null
+}
+
 interface UnifiedPipelinesViewProps {
   pipelines: Pipeline[]
   providers: ProviderSummary[]
@@ -183,22 +199,11 @@ export const UnifiedPipelinesView = ({
     columnAccessor: 'name',
     direction: 'asc',
   })
-  const [errorModalOpened, { open: openErrorModal, close: closeErrorModal }] = useDisclosure(false)
-  const [selectedError, setSelectedError] = useState<ProviderFetchError | null>(null)
-
   const getProvider = useCallback(
     (providerId: number): ProviderSummary | undefined => {
       return providers.find((p) => p.id === providerId)
     },
     [providers]
-  )
-
-  const showProviderError = useCallback(
-    (error: ProviderFetchError) => {
-      setSelectedError(error)
-      openErrorModal()
-    },
-    [openErrorModal]
   )
 
   const parseRepositoryName = useCallback(
@@ -380,7 +385,6 @@ export const UnifiedPipelinesView = ({
         return []
       }
 
-      const providerErrors: ProviderFetchError[] = []
       const providerNames: string[] = []
       let hasPendingFetch = false
 
@@ -391,10 +395,6 @@ export const UnifiedPipelinesView = ({
 
         if (provider?.last_fetch_status === 'never') {
           hasPendingFetch = true
-        }
-
-        if (provider?.last_fetch_status === 'error' && provider.last_fetch_error) {
-          providerErrors.push({ id: provider.id, name: provider.name, error: provider.last_fetch_error })
         }
       })
 
@@ -415,7 +415,6 @@ export const UnifiedPipelinesView = ({
             pipelineCount: workflows.length,
             providerIds: group.providerIds,
             providerLabel: providerNames.sort(collator.compare).join(', '),
-            providerErrors,
             hasPendingFetch,
             status,
             statusLabel: statusPipeline ? getStatusLabel(statusPipeline) : undefined,
@@ -466,17 +465,18 @@ export const UnifiedPipelinesView = ({
       .sort((a, b) => collator.compare(a.label, b.label))
   }, [repoGroups, providers])
 
-  const fetchErrors = providers.filter(
-    (provider) =>
-      provider.last_fetch_status === 'error' &&
-      provider.last_fetch_error &&
-      (rowFilters.providerId === undefined || provider.id === rowFilters.providerId)
-  )
+  const emptyTableIssues = providers
+    .filter((provider) => rowFilters.providerId === undefined || provider.id === rowFilters.providerId)
+    .map(toEmptyTableIssue)
+    .filter((issue): issue is EmptyTableIssue => issue !== null)
+  const firstIssue = emptyTableIssues[0]
+
+  const pageHeading = <PageHeader title={title} />
 
   if (error) {
     return (
       <PageContainer>
-        <PageHeader title={title} />
+        {pageHeading}
         <ErrorState title="Couldn't load pipelines" error={error} onRetry={onRetry} retrying={loading} />
       </PageContainer>
     )
@@ -485,7 +485,7 @@ export const UnifiedPipelinesView = ({
   if (!loading && providers.length === 0) {
     return (
       <PageContainer>
-        <PageHeader title={title} />
+        {pageHeading}
         <EmptyState
           icon={<IconPlugConnected size={24} />}
           title="No providers configured"
@@ -503,7 +503,7 @@ export const UnifiedPipelinesView = ({
   if (loading) {
     return (
       <PageContainer>
-        <PageHeader title={title} />
+        {pageHeading}
         <LoadingState variant="page" message="Loading pipelines…" />
       </PageContainer>
     )
@@ -549,7 +549,7 @@ export const UnifiedPipelinesView = ({
 
   return (
     <PageContainer>
-      <PageHeader title={title} />
+      {pageHeading}
 
       <FilterBar
         filters={{
@@ -626,11 +626,12 @@ export const UnifiedPipelinesView = ({
             {rows.length === 0 ? (
               filtersActive ? (
                 noMatches
-              ) : fetchErrors.length > 0 ? (
+              ) : firstIssue ? (
                 <ErrorState
-                  title={`Couldn't fetch ${labels.items} from ${fetchErrors.map((p) => p.name).join(', ')}`}
-                  error={fetchErrors[0].last_fetch_error}
-                  hint="Check the provider credentials in Settings → Providers. Pipedash retries on the next refresh."
+                  title={`Couldn't fetch ${labels.items} from ${emptyTableIssues.map((issue) => issue.name).join(', ')}`}
+                  error={[firstIssue.headline, firstIssue.detail].filter(Boolean).join(': ')}
+                  hint={firstIssue.hint}
+                  actions={<ProviderRecoveryActions providerId={firstIssue.id} kind={firstIssue.kind} />}
                 />
               ) : (
                 <EmptyState
@@ -648,7 +649,6 @@ export const UnifiedPipelinesView = ({
                 rows={rows}
                 getProvider={getProvider}
                 onToggleRepo={toggleRepo}
-                onShowProviderError={showProviderError}
                 onViewHistory={onViewHistory}
                 onTrigger={onTrigger}
                 pinnedKeys={pinnedKeys}
@@ -727,9 +727,9 @@ export const UnifiedPipelinesView = ({
                       width: 200,
                       textAlign: 'left' as const,
                       render: (row) => (
-                        <Stack gap="xs">
+                        <Stack gap={4} align="flex-start">
                           {Array.from(row.providerIds ?? []).map((providerId) => (
-                            <div key={providerId}>{TableCells.provider(getProvider(providerId))}</div>
+                            <ProviderStatusButton key={providerId} provider={getProvider(providerId)} />
                           ))}
                         </Stack>
                       ),
@@ -743,7 +743,7 @@ export const UnifiedPipelinesView = ({
                         if (row.type === 'repository') {
                           return (
                             <Group justify="flex-end">
-                              <RepositoryFetchIndicator row={row} onShowError={showProviderError} />
+                              <RepositoryFetchIndicator row={row} />
                             </Group>
                           )
                         }
@@ -776,37 +776,6 @@ export const UnifiedPipelinesView = ({
           </Stack>
         </>
       )}
-
-      <StandardModal
-        opened={errorModalOpened}
-        onClose={closeErrorModal}
-        title="Provider fetch error"
-        size="md"
-        footer={
-          <Group justify="flex-end" gap="sm">
-            <Button variant="default" size="sm" onClick={closeErrorModal}>
-              Close
-            </Button>
-          </Group>
-        }
-      >
-        {selectedError && (
-          <Stack gap="md">
-            <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light" title={selectedError.name}>
-              <Text size={TYPOGRAPHY.HELPER_TEXT.size}>Couldn't fetch pipelines from this provider.</Text>
-            </Alert>
-
-            <Box>
-              <Text size={TYPOGRAPHY.FIELD_LABEL.size} fw={500} c="dimmed" mb="xs">
-                Error details
-              </Text>
-              <Code block style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                {selectedError.error}
-              </Code>
-            </Box>
-          </Stack>
-        )}
-      </StandardModal>
     </PageContainer>
   )
 }

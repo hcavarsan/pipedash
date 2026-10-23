@@ -17,6 +17,7 @@ pub struct JenkinsPlugin {
     client: Option<client::JenkinsClient>,
     provider_id: Option<i64>,
     config: HashMap<String, String>,
+    status_source: Option<StatusSource>,
 }
 
 impl Default for JenkinsPlugin {
@@ -32,6 +33,7 @@ impl JenkinsPlugin {
             client: None,
             provider_id: None,
             config: HashMap::new(),
+            status_source: None,
         }
     }
 
@@ -48,10 +50,16 @@ impl Plugin for JenkinsPlugin {
         &self.metadata
     }
 
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
+    }
+
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
         http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
+        let status_source = custom_status_source(&config)?;
+
         let token = config
             .get("token")
             .ok_or_else(|| PluginError::InvalidConfig("Missing Jenkins API token".to_string()))?;
@@ -91,6 +99,7 @@ impl Plugin for JenkinsPlugin {
         self.client = Some(client::JenkinsClient::new(client, server_url, auth_header));
         self.provider_id = Some(provider_id);
         self.config = config;
+        self.status_source = status_source;
 
         Ok(())
     }
@@ -147,12 +156,18 @@ impl Plugin for JenkinsPlugin {
         for result in results {
             match result {
                 Ok(pipeline) => all_pipelines.push(pipeline),
-                Err(e) => errors.push(e),
+                Err(e) if e.is_transient() => return Err(e),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to fetch Jenkins pipeline");
+                    errors.push(e);
+                }
             }
         }
 
-        if !errors.is_empty() && all_pipelines.is_empty() {
-            return Err(errors.into_iter().next().unwrap());
+        if all_pipelines.is_empty() {
+            if let Some(e) = errors.into_iter().next() {
+                return Err(e);
+            }
         }
 
         Ok(all_pipelines)
@@ -376,69 +391,128 @@ impl Plugin for JenkinsPlugin {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
     use std::sync::Arc;
 
-    use tokio::io::{
-        AsyncReadExt,
-        AsyncWriteExt,
-    };
-    use tokio::sync::Mutex;
-
     use super::*;
+    use crate::test_support::{
+        stub_server,
+        Reply,
+    };
 
-    async fn jenkins_stub(requests: Arc<Mutex<Vec<String>>>) -> String {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            loop {
-                let (mut stream, _) = listener.accept().await.unwrap();
-                let mut request = Vec::new();
-                let mut buffer = [0; 4096];
-                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
-                    let n = stream.read(&mut buffer).await.unwrap();
-                    if n == 0 {
-                        break;
-                    }
-                    request.extend_from_slice(&buffer[..n]);
-                }
-                let line = String::from_utf8_lossy(&request)
-                    .lines()
-                    .next()
-                    .unwrap_or_default()
-                    .to_string();
-                requests.lock().await.push(line.clone());
-
-                let (status, body) = if line.starts_with("GET /job/plain/api/json") {
-                    (
-                        "200 OK",
-                        r#"{"property":[{"_class":"jenkins.model.BuildDiscarderProperty"}]}"#,
-                    )
-                } else if line.starts_with("GET /job/release/api/json") {
-                    (
-                        "200 OK",
-                        r#"{"property":[{"_class":"hudson.model.ParametersDefinitionProperty","parameterDefinitions":[{"_class":"hudson.model.StringParameterDefinition","name":"BRANCH","defaultParameterValue":{"value":"main"}}]}]}"#,
-                    )
-                } else if line.starts_with("POST /job/plain/build ")
-                    || line.starts_with("POST /job/release/buildWithParameters ")
-                {
-                    ("201 Created", "")
-                } else {
-                    ("400 Bad Request", "job is not parameterized")
-                };
-                let response = format!(
-                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                stream.write_all(response.as_bytes()).await.unwrap();
+    fn mixed(path: &str) -> Reply {
+        if path.contains("/job/limited/") {
+            Reply {
+                status: "429 Too Many Requests",
+                headers: "Retry-After: 120\r\n",
+                body: "slow down",
             }
-        });
-        format!("http://{addr}")
+        } else if path.contains("/job/missing/") {
+            Reply {
+                status: "404 Not Found",
+                headers: "",
+                body: "not found",
+            }
+        } else {
+            Reply {
+                status: "200 OK",
+                headers: "Content-Type: application/json\r\n",
+                body: r#"{"name":"ok"}"#,
+            }
+        }
     }
 
-    async fn trigger_without_inputs(job: &str) -> (PluginResult<String>, Vec<String>) {
+    async fn initialized(selected: &str, extra: &[(&str, &str)]) -> PluginResult<JenkinsPlugin> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let server_url = jenkins_stub(requests.clone()).await;
+        let server_url = stub_server(Arc::new(AtomicUsize::new(0)), Duration::ZERO, mixed).await;
+        let mut config = HashMap::from([
+            ("server_url".to_string(), server_url),
+            ("username".to_string(), "alice".to_string()),
+            ("token".to_string(), "token".to_string()),
+            ("selected_items".to_string(), selected.to_string()),
+        ]);
+        config.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        let mut plugin = JenkinsPlugin::new();
+        plugin.initialize(1, config, None)?;
+        Ok(plugin)
+    }
+
+    #[tokio::test]
+    async fn transient_failure_on_any_job_fails_the_fetch() {
+        let plugin = initialized("ok,limited", &[]).await.unwrap();
+
+        let error = plugin.fetch_pipelines().await.unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::RateLimited { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn permanent_failure_on_one_job_keeps_the_rest() {
+        let plugin = initialized("ok,missing", &[]).await.unwrap();
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+        assert_eq!(pipelines.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn status_source_follows_the_optional_status_page_url() {
+        let none = initialized("ok", &[]).await.unwrap();
+        assert!(none.status_source().is_none());
+
+        let custom = initialized("ok", &[("status_page_url", "https://status.example.com")])
+            .await
+            .unwrap();
+        let source = custom.status_source().unwrap();
+        assert_eq!(source.name, "status.example.com");
+        assert_eq!(
+            source.feed_url.as_str(),
+            "https://status.example.com/api/v2/summary.json"
+        );
+
+        let rejected = initialized("ok", &[("status_page_url", "javascript:alert(1)")]).await;
+        assert!(matches!(rejected, Err(PluginError::InvalidConfig(_))));
+    }
+
+    fn jenkins_core(path: &str) -> Reply {
+        let json = "Content-Type: application/json\r\n";
+        if path.starts_with("/job/plain/api/json") {
+            Reply {
+                status: "200 OK",
+                headers: json,
+                body: r#"{"property":[{"_class":"jenkins.model.BuildDiscarderProperty"}]}"#,
+            }
+        } else if path.starts_with("/job/release/api/json") {
+            Reply {
+                status: "200 OK",
+                headers: json,
+                body: r#"{"property":[{"_class":"hudson.model.ParametersDefinitionProperty","parameterDefinitions":[{"_class":"hudson.model.StringParameterDefinition","name":"BRANCH","defaultParameterValue":{"value":"main"}}]}]}"#,
+            }
+        } else if path == "/job/plain/build" || path == "/job/release/buildWithParameters" {
+            Reply {
+                status: "201 Created",
+                headers: "",
+                body: "",
+            }
+        } else {
+            Reply {
+                status: "400 Bad Request",
+                headers: "",
+                body: "job is not parameterized",
+            }
+        }
+    }
+
+    async fn trigger_without_inputs(job: &str) -> (PluginResult<String>, usize) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let server_url = stub_server(requests.clone(), Duration::ZERO, jenkins_core).await;
         let mut plugin = JenkinsPlugin::new();
         plugin
             .initialize(
@@ -458,35 +532,23 @@ mod tests {
                 inputs: None,
             })
             .await;
-        let requests = requests.lock().await.clone();
 
-        (result, requests)
-    }
-
-    fn posts(requests: &[String]) -> Vec<&str> {
-        requests
-            .iter()
-            .filter(|line| line.starts_with("POST "))
-            .map(String::as_str)
-            .collect()
+        (result, requests.load(Ordering::SeqCst))
     }
 
     #[tokio::test]
     async fn trigger_posts_to_build_for_a_job_without_parameters() {
         let (result, requests) = trigger_without_inputs("plain").await;
 
-        assert!(result.is_ok(), "{result:?}, requests: {requests:?}");
-        assert_eq!(posts(&requests), ["POST /job/plain/build HTTP/1.1"]);
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(requests, 2);
     }
 
     #[tokio::test]
     async fn trigger_posts_to_build_with_parameters_for_a_parameterized_job() {
         let (result, requests) = trigger_without_inputs("release").await;
 
-        assert!(result.is_ok(), "{result:?}, requests: {requests:?}");
-        assert_eq!(
-            posts(&requests),
-            ["POST /job/release/buildWithParameters HTTP/1.1"]
-        );
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(requests, 2);
     }
 }

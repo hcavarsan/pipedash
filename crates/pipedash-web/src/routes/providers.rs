@@ -14,10 +14,14 @@ use axum::{
     Json,
     Router,
 };
+use pipedash_core::application::PipelineService;
 use pipedash_core::domain::{
     PaginatedAvailablePipelines,
     PaginationParams,
     ProviderConfig,
+    ProviderImportResult,
+    RefreshResult,
+    RefreshState,
 };
 use pipedash_plugin_api::{
     FeatureAvailability,
@@ -127,15 +131,22 @@ pub struct PreviewPipelinesRequest {
     pub page_size: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ImportProvidersRequest {
+    pub content: String,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_providers))
         .route("/", post(create_provider))
         .route("/export", get(export_providers))
+        .route("/import", post(import_providers))
         .route("/{id}", get(get_provider))
         .route("/{id}", put(update_provider))
         .route("/{id}", delete(remove_provider))
         .route("/{id}/validate", post(validate_existing_credentials))
+        .route("/{id}/refresh", post(refresh_provider))
         .route("/{id}/refresh-interval", put(update_refresh_interval))
         .route("/{id}/organizations", get(get_provider_organizations))
         .route("/{id}/permissions", get(get_provider_permissions))
@@ -148,20 +159,34 @@ pub fn router() -> Router<AppState> {
         .route("/field-options", post(get_field_options))
 }
 
+async fn refresh_provider(
+    State(state): State<AppState>, Path(id): Path<i64>,
+) -> ApiResult<Json<RefreshResult>> {
+    let pipeline_service = state.pipeline_service().await?;
+    Ok(Json(pipeline_service.refresh_provider(id).await))
+}
+
 async fn export_providers(State(state): State<AppState>) -> ApiResult<Json<String>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let toml = core.provider_service.export_providers_toml().await?;
+    let provider_service = state.provider_service().await?;
+    let toml = provider_service.export_providers_toml().await?;
 
     Ok(Json(toml))
+}
+
+async fn import_providers(
+    State(state): State<AppState>, Json(req): Json<ImportProvidersRequest>,
+) -> ApiResult<Json<ProviderImportResult>> {
+    let provider_service = state.provider_service().await?;
+    let result = provider_service.import_providers_toml(&req.content).await?;
+
+    Ok(Json(result))
 }
 
 async fn list_providers(
     State(state): State<AppState>,
 ) -> ApiResult<Json<Vec<pipedash_core::ProviderSummary>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let providers = core.provider_service.list_providers().await?;
+    let provider_service = state.provider_service().await?;
+    let providers = provider_service.list_providers().await?;
 
     Ok(Json(providers))
 }
@@ -179,9 +204,9 @@ async fn create_provider(
         version: None,
     };
 
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let id = core.provider_service.add_provider(config.clone()).await?;
+    let provider_service = state.provider_service().await?;
+    let pipeline_service = state.pipeline_service().await?;
+    let id = provider_service.add_provider(config.clone()).await?;
 
     tracing::info!(
         provider_id = id,
@@ -189,7 +214,20 @@ async fn create_provider(
         "Provider created successfully, token persistence in background"
     );
 
-    core.refresh_manager.prioritize_provider(id).await;
+    let results = pipeline_service
+        .fetch_now(&[id], PipelineService::REFRESH_DEADLINE)
+        .await;
+    if let Some(result) = results
+        .iter()
+        .find(|result| result.state == RefreshState::Failed)
+    {
+        tracing::warn!(
+            provider_id = id,
+            kind = ?result.kind,
+            message = ?result.message,
+            "Initial fetch for new provider failed"
+        );
+    }
 
     Ok(Json(ProviderResponse {
         id,
@@ -203,18 +241,16 @@ async fn create_provider(
 async fn get_provider(
     State(state): State<AppState>, Path(id): Path<i64>,
 ) -> ApiResult<Json<ProviderResponse>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let provider = core.provider_service.get_provider_config(id).await?;
+    let provider_service = state.provider_service().await?;
+    let provider = provider_service.get_provider_config(id).await?;
     Ok(Json(provider.into()))
 }
 
 async fn update_provider(
     State(state): State<AppState>, Path(id): Path<i64>, Json(req): Json<UpdateProviderRequest>,
 ) -> ApiResult<Json<ProviderResponse>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let existing = core.provider_service.get_provider_config(id).await?;
+    let provider_service = state.provider_service().await?;
+    let existing = provider_service.get_provider_config(id).await?;
 
     let config = ProviderConfig {
         id: Some(id),
@@ -226,9 +262,7 @@ async fn update_provider(
         version: existing.version,
     };
 
-    core.provider_service
-        .update_provider(id, config.clone())
-        .await?;
+    provider_service.update_provider(id, config.clone()).await?;
 
     Ok(Json(ProviderResponse {
         id,
@@ -240,18 +274,16 @@ async fn update_provider(
 }
 
 async fn remove_provider(State(state): State<AppState>, Path(id): Path<i64>) -> ApiResult<()> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    core.provider_service.remove_provider(id).await?;
+    let provider_service = state.provider_service().await?;
+    provider_service.remove_provider(id).await?;
     Ok(())
 }
 
 async fn validate_existing_credentials(
     State(state): State<AppState>, Path(id): Path<i64>,
 ) -> ApiResult<Json<bool>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let provider = core.provider_service.get_provider_instance(id).await?;
+    let provider_service = state.provider_service().await?;
+    let provider = provider_service.get_provider_instance(id).await?;
     let valid = provider.validate_credentials().await?;
     Ok(Json(valid))
 }
@@ -266,9 +298,8 @@ async fn update_refresh_interval(
         ));
     }
 
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    core.provider_service
+    let provider_service = state.provider_service().await?;
+    provider_service
         .update_provider_refresh_interval(id, req.refresh_interval)
         .await?;
     Ok(())
@@ -277,25 +308,13 @@ async fn update_refresh_interval(
 async fn get_provider_organizations(
     State(state): State<AppState>, Path(id): Path<i64>,
 ) -> ApiResult<Json<Vec<Organization>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let config = core.provider_service.get_provider_config(id).await?;
-    let mut plugin = core
-        .provider_service
-        .create_uninitialized_plugin(&config.provider_type)?;
+    let provider_service = state.provider_service().await?;
+    let config = provider_service.get_provider_config(id).await?;
 
     let mut plugin_config = config.config.clone();
     plugin_config.insert("token".to_string(), config.token.clone());
 
-    let http_client = if let Some(base_url) = plugin_config.get("base_url") {
-        core.http_client_manager.client_for_url(base_url)?
-    } else {
-        core.http_client_manager.default_client()
-    };
-
-    plugin
-        .initialize(id, plugin_config, Some(http_client))
-        .map_err(|e| AppError::internal(format!("Failed to initialize plugin: {e}")))?;
+    let plugin = provider_service.init_plugin(&config.provider_type, plugin_config, id)?;
 
     let orgs = plugin
         .fetch_organizations()
@@ -307,20 +326,18 @@ async fn get_provider_organizations(
 async fn get_provider_permissions(
     State(state): State<AppState>, Path(id): Path<i64>,
 ) -> ApiResult<Json<Option<PermissionStatus>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let permissions = core.provider_service.get_provider_permissions(id).await?;
+    let provider_service = state.provider_service().await?;
+    let permissions = provider_service.get_provider_permissions(id).await?;
     Ok(Json(permissions))
 }
 
 async fn get_provider_features(
     State(state): State<AppState>, Path(id): Path<i64>,
 ) -> ApiResult<Json<Vec<FeatureAvailability>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let provider_config = core.provider_service.get_provider_config(id).await?;
+    let provider_service = state.provider_service().await?;
+    let provider_config = provider_service.get_provider_config(id).await?;
 
-    let metadata_list = core.provider_service.list_available_plugins();
+    let metadata_list = provider_service.list_available_plugins();
     let plugin_metadata = metadata_list
         .iter()
         .find(|m| m.provider_type == provider_config.provider_type)
@@ -331,7 +348,7 @@ async fn get_provider_features(
             ))
         })?;
 
-    let permission_status = core.provider_service.get_provider_permissions(id).await?;
+    let permission_status = provider_service.get_provider_permissions(id).await?;
 
     let permission_status = match permission_status {
         Some(status) => status,
@@ -382,11 +399,10 @@ async fn get_provider_features(
 async fn get_provider_table_schema(
     State(state): State<AppState>, Path(id): Path<i64>,
 ) -> ApiResult<Json<pipedash_plugin_api::schema::TableSchema>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let provider_config = core.provider_service.get_provider_config(id).await?;
+    let provider_service = state.provider_service().await?;
+    let provider_config = provider_service.get_provider_config(id).await?;
 
-    let metadata_list = core.provider_service.list_available_plugins();
+    let metadata_list = provider_service.list_available_plugins();
     let plugin_metadata = metadata_list
         .iter()
         .find(|m| m.provider_type == provider_config.provider_type)
@@ -403,21 +419,10 @@ async fn get_provider_table_schema(
 async fn validate_credentials(
     State(state): State<AppState>, Json(req): Json<ValidateCredentialsRequest>,
 ) -> ApiResult<Json<ValidationResult>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let mut plugin = core
-        .provider_service
-        .create_uninitialized_plugin(&req.provider_type)?;
-
-    let http_client = if let Some(base_url) = req.config.get("base_url") {
-        core.http_client_manager.client_for_url(base_url)?
-    } else {
-        core.http_client_manager.default_client()
-    };
-
-    plugin
-        .initialize(0, req.config, Some(http_client))
-        .map_err(|e| AppError::internal(format!("Failed to initialize plugin: {}", e)))?;
+    let plugin = state
+        .provider_service()
+        .await?
+        .init_plugin(&req.provider_type, req.config, 0)?;
 
     match plugin.validate_credentials().await {
         Ok(valid) if valid => Ok(Json(ValidationResult {
@@ -438,21 +443,10 @@ async fn validate_credentials(
 async fn fetch_organizations(
     State(state): State<AppState>, Json(req): Json<FetchOrganizationsRequest>,
 ) -> ApiResult<Json<Vec<Organization>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let mut plugin = core
-        .provider_service
-        .create_uninitialized_plugin(&req.provider_type)?;
-
-    let http_client = if let Some(base_url) = req.config.get("base_url") {
-        core.http_client_manager.client_for_url(base_url)?
-    } else {
-        core.http_client_manager.default_client()
-    };
-
-    plugin
-        .initialize(0, req.config, Some(http_client))
-        .map_err(|e| AppError::internal(format!("Failed to initialize plugin: {}", e)))?;
+    let plugin = state
+        .provider_service()
+        .await?
+        .init_plugin(&req.provider_type, req.config, 0)?;
 
     plugin
         .validate_credentials()
@@ -470,21 +464,10 @@ async fn fetch_organizations(
 async fn check_permissions(
     State(state): State<AppState>, Json(req): Json<CheckPermissionsRequest>,
 ) -> ApiResult<Json<PermissionCheckResult>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let mut plugin = core
-        .provider_service
-        .create_uninitialized_plugin(&req.provider_type)?;
-
-    let http_client = if let Some(base_url) = req.config.get("base_url") {
-        core.http_client_manager.client_for_url(base_url)?
-    } else {
-        core.http_client_manager.default_client()
-    };
-
-    plugin
-        .initialize(0, req.config, Some(http_client))
-        .map_err(|e| AppError::internal(format!("Failed to initialize plugin: {}", e)))?;
+    let plugin = state
+        .provider_service()
+        .await?
+        .init_plugin(&req.provider_type, req.config, 0)?;
 
     let permission_status = plugin.check_permissions().await.ok();
 
@@ -503,21 +486,10 @@ async fn check_permissions(
 async fn preview_pipelines(
     State(state): State<AppState>, Json(req): Json<PreviewPipelinesRequest>,
 ) -> ApiResult<Json<PaginatedAvailablePipelines>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let mut plugin = core
-        .provider_service
-        .create_uninitialized_plugin(&req.provider_type)?;
-
-    let http_client = if let Some(base_url) = req.config.get("base_url") {
-        core.http_client_manager.client_for_url(base_url)?
-    } else {
-        core.http_client_manager.default_client()
-    };
-
-    plugin
-        .initialize(0, req.config, Some(http_client))
-        .map_err(|e| AppError::internal(format!("Failed to initialize plugin: {}", e)))?;
+    let plugin = state
+        .provider_service()
+        .await?
+        .init_plugin(&req.provider_type, req.config, 0)?;
 
     plugin
         .validate_credentials()
@@ -552,14 +524,9 @@ pub struct GetFieldOptionsRequest {
 async fn get_field_options(
     State(state): State<AppState>, Json(req): Json<GetFieldOptionsRequest>,
 ) -> ApiResult<Json<Vec<String>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let plugin = core
-        .provider_service
-        .create_uninitialized_plugin(&req.provider_type)?;
-
-    let options = plugin
-        .get_field_options(&req.field_key, &req.config)
+    let provider_service = state.provider_service().await?;
+    let options = provider_service
+        .field_options(&req.provider_type, &req.field_key, req.config)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch field options: {e}")))?;
 

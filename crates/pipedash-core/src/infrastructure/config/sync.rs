@@ -5,10 +5,7 @@ use std::collections::{
 
 use indexmap::IndexMap;
 
-use super::schema::{
-    PipedashConfig,
-    ProviderFileConfig,
-};
+use super::schema::ProviderFileConfig;
 use super::state::ConfigState;
 use super::token_ref::TokenReference;
 use crate::domain::{
@@ -53,20 +50,8 @@ impl ProviderSyncService {
 
             match existing_db {
                 None => {
-                    let mut config = toml_provider.config.clone();
-                    if let Some(display_name) = &toml_provider.name {
-                        config.insert("display_name".to_string(), display_name.clone());
-                    }
-
-                    let provider_config = ProviderConfig {
-                        id: None,
-                        name: id.clone(), // ID for database lookups
-                        provider_type: toml_provider.provider_type.clone(),
-                        token: toml_provider.token.clone(),
-                        config,
-                        refresh_interval: toml_provider.refresh_interval as i64,
-                        version: None,
-                    };
+                    let provider_config =
+                        Self::provider_config(&id, &toml_provider, toml_provider.token.clone());
 
                     let new_provider_id = config_backend.create_provider(&provider_config).await?;
 
@@ -92,19 +77,14 @@ impl ProviderSyncService {
                 }
                 Some(db_provider) => {
                     if self.needs_update(&toml_provider, db_provider) {
-                        let mut config = toml_provider.config.clone();
-                        if let Some(display_name) = &toml_provider.name {
-                            config.insert("display_name".to_string(), display_name.clone());
-                        }
-
                         let provider_config = ProviderConfig {
                             id: db_provider.id,
-                            name: id.clone(), // ID for database lookups
-                            provider_type: toml_provider.provider_type.clone(),
-                            token: toml_provider.token.clone(),
-                            config,
-                            refresh_interval: toml_provider.refresh_interval as i64,
                             version: db_provider.version,
+                            ..Self::provider_config(
+                                &id,
+                                &toml_provider,
+                                toml_provider.token.clone(),
+                            )
                         };
 
                         if let Some(db_id) = db_provider.id {
@@ -155,6 +135,25 @@ impl ProviderSyncService {
         }
 
         Ok(result)
+    }
+
+    pub(crate) fn provider_config(
+        key: &str, file: &ProviderFileConfig, token: String,
+    ) -> ProviderConfig {
+        let mut config = file.config.clone();
+        if let Some(display_name) = &file.name {
+            config.insert("display_name".to_string(), display_name.clone());
+        }
+
+        ProviderConfig {
+            id: None,
+            name: key.to_string(),
+            provider_type: file.provider_type.clone(),
+            token,
+            config,
+            refresh_interval: file.refresh_interval as i64,
+            version: None,
+        }
     }
 
     fn needs_update(&self, toml: &ProviderFileConfig, db: &ProviderConfig) -> bool {
@@ -256,13 +255,10 @@ impl ProviderSyncService {
             );
         }
 
-        let config = PipedashConfig {
-            providers,
-            ..Default::default()
-        };
-        let body = ConfigState::update_toml_preserving_comments("", &config)?;
+        let mut doc = toml_edit::DocumentMut::new();
+        ConfigState::write_providers(&mut doc, &providers);
 
-        Ok(format!("{EXPORT_HEADER}{body}"))
+        Ok(format!("{EXPORT_HEADER}{doc}"))
     }
 
     fn preserved_token_var(stored: &str) -> Option<&str> {
@@ -538,5 +534,13 @@ mod tests {
             assert_eq!(exported.matches("${PIPEDASH_TOKEN_PROD:-}").count(), 1);
             assert!(exported.contains("${PIPEDASH_TOKEN_PROD_2:-}"));
         }
+    }
+
+    #[test]
+    fn test_export_toml_is_providers_only() {
+        let exported = ProviderSyncService::export_toml(&[]).unwrap();
+
+        assert!(!exported.contains("[general]"));
+        assert!(exported.starts_with("# Pipedash providers export."));
     }
 }

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use futures::future::join_all;
+use octocrab::service::middleware::retry::RetryConfig;
 use octocrab::Octocrab;
 use pipedash_plugin_api::*;
 
@@ -16,6 +17,7 @@ pub struct GitHubPlugin {
     client: Option<client::GitHubClient>,
     provider_id: Option<i64>,
     config: HashMap<String, String>,
+    status_source: Option<StatusSource>,
 }
 
 impl Default for GitHubPlugin {
@@ -56,6 +58,7 @@ impl GitHubPlugin {
             client: None,
             provider_id: None,
             config: HashMap::new(),
+            status_source: None,
         }
     }
 
@@ -90,11 +93,13 @@ impl Plugin for GitHubPlugin {
         tracing::debug!(token_length = token.len(), "Initializing GitHub plugin");
 
         let base_url = config::get_base_url(&config);
-        let api_url = config::build_api_url(&base_url);
+        let api_url = config::build_api_url(&base_url)?;
+        let status_source = config::status_source(&config, &base_url)?;
 
         tracing::debug!(api_url = %api_url, "Using GitHub API URL");
 
         let octocrab = Octocrab::builder()
+            .add_retry_config(RetryConfig::None)
             .personal_token(token.clone())
             .base_uri(&api_url)
             .map_err(|e| PluginError::InvalidConfig(format!("Failed to set base URI: {e}")))?
@@ -103,10 +108,11 @@ impl Plugin for GitHubPlugin {
                 PluginError::InvalidConfig(format!("Failed to build GitHub client: {e}"))
             })?;
 
-        let github_client = client::GitHubClient::new(octocrab, token.clone())?;
+        let github_client = client::GitHubClient::new(octocrab, token.clone(), &api_url)?;
         self.client = Some(github_client);
         self.provider_id = Some(provider_id);
         self.config = config;
+        self.status_source = status_source;
 
         Ok(())
     }
@@ -117,24 +123,19 @@ impl Plugin for GitHubPlugin {
         client
             .retry_policy
             .retry(|| async {
-                let result = client.octocrab.current().user().await;
-
-                match result {
-                    Ok(_) => Ok(true),
-                    Err(e) => {
-                        if e.to_string().contains("401") {
-                            Err(PluginError::AuthenticationFailed(
-                                "Invalid GitHub token".to_string(),
-                            ))
-                        } else {
-                            Err(PluginError::ApiError(format!(
-                                "Failed to validate credentials: {e}"
-                            )))
-                        }
-                    }
-                }
+                client
+                    .octocrab
+                    .current()
+                    .user()
+                    .await
+                    .map(|_| true)
+                    .map_err(|e| client::map_octocrab_error("Failed to validate credentials", e))
             })
             .await
+    }
+
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
     }
 
     async fn fetch_rate_limit(&self) -> PluginResult<Option<RateLimit>> {
@@ -178,21 +179,29 @@ impl Plugin for GitHubPlugin {
 
         let client = self.client()?;
         let futures = repositories
-            .into_iter()
-            .map(|repo_full_name| client.fetch_repo_workflows(provider_id, repo_full_name));
+            .iter()
+            .map(|repo_full_name| client.fetch_repo_workflows(provider_id, repo_full_name.clone()));
 
         let results = join_all(futures).await;
 
         let mut all_pipelines = Vec::new();
-        let mut errors = Vec::new();
+        let mut first_error = None;
 
-        for result in results {
+        for (repo_full_name, result) in repositories.iter().zip(results) {
             match result {
                 Ok(mut pipelines) => {
                     tracing::debug!(count = pipelines.len(), "GitHub repo returned workflows");
                     all_pipelines.append(&mut pipelines);
                 }
-                Err(e) => errors.push(e),
+                Err(e) if e.is_transient() => return Err(e),
+                Err(e) => {
+                    tracing::warn!(
+                        repository = %repo_full_name,
+                        error = %e,
+                        "Skipping GitHub repository after a non-transient failure"
+                    );
+                    first_error.get_or_insert(e);
+                }
             }
         }
 
@@ -207,11 +216,10 @@ impl Plugin for GitHubPlugin {
             "GitHub pipeline fetch complete"
         );
 
-        if !errors.is_empty() && all_pipelines.is_empty() {
-            return Err(errors.into_iter().next().unwrap());
+        match first_error {
+            Some(e) if all_pipelines.is_empty() => Err(e),
+            _ => Ok(all_pipelines),
         }
-
-        Ok(all_pipelines)
     }
 
     async fn fetch_run_history(
@@ -334,9 +342,7 @@ impl Plugin for GitHubPlugin {
             client.octocrab.post(url, Some(&body)).await;
 
         if let Err(e) = response {
-            return Err(PluginError::ApiError(format!(
-                "Failed to trigger workflow: {e}"
-            )));
+            return Err(client::map_octocrab_error("Failed to trigger workflow", e));
         }
 
         let workflow_id_u64: u64 = workflow_id.parse().map_err(|_| {
@@ -516,6 +522,7 @@ impl Plugin for GitHubPlugin {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use tokio::io::{
         AsyncReadExt,
@@ -583,8 +590,14 @@ mod tests {
         (method, path, body)
     }
 
-    async fn stub_github(
-        pending_deployments: serde_json::Value,
+    struct Reply {
+        status: u16,
+        headers: Vec<(&'static str, &'static str)>,
+        body: serde_json::Value,
+    }
+
+    async fn serve(
+        config: &[(&str, &str)], handler: impl Fn(&str, &str) -> Reply + Send + 'static,
     ) -> (GitHubPlugin, Recorded, tokio::task::JoinHandle<()>) {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -595,35 +608,41 @@ mod tests {
             loop {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let (method, path, body) = read_request(&mut stream).await;
-                let response = match (method.as_str(), path.as_str()) {
-                    ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => {
-                        serde_json::json!({"total_count": 1, "workflow_runs": [waiting_run()]})
-                    }
-                    ("GET", PENDING_PATH) => pending_deployments.clone(),
-                    ("POST", PENDING_PATH) => serde_json::json!([]),
-                    (method, path) => panic!("Unexpected stub request: {method} {path}"),
-                };
+                let reply = handler(&method, &path);
                 log.lock().await.push((method, path, body));
-                let body = response.to_string();
-                let reply = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                let body = reply.body.to_string();
+                let extra: String = reply
+                    .headers
+                    .iter()
+                    .map(|(name, value)| format!("{name}: {value}\r\n"))
+                    .collect();
+                let response = format!(
+                    "HTTP/1.1 {} Stub\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    reply.status,
                     body.len()
                 );
-                stream.write_all(reply.as_bytes()).await.unwrap();
+                stream.write_all(response.as_bytes()).await.unwrap();
             }
         });
         let mut plugin = GitHubPlugin::new();
-        plugin
-            .initialize(
-                1,
-                HashMap::from([
-                    ("base_url".to_string(), format!("http://{addr}")),
-                    ("token".to_string(), "stub-token".to_string()),
-                ]),
-                None,
-            )
-            .unwrap();
+        let mut settings = config_with(config);
+        settings.insert("base_url".to_string(), format!("http://{addr}"));
+        plugin.initialize(1, settings, None).unwrap();
         (plugin, recorded, server)
+    }
+
+    async fn stub_github(
+        pending_deployments: serde_json::Value,
+    ) -> (GitHubPlugin, Recorded, tokio::task::JoinHandle<()>) {
+        serve(&[], move |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => {
+                ok(serde_json::json!({"total_count": 1, "workflow_runs": [waiting_run()]}))
+            }
+            ("GET", PENDING_PATH) => ok(pending_deployments.clone()),
+            ("POST", PENDING_PATH) => ok(serde_json::json!([])),
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await
     }
 
     fn pending(id: u64, name: &str, can_approve: bool) -> serde_json::Value {
@@ -736,5 +755,275 @@ mod tests {
             Some(&serde_json::json!(true))
         );
         server.abort();
+    }
+
+    fn failure(status: u16, message: &str, headers: &[(&'static str, &'static str)]) -> Reply {
+        Reply {
+            status,
+            headers: headers.to_vec(),
+            body: serde_json::json!({"message": message}),
+        }
+    }
+
+    fn ok(body: serde_json::Value) -> Reply {
+        Reply {
+            status: 200,
+            headers: Vec::new(),
+            body,
+        }
+    }
+
+    fn workflow(id: u64) -> serde_json::Value {
+        let url = "http://stub.invalid/acme/app";
+        serde_json::json!({
+            "id": id, "node_id": "n", "name": "CI", "path": ".github/workflows/ci.yml",
+            "state": "active", "created_at": "2026-10-20T10:00:00Z",
+            "updated_at": "2026-10-20T10:00:00Z", "url": url, "html_url": url, "badge_url": url
+        })
+    }
+
+    fn workflows_of_ok_repo() -> Reply {
+        ok(serde_json::json!({"total_count": 1, "workflows": [workflow(42)]}))
+    }
+
+    fn runs_of_ok_repo() -> Reply {
+        ok(serde_json::json!({"total_count": 1, "workflow_runs": [waiting_run()]}))
+    }
+
+    fn rate_limited() -> Reply {
+        failure(429, "API rate limit exceeded", &[("Retry-After", "120")])
+    }
+
+    #[tokio::test]
+    async fn rate_limited_response_is_sent_once_and_keeps_the_hint() {
+        let (plugin, recorded, server) = serve(&[], |_, _| rate_limited()).await;
+
+        let error = plugin.validate_credentials().await.unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                PluginError::RateLimited { retry_after: Some(hint), .. }
+                    if hint == Duration::from_secs(120)
+            ),
+            "{error}"
+        );
+        assert_eq!(recorded.lock().await.len(), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn server_errors_are_retried_by_the_retry_policy_only() {
+        let (plugin, recorded, server) =
+            serve(&[], |_, _| failure(503, "Service Unavailable", &[])).await;
+
+        let error = plugin.validate_credentials().await.unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::ServiceUnavailable { .. }),
+            "{error}"
+        );
+        assert_eq!(
+            recorded.lock().await.len(),
+            RetryPolicy::default().max_retries
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn run_lookups_and_repository_lists_use_the_retry_policy() {
+        let attempts = RetryPolicy::default().max_retries;
+        let (plugin, recorded, server) =
+            serve(&[], |_, _| failure(503, "Service Unavailable", &[])).await;
+
+        let error = plugin.fetch_run_details(PIPELINE_ID, 7).await.unwrap_err();
+        assert!(
+            matches!(error, PluginError::ServiceUnavailable { .. }),
+            "{error}"
+        );
+        assert_eq!(recorded.lock().await.len(), attempts);
+
+        let error = plugin.fetch_available_pipelines(None).await.unwrap_err();
+        assert!(
+            matches!(error, PluginError::ServiceUnavailable { .. }),
+            "{error}"
+        );
+        assert_eq!(recorded.lock().await.len(), attempts * 2);
+
+        let error = plugin.fetch_run_history(PIPELINE_ID, 5).await.unwrap_err();
+        assert!(
+            matches!(error, PluginError::ServiceUnavailable { .. }),
+            "{error}"
+        );
+        assert_eq!(recorded.lock().await.len(), attempts * 3);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bad_credentials_are_authentication_failures_without_retry() {
+        let (plugin, recorded, server) =
+            serve(&[], |_, _| failure(401, "Bad credentials", &[])).await;
+
+        let error = plugin.validate_credentials().await.unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::AuthenticationFailed(_)),
+            "{error}"
+        );
+        assert_eq!(recorded.lock().await.len(), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn forbidden_is_rate_limited_only_when_github_says_so() {
+        let (plugin, _recorded, server) = serve(&[], |_, _| {
+            failure(
+                403,
+                "You have exceeded a secondary rate limit.",
+                &[("Retry-After", "120")],
+            )
+        })
+        .await;
+        let error = plugin.validate_credentials().await.unwrap_err();
+        assert!(matches!(error, PluginError::RateLimited { .. }), "{error}");
+        server.abort();
+
+        let (plugin, _recorded, server) =
+            serve(&[], |_, _| failure(403, "Resource not accessible", &[])).await;
+        let error = plugin.validate_credentials().await.unwrap_err();
+        assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn rate_limit_on_one_repo_fails_the_whole_fetch() {
+        let (plugin, _recorded, server) = serve(
+            &[("selected_items", "acme/ok,acme/limited")],
+            |_, path| match path {
+                "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
+                "/api/v3/repos/acme/ok/actions/workflows/42/runs" => runs_of_ok_repo(),
+                "/api/v3/repos/acme/limited/actions/workflows" => rate_limited(),
+                path => panic!("Unexpected stub request: {path}"),
+            },
+        )
+        .await;
+
+        let error = plugin.fetch_pipelines().await.unwrap_err();
+
+        assert!(matches!(error, PluginError::RateLimited { .. }), "{error}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn missing_repo_is_skipped_while_the_others_are_returned() {
+        let (plugin, _recorded, server) = serve(
+            &[("selected_items", "acme/ok,acme/gone")],
+            |_, path| match path {
+                "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
+                "/api/v3/repos/acme/ok/actions/workflows/42/runs" => runs_of_ok_repo(),
+                "/api/v3/repos/acme/gone/actions/workflows" => failure(404, "Not Found", &[]),
+                path => panic!("Unexpected stub request: {path}"),
+            },
+        )
+        .await;
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+        assert_eq!(pipelines.len(), 1);
+        assert_eq!(pipelines[0].repository, "acme/ok");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn rate_limit_on_latest_run_fails_instead_of_reporting_pending() {
+        let (plugin, _recorded, server) =
+            serve(&[("selected_items", "acme/ok")], |_, path| match path {
+                "/api/v3/repos/acme/ok/actions/workflows" => workflows_of_ok_repo(),
+                "/api/v3/repos/acme/ok/actions/workflows/42/runs" => rate_limited(),
+                path => panic!("Unexpected stub request: {path}"),
+            })
+            .await;
+
+        let error = plugin.fetch_pipelines().await.unwrap_err();
+
+        assert!(matches!(error, PluginError::RateLimited { .. }), "{error}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn permission_check_uses_the_configured_api_url() {
+        let (plugin, recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", "/api/v3/user") => Reply {
+                status: 200,
+                headers: vec![("X-OAuth-Scopes", "repo, workflow, read:org")],
+                body: serde_json::json!({}),
+            },
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let status = plugin.check_permissions().await.unwrap();
+
+        assert_eq!(
+            status.metadata.get("token_type").map(String::as_str),
+            Some("classic_pat")
+        );
+        assert!(status.all_granted);
+        assert_eq!(recorded.lock().await.len(), 1);
+        server.abort();
+    }
+
+    fn config_with(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        let mut config = HashMap::from([("token".to_string(), "stub-token".to_string())]);
+        config.extend(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        config
+    }
+
+    #[tokio::test]
+    async fn status_source_is_recomputed_on_every_initialize() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut plugin = GitHubPlugin::new();
+        assert!(plugin.status_source().is_none());
+
+        plugin
+            .initialize(1, config_with(&[("base_url", "https://github.com")]), None)
+            .unwrap();
+        assert_eq!(plugin.status_source().unwrap().name, "GitHub");
+
+        plugin
+            .initialize(
+                1,
+                config_with(&[("base_url", "https://github.enterprise.com")]),
+                None,
+            )
+            .unwrap();
+        assert!(plugin.status_source().is_none());
+
+        plugin
+            .initialize(
+                1,
+                config_with(&[
+                    ("base_url", "https://github.enterprise.com"),
+                    ("status_page_url", "https://status.example.com"),
+                ]),
+                None,
+            )
+            .unwrap();
+        assert_eq!(plugin.status_source().unwrap().name, "status.example.com");
+    }
+
+    #[test]
+    fn invalid_status_page_url_fails_initialize() {
+        let mut plugin = GitHubPlugin::new();
+
+        let error = plugin
+            .initialize(
+                1,
+                config_with(&[("status_page_url", "javascript:alert(1)")]),
+                None,
+            )
+            .unwrap_err();
+
+        assert!(matches!(error, PluginError::InvalidConfig(_)), "{error}");
     }
 }
