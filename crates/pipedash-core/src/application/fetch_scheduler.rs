@@ -139,11 +139,15 @@ impl Entry {
         }
     }
 
-    fn start_attempt(&mut self, now: Instant) -> AttemptSender {
+    fn start_attempt(&mut self, now: Instant) -> (AttemptSender, Option<Instant>) {
         let (sender, receiver) = watch::channel(None);
         self.attempt = Some(receiver);
-        self.last_attempt = Some(now);
-        sender
+        (sender, self.last_attempt.replace(now))
+    }
+
+    fn release(&mut self, previous_attempt: Option<Instant>) {
+        self.attempt = None;
+        self.last_attempt = previous_attempt;
     }
 
     fn finish(&mut self, policy: &BackoffPolicy, now: Instant, outcome: Outcome) {
@@ -267,12 +271,16 @@ impl FetchScheduler {
                     && entry.attempt.is_none()
                     && now >= entry.due_at(floors.get(*id).copied())
             })
-            .map(|(id, entry)| FetchClaim {
-                scheduler: Arc::clone(self),
-                id: *id,
-                generation: entry.generation,
-                result: entry.start_attempt(now),
-                done: false,
+            .map(|(id, entry)| {
+                let (result, previous_attempt) = entry.start_attempt(now);
+                FetchClaim {
+                    scheduler: Arc::clone(self),
+                    id: *id,
+                    generation: entry.generation,
+                    result,
+                    previous_attempt,
+                    done: false,
+                }
             })
             .collect();
         claims.sort_by_key(FetchClaim::id);
@@ -318,11 +326,13 @@ impl FetchScheduler {
             return ForcedClaim::Recent(entry.last_outcome.clone().unwrap_or(Outcome::Cancelled));
         }
 
+        let (result, previous_attempt) = entry.start_attempt(now);
         ForcedClaim::Claimed(FetchClaim {
             scheduler: Arc::clone(self),
             id,
             generation,
-            result: entry.start_attempt(now),
+            result,
+            previous_attempt,
             done: false,
         })
     }
@@ -387,6 +397,16 @@ impl FetchScheduler {
 
         Some(entry.view(now))
     }
+
+    fn release(&self, id: i64, generation: Generation, previous_attempt: Option<Instant>) {
+        if let Some(entry) = self
+            .entries()
+            .get_mut(&id)
+            .filter(|entry| entry.generation == generation)
+        {
+            entry.release(previous_attempt);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -402,6 +422,7 @@ pub struct FetchClaim {
     id: i64,
     generation: Generation,
     result: AttemptSender,
+    previous_attempt: Option<Instant>,
     done: bool,
 }
 
@@ -435,6 +456,13 @@ impl FetchClaim {
 
         self.scheduler
             .finish(self.id, self.generation, now, outcome)
+    }
+
+    pub fn release(mut self) {
+        self.done = true;
+        self.result.send_replace(Some(FetchResult::Cancelled));
+        self.scheduler
+            .release(self.id, self.generation, self.previous_attempt);
     }
 }
 

@@ -25,7 +25,7 @@ test('a notification with the same key replaces the earlier one and moves to the
 
   push(input())
   push(input({ key: 'connection:2', title: "Can't reach Gitea" }))
-  const recoveryId = push(input({ tone: 'success', title: 'GitHub is back to normal' }))
+  push(input({ tone: 'success', title: 'GitHub is back to normal' }))
 
   const { items } = useNotificationCenterStore.getState()
 
@@ -33,25 +33,25 @@ test('a notification with the same key replaces the earlier one and moves to the
     items.map((item) => item.title),
     ['GitHub is back to normal', "Can't reach Gitea"]
   )
-  assert.equal(items[0]?.id, recoveryId)
   assert.equal(items[0]?.read, false)
 })
 
-test('opening a notification marks only that one as read', () => {
+test('opening a replaced notification shows the current entry for its key', () => {
   const { push, open } = useNotificationCenterStore.getState()
-  const first = push(input())
+  push(input())
   push(input({ key: 'connection:2' }))
+  push(input({ tone: 'success', title: 'GitHub is back to normal' }))
 
-  open({ type: 'notification', id: first })
+  open({ type: 'notification', key: 'status-page:github' })
 
   const { items, selection } = useNotificationCenterStore.getState()
 
-  assert.deepEqual(selection, { type: 'notification', id: first })
+  assert.deepEqual(selection, { type: 'notification', key: 'status-page:github' })
   assert.deepEqual(
-    items.map((item) => [item.id === first, item.read]),
+    items.map((item) => [item.title, item.read]),
     [
-      [false, false],
-      [true, true],
+      ['GitHub is back to normal', true],
+      ['Actions is down', false],
     ]
   )
 })

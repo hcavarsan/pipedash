@@ -4,8 +4,8 @@ import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 
 export const SYSTEM_NOTIFICATION_CLICKED_EVENT = 'system-notification-clicked'
 
-export const openNotificationDetails = (id: string): void => {
-  useNotificationCenterStore.getState().open({ type: 'notification', id })
+export const openNotificationDetails = (key: string): void => {
+  useNotificationCenterStore.getState().open({ type: 'notification', key })
 }
 
 export const systemNotificationsSupported = (): boolean =>
@@ -23,14 +23,14 @@ export async function requestSystemNotificationPermission(): Promise<boolean> {
   return (await Notification.requestPermission()) === 'granted'
 }
 
-export function showSystemNotification(title: string, body: string, notificationId: string): void {
+export function showSystemNotification(title: string, body: string, notificationKey: string): void {
   if (!systemNotificationsSupported() || Notification.permission !== 'granted') {
     return
   }
 
   if (isTauri()) {
     tauriService
-      .showSystemNotification(title, body, notificationId)
+      .showSystemNotification(title, body, notificationKey)
       .catch((error: unknown) => logger.warn('systemNotifications', "Couldn't show notification", error))
     return
   }
@@ -40,7 +40,7 @@ export function showSystemNotification(title: string, body: string, notification
 
     notification.onclick = () => {
       window.focus()
-      openNotificationDetails(notificationId)
+      openNotificationDetails(notificationKey)
     }
   } catch (error) {
     logger.warn('systemNotifications', "Couldn't show notification", error)

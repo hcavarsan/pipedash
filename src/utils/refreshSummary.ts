@@ -13,12 +13,15 @@ const FAILURE_LABELS: Record<FailureKind, string> = {
   other: 'failed',
 }
 
+const isFailure = (result: RefreshResult): boolean =>
+  result.state === 'failed' || (result.state === 'recent' && result.kind !== null)
+
 export function describeRefreshResult(result: RefreshResult): string {
   switch (result.state) {
     case 'ok':
       return 'Refreshed'
     case 'recent':
-      return 'Checked a moment ago'
+      return result.kind ? `Not retried yet · last check ${FAILURE_LABELS[result.kind]}` : 'Checked a moment ago'
     case 'pending':
       return 'Still checking'
     case 'not_found':
@@ -34,7 +37,7 @@ export interface RefreshSummary {
 }
 
 export function summarizeRefresh(results: RefreshResult[], providers: ProviderSummary[]): RefreshSummary {
-  const failed = results.filter((result) => result.state === 'failed')
+  const failed = results.filter(isFailure)
   const pending = results.filter((result) => result.state === 'pending')
   const done = results.length - failed.length - pending.length
 

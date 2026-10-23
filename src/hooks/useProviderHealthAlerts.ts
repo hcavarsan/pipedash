@@ -20,7 +20,7 @@ export function useProviderHealthAlerts() {
           return
         }
 
-        const id = useNotificationCenterStore.getState().push({
+        useNotificationCenterStore.getState().push({
           key: alert.notification_key,
           at: Date.now(),
           tone: alert.recovered ? 'success' : 'warning',
@@ -36,7 +36,7 @@ export function useProviderHealthAlerts() {
           return
         }
 
-        showSystemNotification(alert.title, alert.body, id)
+        showSystemNotification(alert.title, alert.body, alert.notification_key)
       })
       .then((fn) => {
         if (active) {

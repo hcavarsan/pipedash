@@ -9,8 +9,10 @@ import { isOutageLevel, providerAttention } from '../utils/providerAttention'
 import { showSystemNotification } from '../utils/systemNotifications'
 
 const notify = (pipeline: Pipeline, tone: CenterNotificationTone, title: string, body: string, system: boolean) => {
-  const id = useNotificationCenterStore.getState().push({
-    key: `pipeline:${pipeline.id}`,
+  const key = `pipeline:${pipeline.id}`
+
+  useNotificationCenterStore.getState().push({
+    key,
     at: Date.now(),
     tone,
     level: null,
@@ -22,7 +24,7 @@ const notify = (pipeline: Pipeline, tone: CenterNotificationTone, title: string,
   })
 
   if (system) {
-    showSystemNotification(title, body, id)
+    showSystemNotification(title, body, key)
   }
 }
 

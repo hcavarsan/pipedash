@@ -22,7 +22,7 @@ export function NotificationDetailsModal() {
   const now = useNow(30_000)
 
   const notification =
-    selection?.type === 'notification' ? (items.find((item) => item.id === selection.id) ?? null) : null
+    selection?.type === 'notification' ? (items.find((item) => item.key === selection.key) ?? null) : null
   const related = notification
     ? (providers ?? []).filter((provider) => notification.providerIds.includes(provider.id))
     : []

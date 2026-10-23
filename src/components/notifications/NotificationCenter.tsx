@@ -14,7 +14,7 @@ import {
 } from '@mantine/core'
 import { IconBell, IconBellCheck } from '@tabler/icons-react'
 import { listen } from '@tauri-apps/api/event'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { useNow } from '../../hooks/useNow'
 import { logger } from '../../lib/logger'
@@ -28,7 +28,9 @@ import {
 import { HEALTH_META } from '../../theme/status'
 import type { HealthLevel } from '../../types'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
+import { providerAttention } from '../../utils/providerAttention'
 import { openNotificationDetails, SYSTEM_NOTIFICATION_CLICKED_EVENT } from '../../utils/systemNotifications'
+import { ProviderIcon } from '../atoms/ProviderIcon'
 
 import { notificationIcon, notificationLabel } from './labels'
 import { NotificationDetailsModal } from './NotificationDetailsModal'
@@ -46,9 +48,15 @@ function unreadDotColor(items: CenterNotification[]): string | null {
   return DOT_COLORS.find(([tone]) => unread.some((item) => item.tone === tone))?.[1] ?? null
 }
 
-function Row({ item, now, onClick }: { item: CenterNotification; now: number; onClick: () => void }) {
-  const RowIcon = notificationIcon(item)
+interface RowProps {
+  leading: ReactNode
+  title: string
+  subtitle: string
+  unread?: boolean
+  onClick: () => void
+}
 
+function Row({ leading, title, subtitle, unread = false, onClick }: RowProps) {
   return (
     <UnstyledButton
       className="interactive-surface"
@@ -59,23 +67,31 @@ function Row({ item, now, onClick }: { item: CenterNotification; now: number; on
     >
       <Group gap="sm" wrap="nowrap" align="flex-start">
         <Box c="dimmed" pt={2} style={{ display: 'flex' }}>
-          <RowIcon size={16} aria-hidden />
+          {leading}
         </Box>
         <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-          <Text size="sm" fw={item.read ? 500 : 600} truncate>
-            {item.title}
+          <Text size="sm" fw={unread ? 600 : 500} truncate>
+            {title}
           </Text>
           <Text size="xs" c="dimmed" lineClamp={2}>
-            {notificationLabel(item)} · {formatRelativeTime(item.at, now)}
+            {subtitle}
           </Text>
         </Stack>
-        {!item.read && (
+        {unread && (
           <Box w={6} h={6} mt={7} bg="blue" style={{ borderRadius: '50%', flexShrink: 0 }}>
             <VisuallyHidden>Unread</VisuallyHidden>
           </Box>
         )}
       </Group>
     </UnstyledButton>
+  )
+}
+
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <Text size="xs" c="dimmed" fw={500} px="sm" pt="xs">
+      {children}
+    </Text>
   )
 }
 
@@ -151,6 +167,16 @@ export function NotificationCenter() {
   }
 
   const label = unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'
+  const affected = (providers ?? []).flatMap((provider) => {
+    const { headline } = providerAttention(provider)
+
+    return headline ? [{ provider, headline }] : []
+  })
+
+  const select = (selection: Parameters<typeof open>[0]) => {
+    toggle(false)
+    open(selection)
+  }
 
   return (
     <>
@@ -184,7 +210,7 @@ export function NotificationCenter() {
               </Group>
             </Group>
 
-            {items.length === 0 ? (
+            {items.length === 0 && affected.length === 0 ? (
               <Stack align="center" gap={4} px="md" pb="lg" pt="xs">
                 <Box c="dimmed">
                   <IconBellCheck size={24} aria-hidden />
@@ -199,17 +225,31 @@ export function NotificationCenter() {
             ) : (
               <ScrollArea.Autosize mah={440} type="auto">
                 <Stack gap={2} px={6} pb={6}>
-                  {items.map((item) => (
+                  {affected.length > 0 && <SectionLabel>Affecting pipelines now</SectionLabel>}
+                  {affected.map(({ provider, headline }) => (
                     <Row
-                      key={item.id}
-                      item={item}
-                      now={now}
-                      onClick={() => {
-                        toggle(false)
-                        open({ type: 'notification', id: item.id })
-                      }}
+                      key={provider.id}
+                      leading={<ProviderIcon name={provider.name} icon={provider.icon} size={16} />}
+                      title={provider.name}
+                      subtitle={headline}
+                      onClick={() => select({ type: 'provider', providerId: provider.id })}
                     />
                   ))}
+                  {affected.length > 0 && items.length > 0 && <SectionLabel>Recent</SectionLabel>}
+                  {items.map((item) => {
+                    const ItemIcon = notificationIcon(item)
+
+                    return (
+                      <Row
+                        key={item.key}
+                        leading={<ItemIcon size={16} aria-hidden />}
+                        title={item.title}
+                        subtitle={`${notificationLabel(item)} · ${formatRelativeTime(item.at, now)}`}
+                        unread={!item.read}
+                        onClick={() => select({ type: 'notification', key: item.key })}
+                      />
+                    )
+                  })}
                 </Stack>
               </ScrollArea.Autosize>
             )}

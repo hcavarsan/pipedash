@@ -149,6 +149,7 @@ impl PipelineService {
             return FetchResult::Superseded;
         }
         let Some(permit) = self.acquire_permit(kind).await else {
+            claim.release();
             return FetchResult::Cancelled;
         };
 
@@ -1370,10 +1371,13 @@ mod tests {
         let view = h.scheduler.view(id, Instant::now()).unwrap();
         assert!(!view.in_flight);
         assert_eq!(view.failures, 0);
-        assert!(matches!(
-            h.fetch_directly(id).await,
-            FetchResult::Committed(Ok(1))
-        ));
+        assert_eq!(view.next_attempt_in, Duration::ZERO);
+        h.start().await;
+        let results = h
+            .pipeline_service
+            .fetch_now(&[id], Duration::from_secs(5))
+            .await;
+        assert_eq!(results[0].state, RefreshState::Ok);
         assert_eq!(stub.fetch_count(), 1);
     }
 
