@@ -1,7 +1,10 @@
 pub mod backup;
 pub mod validator;
 
-use std::collections::HashMap;
+use std::collections::{
+    BTreeMap,
+    HashMap,
+};
 use std::sync::Arc;
 
 pub use backup::{
@@ -24,6 +27,7 @@ pub use validator::{
 use crate::domain::{
     DomainError,
     DomainResult,
+    MetricsQuery,
     ProviderConfig,
 };
 use crate::event::EventBus;
@@ -34,6 +38,10 @@ use crate::infrastructure::config::{
 };
 use crate::infrastructure::token_store::TokenStore;
 use crate::infrastructure::{
+    database::{
+        MetricsRepository,
+        RecordMetrics,
+    },
     ConfigBackend,
     StorageBackend,
 };
@@ -198,11 +206,33 @@ fn get_vault_password(options: &MigrationOptions) -> DomainResult<String> {
     })
 }
 
+fn remap_pipeline_id(pipeline_id: &str, provider_ids: &HashMap<i64, i64>) -> Option<String> {
+    let mut parts = pipeline_id.splitn(3, "__");
+    let (Some(provider_type), Some(provider_id), Some(rest)) =
+        (parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    let new_id = provider_ids.get(&provider_id.parse().ok()?)?;
+
+    Some(format!("{provider_type}__{new_id}__{rest}"))
+}
+
+fn same_database(from: &PipedashConfig, to: &PipedashConfig) -> bool {
+    from.storage.backend == to.storage.backend
+        && if to.storage.backend.is_sqlite() {
+            from.db_path() == to.db_path()
+        } else {
+            from.storage.postgres.connection_string == to.storage.postgres.connection_string
+        }
+}
+
 pub struct MigrationOrchestrator {
     source_config: PipedashConfig,
     source_token_store: Arc<dyn TokenStore>,
     source_config_backend: Arc<dyn ConfigBackend>,
     source_cache_backend: Arc<dyn StorageBackend>,
+    source_metrics: MetricsRepository,
     event_bus: Option<Arc<dyn EventBus>>,
     target_token_store: Option<Arc<dyn TokenStore>>,
 }
@@ -217,6 +247,7 @@ impl MigrationOrchestrator {
             source_token_store: manager.token_store().await,
             source_config_backend: manager.config_backend(),
             source_cache_backend: manager.cache_backend(),
+            source_metrics: MetricsRepository::new_from_pool(manager.database_pool()),
             event_bus,
             target_token_store,
         }
@@ -640,6 +671,22 @@ impl MigrationOrchestrator {
                     }
                 }
 
+                if !same_database(&plan.from, &plan.to) {
+                    let mut metrics_config = self.source_metrics.export_config().await?;
+                    metrics_config.pipeline_configs.retain_mut(|config| {
+                        match remap_pipeline_id(&config.pipeline_id, &result.provider_id_mapping) {
+                            Some(pipeline_id) => {
+                                config.pipeline_id = pipeline_id;
+                                true
+                            }
+                            None => false,
+                        }
+                    });
+                    MetricsRepository::new_from_pool(target_manager.database_pool())
+                        .import_config(&metrics_config)
+                        .await?;
+                }
+
                 if options.clean_target {
                     let source_names: std::collections::HashSet<String> =
                         source_providers.iter().map(|p| p.name.clone()).collect();
@@ -687,6 +734,68 @@ impl MigrationOrchestrator {
                         .put(&obj.key, &data, obj.content_type.as_deref())
                         .await?;
                     result.stats.cache_entries_migrated += 1;
+                }
+
+                if !same_database(&plan.from, &plan.to) {
+                    let target_metrics =
+                        MetricsRepository::new_from_pool(target_manager.database_pool());
+                    let pipeline_query = |pipeline_id: &str| MetricsQuery {
+                        pipeline_id: Some(pipeline_id.to_string()),
+                        limit: None,
+                        ..Default::default()
+                    };
+                    let mut migrated = 0;
+                    let mut pipelines = 0;
+                    for source_id in self.source_metrics.list_pipeline_ids().await? {
+                        let Some(target_id) =
+                            remap_pipeline_id(&source_id, &result.provider_id_mapping)
+                        else {
+                            continue;
+                        };
+                        let last_run = self
+                            .source_metrics
+                            .get_last_processed_run(&source_id)
+                            .await?;
+                        let mut runs: BTreeMap<i64, RecordMetrics> = BTreeMap::new();
+                        for entry in self
+                            .source_metrics
+                            .query_metrics(pipeline_query(&source_id))
+                            .await?
+                        {
+                            let slot = entry.metric_type as usize;
+                            let record =
+                                runs.entry(entry.run_number)
+                                    .or_insert_with(|| RecordMetrics {
+                                        run_number: entry.run_number,
+                                        run_hash: entry.run_hash.clone().unwrap_or_default(),
+                                        entries: [None, None, None],
+                                    });
+                            record.entries[slot] = Some(entry);
+                        }
+                        let records: Vec<_> = runs.into_values().collect();
+                        migrated += target_metrics
+                            .refresh_record_metrics(&target_id, &records)
+                            .await?;
+                        pipelines += 1;
+
+                        let Some(run) = last_run else {
+                            continue;
+                        };
+                        if target_metrics
+                            .get_last_processed_run(&target_id)
+                            .await?
+                            .is_none_or(|target_run| target_run < run)
+                        {
+                            target_metrics
+                                .update_last_processed_run(&target_id, run)
+                                .await?;
+                        }
+                    }
+                    tracing::info!(
+                        "[Migration] Migrated {} metric entries for {} pipelines",
+                        migrated,
+                        pipelines
+                    );
                 }
             }
 
@@ -985,6 +1094,173 @@ mod tests {
                 ("a".to_string(), "tok-a".to_string()),
                 ("c".to_string(), "tok-c".to_string()),
             ])
+        );
+    }
+
+    #[tokio::test]
+    async fn migration_keeps_pipeline_metrics() {
+        use crate::domain::{
+            MetricEntry,
+            MetricType,
+        };
+        use crate::infrastructure::database::RecordMetrics;
+
+        let source_dir = TempDir::new().unwrap();
+        let target_dir = TempDir::new().unwrap();
+        let config_path = source_dir.path().join("config.toml");
+        std::fs::write(&config_path, "[storage]\nbackend = \"sqlite\"\n").unwrap();
+        let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
+
+        let mut source = PipedashConfig::default();
+        source.storage.data_dir = source_dir.path().to_string_lossy().to_string();
+        source.storage.vault_password = Some("test-password".to_string());
+        let mut target = source.clone();
+        target.storage.data_dir = target_dir.path().to_string_lossy().to_string();
+
+        let manager = StorageManager::from_config(source, false).await.unwrap();
+        let backend = manager.config_backend();
+        let mut ids = Vec::new();
+        for name in ["deleted", "gh"] {
+            let provider = ProviderConfig {
+                id: None,
+                name: name.to_string(),
+                provider_type: "github".to_string(),
+                token: String::new(),
+                config: HashMap::new(),
+                refresh_interval: 30,
+                version: None,
+            };
+            ids.push(backend.create_provider(&provider).await.unwrap());
+        }
+        backend.delete_provider(ids[0]).await.unwrap();
+        let orphan_pipeline = format!("github__{}__o__r__1", ids[0]);
+        let source_pipeline = format!("github__{}__o__r__1", ids[1]);
+
+        let metrics = MetricsRepository::new_from_pool(manager.database_pool());
+        metrics.update_global_config(true, 30).await.unwrap();
+        metrics
+            .upsert_pipeline_config(&source_pipeline, true, 14)
+            .await
+            .unwrap();
+        metrics
+            .upsert_pipeline_config(&orphan_pipeline, false, 3)
+            .await
+            .unwrap();
+        let entry = |pipeline_id: &str, n: i64| MetricEntry {
+            id: 0,
+            pipeline_id: pipeline_id.to_string(),
+            run_number: n,
+            timestamp: Utc::now(),
+            metric_type: MetricType::RunDuration,
+            value: 60.0 * n as f64,
+            metadata: None,
+            created_at: Utc::now(),
+            run_hash: Some(format!("hash-{n}")),
+        };
+        let mut entries: Vec<MetricEntry> = (1..=5).map(|n| entry(&source_pipeline, n)).collect();
+        entries.push(entry(&orphan_pipeline, 1));
+        metrics.insert_metrics_batch(entries).await.unwrap();
+        metrics
+            .update_last_processed_run(&source_pipeline, 5)
+            .await
+            .unwrap();
+
+        let orchestrator = MigrationOrchestrator::from_manager(&manager, None, None).await;
+        let options = MigrationOptions {
+            migrate_tokens: true,
+            migrate_cache: true,
+            token_password: Some("test-password".to_string()),
+            ..Default::default()
+        };
+        let plan = orchestrator
+            .plan_migration(target.clone(), &options)
+            .unwrap();
+        let migrate = || orchestrator.execute_migration(plan.clone(), options.clone(), false);
+        let result = migrate().await;
+        assert!(result.success, "{:?}", result.errors);
+        let refreshed = MetricEntry {
+            run_hash: Some("hash-4b".to_string()),
+            value: 999.0,
+            ..entry(&source_pipeline, 4)
+        };
+        metrics
+            .refresh_record_metrics(
+                &source_pipeline,
+                &[RecordMetrics {
+                    run_number: 4,
+                    run_hash: "hash-4b".to_string(),
+                    entries: [Some(refreshed), None, None],
+                }],
+            )
+            .await
+            .unwrap();
+        let result = migrate().await;
+        assert!(result.success, "{:?}", result.errors);
+
+        let target_manager = StorageManager::from_config(target, false).await.unwrap();
+        let target_id = target_manager
+            .config_backend()
+            .list_providers()
+            .await
+            .unwrap()[0]
+            .id
+            .unwrap();
+        assert_ne!(target_id, ids[1]);
+        let target_pipeline = format!("github__{target_id}__o__r__1");
+        let target_metrics = MetricsRepository::new_from_pool(target_manager.database_pool());
+
+        assert_eq!(
+            target_metrics
+                .count_metrics_for_pipeline(&target_pipeline)
+                .await
+                .unwrap(),
+            5
+        );
+        let run_4: Vec<_> = target_metrics
+            .query_metrics(MetricsQuery {
+                pipeline_id: Some(target_pipeline.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry.run_number == 4)
+            .map(|entry| (entry.run_hash, entry.value))
+            .collect();
+        assert_eq!(run_4, [(Some("hash-4b".to_string()), 999.0)]);
+        let config = target_metrics
+            .get_pipeline_config(&target_pipeline)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.retention_days, 14);
+        let global = target_metrics.get_global_config().await.unwrap();
+        assert!(global.enabled);
+        assert_eq!(global.default_retention_days, 30);
+        assert_eq!(
+            target_metrics
+                .get_last_processed_run(&target_pipeline)
+                .await
+                .unwrap(),
+            Some(5)
+        );
+        assert_eq!(
+            target_metrics
+                .export_config()
+                .await
+                .unwrap()
+                .pipeline_configs
+                .len(),
+            1
+        );
+        assert_eq!(
+            target_metrics
+                .calculate_storage_stats()
+                .await
+                .unwrap()
+                .total_metrics_count,
+            5
         );
     }
 }

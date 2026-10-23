@@ -86,6 +86,15 @@ impl MetricsRepository {
         }
     }
 
+    pub async fn list_pipeline_ids(&self) -> DomainResult<Vec<String>> {
+        let sql = "SELECT DISTINCT pipeline_id FROM pipeline_metrics";
+        match &self.pool {
+            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, String>(sql).fetch_all(p).await,
+            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, String>(sql).fetch_all(p).await,
+        }
+        .map_err(|e| DomainError::DatabaseError(e.to_string()))
+    }
+
     pub async fn get_global_config(&self) -> DomainResult<GlobalMetricsConfig> {
         let result = match &self.pool {
             DatabasePool::Sqlite(p) => {
@@ -1305,20 +1314,7 @@ impl MetricsRepository {
         } else {
             use std::collections::HashMap;
 
-            let pipeline_ids = match &self.pool {
-                DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, String>(
-                    "SELECT DISTINCT pipeline_id FROM pipeline_metrics",
-                )
-                .fetch_all(p)
-                .await
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-                DatabasePool::Postgres(p) => sqlx::query_scalar::<_, String>(
-                    "SELECT DISTINCT pipeline_id FROM pipeline_metrics",
-                )
-                .fetch_all(p)
-                .await
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-            };
+            let pipeline_ids = self.list_pipeline_ids().await?;
 
             if pipeline_ids.is_empty() {
                 return Ok(0);
