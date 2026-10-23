@@ -296,6 +296,10 @@ export const tauriService = {
     return invoke<void>('set_refresh_mode', { mode })
   },
 
+  showSystemNotification: async (title: string, body: string, target: string): Promise<void> => {
+    return invoke<void>('show_system_notification', { title, body, target })
+  },
+
   getWorkflowRunDetails: async (pipelineId: string, runNumber: number): Promise<PipelineRun> => {
     return invoke<PipelineRun>('get_workflow_run_details', {
       pipelineId,

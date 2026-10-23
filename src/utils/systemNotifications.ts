@@ -1,17 +1,11 @@
-import { getCurrentWindow } from '@tauri-apps/api/window'
-
 import { logger } from '../lib/logger'
-import { isTauri } from '../services'
+import { isTauri, tauriService } from '../services'
+import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 
-export function focusAppWindow(): void {
-  if (!isTauri()) {
-    window.focus()
-    return
-  }
+export const SYSTEM_NOTIFICATION_CLICKED_EVENT = 'system-notification-clicked'
 
-  getCurrentWindow()
-    .setFocus()
-    .catch((error: unknown) => logger.warn('systemNotifications', "Couldn't focus the window", error))
+export const openNotificationDetails = (id: string): void => {
+  useNotificationCenterStore.getState().open({ type: 'notification', id })
 }
 
 export const systemNotificationsSupported = (): boolean =>
@@ -29,16 +23,24 @@ export async function requestSystemNotificationPermission(): Promise<boolean> {
   return (await Notification.requestPermission()) === 'granted'
 }
 
-export function showSystemNotification(title: string, body: string, onClick?: () => void): void {
+export function showSystemNotification(title: string, body: string, notificationId: string): void {
   if (!systemNotificationsSupported() || Notification.permission !== 'granted') {
+    return
+  }
+
+  if (isTauri()) {
+    tauriService
+      .showSystemNotification(title, body, notificationId)
+      .catch((error: unknown) => logger.warn('systemNotifications', "Couldn't show notification", error))
     return
   }
 
   try {
     const notification = new Notification(title, { body })
 
-    if (onClick) {
-      notification.onclick = onClick
+    notification.onclick = () => {
+      window.focus()
+      openNotificationDetails(notificationId)
     }
   } catch (error) {
     logger.warn('systemNotifications', "Couldn't show notification", error)

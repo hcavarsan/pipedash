@@ -5,7 +5,7 @@ import { events, isTauri } from '../services'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 import { useNotificationStore } from '../stores/notificationStore'
 import type { EventPayloadMap } from '../types/events'
-import { focusAppWindow, showSystemNotification } from '../utils/systemNotifications'
+import { showSystemNotification } from '../utils/systemNotifications'
 
 type HealthAlert = EventPayloadMap['provider-health-alert']
 
@@ -20,8 +20,7 @@ export function useProviderHealthAlerts() {
           return
         }
 
-        const center = useNotificationCenterStore.getState()
-        const id = center.push({
+        const id = useNotificationCenterStore.getState().push({
           key: alert.notification_key,
           at: Date.now(),
           tone: alert.recovered ? 'success' : 'warning',
@@ -37,10 +36,7 @@ export function useProviderHealthAlerts() {
           return
         }
 
-        showSystemNotification(alert.title, alert.body, () => {
-          focusAppWindow()
-          useNotificationCenterStore.getState().open({ type: 'notification', id })
-        })
+        showSystemNotification(alert.title, alert.body, id)
       })
       .then((fn) => {
         if (active) {

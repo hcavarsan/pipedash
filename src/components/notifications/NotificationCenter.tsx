@@ -13,15 +13,19 @@ import {
   VisuallyHidden,
 } from '@mantine/core'
 import { type Icon, IconBell, IconBellCheck } from '@tabler/icons-react'
+import { listen } from '@tauri-apps/api/event'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useNow } from '../../hooks/useNow'
+import { logger } from '../../lib/logger'
 import { useProviders } from '../../queries/useProvidersQueries'
+import { isTauri } from '../../services'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { attentionColor, HEALTH_META } from '../../theme/status'
 import type { HealthLevel } from '../../types'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { providerIssues } from '../../utils/providerAttention'
+import { openNotificationDetails, SYSTEM_NOTIFICATION_CLICKED_EVENT } from '../../utils/systemNotifications'
 
 import { issueIcon, issueSummary, notificationIcon, notificationLabel } from './labels'
 import { NotificationDetailsModal } from './NotificationDetailsModal'
@@ -88,6 +92,30 @@ export function NotificationCenter() {
   const unread = items.filter((item) => !item.read).length
   const lead = issues[0]
   const dotColor = lead ? attentionColor(lead.provider, lead.tone) : unread > 0 ? 'blue' : null
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return
+    }
+
+    let active = true
+    let unlisten: (() => void) | undefined
+
+    listen<string>(SYSTEM_NOTIFICATION_CLICKED_EVENT, (event) => openNotificationDetails(event.payload))
+      .then((stop) => {
+        if (active) {
+          unlisten = stop
+        } else {
+          stop()
+        }
+      })
+      .catch((error: unknown) => logger.warn('NotificationCenter', "Couldn't listen for notification clicks", error))
+
+    return () => {
+      active = false
+      unlisten?.()
+    }
+  }, [])
 
   useEffect(() => {
     if (!providers) {

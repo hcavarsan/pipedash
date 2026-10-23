@@ -6,7 +6,7 @@ import { type CenterNotificationTone, useNotificationCenterStore } from '../stor
 import { useNotificationStore } from '../stores/notificationStore'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../types'
 import { isOutageLevel, providerAttention } from '../utils/providerAttention'
-import { focusAppWindow, showSystemNotification } from '../utils/systemNotifications'
+import { showSystemNotification } from '../utils/systemNotifications'
 
 const notify = (pipeline: Pipeline, tone: CenterNotificationTone, title: string, body: string, system: boolean) => {
   const id = useNotificationCenterStore.getState().push({
@@ -22,10 +22,7 @@ const notify = (pipeline: Pipeline, tone: CenterNotificationTone, title: string,
   })
 
   if (system) {
-    showSystemNotification(title, body, () => {
-      focusAppWindow()
-      useNotificationCenterStore.getState().open({ type: 'notification', id })
-    })
+    showSystemNotification(title, body, id)
   }
 }
 

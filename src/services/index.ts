@@ -28,7 +28,7 @@ export const isTauri = (): boolean => {
   return _isTauriCache
 }
 
-export type PipedashService = Omit<typeof tauriService, 'setRefreshMode'>
+export type PipedashService = Omit<typeof tauriService, 'setRefreshMode' | 'showSystemNotification'>
 
 let _service: PipedashService | null = null
 

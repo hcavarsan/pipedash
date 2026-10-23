@@ -1,6 +1,7 @@
 mod commands;
 pub mod fallback_store;
 pub mod keyring_store;
+mod system_notifications;
 pub mod tauri_event_bus;
 
 use std::path::{
@@ -562,6 +563,8 @@ pub fn run() {
 
             app.manage(MaybeCoreContext(maybe_core_context));
 
+            system_notifications::register(app.handle())?;
+
             app.manage(AppDataDir(app_data_dir));
 
             Ok(())
@@ -636,6 +639,7 @@ pub fn run() {
             execute_storage_migration,
             factory_reset,
             restart_app,
+            system_notifications::show_system_notification,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
