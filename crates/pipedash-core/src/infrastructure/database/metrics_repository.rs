@@ -67,27 +67,9 @@ impl MetricsRepository {
         }
     }
 
-    pub async fn count_metrics_for_pipeline(&self, pipeline_id: &str) -> DomainResult<i64> {
-        match &self.pool {
-            DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM pipeline_metrics WHERE pipeline_id = ?",
-            )
-            .bind(pipeline_id)
-            .fetch_one(p)
-            .await
-            .map_err(|e| DomainError::DatabaseError(e.to_string())),
-            DatabasePool::Postgres(p) => sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM pipeline_metrics WHERE pipeline_id = $1",
-            )
-            .bind(pipeline_id)
-            .fetch_one(p)
-            .await
-            .map_err(|e| DomainError::DatabaseError(e.to_string())),
-        }
-    }
-
     pub async fn list_pipeline_ids(&self) -> DomainResult<Vec<String>> {
-        let sql = "SELECT DISTINCT pipeline_id FROM pipeline_metrics";
+        let sql = "SELECT pipeline_id FROM pipeline_metrics
+                   UNION SELECT pipeline_id FROM metrics_processing_state";
         match &self.pool {
             DatabasePool::Sqlite(p) => sqlx::query_scalar::<_, String>(sql).fetch_all(p).await,
             DatabasePool::Postgres(p) => sqlx::query_scalar::<_, String>(sql).fetch_all(p).await,
@@ -1925,91 +1907,5 @@ impl MetricsRepository {
         );
 
         Ok(())
-    }
-
-    pub async fn check_processing_state_corruption(&self, pipeline_id: &str) -> DomainResult<bool> {
-        let state = match &self.pool {
-            DatabasePool::Sqlite(p) => {
-                sqlx::query_as::<_, (i64,)>(
-                    "SELECT last_processed_run_number FROM metrics_processing_state WHERE pipeline_id = ?",
-                )
-                .bind(pipeline_id)
-                .fetch_optional(p)
-                .await
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?
-            }
-            DatabasePool::Postgres(p) => {
-                sqlx::query_as::<_, (i64,)>(
-                    "SELECT last_processed_run_number::BIGINT FROM metrics_processing_state WHERE pipeline_id = $1",
-                )
-                .bind(pipeline_id)
-                .fetch_optional(p)
-                .await
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?
-            }
-        };
-
-        if let Some((last_run,)) = state {
-            if last_run > 0 {
-                let count = match &self.pool {
-                    DatabasePool::Sqlite(p) => sqlx::query_as::<_, (i64,)>(
-                        "SELECT COUNT(*) FROM pipeline_metrics WHERE pipeline_id = ?",
-                    )
-                    .bind(pipeline_id)
-                    .fetch_one(p)
-                    .await
-                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-                    DatabasePool::Postgres(p) => sqlx::query_as::<_, (i64,)>(
-                        "SELECT COUNT(*) FROM pipeline_metrics WHERE pipeline_id = $1",
-                    )
-                    .bind(pipeline_id)
-                    .fetch_one(p)
-                    .await
-                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-                };
-
-                return Ok(count.0 == 0);
-            }
-        }
-        Ok(false)
-    }
-
-    pub async fn reset_all_corrupted_states(&self) -> DomainResult<Vec<String>> {
-        let corrupted = match &self.pool {
-            DatabasePool::Sqlite(p) => sqlx::query_as::<_, (String,)>(
-                r#"
-                    SELECT DISTINCT mps.pipeline_id
-                    FROM metrics_processing_state mps
-                    WHERE mps.last_processed_run_number > 0
-                    AND NOT EXISTS (
-                        SELECT 1 FROM pipeline_metrics pm
-                        WHERE pm.pipeline_id = mps.pipeline_id
-                    )
-                    "#,
-            )
-            .fetch_all(p)
-            .await
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-            DatabasePool::Postgres(p) => sqlx::query_as::<_, (String,)>(
-                r#"
-                    SELECT DISTINCT mps.pipeline_id
-                    FROM metrics_processing_state mps
-                    WHERE mps.last_processed_run_number > 0
-                    AND NOT EXISTS (
-                        SELECT 1 FROM pipeline_metrics pm
-                        WHERE pm.pipeline_id = mps.pipeline_id
-                    )
-                    "#,
-            )
-            .fetch_all(p)
-            .await
-            .map_err(|e| DomainError::DatabaseError(e.to_string()))?,
-        };
-
-        for (pipeline_id,) in &corrupted {
-            self.reset_processing_state(pipeline_id).await?;
-        }
-
-        Ok(corrupted.into_iter().map(|(id,)| id).collect())
     }
 }

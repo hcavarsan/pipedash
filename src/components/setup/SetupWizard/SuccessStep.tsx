@@ -44,6 +44,7 @@ export function SuccessStep({
         { label: 'Providers', value: migrationStats.providers_migrated },
         { label: 'Tokens', value: migrationStats.tokens_migrated },
         { label: 'Cache entries', value: migrationStats.cache_entries_migrated },
+        { label: 'Metrics', value: migrationStats.metrics_migrated },
       ]
     : []
 
@@ -63,7 +64,7 @@ export function SuccessStep({
             <Text size="sm" fw={600}>
               Migration summary
             </Text>
-            <SimpleGrid cols={3} spacing="xs">
+            <SimpleGrid cols={4} spacing="xs">
               {migratedCounts.map(({ label, value }) => (
                 <Stack key={label} gap={2} align="center">
                   <Text size="xs" c="dimmed">

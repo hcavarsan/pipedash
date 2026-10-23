@@ -505,6 +505,7 @@ export interface MigrationResult {
     providers_migrated: number
     tokens_migrated: number
     cache_entries_migrated: number
+    metrics_migrated: number
     permissions_migrated: number
   }
   provider_id_mapping: Record<number, number>

@@ -124,34 +124,10 @@ impl CoreContext {
             );
         }
 
-        let metrics_service = if metrics_enabled {
+        let metrics_service = metrics_enabled.then(|| {
             let metrics_repository = Arc::new(MetricsRepository::new(pool.clone()));
-            let service = Arc::new(application::MetricsService::new(metrics_repository));
-
-            match service.check_and_repair_corruption().await {
-                Ok(repaired) => {
-                    if !repaired.is_empty() {
-                        tracing::warn!(
-                            count = repaired.len(),
-                            pipelines = ?repaired,
-                            "AUTO-REPAIRED corrupted metrics processing states on startup"
-                        );
-                    } else {
-                        tracing::debug!("No corrupted metrics states found on startup");
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        "Failed to check/repair metrics corruption on startup - metrics may not work correctly"
-                    );
-                }
-            }
-
-            Some(service)
-        } else {
-            None
-        };
+            Arc::new(application::MetricsService::new(metrics_repository))
+        });
 
         let repository = Arc::new(Repository::new(
             config_backend,
@@ -216,34 +192,12 @@ impl CoreContext {
         let http_client_manager = Arc::new(infrastructure::HttpClientManager::new()?);
 
         let config = config_state.get().await;
-        let metrics_service = if config.general.metrics_enabled {
+        let metrics_service = config.general.metrics_enabled.then(|| {
             let metrics_repository = Arc::new(
                 infrastructure::database::MetricsRepository::new_from_pool(cache_pool),
             );
-            let service = Arc::new(application::MetricsService::new(metrics_repository));
-
-            match service.check_and_repair_corruption().await {
-                Ok(repaired) => {
-                    if !repaired.is_empty() {
-                        tracing::warn!(
-                            count = repaired.len(),
-                            pipelines = ?repaired,
-                            "AUTO-REPAIRED corrupted metrics processing states on startup"
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        "Failed to check/repair metrics corruption on startup"
-                    );
-                }
-            }
-
-            Some(service)
-        } else {
-            None
-        };
+            Arc::new(application::MetricsService::new(metrics_repository))
+        });
 
         let services = application::Services::new(
             repository,
