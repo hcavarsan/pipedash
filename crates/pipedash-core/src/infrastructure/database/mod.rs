@@ -18,6 +18,11 @@ pub use repository::{
     DatabasePool,
     Repository,
 };
+pub(crate) use repository::{
+    FETCH_STATUS_ERROR,
+    FETCH_STATUS_NEVER,
+    FETCH_STATUS_SUCCESS,
+};
 pub use schema::init_database;
 #[cfg(feature = "postgres")]
 pub use schema::init_postgres_database;

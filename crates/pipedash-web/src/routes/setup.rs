@@ -205,6 +205,7 @@ mod tests {
         // config.
         let config_dir =
             std::env::temp_dir().join(format!("pipedash-setup-race-{}", std::process::id()));
+        let _env = crate::routes::CONFIG_ENV.lock().await;
         std::env::set_var("PIPEDASH_CONFIG_PATH", config_dir.join("config.toml"));
         let state = AppState::setup_mode(Arc::new(WebSocketEventBus::new()));
         let running_setup = state.setup_lock.clone().lock_owned().await;

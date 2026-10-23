@@ -1,0 +1,391 @@
+{
+    "result": {
+        "status_overall": {
+            "updated": "2026-10-21T01:21:08.871Z",
+            "status": "Operational",
+            "status_code": 100
+        },
+        "status": [
+            {
+                "id": "5b36dc6502d06804c0834a07",
+                "name": "Website",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-20T09:55:10.619Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-20T09:55:10.619Z"
+            },
+            {
+                "id": "5b36e05f02d06804c0834a09",
+                "name": "API",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.435Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.435Z"
+            },
+            {
+                "id": "5d2f74932676bc45e4927ead",
+                "name": "Git Operations",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.367Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.367Z"
+            },
+            {
+                "id": "69b79bca3b13f60a1a620d05",
+                "name": "Package Registry",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.369Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.369Z"
+            },
+            {
+                "id": "5b36e07afc1f0804be9d754d",
+                "name": "Container Registry",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.393Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.393Z"
+            },
+            {
+                "id": "5b371ffc1d4f0004bf746dbf",
+                "name": "GitLab Pages",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.442Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.442Z"
+            },
+            {
+                "id": "67ea346990c050053ab18e89",
+                "name": "CI/CD",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.435Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.435Z"
+            },
+            {
+                "id": "5b36e06c633e9004b3d624ad",
+                "name": "CI/CD - Hosted runners on Linux",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.440Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.440Z"
+            },
+            {
+                "id": "5e29c1403f4deb04c0d7f035",
+                "name": "CI/CD - Hosted runners on Windows",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.444Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.444Z"
+            },
+            {
+                "id": "650c87fbadb04b052efa2bc9",
+                "name": "CI/CD - Hosted runners on macOS",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.436Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    },
+                    {
+                        "id": "5c7d5baf70abc604c107381c",
+                        "name": "AWS",
+                        "updated": "2026-10-16T17:24:52.442Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.442Z"
+            },
+            {
+                "id": "60a6dc9479914205363d3b09",
+                "name": "CI/CD - Hosted runners for GitLab community contributions",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.470Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.470Z"
+            },
+            {
+                "id": "67861f10346bb505d1b042c4",
+                "name": "CI/CD - Self-managed runners",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "67861ef1d4200105d45b7f6e",
+                        "name": "Self-Managed Runner Connectivity",
+                        "updated": "2026-10-16T17:24:52.441Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.441Z"
+            },
+            {
+                "id": "61118ed2b2684c099775f18d",
+                "name": "SAML SSO - GitLab SaaS",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.444Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.444Z"
+            },
+            {
+                "id": "5b371ff2ab905c04b1de922e",
+                "name": "Background Processing",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.436Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.436Z"
+            },
+            {
+                "id": "5d02cb79b2e5f00a022b5fb4",
+                "name": "GitLab Customers Portal",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-21T01:21:08.807Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-21T01:21:08.807Z"
+            },
+            {
+                "id": "5c38362c5495bf472f8dfbae",
+                "name": "Support Services",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5c3836366953ce47539ce53a",
+                        "name": "Zendesk",
+                        "updated": "2026-10-16T17:24:52.506Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.506Z"
+            },
+            {
+                "id": "5c7d5bb83efc3204ba5f53c3",
+                "name": "packages.gitlab.com",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5c7d5baf70abc604c107381c",
+                        "name": "AWS",
+                        "updated": "2026-10-16T17:24:52.467Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.467Z"
+            },
+            {
+                "id": "5d31c2f251014050f413e808",
+                "name": "version.gitlab.com",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5c7d5baf70abc604c107381c",
+                        "name": "AWS",
+                        "updated": "2026-10-16T17:24:52.468Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.468Z"
+            },
+            {
+                "id": "5d93c0defdc75b69cf385b1f",
+                "name": "forum.gitlab.com",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e09b17b99c04bef1f946",
+                        "name": "Digital Ocean",
+                        "updated": "2026-10-16T17:24:52.471Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.471Z"
+            },
+            {
+                "id": "63dc247523b01e05870db1ab",
+                "name": "docs.gitlab.com",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.508Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.508Z"
+            },
+            {
+                "id": "5ed145987f9dc304bf8a9164",
+                "name": "Canary",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.592Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.592Z"
+            },
+            {
+                "id": "665dc42bfed67f1785216865",
+                "name": "GitLab Duo",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.505Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.505Z"
+            },
+            {
+                "id": "67b59a18afe271058bf2f410",
+                "name": "GitLab agent server for Kubernetes",
+                "status": "Operational",
+                "status_code": 100,
+                "containers": [
+                    {
+                        "id": "5b36e11140e76c04b7220a31",
+                        "name": "Google Compute Engine",
+                        "updated": "2026-10-16T17:24:52.503Z",
+                        "status": "Operational",
+                        "status_code": 100
+                    }
+                ],
+                "updated": "2026-10-16T17:24:52.503Z"
+            }
+        ],
+        "incidents": [],
+        "maintenance": {
+            "active": [],
+            "upcoming": []
+        }
+    }
+}

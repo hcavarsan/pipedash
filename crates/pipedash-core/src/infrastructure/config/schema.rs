@@ -11,6 +11,10 @@ use super::token_ref::TokenReference;
 
 pub(super) const DEFAULT_REFRESH_INTERVAL_SECS: u32 = 30;
 
+pub const MIN_REFRESH_INTERVAL_SECS: u32 = 5;
+
+pub const MAX_REFRESH_INTERVAL_SECS: u32 = 300;
+
 pub(super) const DEFAULT_BIND_ADDR_DESKTOP: &str = "127.0.0.1:8080";
 
 pub(super) const DEFAULT_BIND_ADDR_SERVER: &str = "0.0.0.0:8080";
@@ -125,6 +129,9 @@ pub struct GeneralConfig {
 
     #[serde(default = "default_refresh_interval")]
     pub default_refresh_interval: u32,
+
+    #[serde(default = "default_true")]
+    pub status_pages_enabled: bool,
 }
 
 impl Default for GeneralConfig {
@@ -132,8 +139,16 @@ impl Default for GeneralConfig {
         Self {
             metrics_enabled: default_metrics_enabled(),
             default_refresh_interval: default_refresh_interval(),
+            status_pages_enabled: default_true(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneralSettingsUpdate {
+    pub metrics_enabled: bool,
+    pub default_refresh_interval: u32,
+    pub status_pages_enabled: bool,
 }
 
 fn default_metrics_enabled() -> bool {
@@ -142,6 +157,10 @@ fn default_metrics_enabled() -> bool {
 
 fn default_refresh_interval() -> u32 {
     DEFAULT_REFRESH_INTERVAL_SECS
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -268,6 +287,7 @@ impl ProviderFileConfig {
 pub enum ConfigKey {
     MetricsEnabled,
     DefaultRefreshInterval,
+    StatusPagesEnabled,
     BindAddr,
     CorsAllowAll,
     DataDir,
@@ -280,6 +300,7 @@ impl ConfigKey {
         match self {
             Self::MetricsEnabled => "PIPEDASH_METRICS_ENABLED",
             Self::DefaultRefreshInterval => "PIPEDASH_DEFAULT_REFRESH_INTERVAL",
+            Self::StatusPagesEnabled => "PIPEDASH_STATUS_PAGES_ENABLED",
             Self::BindAddr => "PIPEDASH_BIND_ADDR",
             Self::CorsAllowAll => "PIPEDASH_CORS_ALLOW_ALL",
             Self::DataDir => "PIPEDASH_DATA_DIR",
@@ -311,6 +332,18 @@ mod tests {
         assert_eq!(config.storage.backend, StorageBackend::Sqlite);
         assert!(config.providers.is_empty());
         assert!(!config.server.cors_allow_all);
+        assert!(config.general.status_pages_enabled);
+    }
+
+    #[test]
+    fn test_status_pages_default_to_enabled_when_absent() {
+        let config: PipedashConfig = toml::from_str("[general]\nmetrics_enabled = false").unwrap();
+        let disabled: PipedashConfig =
+            toml::from_str("[general]\nstatus_pages_enabled = false").unwrap();
+
+        assert!(config.general.status_pages_enabled);
+        assert!(!disabled.general.status_pages_enabled);
+        assert!(GeneralConfig::default().status_pages_enabled);
     }
 
     #[test]

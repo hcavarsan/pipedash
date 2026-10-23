@@ -1,4 +1,4 @@
-import { API_TIMEOUTS } from '../constants/timeouts'
+import { API_TIMEOUTS, REFRESH_TIMEOUT_MS } from '../constants/timeouts'
 import { withBasePath } from '../lib/basePath'
 import { logger } from '../lib/logger'
 import { getToken, useAuthStore } from '../stores/authStore'
@@ -9,6 +9,7 @@ import type {
   ConfigAnalysisResponse,
   ConfigContentResponse,
   FeatureAvailability,
+  GeneralConfig,
   GlobalMetricsConfig,
   MetricEntry,
   MetricsConfig,
@@ -28,6 +29,7 @@ import type {
   PluginMetadata,
   ProviderConfig,
   ProviderSummary,
+  RefreshResult,
   ReviewDecision,
   SetupStatus,
   StorageConfigResponse,
@@ -44,16 +46,26 @@ import { DEFAULT_RETRY_CONFIG, withRetry } from '../utils/retryLogic'
 
 const API_BASE = import.meta.env.VITE_API_URL || withBasePath('/api/v1')
 
+interface RequestOptions {
+  timeoutMs?: number
+  retry?: boolean
+}
+
+const REFRESH_REQUEST: RequestOptions = { timeoutMs: REFRESH_TIMEOUT_MS, retry: false }
+
 const OPERATION_TIMEOUTS: Record<string, number> = {
   '/factory-reset': API_TIMEOUTS.EXTENDED,
   '/pipelines': API_TIMEOUTS.LONG,
   '/providers/preview': API_TIMEOUTS.UPLOAD,
-  '/providers/add': API_TIMEOUTS.EXTENDED,
   '/providers/organizations': API_TIMEOUTS.UPLOAD,
   default: API_TIMEOUTS.DEFAULT,
 }
 
-const getTimeoutForPath = (path: string): number => {
+const getTimeoutFor = (method: string, path: string): number => {
+  if (method === 'POST' && path === '/providers') {
+    return API_TIMEOUTS.EXTENDED
+  }
+
   for (const [key, timeout] of Object.entries(OPERATION_TIMEOUTS)) {
     if (path.includes(key)) {
       return timeout
@@ -90,7 +102,7 @@ class ApiClient {
     }
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
     return withRetry(
       async () => {
         const token = getToken()
@@ -108,7 +120,7 @@ class ApiClient {
             headers,
             body: body ? JSON.stringify(body) : undefined,
           },
-          getTimeoutForPath(path)
+          options.timeoutMs ?? getTimeoutFor(method, path)
         )
 
         if (res.ok) {
@@ -140,6 +152,7 @@ class ApiClient {
       },
       {
         ...DEFAULT_RETRY_CONFIG,
+        maxAttempts: options.retry === false ? 1 : DEFAULT_RETRY_CONFIG.maxAttempts,
         shouldRetry: (error: Error) => {
           const status = getHttpStatus(error) ?? 0
           const isNetworkError = error instanceof TypeError
@@ -157,8 +170,8 @@ class ApiClient {
     return this.request<T>('GET', path)
   }
 
-  private post<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>('POST', path, body)
+  private post<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+    return this.request<T>('POST', path, body, options)
   }
 
   private put<T>(path: string, body?: unknown): Promise<T> {
@@ -279,55 +292,11 @@ class ApiClient {
     })
   }
 
-  async fetchPipelines(providerId?: number): Promise<Pipeline[]> {
-    const params = providerId ? `?provider_id=${providerId}` : ''
-    const result = await this.get<Pipeline[]>(`/pipelines${params}`)
-
-    return result || []
-  }
-
   async getCachedPipelines(providerId?: number): Promise<Pipeline[]> {
     const params = providerId ? `?provider_id=${providerId}` : ''
     const result = await this.get<Pipeline[]>(`/pipelines/cached${params}`)
 
     return result || []
-  }
-
-  async fetchFreshPipelines(providerId?: number): Promise<Pipeline[]> {
-    const params = providerId ? `?provider_id=${providerId}` : ''
-    const result = await this.get<Pipeline[]>(`/pipelines/fresh${params}`)
-
-    return result || []
-  }
-
-  async fetchPipelinesLazy(
-    providerId?: number,
-    page: number = 1,
-    pageSize: number = 20
-  ): Promise<{
-    items: Pipeline[]
-    page: number
-    page_size: number
-    total_count: number
-    total_pages: number
-    has_more: boolean
-  }> {
-    const params = new URLSearchParams()
-
-    if (providerId) {
-      params.set('provider_id', String(providerId))
-    }
-    params.set('page', String(page))
-    params.set('page_size', String(pageSize))
-
-    return this.get<{
-      items: Pipeline[]
-      page: number
-      page_size: number
-      total_count: number
-      total_pages: number
-      has_more: boolean
-    }>(`/pipelines/lazy?${params.toString()}`)
   }
 
   async fetchRunHistory(pipelineId: string, page?: number, pageSize?: number): Promise<PaginatedRunHistory> {
@@ -361,18 +330,16 @@ class ApiClient {
     return this.get<WorkflowParameter[]>(`/pipelines/${encodeURIComponent(workflowId)}/workflow-params`)
   }
 
-  async refreshAll(): Promise<void> {
-    await this.post('/refresh/all')
+  async refreshProvider(id: number): Promise<RefreshResult> {
+    return this.post<RefreshResult>(`/providers/${id}/refresh`, undefined, REFRESH_REQUEST)
   }
 
-  async setRefreshMode(mode: 'active' | 'idle'): Promise<void> {
-    await this.put('/refresh/mode', { mode })
+  async refreshAll(): Promise<RefreshResult[]> {
+    return this.post<RefreshResult[]>('/refresh/all', undefined, REFRESH_REQUEST)
   }
 
-  async getRefreshMode(): Promise<'active' | 'idle'> {
-    const result = await this.get<{ mode: string }>('/refresh/mode')
-
-    return result.mode as 'active' | 'idle'
+  async updateGeneralSettings(update: GeneralConfig): Promise<void> {
+    await this.put('/settings/general', update)
   }
 
   async getWorkflowRunDetails(pipelineId: string, runNumber: number): Promise<PipelineRun> {
@@ -388,7 +355,7 @@ class ApiClient {
   }
 
   async openUrl(url: string): Promise<void> {
-    window.open(url, '_blank')
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   async getAvailablePlugins(): Promise<PluginMetadata[]> {

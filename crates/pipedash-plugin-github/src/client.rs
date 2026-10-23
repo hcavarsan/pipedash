@@ -4,6 +4,7 @@ use chrono::Utc;
 use futures::future::join_all;
 use octocrab::Octocrab;
 use pipedash_plugin_api::{
+    http,
     AvailablePipeline,
     PaginatedResponse,
     PaginationParams,
@@ -16,6 +17,7 @@ use pipedash_plugin_api::{
     RetryPolicy,
     ReviewDecision,
 };
+use reqwest::header::RETRY_AFTER;
 use tracing::debug;
 
 use crate::{
@@ -25,6 +27,35 @@ use crate::{
     types,
 };
 
+pub(crate) fn map_octocrab_error(context: &str, error: octocrab::Error) -> PluginError {
+    match error {
+        octocrab::Error::GitHub { source, .. } => {
+            let status = source.status_code.as_u16();
+            let rate_limited = status == 429
+                || (status == 403 && source.message.to_ascii_lowercase().contains("rate limit"));
+            let retry_after = source
+                .headers
+                .as_ref()
+                .filter(|headers| rate_limited || headers.contains_key(RETRY_AFTER))
+                .and_then(|headers| http::retry_after(headers, Utc::now()));
+            let message = format!("{context}: {status} {}", source.message);
+
+            if rate_limited {
+                PluginError::RateLimited {
+                    message,
+                    retry_after,
+                }
+            } else {
+                http::from_status(status, message, retry_after)
+            }
+        }
+        octocrab::Error::Hyper { .. } | octocrab::Error::Service { .. } => {
+            PluginError::NetworkError(format!("{context}: {error}"))
+        }
+        _ => PluginError::ApiError(format!("{context}: {error}")),
+    }
+}
+
 pub(crate) struct GitHubClient {
     pub(crate) octocrab: Octocrab,
     pub(crate) retry_policy: RetryPolicy,
@@ -32,9 +63,9 @@ pub(crate) struct GitHubClient {
 }
 
 impl GitHubClient {
-    pub fn new(octocrab: Octocrab, token: String) -> PluginResult<Self> {
+    pub fn new(octocrab: Octocrab, token: String, api_url: &str) -> PluginResult<Self> {
         let token_secret = token.into();
-        let permission_checker = PermissionChecker::new(octocrab.clone(), token_secret)?;
+        let permission_checker = PermissionChecker::new(octocrab.clone(), token_secret, api_url)?;
 
         Ok(Self {
             octocrab,
@@ -45,13 +76,16 @@ impl GitHubClient {
 
     pub async fn fetch_rate_limit(&self) -> PluginResult<RateLimit> {
         let rate = self
-            .octocrab
-            .ratelimit()
-            .get()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch rate limit: {e}")))?
-            .resources
-            .core;
+            .retry_policy
+            .retry(|| async {
+                self.octocrab
+                    .ratelimit()
+                    .get()
+                    .await
+                    .map(|limits| limits.resources.core)
+                    .map_err(|e| map_octocrab_error("Failed to fetch rate limit", e))
+            })
+            .await?;
         let reset_at = chrono::DateTime::from_timestamp(rate.reset as i64, 0).ok_or_else(|| {
             PluginError::ApiError(format!("Invalid rate limit reset time: {}", rate.reset))
         })?;
@@ -77,9 +111,7 @@ impl GitHubClient {
             .per_page(100)
             .send()
             .await
-            .map_err(|e| {
-                PluginError::ApiError(format!("Failed to fetch accessible repositories: {e}"))
-            })?;
+            .map_err(|e| map_octocrab_error("Failed to fetch accessible repositories", e))?;
 
         let mut org_map: HashMap<String, pipedash_plugin_api::Organization> = HashMap::new();
 
@@ -114,9 +146,12 @@ impl GitHubClient {
             .retry(|| async {
                 let mut orgs = Vec::new();
 
-                let user = self.octocrab.current().user().await.map_err(|e| {
-                    PluginError::ApiError(format!("Failed to fetch current user: {e}"))
-                })?;
+                let user = self
+                    .octocrab
+                    .current()
+                    .user()
+                    .await
+                    .map_err(|e| map_octocrab_error("Failed to fetch current user", e))?;
 
                 orgs.push(pipedash_plugin_api::Organization {
                     id: user.login.clone(),
@@ -181,14 +216,18 @@ impl GitHubClient {
         let github_page = params.page.min(255) as u8;
 
         let repos = self
-            .octocrab
-            .current()
-            .list_repos_for_authenticated_user()
-            .per_page(params.page_size.min(100) as u8)
-            .page(github_page)
-            .send()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch repositories: {e}")))?;
+            .retry_policy
+            .retry(|| async {
+                self.octocrab
+                    .current()
+                    .list_repos_for_authenticated_user()
+                    .per_page(params.page_size.min(100) as u8)
+                    .page(github_page)
+                    .send()
+                    .await
+                    .map_err(|e| map_octocrab_error("Failed to fetch repositories", e))
+            })
+            .await?;
 
         let mut all_repos = Vec::new();
         for repo in repos.items {
@@ -233,35 +272,45 @@ impl GitHubClient {
         let mut all_repos = Vec::new();
 
         if let Some(org_name) = org {
-            let user =
-                self.octocrab.current().user().await.map_err(|e| {
-                    PluginError::ApiError(format!("Failed to fetch current user: {e}"))
-                })?;
+            let user = self
+                .retry_policy
+                .retry(|| async {
+                    self.octocrab
+                        .current()
+                        .user()
+                        .await
+                        .map_err(|e| map_octocrab_error("Failed to fetch current user", e))
+                })
+                .await?;
 
             let is_personal_account = org_name == user.login;
 
             let repos = if is_personal_account {
-                self.octocrab
-                    .current()
-                    .list_repos_for_authenticated_user()
-                    .per_page(params.page_size.min(100) as u8)
-                    .page(github_page)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::ApiError(format!("Failed to fetch user repositories: {e}"))
-                    })?
+                self.retry_policy
+                    .retry(|| async {
+                        self.octocrab
+                            .current()
+                            .list_repos_for_authenticated_user()
+                            .per_page(params.page_size.min(100) as u8)
+                            .page(github_page)
+                            .send()
+                            .await
+                            .map_err(|e| map_octocrab_error("Failed to fetch user repositories", e))
+                    })
+                    .await?
             } else {
-                self.octocrab
-                    .orgs(&org_name)
-                    .list_repos()
-                    .per_page(params.page_size.min(100) as u8)
-                    .page(github_page)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::ApiError(format!("Failed to fetch org repositories: {e}"))
-                    })?
+                self.retry_policy
+                    .retry(|| async {
+                        self.octocrab
+                            .orgs(&org_name)
+                            .list_repos()
+                            .per_page(params.page_size.min(100) as u8)
+                            .page(github_page)
+                            .send()
+                            .await
+                            .map_err(|e| map_octocrab_error("Failed to fetch org repositories", e))
+                    })
+                    .await?
             };
 
             for repo in repos.items {
@@ -318,14 +367,18 @@ impl GitHubClient {
         }
 
         let repos = self
-            .octocrab
-            .current()
-            .list_repos_for_authenticated_user()
-            .per_page(params.page_size.min(100) as u8)
-            .page(github_page)
-            .send()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch repositories: {e}")))?;
+            .retry_policy
+            .retry(|| async {
+                self.octocrab
+                    .current()
+                    .list_repos_for_authenticated_user()
+                    .per_page(params.page_size.min(100) as u8)
+                    .page(github_page)
+                    .send()
+                    .await
+                    .map_err(|e| map_octocrab_error("Failed to fetch repositories", e))
+            })
+            .await?;
 
         for repo in repos.items {
             let full_name = repo
@@ -389,9 +442,7 @@ impl GitHubClient {
                     .per_page(100)
                     .send()
                     .await
-                    .map_err(|e| {
-                        PluginError::ApiError(format!("Failed to fetch workflows: {e}"))
-                    })?;
+                    .map_err(|e| map_octocrab_error("Failed to fetch workflows", e))?;
 
                 let fetch_runs_futures = workflows.items.iter().map(|workflow| {
                     let octocrab = self.octocrab.clone();
@@ -404,20 +455,38 @@ impl GitHubClient {
                             .list_runs(workflow_id.to_string())
                             .per_page(1)
                             .send()
-                            .await
-                            .ok();
+                            .await;
                         (workflow_id, runs)
                     }
                 });
 
-                let runs_results: Vec<_> = join_all(fetch_runs_futures).await;
-                let runs_map: std::collections::HashMap<_, _> = runs_results.into_iter().collect();
+                let mut runs_map = HashMap::new();
+                for (workflow_id, result) in join_all(fetch_runs_futures).await {
+                    match result {
+                        Ok(runs) => {
+                            runs_map.insert(workflow_id, runs);
+                        }
+                        Err(e) => {
+                            let e = map_octocrab_error("Failed to fetch latest run", e);
+                            if e.is_transient() {
+                                return Err(e);
+                            }
+                            tracing::warn!(
+                                repository = %repo_full_name,
+                                workflow_id = %workflow_id,
+                                error = %e,
+                                "Latest run unavailable, reporting the workflow as pending"
+                            );
+                        }
+                    }
+                }
 
                 let mut pipelines = Vec::new();
 
                 for workflow in workflows.items {
-                    let runs = runs_map.get(&workflow.id);
-                    let latest_run = runs.and_then(|r| r.as_ref()).and_then(|r| r.items.first());
+                    let latest_run = runs_map
+                        .get(&workflow.id)
+                        .and_then(|runs| runs.items.first());
 
                     let status = latest_run
                         .map(|run| {
@@ -468,6 +537,7 @@ impl GitHubClient {
         const MAX_CONCURRENT: usize = 5;
         let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
 
+        let policy = &self.retry_policy;
         let page_futures: Vec<_> = (1..=total_pages)
             .map(|page| {
                 let octocrab = self.octocrab.clone();
@@ -477,21 +547,29 @@ impl GitHubClient {
                 let semaphore = semaphore.clone();
 
                 async move {
-                    let _permit = semaphore.acquire().await.unwrap();
-
-                    octocrab
-                        .workflows(&owner, &repo)
-                        .list_runs(workflow_id_str)
-                        .per_page(per_page)
-                        .page(page as u8)
-                        .send()
+                    let _permit = semaphore
+                        .acquire()
                         .await
-                        .map(|response| response.items)
-                        .map_err(|e| {
-                            PluginError::ApiError(format!(
-                                "Failed to fetch run history page {page}: {e}"
-                            ))
+                        .map_err(|e| PluginError::Internal(e.to_string()))?;
+
+                    policy
+                        .retry(|| async {
+                            octocrab
+                                .workflows(&owner, &repo)
+                                .list_runs(workflow_id_str.clone())
+                                .per_page(per_page)
+                                .page(page as u8)
+                                .send()
+                                .await
+                                .map(|response| response.items)
+                                .map_err(|e| {
+                                    map_octocrab_error(
+                                        &format!("Failed to fetch run history page {page}"),
+                                        e,
+                                    )
+                                })
                         })
+                        .await
                 }
             })
             .collect();
@@ -514,14 +592,18 @@ impl GitHubClient {
 
         loop {
             let runs = self
-                .octocrab
-                .workflows(owner, repo)
-                .list_runs(workflow_id.to_string())
-                .per_page(100)
-                .page(page.min(255) as u8)
-                .send()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch runs: {e}")))?;
+                .retry_policy
+                .retry(|| async {
+                    self.octocrab
+                        .workflows(owner, repo)
+                        .list_runs(workflow_id.to_string())
+                        .per_page(100)
+                        .page(page.min(255) as u8)
+                        .send()
+                        .await
+                        .map_err(|e| map_octocrab_error("Failed to fetch runs", e))
+                })
+                .await?;
 
             if let Some(run) = runs.items.into_iter().find(|r| r.run_number == run_number) {
                 return Ok(run);
@@ -540,30 +622,18 @@ impl GitHubClient {
     }
 
     pub async fn cancel_run(&self, owner: &str, repo: &str, run_id: u64) -> PluginResult<()> {
-        let owner = owner.to_string();
-        let repo = repo.to_string();
+        debug!("Cancelling run {run_id} for {owner}/{repo}");
 
-        self.retry_policy
-            .retry(|| async {
-                debug!("Cancelling run {run_id} for {owner}/{repo}");
+        let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/cancel");
 
-                let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/cancel");
-
-                let response: Result<serde_json::Value, octocrab::Error> =
-                    self.octocrab.post(url, None::<&()>).await;
-
-                match response {
-                    Ok(_) => {
-                        debug!("Run {run_id} cancelled successfully");
-                        Ok(())
-                    }
-                    Err(e) => {
-                        debug!("Cancel failed: {e}");
-                        Err(PluginError::ApiError(format!("Failed to cancel run: {e}")))
-                    }
-                }
-            })
+        let _: serde_json::Value = self
+            .octocrab
+            .post(url, None::<&()>)
             .await
+            .map_err(|e| map_octocrab_error("Failed to cancel run", e))?;
+
+        debug!("Run {run_id} cancelled successfully");
+        Ok(())
     }
 
     pub async fn review_pending_deployments(
@@ -574,9 +644,10 @@ impl GitHubClient {
         let pending: Vec<types::PendingDeployment> = self
             .retry_policy
             .retry(|| async {
-                self.octocrab.get(&url, None::<&()>).await.map_err(|e| {
-                    PluginError::ApiError(format!("Failed to fetch pending deployments: {e}"))
-                })
+                self.octocrab
+                    .get(&url, None::<&()>)
+                    .await
+                    .map_err(|e| map_octocrab_error("Failed to fetch pending deployments", e))
             })
             .await?;
 
@@ -617,7 +688,7 @@ impl GitHubClient {
             .octocrab
             .post(&url, Some(&body))
             .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to review run: {e}")))?;
+            .map_err(|e| map_octocrab_error("Failed to review run", e))?;
 
         Ok(())
     }

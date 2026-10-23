@@ -5,16 +5,15 @@ import type { ReactNode } from 'react'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, ProviderSummary } from '../../types'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
-import { TableCells } from '../../utils/tableCells'
 import { StatusBadge } from '../atoms/StatusBadge'
+import { ProviderStatusButton } from '../provider/ProviderStatusButton'
 
-import { type ProviderFetchError, RepositoryFetchIndicator, type TableRow, WorkflowActions } from './PipelineRowParts'
+import { RepositoryFetchIndicator, type TableRow, WorkflowActions } from './PipelineRowParts'
 
 interface MobilePipelineCardsProps {
   rows: TableRow[]
   getProvider: (providerId: number) => ProviderSummary | undefined
   onToggleRepo: (repoId: string) => void
-  onShowProviderError: (error: ProviderFetchError) => void
   onViewHistory: (pipeline: Pipeline) => void
   onTrigger: (pipeline: Pipeline) => void
   pinnedKeys: string[]
@@ -37,24 +36,18 @@ export function MobilePipelineCards({
   rows,
   getProvider,
   onToggleRepo,
-  onShowProviderError,
   onViewHistory,
   onTrigger,
   pinnedKeys,
   onTogglePin,
   onViewMetrics,
 }: MobilePipelineCardsProps) {
-  const renderProviders = (row: TableRow, label: string) => (
-    <Box>
-      <Text size={TYPOGRAPHY.FIELD_LABEL.size} c="dimmed" mb={4}>
-        {label}
-      </Text>
-      <Stack gap="xs">
-        {Array.from(row.providerIds ?? []).map((providerId) => (
-          <div key={providerId}>{TableCells.provider(getProvider(providerId))}</div>
-        ))}
-      </Stack>
-    </Box>
+  const renderProviders = (row: TableRow) => (
+    <Group gap="xs" px="xs" wrap="wrap">
+      {Array.from(row.providerIds ?? []).map((providerId) => (
+        <ProviderStatusButton key={providerId} provider={getProvider(providerId)} />
+      ))}
+    </Group>
   )
 
   return (
@@ -66,41 +59,42 @@ export function MobilePipelineCards({
             Array.from(row.providerIds).every((id) => getProvider(id)?.provider_type === 'fluxcd')
           return (
             <Card key={row.id} padding="xs">
-              <Group wrap="nowrap" align="flex-start" gap="xs">
-                <UnstyledButton
-                  className="interactive-surface"
-                  onClick={() => onToggleRepo(row.id)}
-                  aria-expanded={row.expanded}
-                  p="xs"
-                  bdrs="sm"
-                  style={{ flex: 1, minWidth: 0 }}
-                >
-                  <Stack gap="xs">
-                    <Group justify="space-between" wrap="nowrap">
-                      <Group gap="xs" wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
-                        {row.expanded ? (
-                          <IconChevronDown size={16} style={{ flexShrink: 0 }} />
-                        ) : (
-                          <IconChevronRight size={16} style={{ flexShrink: 0 }} />
-                        )}
-                        <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                        <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight} truncate>
-                          {row.name}
-                        </Text>
+              <Stack gap={4}>
+                <Group wrap="nowrap" align="flex-start" gap="xs">
+                  <UnstyledButton
+                    className="interactive-surface"
+                    onClick={() => onToggleRepo(row.id)}
+                    aria-expanded={row.expanded}
+                    p="xs"
+                    bdrs="sm"
+                    style={{ flex: 1, minWidth: 0 }}
+                  >
+                    <Stack gap="xs">
+                      <Group justify="space-between" wrap="nowrap">
+                        <Group gap="xs" wrap="nowrap" style={{ flex: 1, overflow: 'hidden' }}>
+                          {row.expanded ? (
+                            <IconChevronDown size={16} style={{ flexShrink: 0 }} />
+                          ) : (
+                            <IconChevronRight size={16} style={{ flexShrink: 0 }} />
+                          )}
+                          <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                          <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight} truncate>
+                            {row.name}
+                          </Text>
+                        </Group>
+                        {row.status && <StatusBadge status={row.status} label={row.statusLabel} />}
                       </Group>
-                      {row.status && <StatusBadge status={row.status} label={row.statusLabel} />}
-                    </Group>
 
-                    <Group gap="md" wrap="wrap">
-                      <Field label={isFluxGroup ? 'Namespace' : 'Organization'}>{row.organization}</Field>
-                      <Field label={isFluxGroup ? 'Resources' : 'Workflows'}>{row.pipelineCount}</Field>
-                    </Group>
-
-                    {renderProviders(row, 'Providers')}
-                  </Stack>
-                </UnstyledButton>
-                <RepositoryFetchIndicator row={row} onShowError={onShowProviderError} />
-              </Group>
+                      <Group gap="md" wrap="wrap">
+                        <Field label={isFluxGroup ? 'Namespace' : 'Organization'}>{row.organization}</Field>
+                        <Field label={isFluxGroup ? 'Resources' : 'Workflows'}>{row.pipelineCount}</Field>
+                      </Group>
+                    </Stack>
+                  </UnstyledButton>
+                  <RepositoryFetchIndicator row={row} />
+                </Group>
+                {renderProviders(row)}
+              </Stack>
             </Card>
           )
         }
@@ -136,11 +130,10 @@ export function MobilePipelineCards({
                     <Field label={getPipelineLabels(pipeline.provider_type).groupTitle}>{row.organization}</Field>
                     {pipeline.branch && <Field label="Branch">{pipeline.branch}</Field>}
                   </Group>
-
-                  {renderProviders(row, 'Provider')}
                 </Stack>
               </UnstyledButton>
-              <Group justify="flex-end">
+              <Group justify="space-between" wrap="nowrap">
+                {renderProviders(row)}
                 <WorkflowActions
                   pipeline={pipeline}
                   isPinned={pinnedKeys.includes(pinKey)}

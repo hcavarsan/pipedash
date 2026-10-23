@@ -1,11 +1,14 @@
-use std::time::Duration;
+use std::sync::Arc;
 
 use pipedash_plugin_api::{
+    check_response,
+    map_send_error,
     PluginError,
     PluginResult,
     RetryPolicy,
 };
-use reqwest::StatusCode;
+use reqwest::Url;
+use serde::de::DeserializeOwned;
 use tracing::debug;
 
 use crate::types::{
@@ -14,234 +17,139 @@ use crate::types::{
     SyncRequest,
 };
 
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-
-const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-
 pub struct ArgocdClient {
-    http_client: std::sync::Arc<reqwest::Client>,
+    http_client: Arc<reqwest::Client>,
     api_url: String,
     auth_header: String,
     retry_policy: RetryPolicy,
 }
 
 impl ArgocdClient {
-    pub fn new(
-        http_client: Option<std::sync::Arc<reqwest::Client>>, server_url: String, token: String,
-        insecure: bool,
-    ) -> PluginResult<Self> {
-        let api_url = Self::build_api_url(&server_url);
-        let auth_header = format!("Bearer {}", token);
-
-        let client = http_client.unwrap_or_else(|| {
-            std::sync::Arc::new(
-                reqwest::Client::builder()
-                    .use_rustls_tls()
-                    .danger_accept_invalid_certs(insecure)
-                    .pool_max_idle_per_host(10)
-                    .timeout(DEFAULT_REQUEST_TIMEOUT)
-                    .connect_timeout(DEFAULT_CONNECT_TIMEOUT)
-                    .tcp_keepalive(Duration::from_secs(60))
-                    .build()
-                    .expect("Failed to build HTTP client"),
-            )
-        });
-
-        Ok(Self {
-            http_client: client,
-            api_url,
-            auth_header,
+    pub fn new(http_client: Arc<reqwest::Client>, server_url: &str, token: &str) -> Self {
+        Self {
+            http_client,
+            api_url: Self::build_api_url(server_url),
+            auth_header: format!("Bearer {}", token),
             retry_policy: RetryPolicy::default(),
-        })
+        }
     }
 
     fn build_api_url(server_url: &str) -> String {
         format!("{}/api/v1", server_url.trim_end_matches('/'))
     }
 
-    pub async fn list_applications(
-        &self, projects_filter: Option<&Vec<String>>,
-    ) -> PluginResult<Vec<Application>> {
+    fn endpoint(&self, path: &str) -> PluginResult<Url> {
+        let raw = format!("{}{}", self.api_url, path);
+        Url::parse(&raw).map_err(|e| PluginError::InvalidConfig(format!("Invalid URL: {}", e)))
+    }
+
+    async fn get_json<T: DeserializeOwned>(&self, url: &Url) -> PluginResult<T> {
         self.retry_policy
             .retry(|| async {
-                let url = format!("{}/applications", self.api_url);
                 let response = self
                     .http_client
-                    .get(&url)
+                    .get(url.clone())
                     .header(reqwest::header::AUTHORIZATION, &self.auth_header)
                     .send()
                     .await
+                    .map_err(|e| map_send_error(e, url))?;
+
+                check_response(response)
+                    .await?
+                    .json::<T>()
+                    .await
                     .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to list applications: {}", e))
-                    })?;
-
-                let app_list: ApplicationList = self.handle_response(response).await?;
-
-                let filtered_apps = if let Some(projects) = projects_filter {
-                    app_list
-                        .items
-                        .into_iter()
-                        .filter(|app| projects.contains(&app.spec.project))
-                        .collect()
-                } else {
-                    app_list.items
-                };
-
-                Ok(filtered_apps)
+                        PluginError::ApiError(format!(
+                            "Failed to parse ArgoCD API response: {}",
+                            e.without_url()
+                        ))
+                    })
             })
             .await
     }
 
-    pub async fn get_application(&self, app_name: &str) -> PluginResult<Application> {
-        self.retry_policy
-            .retry(|| async {
-                let url = format!("{}/applications/{}", self.api_url, app_name);
-                let response = self
-                    .http_client
-                    .get(&url)
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!(
-                            "Failed to get application '{}': {}",
-                            app_name, e
-                        ))
-                    })?;
+    pub async fn list_applications(
+        &self, projects_filter: Option<&Vec<String>>,
+    ) -> PluginResult<Vec<Application>> {
+        let url = self.endpoint("/applications")?;
+        let app_list: ApplicationList = self.get_json(&url).await?;
 
-                self.handle_response(response).await
-            })
-            .await
+        Ok(match projects_filter {
+            Some(projects) => app_list
+                .items
+                .into_iter()
+                .filter(|app| projects.contains(&app.spec.project))
+                .collect(),
+            None => app_list.items,
+        })
+    }
+
+    pub async fn get_application(&self, app_name: &str) -> PluginResult<Application> {
+        let url = self.endpoint(&format!("/applications/{}", app_name))?;
+        self.get_json(&url).await
     }
 
     pub async fn sync_application(
         &self, app_name: &str, revision: Option<String>, prune: bool, dry_run: bool, force: bool,
         apply_only: bool,
     ) -> PluginResult<()> {
-        self.retry_policy
-            .retry(|| async {
-                let url = format!("{}/applications/{}/sync", self.api_url, app_name);
+        let url = self.endpoint(&format!("/applications/{}/sync", app_name))?;
 
-                let strategy = if force || apply_only {
-                    Some(crate::types::SyncStrategy {
-                        apply: if force {
-                            Some(crate::types::SyncStrategyApply { force: Some(true) })
-                        } else {
-                            None
-                        },
-                        hook: if apply_only {
-                            Some(crate::types::SyncStrategyHook { force: Some(false) })
-                        } else {
-                            None
-                        },
-                    })
+        let strategy = if force || apply_only {
+            Some(crate::types::SyncStrategy {
+                apply: if force {
+                    Some(crate::types::SyncStrategyApply { force: Some(true) })
                 } else {
                     None
-                };
+                },
+                hook: if apply_only {
+                    Some(crate::types::SyncStrategyHook { force: Some(false) })
+                } else {
+                    None
+                },
+            })
+        } else {
+            None
+        };
 
-                let sync_request = SyncRequest {
-                    revision: revision.clone(),
-                    prune: Some(prune),
-                    dry_run: Some(dry_run),
-                    strategy,
-                };
+        let sync_request = SyncRequest {
+            revision,
+            prune: Some(prune),
+            dry_run: Some(dry_run),
+            strategy,
+        };
 
-                debug!(?sync_request, "Sending sync request to ArgoCD API");
+        debug!(?sync_request, "Sending sync request to ArgoCD API");
 
-                let response = self
-                    .http_client
-                    .post(&url)
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .post(url.clone())
                     .header(reqwest::header::AUTHORIZATION, &self.auth_header)
                     .json(&sync_request)
                     .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!(
-                            "Failed to sync application '{}': {}",
-                            app_name, e
-                        ))
-                    })?;
-
-                self.handle_response::<serde_json::Value>(response).await?;
-                Ok(())
             })
-            .await
+            .await?;
+
+        check_response(response).await?;
+        Ok(())
     }
 
     pub async fn terminate_operation(&self, app_name: &str) -> PluginResult<()> {
-        self.retry_policy
-            .retry(|| async {
-                let url = format!("{}/applications/{}/operation", self.api_url, app_name);
-                let response = self
-                    .http_client
-                    .delete(&url)
+        let url = self.endpoint(&format!("/applications/{}/operation", app_name))?;
+
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .delete(url.clone())
                     .header(reqwest::header::AUTHORIZATION, &self.auth_header)
                     .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!(
-                            "Failed to terminate operation for application '{}': {}",
-                            app_name, e
-                        ))
-                    })?;
-
-                let status = response.status();
-                if !status.is_success() {
-                    let error_text = response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error".to_string());
-                    return Err(PluginError::ApiError(format!(
-                        "Failed to terminate operation for application '{}' (status {}): {}",
-                        app_name, status, error_text
-                    )));
-                }
-
-                Ok(())
             })
-            .await
-    }
+            .await?;
 
-    async fn handle_response<T: serde::de::DeserializeOwned>(
-        &self, response: reqwest::Response,
-    ) -> PluginResult<T> {
-        let status = response.status();
-        let url = response.url().clone();
-
-        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(PluginError::AuthenticationFailed(format!(
-                "Authentication failed for {}: {}",
-                url, error_text
-            )));
-        }
-
-        if status == StatusCode::NOT_FOUND {
-            return Err(PluginError::PipelineNotFound(format!(
-                "Resource not found: {}",
-                url
-            )));
-        }
-
-        if !status.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(PluginError::ApiError(format!(
-                "ArgoCD API error ({}) for {}: {}",
-                status, url, error_text
-            )));
-        }
-
-        response.json::<T>().await.map_err(|e| {
-            PluginError::ApiError(format!(
-                "Failed to parse ArgoCD API response from {}: {}",
-                url, e
-            ))
-        })
+        check_response(response).await?;
+        Ok(())
     }
 }

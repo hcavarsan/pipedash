@@ -6,6 +6,7 @@ pub mod http_client;
 pub mod migration;
 pub mod providers;
 pub mod secrets;
+pub mod status_feeds;
 pub mod storage;
 pub mod sync;
 pub mod token_store;
@@ -18,6 +19,7 @@ pub use config::{
     ConfigLoader,
     ConfigState,
     GeneralConfig,
+    GeneralSettingsUpdate,
     PipedashConfig,
     Platform,
     PostgresConfig as SchemaPostgresConfig,

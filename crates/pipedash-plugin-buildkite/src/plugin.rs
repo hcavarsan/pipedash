@@ -20,6 +20,7 @@ pub struct BuildkitePlugin {
     client: Option<client::BuildkiteClient>,
     provider_id: Option<i64>,
     config: HashMap<String, String>,
+    status_source: Option<StatusSource>,
 }
 
 impl Default for BuildkitePlugin {
@@ -35,6 +36,7 @@ impl BuildkitePlugin {
             client: None,
             provider_id: None,
             config: HashMap::new(),
+            status_source: None,
         }
     }
 
@@ -45,10 +47,38 @@ impl BuildkitePlugin {
     }
 }
 
+fn buildkite_status_source() -> PluginResult<StatusSource> {
+    let url = |value: &str| {
+        reqwest::Url::parse(value)
+            .map_err(|e| PluginError::Internal(format!("Invalid Buildkite status URL: {e}")))
+    };
+
+    Ok(StatusSource {
+        name: "Buildkite".to_string(),
+        page_url: url("https://www.buildkitestatus.com/")?,
+        feed_url: url("https://www.buildkitestatus.com/api/v2/summary.json")?,
+        format: FeedFormat::Statuspage,
+        components: ComponentFilter::Ids(
+            [
+                "r21z46hqn47c",
+                "1mpkbbd1kh0h",
+                "3n7fzwsysx86",
+                "56ph4s45xl9s",
+            ]
+            .map(String::from)
+            .to_vec(),
+        ),
+    })
+}
+
 #[async_trait]
 impl Plugin for BuildkitePlugin {
     fn metadata(&self) -> &PluginMetadata {
         &self.metadata
+    }
+
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
     }
 
     fn initialize(
@@ -76,6 +106,7 @@ impl Plugin for BuildkitePlugin {
         self.client = Some(client::BuildkiteClient::new(client, token));
         self.provider_id = Some(provider_id);
         self.config = config;
+        self.status_source = Some(buildkite_status_source()?);
 
         Ok(())
     }
@@ -142,12 +173,18 @@ impl Plugin for BuildkitePlugin {
         for result in results {
             match result {
                 Ok(pipeline) => all_pipelines.push(pipeline),
-                Err(e) => errors.push(e),
+                Err(e) if e.is_transient() => return Err(e),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to fetch Buildkite pipeline");
+                    errors.push(e);
+                }
             }
         }
 
-        if !errors.is_empty() && all_pipelines.is_empty() {
-            return Err(errors.into_iter().next().unwrap());
+        if all_pipelines.is_empty() {
+            if let Some(e) = errors.into_iter().next() {
+                return Err(e);
+            }
         }
 
         Ok(all_pipelines)
@@ -297,5 +334,83 @@ impl Plugin for BuildkitePlugin {
 
         let client = self.client()?;
         client.cancel_build(org, slug, run_number).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::*;
+    use crate::test_support::{
+        stub_server,
+        Reply,
+    };
+
+    fn mixed(path: &str) -> Reply {
+        if path.contains("/limited") {
+            Reply {
+                status: "429 Too Many Requests",
+                headers: "Retry-After: 120\r\n",
+                body: "slow down",
+            }
+        } else if path.contains("/missing") {
+            Reply {
+                status: "404 Not Found",
+                headers: "",
+                body: "{}",
+            }
+        } else if path.contains("/builds") {
+            Reply {
+                status: "200 OK",
+                headers: "Content-Type: application/json\r\n",
+                body: "[]",
+            }
+        } else {
+            Reply {
+                status: "200 OK",
+                headers: "Content-Type: application/json\r\n",
+                body: r#"{"id":"1","slug":"ok","name":"ok","url":"u","repository":"git@github.com:acme/ok.git"}"#,
+            }
+        }
+    }
+
+    async fn plugin_selecting(selected: &str) -> BuildkitePlugin {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let base_url = stub_server(Arc::new(AtomicUsize::new(0)), Duration::ZERO, mixed).await;
+        let mut plugin = BuildkitePlugin::new();
+        let config = HashMap::from([
+            ("token".to_string(), "token".to_string()),
+            ("selected_items".to_string(), selected.to_string()),
+        ]);
+        plugin.initialize(1, config, None).unwrap();
+        plugin.client = Some(
+            client::BuildkiteClient::new(Arc::new(reqwest::Client::new()), "token".to_string())
+                .with_base_url(base_url),
+        );
+        plugin
+    }
+
+    #[tokio::test]
+    async fn transient_failure_on_any_pipeline_fails_the_fetch() {
+        let plugin = plugin_selecting("acme/ok,acme/limited").await;
+
+        let error = plugin.fetch_pipelines().await.unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::RateLimited { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn permanent_failure_on_one_pipeline_keeps_the_rest() {
+        let plugin = plugin_selecting("acme/ok,acme/missing").await;
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+        assert_eq!(pipelines.len(), 1);
     }
 }

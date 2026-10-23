@@ -34,7 +34,7 @@ impl Kind {
         Self::ALL.into_iter().find(|kind| kind.as_str() == name)
     }
 
-    pub fn group(self) -> &'static str {
+    pub const fn group(self) -> &'static str {
         match self {
             Kind::Kustomization => "kustomize.toolkit.fluxcd.io",
             Kind::HelmRelease => "helm.toolkit.fluxcd.io",
@@ -48,7 +48,7 @@ impl Kind {
         }
     }
 
-    pub fn plural(self) -> &'static str {
+    pub const fn plural(self) -> &'static str {
         match self {
             Kind::Kustomization => "kustomizations",
             Kind::HelmRelease => "helmreleases",

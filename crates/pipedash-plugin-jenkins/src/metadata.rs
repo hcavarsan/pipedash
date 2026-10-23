@@ -55,6 +55,7 @@ fn create_config_schema() -> ConfigSchema {
             validation_regex: None,
             validation_message: None,
         })
+        .add_field(status_page_field())
 }
 
 fn create_capabilities() -> PluginCapabilities {
@@ -67,5 +68,6 @@ fn create_capabilities() -> PluginCapabilities {
         artifacts: false,
         queues: false,
         custom_tables: false,
+        retains_run_history: false,
     }
 }

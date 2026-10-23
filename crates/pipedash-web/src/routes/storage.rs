@@ -132,7 +132,10 @@ async fn get_storage_config(
         AppError::not_found("Storage configuration not found - initial setup required")
     })?;
 
-    let config = storage_manager.config().clone();
+    let mut config = storage_manager.config().clone();
+    if let Some(core) = &inner.core {
+        config.general = core.config_state.get().await.general.clone();
+    }
     let summary = config.storage.summary();
 
     Ok(Json(StorageConfigResponse { config, summary }))
@@ -427,14 +430,14 @@ async fn execute_migration(
                         .await
                         {
                             Ok(new_core) => {
-                                if let Some(old_core) = inner.core.as_ref() {
-                                    old_core.shutdown().await;
-                                }
-                                drop(inner); // Release read lock
+                                drop(inner);
 
-                                {
+                                let old_core = {
                                     let mut inner_lock = state.inner.write().await;
-                                    inner_lock.core = Some(new_core);
+                                    inner_lock.core.replace(new_core)
+                                };
+                                if let Some(old_core) = old_core {
+                                    old_core.shutdown().await;
                                 }
 
                                 let inner = state.inner.read().await;

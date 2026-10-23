@@ -53,9 +53,10 @@ impl DatabasePool {
     }
 }
 
-const FETCH_STATUS_SUCCESS: &str = "success";
-const FETCH_STATUS_ERROR: &str = "error";
-const FETCH_STATUS_NEVER: &str = "never";
+pub(crate) const FETCH_STATUS_SUCCESS: &str = "success";
+pub(crate) const FETCH_STATUS_ERROR: &str = "error";
+pub(crate) const FETCH_STATUS_NEVER: &str = "never";
+const WORKFLOW_PARAMETERS_TTL_MINUTES: u32 = 10;
 
 async fn retry_on_busy<F, Fut, T>(operation: F) -> DomainResult<T>
 where
@@ -229,6 +230,16 @@ impl Repository {
         }
 
         Ok(providers)
+    }
+
+    pub async fn list_provider_ids(&self) -> DomainResult<Vec<i64>> {
+        Ok(self
+            .config_backend
+            .list_providers()
+            .await?
+            .into_iter()
+            .filter_map(|provider| provider.id)
+            .collect())
     }
 
     pub async fn update_provider(&self, id: i64, config: &ProviderConfig) -> DomainResult<()> {
@@ -525,6 +536,63 @@ impl Repository {
         }
     }
 
+    pub async fn reset_provider_fetch_status(&self, provider_id: i64) -> DomainResult<()> {
+        let cache_pool = self.cache_pool.clone();
+
+        retry_on_busy(|| async {
+            match &cache_pool {
+                DatabasePool::Sqlite(p) => {
+                    sqlx::query(
+                        "UPDATE providers SET last_fetch_at = NULL, last_fetch_status = ?, last_fetch_error = NULL WHERE id = ?",
+                    )
+                    .bind(FETCH_STATUS_NEVER)
+                    .bind(provider_id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                }
+                DatabasePool::Postgres(p) => {
+                    sqlx::query(
+                        "UPDATE providers SET last_fetch_at = NULL, last_fetch_status = $1, last_fetch_error = NULL WHERE id = $2",
+                    )
+                    .bind(FETCH_STATUS_NEVER)
+                    .bind(provider_id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                }
+            }
+
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn clear_provider_run_history(&self, provider_id: i64) -> DomainResult<()> {
+        let sql = format!(
+            "DELETE FROM run_history_cache WHERE pipeline_id IN (SELECT id FROM pipelines_cache WHERE provider_id = {})",
+            self.placeholder(1)
+        );
+        match &self.cache_pool {
+            DatabasePool::Sqlite(p) => {
+                sqlx::query(sqlx::AssertSqlSafe(sql))
+                    .bind(provider_id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            }
+            DatabasePool::Postgres(p) => {
+                sqlx::query(sqlx::AssertSqlSafe(sql))
+                    .bind(provider_id)
+                    .execute(p)
+                    .await
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn get_cached_pipelines(
         &self, provider_id: Option<i64>,
     ) -> DomainResult<Vec<Pipeline>> {
@@ -621,8 +689,16 @@ impl Repository {
     pub async fn get_cached_workflow_parameters(
         &self, workflow_id: &str,
     ) -> DomainResult<Option<Vec<pipedash_plugin_api::WorkflowParameter>>> {
+        let freshness = match self.cache_pool {
+            DatabasePool::Sqlite(_) => format!(
+                "cached_at >= datetime('now', '-{WORKFLOW_PARAMETERS_TTL_MINUTES} minutes')"
+            ),
+            DatabasePool::Postgres(_) => {
+                format!("cached_at >= NOW() - INTERVAL '{WORKFLOW_PARAMETERS_TTL_MINUTES} minutes'")
+            }
+        };
         let sql = format!(
-            "SELECT parameters_json FROM workflow_parameters_cache WHERE workflow_id = {}",
+            "SELECT parameters_json FROM workflow_parameters_cache WHERE workflow_id = {} AND {freshness}",
             self.placeholder(1)
         );
         let result = match &self.cache_pool {
