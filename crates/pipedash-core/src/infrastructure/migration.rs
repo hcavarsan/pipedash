@@ -2,8 +2,8 @@ pub mod backup;
 pub mod validator;
 
 use std::collections::{
+    BTreeMap,
     HashMap,
-    HashSet,
 };
 use std::sync::Arc;
 
@@ -38,7 +38,10 @@ use crate::infrastructure::config::{
 };
 use crate::infrastructure::token_store::TokenStore;
 use crate::infrastructure::{
-    database::MetricsRepository,
+    database::{
+        MetricsRepository,
+        RecordMetrics,
+    },
     ConfigBackend,
     StorageBackend,
 };
@@ -753,26 +756,26 @@ impl MigrationOrchestrator {
                             .source_metrics
                             .get_last_processed_run(&source_id)
                             .await?;
-                        let existing: HashSet<_> = target_metrics
-                            .query_metrics(pipeline_query(&target_id))
-                            .await?
-                            .into_iter()
-                            .map(|entry| (entry.run_number, entry.metric_type.as_str()))
-                            .collect();
-                        let entries = self
+                        let mut runs: BTreeMap<i64, RecordMetrics> = BTreeMap::new();
+                        for entry in self
                             .source_metrics
                             .query_metrics(pipeline_query(&source_id))
                             .await?
-                            .into_iter()
-                            .filter(|entry| {
-                                !existing.contains(&(entry.run_number, entry.metric_type.as_str()))
-                            })
-                            .map(|mut entry| {
-                                entry.pipeline_id = target_id.clone();
-                                entry
-                            })
-                            .collect();
-                        migrated += target_metrics.insert_metrics_batch(entries).await?;
+                        {
+                            let slot = entry.metric_type as usize;
+                            let record =
+                                runs.entry(entry.run_number)
+                                    .or_insert_with(|| RecordMetrics {
+                                        run_number: entry.run_number,
+                                        run_hash: entry.run_hash.clone().unwrap_or_default(),
+                                        entries: [None, None, None],
+                                    });
+                            record.entries[slot] = Some(entry);
+                        }
+                        let records: Vec<_> = runs.into_values().collect();
+                        migrated += target_metrics
+                            .refresh_record_metrics(&target_id, &records)
+                            .await?;
                         pipelines += 1;
 
                         let Some(run) = last_run else {
@@ -1177,6 +1180,7 @@ mod tests {
         assert!(result.success, "{:?}", result.errors);
         let refreshed = MetricEntry {
             run_hash: Some("hash-4b".to_string()),
+            value: 999.0,
             ..entry(&source_pipeline, 4)
         };
         metrics
@@ -1212,6 +1216,18 @@ mod tests {
                 .unwrap(),
             5
         );
+        let run_4: Vec<_> = target_metrics
+            .query_metrics(MetricsQuery {
+                pipeline_id: Some(target_pipeline.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry.run_number == 4)
+            .map(|entry| (entry.run_hash, entry.value))
+            .collect();
+        assert_eq!(run_4, [(Some("hash-4b".to_string()), 999.0)]);
         let config = target_metrics
             .get_pipeline_config(&target_pipeline)
             .await
