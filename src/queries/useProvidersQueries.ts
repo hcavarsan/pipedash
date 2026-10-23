@@ -5,7 +5,7 @@ import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
-import type { ProviderConfig, ProviderSummary } from '../types'
+import type { ProviderConfig, ProviderImportResult, ProviderSummary } from '../types'
 import { saveTextFile } from '../utils/saveTextFile'
 import { invalidateProviderPipelines } from './usePipelinesQueries'
 
@@ -182,6 +182,47 @@ export function useExportProviders() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't export providers",
+        message: error.message || 'Unknown error',
+        color: 'red',
+      })
+    },
+  })
+}
+
+function importSummary({ added, skipped }: ProviderImportResult): string {
+  const parts = []
+
+  if (added.length > 0) {
+    parts.push(`Added ${added.join(', ')}. Add each token in the provider's edit dialog.`)
+  }
+  if (skipped.length > 0) {
+    parts.push(`Skipped ${skipped.join(', ')}, already set up here.`)
+  }
+
+  return parts.join(' ')
+}
+
+export function useImportProviders() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (file: File) => service.importProviders(await file.text()),
+
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
+
+      notifications.show({
+        title: result.added.length > 0 ? 'Providers imported' : 'No providers imported',
+        message: importSummary(result),
+        color: result.added.length > 0 ? 'green' : 'gray',
+        autoClose: 10_000,
+      })
+    },
+
+    onError: (error: Error) => {
+      notifications.show({
+        title: "Couldn't import providers",
         message: error.message || 'Unknown error',
         color: 'red',
       })

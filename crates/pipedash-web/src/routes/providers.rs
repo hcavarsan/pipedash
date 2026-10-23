@@ -19,6 +19,7 @@ use pipedash_core::domain::{
     PaginatedAvailablePipelines,
     PaginationParams,
     ProviderConfig,
+    ProviderImportResult,
     RefreshResult,
     RefreshState,
 };
@@ -130,11 +131,17 @@ pub struct PreviewPipelinesRequest {
     pub page_size: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ImportProvidersRequest {
+    pub content: String,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_providers))
         .route("/", post(create_provider))
         .route("/export", get(export_providers))
+        .route("/import", post(import_providers))
         .route("/{id}", get(get_provider))
         .route("/{id}", put(update_provider))
         .route("/{id}", delete(remove_provider))
@@ -164,6 +171,15 @@ async fn export_providers(State(state): State<AppState>) -> ApiResult<Json<Strin
     let toml = provider_service.export_providers_toml().await?;
 
     Ok(Json(toml))
+}
+
+async fn import_providers(
+    State(state): State<AppState>, Json(req): Json<ImportProvidersRequest>,
+) -> ApiResult<Json<ProviderImportResult>> {
+    let provider_service = state.provider_service().await?;
+    let result = provider_service.import_providers_toml(&req.content).await?;
+
+    Ok(Json(result))
 }
 
 async fn list_providers(

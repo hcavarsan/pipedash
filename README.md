@@ -51,7 +51,7 @@ What you can do:
 - See pipeline status across all your providers
 - Browse run history with commit info and execution times
 - Trigger workflows with parameters (Pipedash loads them from each provider)
-- Export your providers to a TOML file for another machine, with tokens left out as `${VAR}` references
+- Export your providers to a TOML file for another machine, with tokens left out as `${VAR}` references. On the other machine, Import under Settings > Providers adds each provider from the file that isn't set up there yet. It never reads tokens, so you add each one in the provider's edit dialog
 - Rerun previous executions with the same parameters
 - Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
 - Approve or reject a GitHub run that waits for a deployment review, from its row in run history (needs a required reviewer's token)
