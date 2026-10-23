@@ -38,19 +38,6 @@ pub struct ListPipelinesQuery {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct LazyPipelinesQuery {
-    pub provider_id: Option<i64>,
-    #[serde(default = "default_page")]
-    pub page: usize,
-    #[serde(default = "default_lazy_page_size")]
-    pub page_size: usize,
-}
-
-fn default_lazy_page_size() -> usize {
-    20
-}
-
-#[derive(Debug, Deserialize)]
 pub struct RunHistoryQuery {
     #[serde(default = "default_page")]
     pub page: usize,
@@ -87,8 +74,6 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_pipelines))
         .route("/cached", get(get_cached_pipelines))
-        .route("/fresh", get(fetch_fresh_pipelines))
-        .route("/lazy", get(list_pipelines_lazy))
         .route("/{id}/runs", get(get_run_history))
         .route("/{id}/runs/{run_number}", get(get_run_details))
         .route("/{id}/trigger", post(trigger_pipeline))
@@ -100,19 +85,10 @@ pub fn router() -> Router<AppState> {
 async fn list_pipelines(
     State(state): State<AppState>, Query(query): Query<ListPipelinesQuery>,
 ) -> ApiResult<Json<Vec<Pipeline>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let pipelines = core
-        .pipeline_service
+    let pipeline_service = state.pipeline_service().await?;
+    let pipelines = pipeline_service
         .get_cached_pipelines(query.provider_id)
         .await?;
-
-    let pipeline_service = core.pipeline_service.clone();
-    let provider_id = query.provider_id;
-    tokio::spawn(async move {
-        let _ = pipeline_service.fetch_pipelines(provider_id).await;
-    });
-
     Ok(Json(pipelines))
 }
 
@@ -120,10 +96,8 @@ async fn get_run_history(
     State(state): State<AppState>, Path(pipeline_id): Path<String>,
     Query(query): Query<RunHistoryQuery>,
 ) -> ApiResult<Json<PaginatedRunHistory>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let result = core
-        .pipeline_service
+    let pipeline_service = state.pipeline_service().await?;
+    let result = pipeline_service
         .fetch_run_history_paginated(&pipeline_id, query.page, query.page_size)
         .await?;
 
@@ -133,10 +107,8 @@ async fn get_run_history(
 async fn get_run_details(
     State(state): State<AppState>, Path((pipeline_id, run_number)): Path<(String, i64)>,
 ) -> ApiResult<Json<PipelineRun>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let run = core
-        .pipeline_service
+    let pipeline_service = state.pipeline_service().await?;
+    let run = pipeline_service
         .fetch_run_details(&pipeline_id, run_number)
         .await?;
 
@@ -147,18 +119,15 @@ async fn trigger_pipeline(
     State(state): State<AppState>, Path(_pipeline_id): Path<String>,
     Json(req): Json<TriggerPipelineRequest>,
 ) -> ApiResult<Json<TriggerResponse>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+    let pipeline_service = state.pipeline_service().await?;
     let workflow_id = req.workflow_id.clone();
     let params = TriggerParams {
         workflow_id: req.workflow_id,
         inputs: req.inputs,
     };
 
-    let run_id = core.pipeline_service.trigger_pipeline(params).await?;
-    core.pipeline_service
-        .invalidate_run_cache(&workflow_id)
-        .await;
+    let run_id = pipeline_service.trigger_pipeline(params).await?;
+    pipeline_service.invalidate_run_cache(&workflow_id).await;
 
     Ok(Json(TriggerResponse { run_id }))
 }
@@ -166,14 +135,11 @@ async fn trigger_pipeline(
 async fn cancel_run(
     State(state): State<AppState>, Path((pipeline_id, run_number)): Path<(String, i64)>,
 ) -> ApiResult<()> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    core.pipeline_service
+    let pipeline_service = state.pipeline_service().await?;
+    pipeline_service
         .cancel_run(&pipeline_id, run_number)
         .await?;
-    core.pipeline_service
-        .invalidate_run_cache(&pipeline_id)
-        .await;
+    pipeline_service.invalidate_run_cache(&pipeline_id).await;
     Ok(())
 }
 
@@ -181,9 +147,8 @@ async fn review_run(
     State(state): State<AppState>, Path((pipeline_id, run_number)): Path<(String, i64)>,
     Json(request): Json<ReviewRunRequest>,
 ) -> ApiResult<()> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    core.pipeline_service
+    let pipeline_service = state.pipeline_service().await?;
+    pipeline_service
         .review_run(&pipeline_id, run_number, request.decision)
         .await?;
     Ok(())
@@ -192,37 +157,11 @@ async fn review_run(
 async fn get_cached_pipelines(
     State(state): State<AppState>, Query(query): Query<ListPipelinesQuery>,
 ) -> ApiResult<Json<Vec<Pipeline>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let pipelines = core
-        .pipeline_service
+    let pipeline_service = state.pipeline_service().await?;
+    let pipelines = pipeline_service
         .get_cached_pipelines(query.provider_id)
         .await?;
     Ok(Json(pipelines))
-}
-
-async fn fetch_fresh_pipelines(
-    State(state): State<AppState>, Query(query): Query<ListPipelinesQuery>,
-) -> ApiResult<Json<Vec<Pipeline>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let pipelines = core
-        .pipeline_service
-        .fetch_pipelines(query.provider_id)
-        .await?;
-    Ok(Json(pipelines))
-}
-
-async fn list_pipelines_lazy(
-    State(state): State<AppState>, Query(query): Query<LazyPipelinesQuery>,
-) -> ApiResult<Json<pipedash_plugin_api::PaginatedResponse<Pipeline>>> {
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let result = core
-        .pipeline_service
-        .fetch_pipelines_lazy(query.provider_id, query.page, query.page_size)
-        .await?;
-    Ok(Json(result))
 }
 
 async fn get_workflow_parameters(
@@ -243,10 +182,8 @@ async fn get_workflow_parameters(
         ))
     })?;
 
-    let inner = state.inner.read().await;
-    let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let params = core
-        .provider_service
+    let provider_service = state.provider_service().await?;
+    let params = provider_service
         .get_workflow_parameters(provider_id, &workflow_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch workflow parameters: {e}")))?;
@@ -273,6 +210,8 @@ mod tests {
         IntoResponse,
         Response,
     };
+    use pipedash_core::application::PipelineService;
+    use pipedash_core::domain::RefreshState;
     use pipedash_core::infrastructure::{
         PipedashConfig,
         StorageBackendType,
@@ -391,7 +330,10 @@ mod tests {
         format!("http://{addr}")
     }
 
-    async fn app_with_jenkins(data_dir: &std::path::Path, stub: JenkinsStub) -> (Router, i64) {
+    async fn app_with_jenkins(
+        data_dir: &std::path::Path, stub: JenkinsStub,
+    ) -> (Router, i64, Arc<PipelineService>) {
+        let _env = crate::routes::CONFIG_ENV.lock().await;
         std::env::set_var("PIPEDASH_CONFIG_PATH", data_dir.join("config.toml"));
         let mut config = PipedashConfig::default();
         config.storage.backend = StorageBackendType::Sqlite;
@@ -429,9 +371,18 @@ mod tests {
         let core = CoreContext::with_storage_manager(&storage_manager, ws_event_bus.clone())
             .await
             .unwrap();
+        core.refresh_manager.start().await;
+        let pipeline_service = core.pipeline_service.clone();
         let state = AppState::initialized(ws_event_bus, core, storage_manager);
 
-        (router().with_state(state), provider_id)
+        (router().with_state(state), provider_id, pipeline_service)
+    }
+
+    async fn fetch_now(pipeline_service: &PipelineService, provider_id: i64) {
+        let results = pipeline_service
+            .fetch_now(&[provider_id], PipelineService::REFRESH_DEADLINE)
+            .await;
+        assert_eq!(results[0].state, RefreshState::Ok, "{results:?}");
     }
 
     async fn get_json(app: &Router, uri: &str) -> (StatusCode, Value) {
@@ -467,11 +418,11 @@ mod tests {
     async fn run_details_load_a_run_older_than_the_latest_100() {
         let data_dir =
             std::env::temp_dir().join(format!("pipedash-run-details-{}", std::process::id()));
-        let (app, provider_id) = app_with_jenkins(&data_dir, JenkinsStub::default()).await;
+        let (app, provider_id, pipeline_service) =
+            app_with_jenkins(&data_dir, JenkinsStub::default()).await;
         let pipeline_id = format!("jenkins__{provider_id}__build");
 
-        let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
-        assert_eq!(status, StatusCode::OK);
+        fetch_now(&pipeline_service, provider_id).await;
         let (_, page) = get_json(&app, &format!("/{pipeline_id}/runs?page=6&page_size=20")).await;
         let (status, run) = get_json(&app, &format!("/{pipeline_id}/runs/30")).await;
         let _ = std::fs::remove_dir_all(&data_dir);
@@ -487,11 +438,10 @@ mod tests {
             std::env::temp_dir().join(format!("pipedash-rejected-token-{}", std::process::id()));
         let stub = JenkinsStub::default();
         let reject = stub.reject.clone();
-        let (app, provider_id) = app_with_jenkins(&data_dir, stub).await;
+        let (app, provider_id, pipeline_service) = app_with_jenkins(&data_dir, stub).await;
         let pipeline_id = format!("jenkins__{provider_id}__build");
 
-        let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
-        assert_eq!(status, StatusCode::OK);
+        fetch_now(&pipeline_service, provider_id).await;
         reject.store(true, Ordering::SeqCst);
         let (status, body) = get_json(&app, &format!("/{pipeline_id}/runs")).await;
         let _ = std::fs::remove_dir_all(&data_dir);
@@ -510,12 +460,12 @@ mod tests {
     #[tokio::test]
     async fn run_history_shows_a_cancelled_run_as_cancelled() {
         let data_dir = std::env::temp_dir().join(format!("pipedash-cancel-{}", std::process::id()));
-        let (app, provider_id) = app_with_jenkins(&data_dir, JenkinsStub::default()).await;
+        let (app, provider_id, pipeline_service) =
+            app_with_jenkins(&data_dir, JenkinsStub::default()).await;
         let pipeline_id = format!("jenkins__{provider_id}__build");
         let history = format!("/{pipeline_id}/runs?page=1&page_size=20");
 
-        let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
-        assert_eq!(status, StatusCode::OK);
+        fetch_now(&pipeline_service, provider_id).await;
         let (_, before) = get_json(&app, &history).await;
         let cancel = post_status(
             &app,
@@ -536,12 +486,12 @@ mod tests {
     async fn run_history_shows_a_triggered_run() {
         let data_dir =
             std::env::temp_dir().join(format!("pipedash-trigger-{}", std::process::id()));
-        let (app, provider_id) = app_with_jenkins(&data_dir, JenkinsStub::default()).await;
+        let (app, provider_id, pipeline_service) =
+            app_with_jenkins(&data_dir, JenkinsStub::default()).await;
         let pipeline_id = format!("jenkins__{provider_id}__build");
         let history = format!("/{pipeline_id}/runs?page=1&page_size=20");
 
-        let (status, _) = get_json(&app, &format!("/fresh?provider_id={provider_id}")).await;
-        assert_eq!(status, StatusCode::OK);
+        fetch_now(&pipeline_service, provider_id).await;
         let (_, before) = get_json(&app, &history).await;
         let trigger = post_status(
             &app,

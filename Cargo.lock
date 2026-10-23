@@ -4121,6 +4121,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "toml 1.1.8+spec-1.1.0",
  "toml_edit 0.25.17+spec-1.1.0",
  "tracing",
@@ -4180,6 +4181,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4213,6 +4215,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
  "urlencoding",
 ]
 

@@ -17,6 +17,7 @@ pub struct JenkinsPlugin {
     client: Option<client::JenkinsClient>,
     provider_id: Option<i64>,
     config: HashMap<String, String>,
+    status_source: Option<StatusSource>,
 }
 
 impl Default for JenkinsPlugin {
@@ -32,6 +33,7 @@ impl JenkinsPlugin {
             client: None,
             provider_id: None,
             config: HashMap::new(),
+            status_source: None,
         }
     }
 
@@ -48,10 +50,16 @@ impl Plugin for JenkinsPlugin {
         &self.metadata
     }
 
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
+    }
+
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
         http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
+        let status_source = custom_status_source(&config)?;
+
         let token = config
             .get("token")
             .ok_or_else(|| PluginError::InvalidConfig("Missing Jenkins API token".to_string()))?;
@@ -91,6 +99,7 @@ impl Plugin for JenkinsPlugin {
         self.client = Some(client::JenkinsClient::new(client, server_url, auth_header));
         self.provider_id = Some(provider_id);
         self.config = config;
+        self.status_source = status_source;
 
         Ok(())
     }
@@ -147,12 +156,18 @@ impl Plugin for JenkinsPlugin {
         for result in results {
             match result {
                 Ok(pipeline) => all_pipelines.push(pipeline),
-                Err(e) => errors.push(e),
+                Err(e) if e.is_transient() => return Err(e),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to fetch Jenkins pipeline");
+                    errors.push(e);
+                }
             }
         }
 
-        if !errors.is_empty() && all_pipelines.is_empty() {
-            return Err(errors.into_iter().next().unwrap());
+        if all_pipelines.is_empty() {
+            if let Some(e) = errors.into_iter().next() {
+                return Err(e);
+            }
         }
 
         Ok(all_pipelines)
@@ -366,5 +381,94 @@ impl Plugin for JenkinsPlugin {
         let job_path = parts[2];
         let client = self.client()?;
         client.cancel_build(job_path, run_number).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::test_support::{
+        stub_server,
+        Reply,
+    };
+
+    fn mixed(path: &str) -> Reply {
+        if path.contains("/job/limited/") {
+            Reply {
+                status: "429 Too Many Requests",
+                headers: "Retry-After: 120\r\n",
+                body: "slow down",
+            }
+        } else if path.contains("/job/missing/") {
+            Reply {
+                status: "404 Not Found",
+                headers: "",
+                body: "not found",
+            }
+        } else {
+            Reply {
+                status: "200 OK",
+                headers: "Content-Type: application/json\r\n",
+                body: r#"{"name":"ok"}"#,
+            }
+        }
+    }
+
+    async fn initialized(selected: &str, extra: &[(&str, &str)]) -> PluginResult<JenkinsPlugin> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let server_url = stub_server(Arc::new(AtomicUsize::new(0)), Duration::ZERO, mixed).await;
+        let mut config = HashMap::from([
+            ("server_url".to_string(), server_url),
+            ("username".to_string(), "alice".to_string()),
+            ("token".to_string(), "token".to_string()),
+            ("selected_items".to_string(), selected.to_string()),
+        ]);
+        config.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        let mut plugin = JenkinsPlugin::new();
+        plugin.initialize(1, config, None)?;
+        Ok(plugin)
+    }
+
+    #[tokio::test]
+    async fn transient_failure_on_any_job_fails_the_fetch() {
+        let plugin = initialized("ok,limited", &[]).await.unwrap();
+
+        let error = plugin.fetch_pipelines().await.unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::RateLimited { .. }),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn permanent_failure_on_one_job_keeps_the_rest() {
+        let plugin = initialized("ok,missing", &[]).await.unwrap();
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+        assert_eq!(pipelines.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn status_source_follows_the_optional_status_page_url() {
+        let none = initialized("ok", &[]).await.unwrap();
+        assert!(none.status_source().is_none());
+
+        let custom = initialized("ok", &[("status_page_url", "https://status.example.com")])
+            .await
+            .unwrap();
+        let source = custom.status_source().unwrap();
+        assert_eq!(source.name, "status.example.com");
+        assert_eq!(
+            source.feed_url.as_str(),
+            "https://status.example.com/api/v2/summary.json"
+        );
+
+        let rejected = initialized("ok", &[("status_page_url", "javascript:alert(1)")]).await;
+        assert!(matches!(rejected, Err(PluginError::InvalidConfig(_))));
     }
 }

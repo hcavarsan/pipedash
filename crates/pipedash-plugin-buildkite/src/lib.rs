@@ -4,6 +4,8 @@ mod mapper;
 mod metadata;
 mod plugin;
 mod schema;
+#[cfg(test)]
+mod test_support;
 mod types;
 
 pub use plugin::BuildkitePlugin;

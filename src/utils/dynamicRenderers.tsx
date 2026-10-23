@@ -1,16 +1,13 @@
 import { Anchor, Badge, Code } from '@mantine/core'
-
 import { StatusBadge } from '../components/atoms/StatusBadge'
 import { STATUS_META } from '../theme/status'
 import type { CellRenderer, PipelineStatus } from '../types'
-
 import { formatDateTime } from './formatDateTime'
 import { formatDuration } from './formatDuration'
+import { isHttpUrl } from './openExternal'
 import { TableCells } from './tableCells'
 
 export type CellValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[]
-
-const HTTP_URL = /^https?:\/\//i
 
 const renderEmpty = (): React.ReactNode => TableCells.textDimmed('—')
 
@@ -41,7 +38,7 @@ const renderDuration = (value: CellValue): React.ReactNode => {
 const renderLink = (value: CellValue): React.ReactNode => {
   const url = String(value)
 
-  if (!HTTP_URL.test(url)) {
+  if (!isHttpUrl(url)) {
     return renderText(value)
   }
 

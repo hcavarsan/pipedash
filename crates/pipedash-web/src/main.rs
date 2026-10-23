@@ -18,6 +18,7 @@ use axum::{
             AUTHORIZATION,
             HOST,
             ORIGIN,
+            UPGRADE,
         },
         Method,
         StatusCode,
@@ -123,8 +124,16 @@ fn app(state: AppState, frontend_base_path: Option<String>) -> Router {
         .with_state(state)
 }
 
-fn is_cross_origin_write(req: &Request) -> bool {
-    if matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS) {
+fn is_websocket_upgrade(req: &Request) -> bool {
+    req.headers()
+        .get(UPGRADE)
+        .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"websocket"))
+}
+
+fn is_cross_origin_request(req: &Request) -> bool {
+    let guarded = !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS)
+        || is_websocket_upgrade(req);
+    if !guarded {
         return false;
     }
 
@@ -162,8 +171,8 @@ fn is_cross_origin_write(req: &Request) -> bool {
     !(origin_scheme.eq_ignore_ascii_case(scheme) && origin_host.eq_ignore_ascii_case(host))
 }
 
-async fn reject_cross_origin_writes(req: Request, next: Next) -> Result<Response, StatusCode> {
-    if is_cross_origin_write(&req) {
+async fn reject_cross_origin_requests(req: Request, next: Next) -> Result<Response, StatusCode> {
+    if is_cross_origin_request(&req) {
         tracing::warn!(
             method = %req.method(),
             path = req.uri().path(),
@@ -368,7 +377,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     if !api_config.cors_allow_all {
-        app = app.layer(axum::middleware::from_fn(reject_cross_origin_writes));
+        app = app.layer(axum::middleware::from_fn(reject_cross_origin_requests));
     }
 
     let app = app
@@ -705,7 +714,7 @@ mod tests {
                 "/api/v1/factory-reset",
                 axum::routing::any(|| async { "ok" }),
             )
-            .layer(axum::middleware::from_fn(reject_cross_origin_writes));
+            .layer(axum::middleware::from_fn(reject_cross_origin_requests));
         let mut request = axum::http::Request::builder()
             .method(method)
             .uri("/api/v1/factory-reset");
@@ -790,5 +799,90 @@ mod tests {
         for method in [Method::GET, Method::HEAD, Method::OPTIONS] {
             assert_eq!(factory_reset_status(method, &headers).await, StatusCode::OK);
         }
+    }
+
+    async fn websocket_handshake(origin_layer: bool, extra: &[(&str, &str)]) -> String {
+        use tokio::io::{
+            AsyncReadExt,
+            AsyncWriteExt,
+        };
+
+        let state = AppState::setup_mode(Arc::new(WebSocketEventBus::new()));
+        assert!(state.api_token().is_none());
+        let mut router = app(state, None);
+        if origin_layer {
+            router = router.layer(axum::middleware::from_fn(reject_cross_origin_requests));
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+        let mut request = format!(
+            "GET /api/v1/ws HTTP/1.1\r\nHost: {addr}\r\nUpgrade: websocket\r\n\
+             Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+             Sec-WebSocket-Version: 13\r\n"
+        );
+        for (name, value) in extra {
+            request.push_str(&format!(
+                "{name}: {}\r\n",
+                value.replace("{addr}", &addr.to_string())
+            ));
+        }
+        request.push_str("\r\n");
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        while !response.ends_with(b"\r\n\r\n") {
+            response.push(stream.read_u8().await.unwrap());
+        }
+
+        String::from_utf8_lossy(&response)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn a_websocket_upgrade_from_a_foreign_origin_is_rejected_without_a_token() {
+        for extra in [
+            &[("Origin", "http://evil.example")][..],
+            &[
+                ("Origin", "http://evil.example"),
+                ("Sec-Fetch-Site", "cross-site"),
+            ],
+            &[
+                ("Origin", "http://localhost:1420"),
+                ("Sec-Fetch-Site", "same-site"),
+            ],
+            &[("Origin", "http://{addr}.evil.example")],
+        ] {
+            let status = websocket_handshake(true, extra).await;
+
+            assert!(status.contains(" 403"), "{extra:?} -> {status}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_websocket_upgrade_from_the_same_origin_or_a_non_browser_is_accepted() {
+        for extra in [
+            &[][..],
+            &[("Origin", "http://{addr}")],
+            &[
+                ("Origin", "http://localhost:1420"),
+                ("Sec-Fetch-Site", "same-origin"),
+            ],
+        ] {
+            let status = websocket_handshake(true, extra).await;
+
+            assert!(status.contains(" 101"), "{extra:?} -> {status}");
+        }
+    }
+
+    #[tokio::test]
+    async fn with_cors_allowed_for_all_any_origin_may_upgrade() {
+        let status = websocket_handshake(false, &[("Origin", "http://evil.example")]).await;
+
+        assert!(status.contains(" 101"), "{status}");
     }
 }

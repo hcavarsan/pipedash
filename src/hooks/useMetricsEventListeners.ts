@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { logger } from '../lib/logger'
 import { useInvalidatePipelineMetrics } from '../queries/useMetricsQueries'
 import { events } from '../services'
+import type { PipelineStatusChangedPayload } from '../types/events'
 
 const METRICS_EVENT_TYPES = [
   'metrics-generated',
@@ -48,7 +49,11 @@ export function useMetricsEventListeners({
       }
 
       if (eventType === 'pipeline-status-changed') {
-        invalidateRef.current()
+        const ids = (payload as PipelineStatusChangedPayload | null)?.pipeline_ids
+
+        if (ids?.includes(pipelineId)) {
+          invalidateRef.current()
+        }
 
         return
       }

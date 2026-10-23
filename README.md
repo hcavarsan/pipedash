@@ -60,13 +60,14 @@ What you can do:
 - See when a running pipeline takes far longer than usual. Past 3 times the median duration of its recent successful runs, the status reads "Running longer than usual". With notifications on, you also get one system notification for that run. Flux resources are left out
 - Add multiple instances of the same provider (e.g., two GitHub orgs)
 - Keep watching GitHub repos without running out of API quota. With less than 10% of the hourly quota left, Pipedash stops refreshing that GitHub provider until the quota resets. The sidebar and Settings > Providers show "Paused until" with the reset time
+- See when a provider has problems. Pipedash reads the public status pages of GitHub, GitLab.com, Bitbucket and Buildkite, and checks the Tekton and Flux controllers in your cluster. On GitHub, GitLab, Gitea, Jenkins, ArgoCD, Tekton and Flux providers you can also set the status page of your own instance. It only raises a warning for outages on the parts that runs depend on, such as Actions, the API, git and webhooks, and for problems reaching the provider. Click a provider in the table to see its service status, its controllers and Pipedash's connection to it. Outage and recovery alerts go to the bell in the header, which shows a dot while you have unread alerts. Turn on "Notify me about provider outages" under Settings > General for a system notification
 - Pick a dark, light, or system theme in Settings → General
 
 When you trigger or rerun a workflow, Pipedash fetches available parameters from the plugin (workflow inputs for GitHub Actions, pipeline variables for GitLab CI, build parameters for Jenkins/Buildkite) and shows them in a form.
 
 **Privacy and security**
 
-Everything runs locally on your machine. Pipedash only connects to your CI/CD providers – no analytics, telemetry, or third-party services.
+Everything runs locally on your machine. Pipedash connects to your CI/CD providers and, unless you turn it off in Settings → General, to their public status pages (hosted by Atlassian Statuspage or status.io) or a status page you configure. Status checks send no credentials. No analytics or telemetry.
 
 Token storage options:
 
@@ -195,11 +196,13 @@ Token storage options:
 
 For encrypted storage, Pipedash auto-generates a password on first run. Set `PIPEDASH_VAULT_PASSWORD` if you need reproducible deployments.
 
-Each provider has its own refresh interval (default: 30 seconds). Adjust based on API rate limits.
+Each provider has its own refresh interval (default: 30 seconds). Adjust based on API rate limits. When a provider keeps failing, Pipedash waits longer between attempts, doubling the wait up to 10 minutes. When a provider rate limits Pipedash, it waits as long as the provider asks, up to 1 hour. Manual refresh tries again right away, but it still respects a rate-limit wait and skips a provider that was checked in the last 10 seconds.
 
 **Plugin system**
 
 Each CI/CD provider implements the same plugin interface. The core calls methods such as `fetch_pipelines()` and `trigger_pipeline()`. Each plugin translates its provider's resources and actions.
+
+Plugins also describe provider health. `status_source()` names the public status page feed and the components that matter for CI. `check_health()` reports problems the plugin can see on the instance itself, such as the Tekton or Flux controllers. `client_options()` tells the core which HTTP client the plugin needs, for example to skip TLS verification for a self-signed ArgoCD server. The core does the polling, caching, backoff and wording.
 
 We compile plugins into the app at build time (not loaded dynamically at runtime). This keeps things simpler and avoids security concerns with runtime plugin loading.
 
@@ -345,6 +348,7 @@ You can also configure Pipedash via TOML. Set `PIPEDASH_CONFIG_PATH` to specify 
 [general]
 metrics_enabled = true
 default_refresh_interval = 30
+status_pages_enabled = true
 
 [server]
 bind_addr = "0.0.0.0:8080"
@@ -378,7 +382,7 @@ base_url = "https://gitlab.company.com"
 selected_items = "team/backend,team/frontend"
 ```
 
-Use `${VAR}` syntax to reference environment variables in config values.
+Use `${VAR}` syntax to reference environment variables in config values. When `VAR` is unset, Pipedash reads the value from the file named in `VAR_FILE` and drops the trailing newline. Docker and Kubernetes secrets work this way, for example `GITHUB_TOKEN_FILE=/run/secrets/github_token` or `PIPEDASH_POSTGRES_URL_FILE=/run/secrets/postgres_url`. `PIPEDASH_VAULT_PASSWORD` has no `_FILE` form.
 
 The `[server]` values are read when the API server starts. Until a config file exists (setup mode), the server uses the defaults `127.0.0.1:8080` and `cors_allow_all = false`, so restart the server after setup to apply them. `PIPEDASH_BIND_ADDR`, `PIPEDASH_CORS_ALLOW_ALL` and `PIPEDASH_BASE_PATH` take precedence over the file.
 

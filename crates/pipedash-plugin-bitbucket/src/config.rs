@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
 use pipedash_plugin_api::{
+    ComponentFilter,
+    FeedFormat,
     PluginError,
     PluginResult,
+    StatusSource,
 };
 
 pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, String, String)> {
@@ -51,4 +54,40 @@ pub(crate) fn get_auth(config: &HashMap<String, String>) -> PluginResult<(String
         .clone();
 
     Ok((email, api_token))
+}
+
+pub(crate) fn status_source() -> PluginResult<StatusSource> {
+    let url = |value: &str| {
+        reqwest::Url::parse(value)
+            .map_err(|e| PluginError::Internal(format!("Invalid Bitbucket status URL: {e}")))
+    };
+    Ok(StatusSource {
+        name: "Bitbucket".to_string(),
+        page_url: url("https://bitbucket.status.atlassian.com/")?,
+        feed_url: url("https://bitbucket.status.atlassian.com/api/v2/summary.json")?,
+        format: FeedFormat::Statuspage,
+        components: ComponentFilter::Ids(
+            [
+                "k0x2yw1435v7",
+                "rzh2n85q7vtt",
+                "rfzky0v13fbp",
+                "c1qmcrcbc5zy",
+            ]
+            .map(str::to_string)
+            .to_vec(),
+        ),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_source_is_the_bitbucket_statuspage_feed() {
+        let source = status_source().unwrap();
+        assert_eq!(source.feed_url.path(), "/api/v2/summary.json");
+        assert_eq!(source.format, FeedFormat::Statuspage);
+        assert!(matches!(source.components, ComponentFilter::Ids(ids) if ids.len() == 4));
+    }
 }

@@ -7,6 +7,17 @@ use crate::{
 
 const NAMESPACE_LIST_REGEX: &str =
     r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\s*,\s*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$";
+const NAMESPACE_REGEX: &str = r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)?$";
+
+pub(crate) const CONTROLLER_HEALTH_PERMISSION: &str = "Read controller Deployments";
+
+pub(crate) fn controller_permission() -> Permission {
+    Permission {
+        name: CONTROLLER_HEALTH_PERMISSION.to_string(),
+        description: "get deployments.apps tekton-pipelines-controller and tekton-pipelines-webhook in the Tekton controller namespace to report controller health".to_string(),
+        required: false,
+    }
+}
 
 pub fn create_metadata() -> PluginMetadata {
     PluginMetadata {
@@ -19,8 +30,13 @@ pub fn create_metadata() -> PluginMetadata {
         config_schema: create_config_schema(),
         table_schema: schema::create_table_schema(),
         capabilities: create_capabilities(),
-        required_permissions: Vec::new(),
-        features: Vec::new(),
+        required_permissions: vec![controller_permission()],
+        features: vec![Feature {
+            id: CONTROLLER_HEALTH_FEATURE.to_string(),
+            name: "Controller health".to_string(),
+            description: "Warn when the Tekton controller or webhook is scaled to zero, not running or only partly available".to_string(),
+            required_permissions: vec![CONTROLLER_HEALTH_PERMISSION.to_string()],
+        }],
     }
 }
 
@@ -89,6 +105,25 @@ fn create_config_schema() -> ConfigSchema {
                 "Invalid namespace format. Each namespace must: start and end with alphanumeric, contain only lowercase letters, numbers, and hyphens, be max 63 characters. Separate multiple namespaces with commas.".to_string(),
             ),
         })
+        .add_field(ConfigField {
+            key: "tekton_namespace".to_string(),
+            label: "Tekton controller namespace".to_string(),
+            description: Some(
+                "Namespace where the Tekton Pipelines controller and webhook run. Pipedash reads the tekton-pipelines-controller and tekton-pipelines-webhook Deployments there to report controller health. Defaults to tekton-pipelines. Needs 'get' permission on Deployments in that namespace; without it, controller health is unavailable."
+                    .to_string(),
+            ),
+            field_type: ConfigFieldType::Text,
+            required: false,
+            default_value: Some(serde_json::Value::String(
+                config::DEFAULT_CONTROLLER_NAMESPACE.to_string(),
+            )),
+            options: None,
+            validation_regex: Some(NAMESPACE_REGEX.to_string()),
+            validation_message: Some(
+                "Must be a valid Kubernetes namespace name: lowercase letters, numbers and hyphens, up to 63 characters.".to_string(),
+            ),
+        })
+        .add_field(status_page_field())
 }
 
 fn create_capabilities() -> PluginCapabilities {
@@ -101,5 +136,6 @@ fn create_capabilities() -> PluginCapabilities {
         artifacts: false,
         queues: false,
         custom_tables: false,
+        retains_run_history: false,
     }
 }

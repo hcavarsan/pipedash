@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use chrono::Utc;
 use pipedash_plugin_api::{
+    check_response,
+    map_send_error,
     AvailablePipeline,
     Pipeline,
     PluginError,
@@ -11,8 +13,9 @@ use pipedash_plugin_api::{
 };
 use reqwest::{
     Client,
-    StatusCode,
+    Url,
 };
+use serde::de::DeserializeOwned;
 
 use crate::{
     config,
@@ -20,21 +23,8 @@ use crate::{
     types,
 };
 
-fn check_status(response: reqwest::Response) -> PluginResult<reqwest::Response> {
-    let status = response.status();
-    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-        return Err(PluginError::AuthenticationFailed(format!(
-            "Jenkins rejected the username or API token for {} (HTTP {status})",
-            response.url()
-        )));
-    }
-    if !status.is_success() {
-        return Err(PluginError::ApiError(format!(
-            "Jenkins returned HTTP {status} for {}",
-            response.url()
-        )));
-    }
-    Ok(response)
+fn parse_url(url: &str) -> PluginResult<Url> {
+    Url::parse(url).map_err(|e| PluginError::InvalidConfig(format!("Invalid Jenkins URL: {e}")))
 }
 
 pub(crate) struct JenkinsClient {
@@ -58,6 +48,31 @@ impl JenkinsClient {
 
     pub fn server_url(&self) -> &str {
         &self.server_url
+    }
+
+    async fn get_json<T: DeserializeOwned>(
+        &self, url: &str, timeout: Option<Duration>,
+    ) -> PluginResult<T> {
+        let url = parse_url(url)?;
+
+        self.retry_policy
+            .retry(|| async {
+                let mut request = self
+                    .http_client
+                    .get(url.clone())
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_header);
+                if let Some(timeout) = timeout {
+                    request = request.timeout(timeout);
+                }
+                let response = request.send().await.map_err(|e| map_send_error(e, &url))?;
+
+                check_response(response)
+                    .await?
+                    .json()
+                    .await
+                    .map_err(|e| map_send_error(e, &url))
+            })
+            .await
     }
 
     pub async fn discover_all_jobs(&self) -> PluginResult<Vec<types::DiscoveredJob>> {
@@ -103,89 +118,37 @@ impl JenkinsClient {
             )
         };
 
-        let response: types::JobsResponse = self
-            .http_client
-            .get(&url)
-            .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-            .send()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch jobs: {e}")))
-            .and_then(check_status)?
-            .json()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to parse jobs: {e}")))?;
+        let response: types::JobsResponse = self.get_json(&url, None).await?;
 
         Ok(response.jobs)
     }
 
     pub async fn fetch_job_details(&self, job_path: &str) -> PluginResult<types::Job> {
-        let job_path = job_path.to_string();
-        self.retry_policy
-            .retry(|| async {
-                let encoded_path = config::encode_job_name(&job_path);
-                let url = format!(
-                    "{}/job/{}/api/json?tree=name,lastBuild[number]",
-                    self.server_url, encoded_path
-                );
+        let encoded_path = config::encode_job_name(job_path);
+        let url = format!(
+            "{}/job/{}/api/json?tree=name,lastBuild[number]",
+            self.server_url, encoded_path
+        );
 
-                let job: types::Job = self
-                    .http_client
-                    .get(&url)
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                    .timeout(Duration::from_secs(10))
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::ApiError(format!("Failed to fetch job {job_path}: {e}"))
-                    })
-                    .and_then(check_status)?
-                    .json()
-                    .await
-                    .map_err(|e| {
-                        PluginError::ApiError(format!("Failed to parse job {job_path}: {e}"))
-                    })?;
-
-                Ok(job)
-            })
-            .await
+        self.get_json(&url, Some(Duration::from_secs(10))).await
     }
 
     pub async fn fetch_build_details(
         &self, job_path: &str, build_number: i64,
     ) -> PluginResult<types::Build> {
-        let job_path = job_path.to_string();
-        self.retry_policy.retry(|| async {
-            let encoded_path = config::encode_job_name(&job_path);
-            let url = format!(
-                "{}/job/{}/{}/api/json?tree=number,result,building,timestamp,duration,url,fullDisplayName,actions[_class,causes[userName,shortDescription],lastBuiltRevision[SHA1,branch[SHA1,name]],parameters[name,value]]",
-                self.server_url, encoded_path, build_number
-            );
+        let encoded_path = config::encode_job_name(job_path);
+        let url = format!(
+            "{}/job/{}/{}/api/json?tree=number,result,building,timestamp,duration,url,fullDisplayName,actions[_class,causes[userName,shortDescription],lastBuiltRevision[SHA1,branch[SHA1,name]],parameters[name,value]]",
+            self.server_url, encoded_path, build_number
+        );
 
-            tracing::debug!(url = %url, "Fetching Jenkins build details");
+        tracing::debug!(job_path = %job_path, build_number = build_number, "Fetching Jenkins build details");
 
-            let response = self
-                .http_client
-                .get(&url)
-                .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                .timeout(Duration::from_secs(10))
-                .send()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch build: {e}")))
-                .and_then(check_status)?;
+        let build: types::Build = self.get_json(&url, Some(Duration::from_secs(10))).await?;
 
-            let response_text = response.text().await
-                .map_err(|e| PluginError::ApiError(format!("Failed to read response: {e}")))?;
+        tracing::debug!(action_count = build.actions.len(), "Parsed Jenkins build");
 
-            tracing::trace!(response = %response_text, "Jenkins raw response");
-
-            let build: types::Build = serde_json::from_str(&response_text)
-                .map_err(|e| PluginError::ApiError(format!("Failed to parse build: {e}")))?;
-
-            tracing::debug!(action_count = build.actions.len(), "Parsed Jenkins build");
-
-            Ok(build)
-        })
-        .await
+        Ok(build)
     }
 
     pub async fn fetch_build_history(
@@ -197,17 +160,7 @@ impl JenkinsClient {
             self.server_url, encoded_path
         );
 
-        let response: types::JobBuildsResponse = self
-            .http_client
-            .get(&url)
-            .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-            .send()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to fetch builds: {e}")))
-            .and_then(check_status)?
-            .json()
-            .await
-            .map_err(|e| PluginError::ApiError(format!("Failed to parse builds: {e}")))?;
+        let response: types::JobBuildsResponse = self.get_json(&url, None).await?;
 
         Ok(response.builds)
     }
@@ -215,117 +168,54 @@ impl JenkinsClient {
     pub async fn fetch_job_parameters(
         &self, job_path: &str,
     ) -> PluginResult<types::JobWithParameters> {
-        self.retry_policy.retry(|| async {
-            let encoded_path = config::encode_job_name(job_path);
-            let url = format!(
-                "{}/job/{}/api/json?tree=property[parameterDefinitions[name,description,type,defaultParameterValue[value],choices],_class]",
-                self.server_url, encoded_path
-            );
+        let encoded_path = config::encode_job_name(job_path);
+        let url = format!(
+            "{}/job/{}/api/json?tree=property[parameterDefinitions[name,description,type,defaultParameterValue[value],choices],_class]",
+            self.server_url, encoded_path
+        );
 
-            tracing::debug!(url = %url, "Fetching Jenkins job parameters");
+        tracing::debug!(job_path = %job_path, "Fetching Jenkins job parameters");
 
-            let response: types::JobWithParameters = self
-                .http_client
-                .get(&url)
-                .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                .timeout(Duration::from_secs(30))
-                .send()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to fetch job parameters: {e}")))
-                .and_then(check_status)?
-                .json()
-                .await
-                .map_err(|e| PluginError::ApiError(format!("Failed to parse job parameters: {e}")))?;
-
-            Ok(response)
-        })
-        .await
+        self.get_json(&url, Some(Duration::from_secs(30))).await
     }
 
     pub async fn trigger_build(
         &self, job_path: &str, form_data: Vec<(String, String)>,
     ) -> PluginResult<()> {
-        let job_path = job_path.to_string();
-        let form_data_clone = form_data.clone();
+        let encoded_path = config::encode_job_name(job_path);
+        let endpoint = if form_data.is_empty() {
+            "build"
+        } else {
+            "buildWithParameters"
+        };
+        let url = parse_url(&format!(
+            "{}/job/{}/{endpoint}",
+            self.server_url, encoded_path
+        ))?;
+        let parameter_names = form_data
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
 
-        self.retry_policy.retry(|| async {
-            let encoded_path = config::encode_job_name(&job_path);
-            let has_params = !form_data_clone.is_empty();
+        tracing::debug!(job_path = %job_path, parameters = %parameter_names, "Triggering Jenkins build");
 
-            let url = if has_params {
-                format!(
-                    "{}/job/{}/buildWithParameters",
-                    self.server_url, encoded_path
-                )
-            } else {
-                format!("{}/job/{}/build", self.server_url, encoded_path)
-            };
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .post(url.clone())
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
+                    .form(&form_data)
+                    .send()
+            })
+            .await?;
+        check_response(response).await.inspect_err(|e| {
+            tracing::error!(job_path = %job_path, parameters = %parameter_names, error = %e, "Jenkins trigger failed");
+        })?;
 
-            tracing::debug!(url = %url, "Triggering Jenkins build");
-            tracing::trace!(form_data = ?form_data_clone, "Jenkins build form data");
-
-            let response = self
-                .http_client
-                .post(&url)
-                .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                .form(&form_data_clone)
-                .send()
-                .await
-                .map_err(|e| {
-                    let error_msg = format!("Failed to trigger build: {e}");
-                    tracing::error!(error = %e, "Jenkins network error");
-                    PluginError::ApiError(error_msg)
-                })?;
-
-            let status = response.status();
-
-            if status.is_success() || status == 201 {
-                tracing::info!("Jenkins build triggered successfully");
-                Ok(())
-            } else {
-                let error_text = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Unknown error".to_string());
-
-                tracing::error!(status = %status, error = %error_text, "Jenkins trigger failed");
-
-                let params_info = form_data_clone
-                    .iter()
-                    .map(|(k, v)| {
-                        format!(
-                            "{}={}",
-                            k,
-                            if v.len() > 50 {
-                                format!("{}...", &v[..50])
-                            } else {
-                                v.clone()
-                            }
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                let detailed_error = if error_text.contains("<!DOCTYPE html>")
-                    || error_text.contains("<html")
-                {
-                    format!(
-                        "Jenkins returned HTTP {status} error. Check Jenkins console for details. Job: {job_path}, Parameters sent: [{params_info}]"
-                    )
-                } else {
-                    let error_preview = if error_text.len() > 300 {
-                        format!("{}...", &error_text[..300])
-                    } else {
-                        error_text
-                    };
-                    format!(
-                        "HTTP {status}: {error_preview} | Job: {job_path} | Parameters: [{params_info}]"
-                    )
-                };
-
-                Err(PluginError::ApiError(detailed_error))
-            }
-        }).await
+        tracing::info!("Jenkins build triggered successfully");
+        Ok(())
     }
 
     pub async fn fetch_pipeline(
@@ -383,45 +273,30 @@ impl JenkinsClient {
     }
 
     pub async fn cancel_build(&self, job_path: &str, build_number: i64) -> PluginResult<()> {
-        let job_path = job_path.to_string();
+        let encoded_path = config::encode_job_name(job_path);
+        let url = parse_url(&format!(
+            "{}/job/{}/{}/stop",
+            self.server_url, encoded_path, build_number
+        ))?;
 
-        self.retry_policy
-            .retry(|| async {
-                let encoded_path = config::encode_job_name(&job_path);
-                let url = format!(
-                    "{}/job/{}/{}/stop",
-                    self.server_url, encoded_path, build_number
-                );
+        tracing::info!(build_number = build_number, job_path = %job_path, "Cancelling Jenkins build");
 
-                tracing::info!(build_number = build_number, job_path = %job_path, "Cancelling Jenkins build");
-
-                let response = self
-                    .http_client
-                    .post(&url)
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .post(url.clone())
                     .header(reqwest::header::AUTHORIZATION, &self.auth_header)
                     .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::ApiError(format!("Failed to cancel build: {e}"))
-                    })?;
-
-                let status = response.status();
-
-                if status.is_success() || status == 302 {
-                    tracing::info!(build_number = build_number, "Jenkins build cancelled successfully");
-                    Ok(())
-                } else {
-                    let error_text = response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error".to_string());
-                    tracing::error!(status = %status, error = %error_text, "Jenkins cancel failed");
-                    Err(PluginError::ApiError(format!(
-                        "Failed to cancel build: HTTP {status}"
-                    )))
-                }
             })
-            .await
+            .await?;
+        check_response(response).await?;
+
+        tracing::info!(
+            build_number = build_number,
+            "Jenkins build cancelled successfully"
+        );
+        Ok(())
     }
 
     pub fn discovered_jobs_to_available_pipelines(
@@ -462,50 +337,73 @@ mod tests {
     };
     use std::sync::Arc;
 
-    use tokio::io::{
-        AsyncReadExt,
-        AsyncWriteExt,
+    use super::*;
+    use crate::test_support::{
+        stub_server,
+        Reply,
     };
 
-    use super::*;
+    fn unauthorized(_: &str) -> Reply {
+        Reply {
+            status: "401 Unauthorized",
+            headers: "Content-Type: text/html\r\n",
+            body: "<html><body><h2>HTTP ERROR 401 Unauthorized</h2></body></html>",
+        }
+    }
 
-    async fn rejecting_server(requests: Arc<AtomicUsize>) -> String {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            loop {
-                let (mut stream, _) = listener.accept().await.unwrap();
-                let mut request = Vec::new();
-                let mut buffer = [0; 4096];
-                while !request.windows(4).any(|w| w == b"\r\n\r\n") {
-                    let n = stream.read(&mut buffer).await.unwrap();
-                    if n == 0 {
-                        break;
-                    }
-                    request.extend_from_slice(&buffer[..n]);
-                }
-                requests.fetch_add(1, Ordering::SeqCst);
-                let body = "<html><body><h2>HTTP ERROR 401 Unauthorized</h2></body></html>";
-                let response = format!(
-                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                stream.write_all(response.as_bytes()).await.unwrap();
-            }
-        });
-        format!("http://{addr}")
+    fn not_found(_: &str) -> Reply {
+        Reply {
+            status: "404 Not Found",
+            headers: "",
+            body: "<html><body><h2>HTTP ERROR 404 Not Found</h2></body></html>",
+        }
+    }
+
+    fn rate_limited(_: &str) -> Reply {
+        Reply {
+            status: "429 Too Many Requests",
+            headers: "Retry-After: 120\r\n",
+            body: "slow down",
+        }
+    }
+
+    fn unavailable(_: &str) -> Reply {
+        Reply {
+            status: "503 Service Unavailable",
+            headers: "",
+            body: "maintenance",
+        }
+    }
+
+    fn created(_: &str) -> Reply {
+        Reply {
+            status: "201 Created",
+            headers: "",
+            body: "",
+        }
+    }
+
+    async fn client_for(
+        reply: fn(&str) -> Reply, delay: Duration,
+    ) -> (JenkinsClient, Arc<AtomicUsize>) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let server_url = stub_server(requests.clone(), delay, reply).await;
+        let http_client = Client::builder()
+            .timeout(Duration::from_millis(300))
+            .build()
+            .unwrap();
+        let client = JenkinsClient::new(
+            Arc::new(http_client),
+            server_url,
+            "Basic YWxpY2U6d3Jvbmc=".to_string(),
+        );
+        (client, requests)
     }
 
     #[tokio::test]
     async fn rejected_credentials_fail_as_auth_error_without_retry() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let requests = Arc::new(AtomicUsize::new(0));
-        let server_url = rejecting_server(requests.clone()).await;
-        let client = JenkinsClient::new(
-            Arc::new(Client::new()),
-            server_url,
-            "Basic YWxpY2U6d3Jvbmc=".to_string(),
-        );
+        let (client, requests) = client_for(unauthorized, Duration::ZERO).await;
 
         let results = [
             client.discover_all_jobs().await.err(),
@@ -522,5 +420,91 @@ mod tests {
             );
         }
         assert_eq!(requests.load(Ordering::SeqCst), 5);
+    }
+
+    #[tokio::test]
+    async fn missing_job_is_pipeline_not_found() {
+        let (client, requests) = client_for(not_found, Duration::ZERO).await;
+
+        let error = client.fetch_job_details("gone").await.unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::PipelineNotFound(_)),
+            "{error:?}"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn rate_limit_carries_retry_after_and_is_not_retried() {
+        let (client, requests) = client_for(rate_limited, Duration::ZERO).await;
+
+        let error = client.fetch_job_details("build").await.unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::RateLimited { .. }),
+            "{error:?}"
+        );
+        assert_eq!(error.retry_after(), Some(Duration::from_secs(120)));
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn server_error_is_service_unavailable_and_retried() {
+        let (client, requests) = client_for(unavailable, Duration::ZERO).await;
+
+        let error = client.fetch_job_details("build").await.unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::ServiceUnavailable { .. }),
+            "{error:?}"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn timed_out_mutations_are_not_sent_again() {
+        let (client, requests) = client_for(created, Duration::from_secs(2)).await;
+
+        let trigger = client
+            .trigger_build("build", vec![("name".to_string(), "value".to_string())])
+            .await
+            .unwrap_err();
+        let cancel = client.cancel_build("build", 7).await.unwrap_err();
+
+        assert!(
+            matches!(trigger, PluginError::NetworkError(_)),
+            "{trigger:?}"
+        );
+        assert!(matches!(cancel, PluginError::NetworkError(_)), "{cancel:?}");
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn failed_trigger_error_has_no_parameter_values() {
+        let (client, requests) = client_for(unavailable, Duration::ZERO).await;
+        let secret = "s3cr3t-".repeat(20);
+
+        let error = client
+            .trigger_build(
+                "build",
+                vec![
+                    ("DEPLOY_TOKEN".to_string(), secret.clone()),
+                    ("short".to_string(), "hunter2".to_string()),
+                ],
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::ServiceUnavailable { .. }),
+            "{error:?}"
+        );
+        let text = error.to_string();
+        assert!(
+            !text.contains("s3cr3t") && !text.contains("hunter2"),
+            "{text}"
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
     }
 }

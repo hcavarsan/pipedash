@@ -9,3 +9,5 @@ export const API_TIMEOUTS = {
 
   UPLOAD: 60000,
 } as const
+
+export const REFRESH_TIMEOUT_MS = 35_000

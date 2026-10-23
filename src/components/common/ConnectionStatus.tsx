@@ -1,9 +1,13 @@
 import { Alert, Button, Group, Text, Tooltip } from '@mantine/core'
+import { useNetwork } from '@mantine/hooks'
 import { IconLock, IconRefresh, IconWifiOff } from '@tabler/icons-react'
-import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
 
+import { logger } from '@/lib/logger'
+import { queryKeys } from '@/lib/queryKeys'
 import { useVaultStatus } from '@/queries/useVaultQueries'
-import { isTauri } from '@/services'
+import { isTauri, service } from '@/services'
 import { WS_EVENTS, wsClient } from '@/services/websocket'
 
 interface ConnectionState {
@@ -18,6 +22,9 @@ export function ConnectionStatus() {
   })
 
   const { data: vaultStatus } = useVaultStatus()
+  const queryClient = useQueryClient()
+  const { online } = useNetwork()
+  const wasOnline = useRef(online)
 
   useEffect(() => {
     if (isTauri()) {
@@ -32,6 +39,32 @@ export function ConnectionStatus() {
       unlisten()
     }
   }, [])
+
+  useEffect(() => {
+    const cameBackOnline = online && !wasOnline.current
+
+    wasOnline.current = online
+
+    if (!cameBackOnline) {
+      return
+    }
+
+    const invalidate = () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+      ])
+
+    if (isTauri()) {
+      service
+        .refreshAll()
+        .catch((error) => logger.error('ConnectionStatus', 'Refresh after reconnect failed', error))
+        .finally(invalidate)
+    } else {
+      wsClient.manualReconnect()
+      invalidate()
+    }
+  }, [online, queryClient])
 
   const handleManualReconnect = () => {
     wsClient.manualReconnect()
@@ -54,6 +87,21 @@ export function ConnectionStatus() {
             <Text size="sm">Token storage is locked</Text>
           </Alert>
         </Tooltip>
+      )
+    }
+
+    if (!online) {
+      return (
+        <Alert
+          icon={<IconWifiOff size={16} />}
+          title="You're offline"
+          color="orange"
+          variant="light"
+          withCloseButton={false}
+          style={{ position: 'fixed', top: 60, right: 16, zIndex: 1000, maxWidth: 300 }}
+        >
+          <Text size="sm">Pipedash refreshes your providers once the connection is back.</Text>
+        </Alert>
       )
     }
 

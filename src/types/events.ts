@@ -1,8 +1,8 @@
-import type { Pipeline, ProviderSummary } from './index'
+import type { Pipeline, ProviderHealthAlert, ProviderSummary } from './index'
 
 export interface PipelinesUpdatedPayload {
   pipelines: Pipeline[]
-  providerId?: number
+  providerId: number
   timestamp: number
 }
 
@@ -22,11 +22,23 @@ export interface RefreshStatusPayload {
   providerId?: number
 }
 
+export interface ProviderStatusUpdatedPayload {
+  provider: ProviderSummary
+}
+
+export interface PipelineStatusChangedPayload {
+  pipeline_ids: string[]
+}
+
 export type EventPayloadMap = {
   'pipelines-updated': PipelinesUpdatedPayload
   'provider-added': ProviderChangedPayload
   'provider-updated': ProviderChangedPayload
   'provider-removed': ProviderChangedPayload
+  'provider-status-updated': ProviderStatusUpdatedPayload
+  'provider-health-alert': ProviderHealthAlert
+  'providers-changed': undefined
   'pipeline-cache-invalidated': CacheInvalidatedPayload
+  'pipeline-status-changed': PipelineStatusChangedPayload
   'refresh-status': RefreshStatusPayload
 }

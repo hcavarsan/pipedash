@@ -45,5 +45,6 @@ fn create_capabilities() -> PluginCapabilities {
         artifacts: true,
         queues: false,
         custom_tables: false,
+        retains_run_history: false,
     }
 }

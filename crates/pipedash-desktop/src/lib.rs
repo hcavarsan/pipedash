@@ -1,6 +1,7 @@
 mod commands;
 pub mod fallback_store;
 pub mod keyring_store;
+mod system_notifications;
 pub mod tauri_event_bus;
 
 use std::path::{
@@ -213,7 +214,6 @@ use commands::{
     execute_storage_migration,
     export_providers,
     factory_reset,
-    fetch_pipelines,
     fetch_provider_organizations,
     fetch_run_history,
     flush_pipeline_metrics,
@@ -248,6 +248,7 @@ use commands::{
     query_aggregated_metrics,
     query_pipeline_metrics,
     refresh_all,
+    refresh_provider,
     remove_provider,
     reset_metrics_processing_state,
     restart_app,
@@ -259,6 +260,7 @@ use commands::{
     test_storage_connection,
     trigger_pipeline,
     unlock_vault,
+    update_general_settings,
     update_global_metrics_config,
     update_pipeline_metrics_config,
     update_provider,
@@ -544,6 +546,8 @@ pub fn run() {
 
             app.manage(MaybeCoreContext(maybe_core_context));
 
+            system_notifications::register(app.handle())?;
+
             app.manage(AppDataDir(app_data_dir));
 
             Ok(())
@@ -569,7 +573,6 @@ pub fn run() {
             get_provider_permissions,
             get_provider_features,
             get_provider_table_schema,
-            fetch_pipelines,
             get_cached_pipelines,
             fetch_run_history,
             get_workflow_run_details,
@@ -578,8 +581,10 @@ pub fn run() {
             review_pipeline_run,
             get_workflow_parameters,
             refresh_all,
+            refresh_provider,
             set_refresh_mode,
             get_refresh_mode,
+            update_general_settings,
             clear_run_history_cache,
             get_cache_stats,
             clear_pipelines_cache,
@@ -617,6 +622,7 @@ pub fn run() {
             execute_storage_migration,
             factory_reset,
             restart_app,
+            system_notifications::show_system_notification,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -656,5 +662,27 @@ mod tests {
     #[test]
     fn legacy_config_loads_from_a_windows_style_data_dir() {
         assert_generated_config_loads(true);
+    }
+
+    #[test]
+    fn the_desktop_config_templates_turn_status_pages_on() {
+        let root =
+            std::env::temp_dir().join(format!("pipedash-desktop-config-{}", std::process::id()));
+        for legacy in [false, true] {
+            let data_dir = root.join(if legacy { "legacy" } else { "fresh" });
+            std::fs::create_dir_all(&data_dir).unwrap();
+            if legacy {
+                std::fs::write(data_dir.join("pipedash.db"), b"data").unwrap();
+            }
+            let config_path = data_dir.join("config.toml");
+
+            assert!(ensure_desktop_config(&data_dir, &config_path).unwrap());
+
+            let text = std::fs::read_to_string(&config_path).unwrap();
+            assert!(text.contains("status_pages_enabled = true"), "{text}");
+            let config = ConfigLoader::load(&config_path).unwrap();
+            assert!(config.general.status_pages_enabled);
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

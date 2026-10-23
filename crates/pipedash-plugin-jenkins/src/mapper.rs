@@ -96,7 +96,7 @@ pub(crate) fn build_to_pipeline_run(
             );
             let mut params_map = serde_json::Map::new();
             for param in &action.parameters {
-                tracing::trace!(name = %param.name, value = ?param.value, "Jenkins parameter");
+                tracing::trace!(name = %param.name, "Jenkins parameter");
                 params_map.insert(param.name.clone(), param.value.clone());
             }
             let params_count = params_map.len();
@@ -104,8 +104,6 @@ pub(crate) fn build_to_pipeline_run(
             tracing::debug!(count = params_count, "Built Jenkins inputs map");
         }
     }
-
-    tracing::trace!(inputs = ?inputs, "Final Jenkins inputs");
 
     let mut metadata = HashMap::new();
     if let Some(cause) = trigger_cause {

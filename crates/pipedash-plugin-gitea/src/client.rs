@@ -6,6 +6,9 @@ use std::sync::{
 };
 
 use pipedash_plugin_api::{
+    check_response,
+    map_send_error,
+    redact_url,
     Organization,
     PaginatedResponse,
     PaginationParams,
@@ -17,6 +20,7 @@ use reqwest::{
     header::AUTHORIZATION,
     Method,
     StatusCode,
+    Url,
 };
 use serde::de::DeserializeOwned;
 
@@ -205,16 +209,11 @@ impl GiteaClient {
         let path = format!("/repos/{owner}/{repo}/raw/{path}");
         self.retry_policy
             .retry(|| async {
-                let response = self
-                    .request(Method::GET, &path, &[])?
-                    .send()
-                    .await
-                    .map_err(|e| PluginError::NetworkError(format!("Failed to GET {path}: {e}")))?;
-                self.check_status(response)
-                    .await?
-                    .text()
-                    .await
-                    .map_err(|e| PluginError::ApiError(format!("Failed to read {path}: {e}")))
+                let response = self.get_response(&path, &[]).await?;
+                let url = redact_url(response.url());
+                response.text().await.map_err(|e| {
+                    PluginError::ApiError(format!("Failed to read {url}: {}", e.without_url()))
+                })
             })
             .await
     }
@@ -284,42 +283,54 @@ impl GiteaClient {
         &self, owner: &str, repo: &str, workflow: &str, body: &serde_json::Value,
     ) -> PluginResult<()> {
         let path = format!("/repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches");
+        let url = self.url(&path, &[])?;
         let response = self
-            .request(Method::POST, &path, &[])?
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| PluginError::NetworkError(format!("Failed to dispatch workflow: {e}")))?;
-        self.check_status(response).await.map(drop)
+            .retry_policy
+            .retry_unsent(&url, || self.request(Method::POST, &url).json(body).send())
+            .await?;
+        check_response(response).await.map(drop)
     }
 
     pub async fn cancel_run(&self, owner: &str, repo: &str, run_id: i64) -> PluginResult<()> {
         let path = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/cancel");
+        let url = self.url(&path, &[])?;
         let response = self
-            .request(Method::POST, &path, &[])?
-            .send()
-            .await
-            .map_err(|e| PluginError::NetworkError(format!("Failed to cancel run: {e}")))?;
+            .retry_policy
+            .retry_unsent(&url, || self.request(Method::POST, &url).send())
+            .await?;
         if response.status() == StatusCode::NOT_FOUND {
             return Err(PluginError::NotSupported(
                 "Run cancellation is not available on this Gitea version".to_string(),
             ));
         }
-        self.check_status(response).await.map(drop)
+        check_response(response).await.map(drop)
     }
 
-    fn request(
-        &self, method: Method, path: &str, query: &[(&str, String)],
-    ) -> PluginResult<reqwest::RequestBuilder> {
-        let mut url = reqwest::Url::parse(&format!("{}/api/v1{path}", self.base_url))
+    fn url(&self, path: &str, query: &[(&str, String)]) -> PluginResult<Url> {
+        let mut url = Url::parse(&format!("{}/api/v1{path}", self.base_url))
             .map_err(|e| PluginError::InvalidConfig(format!("Invalid Gitea URL: {e}")))?;
         if !query.is_empty() {
             url.query_pairs_mut().extend_pairs(query);
         }
-        Ok(self
-            .http_client
-            .request(method, url)
-            .header(AUTHORIZATION, format!("token {}", self.token)))
+        Ok(url)
+    }
+
+    fn request(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
+        self.http_client
+            .request(method, url.clone())
+            .header(AUTHORIZATION, format!("token {}", self.token))
+    }
+
+    async fn get_response(
+        &self, path: &str, query: &[(&str, String)],
+    ) -> PluginResult<reqwest::Response> {
+        let url = self.url(path, query)?;
+        let response = self
+            .request(Method::GET, &url)
+            .send()
+            .await
+            .map_err(|e| map_send_error(e, &url))?;
+        check_response(response).await
     }
 
     async fn get<T: DeserializeOwned>(
@@ -335,47 +346,21 @@ impl GiteaClient {
     ) -> PluginResult<(T, Option<usize>)> {
         self.retry_policy
             .retry(|| async {
-                let response = self
-                    .request(Method::GET, path, query)?
-                    .send()
-                    .await
-                    .map_err(|e| PluginError::NetworkError(format!("Failed to GET {path}: {e}")))?;
-                let response = self.check_status(response).await?;
+                let response = self.get_response(path, query).await?;
                 let total = response
                     .headers()
                     .get("x-total-count")
                     .and_then(|v| v.to_str().ok())
                     .and_then(|s| s.parse().ok());
-                let url = response.url().clone();
+                let url = redact_url(response.url());
                 let value = response.json().await.map_err(|e| {
                     PluginError::ApiError(format!(
-                        "Failed to parse Gitea API response from {url}: {e}"
+                        "Failed to parse Gitea API response from {url}: {}",
+                        e.without_url()
                     ))
                 })?;
                 Ok((value, total))
             })
             .await
-    }
-
-    async fn check_status(&self, response: reqwest::Response) -> PluginResult<reqwest::Response> {
-        let status = response.status();
-        if status.is_success() {
-            return Ok(response);
-        }
-        let url = response.url().clone();
-        if status == StatusCode::NOT_FOUND {
-            return Err(PluginError::PipelineNotFound(format!(
-                "Resource not found: {url}"
-            )));
-        }
-        let body = response.text().await.unwrap_or_default();
-        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-            return Err(PluginError::AuthenticationFailed(format!(
-                "Authentication failed for {url}: {body}"
-            )));
-        }
-        Err(PluginError::ApiError(format!(
-            "Gitea API error ({status}) for {url}: {body}"
-        )))
     }
 }

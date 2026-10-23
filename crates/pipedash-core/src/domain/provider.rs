@@ -6,7 +6,11 @@ use serde::{
     Serialize,
 };
 
-use super::error::DomainResult;
+use super::error::{
+    DomainResult,
+    FailureKind,
+};
+use super::health::ProviderHealth;
 use super::pipeline::{
     Pipeline,
     PipelineRun,
@@ -62,6 +66,10 @@ pub struct ProviderSummary {
     pub last_fetch_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default)]
     pub paused_until: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub last_fetch_error_kind: Option<FailureKind>,
+    #[serde(default)]
+    pub health: ProviderHealth,
     pub version: i64,
 }
 
@@ -120,4 +128,10 @@ pub trait Provider: Send + Sync {
 
     #[allow(dead_code)]
     fn provider_type(&self) -> &str;
+
+    fn capabilities(&self) -> &pipedash_plugin_api::PluginCapabilities;
+
+    fn status_source(&self) -> Option<&pipedash_plugin_api::StatusSource>;
+
+    async fn check_health(&self) -> DomainResult<Vec<pipedash_plugin_api::ComponentHealth>>;
 }
