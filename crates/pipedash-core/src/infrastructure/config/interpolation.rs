@@ -1,12 +1,22 @@
-use std::sync::LazyLock;
+use std::{
+    path::PathBuf,
+    sync::LazyLock,
+};
 
 use regex::Regex;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InterpolationError {
-    #[error("Required environment variable not found: {0}")]
+    #[error("Required environment variable not found: {0} (set {0} or {0}_FILE)")]
     RequiredVarNotFound(String),
+
+    #[error("Failed to read {var} file {}: {source}", .path.display())]
+    SecretFile {
+        var: String,
+        path: PathBuf,
+        source: std::io::Error,
+    },
 
     #[error("Invalid variable syntax: {0}")]
     InvalidSyntax(String),
@@ -45,9 +55,9 @@ fn interpolate_with_depth(input: &str, depth: usize) -> InterpolationResult<Stri
             continue;
         };
 
-        match std::env::var(var_name) {
-            Ok(value) => result.push_str(&value),
-            Err(_) => match default {
+        match lookup_var(var_name)? {
+            Some(value) => result.push_str(&value),
+            None => match default {
                 Some(def) => result.push_str(&interpolate_with_depth(def, depth + 1)?),
                 None => {
                     return Err(InterpolationError::RequiredVarNotFound(
@@ -62,6 +72,26 @@ fn interpolate_with_depth(input: &str, depth: usize) -> InterpolationResult<Stri
 
     result.push_str(rest);
     Ok(result)
+}
+
+fn lookup_var(name: &str) -> InterpolationResult<Option<String>> {
+    if let Ok(value) = std::env::var(name) {
+        return Ok(Some(value));
+    }
+
+    let file_var = format!("{name}_FILE");
+    let Some(path) = std::env::var_os(&file_var).map(PathBuf::from) else {
+        return Ok(None);
+    };
+
+    match std::fs::read_to_string(&path) {
+        Ok(content) => Ok(Some(content.trim_end_matches(['\r', '\n']).to_string())),
+        Err(source) => Err(InterpolationError::SecretFile {
+            var: file_var,
+            path,
+            source,
+        }),
+    }
 }
 
 fn parse_reference(body: &str) -> Option<(&str, Option<&str>, usize)> {
@@ -155,7 +185,9 @@ pub fn interpolate_with_tracking(input: &str) -> InterpolationResult<Interpolate
         let var_name = cap.get(1).unwrap().as_str().to_string();
         let has_default = cap.get(2).is_some();
 
-        if std::env::var(&var_name).is_ok() {
+        if std::env::var(&var_name).is_ok()
+            || std::env::var_os(format!("{var_name}_FILE")).is_some()
+        {
             resolved_vars.push(var_name);
         } else if has_default {
             defaulted_vars.push(var_name);
@@ -180,6 +212,7 @@ pub fn interpolate_with_tracking(input: &str) -> InterpolationResult<Interpolate
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_env::EnvGuard;
 
     #[test]
     fn test_simple_var() {
@@ -332,5 +365,55 @@ mod tests {
             interpolate("${TEST_VERBATIM_SELF}").unwrap(),
             "x${TEST_VERBATIM_SELF}"
         );
+    }
+
+    #[test]
+    fn test_file_fallback_when_var_unset() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("postgres_url");
+        std::fs::write(
+            &path,
+            "postgres://app:pa${NOT_EXPANDED}ss@db/pipedash\r\n\n",
+        )
+        .unwrap();
+        let _env = EnvGuard::set(&[
+            ("TEST_SECRET_URL", None),
+            ("TEST_SECRET_URL_FILE", path.to_str()),
+        ]);
+
+        assert_eq!(
+            interpolate("${TEST_SECRET_URL:-sqlite}").unwrap(),
+            "postgres://app:pa${NOT_EXPANDED}ss@db/pipedash"
+        );
+    }
+
+    #[test]
+    fn test_env_var_wins_over_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("token");
+        std::fs::write(&path, "from-file\n").unwrap();
+        let _env = EnvGuard::set(&[
+            ("TEST_SECRET_TOKEN", Some("from-env")),
+            ("TEST_SECRET_TOKEN_FILE", path.to_str()),
+        ]);
+
+        assert_eq!(interpolate("${TEST_SECRET_TOKEN}").unwrap(), "from-env");
+    }
+
+    #[test]
+    fn test_unreadable_file_fails_instead_of_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing");
+        let _env = EnvGuard::set(&[
+            ("TEST_SECRET_MISSING", None),
+            ("TEST_SECRET_MISSING_FILE", missing.to_str()),
+        ]);
+
+        let err = interpolate("${TEST_SECRET_MISSING:-fallback}").unwrap_err();
+        assert!(matches!(
+            &err,
+            InterpolationError::SecretFile { var, path, .. }
+                if var == "TEST_SECRET_MISSING_FILE" && path == &missing
+        ));
     }
 }

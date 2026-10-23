@@ -378,7 +378,7 @@ base_url = "https://gitlab.company.com"
 selected_items = "team/backend,team/frontend"
 ```
 
-Use `${VAR}` syntax to reference environment variables in config values.
+Use `${VAR}` syntax to reference environment variables in config values. When `VAR` is unset, Pipedash reads the value from the file named in `VAR_FILE` and drops the trailing newline. Docker and Kubernetes secrets work this way, for example `GITHUB_TOKEN_FILE=/run/secrets/github_token` or `PIPEDASH_POSTGRES_URL_FILE=/run/secrets/postgres_url`. `PIPEDASH_VAULT_PASSWORD` has no `_FILE` form.
 
 The `[server]` values are read when the API server starts. Until a config file exists (setup mode), the server uses the defaults `127.0.0.1:8080` and `cors_allow_all = false`, so restart the server after setup to apply them. `PIPEDASH_BIND_ADDR`, `PIPEDASH_CORS_ALLOW_ALL` and `PIPEDASH_BASE_PATH` take precedence over the file.
 
