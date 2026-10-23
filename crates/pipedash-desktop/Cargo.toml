@@ -52,6 +52,9 @@ tracing.workspace = true
 [build-dependencies]
 tauri-build.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 default = ["postgres"]
