@@ -39,9 +39,10 @@ export interface RefreshSummary {
 export function summarizeRefresh(results: RefreshResult[], providers: ProviderSummary[]): RefreshSummary {
   const failed = results.filter(isFailure)
   const pending = results.filter((result) => result.state === 'pending')
-  const done = results.length - failed.length - pending.length
+  const removed = results.filter((result) => result.state === 'not_found')
+  const done = results.length - failed.length - pending.length - removed.length
 
-  if (failed.length === 0 && pending.length === 0) {
+  if (failed.length === 0 && pending.length === 0 && removed.length === 0) {
     return { message: `Refreshed ${done} ${done === 1 ? 'provider' : 'providers'}`, color: 'green' }
   }
 
@@ -56,6 +57,10 @@ export function summarizeRefresh(results: RefreshResult[], providers: ProviderSu
 
   if (pending.length > 0) {
     parts.push(`${pending.length} still running`)
+  }
+
+  if (removed.length > 0) {
+    parts.push(`${removed.length} no longer ${removed.length === 1 ? 'exists' : 'exist'}`)
   }
 
   return { message: parts.join(' · '), color: 'orange' }

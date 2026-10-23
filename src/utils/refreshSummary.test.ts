@@ -51,6 +51,20 @@ test('a skipped provider whose last check failed counts as failed, not refreshed
   assert.equal(describeRefreshResult(skipped), 'Not retried yet · last check rate limited')
 })
 
+test('a provider removed during the refresh is not counted as refreshed', () => {
+  assert.deepEqual(summarizeRefresh([result(1, { state: 'not_found' })], []), {
+    message: 'Refreshed 0 of 1 · 1 no longer exists',
+    color: 'orange',
+  })
+  assert.deepEqual(
+    summarizeRefresh([result(1), result(2, { state: 'not_found' }), result(3, { state: 'not_found' })], []),
+    {
+      message: 'Refreshed 1 of 3 · 2 no longer exist',
+      color: 'orange',
+    }
+  )
+})
+
 test('describes a single result for the retry action', () => {
   assert.equal(describeRefreshResult(result(1, { state: 'recent' })), 'Checked a moment ago')
   assert.equal(describeRefreshResult(result(1, { state: 'failed', kind: 'auth', message: 'bad token' })), 'bad token')
