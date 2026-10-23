@@ -1,7 +1,10 @@
 pub mod backup;
 pub mod validator;
 
-use std::collections::HashMap;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 use std::sync::Arc;
 
 pub use backup::{
@@ -733,51 +736,62 @@ impl MigrationOrchestrator {
                 if !same_database(&plan.from, &plan.to) {
                     let target_metrics =
                         MetricsRepository::new_from_pool(target_manager.database_pool());
-                    let source_entries = self
-                        .source_metrics
-                        .query_metrics(MetricsQuery {
-                            limit: None,
-                            ..Default::default()
-                        })
-                        .await?;
-                    let mut pipelines = HashMap::new();
-                    let mut entries = Vec::with_capacity(source_entries.len());
-                    for mut entry in source_entries {
-                        let Some(pipeline_id) =
-                            remap_pipeline_id(&entry.pipeline_id, &result.provider_id_mapping)
+                    let pipeline_query = |pipeline_id: &str| MetricsQuery {
+                        pipeline_id: Some(pipeline_id.to_string()),
+                        limit: None,
+                        ..Default::default()
+                    };
+                    let mut migrated = 0;
+                    let mut pipelines = 0;
+                    for source_id in self.source_metrics.list_pipeline_ids().await? {
+                        let Some(target_id) =
+                            remap_pipeline_id(&source_id, &result.provider_id_mapping)
                         else {
                             continue;
                         };
-                        if !pipelines.contains_key(&entry.pipeline_id) {
-                            pipelines.insert(entry.pipeline_id.clone(), pipeline_id.clone());
-                        }
-                        entry.pipeline_id = pipeline_id;
-                        entries.push(entry);
-                    }
-                    let migrated = target_metrics.insert_metrics_batch(entries).await?;
-
-                    for (source_id, target_id) in &pipelines {
-                        let Some(run) = self
+                        let last_run = self
                             .source_metrics
-                            .get_last_processed_run(source_id)
+                            .get_last_processed_run(&source_id)
+                            .await?;
+                        let existing: HashSet<_> = target_metrics
+                            .query_metrics(pipeline_query(&target_id))
                             .await?
-                        else {
+                            .into_iter()
+                            .map(|entry| (entry.run_number, entry.metric_type.as_str()))
+                            .collect();
+                        let entries = self
+                            .source_metrics
+                            .query_metrics(pipeline_query(&source_id))
+                            .await?
+                            .into_iter()
+                            .filter(|entry| {
+                                !existing.contains(&(entry.run_number, entry.metric_type.as_str()))
+                            })
+                            .map(|mut entry| {
+                                entry.pipeline_id = target_id.clone();
+                                entry
+                            })
+                            .collect();
+                        migrated += target_metrics.insert_metrics_batch(entries).await?;
+                        pipelines += 1;
+
+                        let Some(run) = last_run else {
                             continue;
                         };
                         if target_metrics
-                            .get_last_processed_run(target_id)
+                            .get_last_processed_run(&target_id)
                             .await?
                             .is_none_or(|target_run| target_run < run)
                         {
                             target_metrics
-                                .update_last_processed_run(target_id, run)
+                                .update_last_processed_run(&target_id, run)
                                 .await?;
                         }
                     }
                     tracing::info!(
                         "[Migration] Migrated {} metric entries for {} pipelines",
                         migrated,
-                        pipelines.len()
+                        pipelines
                     );
                 }
             }
@@ -1086,6 +1100,7 @@ mod tests {
             MetricEntry,
             MetricType,
         };
+        use crate::infrastructure::database::RecordMetrics;
 
         let source_dir = TempDir::new().unwrap();
         let target_dir = TempDir::new().unwrap();
@@ -1157,7 +1172,25 @@ mod tests {
         let plan = orchestrator
             .plan_migration(target.clone(), &options)
             .unwrap();
-        let result = orchestrator.execute_migration(plan, options, false).await;
+        let migrate = || orchestrator.execute_migration(plan.clone(), options.clone(), false);
+        let result = migrate().await;
+        assert!(result.success, "{:?}", result.errors);
+        let refreshed = MetricEntry {
+            run_hash: Some("hash-4b".to_string()),
+            ..entry(&source_pipeline, 4)
+        };
+        metrics
+            .refresh_record_metrics(
+                &source_pipeline,
+                &[RecordMetrics {
+                    run_number: 4,
+                    run_hash: "hash-4b".to_string(),
+                    entries: [Some(refreshed), None, None],
+                }],
+            )
+            .await
+            .unwrap();
+        let result = migrate().await;
         assert!(result.success, "{:?}", result.errors);
 
         let target_manager = StorageManager::from_config(target, false).await.unwrap();
