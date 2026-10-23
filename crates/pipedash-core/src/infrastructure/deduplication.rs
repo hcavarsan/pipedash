@@ -13,21 +13,24 @@ use sha2::{
 };
 use tokio::sync::oneshot;
 
-type RequestId = u64;
-type InFlight<T> = DashMap<RequestId, Vec<oneshot::Sender<Arc<T>>>>;
+use crate::application::Generation;
 
-pub struct RequestDeduplicator<T: Clone> {
-    in_flight: Arc<InFlight<T>>,
+type RequestId = u64;
+type Waiters<T, E> = Vec<oneshot::Sender<Result<Arc<T>, E>>>;
+type InFlight<T, E> = DashMap<RequestId, Waiters<T, E>>;
+
+pub struct RequestDeduplicator<T: Clone, E: Clone> {
+    in_flight: Arc<InFlight<T, E>>,
 }
 
-struct InFlightGuard<'a, T> {
-    in_flight: &'a InFlight<T>,
+struct InFlightGuard<'a, T, E> {
+    in_flight: &'a InFlight<T, E>,
     request_id: RequestId,
     armed: bool,
 }
 
-impl<T> InFlightGuard<'_, T> {
-    fn take_waiters(mut self) -> Vec<oneshot::Sender<Arc<T>>> {
+impl<T, E> InFlightGuard<'_, T, E> {
+    fn take_waiters(mut self) -> Waiters<T, E> {
         self.armed = false;
         self.in_flight
             .remove(&self.request_id)
@@ -36,7 +39,7 @@ impl<T> InFlightGuard<'_, T> {
     }
 }
 
-impl<T> Drop for InFlightGuard<'_, T> {
+impl<T, E> Drop for InFlightGuard<'_, T, E> {
     fn drop(&mut self) {
         if self.armed {
             self.in_flight.remove(&self.request_id);
@@ -44,14 +47,14 @@ impl<T> Drop for InFlightGuard<'_, T> {
     }
 }
 
-impl<T: Clone> RequestDeduplicator<T> {
+impl<T: Clone, E: Clone> RequestDeduplicator<T, E> {
     pub fn new() -> Self {
         Self {
             in_flight: Arc::new(DashMap::new()),
         }
     }
 
-    pub async fn deduplicate<F, Fut, E>(&self, request_id: RequestId, operation: F) -> Result<T, E>
+    pub async fn deduplicate<F, Fut>(&self, request_id: RequestId, operation: F) -> Result<T, E>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T, E>>,
@@ -70,7 +73,7 @@ impl<T: Clone> RequestDeduplicator<T> {
 
         if let Some(rx) = waiter {
             return match rx.await {
-                Ok(result) => Ok((*result).clone()),
+                Ok(shared) => shared.map(|value| (*value).clone()),
                 Err(_) => operation().await,
             };
         }
@@ -83,10 +86,13 @@ impl<T: Clone> RequestDeduplicator<T> {
         let result = operation().await;
         let waiters = guard.take_waiters();
 
-        if let Ok(value) = &result {
-            let shared_result = Arc::new(value.clone());
+        if !waiters.is_empty() {
+            let shared = match &result {
+                Ok(value) => Ok(Arc::new(value.clone())),
+                Err(e) => Err(e.clone()),
+            };
             for waiter in waiters {
-                let _ = waiter.send(shared_result.clone());
+                let _ = waiter.send(shared.clone());
             }
         }
 
@@ -94,15 +100,16 @@ impl<T: Clone> RequestDeduplicator<T> {
     }
 }
 
-impl<T: Clone> Default for RequestDeduplicator<T> {
+impl<T: Clone, E: Clone> Default for RequestDeduplicator<T, E> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub fn hash_request(provider_id: i64, endpoint: &str) -> RequestId {
+pub fn hash_request(provider_id: i64, generation: Generation, endpoint: &str) -> RequestId {
     let mut hasher = DefaultHasher::new();
     provider_id.hash(&mut hasher);
+    generation.hash(&mut hasher);
     endpoint.hash(&mut hasher);
     hasher.finish()
 }
@@ -128,7 +135,7 @@ pub fn hash_pipeline_run(
         .collect()
 }
 
-impl<T: Clone> Clone for RequestDeduplicator<T> {
+impl<T: Clone, E: Clone> Clone for RequestDeduplicator<T, E> {
     fn clone(&self) -> Self {
         Self {
             in_flight: self.in_flight.clone(),
@@ -147,10 +154,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_request_deduplication() {
-        let dedup = RequestDeduplicator::<i32>::new();
+        let dedup = RequestDeduplicator::<i32, ()>::new();
         let call_count = Arc::new(AtomicUsize::new(0));
 
-        let request_id = hash_request(1, "test");
+        let request_id = hash_request(1, Generation::next(), "test");
 
         let dedup1 = dedup.clone();
         let count1 = call_count.clone();
@@ -185,8 +192,8 @@ mod tests {
 
     #[tokio::test]
     async fn failed_request_does_not_block_the_next_one() {
-        let dedup = RequestDeduplicator::<i32>::new();
-        let request_id = hash_request(1, "fetch_runs_x_100");
+        let dedup = RequestDeduplicator::<i32, &str>::new();
+        let request_id = hash_request(1, Generation::next(), "fetch_runs_x_100");
 
         let first = dedup
             .deduplicate(request_id, || async { Err::<i32, &str>("provider error") })
@@ -203,8 +210,8 @@ mod tests {
 
     #[tokio::test]
     async fn dropped_request_does_not_block_the_next_one() {
-        let dedup = RequestDeduplicator::<i32>::new();
-        let request_id = hash_request(1, "fetch_pipelines");
+        let dedup = RequestDeduplicator::<i32, &str>::new();
+        let request_id = hash_request(1, Generation::next(), "fetch_runs_x_100");
 
         let abandoned = tokio::time::timeout(
             tokio::time::Duration::from_millis(20),
@@ -225,14 +232,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn waiter_runs_its_own_request_when_the_first_one_fails() {
-        let dedup = RequestDeduplicator::<i32>::new();
-        let request_id = hash_request(1, "fetch_pipelines");
+    async fn failure_reaches_every_waiter_and_runs_once() {
+        let dedup = RequestDeduplicator::<i32, &str>::new();
+        let request_id = hash_request(1, Generation::next(), "fetch_runs_x_100");
+        let calls = Arc::new(AtomicUsize::new(0));
 
         let leader = dedup.clone();
+        let leader_calls = calls.clone();
         let first = tokio::spawn(async move {
             leader
-                .deduplicate(request_id, || async {
+                .deduplicate(request_id, || async move {
+                    leader_calls.fetch_add(1, Ordering::SeqCst);
                     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                     Err::<i32, &str>("provider error")
                 })
@@ -240,24 +250,59 @@ mod tests {
         });
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
+        let waiter_calls = calls.clone();
         let waiter = tokio::time::timeout(
             tokio::time::Duration::from_secs(2),
-            dedup.deduplicate(request_id, || async { Ok::<_, &str>(3) }),
+            dedup.deduplicate(request_id, || async move {
+                waiter_calls.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, &str>(3)
+            }),
         )
         .await;
 
         assert_eq!(first.await.unwrap(), Err("provider error"));
-        assert_eq!(waiter, Ok(Ok(3)));
+        assert_eq!(waiter, Ok(Err("provider error")));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn test_hash_request() {
-        let h1 = hash_request(1, "pipelines");
-        let h2 = hash_request(1, "pipelines");
-        let h3 = hash_request(2, "pipelines");
+        let generation = Generation::next();
+        let h1 = hash_request(1, generation, "pipelines");
+        let h2 = hash_request(1, generation, "pipelines");
+        let h3 = hash_request(2, generation, "pipelines");
+        let h4 = hash_request(1, Generation::next(), "pipelines");
 
         assert_eq!(h1, h2);
         assert_ne!(h1, h3);
+        assert_ne!(h1, h4);
+    }
+
+    #[tokio::test]
+    async fn different_generations_are_not_shared() {
+        let dedup = RequestDeduplicator::<i32, &str>::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let old = hash_request(1, Generation::next(), "fetch_runs_x_100");
+        let new = hash_request(1, Generation::next(), "fetch_runs_x_100");
+        let run = |request_id, value| {
+            let dedup = dedup.clone();
+            let calls = calls.clone();
+            async move {
+                dedup
+                    .deduplicate(request_id, || async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                        Ok::<_, &str>(value)
+                    })
+                    .await
+            }
+        };
+
+        let (first, second) = tokio::join!(run(old, 1), run(new, 2));
+
+        assert_eq!(first, Ok(1));
+        assert_eq!(second, Ok(2));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     #[test]

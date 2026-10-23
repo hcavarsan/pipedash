@@ -1,13 +1,15 @@
 use std::sync::OnceLock;
 
 use pipedash_plugin_api::{
+    check_response,
+    map_send_error,
     PaginatedResponse,
     PaginationParams,
     PluginError,
     PluginResult,
     RetryPolicy,
 };
-use reqwest::StatusCode;
+use reqwest::Url;
 
 use crate::types::{
     Pipeline,
@@ -46,16 +48,8 @@ impl GitLabClient {
         let user: User = self
             .retry_policy
             .retry(|| async {
-                let url = format!("{}/user", self.api_url);
-                let response = self
-                    .http_client
-                    .get(&url)
-                    .header("PRIVATE-TOKEN", &self.token)
-                    .send()
-                    .await
-                    .map_err(|e| PluginError::NetworkError(format!("Failed to get user: {}", e)))?;
-
-                self.handle_response(response).await
+                let response = self.get(&format!("{}/user", self.api_url)).await?;
+                Self::json(response).await
             })
             .await?;
 
@@ -87,22 +81,18 @@ impl GitLabClient {
             let (mut items, next_page) = self
                 .retry_policy
                 .retry(|| async {
-                    let url = format!("{}/groups?per_page=100&page={current}", self.api_url);
                     let response = self
-                        .http_client
-                        .get(&url)
-                        .header("PRIVATE-TOKEN", &self.token)
-                        .send()
-                        .await
-                        .map_err(|e| {
-                            PluginError::NetworkError(format!("Failed to list groups: {}", e))
-                        })?;
+                        .get(&format!(
+                            "{}/groups?per_page=100&page={current}",
+                            self.api_url
+                        ))
+                        .await?;
                     let next_page = response
                         .headers()
                         .get("x-next-page")
                         .and_then(|v| v.to_str().ok())
                         .and_then(|s| s.parse::<usize>().ok());
-                    let items: Vec<serde_json::Value> = self.handle_response(response).await?;
+                    let items: Vec<serde_json::Value> = Self::json(response).await?;
 
                     Ok((
                         items
@@ -137,31 +127,7 @@ impl GitLabClient {
                     "{}/projects?membership=true&per_page={}&page={}",
                     self.api_url, params.page_size, params.page
                 );
-                let response = self
-                    .http_client
-                    .get(&url)
-                    .header("PRIVATE-TOKEN", &self.token)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to list projects: {}", e))
-                    })?;
-
-                let total_count = response
-                    .headers()
-                    .get("x-total")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.parse::<usize>().ok());
-
-                let items: Vec<Project> = self.handle_response(response).await?;
-                let count = total_count.unwrap_or(items.len());
-
-                Ok(PaginatedResponse::new(
-                    items,
-                    params.page,
-                    params.page_size,
-                    count,
-                ))
+                self.project_page(&url, params).await
             })
             .await
     }
@@ -201,31 +167,7 @@ impl GitLabClient {
                     url.push_str(&format!("&search={}", encoded));
                 }
 
-                let response = self
-                    .http_client
-                    .get(&url)
-                    .header("PRIVATE-TOKEN", &self.token)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to list projects: {}", e))
-                    })?;
-
-                let total_count = response
-                    .headers()
-                    .get("x-total")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.parse::<usize>().ok());
-
-                let items: Vec<Project> = self.handle_response(response).await?;
-                let count = total_count.unwrap_or(items.len());
-
-                Ok(PaginatedResponse::new(
-                    items,
-                    params.page,
-                    params.page_size,
-                    count,
-                ))
+                self.project_page(&url, params).await
             })
             .await
     }
@@ -233,18 +175,10 @@ impl GitLabClient {
     pub async fn get_project(&self, project_id: i64) -> PluginResult<Project> {
         self.retry_policy
             .retry(|| async {
-                let url = format!("{}/projects/{}", self.api_url, project_id);
                 let response = self
-                    .http_client
-                    .get(&url)
-                    .header("PRIVATE-TOKEN", &self.token)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to get project: {}", e))
-                    })?;
-
-                self.handle_response(response).await
+                    .get(&format!("{}/projects/{}", self.api_url, project_id))
+                    .await?;
+                Self::json(response).await
             })
             .await
     }
@@ -254,21 +188,13 @@ impl GitLabClient {
     ) -> PluginResult<Vec<Pipeline>> {
         self.retry_policy
             .retry(|| async {
-                let url = format!(
-                    "{}/projects/{}/pipelines?per_page={}&order_by=updated_at",
-                    self.api_url, project_id, per_page
-                );
                 let response = self
-                    .http_client
-                    .get(&url)
-                    .header("PRIVATE-TOKEN", &self.token)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to get project pipelines: {}", e))
-                    })?;
-
-                self.handle_response(response).await
+                    .get(&format!(
+                        "{}/projects/{}/pipelines?per_page={}&order_by=updated_at",
+                        self.api_url, project_id, per_page
+                    ))
+                    .await?;
+                Self::json(response).await
             })
             .await
     }
@@ -276,21 +202,13 @@ impl GitLabClient {
     pub async fn get_pipeline(&self, project_id: i64, pipeline_id: i64) -> PluginResult<Pipeline> {
         self.retry_policy
             .retry(|| async {
-                let url = format!(
-                    "{}/projects/{}/pipelines/{}",
-                    self.api_url, project_id, pipeline_id
-                );
                 let response = self
-                    .http_client
-                    .get(&url)
-                    .header("PRIVATE-TOKEN", &self.token)
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to get pipeline: {}", e))
-                    })?;
-
-                self.handle_response(response).await
+                    .get(&format!(
+                        "{}/projects/{}/pipelines/{}",
+                        self.api_url, project_id, pipeline_id
+                    ))
+                    .await?;
+                Self::json(response).await
             })
             .await
     }
@@ -298,102 +216,95 @@ impl GitLabClient {
     pub async fn trigger_pipeline(
         &self, project_id: i64, ref_name: String, variables: Option<Vec<PipelineVariable>>,
     ) -> PluginResult<Pipeline> {
-        self.retry_policy
-            .retry(|| async {
-                let url = format!("{}/projects/{}/pipeline", self.api_url, project_id);
-                let request_body = TriggerPipelineRequest {
-                    ref_name: ref_name.clone(),
-                    variables: variables.clone(),
-                };
+        let url = Self::parse_url(&format!(
+            "{}/projects/{}/pipeline",
+            self.api_url, project_id
+        ))?;
+        let request_body = TriggerPipelineRequest {
+            ref_name,
+            variables,
+        };
 
-                let response = self
-                    .http_client
-                    .post(&url)
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .post(url.clone())
                     .header("PRIVATE-TOKEN", &self.token)
                     .json(&request_body)
                     .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to trigger pipeline: {}", e))
-                    })?;
-
-                self.handle_response(response).await
             })
-            .await
+            .await?;
+
+        Self::json(check_response(response).await?).await
     }
 
     pub async fn cancel_pipeline(
         &self, project_id: i64, pipeline_id: i64,
     ) -> PluginResult<Pipeline> {
-        self.retry_policy
-            .retry(|| async {
-                let url = format!(
-                    "{}/projects/{}/pipelines/{}/cancel",
-                    self.api_url, project_id, pipeline_id
-                );
-                let response = self
-                    .http_client
-                    .post(&url)
+        let url = Self::parse_url(&format!(
+            "{}/projects/{}/pipelines/{}/cancel",
+            self.api_url, project_id, pipeline_id
+        ))?;
+
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .post(url.clone())
                     .header("PRIVATE-TOKEN", &self.token)
                     .send()
-                    .await
-                    .map_err(|e| {
-                        PluginError::NetworkError(format!("Failed to cancel pipeline: {}", e))
-                    })?;
-
-                self.handle_response(response).await
             })
-            .await
+            .await?;
+
+        Self::json(check_response(response).await?).await
     }
 
-    async fn handle_response<T: serde::de::DeserializeOwned>(
-        &self, response: reqwest::Response,
-    ) -> PluginResult<T> {
-        let status = response.status();
+    async fn project_page(
+        &self, url: &str, params: &PaginationParams,
+    ) -> PluginResult<PaginatedResponse<Project>> {
+        let response = self.get(url).await?;
+        let total_count = response
+            .headers()
+            .get("x-total")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<usize>().ok());
+
+        let items: Vec<Project> = Self::json(response).await?;
+        let count = total_count.unwrap_or(items.len());
+
+        Ok(PaginatedResponse::new(
+            items,
+            params.page,
+            params.page_size,
+            count,
+        ))
+    }
+
+    fn parse_url(url: &str) -> PluginResult<Url> {
+        Url::parse(url).map_err(|e| PluginError::InvalidConfig(format!("Invalid GitLab URL: {e}")))
+    }
+
+    async fn get(&self, url: &str) -> PluginResult<reqwest::Response> {
+        let url = Self::parse_url(url)?;
+        let response = self
+            .http_client
+            .get(url.clone())
+            .header("PRIVATE-TOKEN", &self.token)
+            .send()
+            .await
+            .map_err(|e| map_send_error(e, &url))?;
+        check_response(response).await
+    }
+
+    async fn json<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> PluginResult<T> {
         let url = response.url().clone();
-
-        let content_length = response.content_length();
-        tracing::debug!(
-            url = %url,
-            status = %status,
-            content_length = ?content_length,
-            "GitLab API response"
-        );
-
-        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(PluginError::AuthenticationFailed(format!(
-                "Authentication failed for {}: {}",
-                url, error_text
-            )));
-        }
-
-        if status == StatusCode::NOT_FOUND {
-            return Err(PluginError::PipelineNotFound(format!(
-                "Resource not found: {}",
-                url
-            )));
-        }
-
-        if !status.is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(PluginError::ApiError(format!(
-                "GitLab API error ({}) for {}: {}",
-                status, url, error_text
-            )));
-        }
-
         response.json::<T>().await.map_err(|e| {
-            tracing::error!(url = %url, error = %e, "Failed to deserialize GitLab response");
+            let e = e.without_url();
+            tracing::error!(error = %e, "Failed to deserialize GitLab response");
             PluginError::ApiError(format!(
-                "Failed to parse GitLab API response from {}: {}. This may indicate a network issue or incompatible response format.",
-                url, e
+                "Failed to parse GitLab API response from {}: {e}",
+                pipedash_plugin_api::redact_url(&url),
             ))
         })
     }

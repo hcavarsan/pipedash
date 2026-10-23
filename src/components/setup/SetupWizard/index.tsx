@@ -182,6 +182,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         general: currentConfig?.config.general || {
           metrics_enabled: true,
           default_refresh_interval: 30,
+          status_pages_enabled: true,
         },
         server: currentConfig?.config.server || {
           bind_addr: '127.0.0.1:8080',

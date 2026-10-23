@@ -18,6 +18,7 @@ pub struct GitLabPlugin {
     client: Option<client::GitLabClient>,
     provider_id: Option<i64>,
     config: HashMap<String, String>,
+    status_source: Option<StatusSource>,
 }
 
 impl Default for GitLabPlugin {
@@ -33,6 +34,7 @@ impl GitLabPlugin {
             client: None,
             provider_id: None,
             config: HashMap::new(),
+            status_source: None,
         }
     }
 
@@ -105,6 +107,18 @@ impl GitLabPlugin {
     }
 }
 
+fn collect_partial<T>(results: Vec<PluginResult<T>>, item: &str) -> PluginResult<Vec<T>> {
+    let mut kept = Vec::with_capacity(results.len());
+    for result in results {
+        match result {
+            Ok(value) => kept.push(value),
+            Err(e) if e.is_transient() => return Err(e),
+            Err(e) => tracing::warn!(error = %e, item, "Skipping failed GitLab item"),
+        }
+    }
+    Ok(kept)
+}
+
 #[async_trait]
 impl Plugin for GitLabPlugin {
     fn metadata(&self) -> &PluginMetadata {
@@ -113,6 +127,10 @@ impl Plugin for GitLabPlugin {
 
     fn provider_type(&self) -> &str {
         "gitlab"
+    }
+
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
     }
 
     fn initialize(
@@ -124,6 +142,7 @@ impl Plugin for GitLabPlugin {
             .ok_or_else(|| PluginError::InvalidConfig("Missing GitLab access token".to_string()))?
             .to_string();
 
+        let status_source = config::status_source(&config)?;
         let base_url = config::get_base_url(&config);
         let api_url = config::build_api_url(&base_url);
 
@@ -140,6 +159,7 @@ impl Plugin for GitLabPlugin {
             )
         });
 
+        self.status_source = status_source;
         self.client = Some(client::GitLabClient::new(client, api_url, token));
         self.provider_id = Some(provider_id);
         self.config = config;
@@ -208,13 +228,12 @@ impl Plugin for GitLabPlugin {
         let projects = self.fetch_all_projects().await?;
 
         let pipeline_futures = projects.iter().map(|project| async move {
-            let pipelines = client.get_project_pipelines(project.id, 1).await.ok()?;
+            let pipelines = client.get_project_pipelines(project.id, 1).await?;
             let latest_pipeline = pipelines.first();
-            Some(mapper::map_pipeline(project, latest_pipeline, provider_id))
+            Ok(mapper::map_pipeline(project, latest_pipeline, provider_id))
         });
 
-        let results: Vec<Option<Pipeline>> = join_all(pipeline_futures).await;
-        Ok(results.into_iter().flatten().collect())
+        collect_partial(join_all(pipeline_futures).await, "project")
     }
 
     async fn fetch_run_history(
@@ -238,11 +257,11 @@ impl Plugin for GitLabPlugin {
             .iter()
             .map(|p| async move { client.get_pipeline(project_id, p.id).await });
 
-        let detailed_pipelines = join_all(detailed_pipeline_futures).await;
+        let detailed_pipelines =
+            collect_partial(join_all(detailed_pipeline_futures).await, "pipeline run")?;
 
         Ok(detailed_pipelines
             .into_iter()
-            .filter_map(|result| result.ok())
             .map(|p| mapper::map_pipeline_run(&p, project_id, provider_id, namespace.as_deref()))
             .collect())
     }

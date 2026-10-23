@@ -28,7 +28,7 @@ export const isTauri = (): boolean => {
   return _isTauriCache
 }
 
-export type PipedashService = typeof tauriService
+export type PipedashService = Omit<typeof tauriService, 'setRefreshMode' | 'showSystemNotification'>
 
 let _service: PipedashService | null = null
 
@@ -59,19 +59,6 @@ export const events = {
     return wsClient.listen<T>(WS_EVENTS.PIPELINES_UPDATED, callback)
   },
 
-  onProvidersChanged: async <T = unknown>(callback: (payload: T) => void): Promise<() => void> => {
-    if (isTauri()) {
-      const { listen } = await import('@tauri-apps/api/event')
-      const unlisten = await listen<T>(WS_EVENTS.PROVIDERS_CHANGED, (event) => {
-        callback(event.payload)
-      })
-
-      return unlisten
-    }
-
-    return wsClient.listen<T>(WS_EVENTS.PROVIDERS_CHANGED, callback)
-  },
-
   onRefreshStatus: async <T = unknown>(callback: (payload: T) => void): Promise<() => void> => {
     if (isTauri()) {
       const { listen } = await import('@tauri-apps/api/event')
@@ -93,7 +80,7 @@ export const events = {
 
   cleanup: (): void => {
     if (!isTauri()) {
-      wsClient.disconnect()
+      wsClient.dispose()
     }
   },
 

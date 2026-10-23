@@ -1,14 +1,13 @@
 import { Code, Group, Text } from '@mantine/core'
 
 import { CopyButton } from '../components/atoms/CopyButton'
-import { ProviderIcon } from '../components/atoms/ProviderIcon'
 import { StatusBadge } from '../components/atoms/StatusBadge'
 import { TruncatedText } from '../components/atoms/TruncatedText'
-import type { PipelineStatus, ProviderSummary } from '../types'
+import type { PipelineStatus } from '../types'
 
 import { formatDateTime } from './formatDateTime'
 
-const TABLE_CELL_STYLES = {
+export const TABLE_CELL_STYLES = {
   text: {
     size: 'sm' as const,
     weight: {
@@ -108,20 +107,6 @@ export const TableCells = {
       <TruncatedText size={TABLE_CELL_STYLES.text.size} fw={TABLE_CELL_STYLES.text.weight.medium}>
         {text}
       </TruncatedText>
-    </Group>
-  ),
-
-  provider: (provider: ProviderSummary | undefined) => (
-    <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
-      <ProviderIcon
-        name={provider?.name ?? 'Unknown'}
-        icon={provider?.icon ?? null}
-        size={22}
-        failed={provider?.last_fetch_status === 'error'}
-      />
-      <Text size={TABLE_CELL_STYLES.text.size} truncate>
-        {provider?.name ?? 'Unknown'}
-      </Text>
     </Group>
   ),
 }

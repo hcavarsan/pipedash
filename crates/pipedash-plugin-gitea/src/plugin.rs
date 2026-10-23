@@ -18,6 +18,7 @@ pub struct GiteaPlugin {
     client: Option<client::GiteaClient>,
     provider_id: Option<i64>,
     config: HashMap<String, String>,
+    status_source: Option<StatusSource>,
 }
 
 impl Default for GiteaPlugin {
@@ -33,6 +34,7 @@ impl GiteaPlugin {
             client: None,
             provider_id: None,
             config: HashMap::new(),
+            status_source: None,
         }
     }
 
@@ -72,6 +74,10 @@ impl Plugin for GiteaPlugin {
         &self.metadata
     }
 
+    fn status_source(&self) -> Option<&StatusSource> {
+        self.status_source.as_ref()
+    }
+
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
         http_client: Option<Arc<reqwest::Client>>,
@@ -83,6 +89,7 @@ impl Plugin for GiteaPlugin {
             .ok_or_else(|| PluginError::InvalidConfig("Missing Gitea access token".to_string()))?
             .to_string();
         let base_url = config::get_base_url(&config)?;
+        let status_source = custom_status_source(&config)?;
 
         let http_client = http_client.unwrap_or_else(|| {
             Arc::new(
@@ -97,6 +104,7 @@ impl Plugin for GiteaPlugin {
             )
         });
 
+        self.status_source = status_source;
         self.client = Some(client::GiteaClient::new(http_client, base_url, token));
         self.provider_id = Some(provider_id);
         self.config = config;
@@ -479,6 +487,52 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, PluginError::NotSupported(_)), "{error}");
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn dispatch_is_not_resent_after_a_server_error() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = requests.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buffer = [0; 4096];
+                let _ = stream.read(&mut buffer).await.unwrap();
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                stream
+                    .write_all(b"HTTP/1.1 503 X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .await
+                    .unwrap();
+            }
+        });
+        let mut plugin = GiteaPlugin::new();
+        plugin
+            .initialize(
+                1,
+                HashMap::from([
+                    ("base_url".to_string(), format!("http://{addr}/")),
+                    ("token".to_string(), "stub-token".to_string()),
+                ]),
+                None,
+            )
+            .unwrap();
+
+        let error = plugin
+            .client()
+            .unwrap()
+            .dispatch_workflow("o", "r", "w.yaml", &serde_json::json!({}))
+            .await
+            .unwrap_err();
+        server.abort();
+
+        assert!(
+            matches!(error, PluginError::ServiceUnavailable { .. }),
+            "{error}"
+        );
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

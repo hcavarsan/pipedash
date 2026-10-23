@@ -58,9 +58,35 @@ pub struct CoreContext {
     pub metrics_service: Option<Arc<application::MetricsService>>,
 
     pub refresh_manager: Arc<application::RefreshManager>,
+
+    pub health: application::HealthHandle,
+
+    pub health_service: Arc<application::ProviderHealthService>,
+
+    pub config_state: Arc<infrastructure::ConfigState>,
 }
 
 impl CoreContext {
+    fn from_services(
+        event_bus: Arc<dyn EventBus>, token_store: Arc<dyn TokenStore>,
+        http_client_manager: Arc<infrastructure::HttpClientManager>,
+        metrics_service: Option<Arc<application::MetricsService>>,
+        config_state: Arc<infrastructure::ConfigState>, services: application::Services,
+    ) -> Self {
+        Self {
+            event_bus,
+            token_store,
+            http_client_manager,
+            provider_service: services.provider_service,
+            pipeline_service: services.pipeline_service,
+            metrics_service,
+            refresh_manager: services.refresh_manager,
+            health: services.health,
+            health_service: services.health_service,
+            config_state,
+        }
+    }
+
     pub async fn new(
         data_dir: &std::path::Path, event_bus: Arc<dyn EventBus>, token_store: Arc<dyn TokenStore>,
     ) -> anyhow::Result<Self> {
@@ -135,32 +161,22 @@ impl CoreContext {
 
         let http_client_manager = Arc::new(infrastructure::HttpClientManager::new()?);
 
-        let provider_service = Arc::new(application::ProviderService::new(
-            Arc::clone(&repository),
+        let services = application::Services::new(
+            repository,
             Arc::clone(&http_client_manager),
-            Arc::clone(&event_bus),
-        ));
-        let pipeline_service = Arc::new(application::PipelineService::new(
-            Arc::clone(&repository),
-            Arc::clone(&provider_service),
             metrics_service.clone(),
             Arc::clone(&event_bus),
-        ));
-        let refresh_manager = Arc::new(application::RefreshManager::new(
-            Arc::clone(&pipeline_service),
-            metrics_service.clone(),
-            Arc::clone(&event_bus),
-        ));
+            Arc::clone(&config_state),
+        );
 
-        Ok(Self {
+        Ok(Self::from_services(
             event_bus,
             token_store,
             http_client_manager,
-            provider_service,
-            pipeline_service,
             metrics_service,
-            refresh_manager,
-        })
+            config_state,
+            services,
+        ))
     }
 
     pub async fn with_storage_manager(
@@ -229,49 +245,46 @@ impl CoreContext {
             None
         };
 
-        let provider_service = Arc::new(application::ProviderService::new(
-            repository.clone(),
+        let services = application::Services::new(
+            repository,
             Arc::clone(&http_client_manager),
-            Arc::clone(&event_bus),
-        ));
-        let pipeline_service = Arc::new(application::PipelineService::new(
-            repository.clone(),
-            Arc::clone(&provider_service),
             metrics_service.clone(),
             Arc::clone(&event_bus),
-        ));
-        let refresh_manager = Arc::new(application::RefreshManager::new(
-            Arc::clone(&pipeline_service),
-            metrics_service.clone(),
-            Arc::clone(&event_bus),
-        ));
+            Arc::clone(&config_state),
+        );
 
-        Ok(Self {
+        Ok(Self::from_services(
             event_bus,
             token_store,
             http_client_manager,
-            provider_service,
-            pipeline_service,
             metrics_service,
-            refresh_manager,
-        })
+            config_state,
+            services,
+        ))
     }
 
     pub async fn start_background_tasks(&self) {
         let provider_service = Arc::clone(&self.provider_service);
         let refresh_manager = Arc::clone(&self.refresh_manager);
+        let health_service = Arc::clone(&self.health_service);
+        let health = self.health.clone();
 
         tokio::spawn(async move {
             if let Err(e) = provider_service.load_all_providers().await {
                 tracing::warn!("Failed to load providers during startup: {}", e);
             }
 
+            health_service.start().await;
+            health.send(application::HealthInput::ProvidersChanged {
+                changed: provider_service.health_inputs().await,
+            });
             refresh_manager.start().await;
         });
     }
 
     pub async fn shutdown(&self) {
         self.refresh_manager.stop().await;
+        self.health_service.stop().await;
     }
 
     pub async fn warmup_token_store(&self) -> anyhow::Result<()> {
