@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{
+    DateTime,
+    Utc,
+};
 
 use crate::domain::{
     AggregatedMetrics,
@@ -147,7 +150,8 @@ impl MetricsService {
             .await?;
 
         let stored = if has_regular_runs {
-            self.store_new_runs(pipeline_id, runs).await?
+            self.store_new_runs(pipeline_id, runs, retention_cutoff)
+                .await?
         } else {
             0
         };
@@ -155,7 +159,9 @@ impl MetricsService {
         Ok(refreshed + stored)
     }
 
-    async fn store_new_runs(&self, pipeline_id: &str, runs: &[PipelineRun]) -> DomainResult<usize> {
+    async fn store_new_runs(
+        &self, pipeline_id: &str, runs: &[PipelineRun], retention_cutoff: DateTime<Utc>,
+    ) -> DomainResult<usize> {
         if runs.is_empty() {
             return Ok(0);
         }
@@ -180,6 +186,7 @@ impl MetricsService {
                     && !is_native_history(run)
                     && run.run_number > last_processed
                     && is_final(&run.status)
+                    && run.started_at >= retention_cutoff
             })
             .collect();
 
@@ -273,31 +280,6 @@ impl MetricsService {
     pub async fn query_aggregated_metrics(
         &self, query: MetricsQuery,
     ) -> DomainResult<AggregatedMetrics> {
-        if let Some(pipeline_id) = &query.pipeline_id {
-            let config = self.get_effective_pipeline_config(pipeline_id).await?;
-            if config.enabled {
-                let existing_count = self
-                    .repository
-                    .count_metrics_for_pipeline(pipeline_id)
-                    .await
-                    .unwrap_or(0);
-
-                if existing_count == 0 {
-                    if let Ok(true) = self
-                        .repository
-                        .check_processing_state_corruption(pipeline_id)
-                        .await
-                    {
-                        tracing::warn!(
-                            pipeline_id = %pipeline_id,
-                            "Detected corruption during metrics query - auto-repairing"
-                        );
-                        let _ = self.repository.reset_processing_state(pipeline_id).await;
-                    }
-                }
-            }
-        }
-
         self.repository.query_aggregated_metrics(query).await
     }
 
@@ -324,20 +306,6 @@ impl MetricsService {
         }
 
         Ok(result)
-    }
-
-    pub async fn check_and_repair_corruption(&self) -> DomainResult<Vec<String>> {
-        let repaired = self.repository.reset_all_corrupted_states().await?;
-
-        if !repaired.is_empty() {
-            tracing::warn!(
-                count = repaired.len(),
-                pipelines = ?repaired,
-                "Detected and repaired corrupted metrics processing states"
-            );
-        }
-
-        Ok(repaired)
     }
 
     pub async fn reset_pipeline_processing(&self, pipeline_id: &str) -> DomainResult<()> {
@@ -441,7 +409,7 @@ mod tests {
         service.update_global_config(true, 30).await.unwrap();
         let mut run: PipelineRun = serde_json::from_value(json!({
             "id": "snapshot", "pipeline_id": "fluxcd__1__Kustomization__apps__web", "run_number": 1,
-            "status": "failed", "started_at": "2026-10-21T00:00:00Z", "logs_url": "",
+            "status": "failed", "started_at": Utc::now().to_rfc3339(), "logs_url": "",
             "metadata": { "snapshot": true }
         }))
         .unwrap();
@@ -469,6 +437,38 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(success, 100.0);
+    }
+
+    #[tokio::test]
+    async fn runs_past_retention_are_not_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = crate::infrastructure::database::init_database(dir.path().join("metrics.db"))
+            .await
+            .unwrap();
+        let service = MetricsService::new(Arc::new(MetricsRepository::new(pool)));
+        service.update_global_config(true, 7).await.unwrap();
+        let pipeline_id = "github__1__o__r__1";
+        let run = |run_number: i64, days_ago: i64| -> PipelineRun {
+            serde_json::from_value(json!({
+                "id": format!("{pipeline_id}__{run_number}"), "pipeline_id": pipeline_id,
+                "run_number": run_number, "status": "success",
+                "started_at": (Utc::now() - chrono::Duration::days(days_ago)).to_rfc3339(),
+                "logs_url": ""
+            }))
+            .unwrap()
+        };
+
+        service
+            .extract_and_store_metrics(pipeline_id, &[run(2, 1), run(1, 10)])
+            .await
+            .unwrap();
+
+        let runs: Vec<_> = stored(&service, pipeline_id)
+            .await
+            .iter()
+            .map(|entry| entry.run_number)
+            .collect();
+        assert_eq!(runs, [2, 2]);
     }
 
     fn native_run(

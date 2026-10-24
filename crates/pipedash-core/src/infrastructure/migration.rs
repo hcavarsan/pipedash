@@ -136,6 +136,7 @@ pub struct MigrationStats {
     pub providers_migrated: usize,
     pub tokens_migrated: usize,
     pub cache_entries_migrated: usize,
+    pub metrics_migrated: usize,
     pub permissions_migrated: usize,
     pub providers_cleaned: usize,
     pub tokens_cleaned: usize,
@@ -744,7 +745,6 @@ impl MigrationOrchestrator {
                         limit: None,
                         ..Default::default()
                     };
-                    let mut migrated = 0;
                     let mut pipelines = 0;
                     for source_id in self.source_metrics.list_pipeline_ids().await? {
                         let Some(target_id) =
@@ -773,9 +773,13 @@ impl MigrationOrchestrator {
                             record.entries[slot] = Some(entry);
                         }
                         let records: Vec<_> = runs.into_values().collect();
-                        migrated += target_metrics
+                        target_metrics
                             .refresh_record_metrics(&target_id, &records)
                             .await?;
+                        result.stats.metrics_migrated += records
+                            .iter()
+                            .map(|record| record.entries.iter().flatten().count())
+                            .sum::<usize>();
                         pipelines += 1;
 
                         let Some(run) = last_run else {
@@ -793,7 +797,7 @@ impl MigrationOrchestrator {
                     }
                     tracing::info!(
                         "[Migration] Migrated {} metric entries for {} pipelines",
-                        migrated,
+                        result.stats.metrics_migrated,
                         pipelines
                     );
                 }
@@ -1013,6 +1017,7 @@ mod tests {
                 providers_migrated: 5,
                 tokens_migrated: 3,
                 cache_entries_migrated: 10,
+                metrics_migrated: 0,
                 permissions_migrated: 2,
                 providers_cleaned: 0,
                 tokens_cleaned: 0,
@@ -1135,6 +1140,7 @@ mod tests {
         backend.delete_provider(ids[0]).await.unwrap();
         let orphan_pipeline = format!("github__{}__o__r__1", ids[0]);
         let source_pipeline = format!("github__{}__o__r__1", ids[1]);
+        let expired_pipeline = format!("github__{}__o__r__2", ids[1]);
 
         let metrics = MetricsRepository::new_from_pool(manager.database_pool());
         metrics.update_global_config(true, 30).await.unwrap();
@@ -1164,6 +1170,10 @@ mod tests {
             .update_last_processed_run(&source_pipeline, 5)
             .await
             .unwrap();
+        metrics
+            .update_last_processed_run(&expired_pipeline, 9)
+            .await
+            .unwrap();
 
         let orchestrator = MigrationOrchestrator::from_manager(&manager, None, None).await;
         let options = MigrationOptions {
@@ -1178,6 +1188,7 @@ mod tests {
         let migrate = || orchestrator.execute_migration(plan.clone(), options.clone(), false);
         let result = migrate().await;
         assert!(result.success, "{:?}", result.errors);
+        assert_eq!(result.stats.metrics_migrated, 5);
         let refreshed = MetricEntry {
             run_hash: Some("hash-4b".to_string()),
             value: 999.0,
@@ -1209,20 +1220,15 @@ mod tests {
         let target_pipeline = format!("github__{target_id}__o__r__1");
         let target_metrics = MetricsRepository::new_from_pool(target_manager.database_pool());
 
-        assert_eq!(
-            target_metrics
-                .count_metrics_for_pipeline(&target_pipeline)
-                .await
-                .unwrap(),
-            5
-        );
-        let run_4: Vec<_> = target_metrics
+        let copied = target_metrics
             .query_metrics(MetricsQuery {
                 pipeline_id: Some(target_pipeline.clone()),
                 ..Default::default()
             })
             .await
-            .unwrap()
+            .unwrap();
+        assert_eq!(copied.len(), 5);
+        let run_4: Vec<_> = copied
             .into_iter()
             .filter(|entry| entry.run_number == 4)
             .map(|entry| (entry.run_hash, entry.value))
@@ -1244,6 +1250,13 @@ mod tests {
                 .await
                 .unwrap(),
             Some(5)
+        );
+        assert_eq!(
+            target_metrics
+                .get_last_processed_run(&format!("github__{target_id}__o__r__2"))
+                .await
+                .unwrap(),
+            Some(9)
         );
         assert_eq!(
             target_metrics

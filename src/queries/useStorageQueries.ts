@@ -190,7 +190,7 @@ export function useExecuteMigration() {
 
         notifications.show({
           title: 'Migration complete',
-          message: `Migrated ${formatCount(result.stats.providers_migrated, 'provider')} and ${formatCount(result.stats.tokens_migrated, 'token')}`,
+          message: `Migrated ${formatCount(result.stats.providers_migrated, 'provider')}, ${formatCount(result.stats.tokens_migrated, 'token')} and ${formatCount(result.stats.metrics_migrated, 'metric entry', 'metric entries')}`,
           color: 'green',
         })
       } else {
