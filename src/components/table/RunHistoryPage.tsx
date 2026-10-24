@@ -318,6 +318,7 @@ export const RunHistoryPage = ({
       const approveLabel = `Approve deployment review for run #${run.run_number}`
       const rejectLabel = `Reject deployment review for run #${run.run_number}`
       const canRerunFailedJobs = run.metadata?.can_rerun_failed_jobs === true
+      const isRerunFailedBusy = rerunningFailedRunNumber !== null
       const isRerunningFailed = rerunningFailedRunNumber === run.run_number
       const rerunFailedLabel = `Re-run failed jobs of run #${run.run_number}`
 
@@ -400,7 +401,7 @@ export const RunHistoryPage = ({
               title={rerunFailedLabel}
               aria-label={rerunFailedLabel}
               loading={isRerunningFailed}
-              disabled={isRerunningFailed}
+              disabled={isRerunFailedBusy}
               onClick={(e) => {
                 e.stopPropagation()
                 handleRerunFailedJobs(pipeline, run)
