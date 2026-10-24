@@ -1,5 +1,6 @@
 use axum::{
     extract::State,
+    http::StatusCode,
     routing::{
         get,
         post,
@@ -96,6 +97,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/config", get(get_storage_config))
         .route("/config", put(update_storage_config))
+        .route("/config/save", post(save_storage_config))
         .route("/config/content", get(get_config_content))
         .route("/config/content", put(save_config_content))
         .route("/config/analyze", post(analyze_config))
@@ -179,18 +181,7 @@ async fn save_config_content(
     let config: PipedashConfig = toml::from_str(&req.content)
         .map_err(|e| AppError::bad_request(format!("Invalid TOML syntax: {}", e)))?;
 
-    let validation = config.validate();
-    if !validation.is_ok() {
-        let errors: Vec<String> = validation
-            .errors
-            .iter()
-            .map(|e| format!("{:?}", e))
-            .collect();
-        return Err(AppError::bad_request(format!(
-            "Config validation failed: {}",
-            errors.join(", ")
-        )));
-    }
+    validate_config(&config)?;
 
     let config_path = ConfigLoader::discover_config_path();
 
@@ -205,6 +196,23 @@ async fn save_config_content(
     tracing::info!("Config file saved: {:?}", config_path);
 
     Ok(Json(serde_json::json!({"success": true})))
+}
+
+fn validate_config(config: &PipedashConfig) -> ApiResult<()> {
+    let validation = config.validate();
+    if !validation.is_ok() {
+        let errors: Vec<String> = validation
+            .errors
+            .iter()
+            .map(|e| format!("{:?}", e))
+            .collect();
+        return Err(AppError::bad_request(format!(
+            "Config validation failed: {}",
+            errors.join(", ")
+        )));
+    }
+
+    Ok(())
 }
 
 async fn analyze_config(
@@ -308,6 +316,40 @@ async fn test_storage_connection(
     }
 }
 
+async fn save_storage_config(
+    State(state): State<AppState>, Json(config): Json<PipedashConfig>,
+) -> ApiResult<StatusCode> {
+    validate_config(&config)?;
+
+    let config_path = ConfigLoader::discover_config_path();
+    let previous = std::fs::read_to_string(&config_path).ok();
+    ConfigLoader::save(&config, &config_path).map_err(|e| {
+        AppError::internal(format!(
+            "Failed to save storage config at {}: {}",
+            config_path.display(),
+            e
+        ))
+    })?;
+    tracing::info!("Storage config saved: {}", config.storage.summary());
+
+    if let Err(e) = reload_storage(&state).await {
+        let restored = match &previous {
+            Some(content) => std::fs::write(&config_path, content),
+            None => std::fs::remove_file(&config_path),
+        };
+        if let Err(restore_error) = restored {
+            tracing::error!(
+                "Failed to restore {} after a failed storage switch: {}",
+                config_path.display(),
+                restore_error
+            );
+        }
+        return Err(AppError::internal(e));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn update_storage_config(
     State(state): State<AppState>, Json(req): Json<UpdateStorageConfigRequest>,
 ) -> ApiResult<Json<MigrationPlan>> {
@@ -371,123 +413,82 @@ async fn execute_migration(
 ) -> ApiResult<Json<MigrationResult>> {
     let token_password = req.options.token_password.clone();
 
-    let (result, event_bus) = {
+    let result = {
         let inner = state.inner.read().await;
         let storage_manager = inner
             .storage_manager
             .as_ref()
             .ok_or_else(|| AppError::internal("Storage manager not available"))?;
         let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-        let event_bus = core.event_bus.clone();
 
         let orchestrator = MigrationOrchestrator::from_manager(
             storage_manager,
-            Some(event_bus.clone()),
+            Some(core.event_bus.clone()),
             None, // API mode: uses from_config, not with_token_store
         )
         .await;
 
-        let result = orchestrator
+        orchestrator
             .execute_migration(req.plan, req.options, false)
-            .await;
-
-        (result, event_bus)
+            .await
     }; // inner and orchestrator dropped here, releasing database connections
 
     if result.success {
-        if let Some(ref password) = token_password {
+        if let Some(password) = &token_password {
             std::env::set_var("PIPEDASH_VAULT_PASSWORD", password);
             state.set_api_token(password);
             tracing::info!("Vault password set in environment for this session");
         }
 
-        let config_path = ConfigLoader::discover_config_path();
-
-        match ConfigLoader::load_or_create(&config_path, Platform::Server) {
-            Ok(new_config) => {
-                tracing::info!(
-                    "Reloading storage manager with new config: {}",
-                    new_config.storage.summary()
-                );
-
-                match StorageManager::from_config(new_config, false).await {
-                    Ok(new_manager) => {
-                        {
-                            let mut inner_lock = state.inner.write().await;
-                            inner_lock.storage_manager = Some(new_manager);
-                        }
-                        tracing::info!("Storage manager successfully reloaded after migration");
-
-                        let inner = state.inner.read().await;
-                        let storage_manager = inner
-                            .storage_manager
-                            .as_ref()
-                            .ok_or_else(|| AppError::internal("Storage manager not available"))?;
-                        match pipedash_core::CoreContext::with_storage_manager(
-                            storage_manager,
-                            event_bus.clone(),
-                        )
-                        .await
-                        {
-                            Ok(new_core) => {
-                                drop(inner);
-
-                                let old_core = {
-                                    let mut inner_lock = state.inner.write().await;
-                                    inner_lock.core.replace(new_core)
-                                };
-                                if let Some(old_core) = old_core {
-                                    old_core.shutdown().await;
-                                }
-
-                                let inner = state.inner.read().await;
-                                if let Some(core) = inner.core.as_ref() {
-                                    if let Err(e) = core.warmup_token_store().await {
-                                        tracing::warn!(
-                                            "Token store warmup warning: {}. Providers may need manual refresh.",
-                                            e
-                                        );
-                                    }
-                                    core.start_background_tasks().await;
-                                    tracing::info!(
-                                        "CoreContext successfully reloaded after migration - \
-                                         token store warmed up and background tasks started"
-                                    );
-                                } else {
-                                    tracing::error!(
-                                        "Core not initialized after migration. Manual restart \
-                                         required."
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Failed to recreate CoreContext after migration: {}. Manual \
-                                     restart required.",
-                                    e
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to create new storage manager after migration: {}. Manual \
-                             restart required.",
-                            e
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Failed to reload config after migration: {}. Manual restart required.",
-                    e
-                );
-            }
+        if let Err(e) = reload_storage(&state).await {
+            tracing::error!("{} after migration. Manual restart required.", e);
         }
     }
 
     Ok(Json(result))
+}
+
+async fn reload_storage(state: &AppState) -> Result<(), String> {
+    let config_path = ConfigLoader::discover_config_path();
+    let config = ConfigLoader::load_or_create(&config_path, Platform::Server)
+        .map_err(|e| format!("Failed to reload config: {}", e))?;
+    tracing::info!(
+        "Reloading storage manager with new config: {}",
+        config.storage.summary()
+    );
+
+    let storage_manager = StorageManager::from_config(config, false)
+        .await
+        .map_err(|e| format!("Failed to create new storage manager: {}", e))?;
+    let new_core = pipedash_core::CoreContext::with_storage_manager(
+        &storage_manager,
+        state.ws_event_bus.clone(),
+    )
+    .await
+    .map_err(|e| format!("Failed to recreate CoreContext: {}", e))?;
+
+    let old_core = {
+        let mut inner = state.inner.write().await;
+        inner.storage_manager = Some(storage_manager);
+        inner.core.replace(new_core)
+    };
+    if let Some(old_core) = old_core {
+        old_core.shutdown().await;
+    }
+
+    let inner = state.inner.read().await;
+    if let Some(core) = inner.core.as_ref() {
+        if let Err(e) = core.warmup_token_store().await {
+            tracing::warn!(
+                "Token store warmup warning: {}. Providers may need manual refresh.",
+                e
+            );
+        }
+        core.start_background_tasks().await;
+    }
+    tracing::info!("Storage reloaded - token store warmed up and background tasks started");
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -499,6 +500,10 @@ mod tests {
         header,
         Request,
         StatusCode,
+    };
+    use pipedash_core::{
+        CoreContext,
+        ProviderConfig,
     };
     use tower::ServiceExt;
 
@@ -565,5 +570,96 @@ mod tests {
             present,
             serde_json::json!({ "exists": true, "path": db_path })
         );
+    }
+
+    async fn save_from_store_with_provider(
+        old_dir: &std::path::Path, target_data_dir: &std::path::Path,
+    ) -> (StatusCode, usize, String) {
+        std::fs::create_dir_all(old_dir).unwrap();
+        let config_path = old_dir.join("config.toml");
+        std::fs::write(
+            &config_path,
+            format!(
+                "[storage]\nbackend = \"sqlite\"\ndata_dir = '{}'\nvault_password = \"vault-password\"\n",
+                old_dir.display()
+            ),
+        )
+        .unwrap();
+        std::env::set_var("PIPEDASH_CONFIG_PATH", &config_path);
+
+        let storage_manager =
+            StorageManager::from_config(ConfigLoader::load(&config_path).unwrap(), false)
+                .await
+                .unwrap();
+        let provider = ProviderConfig {
+            id: None,
+            name: "ci".into(),
+            provider_type: "jenkins".into(),
+            token: String::new(),
+            config: [("server_url".to_string(), "http://127.0.0.1:9".to_string())].into(),
+            refresh_interval: 30,
+            version: None,
+        };
+        storage_manager
+            .config_backend()
+            .create_provider(&provider)
+            .await
+            .unwrap();
+        let ws_event_bus = Arc::new(WebSocketEventBus::new());
+        let core = CoreContext::with_storage_manager(&storage_manager, ws_event_bus.clone())
+            .await
+            .unwrap();
+        let state = AppState::initialized(ws_event_bus, core, storage_manager);
+
+        let mut target = PipedashConfig::default();
+        target.storage.data_dir = target_data_dir.display().to_string();
+        let request = Request::post("/config/save")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(&target).unwrap()))
+            .unwrap();
+        let status = router()
+            .with_state(state.clone())
+            .oneshot(request)
+            .await
+            .unwrap()
+            .status();
+        let provider_service = state.provider_service().await.ok().unwrap();
+        let providers = provider_service.list_providers().await.unwrap();
+        let saved = ConfigLoader::load(&config_path).unwrap();
+
+        (status, providers.len(), saved.storage.data_dir)
+    }
+
+    #[tokio::test]
+    async fn save_config_switches_to_an_empty_store_without_copying_providers() {
+        let _env = crate::routes::CONFIG_ENV.lock().await;
+        let root =
+            std::env::temp_dir().join(format!("pipedash-save-storage-{}", std::process::id()));
+        let new_dir = root.join("new");
+
+        let (status, providers, saved_dir) =
+            save_from_store_with_provider(&root.join("old"), &new_dir).await;
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(providers, 0);
+        assert_eq!(saved_dir, new_dir.display().to_string());
+    }
+
+    #[tokio::test]
+    async fn save_config_keeps_the_old_config_when_the_new_store_cannot_open() {
+        let _env = crate::routes::CONFIG_ENV.lock().await;
+        let root =
+            std::env::temp_dir().join(format!("pipedash-save-storage-bad-{}", std::process::id()));
+        let old_dir = root.join("old");
+        let unopenable = old_dir.join("config.toml").join("store");
+
+        let (status, providers, saved_dir) =
+            save_from_store_with_provider(&old_dir, &unopenable).await;
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(providers, 1);
+        assert_eq!(saved_dir, old_dir.display().to_string());
     }
 }

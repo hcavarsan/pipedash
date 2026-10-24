@@ -549,27 +549,8 @@ class ApiClient {
     return this.post<{ exists: boolean; path: string }>('/storage/check-database', config)
   }
 
-  async saveStorageConfig(config: PipedashConfig, tokenPassword?: string): Promise<void> {
-    const options: MigrationOptions = {
-      migrate_tokens: !!tokenPassword,
-      migrate_cache: true,
-      dry_run: false,
-      token_password: tokenPassword,
-    }
-
-    const plan = await this.post<MigrationPlan>('/storage/migration/plan', {
-      target_config: config,
-      options,
-    })
-
-    const result = await this.post<MigrationResult>('/storage/migration/execute', {
-      plan,
-      options,
-    })
-
-    if (!result.success) {
-      throw new Error(`Migration failed: ${result.errors.join(', ')}`)
-    }
+  async saveStorageConfig(config: PipedashConfig): Promise<void> {
+    await this.post('/storage/config/save', config)
   }
 
   async testStorageConnection(config: PipedashConfig): Promise<{
