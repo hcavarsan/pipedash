@@ -89,11 +89,12 @@ impl JenkinsClient {
                     format!("{}/{}", path, job.name)
                 };
 
-                if job._class.contains("Folder") {
+                if job._class.contains("Folder")
+                    || job._class.contains("WorkflowMultiBranchProject")
+                {
                     queue.push(full_path);
                 } else if job._class.contains("WorkflowJob")
                     || job._class.contains("FreeStyleProject")
-                    || job._class.contains("WorkflowMultiBranchProject")
                 {
                     all_jobs.push(types::DiscoveredJob {
                         name: job.name,
@@ -305,9 +306,7 @@ impl JenkinsClient {
         all_jobs
             .into_iter()
             .map(|job| {
-                let job_type = if job._class.contains("WorkflowMultiBranch") {
-                    "Multibranch Pipeline"
-                } else if job._class.contains("WorkflowJob") {
+                let job_type = if job._class.contains("WorkflowJob") {
                     "Pipeline"
                 } else if job._class.contains("FreeStyleProject") {
                     "Freestyle"
@@ -506,5 +505,30 @@ mod tests {
             "{text}"
         );
         assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    fn multibranch(path: &str) -> Reply {
+        let body = if path.starts_with("/job/app/") {
+            r#"{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","jobs":[{"_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob","name":"main","url":"x"},{"_class":"org.jenkinsci.plugins.workflow.job.WorkflowJob","name":"feature-x","url":"x"}]}"#
+        } else {
+            r#"{"_class":"hudson.model.Hudson","jobs":[{"_class":"org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject","name":"app","url":"x"}]}"#
+        };
+        Reply {
+            status: "200 OK",
+            headers: "Content-Type: application/json\r\n",
+            body,
+        }
+    }
+
+    #[tokio::test]
+    async fn multibranch_pipeline_lists_its_branch_jobs() {
+        let (client, requests) = client_for(multibranch, Duration::ZERO).await;
+
+        let jobs = client.discover_all_jobs().await.unwrap();
+
+        let mut paths: Vec<&str> = jobs.iter().map(|job| job.full_path.as_str()).collect();
+        paths.sort_unstable();
+        assert_eq!(paths, ["app/feature-x", "app/main"]);
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
     }
 }
