@@ -22,30 +22,6 @@ export const sizeAtOffset = (offset: number, current: SidebarSize, viewportWidth
     ? { width: current.width, compact: true }
     : { width: clampSidebarWidth(offset, viewportWidth), compact: false }
 
-export interface SidebarDrag {
-  resizable: boolean
-  draft: SidebarSize | null
-}
-
-export type SidebarDragEvent =
-  | { type: 'start'; size: SidebarSize }
-  | { type: 'move'; offset: number; viewportWidth: number }
-  | { type: 'stop' }
-  | { type: 'resizable'; resizable: boolean }
-
-export const nextSidebarDrag = (drag: SidebarDrag, event: SidebarDragEvent): SidebarDrag => {
-  switch (event.type) {
-    case 'start':
-      return drag.resizable ? { ...drag, draft: event.size } : drag
-    case 'move':
-      return drag.draft ? { ...drag, draft: sizeAtOffset(event.offset, drag.draft, event.viewportWidth) } : drag
-    case 'stop':
-      return { ...drag, draft: null }
-    case 'resizable':
-      return { resizable: event.resizable, draft: event.resizable ? drag.draft : null }
-  }
-}
-
 export const sizeAfterStep = (step: number, current: SidebarSize, viewportWidth: number): SidebarSize => {
   if (current.compact) {
     return step > 0 ? { width: current.width, compact: false } : current

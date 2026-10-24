@@ -45,7 +45,10 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@codecov/vite-plugin": "^2.0.1",
+    "@happy-dom/global-registrator": "^21.0.4",
     "@tauri-apps/cli": "^2.12.3",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

@@ -3,14 +3,13 @@ import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } fr
 
 import {
   clampSidebarWidth,
-  nextSidebarDrag,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_RAIL_WIDTH,
-  type SidebarDrag,
   type SidebarSize,
   sidebarCssWidth,
   sizeAfterStep,
+  sizeAtOffset,
 } from './sidebarWidth'
 
 const SNAP_TRANSITION_MS = 200
@@ -19,7 +18,7 @@ const KEYBOARD_STEP = 16
 export const useSidebarResize = (resizable: boolean) => {
   const [compact, setCompact] = useLocalStorage({ key: 'pipedash-sidebar-compact', defaultValue: false })
   const [width, setWidth] = useLocalStorage({ key: 'pipedash-sidebar-width', defaultValue: SIDEBAR_DEFAULT_WIDTH })
-  const [drag, setDrag] = useState<SidebarDrag>({ resizable, draft: null })
+  const [draft, setDraft] = useState<SidebarSize | null>(null)
   const [snapping, setSnapping] = useState(false)
   const { width: viewportWidth } = useViewportSize()
   const navbarLeft = useRef(0)
@@ -27,11 +26,10 @@ export const useSidebarResize = (resizable: boolean) => {
 
   useEffect(() => () => clearTimeout(snapTimer.current), [])
 
-  if (drag.resizable !== resizable) {
-    setDrag(nextSidebarDrag(drag, { type: 'resizable', resizable }))
+  if (!resizable && draft) {
+    setDraft(null)
   }
 
-  const draft = drag.draft
   const size = draft ?? { width, compact }
 
   const save = (next: SidebarSize) => {
@@ -46,27 +44,26 @@ export const useSidebarResize = (resizable: boolean) => {
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     navbarLeft.current = event.currentTarget.parentElement?.getBoundingClientRect().left ?? 0
-    setDrag(nextSidebarDrag(drag, { type: 'start', size: { width, compact } }))
+    setDraft({ width, compact })
   }
 
   const onPointerMove = (event: PointerEvent<HTMLElement>) => {
-    const next = nextSidebarDrag(drag, {
-      type: 'move',
-      offset: event.clientX - navbarLeft.current,
-      viewportWidth,
-    })
-    if (next.draft?.compact !== draft?.compact) {
+    if (!draft) {
+      return
+    }
+    const next = sizeAtOffset(event.clientX - navbarLeft.current, draft, viewportWidth)
+    if (next.compact !== draft.compact) {
       clearTimeout(snapTimer.current)
       setSnapping(true)
       snapTimer.current = setTimeout(() => setSnapping(false), SNAP_TRANSITION_MS)
     }
-    setDrag(next)
+    setDraft(next)
   }
 
   const onLostPointerCapture = () => {
     if (draft) {
       save(draft)
-      setDrag(nextSidebarDrag(drag, { type: 'stop' }))
+      setDraft(null)
     }
   }
 

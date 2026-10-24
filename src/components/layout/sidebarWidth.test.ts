@@ -1,16 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import {
-  nextSidebarDrag,
-  SIDEBAR_DEFAULT_WIDTH,
-  SIDEBAR_MAX_WIDTH,
-  type SidebarDrag,
-  type SidebarDragEvent,
-  sidebarCssWidth,
-  sizeAfterStep,
-  sizeAtOffset,
-} from './sidebarWidth'
+import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, sidebarCssWidth, sizeAfterStep, sizeAtOffset } from './sidebarWidth'
 
 const expanded = { width: 300, compact: false }
 const rail = { width: 300, compact: true }
@@ -20,35 +11,6 @@ test('follows the pointer between the minimum and maximum width', () => {
   assert.deepEqual(sizeAtOffset(250.6, expanded, wide), { width: 251, compact: false })
   assert.deepEqual(sizeAtOffset(150, expanded, wide), { width: 200, compact: false })
   assert.deepEqual(sizeAtOffset(900, expanded, wide), { width: SIDEBAR_MAX_WIDTH, compact: false })
-})
-
-const run = (events: SidebarDragEvent[], resizable = true): SidebarDrag =>
-  events.reduce(nextSidebarDrag, { resizable, draft: null })
-
-test('a drag keeps a draft until it stops', () => {
-  const dragging = run([
-    { type: 'start', size: expanded },
-    { type: 'move', offset: 350, viewportWidth: wide },
-  ])
-
-  assert.deepEqual(dragging.draft, { width: 350, compact: false })
-  assert.equal(nextSidebarDrag(dragging, { type: 'stop' }).draft, null)
-})
-
-test('losing the handle mid-drag cancels the drag and ignores later pointer moves', () => {
-  const hidden = run([
-    { type: 'start', size: expanded },
-    { type: 'move', offset: 350, viewportWidth: wide },
-    { type: 'resizable', resizable: false },
-    { type: 'move', offset: 380, viewportWidth: wide },
-  ])
-  assert.deepEqual(hidden, { resizable: false, draft: null })
-
-  assert.deepEqual(nextSidebarDrag(hidden, { type: 'resizable', resizable: true }), { resizable: true, draft: null })
-})
-
-test('a drag cannot start while the sidebar is not resizable', () => {
-  assert.deepEqual(run([{ type: 'start', size: expanded }], false), { resizable: false, draft: null })
 })
 
 test('snaps to the rail below the midpoint and keeps the expanded width to restore', () => {
