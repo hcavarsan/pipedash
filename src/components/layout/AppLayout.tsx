@@ -1,5 +1,5 @@
-import { AppShell } from '@mantine/core'
-import { useDisclosure, useLocalStorage } from '@mantine/hooks'
+import { AppShell, Box } from '@mantine/core'
+import { useDisclosure } from '@mantine/hooks'
 import { type ReactNode, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
@@ -7,6 +7,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 import { Header } from './Header'
 import { Navbar } from './Navbar'
+import { useSidebarResize } from './useSidebarResize'
 
 interface AppLayoutProps {
   children: ReactNode
@@ -19,10 +20,10 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
   const { isMobile } = useIsMobile()
   const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure(false)
   const [locationKey, setLocationKey] = useState(location.key)
-  const [desktopCompact, setDesktopCompact] = useLocalStorage({ key: 'pipedash-sidebar-compact', defaultValue: false })
-  const compact = !isMobile && desktopCompact
-  const opened = isMobile ? mobileOpened : !desktopCompact
-  const toggle = isMobile ? toggleMobile : () => setDesktopCompact((value) => !value)
+  const sidebar = useSidebarResize()
+  const compact = !isMobile && sidebar.compact
+  const opened = isMobile ? mobileOpened : !sidebar.compact
+  const toggle = isMobile ? toggleMobile : sidebar.toggle
 
   if (locationKey !== location.key) {
     setLocationKey(location.key)
@@ -33,10 +34,11 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
     <AppShell
       header={{ height: isMobile ? 'calc(70px + env(safe-area-inset-top))' : 70 }}
       navbar={{
-        width: { base: 280, sm: compact ? 68 : 248 },
+        width: { base: 280, sm: sidebar.navbarWidth },
         breakpoint: 'sm',
         collapsed: { mobile: !mobileOpened, desktop: isSettingsPage },
       }}
+      mod={{ 'sidebar-resizing': sidebar.resizing, 'sidebar-instant': sidebar.instant }}
       padding={{ base: 'xs', sm: 'md' }}
       styles={{
         main: {
@@ -55,6 +57,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
 
       <AppShell.Navbar>
         <Navbar compact={compact} />
+        {!isMobile && !isSettingsPage && <Box className="sidebar-resize-handle" {...sidebar.handleProps} />}
       </AppShell.Navbar>
 
       <AppShell.Main>{children}</AppShell.Main>
