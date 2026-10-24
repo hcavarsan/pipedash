@@ -6,7 +6,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { ProviderConfig, ProviderImportResult, ProviderSummary } from '../types'
-import { saveTextFile } from '../utils/saveTextFile'
+import { saveFile } from '../utils/saveFile'
 import { invalidateProviderPipelines } from './usePipelinesQueries'
 
 export function useProviders(options?: { enabled?: boolean }) {
@@ -167,7 +167,12 @@ export function useRemoveProvider() {
 
 export function useExportProviders() {
   return useMutation({
-    mutationFn: async () => saveTextFile('pipedash-providers.toml', await service.exportProviders()),
+    mutationFn: async () =>
+      saveFile('pipedash-providers.toml', await service.exportProviders(), {
+        name: 'TOML File',
+        extension: 'toml',
+        mimeType: 'application/toml',
+      }),
 
     onSuccess: (saved) => {
       if (saved) {
