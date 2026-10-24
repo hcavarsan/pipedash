@@ -62,6 +62,7 @@ What you can do:
 - Keep watching GitHub repos without running out of API quota. With less than 10% of the hourly quota left, Pipedash stops refreshing that GitHub provider until the quota resets. The sidebar and Settings > Providers show "Paused until" with the reset time
 - See when a provider has problems. Pipedash reads the public status pages of GitHub, GitLab.com, Bitbucket and Buildkite, and checks the Tekton and Flux controllers in your cluster. On GitHub, GitLab, Gitea, Jenkins, ArgoCD, Tekton and Flux providers you can also set the status page of your own instance. It only raises a warning for outages on the parts that runs depend on, such as Actions, the API, git and webhooks, and for problems reaching the provider. Click a provider in the table to see its service status, its controllers and Pipedash's connection to it. Outage and recovery alerts go to the bell in the header, which shows a dot while you have unread alerts. Turn on "Notify me about provider outages" under Settings > General for a system notification
 - Pick a dark, light, or system theme in Settings → General
+- Drag the edge of the sidebar to resize it on desktop and web. Drag it narrow to collapse it to icons, and double-click the edge to reset its width
 
 When you trigger or rerun a workflow, Pipedash fetches available parameters from the plugin (workflow inputs for GitHub Actions, pipeline variables for GitLab CI, build parameters for Jenkins/Buildkite) and shows them in a form.
 

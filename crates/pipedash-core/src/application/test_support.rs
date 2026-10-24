@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{
+    AtomicBool,
     AtomicU64,
     AtomicUsize,
     Ordering,
@@ -72,6 +73,7 @@ use crate::infrastructure::{
     MemoryTokenStore,
     PipedashConfig,
     SqliteConfigBackend,
+    TokenStore,
 };
 
 pub(crate) struct Gate {
@@ -325,6 +327,7 @@ impl Provider for StubProvider {
 pub(crate) struct StubFactory {
     queued: Mutex<HashMap<i64, Vec<Arc<StubProvider>>>>,
     built: Mutex<HashMap<i64, usize>>,
+    tokens: Mutex<HashMap<i64, String>>,
 }
 
 impl StubFactory {
@@ -341,6 +344,7 @@ impl StubFactory {
 
     pub(crate) fn provide(&self, config: &ProviderConfig) -> DomainResult<Arc<dyn Provider>> {
         let id = config.id.unwrap_or(0);
+        self.tokens.lock().unwrap().insert(id, config.token.clone());
         let mut built = self.built.lock().unwrap();
         let index = built.entry(id).or_default();
         let queued = self.queued.lock().unwrap();
@@ -351,6 +355,46 @@ impl StubFactory {
         *index += 1;
 
         Ok(provider)
+    }
+
+    pub(crate) fn token_of(&self, id: i64) -> Option<String> {
+        self.tokens.lock().unwrap().get(&id).cloned()
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct FailOnceTokenStore {
+    inner: MemoryTokenStore,
+    fail_next_store: AtomicBool,
+}
+
+impl FailOnceTokenStore {
+    pub(crate) fn fail_next_store(&self) {
+        self.fail_next_store.store(true, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl TokenStore for FailOnceTokenStore {
+    async fn store_token(&self, provider_id: i64, token: &str) -> DomainResult<()> {
+        if self.fail_next_store.swap(false, Ordering::SeqCst) {
+            return Err(DomainError::DatabaseError(
+                "token store unavailable".to_string(),
+            ));
+        }
+        self.inner.store_token(provider_id, token).await
+    }
+
+    async fn get_token(&self, provider_id: i64) -> DomainResult<String> {
+        self.inner.get_token(provider_id).await
+    }
+
+    async fn delete_token(&self, provider_id: i64) -> DomainResult<()> {
+        self.inner.delete_token(provider_id).await
+    }
+
+    async fn get_all_tokens(&self) -> DomainResult<HashMap<i64, String>> {
+        self.inner.get_all_tokens().await
     }
 }
 
@@ -394,6 +438,7 @@ impl EventBus for RecordingBus {
 
 pub(crate) struct Harness {
     pub(crate) _temp_dir: TempDir,
+    pub(crate) token_store: Arc<FailOnceTokenStore>,
     pub(crate) pool: SqlitePool,
     pub(crate) repository: Arc<Repository>,
     pub(crate) bus: Arc<RecordingBus>,
@@ -434,7 +479,7 @@ impl Harness {
         let pool = init_database(temp_dir.path().join("harness.db"))
             .await
             .unwrap();
-        let token_store = Arc::new(MemoryTokenStore::new());
+        let token_store = Arc::new(FailOnceTokenStore::default());
         let repository = Arc::new(Repository::new(
             Arc::new(SqliteConfigBackend::new(pool.clone())),
             DatabasePool::Sqlite(pool.clone()),
@@ -455,7 +500,7 @@ impl Harness {
         let config_state = ConfigState::from_config(
             PipedashConfig::default(),
             temp_dir.path().join("config.toml"),
-            token_store,
+            token_store.clone(),
         );
         config_state.attach_health(health.clone());
 
@@ -502,6 +547,7 @@ impl Harness {
 
         Self {
             _temp_dir: temp_dir,
+            token_store,
             pool,
             repository,
             bus,
