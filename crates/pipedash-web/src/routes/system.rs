@@ -4,6 +4,7 @@ use axum::{
     Json,
     Router,
 };
+use pipedash_core::infrastructure::database::PushRepository;
 use serde::Serialize;
 
 use crate::error::{
@@ -33,6 +34,10 @@ async fn factory_reset(State(state): State<AppState>) -> ApiResult<Json<FactoryR
     for provider in providers {
         core.provider_service.remove_provider(provider.id).await?;
     }
+
+    PushRepository::new(core.provider_service.repository().cache_pool().clone())
+        .delete_all()
+        .await?;
 
     if let Some(metrics_service) = &core.metrics_service {
         metrics_service.flush_metrics(None, true).await?;

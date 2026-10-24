@@ -1,8 +1,8 @@
 import { Center } from '@mantine/core'
-import { useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 
 import { useVaultStatus } from '../../queries/useVaultQueries'
-import { shouldShowPrivacyCover } from '../../utils/appLock'
+import { nextCoverLatch, shouldShowPrivacyCover } from '../../utils/appLock'
 import { isMobilePlatform } from '../../utils/platform'
 import { AppLogo } from '../atoms/AppLogo'
 
@@ -16,9 +16,22 @@ const getVisibility = () => document.visibilityState
 
 export function PrivacyCover() {
   const visibility = useSyncExternalStore(subscribe, getVisibility)
-  const { data: vaultStatus } = useVaultStatus({ enabled: isMobilePlatform() })
+  const { data: vaultStatus, refetch } = useVaultStatus({ enabled: isMobilePlatform() })
+  const [latched, setLatched] = useState(false)
+  const appLock = vaultStatus?.app_lock
+  const nextLatched = nextCoverLatch(latched, appLock, visibility)
 
-  if (!shouldShowPrivacyCover(vaultStatus?.app_lock?.enabled === true, visibility)) {
+  if (nextLatched !== latched) {
+    setLatched(nextLatched)
+  }
+
+  useEffect(() => {
+    if (visibility === 'visible' && isMobilePlatform()) {
+      refetch()
+    }
+  }, [visibility, refetch])
+
+  if (!shouldShowPrivacyCover(appLock?.enabled === true, visibility, nextLatched)) {
     return null
   }
 

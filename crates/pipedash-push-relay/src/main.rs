@@ -6,18 +6,27 @@ mod store;
 #[cfg(test)]
 mod test_support;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use tracing_subscriber::EnvFilter;
 
 use crate::apns::{
+    unix_now,
     Apns,
     Signer,
 };
 use crate::config::Config;
 use crate::routes::AppState;
 use crate::store::Store;
+
+// A subscription that has had no successful push and no token rotation for this
+// long is dropped. The app rotates its token on every launch, so only abandoned
+// pairings reach the limit.
+const INACTIVITY_LIMIT: Duration = Duration::from_secs(90 * 24 * 60 * 60);
+const EXPIRY_SWEEP: Duration = Duration::from_secs(60 * 60);
 
 async fn shutdown_signal() {
     let ctrl_c = async {
@@ -42,6 +51,21 @@ async fn shutdown_signal() {
     }
 }
 
+fn spawn_expiry(store: Store) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(EXPIRY_SWEEP);
+        loop {
+            tick.tick().await;
+            let cutoff = unix_now().saturating_sub(INACTIVITY_LIMIT.as_secs());
+            match store.delete_inactive_since(cutoff).await {
+                Ok(0) => {}
+                Ok(expired) => tracing::info!(expired, "Removed inactive subscriptions"),
+                Err(error) => tracing::warn!(%error, "Couldn't remove inactive subscriptions"),
+            }
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -58,10 +82,12 @@ async fn main() -> anyhow::Result<()> {
     let store = Store::open(&config.database_path)
         .await
         .context("Couldn't open the database")?;
+    spawn_expiry(store.clone());
     let app = routes::router(AppState::new(
         store,
         Arc::new(apns),
         config.allowed_bundle_ids,
+        config.trusted_proxy,
     ));
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr)
@@ -69,9 +95,12 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| format!("Couldn't listen on {}", config.bind_addr))?;
     tracing::info!("Push relay listening on {}", config.bind_addr);
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     Ok(())
 }

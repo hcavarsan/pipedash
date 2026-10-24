@@ -72,6 +72,8 @@ enum PushError {
     Keychain,
     #[error("could not create the HTTP client")]
     Client,
+    #[error("the push relay no longer knows this device")]
+    RelayGone,
 }
 
 impl PushError {
@@ -93,6 +95,7 @@ impl PushError {
             Self::Storage => "STORAGE",
             Self::Keychain => "KEYCHAIN",
             Self::Client => "HTTP_CLIENT",
+            Self::RelayGone => "RELAY_SUBSCRIPTION_GONE",
         }
     }
 }
@@ -142,6 +145,7 @@ fn status_error(peer: &Peer<'_>, status: u16, code: Option<&str>) -> PushError {
     match (peer, status, code) {
         (Peer::Server(_), 401 | 403, _) => PushError::Unauthorized,
         (Peer::Server(_), 422, Some(RELAY_MISSING_CODE)) => PushError::ServerRelayMissing,
+        (Peer::Relay, 404 | 410, _) => PushError::RelayGone,
         (_, 429, _) => PushError::RateLimited,
         (_, 500..=599, _) => PushError::Unreachable(peer.label()),
         _ => PushError::Unexpected(peer.label(), status),
@@ -169,7 +173,8 @@ async fn call(peer: &Peer<'_>, request: RequestBuilder, allow_missing: bool) -> 
         PushError::Unreachable(label.clone())
     })?;
     let status = response.status();
-    if status.is_success() || (allow_missing && status == StatusCode::NOT_FOUND) {
+    let missing = status == StatusCode::NOT_FOUND || status == StatusCode::GONE;
+    if status.is_success() || (allow_missing && missing) {
         return Ok(response);
     }
     let code = match peer {
@@ -320,15 +325,79 @@ async fn revoke_relay(base: &str, subscription_id: &str) {
 }
 
 fn persist(
-    dir: &Path, record: &ServerRecord, subscription_id: &str, api_token: &str, device_token: &str,
+    dir: &Path, record: &ServerRecord, subscription_id: &str, api_token: &str,
+    device_token: Option<&str>,
 ) -> Result<()> {
     store::set_secret(Secret::ApiToken, &record.id, api_token)?;
     store::set_secret(Secret::RelaySubscription, &record.id, subscription_id)?;
     store::update(dir, |file| {
-        file.device_token = Some(device_token.to_owned());
+        if let Some(device_token) = device_token {
+            file.device_token = Some(device_token.to_owned());
+        }
         file.servers.retain(|server| server.url != record.url);
         file.servers.push(record.clone());
     })
+}
+
+struct Pairing<'a> {
+    url: &'a str,
+    host: &'a str,
+    api_token: &'a str,
+    label: &'a str,
+    device_token: &'a str,
+    record_device_token: bool,
+}
+
+async fn establish(
+    dir: &Path, relay_url: &str, pairing: &Pairing<'_>, stale: Option<&ServerRecord>,
+) -> Result<()> {
+    let subscription_id = relay::create(relay_url, pairing.device_token).await?;
+    let registered = server::register(
+        pairing.url,
+        pairing.host,
+        pairing.api_token,
+        &subscription_id,
+    )
+    .await;
+    let id = match registered {
+        Ok(id) => id,
+        Err(error) => {
+            revoke_relay(relay_url, &subscription_id).await;
+            return Err(error);
+        }
+    };
+    let record = ServerRecord {
+        id,
+        url: pairing.url.to_owned(),
+        label: pairing.label.to_owned(),
+        paired_at: stale.map_or_else(Utc::now, |stale| stale.paired_at),
+    };
+    let device_token = pairing.record_device_token.then_some(pairing.device_token);
+    if let Err(error) = persist(
+        dir,
+        &record,
+        &subscription_id,
+        pairing.api_token,
+        device_token,
+    ) {
+        if let Err(cleanup) =
+            server::delete(pairing.url, pairing.host, pairing.api_token, &record.id).await
+        {
+            tracing::warn!(error = %cleanup, "could not roll back the push server subscription");
+        }
+        revoke_relay(relay_url, &subscription_id).await;
+        store::forget(&record.id);
+        return Err(error);
+    }
+    if let Some(stale) = stale.filter(|stale| stale.id != record.id) {
+        if let Err(error) =
+            server::delete(pairing.url, pairing.host, pairing.api_token, &stale.id).await
+        {
+            tracing::warn!(%error, "could not remove the old subscription from the push server");
+        }
+        store::forget(&stale.id);
+    }
+    Ok(())
 }
 
 async fn pair(
@@ -345,47 +414,38 @@ async fn pair(
         .servers
         .into_iter()
         .find(|server| server.url == target.url);
+    let device_token = acquire_device_token(app).await?;
 
     if let Some(record) = &existing {
         if let Some(subscription_id) = store::get_secret(Secret::RelaySubscription, &record.id)? {
-            server::register(&target.url, &target.host, api_token, &subscription_id).await?;
-            store::set_secret(Secret::ApiToken, &record.id, api_token)?;
-            return store::update(dir, |file| {
-                if let Some(server) = file.servers.iter_mut().find(|s| s.id == record.id) {
-                    server.label = label;
+            match relay::rotate(relay_url, &subscription_id, &device_token).await {
+                Ok(()) => {
+                    server::register(&target.url, &target.host, api_token, &subscription_id)
+                        .await?;
+                    store::set_secret(Secret::ApiToken, &record.id, api_token)?;
+                    return store::update(dir, |file| {
+                        if let Some(server) = file.servers.iter_mut().find(|s| s.id == record.id) {
+                            server.label = label;
+                        }
+                    });
                 }
-            });
+                Err(PushError::RelayGone) => {
+                    tracing::info!("the saved push relay subscription is gone, creating a new one");
+                }
+                Err(error) => return Err(error),
+            }
         }
     }
 
-    let device_token = acquire_device_token(app).await?;
-    let subscription_id = relay::create(relay_url, &device_token).await?;
-    let id = match server::register(&target.url, &target.host, api_token, &subscription_id).await {
-        Ok(id) => id,
-        Err(error) => {
-            revoke_relay(relay_url, &subscription_id).await;
-            return Err(error);
-        }
+    let pairing = Pairing {
+        url: &target.url,
+        host: &target.host,
+        api_token,
+        label: &label,
+        device_token: &device_token,
+        record_device_token: true,
     };
-    let record = ServerRecord {
-        id,
-        url: target.url.clone(),
-        label,
-        paired_at: Utc::now(),
-    };
-    if let Err(error) = persist(dir, &record, &subscription_id, api_token, &device_token) {
-        if let Err(cleanup) = server::delete(&target.url, &target.host, api_token, &record.id).await
-        {
-            tracing::warn!(error = %cleanup, "could not roll back the push server subscription");
-        }
-        revoke_relay(relay_url, &subscription_id).await;
-        store::forget(&record.id);
-        return Err(error);
-    }
-    if let Some(stale) = existing.filter(|stale| stale.id != record.id) {
-        store::forget(&stale.id);
-    }
-    Ok(())
+    establish(dir, relay_url, &pairing, existing.as_ref()).await
 }
 
 async fn unpair(dir: &Path, id: &str) -> Result<()> {
@@ -465,6 +525,30 @@ pub async fn push_send_test(
 }
 
 #[cfg(target_os = "ios")]
+async fn rotate_or_replace(
+    dir: &Path, relay_url: &str, server: &ServerRecord, device_token: &str,
+) -> Result<()> {
+    if let Some(subscription_id) = store::get_secret(Secret::RelaySubscription, &server.id)? {
+        match relay::rotate(relay_url, &subscription_id, device_token).await {
+            Err(PushError::RelayGone) => {}
+            other => return other,
+        }
+    }
+    let api_token =
+        store::get_secret(Secret::ApiToken, &server.id)?.ok_or(PushError::TokenMissing)?;
+    let host = host_of(&server.url);
+    let pairing = Pairing {
+        url: &server.url,
+        host: &host,
+        api_token: &api_token,
+        label: &server.label,
+        device_token,
+        record_device_token: false,
+    };
+    establish(dir, relay_url, &pairing, Some(server)).await
+}
+
+#[cfg(target_os = "ios")]
 async fn sync_token(app: &AppHandle, dir: &Path) -> Result<()> {
     let file = store::read(dir)?;
     let Some(relay_url) = relay::base_url() else {
@@ -474,20 +558,12 @@ async fn sync_token(app: &AppHandle, dir: &Path) -> Result<()> {
         return Ok(());
     }
     let device_token = acquire_device_token(app).await?;
-    if file.device_token.as_deref() == Some(device_token.as_str()) {
-        return Ok(());
-    }
+    // The relay expires subscriptions that see no activity, so a launch always
+    // refreshes them.
 
     let mut all_rotated = true;
     for server in &file.servers {
-        let rotated = match store::get_secret(Secret::RelaySubscription, &server.id) {
-            Ok(Some(subscription_id)) => {
-                relay::rotate(relay_url, &subscription_id, &device_token).await
-            }
-            Ok(None) => continue,
-            Err(error) => Err(error),
-        };
-        if let Err(error) = rotated {
+        if let Err(error) = rotate_or_replace(dir, relay_url, server, &device_token).await {
             all_rotated = false;
             tracing::warn!(host = %host_of(&server.url), %error, "push token sync failed");
         }
@@ -498,6 +574,30 @@ async fn sync_token(app: &AppHandle, dir: &Path) -> Result<()> {
         store::update(dir, |file| file.device_token = Some(device_token))?;
     }
     Ok(())
+}
+
+pub async fn reset(dir: &Path) {
+    let servers = store::read(dir)
+        .map(|file| file.servers)
+        .unwrap_or_default();
+    for record in servers {
+        if let (Some(relay_url), Ok(Some(subscription_id))) = (
+            relay::base_url(),
+            store::get_secret(Secret::RelaySubscription, &record.id),
+        ) {
+            revoke_relay(relay_url, &subscription_id).await;
+        }
+        if let Ok(Some(api_token)) = store::get_secret(Secret::ApiToken, &record.id) {
+            let host = host_of(&record.url);
+            if let Err(error) = server::delete(&record.url, &host, &api_token, &record.id).await {
+                tracing::warn!(%error, "could not remove the subscription from the push server");
+            }
+        }
+        store::forget(&record.id);
+    }
+    if let Err(error) = store::remove_file(dir) {
+        tracing::warn!(%error, "could not delete the push settings");
+    }
 }
 
 pub fn spawn_token_sync(app: &AppHandle, app_data_dir: &Path) {
@@ -617,6 +717,14 @@ mod tests {
         assert!(matches!(
             status_error(&Peer::Relay, 429, None),
             PushError::RateLimited
+        ));
+        assert!(matches!(
+            status_error(&Peer::Relay, 410, None),
+            PushError::RelayGone
+        ));
+        assert!(matches!(
+            status_error(&server, 404, None),
+            PushError::Unexpected(_, 404)
         ));
         assert!(matches!(
             status_error(&Peer::Relay, 401, None),

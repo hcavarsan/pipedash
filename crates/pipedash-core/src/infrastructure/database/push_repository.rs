@@ -185,6 +185,69 @@ impl PushRepository {
         }
         .map_err(db_error)
     }
+
+    pub async fn delete_all(&self) -> DomainResult<u64> {
+        let sql = "DELETE FROM push_subscriptions";
+        match &self.pool {
+            DatabasePool::Sqlite(p) => sqlx::query(sql)
+                .execute(p)
+                .await
+                .map(|result| result.rows_affected()),
+            DatabasePool::Postgres(p) => sqlx::query(sql)
+                .execute(p)
+                .await
+                .map(|result| result.rows_affected()),
+        }
+        .map_err(db_error)
+    }
+
+    pub async fn import(&self, subscriptions: &[PushSubscription]) -> DomainResult<()> {
+        let sql = format!(
+            "INSERT INTO push_subscriptions
+                 (id, relay_subscription_id, device_name, platform, created_at, last_success_at)
+             VALUES ({}, {}, {}, {}, {}, {})
+             ON CONFLICT (id) DO UPDATE SET
+                 relay_subscription_id = excluded.relay_subscription_id,
+                 device_name = excluded.device_name,
+                 platform = excluded.platform,
+                 created_at = excluded.created_at,
+                 last_success_at = excluded.last_success_at",
+            self.placeholder(1),
+            self.placeholder(2),
+            self.placeholder(3),
+            self.placeholder(4),
+            self.placeholder(5),
+            self.placeholder(6),
+        );
+
+        for subscription in subscriptions {
+            match &self.pool {
+                DatabasePool::Sqlite(p) => sqlx::query(sqlx::AssertSqlSafe(sql.clone()))
+                    .bind(&subscription.id)
+                    .bind(&subscription.relay_subscription_id)
+                    .bind(&subscription.device_name)
+                    .bind(&subscription.platform)
+                    .bind(subscription.created_at)
+                    .bind(subscription.last_success_at)
+                    .execute(p)
+                    .await
+                    .map(|_| ()),
+                DatabasePool::Postgres(p) => sqlx::query(sqlx::AssertSqlSafe(sql.clone()))
+                    .bind(&subscription.id)
+                    .bind(&subscription.relay_subscription_id)
+                    .bind(&subscription.device_name)
+                    .bind(&subscription.platform)
+                    .bind(subscription.created_at)
+                    .bind(subscription.last_success_at)
+                    .execute(p)
+                    .await
+                    .map(|_| ()),
+            }
+            .map_err(db_error)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -260,5 +323,27 @@ mod tests {
             .unwrap();
 
         exercise(&PushRepository::new(DatabasePool::Postgres(pool))).await;
+    }
+
+    #[tokio::test]
+    async fn imported_subscriptions_keep_their_ids_capabilities_and_timestamps() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = PushRepository::new(DatabasePool::Sqlite(
+            init_database(dir.path().join("source.db")).await.unwrap(),
+        ));
+        let target = PushRepository::new(DatabasePool::Sqlite(
+            init_database(dir.path().join("target.db")).await.unwrap(),
+        ));
+        source.register("relay-a", "iPhone", "ios").await.unwrap();
+        let paired = source.register("relay-b", "iPad", "ios").await.unwrap();
+        source.mark_success(&paired.id).await.unwrap();
+        let exported = source.list().await.unwrap();
+
+        target.import(&exported).await.unwrap();
+        target.import(&exported).await.unwrap();
+
+        assert_eq!(target.list().await.unwrap(), exported);
+        assert_eq!(target.delete_all().await.unwrap(), 2);
+        assert!(target.list().await.unwrap().is_empty());
     }
 }

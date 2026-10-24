@@ -280,6 +280,7 @@ pub fn run() {
                 tauri::async_runtime::block_on(core_boot::boot_core(
                     app.handle(),
                     BootKind::Launch,
+                    false,
                 ))
                 .map_err(|e| {
                     tracing::error!("CoreContext initialization failed: {}", e);

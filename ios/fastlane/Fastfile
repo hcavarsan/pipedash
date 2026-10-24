@@ -120,19 +120,27 @@ platform :ios do
     iphone = devices.select { |d| d["name"].start_with?("iPhone") }.max_by { |d| d["name"].include?("Pro Max") ? 1 : 0 }
     ipad = devices.select { |d| d["name"].start_with?("iPad") }.max_by { |d| d["name"].include?("Pro 13") ? 1 : 0 }
     UI.user_error!("No iPhone or iPad simulator available") unless iphone && ipad
-    [iphone, ipad].each do |device|
+    not_running = [iphone, ipad].reject do |device|
       udid = device.fetch("udid")
+      name = device["name"].tr(" ()", "_")
       sh("xcrun", "simctl", "boot", udid)
       sh("xcrun", "simctl", "bootstatus", udid, "-b")
       sh("xcrun", "simctl", "install", udid, app)
-      sh("xcrun", "simctl", "launch", udid, APP_ID)
+      with_env = { "SIMCTL_CHILD_RUST_LOG" => "info", "SIMCTL_CHILD_RUST_BACKTRACE" => "1" }
+      sh(with_env, "xcrun", "simctl", "launch", "--terminate-running-process",
+         "--stdout=#{File.join(out_dir, "#{name}.stdout.log")}",
+         "--stderr=#{File.join(out_dir, "#{name}.stderr.log")}", udid, APP_ID)
       sleep(20)
       running = sh("xcrun", "simctl", "spawn", udid, "launchctl", "list", log: false).include?(APP_ID)
-      shot = File.join(out_dir, "#{device["name"].tr(" ()", "_")}.png")
-      sh("xcrun", "simctl", "io", udid, "screenshot", shot)
+      sh("xcrun", "simctl", "io", udid, "screenshot", File.join(out_dir, "#{name}.png"))
+      File.write(File.join(out_dir, "#{name}.system.log"),
+                 sh("xcrun", "simctl", "spawn", udid, "log", "show", "--last", "2m", "--style", "compact",
+                    "--predicate", 'process == "pipedash"', log: false))
       sh("xcrun", "simctl", "shutdown", udid)
-      UI.user_error!("#{APP_ID} is not running on #{device["name"]} 20s after launch") unless running
+      running
     end
+    Dir[File.expand_path("~/Library/Logs/DiagnosticReports/pipedash*")].each { |report| FileUtils.cp(report, out_dir) }
+    UI.user_error!("#{APP_ID} stopped within 20s on #{not_running.map { |d| d["name"] }.join(", ")}") unless not_running.empty?
   end
 
   private_lane :asc_api_key do
@@ -181,6 +189,7 @@ platform :ios do
     }
     blank = demo.select { |_, value| value.strip.empty? }.keys
     UI.user_error!("Set #{blank.map { |key| "APP_REVIEW_#{key.upcase}" }.join(" and ")} for App Review") unless blank.empty?
+    FastlaneCore::Secrets.register(demo.fetch(:demo_token), name: :app_review_demo_token)
     notes = format(File.read(File.join(__dir__, "review_notes.txt")), demo)
 
     api_key = asc_api_key

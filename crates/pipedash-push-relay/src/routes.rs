@@ -1,4 +1,8 @@
 use std::collections::HashSet;
+use std::net::{
+    IpAddr,
+    SocketAddr,
+};
 use std::sync::Arc;
 use std::time::{
     Duration,
@@ -6,11 +10,15 @@ use std::time::{
 };
 
 use axum::extract::{
+    ConnectInfo,
     DefaultBodyLimit,
     Path,
     State,
 };
-use axum::http::StatusCode;
+use axum::http::{
+    HeaderMap,
+    StatusCode,
+};
 use axum::response::{
     IntoResponse,
     Response,
@@ -57,22 +65,31 @@ const MAX_BODY_BYTES: usize = 2048;
 const MAX_THREAD_ID_BYTES: usize = 512;
 const RATE_LIMIT: u32 = 30;
 const RATE_WINDOW: Duration = Duration::from_secs(60);
+const REGISTRATION_LIMIT: u32 = 20;
+const REGISTRATION_WINDOW: Duration = Duration::from_secs(60 * 60);
+const MAX_SUBSCRIPTIONS_PER_TOKEN: u32 = 10;
 
 #[derive(Clone)]
 pub struct AppState {
     store: Store,
     apns: Arc<Apns>,
     limiter: Arc<RateLimiter>,
+    registrations: Arc<RateLimiter>,
     allowed_bundle_ids: Arc<HashSet<String>>,
+    trusted_proxy: bool,
 }
 
 impl AppState {
-    pub fn new(store: Store, apns: Arc<Apns>, allowed_bundle_ids: HashSet<String>) -> Self {
+    pub fn new(
+        store: Store, apns: Arc<Apns>, allowed_bundle_ids: HashSet<String>, trusted_proxy: bool,
+    ) -> Self {
         Self {
             store,
             apns,
             limiter: Arc::new(RateLimiter::new(RATE_LIMIT, RATE_WINDOW)),
+            registrations: Arc::new(RateLimiter::new(REGISTRATION_LIMIT, REGISTRATION_WINDOW)),
             allowed_bundle_ids: Arc::new(allowed_bundle_ids),
+            trusted_proxy,
         }
     }
 }
@@ -173,13 +190,47 @@ fn new_subscription_id() -> Result<String, ApiError> {
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
+// Behind a trusted reverse proxy the client is the last X-Forwarded-For entry,
+// the one the proxy appended. IPv6 clients are grouped by /64 because a single
+// host owns a whole prefix.
+fn client_key(peer: IpAddr, headers: &HeaderMap, trusted_proxy: bool) -> String {
+    let forwarded = trusted_proxy
+        .then(|| {
+            headers
+                .get_all("x-forwarded-for")
+                .iter()
+                .next_back()
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.rsplit(',').next())
+                .and_then(|entry| entry.trim().parse::<IpAddr>().ok())
+        })
+        .flatten();
+
+    match forwarded.unwrap_or(peer) {
+        IpAddr::V4(ip) => ip.to_string(),
+        IpAddr::V6(ip) => {
+            let segments = ip.segments();
+            format!(
+                "{:x}:{:x}:{:x}:{:x}::/64",
+                segments[0], segments[1], segments[2], segments[3]
+            )
+        }
+    }
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
 
 async fn create(
-    State(state): State<AppState>, Json(request): Json<CreateRequest>,
+    State(state): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap,
+    Json(request): Json<CreateRequest>,
 ) -> Result<(StatusCode, Json<Created>), ApiError> {
+    let client = client_key(peer.ip(), &headers, state.trusted_proxy);
+    if !state.registrations.allow(&client, Instant::now()) {
+        return Err(ApiError::TooManyRequests);
+    }
+
     let device_token = normalize_token(&request.device_token)?;
     if !state.allowed_bundle_ids.contains(&request.bundle_id) {
         return Err(ApiError::Forbidden);
@@ -197,6 +248,7 @@ async fn create(
             &subscription_key(&subscription_id),
             &subscription,
             unix_now(),
+            MAX_SUBSCRIPTIONS_PER_TOKEN,
         )
         .await?;
 
@@ -211,7 +263,11 @@ async fn rotate(
 
     if state
         .store
-        .update_token(&subscription_key(&subscription_id), &device_token)
+        .update_token(
+            &subscription_key(&subscription_id),
+            &device_token,
+            unix_now(),
+        )
         .await?
     {
         Ok(StatusCode::NO_CONTENT)
@@ -259,7 +315,12 @@ async fn notify(
         thread_id: request.thread_id.as_deref(),
     };
     match state.apns.send(&subscription, &notification).await {
-        Outcome::Delivered => Ok(StatusCode::ACCEPTED),
+        Outcome::Delivered => {
+            if let Err(error) = state.store.touch(&key, unix_now()).await {
+                tracing::warn!(%error, "Couldn't record a successful push");
+            }
+            Ok(StatusCode::ACCEPTED)
+        }
         Outcome::Unregistered => {
             state.store.delete(&key).await?;
             Err(ApiError::Gone)
@@ -300,6 +361,10 @@ mod tests {
     }
 
     async fn harness() -> Harness {
+        harness_behind(false).await
+    }
+
+    async fn harness_behind(trusted_proxy: bool) -> Harness {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("relay.db")).await.unwrap();
         let production = StubApns::start().await;
@@ -315,6 +380,7 @@ mod tests {
             store.clone(),
             Arc::new(apns),
             HashSet::from([BUNDLE.to_string()]),
+            trusted_proxy,
         );
 
         Harness {
@@ -329,7 +395,17 @@ mod tests {
     async fn call(
         app: &Router, method: Method, uri: &str, body: Option<Value>,
     ) -> (StatusCode, Value) {
+        call_as(app, "203.0.113.1:4000", &[], method, uri, body).await
+    }
+
+    async fn call_as(
+        app: &Router, peer: &str, headers: &[(&str, &str)], method: Method, uri: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
         let mut builder = Request::builder().method(method).uri(uri);
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
         let body = match body {
             Some(value) => {
                 builder = builder.header(CONTENT_TYPE, "application/json");
@@ -337,11 +413,11 @@ mod tests {
             }
             None => Body::empty(),
         };
-        let response = app
-            .clone()
-            .oneshot(builder.body(body).unwrap())
-            .await
-            .unwrap();
+        let mut request = builder.body(body).unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+        let response = app.clone().oneshot(request).await.unwrap();
         let status = response.status();
         let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
             .await
@@ -652,5 +728,116 @@ mod tests {
             assert_eq!(status, StatusCode::BAD_REQUEST);
         }
         assert!(h.production.take_requests().is_empty());
+    }
+
+    async fn register_from(
+        h: &Harness, peer: &str, headers: &[(&str, &str)], device_token: &str,
+    ) -> StatusCode {
+        call_as(
+            &h.app,
+            peer,
+            headers,
+            Method::POST,
+            "/v1/subscriptions",
+            Some(json!({
+                "device_token": device_token,
+                "environment": "production",
+                "bundle_id": BUNDLE,
+            })),
+        )
+        .await
+        .0
+    }
+
+    #[tokio::test]
+    async fn registrations_are_limited_per_client_address() {
+        let h = harness().await;
+
+        for _ in 0..REGISTRATION_LIMIT {
+            let status = register_from(&h, "198.51.100.7:1000", &[], &token("ab")).await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+
+        let blocked = register_from(&h, "198.51.100.7:1001", &[], &token("ab")).await;
+        let other_address = register_from(&h, "198.51.100.8:1000", &[], &token("ab")).await;
+        let spoofed = register_from(
+            &h,
+            "198.51.100.7:1002",
+            &[("x-forwarded-for", "192.0.2.99")],
+            &token("ab"),
+        )
+        .await;
+
+        assert_eq!(blocked, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(other_address, StatusCode::CREATED);
+        assert_eq!(spoofed, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn behind_a_trusted_proxy_clients_are_told_apart_by_the_forwarded_address() {
+        let h = harness_behind(true).await;
+        let proxy = "10.0.0.2:5000";
+
+        for _ in 0..REGISTRATION_LIMIT {
+            let status = register_from(
+                &h,
+                proxy,
+                &[("x-forwarded-for", "1.1.1.1, 203.0.113.9")],
+                &token("ab"),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+
+        let same_client = register_from(
+            &h,
+            proxy,
+            &[("x-forwarded-for", "9.9.9.9, 203.0.113.9")],
+            &token("ab"),
+        )
+        .await;
+        let other_client = register_from(
+            &h,
+            proxy,
+            &[("x-forwarded-for", "203.0.113.10")],
+            &token("ab"),
+        )
+        .await;
+
+        assert_eq!(same_client, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(other_client, StatusCode::CREATED);
+    }
+
+    #[test]
+    fn client_keys_group_ipv6_by_prefix_and_ignore_unparsable_forwarding() {
+        let mut headers = HeaderMap::new();
+        let v6: IpAddr = "2001:db8:1:2:aaaa:bbbb:cccc:dddd".parse().unwrap();
+        let v6_neighbour: IpAddr = "2001:db8:1:2:1::1".parse().unwrap();
+
+        assert_eq!(
+            client_key(v6, &headers, false),
+            client_key(v6_neighbour, &headers, false)
+        );
+        assert_eq!(client_key(v6, &headers, false), "2001:db8:1:2::/64");
+
+        headers.insert("x-forwarded-for", "not-an-ip".parse().unwrap());
+        assert_eq!(
+            client_key("192.0.2.1".parse().unwrap(), &headers, true),
+            "192.0.2.1"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_oldest_subscriptions_of_a_device_token_are_dropped_past_the_cap() {
+        let h = harness().await;
+        let mut ids = Vec::new();
+        for _ in 0..=MAX_SUBSCRIPTIONS_PER_TOKEN {
+            ids.push(subscribe(&h, "production", &token("ab")).await);
+        }
+
+        assert_eq!(push(&h, &ids[0]).await.0, StatusCode::NOT_FOUND);
+        for id in &ids[1..] {
+            assert_eq!(push(&h, id).await.0, StatusCode::ACCEPTED);
+        }
     }
 }

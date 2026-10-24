@@ -14,6 +14,7 @@ pub struct Config {
     pub apns_key_id: String,
     pub apns_team_id: String,
     pub allowed_bundle_ids: HashSet<String>,
+    pub trusted_proxy: bool,
 }
 
 fn required(var: &impl Fn(&str) -> Option<String>, name: &str) -> anyhow::Result<String> {
@@ -63,6 +64,8 @@ impl Config {
             apns_key_id: required(&var, "RELAY_APNS_KEY_ID")?,
             apns_team_id: required(&var, "RELAY_APNS_TEAM_ID")?,
             allowed_bundle_ids,
+            trusted_proxy: var("RELAY_TRUSTED_PROXY")
+                .is_some_and(|value| matches!(value.trim(), "true" | "1")),
         })
     }
 }
@@ -102,6 +105,7 @@ mod tests {
             config.allowed_bundle_ids,
             HashSet::from(["com.a.app".to_string(), "com.b.app".to_string()])
         );
+        assert!(!config.trusted_proxy);
     }
 
     #[test]
@@ -114,12 +118,14 @@ mod tests {
         pairs.push(("RELAY_APNS_KEY_PATH", path));
         pairs.push(("RELAY_BIND_ADDR", "127.0.0.1:9000"));
         pairs.push(("RELAY_DATABASE_PATH", "/data/relay.db"));
+        pairs.push(("RELAY_TRUSTED_PROXY", "true"));
 
         let config = Config::from_vars(vars(&pairs)).unwrap();
 
         assert_eq!(config.apns_key, "from-file");
         assert_eq!(config.bind_addr, "127.0.0.1:9000".parse().unwrap());
         assert_eq!(config.database_path, PathBuf::from("/data/relay.db"));
+        assert!(config.trusted_proxy);
     }
 
     #[test]

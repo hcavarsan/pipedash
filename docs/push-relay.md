@@ -37,6 +37,7 @@ The relay reads these environment variables.
 | `RELAY_ALLOWED_BUNDLE_IDS` | yes | | Comma-separated bundle ids the relay accepts, for example `com.henrique.pipedash`. It is also used as the `apns-topic`. |
 | `RELAY_BIND_ADDR` | no | `0.0.0.0:8080` | Listen address. |
 | `RELAY_DATABASE_PATH` | no | `pipedash-push-relay.db` (`/data/relay.db` in the image) | SQLite file. |
+| `RELAY_TRUSTED_PROXY` | no | `false` | `true` or `1` to take the client address for registration limits from the last `X-Forwarded-For` entry. |
 | `RUST_LOG` | no | `info` | Log filter. |
 
 ## Run it with Docker
@@ -102,6 +103,8 @@ A push is sent once for each run that newly moves into a failed state. A pipelin
 
 The subscription id is 32 random bytes (base64url) and is the only credential: whoever holds it can push to that device through the relay. Requests are limited to 16 KiB, a title to 512 bytes, a body to 2048 bytes, and each subscription to 30 notifications per minute.
 
+Because anyone can create a subscription, registration is limited too: at most 20 registrations per client address per hour (`429` after that), and at most 10 subscriptions per device token. The 11th registration of a token deletes the oldest subscription of that token. A client address is the connection's peer address, with IPv6 grouped by /64. Behind a reverse proxy, set `RELAY_TRUSTED_PROXY=true` and the relay uses the last `X-Forwarded-For` entry instead. Only enable it when every request really passes through your proxy, otherwise clients can spoof their address.
+
 The relay talks to `api.push.apple.com` (production) or `api.sandbox.push.apple.com` (sandbox) over HTTP/2, with `apns-push-type: alert` and the bundle id as `apns-topic`. It signs an ES256 token with your key, reuses it, and renews it before it is an hour old. It deletes a subscription when APNs answers `410`, `BadDeviceToken` or `Unregistered`.
 
 ## Data
@@ -112,12 +115,13 @@ Stored by the relay, in the SQLite file, for each subscription:
 - the APNs device token,
 - the APNs environment (`production` or `sandbox`),
 - the bundle id,
-- the creation time.
+- the creation time,
+- the time of the last activity (creation, token rotation or a successful push).
 
-Kept only in memory: rate-limit counters and the current APNs token.
+Kept only in memory: rate-limit counters, keyed by subscription hash for pushes and by client address for registrations (they are never written to disk and are forgotten after the limit window), and the current APNs token.
 
-Never stored or logged: notification titles, bodies and thread ids, subscription ids, device tokens, pipeline names, and client IP addresses. The relay logs start-up and the HTTP status APNs answered for a refused push, nothing else.
+Never stored or logged: notification titles, bodies and thread ids, subscription ids, device tokens, pipeline names, and client IP addresses. The relay logs start-up, how many inactive subscriptions it removed, and the HTTP status APNs answered for a refused push, nothing else.
 
-A subscription stays until the app deletes it, or until APNs reports its token as invalid, which happens after the app is uninstalled and the next push is attempted. There is no time-based expiry. To remove everything, delete the SQLite file.
+A subscription is deleted when the app unpairs it, when APNs reports its token as invalid (which happens after the app is uninstalled and the next push is attempted), or when it has been inactive for 90 days. Activity means creation, a token rotation (the app sends one on every launch), or a successful push. The relay checks for inactive subscriptions every hour. To remove everything, delete the SQLite file.
 
-Each `pipedash-web` server stores, in its own database, one row per paired device: the relay subscription id, a device name the app chose, the platform, when it was added and when a push last succeeded.
+Each `pipedash-web` server stores, in its own database, one row per paired device: the relay subscription id, a device name the app chose, the platform, when it was added and when a push last succeeded. These rows are permanent configuration. They move with the rest of the configuration when you migrate storage to another data directory or database backend, and a factory reset deletes them.

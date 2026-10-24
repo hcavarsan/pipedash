@@ -56,7 +56,6 @@ pub async fn create(base: &str, device_token: &str) -> Result<String> {
         .map_err(|_| PushError::Unexpected(Peer::Relay.label(), status))
 }
 
-#[cfg(target_os = "ios")]
 pub async fn rotate(base: &str, subscription_id: &str, device_token: &str) -> Result<()> {
     let request = client()?
         .put(format!("{base}/v1/subscriptions/{subscription_id}"))

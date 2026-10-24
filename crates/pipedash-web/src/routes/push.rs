@@ -513,6 +513,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_factory_reset_forgets_every_paired_device() {
+        let h = harness("reset", true).await;
+        register(&h, "relay-secret_1", "iPhone").await;
+        register(&h, "relay-secret_2", "iPad").await;
+        let app = h
+            .app
+            .clone()
+            .merge(crate::routes::system::router().with_state(h.state.clone()));
+
+        let (status, _) = call(&app, Method::POST, "/factory-reset", None).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(listed(&h).await["subscriptions"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
     async fn deleting_a_device_removes_it_and_can_be_repeated() {
         let h = harness("delete", true).await;
         let sub = register(&h, "relay-secret_1", "iPhone").await;

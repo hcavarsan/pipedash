@@ -191,6 +191,15 @@ impl AppLockState {
         }
     }
 
+    fn clear_settings(&self) {
+        match std::fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => tracing::warn!("Couldn't delete the app lock settings: {}", e),
+        }
+        self.inner().settings = AppLockSettings::default();
+    }
+
     fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -335,8 +344,8 @@ pub async fn lock_session(app: &AppHandle) {
     lock.set_locked(true);
 
     if let Some(core) = core {
-        core.shutdown().await;
         core.event_bus.emit(CoreEvent::VaultLocked).await;
+        core.shutdown().await;
     }
 
     tracing::info!("Session locked - core shut down and vault password cleared");
@@ -378,6 +387,11 @@ fn delete_saved_vault_password() {
         Ok(()) | Err(credential::Error::NoEntry) => {}
         Err(e) => tracing::warn!("Couldn't delete the saved vault password: {}", e),
     }
+}
+
+pub fn reset(lock: &AppLockState) {
+    delete_saved_vault_password();
+    lock.clear_settings();
 }
 
 fn failure(message: &str) -> UnlockVaultResponse {

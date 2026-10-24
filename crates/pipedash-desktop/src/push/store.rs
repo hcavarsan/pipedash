@@ -98,6 +98,15 @@ pub fn update<T>(dir: &Path, change: impl FnOnce(&mut PushFile) -> T) -> Result<
     Ok(out)
 }
 
+pub fn remove_file(dir: &Path) -> Result<()> {
+    let _guard = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
+    match fs::remove_file(dir.join(FILE_NAME)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(storage(e)),
+    }
+}
+
 pub fn set_secret(kind: Secret, id: &str, value: &str) -> Result<()> {
     credential::device_only_entry(KEYCHAIN_SERVICE, &kind.user(id))
         .and_then(|entry| entry.set_password(value))

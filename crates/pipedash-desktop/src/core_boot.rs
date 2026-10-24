@@ -113,11 +113,23 @@ pub enum BootError {
     Decrypt(String),
     #[error("Failed to create CoreContext: {0}")]
     Context(String),
+    #[error("Use Face ID to unlock Pipedash")]
+    Locked,
 }
 
-pub async fn boot_core(app: &AppHandle, kind: BootKind) -> Result<Arc<CoreContext>, BootError> {
+fn boot_denied(app_lock_enabled: bool, locked: bool, authenticated: bool) -> bool {
+    app_lock_enabled && locked && !authenticated
+}
+
+pub async fn boot_core(
+    app: &AppHandle, kind: BootKind, authenticated: bool,
+) -> Result<Arc<CoreContext>, BootError> {
     let lock = app.state::<AppLockState>();
     let _transition = lock.transition().await;
+
+    if boot_denied(lock.settings().enabled, lock.locked(), authenticated) {
+        return Err(BootError::Locked);
+    }
 
     let app_data_dir = app.state::<AppDataDir>().0.clone();
     let config = ConfigLoader::load(&app_data_dir.join("config.toml"))
@@ -527,6 +539,14 @@ mod tests {
         assert!(BootKind::Resume.announces_unlock());
         assert!(!BootKind::Launch.announces_unlock());
         assert!(!BootKind::Setup.announces_unlock());
+    }
+
+    #[test]
+    fn an_engaged_app_lock_only_boots_for_authenticated_callers() {
+        assert!(boot_denied(true, true, false));
+        assert!(!boot_denied(true, true, true));
+        assert!(!boot_denied(true, false, false));
+        assert!(!boot_denied(false, true, false));
     }
 
     #[test]

@@ -25,7 +25,18 @@ export const needsUnlock = (status: LockState, tauri: boolean, hasToken: boolean
   return !status.is_unlocked || (!tauri && !hasToken)
 }
 
-export const shouldShowPrivacyCover = (appLockEnabled: boolean, visibility: DocumentVisibilityState): boolean =>
-  appLockEnabled && visibility === 'hidden'
+// With "lock when leaving the app", the cover stays up across foregrounding until the lock reaches the UI.
+export const nextCoverLatch = (
+  latched: boolean,
+  appLock: VaultStatusResponse['app_lock'],
+  visibility: DocumentVisibilityState
+): boolean =>
+  appLock?.enabled === true && appLock.lock_on_background && !appLock.locked && (latched || visibility === 'hidden')
+
+export const shouldShowPrivacyCover = (
+  appLockEnabled: boolean,
+  visibility: DocumentVisibilityState,
+  latched: boolean
+): boolean => appLockEnabled && (visibility === 'hidden' || latched)
 
 export const isBiometricCancel = (message: string): boolean => message.toLowerCase().includes('cancel')

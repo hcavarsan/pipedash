@@ -1214,7 +1214,7 @@ pub async fn check_setup_status(
 pub async fn bootstrap_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
     tracing::info!("Bootstrapping application after initial setup");
 
-    boot_core(&app, BootKind::Setup)
+    boot_core(&app, BootKind::Setup, false)
         .await
         .map_err(|e| ErrorResponse {
             error: e.to_string(),
@@ -1413,7 +1413,7 @@ pub(crate) async fn unlock_session(
     std::env::set_var("PIPEDASH_VAULT_PASSWORD", password);
     tracing::info!("Vault password set in environment for session");
 
-    match boot_core(app, BootKind::Unlock).await {
+    match boot_core(app, BootKind::Unlock, true).await {
         Ok(_) => {
             tracing::info!(
                 "Vault unlocked successfully - CoreContext recreated with encrypted token store"
@@ -1458,12 +1458,7 @@ async fn unlock_keyring_session(
         });
     }
 
-    let lock = app.state::<app_lock::AppLockState>();
-    if !authenticated && lock.settings().enabled && lock.locked() {
-        return Ok(unlock_failure("Use Face ID to unlock Pipedash".to_string()));
-    }
-
-    match boot_core(app, BootKind::Resume).await {
+    match boot_core(app, BootKind::Resume, authenticated).await {
         Ok(_) => Ok(UnlockVaultResponse {
             success: true,
             message: "Vault unlocked successfully".to_string(),
@@ -1890,7 +1885,8 @@ pub struct FactoryResetResult {
 
 #[tauri::command]
 pub async fn factory_reset(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
+    lock: State<'_, app_lock::AppLockState>,
 ) -> Result<FactoryResetResult, ErrorResponse> {
     tracing::info!("[factory_reset] Starting factory reset");
 
@@ -1969,6 +1965,9 @@ pub async fn factory_reset(
         );
     }
 
+    crate::push::reset(&app_data_dir.0).await;
+    app_lock::reset(&lock);
+
     tracing::info!(
         "[factory_reset] Complete - removed {} providers, caches cleared, tokens_cleared: {}, metrics_cleared: {}, legacy_entries_cleaned: {}",
         providers_removed, tokens_cleared, metrics_cleared, legacy_cleaned
@@ -1987,7 +1986,7 @@ pub async fn restart_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
     tracing::info!("[restart_app] Initiating application restart...");
 
     if cfg!(mobile) {
-        return boot_core(&app, BootKind::Resume)
+        return boot_core(&app, BootKind::Resume, false)
             .await
             .map(|_| ())
             .map_err(|e| ErrorResponse {
