@@ -22,7 +22,7 @@ import { queryKeys } from './lib/queryKeys'
 import { usePipelines } from './queries/usePipelinesQueries'
 import { useProviders } from './queries/useProvidersQueries'
 import { useRefreshProvider } from './queries/useRefreshQueries'
-import { useCancelRun, useReviewRun } from './queries/useRunHistoryQueries'
+import { useCancelRun, useRerunFailedJobs, useReviewRun } from './queries/useRunHistoryQueries'
 import { useStoragePaths } from './queries/useStorageQueries'
 import { useVaultStatus } from './queries/useVaultQueries'
 import { PipelineDetailRoute, SettingsRoute, UnlockRoute } from './routes'
@@ -82,6 +82,7 @@ function AppContent() {
   const { mutate: cancelRun } = useCancelRun()
   const { mutate: refreshProvider } = useRefreshProvider()
   const { mutateAsync: reviewRun } = useReviewRun()
+  const { mutateAsync: rerunFailedJobs } = useRerunFailedJobs()
 
   useEffect(() => {
     if (providerParam && providersSuccess && selectedProviderId === undefined) {
@@ -211,6 +212,15 @@ function AppContent() {
     [reviewRun]
   )
 
+  const handleRerunFailedJobs = useCallback(
+    async (pipeline: Pipeline, run: PipelineRun) => {
+      await rerunFailedJobs({ pipelineId: run.pipeline_id, runNumber: run.run_number })
+        .then(() => refreshProvider(pipeline.provider_id))
+        .catch(() => undefined)
+    },
+    [rerunFailedJobs, refreshProvider]
+  )
+
   const loading = providersLoading || pipelinesLoading
 
   const triggerPipeline = pipelines.find((p) => p.id === triggerModal.pipelineId) ?? null
@@ -251,6 +261,7 @@ function AppContent() {
                 onRerun={handleRerun}
                 onCancel={handleCancel}
                 onReview={handleReview}
+                onRerunFailedJobs={handleRerunFailedJobs}
               />
             </ErrorBoundary>
           }

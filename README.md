@@ -55,6 +55,7 @@ What you can do:
 - Rerun previous executions with the same parameters
 - Cancel running builds, one at a time or several at once from the run history (tick the runs, then click "Cancel selected")
 - Approve or reject a GitHub run that waits for a deployment review, from its row in run history (needs a required reviewer's token)
+- Re-run only the failed jobs of a failed GitHub run, and the jobs that depend on them, from its row in run history. GitHub re-runs them on the same commit under the same run number, so this works for push and pull request runs too
 - Pin workflows to the top of the table with the pin icon on a workflow row. Pins stay in the desktop app or in your browser, so each person on a shared web instance keeps their own
 - Get a system notification when a refresh moves a pipeline to failed. Turn it on under Settings > General. It's off by default and set per device. In the web UI, browsers allow it only over HTTPS or on localhost
 - See when a running pipeline takes far longer than usual. Past 3 times the median duration of its recent successful runs, the status reads "Running longer than usual". With notifications on, you also get one system notification for that run. Flux resources are left out

@@ -198,6 +198,38 @@ export function useReviewRun() {
   })
 }
 
+export function useRerunFailedJobs() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
+      service.rerunFailedJobs(pipelineId, runNumber),
+
+    onSuccess: (_data, { pipelineId, runNumber }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.runs.detail(pipelineId, runNumber),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.runs.list(pipelineId),
+      })
+
+      notifications.show({
+        title: 'Re-running failed jobs',
+        message: `Run #${runNumber} is re-running its failed jobs`,
+        color: 'gray',
+      })
+    },
+
+    onError: (error: Error) => {
+      notifications.show({
+        title: "Couldn't re-run failed jobs",
+        message: error.message || 'Unknown error',
+        color: 'red',
+      })
+    },
+  })
+}
+
 export function useCancelRuns() {
   const queryClient = useQueryClient()
 

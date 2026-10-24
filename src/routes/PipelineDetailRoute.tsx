@@ -19,6 +19,7 @@ export function PipelineDetailRoute({
   onRerun,
   onCancel,
   onReview,
+  onRerunFailedJobs,
 }: PipelineDetailRouteProps) {
   const { pipelineId } = useParams()
   const [searchParams] = useSearchParams()
@@ -72,6 +73,7 @@ export function PipelineDetailRoute({
           actualPipeline && getPluginByType(actualPipeline.provider_type)?.capabilities.cancel ? onCancel : undefined
         }
         onReview={onReview}
+        onRerunFailedJobs={onRerunFailedJobs}
         isLoadingPipeline={loading && !actualPipeline}
       />
     </ErrorBoundary>
