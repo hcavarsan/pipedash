@@ -3,8 +3,9 @@ import { notifications } from '@mantine/notifications'
 import { IconEdit, IconFolderOpen } from '@tabler/icons-react'
 
 import { logger } from '../../lib/logger'
-import { isTauri, service } from '../../services'
+import { service } from '../../services'
 import type { PipedashConfig, StoragePathsResponse } from '../../types'
+import { isDesktopTauri } from '../../utils/platform'
 import { CopyButton } from '../atoms/CopyButton'
 
 interface StoragePathsDisplayProps {
@@ -85,7 +86,7 @@ const PathRow = ({ label, path, kind, canOpen, onEdit }: PathRowProps) => {
 }
 
 export const StoragePathsDisplay = ({ paths, config, onEditConfig }: StoragePathsDisplayProps) => {
-  const canOpen = isTauri()
+  const canOpen = isDesktopTauri()
   const isPostgres = config?.storage?.backend === 'postgres'
 
   return (

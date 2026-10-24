@@ -15,6 +15,7 @@ use crate::types::Kind;
 
 pub(crate) const PROVIDER_TYPE: &str = "fluxcd";
 pub(crate) const DEFAULT_FLUX_NAMESPACE: &str = "flux-system";
+pub(crate) const KUBECONFIG_CONTENT_KEY: &str = "token";
 pub(crate) const CONTROLLERS: [&str; 3] = [
     "source-controller",
     "kustomize-controller",
@@ -149,7 +150,31 @@ fn split_kubeconfig_paths(paths: &str) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn kubeconfig_paths(config: &HashMap<String, String>) -> Vec<String> {
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum KubeconfigSource {
+    Content(String),
+    Paths(Vec<String>),
+}
+
+impl fmt::Debug for KubeconfigSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Content(_) => f.write_str("Content(<redacted>)"),
+            Self::Paths(paths) => f.debug_tuple("Paths").field(paths).finish(),
+        }
+    }
+}
+
+impl KubeconfigSource {
+    pub(crate) fn describe(&self) -> String {
+        match self {
+            Self::Content(_) => "pasted kubeconfig content".to_string(),
+            Self::Paths(paths) => paths.join(", "),
+        }
+    }
+}
+
+fn kubeconfig_paths(config: &HashMap<String, String>) -> Vec<String> {
     let configured = config
         .get("kubeconfig")
         .map(|value| value.trim())
@@ -158,6 +183,16 @@ pub(crate) fn kubeconfig_paths(config: &HashMap<String, String>) -> Vec<String> 
     match configured {
         Some(paths) => split_kubeconfig_paths(paths),
         None => split_kubeconfig_paths(&default_kubeconfig()),
+    }
+}
+
+pub(crate) fn kubeconfig_source(config: &HashMap<String, String>) -> KubeconfigSource {
+    match config
+        .get(KUBECONFIG_CONTENT_KEY)
+        .filter(|content| !content.trim().is_empty())
+    {
+        Some(content) => KubeconfigSource::Content(content.clone()),
+        None => KubeconfigSource::Paths(kubeconfig_paths(config)),
     }
 }
 
@@ -189,7 +224,7 @@ fn comma_separated(config: &HashMap<String, String>, key: &str) -> Vec<String> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Settings {
-    pub kubeconfig_paths: Vec<String>,
+    pub kubeconfig: KubeconfigSource,
     pub context: Option<String>,
     pub namespaces: Vec<String>,
     pub selection: Vec<Target>,
@@ -222,7 +257,7 @@ impl Settings {
         }
 
         let settings = Self {
-            kubeconfig_paths: kubeconfig_paths(config),
+            kubeconfig: kubeconfig_source(config),
             context: context(config),
             namespaces,
             selection,
@@ -369,5 +404,50 @@ mod tests {
         assert!(settings.ensure_allowed(&selected).is_ok());
         assert!(settings.ensure_allowed(&sibling).is_err());
         assert!(settings.ensure_allowed(&same_name_other_kind).is_err());
+    }
+
+    #[test]
+    fn kubeconfig_content_is_parsed_from_settings() {
+        let settings =
+            Settings::from_config(&config(&[("token", "apiVersion: v1\nkind: Config\n")])).unwrap();
+
+        assert_eq!(
+            settings.kubeconfig,
+            KubeconfigSource::Content("apiVersion: v1\nkind: Config\n".to_string())
+        );
+    }
+
+    #[test]
+    fn kubeconfig_content_wins_over_the_path() {
+        let source = kubeconfig_source(&config(&[
+            ("kubeconfig", "/home/me/.kube/config"),
+            ("token", "apiVersion: v1"),
+        ]));
+
+        assert_eq!(
+            source,
+            KubeconfigSource::Content("apiVersion: v1".to_string())
+        );
+    }
+
+    #[test]
+    fn blank_content_falls_back_to_the_path() {
+        let source = kubeconfig_source(&config(&[
+            ("kubeconfig", "/home/me/.kube/config"),
+            ("token", "  \n "),
+        ]));
+
+        assert_eq!(
+            source,
+            KubeconfigSource::Paths(vec!["/home/me/.kube/config".to_string()])
+        );
+    }
+
+    #[test]
+    fn kubeconfig_content_is_never_printed() {
+        let settings = Settings::from_config(&config(&[("token", "token: s3cr3t-value")])).unwrap();
+
+        assert!(!format!("{settings:?}").contains("s3cr3t-value"));
+        assert!(!settings.kubeconfig.describe().contains("s3cr3t-value"));
     }
 }

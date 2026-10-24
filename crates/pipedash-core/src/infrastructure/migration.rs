@@ -39,7 +39,9 @@ use crate::infrastructure::config::{
 use crate::infrastructure::token_store::TokenStore;
 use crate::infrastructure::{
     database::{
+        DatabasePool,
         MetricsRepository,
+        PushRepository,
         RecordMetrics,
     },
     ConfigBackend,
@@ -234,6 +236,7 @@ pub struct MigrationOrchestrator {
     source_config_backend: Arc<dyn ConfigBackend>,
     source_cache_backend: Arc<dyn StorageBackend>,
     source_metrics: MetricsRepository,
+    source_pool: DatabasePool,
     event_bus: Option<Arc<dyn EventBus>>,
     target_token_store: Option<Arc<dyn TokenStore>>,
 }
@@ -249,6 +252,7 @@ impl MigrationOrchestrator {
             source_config_backend: manager.config_backend(),
             source_cache_backend: manager.cache_backend(),
             source_metrics: MetricsRepository::new_from_pool(manager.database_pool()),
+            source_pool: manager.database_pool(),
             event_bus,
             target_token_store,
         }
@@ -686,6 +690,24 @@ impl MigrationOrchestrator {
                     MetricsRepository::new_from_pool(target_manager.database_pool())
                         .import_config(&metrics_config)
                         .await?;
+                }
+
+                if !same_database(&plan.from, &plan.to) {
+                    let subscriptions =
+                        PushRepository::new(self.source_pool.clone()).list().await?;
+                    let target_push = PushRepository::new(target_manager.database_pool());
+                    target_push.import(&subscriptions).await?;
+                    if options.clean_target {
+                        for stale in target_push.list().await? {
+                            if !subscriptions.iter().any(|s| s.id == stale.id) {
+                                target_push.delete(&stale.id).await?;
+                            }
+                        }
+                    }
+                    tracing::info!(
+                        "[Migration] Migrated {} push subscriptions",
+                        subscriptions.len()
+                    );
                 }
 
                 if options.clean_target {
@@ -1275,5 +1297,46 @@ mod tests {
                 .total_metrics_count,
             5
         );
+    }
+
+    #[tokio::test]
+    async fn push_subscriptions_follow_a_storage_migration_without_the_cache() {
+        let source_dir = TempDir::new().unwrap();
+        let target_dir = TempDir::new().unwrap();
+        let config_path = source_dir.path().join("config.toml");
+        std::fs::write(&config_path, "[storage]\nbackend = \"sqlite\"\n").unwrap();
+        let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
+
+        let mut source = PipedashConfig::default();
+        source.storage.data_dir = source_dir.path().to_string_lossy().to_string();
+        source.storage.vault_password = Some("test-password".to_string());
+        let mut target = source.clone();
+        target.storage.data_dir = target_dir.path().to_string_lossy().to_string();
+
+        let manager = StorageManager::from_config(source, false).await.unwrap();
+        let push = PushRepository::new(manager.database_pool());
+        push.register("relay-a", "iPhone", "ios").await.unwrap();
+        let paired = push.register("relay-b", "iPad", "ios").await.unwrap();
+        push.mark_success(&paired.id).await.unwrap();
+        let expected = push.list().await.unwrap();
+
+        let orchestrator = MigrationOrchestrator::from_manager(&manager, None, None).await;
+        let options = MigrationOptions {
+            migrate_tokens: false,
+            migrate_cache: false,
+            ..Default::default()
+        };
+        let plan = orchestrator
+            .plan_migration(target.clone(), &options)
+            .unwrap();
+        let result = orchestrator.execute_migration(plan, options, false).await;
+        assert!(result.success, "{:?}", result.errors);
+
+        let target_manager = StorageManager::from_config(target, false).await.unwrap();
+        let migrated = PushRepository::new(target_manager.database_pool())
+            .list()
+            .await
+            .unwrap();
+        assert_eq!(migrated, expected);
     }
 }

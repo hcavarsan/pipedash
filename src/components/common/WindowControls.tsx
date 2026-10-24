@@ -4,7 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react'
 
 import { logger } from '../../lib/logger'
-import { platform } from '../../utils/platform'
+import { type Platform, platform } from '../../utils/platform'
 
 import classes from './WindowControls.module.css'
 
@@ -41,7 +41,7 @@ const TrafficLight = ({ kind, label, onClick, icon }: TrafficLightProps) => (
 )
 
 export const WindowControls = () => {
-  const [currentPlatform, setCurrentPlatform] = useState<'macos' | 'windows' | 'linux' | null>(null)
+  const [currentPlatform, setCurrentPlatform] = useState<Platform | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {

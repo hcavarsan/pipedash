@@ -24,7 +24,7 @@ pub fn create_metadata() -> PluginMetadata {
         name: "Tekton CD".to_string(),
         provider_type: "tekton".to_string(),
         version: "0.1.0".to_string(),
-        description: "Monitor and trigger Tekton CI/CD pipelines running on Kubernetes".to_string(),
+        description: "Monitor and trigger Tekton CI/CD pipelines running on Kubernetes, using a kubeconfig file or pasted kubeconfig content".to_string(),
         author: Some("Pipedash Team".to_string()),
         icon: Some("/provider-icons/tekton.svg".to_string()),
         config_schema: create_config_schema(),
@@ -48,12 +48,26 @@ fn create_config_schema() -> ConfigSchema {
             key: "kubeconfig_path".to_string(),
             label: "Kubeconfig Path".to_string(),
             description: Some(
-                "Path to your Kubernetes config file(s). Multiple paths can be separated by ':' (Unix) or ';' (Windows). Uses $KUBECONFIG env var if set."
+                "Path to your Kubernetes config file(s). Multiple paths can be separated by ':' (Unix) or ';' (Windows). Uses $KUBECONFIG env var if set. Ignored when Kubeconfig Content is set."
                     .to_string(),
             ),
             field_type: ConfigFieldType::Text,
             required: false,
             default_value: Some(serde_json::Value::String(default_kubeconfig)),
+            options: None,
+            validation_regex: None,
+            validation_message: None,
+        })
+        .add_field(ConfigField {
+            key: config::KUBECONFIG_CONTENT_KEY.to_string(),
+            label: "Kubeconfig Content".to_string(),
+            description: Some(
+                "Paste the kubeconfig YAML instead of using a file path, for example on iOS and Android where no kubeconfig file exists. When set, it is used instead of the path above and is stored with your other credentials. Use token or client certificate authentication: exec credential plugins (aws, gke-gcloud-auth-plugin, kubelogin) are not supported on iOS and Android."
+                    .to_string(),
+            ),
+            field_type: ConfigFieldType::TextArea,
+            required: false,
+            default_value: None,
             options: None,
             validation_regex: None,
             validation_message: None,

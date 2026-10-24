@@ -1,0 +1,18 @@
+Pipedash is a dashboard for CI/CD pipelines. It shows pipeline runs from the providers a user adds, and lets the user start a workflow or cancel a running one. It has no user account, no in-app purchases and no tracking. Provider tokens are stored in the iOS Keychain on the device.
+
+How to review the main features:
+1. Launch the app. The dashboard is empty until a provider is added.
+2. Tap "Add provider", choose GitHub, and paste this token:
+   %{demo_token}
+   It only has access to the demo repository %{demo_repository}, which contains a harmless workflow that prints a message.
+3. Select the workflow and save. The dashboard shows its runs. Tap a run to see its jobs and logs.
+4. Optional actions: start a new run of the workflow, or cancel a running run. Both only affect the demo repository.
+
+Other features:
+- Face ID: Settings > Storage > "Require Face ID". The app then asks for Face ID (or the device passcode) before it loads the saved tokens. NSFaceIDUsageDescription explains this.
+- Local network: iOS asks for Local Network access only when the user adds a CI server with a local network address (for example a self-hosted Jenkins).
+- Push notifications: Settings > Notifications > "Push notifications" pairs the app with the user's own self-hosted Pipedash server, which sends a notification when a pipeline fails. Reviewing it needs a running Pipedash server, so it is optional for this review; the rest of the app works without it.
+- Exports (Settings > Providers > Export) are saved to Files > On My iPhone > Pipedash.
+
+The app connects only to the CI/CD providers the user adds, to public status pages (githubstatus.com, status.gitlab.com, bitbucket.status.atlassian.com, buildkitestatus.com) and, when push is paired, to the Pipedash push relay.
+Privacy policy: https://github.com/hcavarsan/pipedash/blob/main/PRIVACY.md

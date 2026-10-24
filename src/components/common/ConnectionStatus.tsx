@@ -15,6 +15,13 @@ interface ConnectionState {
   reconnectAttempts: number
 }
 
+const ALERT_POSITION = {
+  position: 'fixed',
+  top: 'calc(60px + var(--safe-top))',
+  right: 'calc(16px + var(--safe-right))',
+  zIndex: 1000,
+} as const
+
 export function ConnectionStatus() {
   const [connectionState, setConnectionState] = useState<ConnectionState>({
     status: 'connected',
@@ -82,7 +89,7 @@ export function ConnectionStatus() {
             color="orange"
             variant="light"
             withCloseButton={false}
-            style={{ position: 'fixed', top: 60, right: 16, zIndex: 1000, maxWidth: 300 }}
+            style={{ ...ALERT_POSITION, maxWidth: 300 }}
           >
             <Text size="sm">Token storage is locked</Text>
           </Alert>
@@ -98,7 +105,7 @@ export function ConnectionStatus() {
           color="orange"
           variant="light"
           withCloseButton={false}
-          style={{ position: 'fixed', top: 60, right: 16, zIndex: 1000, maxWidth: 300 }}
+          style={{ ...ALERT_POSITION, maxWidth: 300 }}
         >
           <Text size="sm">Pipedash refreshes your providers once the connection is back.</Text>
         </Alert>
@@ -116,7 +123,7 @@ export function ConnectionStatus() {
         color="orange"
         variant="light"
         withCloseButton={false}
-        style={{ position: 'fixed', top: 60, right: 16, zIndex: 1000, maxWidth: 400 }}
+        style={{ ...ALERT_POSITION, maxWidth: 400 }}
       >
         <Text size="sm">Token storage is locked. Set PIPEDASH_VAULT_PASSWORD or restart the app.</Text>
       </Alert>
@@ -134,7 +141,7 @@ export function ConnectionStatus() {
       color="orange"
       variant="light"
       withCloseButton={false}
-      style={{ position: 'fixed', top: 60, right: 16, zIndex: 1000, maxWidth: 400 }}
+      style={{ ...ALERT_POSITION, maxWidth: 400 }}
     >
       <Group gap="xs" align="center">
         <Text size="sm">

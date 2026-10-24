@@ -89,6 +89,7 @@ type RefreshFlight = Shared<BoxFuture<'static, DomainResult<Vec<RefreshResult>>>
 struct Applied {
     pipelines: Vec<Pipeline>,
     changed_ids: Vec<String>,
+    failed: Vec<Pipeline>,
 }
 
 pub struct PipelineService {
@@ -321,9 +322,12 @@ impl PipelineService {
                 .map(|pipeline| pipeline.id.clone()),
         );
 
+        let failed = newly_failed(&old_by_id, &pipelines);
+
         Ok(Applied {
             pipelines,
             changed_ids,
+            failed,
         })
     }
 
@@ -345,6 +349,13 @@ impl PipelineService {
             self.event_bus
                 .emit(CoreEvent::PipelineStatusChanged {
                     pipeline_ids: applied.changed_ids,
+                })
+                .await;
+        }
+        if !applied.failed.is_empty() {
+            self.event_bus
+                .emit(CoreEvent::PipelinesFailed {
+                    pipelines: applied.failed,
                 })
                 .await;
         }
@@ -1070,6 +1081,18 @@ fn provider_id_of(pipeline_id: &str) -> Option<i64> {
     pipeline_id.split("__").nth(1)?.parse().ok()
 }
 
+fn newly_failed(old: &HashMap<&str, &Pipeline>, new: &[Pipeline]) -> Vec<Pipeline> {
+    new.iter()
+        .filter(|pipeline| pipeline.status == PipelineStatus::Failed)
+        .filter(|pipeline| {
+            old.get(pipeline.id.as_str()).is_some_and(|previous| {
+                previous.status != PipelineStatus::Failed || previous.last_run != pipeline.last_run
+            })
+        })
+        .cloned()
+        .collect()
+}
+
 fn overdue_run(runs: &[PipelineRun], now: DateTime<Utc>) -> Option<String> {
     let running = runs
         .iter()
@@ -1208,6 +1231,69 @@ mod tests {
             run(2, "success", 240, Some(9)),
             run(1, "success", 300, Some(11)),
         ]
+    }
+
+    #[test]
+    fn only_a_run_that_newly_fails_counts_as_a_failure() {
+        let at = |minutes: i64| Some(Utc::now() + chrono::Duration::minutes(minutes));
+        let make = |status, last_run| {
+            let mut pipeline = pipeline(1, "web", status);
+            pipeline.last_run = last_run;
+            pipeline
+        };
+        let first_run = at(0);
+        let second_run = at(5);
+        let failures = |old: Option<Pipeline>, new: Pipeline| {
+            let old: Vec<Pipeline> = old.into_iter().collect();
+            let old_by_id: HashMap<&str, &Pipeline> =
+                old.iter().map(|p| (p.id.as_str(), p)).collect();
+
+            newly_failed(&old_by_id, &[new]).len()
+        };
+
+        assert_eq!(
+            failures(
+                Some(make(PipelineStatus::Success, first_run)),
+                make(PipelineStatus::Failed, second_run)
+            ),
+            1
+        );
+        assert_eq!(
+            failures(
+                Some(make(PipelineStatus::Running, first_run)),
+                make(PipelineStatus::Failed, first_run)
+            ),
+            1
+        );
+        assert_eq!(
+            failures(
+                Some(make(PipelineStatus::Failed, first_run)),
+                make(PipelineStatus::Failed, second_run)
+            ),
+            1
+        );
+        assert_eq!(
+            failures(
+                Some(make(PipelineStatus::Failed, first_run)),
+                make(PipelineStatus::Failed, first_run)
+            ),
+            0
+        );
+        assert_eq!(failures(None, make(PipelineStatus::Failed, first_run)), 0);
+        assert_eq!(
+            failures(
+                Some(make(PipelineStatus::Failed, first_run)),
+                make(PipelineStatus::Success, second_run)
+            ),
+            0
+        );
+        assert_eq!(
+            failures(
+                Some(make(PipelineStatus::Success, first_run)),
+                make(PipelineStatus::Cancelled, second_run)
+            ),
+            0
+        );
     }
 
     #[test]
@@ -1529,6 +1615,54 @@ mod tests {
             changed,
             vec![vec![web.clone()], vec![api.clone(), web.clone()], vec![api]]
         );
+    }
+
+    #[tokio::test]
+    async fn a_pipeline_that_newly_fails_is_reported_once_per_failure() {
+        let h = Harness::new().await;
+        let (id, stub) = h.add_stub(StubProvider::new).await;
+        let web = format!("github__{id}__web");
+        let reported = || -> Vec<Vec<String>> {
+            h.bus
+                .events()
+                .iter()
+                .filter_map(|event| match event {
+                    CoreEvent::PipelinesFailed { pipelines } => {
+                        Some(pipelines.iter().map(|p| p.id.clone()).collect())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+
+        h.fetch_directly(id).await;
+        assert!(reported().is_empty());
+
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Failed)]);
+        h.fetch_directly(id).await;
+        h.fetch_directly(id).await;
+        h.fetch_directly(id).await;
+        assert_eq!(reported(), vec![vec![web.clone()]]);
+
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Running)]);
+        h.fetch_directly(id).await;
+        assert_eq!(reported().len(), 1);
+
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Failed)]);
+        h.fetch_directly(id).await;
+        assert_eq!(reported(), vec![vec![web.clone()], vec![web]]);
+    }
+
+    #[tokio::test]
+    async fn a_pipeline_seen_for_the_first_time_is_not_reported_as_failed() {
+        let h = Harness::new().await;
+        let (id, stub) = h.add_stub(StubProvider::new).await;
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Failed)]);
+
+        h.fetch_directly(id).await;
+        h.fetch_directly(id).await;
+
+        assert_eq!(h.bus.count("pipelines-failed"), 0);
     }
 
     #[tokio::test]

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use pipedash_core::{
     application::{
@@ -27,13 +26,25 @@ use pipedash_core::{
         RefreshState,
         TriggerParams,
     },
-    CoreContext,
 };
 use serde::{
     Deserialize,
     Serialize,
 };
-use tauri::State;
+use tauri::{
+    Manager,
+    State,
+};
+
+use crate::app_lock::{
+    self,
+    AppLockStatus,
+};
+use crate::core_boot::{
+    boot_core,
+    BootError,
+    BootKind,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
@@ -1214,79 +1225,15 @@ pub async fn check_setup_status(
 }
 
 #[tauri::command]
-pub async fn bootstrap_app(
-    app: tauri::AppHandle, app_data_dir: State<'_, AppDataDir>,
-    maybe_core_context: State<'_, crate::MaybeCoreContext>,
-) -> Result<(), ErrorResponse> {
-    use std::sync::Arc;
-
-    use pipedash_core::infrastructure::{
-        config::ConfigLoader,
-        StorageManager,
-    };
-    use tauri::Manager;
-
-    use crate::{
-        keyring_store::KeyringTokenStore,
-        tauri_event_bus::create_tauri_event_bus,
-    };
-
+pub async fn bootstrap_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
     tracing::info!("Bootstrapping application after initial setup");
 
-    let config_path = app_data_dir.0.join("config.toml");
-
-    let config = ConfigLoader::load(&config_path).map_err(|e| ErrorResponse {
-        error: format!("Failed to load configuration: {}", e),
-        details: None,
-    })?;
-
-    let event_bus = create_tauri_event_bus(app.clone());
-
-    let use_keyring = config.storage.backend.is_sqlite();
-    let storage_manager = if use_keyring {
-        let token_store = Arc::new(KeyringTokenStore::new());
-        StorageManager::with_token_store(config.clone(), token_store, true)
-            .await
-            .map_err(|e| ErrorResponse {
-                error: format!("Failed to initialize StorageManager: {}", e),
-                details: None,
-            })?
-    } else {
-        StorageManager::from_config_allow_locked(config.clone(), true)
-            .await
-            .map_err(|e| ErrorResponse {
-                error: format!("Failed to initialize StorageManager: {}", e),
-                details: None,
-            })?
-    };
-
-    let core_context =
-        pipedash_core::CoreContext::with_storage_manager(&storage_manager, event_bus.clone())
-            .await
-            .map_err(|e| ErrorResponse {
-                error: format!("Failed to create CoreContext: {}", e),
-                details: None,
-            })?;
-
-    let ctx_arc = Arc::new(core_context);
-
-    let old = {
-        let mut guard = maybe_core_context.0.write().await;
-        guard.replace(Arc::clone(&ctx_arc))
-    };
-    if let Some(old) = old {
-        old.shutdown().await;
-    }
-
-    app.manage(Arc::clone(&ctx_arc));
-
-    let core_clone = Arc::clone(&ctx_arc);
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = core_clone.warmup_token_store().await {
-            tracing::warn!("Token store warmup failed during bootstrap: {}", e);
-        }
-        core_clone.start_background_tasks().await;
-    });
+    boot_core(&app, BootKind::Setup, false)
+        .await
+        .map_err(|e| ErrorResponse {
+            error: e.to_string(),
+            details: None,
+        })?;
 
     tracing::info!("Application bootstrap completed successfully");
 
@@ -1320,7 +1267,9 @@ pub async fn create_initial_config(
     Ok(())
 }
 
-fn load_config_from_dir(data_dir: &std::path::Path) -> Result<PipedashConfig, ErrorResponse> {
+pub(crate) fn load_config_from_dir(
+    data_dir: &std::path::Path,
+) -> Result<PipedashConfig, ErrorResponse> {
     let config_path = data_dir.join("config.toml");
 
     if !config_path.exists() {
@@ -1374,32 +1323,60 @@ pub struct VaultStatusResponse {
     pub backend: String,
     pub requires_password: bool,
     pub is_first_time: bool,
+    pub app_lock: AppLockStatus,
 }
 
 #[derive(Debug, Serialize)]
 pub struct UnlockVaultResponse {
     pub success: bool,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl UnlockVaultResponse {
+    pub fn ok(message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            message: message.into(),
+            reason: None,
+        }
+    }
+
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            message: message.into(),
+            reason: None,
+        }
+    }
+
+    pub fn cancelled() -> Self {
+        Self {
+            success: false,
+            message: "cancelled".to_string(),
+            reason: Some("cancelled".to_string()),
+        }
+    }
+}
+
+pub(crate) async fn vault_requires_password(config: &PipedashConfig) -> bool {
+    if config.storage.backend.is_sqlite() {
+        let db_path = config.data_dir().join("pipedash.db");
+        pipedash_core::infrastructure::database::has_encrypted_tokens(&db_path).await
+    } else {
+        true // Postgres always requires password
+    }
 }
 
 #[tauri::command]
 pub async fn get_vault_status(
-    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
+    app: tauri::AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
+    app_data_dir: State<'_, AppDataDir>,
 ) -> Result<VaultStatusResponse, ErrorResponse> {
     let config = load_config_from_dir(&app_data_dir.0)?;
 
-    let has_encrypted_data = if config.storage.backend.is_sqlite() {
-        let db_path = config.data_dir().join("pipedash.db");
-        pipedash_core::infrastructure::database::has_encrypted_tokens(&db_path).await
-    } else {
-        false
-    };
-
-    let requires_password = if config.storage.backend.is_sqlite() {
-        has_encrypted_data
-    } else {
-        true // Postgres always requires password
-    };
+    let requires_password = vault_requires_password(&config).await;
 
     let vault_password_set = std::env::var("PIPEDASH_VAULT_PASSWORD").is_ok();
 
@@ -1411,7 +1388,9 @@ pub async fn get_vault_status(
         "none"
     };
 
-    let is_unlocked = !requires_password || vault_password_set;
+    let app_lock = app_lock::status(&app).await;
+
+    let is_unlocked = (!requires_password || vault_password_set) && !app_lock.locked;
 
     let is_first_time = {
         let core_guard = maybe_core.0.read().await;
@@ -1422,15 +1401,15 @@ pub async fn get_vault_status(
                 .map(|p| p.is_empty())
                 .unwrap_or(true)
         } else {
-            true
+            !app_lock.locked
         }
     };
 
     tracing::debug!(
-        "Vault status: requires_password={}, is_unlocked={}, has_encrypted_data={}, backend={}",
+        "Vault status: requires_password={}, is_unlocked={}, locked={}, backend={}",
         requires_password,
         is_unlocked,
-        has_encrypted_data,
+        app_lock.locked,
         config.storage.backend
     );
 
@@ -1440,146 +1419,94 @@ pub async fn get_vault_status(
         backend: config.storage.backend.to_string(),
         requires_password,
         is_first_time,
+        app_lock,
     })
 }
 
 #[tauri::command]
 pub async fn unlock_vault(
-    app: tauri::AppHandle, app_data_dir: State<'_, AppDataDir>,
-    maybe_core_context: State<'_, crate::MaybeCoreContext>, password: String,
+    app: tauri::AppHandle, password: String,
 ) -> Result<UnlockVaultResponse, ErrorResponse> {
-    use std::sync::Arc;
+    unlock_session(&app, &password, false).await
+}
 
-    use pipedash_core::infrastructure::StorageManager;
+fn unlock_failure(message: String) -> UnlockVaultResponse {
+    UnlockVaultResponse::failed(message)
+}
 
-    use crate::tauri_event_bus::create_tauri_event_bus;
+pub(crate) async fn unlock_session(
+    app: &tauri::AppHandle, password: &str, authenticated: bool,
+) -> Result<UnlockVaultResponse, ErrorResponse> {
+    let config = load_config_from_dir(&app.state::<AppDataDir>().0)?;
 
-    let config = load_config_from_dir(&app_data_dir.0)?;
-
-    let db_path = config.data_dir().join("pipedash.db");
-    let has_encrypted_tokens =
-        pipedash_core::infrastructure::database::has_encrypted_tokens(&db_path).await;
-
-    if config.storage.backend.is_sqlite() && !has_encrypted_tokens {
-        if !password.is_empty() {
-            std::env::set_var("PIPEDASH_VAULT_PASSWORD", &password);
-            tracing::info!("Vault password set for future migration (no encrypted tokens yet)");
-        }
-        return Ok(UnlockVaultResponse {
-            success: true,
-            message: "Vault password set for migration".to_string(),
-        });
+    if !vault_requires_password(&config).await {
+        return unlock_keyring_session(app, password, authenticated).await;
     }
 
     if password.is_empty() {
-        return Ok(UnlockVaultResponse {
-            success: false,
-            message: "Password required to unlock encrypted vault".to_string(),
-        });
+        return Ok(unlock_failure(
+            "Password required to unlock encrypted vault".to_string(),
+        ));
     }
 
-    std::env::set_var("PIPEDASH_VAULT_PASSWORD", &password);
+    std::env::set_var("PIPEDASH_VAULT_PASSWORD", password);
     tracing::info!("Vault password set in environment for session");
 
-    let config = load_config_from_dir(&app_data_dir.0)?;
-
-    let storage_manager = match StorageManager::from_config(config.clone(), true).await {
-        Ok(manager) => manager,
-        Err(e) => {
-            std::env::remove_var("PIPEDASH_VAULT_PASSWORD");
-            tracing::warn!("Vault unlock failed - invalid password: {}", e);
-            return Ok(UnlockVaultResponse {
-                success: false,
-                message: format!("Invalid password: {}", e),
-            });
-        }
-    };
-
-    match storage_manager.token_store().await.get_all_tokens().await {
-        Ok(tokens) => {
+    match boot_core(app, BootKind::Unlock, true).await {
+        Ok(_) => {
             tracing::info!(
-                "Password validated - decrypted {} tokens successfully",
-                tokens.len()
+                "Vault unlocked successfully - CoreContext recreated with encrypted token store"
             );
+            Ok(UnlockVaultResponse::ok("Vault unlocked successfully"))
         }
         Err(e) => {
-            std::env::remove_var("PIPEDASH_VAULT_PASSWORD");
-            tracing::warn!("Vault unlock failed - token decryption error: {}", e);
-            return Ok(UnlockVaultResponse {
-                success: false,
-                message: format!("Invalid password: failed to decrypt tokens: {}", e),
-            });
+            tracing::warn!("Vault unlock failed: {}", e);
+            if matches!(e, BootError::InvalidPassword(_) | BootError::Decrypt(_)) {
+                std::env::remove_var("PIPEDASH_VAULT_PASSWORD");
+            }
+            Ok(unlock_failure(match e {
+                BootError::Context(cause) => {
+                    format!("Failed to initialize after unlock: {}", cause)
+                }
+                other => other.to_string(),
+            }))
         }
     }
+}
 
-    let event_bus = create_tauri_event_bus(app.clone());
-
-    let core_context = match CoreContext::with_storage_manager(&storage_manager, event_bus).await {
-        Ok(ctx) => Arc::new(ctx),
-        Err(e) => {
-            tracing::error!("Failed to create CoreContext after vault unlock: {}", e);
-            return Ok(UnlockVaultResponse {
-                success: false,
-                message: format!("Failed to initialize after unlock: {}", e),
-            });
+async fn unlock_keyring_session(
+    app: &tauri::AppHandle, password: &str, authenticated: bool,
+) -> Result<UnlockVaultResponse, ErrorResponse> {
+    if app
+        .state::<crate::MaybeCoreContext>()
+        .0
+        .read()
+        .await
+        .is_some()
+    {
+        if !password.is_empty() {
+            std::env::set_var("PIPEDASH_VAULT_PASSWORD", password);
+            tracing::info!("Vault password set for future migration (no encrypted tokens yet)");
         }
-    };
-
-    let old = {
-        let mut guard = maybe_core_context.0.write().await;
-        guard.replace(Arc::clone(&core_context))
-    };
-    if let Some(old) = old {
-        old.shutdown().await;
+        return Ok(UnlockVaultResponse::ok("Vault password set for migration"));
     }
 
-    let core_clone = Arc::clone(&core_context);
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = core_clone.warmup_token_store().await {
-            tracing::warn!(
-                "Token store warmup warning after unlock: {}. Providers may need manual refresh.",
-                e
-            );
-        }
-
-        if let Err(e) = core_clone.provider_service.load_all_providers().await {
-            tracing::warn!("Failed to load providers after unlock: {}", e);
-        }
-
-        core_clone.start_background_tasks().await;
-
-        core_clone
-            .event_bus
-            .emit(pipedash_core::event::CoreEvent::VaultUnlocked)
-            .await;
-
-        tracing::info!("Vault unlock complete - providers loaded and background tasks started");
-    });
-
-    tracing::info!(
-        "Vault unlocked successfully - CoreContext recreated with encrypted token store"
-    );
-    Ok(UnlockVaultResponse {
-        success: true,
-        message: "Vault unlocked successfully".to_string(),
-    })
+    match boot_core(app, BootKind::Resume, authenticated).await {
+        Ok(_) => Ok(UnlockVaultResponse::ok("Vault unlocked successfully")),
+        Err(e) => Ok(unlock_failure(e.to_string())),
+    }
 }
 
 #[tauri::command]
-pub async fn lock_vault() -> Result<UnlockVaultResponse, ErrorResponse> {
-    std::env::remove_var("PIPEDASH_VAULT_PASSWORD");
-    tracing::info!("Vault locked - session password cleared");
+pub async fn lock_vault(app: tauri::AppHandle) -> Result<UnlockVaultResponse, ErrorResponse> {
+    app_lock::lock_session(&app).await;
 
-    Ok(UnlockVaultResponse {
-        success: true,
-        message: "Vault locked. Restart required to fully clear token cache.".to_string(),
-    })
+    Ok(UnlockVaultResponse::ok("Vault locked"))
 }
 
 #[tauri::command]
 pub async fn save_storage_config(
-    _core: State<'_, Arc<CoreContext>>, app_data_dir: State<'_, AppDataDir>,
-    config: PipedashConfig, token_password: Option<String>,
+    app_data_dir: State<'_, AppDataDir>, config: PipedashConfig, token_password: Option<String>,
 ) -> Result<(), ErrorResponse> {
     if let Some(password) = &token_password {
         std::env::set_var("PIPEDASH_VAULT_PASSWORD", password);
@@ -1985,9 +1912,15 @@ pub struct FactoryResetResult {
 
 #[tauri::command]
 pub async fn factory_reset(
-    core: State<'_, Arc<CoreContext>>,
+    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
+    lock: State<'_, app_lock::AppLockState>,
 ) -> Result<FactoryResetResult, ErrorResponse> {
     tracing::info!("[factory_reset] Starting factory reset");
+
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
 
     let providers = core.provider_service.list_providers().await?;
     let providers_removed = providers.len();
@@ -2041,7 +1974,7 @@ pub async fn factory_reset(
 
     let mut legacy_cleaned = 0;
     for provider in &providers {
-        use keyring::Entry;
+        use crate::credential::Entry;
         if let Ok(old_entry) = Entry::new("pipedash", &format!("provider_{}", provider.id)) {
             if old_entry.delete_credential().is_ok() {
                 legacy_cleaned += 1;
@@ -2059,6 +1992,9 @@ pub async fn factory_reset(
         );
     }
 
+    crate::push::reset(&app_data_dir.0).await;
+    app_lock::reset(&lock);
+
     tracing::info!(
         "[factory_reset] Complete - removed {} providers, caches cleared, tokens_cleared: {}, metrics_cleared: {}, legacy_entries_cleaned: {}",
         providers_removed, tokens_cleared, metrics_cleared, legacy_cleaned
@@ -2075,6 +2011,16 @@ pub async fn factory_reset(
 #[tauri::command]
 pub async fn restart_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
     tracing::info!("[restart_app] Initiating application restart...");
+
+    if cfg!(mobile) {
+        return boot_core(&app, BootKind::Resume, false)
+            .await
+            .map(|_| ())
+            .map_err(|e| ErrorResponse {
+                error: e.to_string(),
+                details: None,
+            });
+    }
 
     app.restart();
 

@@ -33,7 +33,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
 
   return (
     <AppShell
-      header={{ height: isMobile ? 'calc(70px + env(safe-area-inset-top))' : 70 }}
+      header={{ height: 'calc(70px + var(--safe-top))' }}
       navbar={{
         width: { base: 280, sm: sidebar.navbarWidth },
         breakpoint: 'sm',

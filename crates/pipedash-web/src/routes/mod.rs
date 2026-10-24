@@ -5,6 +5,7 @@ mod pipelines;
 mod plugins;
 mod preferences;
 mod providers;
+mod push;
 mod refresh;
 mod settings;
 mod setup;
@@ -34,6 +35,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/preferences", preferences::router())
         .nest("/refresh", refresh::router())
         .nest("/settings", settings::router())
+        .nest("/push", push::router())
         .nest("/storage", storage::router())
         .nest("/vault", vault::router())
         .merge(system::router())

@@ -38,7 +38,10 @@ use serde_json::{
 };
 
 use crate::{
-    config::Target,
+    config::{
+        KubeconfigSource,
+        Target,
+    },
     health::Deployment,
     types::{
         FluxResource,
@@ -100,13 +103,64 @@ fn read_kubeconfigs(paths: &[String]) -> PluginResult<Kubeconfig> {
     })
 }
 
+fn load_kubeconfig(source: &KubeconfigSource) -> PluginResult<Kubeconfig> {
+    match source {
+        KubeconfigSource::Content(content) => Kubeconfig::from_yaml(content).map_err(|_| {
+            PluginError::InvalidConfig(
+                "The pasted kubeconfig content is not valid kubeconfig YAML".to_string(),
+            )
+        }),
+        KubeconfigSource::Paths(paths) => read_kubeconfigs(paths),
+    }
+}
+
+const MOBILE_PLATFORM: bool = cfg!(any(target_os = "ios", target_os = "android"));
+
+fn ensure_supported_auth(
+    kubeconfig: &Kubeconfig, context: Option<&str>, mobile: bool,
+) -> PluginResult<()> {
+    if !mobile {
+        return Ok(());
+    }
+
+    let uses_exec = context
+        .or(kubeconfig.current_context.as_deref())
+        .and_then(|name| {
+            kubeconfig
+                .contexts
+                .iter()
+                .find(|candidate| candidate.name == name)
+        })
+        .and_then(|named| named.context.as_ref()?.user.as_deref())
+        .and_then(|user| {
+            kubeconfig
+                .auth_infos
+                .iter()
+                .find(|candidate| candidate.name == user)
+        })
+        .filter(|named| {
+            named
+                .auth_info
+                .as_ref()
+                .is_some_and(|auth_info| auth_info.exec.is_some())
+        });
+
+    match uses_exec {
+        Some(named) => Err(PluginError::NotSupported(format!(
+            "Kubernetes user '{}' authenticates through an exec credential plugin, which is not supported on this platform. Use a token or client certificate in the kubeconfig instead.",
+            named.name
+        ))),
+        None => Ok(()),
+    }
+}
+
 fn blocking_failed(error: tokio::task::JoinError) -> PluginError {
     PluginError::Internal(format!("Kubeconfig loader task failed: {error}"))
 }
 
-pub(crate) async fn available_contexts(paths: Vec<String>) -> PluginResult<Vec<String>> {
+pub(crate) async fn available_contexts(source: KubeconfigSource) -> PluginResult<Vec<String>> {
     tokio::task::spawn_blocking(move || {
-        let mut contexts: Vec<String> = read_kubeconfigs(&paths)?
+        let mut contexts: Vec<String> = load_kubeconfig(&source)?
             .contexts
             .into_iter()
             .map(|context| context.name)
@@ -114,7 +168,7 @@ pub(crate) async fn available_contexts(paths: Vec<String>) -> PluginResult<Vec<S
         if contexts.is_empty() {
             return Err(PluginError::InvalidConfig(format!(
                 "No contexts found in kubeconfig: {}",
-                paths.join(", ")
+                source.describe()
             )));
         }
         contexts.sort();
@@ -157,10 +211,11 @@ fn list_context(kind: Kind, namespace: Option<&str>) -> String {
 }
 
 impl FluxClient {
-    pub async fn connect(paths: Vec<String>, context: Option<String>) -> PluginResult<Self> {
+    pub async fn connect(source: KubeconfigSource, context: Option<String>) -> PluginResult<Self> {
         let runtime = tokio::runtime::Handle::current();
         let client = tokio::task::spawn_blocking(move || {
-            let kubeconfig = read_kubeconfigs(&paths)?;
+            let kubeconfig = load_kubeconfig(&source)?;
+            ensure_supported_auth(&kubeconfig, context.as_deref(), MOBILE_PLATFORM)?;
             let options = KubeConfigOptions {
                 context,
                 ..Default::default()
@@ -344,5 +399,66 @@ impl FluxClient {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kubeconfig_yaml(user_auth: &str) -> String {
+        format!(
+            "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: https://127.0.0.1:6443\ncontexts:\n- name: ctx\n  context:\n    cluster: c\n    user: u\n- name: other\n  context:\n    cluster: c\n    user: plain\ncurrent-context: ctx\nusers:\n- name: u\n  user:\n{user_auth}\n- name: plain\n  user:\n    token: t\n"
+        )
+    }
+
+    const EXEC_AUTH: &str = "    exec:\n      apiVersion: client.authentication.k8s.io/v1beta1\n      command: aws\n      args: [eks, get-token]";
+
+    fn parse(yaml: &str) -> Kubeconfig {
+        Kubeconfig::from_yaml(yaml).unwrap()
+    }
+
+    #[test]
+    fn exec_auth_is_rejected_on_mobile_for_the_selected_user() {
+        let kubeconfig = parse(&kubeconfig_yaml(EXEC_AUTH));
+
+        for context in [None, Some("ctx")] {
+            let error = ensure_supported_auth(&kubeconfig, context, true).unwrap_err();
+            assert!(
+                matches!(&error, PluginError::NotSupported(message) if message.contains("exec credential plugin") && message.contains("not supported on this platform")),
+                "{error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn exec_auth_is_allowed_off_mobile_and_for_other_users() {
+        let kubeconfig = parse(&kubeconfig_yaml(EXEC_AUTH));
+
+        assert!(ensure_supported_auth(&kubeconfig, None, false).is_ok());
+        assert!(ensure_supported_auth(&kubeconfig, Some("other"), true).is_ok());
+        assert!(ensure_supported_auth(&kubeconfig, Some("missing"), true).is_ok());
+
+        let token_only = parse(&kubeconfig_yaml("    token: t"));
+        assert!(ensure_supported_auth(&token_only, None, true).is_ok());
+    }
+
+    #[test]
+    fn pasted_content_loads_without_touching_the_filesystem() {
+        let source = KubeconfigSource::Content(kubeconfig_yaml("    token: t"));
+
+        let kubeconfig = load_kubeconfig(&source).unwrap();
+
+        assert_eq!(kubeconfig.contexts.len(), 2);
+    }
+
+    #[test]
+    fn invalid_pasted_content_is_rejected_without_echoing_it() {
+        let source = KubeconfigSource::Content("users: {token: s3cr3t-value".to_string());
+
+        let error = load_kubeconfig(&source).unwrap_err();
+
+        assert!(matches!(&error, PluginError::InvalidConfig(_)), "{error:?}");
+        assert!(!error.to_string().contains("s3cr3t-value"), "{error}");
     }
 }

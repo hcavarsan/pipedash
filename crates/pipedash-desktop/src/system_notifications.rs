@@ -2,7 +2,6 @@ use serde_json::Value;
 use tauri::{
     AppHandle,
     Emitter,
-    Manager,
     Runtime,
 };
 use tauri_plugin_notification::{
@@ -13,6 +12,7 @@ use tauri_plugin_notification::{
 use crate::commands::ErrorResponse;
 
 pub const CLICKED_EVENT: &str = "system-notification-clicked";
+#[cfg(desktop)]
 const MAIN_WINDOW: &str = "main";
 const TAP_ACTION: &str = "tap";
 const TARGET_KEY: &str = "target";
@@ -35,10 +35,9 @@ fn clicked_target(performed: &ActionPerformed) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-fn on_action<R: Runtime>(app: &AppHandle<R>, performed: &ActionPerformed) {
-    let Some(target) = clicked_target(performed) else {
-        return;
-    };
+#[cfg(desktop)]
+fn focus_main_window<R: Runtime>(app: &AppHandle<R>) {
+    use tauri::Manager;
 
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
         let _ = window.unminimize();
@@ -47,6 +46,15 @@ fn on_action<R: Runtime>(app: &AppHandle<R>, performed: &ActionPerformed) {
             tracing::warn!(error = %e, "Couldn't focus the window after a notification click");
         }
     }
+}
+
+fn on_action<R: Runtime>(app: &AppHandle<R>, performed: &ActionPerformed) {
+    let Some(target) = clicked_target(performed) else {
+        return;
+    };
+
+    #[cfg(desktop)]
+    focus_main_window(app);
 
     if let Err(e) = app.emit(CLICKED_EVENT, target) {
         tracing::warn!(error = %e, "Couldn't report a notification click");

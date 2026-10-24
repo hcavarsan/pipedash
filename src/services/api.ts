@@ -18,6 +18,7 @@ import type {
   MigrationOptions,
   MigrationPlan,
   MigrationResult,
+  MobileDevicesResponse,
   Organization,
   PaginatedAvailablePipelines,
   PaginatedRunHistory,
@@ -593,6 +594,24 @@ class ApiClient {
 
   async restartApp(): Promise<void> {
     window.location.reload()
+  }
+
+  async getServerVersion(): Promise<string> {
+    const health = await this.get<{ version: string }>('/health')
+
+    return health.version
+  }
+
+  async listMobileDevices(): Promise<MobileDevicesResponse> {
+    return this.get<MobileDevicesResponse>('/push/subscriptions')
+  }
+
+  async removeMobileDevice(id: string): Promise<void> {
+    await this.delete(`/push/subscriptions/${encodeURIComponent(id)}`)
+  }
+
+  async testMobileDevice(id: string): Promise<void> {
+    await this.post(`/push/subscriptions/${encodeURIComponent(id)}/test`)
   }
 }
 

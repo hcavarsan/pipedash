@@ -158,7 +158,7 @@ impl FluxcdPlugin {
 
         self.client
             .get_or_try_init(|| {
-                FluxClient::connect(settings.kubeconfig_paths.clone(), settings.context.clone())
+                FluxClient::connect(settings.kubeconfig.clone(), settings.context.clone())
             })
             .await
     }
@@ -470,10 +470,10 @@ impl Plugin for FluxcdPlugin {
         &self, field_key: &str, config: &HashMap<String, String>,
     ) -> PluginResult<Vec<String>> {
         match field_key {
-            "context" => client::available_contexts(config::kubeconfig_paths(config)).await,
+            "context" => client::available_contexts(config::kubeconfig_source(config)).await,
             "namespaces" => {
                 let client =
-                    FluxClient::connect(config::kubeconfig_paths(config), config::context(config))
+                    FluxClient::connect(config::kubeconfig_source(config), config::context(config))
                         .await?;
 
                 match client.namespaces().await {
@@ -1912,6 +1912,38 @@ mod tests {
         assert_eq!(contexts, vec!["ctx"]);
         assert_eq!(listed, vec!["a", "b"]);
         assert!(hidden.is_empty());
+    }
+
+    #[tokio::test]
+    async fn pasted_kubeconfig_content_is_used_instead_of_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let namespaces = stub(|_, _, _| {
+            (
+                200,
+                list(vec![json!({ "metadata": { "name": "a" } })], None),
+            )
+        });
+        let from_file = kubeconfig_config(&namespaces.server, &dir);
+        let config = HashMap::from([
+            (
+                "kubeconfig".to_string(),
+                "/nonexistent/kubeconfig".to_string(),
+            ),
+            (
+                "token".to_string(),
+                std::fs::read_to_string(&from_file["kubeconfig"]).unwrap(),
+            ),
+        ]);
+        let plugin = FluxcdPlugin::new();
+
+        let contexts = plugin.get_field_options("context", &config).await.unwrap();
+        let listed = plugin
+            .get_field_options("namespaces", &config)
+            .await
+            .unwrap();
+
+        assert_eq!(contexts, vec!["ctx"]);
+        assert_eq!(listed, vec!["a"]);
     }
 
     #[tokio::test]

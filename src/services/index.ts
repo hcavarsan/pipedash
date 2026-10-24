@@ -98,5 +98,6 @@ export const events = {
   },
 }
 
+export { apiService } from './api'
 export { tauriService } from './tauri'
 export { wsClient } from './websocket'

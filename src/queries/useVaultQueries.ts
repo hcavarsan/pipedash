@@ -4,9 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
+import { mobileService } from '../services/mobile'
 import { useAuthStore } from '../stores/authStore'
-import type { UnlockVaultResponse, VaultStatusResponse } from '../types'
+import type { AppLockStatus, UnlockVaultResponse, VaultStatusResponse } from '../types'
 import { getHttpStatus } from '../types/errors'
+import { displayErrorNotification } from '../utils/errorDisplay'
 
 export function useVaultPasswordStatus(options?: { enabled?: boolean }) {
   return useQuery({
@@ -80,5 +82,28 @@ export function useLockVault() {
         color: 'red',
       })
     },
+  })
+}
+
+export function useUnlockWithBiometrics() {
+  const queryClient = useQueryClient()
+
+  return useMutation<UnlockVaultResponse, Error, void>({
+    mutationFn: () => mobileService.unlockWithBiometrics(),
+    onSuccess: async (data) => {
+      if (data.success) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
+      }
+    },
+  })
+}
+
+export function useSetAppLock() {
+  const queryClient = useQueryClient()
+
+  return useMutation<AppLockStatus, Error, { enabled: boolean; lockOnBackground: boolean }>({
+    mutationFn: ({ enabled, lockOnBackground }) => mobileService.setAppLock(enabled, lockOnBackground),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.vault.status() }),
+    onError: (error) => displayErrorNotification(error, "Couldn't update app lock"),
   })
 }

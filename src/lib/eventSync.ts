@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { invalidateProviderPipelines, setProviderPipelines } from '../queries/usePipelinesQueries'
 import { events, wsClient } from '../services'
+import { useAuthStore } from '../stores/authStore'
 import type { EventPayloadMap } from '../types/events'
 
 import { logger } from './logger'
@@ -243,6 +244,14 @@ export function useEventSync() {
         queryKey: queryKeys.cache.all,
         refetchType: 'none',
       })
+    })
+
+    register<unknown>('vault-locked', async () => {
+      logger.info('EventSync', 'vault-locked: CoreContext shut down, routing to unlock')
+
+      useAuthStore.getState().clearToken()
+      await queryClient.cancelQueries()
+      await queryClient.invalidateQueries({ queryKey: queryKeys.vault.all, refetchType: 'active' })
     })
 
     return () => {

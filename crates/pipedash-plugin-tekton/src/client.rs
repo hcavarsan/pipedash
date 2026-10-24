@@ -12,7 +12,10 @@ use pipedash_plugin_api::{
 use serde::Deserialize;
 
 use crate::{
-    config,
+    config::{
+        self,
+        KubeconfigSource,
+    },
     types::{
         PipelineList,
         PipelineRunList,
@@ -63,6 +66,54 @@ pub(crate) fn map_kube_error(error: kube::Error, context: &str) -> PluginError {
     }
 }
 
+pub(crate) fn parse_kubeconfig_content(content: &str) -> PluginResult<kube::config::Kubeconfig> {
+    kube::config::Kubeconfig::from_yaml(content).map_err(|_| {
+        PluginError::InvalidConfig(
+            "The pasted kubeconfig content is not valid kubeconfig YAML".to_string(),
+        )
+    })
+}
+
+const MOBILE_PLATFORM: bool = cfg!(any(target_os = "ios", target_os = "android"));
+
+fn ensure_supported_auth(
+    kubeconfig: &kube::config::Kubeconfig, context: Option<&str>, mobile: bool,
+) -> PluginResult<()> {
+    if !mobile {
+        return Ok(());
+    }
+
+    let uses_exec = context
+        .or(kubeconfig.current_context.as_deref())
+        .and_then(|name| {
+            kubeconfig
+                .contexts
+                .iter()
+                .find(|candidate| candidate.name == name)
+        })
+        .and_then(|named| named.context.as_ref()?.user.as_deref())
+        .and_then(|user| {
+            kubeconfig
+                .auth_infos
+                .iter()
+                .find(|candidate| candidate.name == user)
+        })
+        .filter(|named| {
+            named
+                .auth_info
+                .as_ref()
+                .is_some_and(|auth_info| auth_info.exec.is_some())
+        });
+
+    match uses_exec {
+        Some(named) => Err(PluginError::NotSupported(format!(
+            "Kubernetes user '{}' authenticates through an exec credential plugin, which is not supported on this platform. Use a token or client certificate in the kubeconfig instead.",
+            named.name
+        ))),
+        None => Ok(()),
+    }
+}
+
 impl TektonClient {
     fn merge_kubeconfigs(paths: Vec<String>) -> PluginResult<kube::config::Kubeconfig> {
         let mut merged = kube::config::Kubeconfig::default();
@@ -99,16 +150,19 @@ impl TektonClient {
     }
 
     pub async fn from_kubeconfig(
-        kubeconfig_path: Option<&str>, context: Option<&str>,
+        source: &KubeconfigSource, context: Option<&str>,
     ) -> PluginResult<Self> {
-        let kubeconfig = if let Some(path_str) = kubeconfig_path {
-            let paths = config::split_kubeconfig_paths(path_str);
-            Self::merge_kubeconfigs(paths)?
-        } else {
-            let default_path = config::get_default_kubeconfig_path();
-            let paths = config::split_kubeconfig_paths(&default_path);
-            Self::merge_kubeconfigs(paths)?
+        let kubeconfig = match source {
+            KubeconfigSource::Content(content) => parse_kubeconfig_content(content)?,
+            KubeconfigSource::Path(path) => {
+                let paths = match path {
+                    Some(path_str) => config::split_kubeconfig_paths(path_str),
+                    None => config::split_kubeconfig_paths(&config::get_default_kubeconfig_path()),
+                };
+                Self::merge_kubeconfigs(paths)?
+            }
         };
+        ensure_supported_auth(&kubeconfig, context, MOBILE_PLATFORM)?;
 
         let options = if let Some(ctx) = context {
             kube::config::KubeConfigOptions {
@@ -414,5 +468,62 @@ impl TektonClient {
             .await?;
 
         Ok(review.status.allowed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kubeconfig_yaml(user_auth: &str) -> String {
+        format!(
+            "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: https://127.0.0.1:6443\ncontexts:\n- name: ctx\n  context:\n    cluster: c\n    user: u\n- name: other\n  context:\n    cluster: c\n    user: plain\ncurrent-context: ctx\nusers:\n- name: u\n  user:\n{user_auth}\n- name: plain\n  user:\n    token: t\n"
+        )
+    }
+
+    const EXEC_AUTH: &str = "    exec:\n      apiVersion: client.authentication.k8s.io/v1beta1\n      command: aws\n      args: [eks, get-token]";
+
+    fn parse(yaml: &str) -> kube::config::Kubeconfig {
+        kube::config::Kubeconfig::from_yaml(yaml).unwrap()
+    }
+
+    #[test]
+    fn exec_auth_is_rejected_on_mobile_for_the_selected_user() {
+        let kubeconfig = parse(&kubeconfig_yaml(EXEC_AUTH));
+
+        for context in [None, Some("ctx")] {
+            let error = ensure_supported_auth(&kubeconfig, context, true).unwrap_err();
+            assert!(
+                matches!(&error, PluginError::NotSupported(message) if message.contains("exec credential plugin") && message.contains("not supported on this platform")),
+                "{error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn exec_auth_is_allowed_off_mobile_and_for_other_users() {
+        let kubeconfig = parse(&kubeconfig_yaml(EXEC_AUTH));
+
+        assert!(ensure_supported_auth(&kubeconfig, None, false).is_ok());
+        assert!(ensure_supported_auth(&kubeconfig, Some("other"), true).is_ok());
+        assert!(ensure_supported_auth(&kubeconfig, Some("missing"), true).is_ok());
+
+        let token_only = parse(&kubeconfig_yaml("    token: t"));
+        assert!(ensure_supported_auth(&token_only, None, true).is_ok());
+    }
+
+    #[test]
+    fn pasted_content_parses_without_touching_the_filesystem() {
+        let kubeconfig = parse_kubeconfig_content(&kubeconfig_yaml("    token: t")).unwrap();
+
+        assert_eq!(kubeconfig.contexts.len(), 2);
+    }
+
+    #[test]
+    fn invalid_pasted_content_is_rejected_without_echoing_it() {
+        let error = parse_kubeconfig_content("users: {token: s3cr3t-value").unwrap_err();
+
+        assert!(matches!(&error, PluginError::InvalidConfig(_)), "{error:?}");
+        assert!(!error.to_string().contains("s3cr3t-value"), "{error}");
     }
 }

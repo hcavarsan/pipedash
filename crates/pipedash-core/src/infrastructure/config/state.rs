@@ -526,6 +526,7 @@ impl ConfigState {
             ConfigKey::PostgresConnectionString => {
                 config.storage.postgres.connection_string.clone()
             }
+            ConfigKey::PushRelayUrl => config.push.relay_url.clone(),
         }
     }
 
@@ -699,6 +700,32 @@ mod tests {
         let state = create_test_state(&temp_dir, token_store);
 
         assert!(!state.get_bool(ConfigKey::MetricsEnabled).await);
+    }
+
+    #[tokio::test]
+    async fn test_push_relay_url_comes_from_the_file_unless_the_env_var_overrides_it() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = PipedashConfig::default();
+        config.push.relay_url = "https://file.example.com".to_string();
+        let state = ConfigState::from_config(
+            config,
+            temp_dir.path().join("config.toml"),
+            Arc::new(MemoryTokenStore::new()),
+        );
+
+        {
+            let _env = EnvGuard::set(&[("PIPEDASH_PUSH_RELAY_URL", None)]);
+            assert_eq!(
+                state.get_string(ConfigKey::PushRelayUrl).await,
+                "https://file.example.com"
+            );
+        }
+
+        let _env = EnvGuard::set(&[("PIPEDASH_PUSH_RELAY_URL", Some("https://env.example.com"))]);
+        assert_eq!(
+            state.get_string(ConfigKey::PushRelayUrl).await,
+            "https://env.example.com"
+        );
     }
 
     fn update(default_refresh_interval: u32, status_pages_enabled: bool) -> GeneralSettingsUpdate {
