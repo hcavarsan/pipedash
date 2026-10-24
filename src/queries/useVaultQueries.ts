@@ -104,10 +104,6 @@ export function useSetAppLock() {
   return useMutation<AppLockStatus, Error, { enabled: boolean; lockOnBackground: boolean }>({
     mutationFn: ({ enabled, lockOnBackground }) => mobileService.setAppLock(enabled, lockOnBackground),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.vault.status() }),
-    onError: (error) => {
-      if (error.message !== 'cancelled') {
-        displayErrorNotification(error, "Couldn't update app lock")
-      }
-    },
+    onError: (error) => displayErrorNotification(error, "Couldn't update app lock"),
   })
 }

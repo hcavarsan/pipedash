@@ -405,6 +405,14 @@ fn error(message: &str) -> ErrorResponse {
     }
 }
 
+fn enable_confirmed(outcome: AuthOutcome) -> Result<bool, ErrorResponse> {
+    match outcome {
+        AuthOutcome::Authenticated => Ok(true),
+        AuthOutcome::Cancelled => Ok(false),
+        AuthOutcome::Failed(message) => Err(error(&message)),
+    }
+}
+
 #[tauri::command]
 pub async fn unlock_with_biometrics(
     app: AppHandle, lock: State<'_, AppLockState>, app_data_dir: State<'_, AppDataDir>,
@@ -482,10 +490,8 @@ pub async fn set_app_lock(
             let _prompt = lock.begin_prompt();
             native::authenticate(&app, ENABLE_REASON).await
         };
-        match outcome {
-            AuthOutcome::Authenticated => {}
-            AuthOutcome::Cancelled => return Err(error("cancelled")),
-            AuthOutcome::Failed(message) => return Err(error(&message)),
+        if !enable_confirmed(outcome)? {
+            return Ok(status(&app).await);
         }
     }
 
@@ -656,5 +662,19 @@ mod tests {
             classify_rejection(None, "boom"),
             AuthOutcome::Failed("boom".to_string())
         );
+    }
+
+    #[test]
+    fn cancelling_the_enable_prompt_is_not_an_error() {
+        assert!(matches!(
+            enable_confirmed(AuthOutcome::Authenticated),
+            Ok(true)
+        ));
+        assert!(matches!(
+            enable_confirmed(AuthOutcome::Cancelled),
+            Ok(false)
+        ));
+        let failed = enable_confirmed(AuthOutcome::Failed("Locked out".to_string()));
+        assert!(matches!(failed, Err(ErrorResponse { error, .. }) if error == "Locked out"));
     }
 }
