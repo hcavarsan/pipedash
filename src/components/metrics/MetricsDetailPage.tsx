@@ -1,7 +1,5 @@
 import { Button, Group, Menu, Select, Stack } from '@mantine/core'
 import { IconDownload, IconFileTypeCsv, IconPhoto } from '@tabler/icons-react'
-import { save } from '@tauri-apps/plugin-dialog'
-import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import { toPng } from 'html-to-image'
 import { useEffect, useRef, useState } from 'react'
 
@@ -10,6 +8,7 @@ import { useAggregatedMetrics } from '../../queries/useMetricsQueries'
 import type { AggregationPeriod, AggregationType, MetricType } from '../../types'
 import { type DateRange, isDateRange } from '../../utils/dateRange'
 import { displayErrorNotification, displaySuccessNotification } from '../../utils/errorDisplay'
+import { saveFile } from '../../utils/saveFile'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 
@@ -109,13 +108,9 @@ export const MetricsDetailPage = ({
       const binaryData = atob(dataUrl.split(',')[1])
       const bytes = Uint8Array.from(binaryData, (char) => char.charCodeAt(0))
 
-      const filePath = await save({
-        defaultPath: `${fileBaseName}.png`,
-        filters: [{ name: 'PNG Image', extensions: ['png'] }],
-      })
-
-      if (filePath) {
-        await writeFile(filePath, bytes)
+      if (
+        await saveFile(`${fileBaseName}.png`, bytes, { name: 'PNG Image', extension: 'png', mimeType: 'image/png' })
+      ) {
         displaySuccessNotification('Chart exported as PNG')
       }
     } catch (error) {
@@ -142,13 +137,9 @@ export const MetricsDetailPage = ({
       ])
       const csvContent = [headers, ...rows].map((row) => row.map(cell).join(',')).join('\n')
 
-      const filePath = await save({
-        defaultPath: `${fileBaseName}.csv`,
-        filters: [{ name: 'CSV File', extensions: ['csv'] }],
-      })
-
-      if (filePath) {
-        await writeTextFile(filePath, csvContent)
+      if (
+        await saveFile(`${fileBaseName}.csv`, csvContent, { name: 'CSV File', extension: 'csv', mimeType: 'text/csv' })
+      ) {
         displaySuccessNotification('Data exported as CSV')
       }
     } catch (error) {
