@@ -627,7 +627,9 @@ impl ProviderService {
 
     pub async fn apply_config_file(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
         let result = config_state
-            .reload_providers(self.repository.config_backend().as_ref())
+            .reload_providers(self.repository.config_backend().as_ref(), |provider_type| {
+                self.plugin_registry.is_registered(provider_type)
+            })
             .await?;
         if result.added.is_empty() && result.updated.is_empty() {
             return Ok(result);
@@ -2191,16 +2193,18 @@ type = "travis"
             .apply_config_file(&h.config_state)
             .await
             .unwrap();
-        std::fs::write(
-            h.config_state.config_path(),
-            "[providers.ci-a]\nname = \"CI Broken\"\ntype = \"\"\n",
-        )
-        .unwrap();
-
-        let result = h.provider_service.apply_config_file(&h.config_state).await;
-
-        assert!(matches!(result, Err(DomainError::InvalidConfig(_))));
         let a = provider_id(&h, "ci-a").await.unwrap();
+
+        let write = |content: &str| std::fs::write(h.config_state.config_path(), content).unwrap();
+
+        write("[providers.ci-a]\nname = \"CI Broken\"\ntype = \"\"\n");
+        let empty = h.provider_service.apply_config_file(&h.config_state).await;
+        write("[providers.ci-a]\nname = \"CI Broken\"\ntype = \"circleci\"\n");
+        let unknown = h.provider_service.apply_config_file(&h.config_state).await;
+
+        assert!(matches!(empty, Err(DomainError::InvalidConfig(_))));
+        assert!(matches!(unknown, Err(DomainError::InvalidProviderType(_))));
+
         assert_eq!(
             h.repository.get_provider(a).await.unwrap().display_name(),
             "CI A"

@@ -352,7 +352,7 @@ impl ConfigState {
     }
 
     pub async fn reload_providers(
-        &self, config_backend: &dyn ConfigBackend,
+        &self, config_backend: &dyn ConfigBackend, known_type: impl Fn(&str) -> bool,
     ) -> DomainResult<SyncResult> {
         let _reload = self.reload_lock.lock().await;
         let file = ConfigLoader::load(&self.config_path)
@@ -371,12 +371,22 @@ impl ConfigState {
             return Ok(SyncResult::default());
         }
 
-        let changed = file
+        let changed: indexmap::IndexMap<String, ProviderFileConfig> = file
             .providers
             .iter()
             .filter(|(id, provider)| current.providers.get(*id) != Some(*provider))
             .map(|(id, provider)| (id.clone(), provider.clone()))
             .collect();
+        if let Some((id, provider)) = changed
+            .iter()
+            .find(|(_, provider)| !known_type(&provider.provider_type))
+        {
+            return Err(DomainError::InvalidProviderType(format!(
+                "Provider '{id}' has an unknown type '{}'",
+                provider.provider_type
+            )));
+        }
+
         let result = self
             .sync_service
             .sync_toml_to_db(changed, config_backend, self.token_store.as_ref(), false)

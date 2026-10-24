@@ -87,7 +87,8 @@ async fn watch(
     cancel: CancellationToken,
 ) {
     let path = config_state.config_path().clone();
-    let mut last = None;
+    let mut applied = None;
+    let mut failed = None;
     let mut tick = interval(poll);
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -96,13 +97,19 @@ async fn watch(
             _ = cancel.cancelled() => break,
             _ = tick.tick() => {
                 let current = stamp(&path);
-                if current.is_none() || current == last {
+                if current.is_none() || current == applied {
                     continue;
                 }
-                last = current;
 
-                if let Err(e) = provider_service.apply_config_file(&config_state).await {
-                    tracing::warn!(path = %path.display(), error = %e, "Failed to apply config file changes");
+                match provider_service.apply_config_file(&config_state).await {
+                    Ok(_) => applied = current,
+                    Err(e) if current != failed => {
+                        failed = current;
+                        tracing::warn!(path = %path.display(), error = %e, "Failed to apply config file changes");
+                    }
+                    Err(e) => {
+                        tracing::debug!(path = %path.display(), error = %e, "Failed to apply config file changes");
+                    }
                 }
             }
         }
