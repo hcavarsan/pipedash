@@ -63,6 +63,7 @@ use crate::infrastructure::config::token_ref::TokenReference;
 use crate::infrastructure::config::{
     ConfigLoader,
     ConfigState,
+    ProviderFileConfig,
 };
 use crate::infrastructure::database::{
     Repository,
@@ -71,7 +72,10 @@ use crate::infrastructure::database::{
     FETCH_STATUS_SUCCESS,
 };
 use crate::infrastructure::providers::PluginAdapter;
-use crate::infrastructure::HttpClientManager;
+use crate::infrastructure::{
+    HttpClientManager,
+    TokenStore,
+};
 use crate::plugins;
 
 const QUOTA_PAUSE_PERCENT: u64 = 10;
@@ -136,6 +140,7 @@ pub struct ProviderService {
     dispatcher: RefreshDispatcher,
     provider_factory: ProviderFactory,
     published_in_flight: DashSet<i64>,
+    config_apply: Mutex<()>,
 }
 
 impl ProviderService {
@@ -164,6 +169,7 @@ impl ProviderService {
             dispatcher,
             provider_factory,
             published_in_flight: DashSet::new(),
+            config_apply: Mutex::new(()),
         }
     }
 
@@ -626,65 +632,95 @@ impl ProviderService {
     }
 
     pub async fn apply_config_file(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
-        let result = config_state
-            .reload_providers(self.repository.config_backend().as_ref(), |provider_type| {
-                self.plugin_registry.is_registered(provider_type)
-            })
-            .await?;
-        if result.added.is_empty() && result.updated.is_empty() {
-            return Ok(result);
-        }
-
-        let ids: Vec<i64> = self
-            .repository
-            .config_backend()
-            .list_providers()
-            .await?
-            .into_iter()
-            .filter(|p| result.added.contains(&p.name) || result.updated.contains(&p.name))
-            .filter_map(|p| p.id)
+        let _apply = self.config_apply.lock().await;
+        let file = config_state.load_providers()?;
+        let current = config_state.get().await;
+        let changed: Vec<(String, ProviderFileConfig)> = file
+            .iter()
+            .filter(|(key, provider)| current.providers.get(*key) != Some(*provider))
+            .map(|(key, provider)| (key.clone(), provider.clone()))
             .collect();
-        for id in ids {
-            self.reload_from_config(id).await;
+
+        for (key, provider) in &changed {
+            if !self.plugin_registry.is_registered(&provider.provider_type) {
+                return Err(DomainError::InvalidProviderType(format!(
+                    "Provider '{key}' has an unknown type '{}'",
+                    provider.provider_type
+                )));
+            }
+            (self.provider_factory)(&ProviderSyncService::provider_config(
+                key,
+                provider,
+                provider.token.clone(),
+            ))?;
         }
 
-        tracing::info!(
-            added = result.added.len(),
-            updated = result.updated.len(),
-            "Applied provider changes from config file"
-        );
-        self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+        let mut result = SyncResult::default();
+        if !changed.is_empty() {
+            let existing = self.repository.config_backend().list_providers().await?;
+            let token_store = config_state.token_store();
+            for (key, provider) in &changed {
+                let id = existing.iter().find(|p| p.name == *key).and_then(|p| p.id);
+                self.apply_config_provider(key, provider, id, token_store.as_ref())
+                    .await?;
+                config_state.remember_provider(key, provider).await;
+                match id {
+                    Some(_) => result.updated.push(key.clone()),
+                    None => result.added.push(key.clone()),
+                }
+            }
+
+            tracing::info!(
+                added = result.added.len(),
+                updated = result.updated.len(),
+                "Applied provider changes from config file"
+            );
+            self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+        }
+        config_state.remember_providers(file).await;
 
         Ok(result)
     }
 
-    async fn reload_from_config(&self, id: i64) {
-        let lock = self.commit_lock(id);
-        let guard = lock.lock().await;
-
-        let loaded = self
-            .repository
-            .get_provider(id)
-            .await
-            .and_then(|config| Ok(((self.provider_factory)(&config)?, config)));
-        let (provider, config) = match loaded {
-            Ok(loaded) => loaded,
-            Err(e) => {
-                tracing::warn!(provider_id = id, error = %e, "Failed to load provider from config file");
-                return;
+    async fn apply_config_provider(
+        &self, key: &str, provider: &ProviderFileConfig, existing: Option<i64>,
+        token_store: &dyn TokenStore,
+    ) -> DomainResult<()> {
+        let sync = ProviderSyncService::new();
+        let backend = self.repository.config_backend().as_ref();
+        let id = match existing {
+            Some(id) => id,
+            None => {
+                sync.create_from_toml(key, provider, backend, token_store)
+                    .await?
             }
         };
 
+        let lock = self.commit_lock(id);
+        let guard = lock.lock().await;
+        if existing.is_some() {
+            let row = backend
+                .get_provider(id)
+                .await?
+                .ok_or_else(|| DomainError::ProviderNotFound(id.to_string()))?;
+            sync.update_from_toml(key, provider, &row, backend, token_store)
+                .await?;
+        }
+
+        let config = self.repository.get_provider(id).await?;
+        let instance = (self.provider_factory)(&config)?;
         if let Err(e) = self.repository.reset_provider_fetch_status(id).await {
             tracing::warn!(provider_id = id, error = %e, "Failed to reset fetch status");
         }
-        let lease = self.replace(id, provider, config.refresh_interval).await;
+        let lease = self.replace(id, instance, config.refresh_interval).await;
         self.health.send(HealthInput::ProvidersChanged {
             changed: vec![self.health_input(&config, &lease)],
         });
         drop(guard);
 
         self.queue_fetch(&lease);
+
+        Ok(())
     }
 
     pub async fn get_provider_config(&self, id: i64) -> DomainResult<ProviderConfig> {
@@ -2215,8 +2251,60 @@ type = "travis"
         );
     }
 
+    async fn execute(h: &Harness, sql: &'static str) {
+        sqlx::query(sql).execute(&h.pool).await.unwrap();
+    }
+
     #[tokio::test]
-    async fn test_config_watcher_applies_a_file_changed_on_disk() {
+    async fn test_apply_config_file_retry_replaces_providers_saved_by_a_failed_apply() {
+        let h = Harness::new().await;
+        config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+        h.provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+        let a = provider_id(&h, "ci-a").await.unwrap();
+        let b = provider_id(&h, "ci-b").await.unwrap();
+        let loaded_a = h.provider_service.generation_of(a).await.unwrap();
+        let loaded_b = h.provider_service.generation_of(b).await.unwrap();
+
+        execute(
+            &h,
+            "CREATE TRIGGER fail_ci_b BEFORE UPDATE ON providers WHEN NEW.name = 'ci-b' \
+             BEGIN SELECT RAISE(ABORT, 'write failed'); END",
+        )
+        .await;
+        config_file(&h, &[("ci-a", "CI A2", 30), ("ci-b", "CI B2", 30)]);
+        assert!(h
+            .provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .is_err());
+        assert_eq!(
+            h.repository.get_provider(a).await.unwrap().display_name(),
+            "CI A2"
+        );
+
+        execute(&h, "DROP TRIGGER fail_ci_b").await;
+        h.provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            h.repository.get_provider(b).await.unwrap().display_name(),
+            "CI B2"
+        );
+        assert_ne!(h.provider_service.generation_of(a).await, Some(loaded_a));
+        assert_ne!(h.provider_service.generation_of(b).await, Some(loaded_b));
+        assert_eq!(
+            h.config_state.get().await.providers["ci-b"].name.as_deref(),
+            Some("CI B2")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_config_watcher_retries_a_failed_apply_without_a_new_edit() {
         let h = Harness::new().await;
         let watcher = crate::application::ConfigWatcher::new(
             Arc::clone(&h.provider_service),
@@ -2225,7 +2313,16 @@ type = "travis"
         .with_poll(Duration::from_millis(20));
         watcher.start().await;
 
+        execute(
+            &h,
+            "CREATE TRIGGER fail_insert BEFORE INSERT ON providers \
+             BEGIN SELECT RAISE(ABORT, 'write failed'); END",
+        )
+        .await;
         config_file(&h, &[("ci-a", "CI A", 30)]);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(provider_id(&h, "ci-a").await, None);
+        execute(&h, "DROP TRIGGER fail_insert").await;
 
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         let id = loop {
@@ -2234,7 +2331,7 @@ type = "travis"
             }
             assert!(
                 std::time::Instant::now() < deadline,
-                "the watcher never applied the file"
+                "the watcher never retried the file"
             );
             tokio::time::sleep(Duration::from_millis(20)).await;
         };

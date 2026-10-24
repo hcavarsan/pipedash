@@ -6,7 +6,6 @@ use std::sync::{
 
 use tokio::sync::{
     broadcast,
-    Mutex,
     RwLock,
 };
 
@@ -90,8 +89,6 @@ pub struct ConfigState {
     sync_service: ProviderSyncService,
 
     health: OnceLock<HealthHandle>,
-
-    reload_lock: Mutex<()>,
 }
 
 impl ConfigState {
@@ -130,7 +127,6 @@ impl ConfigState {
             platform,
             sync_service: ProviderSyncService::new(),
             health: OnceLock::new(),
-            reload_lock: Mutex::new(()),
         });
 
         Ok(state)
@@ -149,7 +145,6 @@ impl ConfigState {
             platform: Platform::detect(),
             sync_service: ProviderSyncService::new(),
             health: OnceLock::new(),
-            reload_lock: Mutex::new(()),
         })
     }
 
@@ -351,10 +346,7 @@ impl ConfigState {
             .await
     }
 
-    pub async fn reload_providers(
-        &self, config_backend: &dyn ConfigBackend, known_type: impl Fn(&str) -> bool,
-    ) -> DomainResult<SyncResult> {
-        let _reload = self.reload_lock.lock().await;
+    pub fn load_providers(&self) -> DomainResult<indexmap::IndexMap<String, ProviderFileConfig>> {
         let file = ConfigLoader::load(&self.config_path)
             .map_err(|e| DomainError::InvalidConfig(format!("Failed to reload config: {}", e)))?;
 
@@ -366,38 +358,23 @@ impl ConfigState {
             )));
         }
 
-        let current = self.get().await;
-        if file.providers == current.providers {
-            return Ok(SyncResult::default());
-        }
+        Ok(file.providers)
+    }
 
-        let changed: indexmap::IndexMap<String, ProviderFileConfig> = file
-            .providers
-            .iter()
-            .filter(|(id, provider)| current.providers.get(*id) != Some(*provider))
-            .map(|(id, provider)| (id.clone(), provider.clone()))
-            .collect();
-        if let Some((id, provider)) = changed
-            .iter()
-            .find(|(_, provider)| !known_type(&provider.provider_type))
-        {
-            return Err(DomainError::InvalidProviderType(format!(
-                "Provider '{id}' has an unknown type '{}'",
-                provider.provider_type
-            )));
-        }
-
-        let result = self
-            .sync_service
-            .sync_toml_to_db(changed, config_backend, self.token_store.as_ref(), false)
-            .await?;
-
+    pub async fn remember_provider(&self, id: &str, provider: &ProviderFileConfig) {
         let mut config = self.config.write().await;
         let mut next = (**config).clone();
-        next.providers = file.providers;
+        next.providers.insert(id.to_string(), provider.clone());
         *config = Arc::new(next);
+    }
 
-        Ok(result)
+    pub async fn remember_providers(
+        &self, providers: indexmap::IndexMap<String, ProviderFileConfig>,
+    ) {
+        let mut config = self.config.write().await;
+        let mut next = (**config).clone();
+        next.providers = providers;
+        *config = Arc::new(next);
     }
 
     async fn persist_config(&self, config: &PipedashConfig) -> DomainResult<()> {
