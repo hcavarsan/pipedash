@@ -322,6 +322,7 @@ async fn save_storage_config(
     validate_config(&config)?;
 
     let config_path = ConfigLoader::discover_config_path();
+    let previous = std::fs::read_to_string(&config_path).ok();
     ConfigLoader::save(&config, &config_path).map_err(|e| {
         AppError::internal(format!(
             "Failed to save storage config at {}: {}",
@@ -331,7 +332,20 @@ async fn save_storage_config(
     })?;
     tracing::info!("Storage config saved: {}", config.storage.summary());
 
-    reload_storage(&state).await.map_err(AppError::internal)?;
+    if let Err(e) = reload_storage(&state).await {
+        let restored = match &previous {
+            Some(content) => std::fs::write(&config_path, content),
+            None => std::fs::remove_file(&config_path),
+        };
+        if let Err(restore_error) = restored {
+            tracing::error!(
+                "Failed to restore {} after a failed storage switch: {}",
+                config_path.display(),
+                restore_error
+            );
+        }
+        return Err(AppError::internal(e));
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -558,13 +572,10 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn save_config_switches_to_an_empty_store_without_copying_providers() {
-        let _env = crate::routes::CONFIG_ENV.lock().await;
-        let root =
-            std::env::temp_dir().join(format!("pipedash-save-storage-{}", std::process::id()));
-        let (old_dir, new_dir) = (root.join("old"), root.join("new"));
-        std::fs::create_dir_all(&old_dir).unwrap();
+    async fn save_from_store_with_provider(
+        old_dir: &std::path::Path, target_data_dir: &std::path::Path,
+    ) -> (StatusCode, usize, String) {
+        std::fs::create_dir_all(old_dir).unwrap();
         let config_path = old_dir.join("config.toml");
         std::fs::write(
             &config_path,
@@ -601,7 +612,7 @@ mod tests {
         let state = AppState::initialized(ws_event_bus, core, storage_manager);
 
         let mut target = PipedashConfig::default();
-        target.storage.data_dir = new_dir.display().to_string();
+        target.storage.data_dir = target_data_dir.display().to_string();
         let request = Request::post("/config/save")
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(serde_json::to_vec(&target).unwrap()))
@@ -615,10 +626,40 @@ mod tests {
         let provider_service = state.provider_service().await.ok().unwrap();
         let providers = provider_service.list_providers().await.unwrap();
         let saved = ConfigLoader::load(&config_path).unwrap();
+
+        (status, providers.len(), saved.storage.data_dir)
+    }
+
+    #[tokio::test]
+    async fn save_config_switches_to_an_empty_store_without_copying_providers() {
+        let _env = crate::routes::CONFIG_ENV.lock().await;
+        let root =
+            std::env::temp_dir().join(format!("pipedash-save-storage-{}", std::process::id()));
+        let new_dir = root.join("new");
+
+        let (status, providers, saved_dir) =
+            save_from_store_with_provider(&root.join("old"), &new_dir).await;
         let _ = std::fs::remove_dir_all(&root);
 
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert!(providers.is_empty(), "{providers:?}");
-        assert_eq!(saved.storage.data_dir, new_dir.display().to_string());
+        assert_eq!(providers, 0);
+        assert_eq!(saved_dir, new_dir.display().to_string());
+    }
+
+    #[tokio::test]
+    async fn save_config_keeps_the_old_config_when_the_new_store_cannot_open() {
+        let _env = crate::routes::CONFIG_ENV.lock().await;
+        let root =
+            std::env::temp_dir().join(format!("pipedash-save-storage-bad-{}", std::process::id()));
+        let old_dir = root.join("old");
+        let unopenable = old_dir.join("config.toml").join("store");
+
+        let (status, providers, saved_dir) =
+            save_from_store_with_provider(&old_dir, &unopenable).await;
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(providers, 1);
+        assert_eq!(saved_dir, old_dir.display().to_string());
     }
 }
