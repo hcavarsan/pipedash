@@ -323,11 +323,15 @@ async fn notify(
             Ok(StatusCode::ACCEPTED)
         }
         Outcome::Unregistered => {
-            state
+            let deleted = state
                 .store
                 .delete_if_token(&key, &subscription.device_token)
                 .await?;
-            Err(ApiError::Gone)
+            if deleted {
+                Err(ApiError::Gone)
+            } else {
+                Err(ApiError::BadGateway)
+            }
         }
         Outcome::Failed => Err(ApiError::BadGateway),
     }
@@ -606,7 +610,7 @@ mod tests {
         release.notify_one();
 
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(pending.await.unwrap().0, StatusCode::GONE);
+        assert_eq!(pending.await.unwrap().0, StatusCode::BAD_GATEWAY);
         assert_eq!(
             h.store
                 .get(&subscription_key(&id))

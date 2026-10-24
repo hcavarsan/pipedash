@@ -509,7 +509,7 @@ pub async fn push_send_test(
     Ok(send_test(&app_data_dir.0, &id).await?)
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", test))]
 async fn rotate_or_replace(
     dir: &Path, relay_url: &str, server: &ServerRecord, device_token: &str,
 ) -> Result<()> {
@@ -532,34 +532,43 @@ async fn rotate_or_replace(
     establish(dir, relay_url, &pairing, Some(server)).await
 }
 
-#[cfg(target_os = "ios")]
-async fn sync_token(app: &AppHandle, dir: &Path) -> Result<()> {
+#[cfg(any(target_os = "ios", test))]
+async fn sync_servers(dir: &Path, relay_url: &str, device_token: &str) -> Result<()> {
     let _state = STATE_LOCK.lock().await;
-    let file = store::read(dir)?;
-    let Some(relay_url) = relay::base_url() else {
-        return Ok(());
-    };
-    if file.servers.is_empty() || !matches!(permission_state(app).await, PermissionState::Granted) {
-        return Ok(());
-    }
-    let device_token = acquire_device_token(app).await?;
-
-    for server in &file.servers {
-        if let Err(error) = rotate_or_replace(dir, relay_url, server, &device_token).await {
+    for server in &store::read(dir)?.servers {
+        if let Err(error) = rotate_or_replace(dir, relay_url, server, device_token).await {
             tracing::warn!(host = %host_of(&server.url), %error, "push token sync failed");
         }
     }
     Ok(())
 }
 
+#[cfg(target_os = "ios")]
+async fn sync_token(app: &AppHandle, dir: &Path) -> Result<()> {
+    let Some(relay_url) = relay::base_url() else {
+        return Ok(());
+    };
+    if store::read(dir)?.servers.is_empty()
+        || !matches!(permission_state(app).await, PermissionState::Granted)
+    {
+        return Ok(());
+    }
+    let device_token = acquire_device_token(app).await?;
+    sync_servers(dir, relay_url, &device_token).await
+}
+
 pub async fn reset(dir: &Path) {
+    reset_with(dir, relay::base_url()).await;
+}
+
+async fn reset_with(dir: &Path, relay_url: Option<&str>) {
     let _state = STATE_LOCK.lock().await;
     let servers = store::read(dir)
         .map(|file| file.servers)
         .unwrap_or_default();
     for record in servers {
         if let (Some(relay_url), Ok(Some(subscription_id))) = (
-            relay::base_url(),
+            relay_url,
             store::get_secret(Secret::RelaySubscription, &record.id),
         ) {
             revoke_relay(relay_url, &subscription_id).await;
@@ -591,6 +600,11 @@ pub fn spawn_token_sync(app: &AppHandle, app_data_dir: &Path) {
     #[cfg(not(target_os = "ios"))]
     let _ = (app, app_data_dir);
 }
+
+#[cfg(test)]
+mod flow_tests;
+#[cfg(test)]
+mod stub;
 
 #[cfg(test)]
 mod tests {

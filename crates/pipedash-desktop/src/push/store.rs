@@ -20,11 +20,9 @@ use super::{
     PushError,
     Result,
 };
-use crate::credential;
 
 const FILE_NAME: &str = "push_servers.json";
 const TMP_FILE_NAME: &str = "push_servers.json.tmp";
-const KEYCHAIN_SERVICE: &str = "pipedash";
 
 static LOCK: Mutex<()> = Mutex::new(());
 
@@ -105,29 +103,78 @@ pub fn remove_file(dir: &Path) -> Result<()> {
     }
 }
 
+#[cfg(not(test))]
+mod vault {
+    use crate::credential;
+
+    const SERVICE: &str = "pipedash";
+
+    pub fn set(user: &str, value: &str) -> Result<(), String> {
+        credential::device_only_entry(SERVICE, user)
+            .and_then(|entry| entry.set_password(value))
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn get(user: &str) -> Result<Option<String>, String> {
+        let entry = credential::device_only_entry(SERVICE, user).map_err(|e| e.to_string())?;
+        match entry.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(credential::Error::NoEntry) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    pub fn delete(user: &str) -> Result<(), String> {
+        let entry = credential::device_only_entry(SERVICE, user).map_err(|e| e.to_string())?;
+        match entry.delete_credential() {
+            Ok(()) | Err(credential::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod vault {
+    use std::collections::HashMap;
+    use std::sync::{
+        Mutex,
+        PoisonError,
+    };
+
+    static SECRETS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+
+    fn with<T>(change: impl FnOnce(&mut HashMap<String, String>) -> T) -> T {
+        let mut guard = SECRETS.lock().unwrap_or_else(PoisonError::into_inner);
+        change(guard.get_or_insert_with(HashMap::new))
+    }
+
+    pub fn set(user: &str, value: &str) -> Result<(), String> {
+        with(|secrets| secrets.insert(user.to_owned(), value.to_owned()));
+        Ok(())
+    }
+
+    pub fn get(user: &str) -> Result<Option<String>, String> {
+        Ok(with(|secrets| secrets.get(user).cloned()))
+    }
+
+    pub fn delete(user: &str) -> Result<(), String> {
+        with(|secrets| secrets.remove(user));
+        Ok(())
+    }
+}
+
 pub fn set_secret(kind: Secret, id: &str, value: &str) -> Result<()> {
-    credential::device_only_entry(KEYCHAIN_SERVICE, &kind.user(id))
-        .and_then(|entry| entry.set_password(value))
-        .map_err(keychain)
+    vault::set(&kind.user(id), value).map_err(keychain)
 }
 
 pub fn get_secret(kind: Secret, id: &str) -> Result<Option<String>> {
-    let entry =
-        credential::device_only_entry(KEYCHAIN_SERVICE, &kind.user(id)).map_err(keychain)?;
-    match entry.get_password() {
-        Ok(value) => Ok(Some(value)),
-        Err(credential::Error::NoEntry) => Ok(None),
-        Err(e) => Err(keychain(e)),
-    }
+    vault::get(&kind.user(id)).map_err(keychain)
 }
 
 pub fn forget(id: &str) {
     for kind in [Secret::ApiToken, Secret::RelaySubscription] {
-        let result = credential::device_only_entry(KEYCHAIN_SERVICE, &kind.user(id))
-            .and_then(|entry| entry.delete_credential());
-        match result {
-            Ok(()) | Err(credential::Error::NoEntry) => {}
-            Err(error) => tracing::warn!(%error, "push keychain cleanup failed"),
+        if let Err(error) = vault::delete(&kind.user(id)) {
+            tracing::warn!(%error, "push keychain cleanup failed");
         }
     }
 }
