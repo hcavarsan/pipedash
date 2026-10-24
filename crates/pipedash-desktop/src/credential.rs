@@ -11,8 +11,6 @@ pub use keyring_core::{
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-// keyring's bundled store does not support iOS, so the protected-data keychain
-// is installed by hand.
 #[cfg(target_os = "ios")]
 pub fn init() -> Result<()> {
     keyring_core::set_default_store(apple_native_keyring_store::protected::Store::new()?);

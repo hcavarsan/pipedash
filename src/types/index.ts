@@ -593,6 +593,7 @@ export interface VaultStatusResponse {
 export interface UnlockVaultResponse {
   success: boolean
   message: string
+  reason?: 'cancelled'
 }
 
 export interface ExportFileResult {

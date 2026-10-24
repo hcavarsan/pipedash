@@ -8,15 +8,11 @@ use std::time::{
     Instant,
 };
 
-const PRUNE_AT: usize = 10_000;
-
 struct Window {
     started: Instant,
     count: u32,
 }
 
-// shortcut: fixed windows allow up to twice the limit across a window edge,
-// move to a sliding window if that ever matters
 pub struct RateLimiter {
     limit: u32,
     window: Duration,
@@ -35,33 +31,46 @@ impl RateLimiter {
     pub fn allow(&self, key: &str, now: Instant) -> bool {
         let mut windows = self.windows.lock().unwrap_or_else(PoisonError::into_inner);
 
-        if let Some(window) = windows.get_mut(key) {
-            if now.duration_since(window.started) >= self.window {
+        match windows.get_mut(key) {
+            Some(window) if now.duration_since(window.started) < self.window => {
+                if window.count >= self.limit {
+                    return false;
+                }
+                window.count += 1;
+            }
+            Some(window) => {
                 *window = Window {
                     started: now,
                     count: 1,
                 };
-                return true;
             }
-            if window.count >= self.limit {
-                return false;
+            None => {
+                windows.insert(
+                    key.to_owned(),
+                    Window {
+                        started: now,
+                        count: 1,
+                    },
+                );
             }
-            window.count += 1;
-            return true;
         }
-
-        if windows.len() >= PRUNE_AT {
-            windows.retain(|_, window| now.duration_since(window.started) < self.window);
-        }
-        windows.insert(
-            key.to_owned(),
-            Window {
-                started: now,
-                count: 1,
-            },
-        );
 
         true
+    }
+
+    pub fn prune(&self, now: Instant) {
+        self.windows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|_, window| now.duration_since(window.started) < self.window);
+    }
+
+    #[cfg(test)]
+    fn tracked(&self) -> usize {
+        self.windows
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len()
     }
 }
 
@@ -102,16 +111,22 @@ mod tests {
     }
 
     #[test]
-    fn expired_windows_are_dropped_once_the_map_is_full() {
+    fn pruning_forgets_only_the_keys_whose_window_has_ended() {
         let limiter = RateLimiter::new(1, Duration::from_secs(60));
         let start = Instant::now();
+        assert!(limiter.allow("old", start));
+        assert!(limiter.allow("recent", start + Duration::from_secs(50)));
+        assert_eq!(limiter.tracked(), 2);
 
-        for i in 0..PRUNE_AT {
-            assert!(limiter.allow(&i.to_string(), start));
-        }
-        assert!(limiter.allow("fresh", start + Duration::from_secs(120)));
+        limiter.prune(start + Duration::from_secs(59));
+        assert_eq!(limiter.tracked(), 2);
 
-        let windows = limiter.windows.lock().unwrap();
-        assert_eq!(windows.len(), 1);
+        limiter.prune(start + Duration::from_secs(60));
+        assert_eq!(limiter.tracked(), 1);
+        assert!(!limiter.allow("recent", start + Duration::from_secs(61)));
+        assert!(limiter.allow("old", start + Duration::from_secs(61)));
+
+        limiter.prune(start + Duration::from_secs(200));
+        assert_eq!(limiter.tracked(), 0);
     }
 }

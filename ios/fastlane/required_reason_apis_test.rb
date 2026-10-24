@@ -17,6 +17,11 @@ class RequiredReasonApisTest < Minitest::Test
     assert_empty found
   end
 
+  def test_keeps_objective_c_class_symbols
+    found = RequiredReasonApis.detect(undefined_symbols: ["_OBJC_CLASS_$_NSUserDefaults"], selectors: [])
+    assert_equal ["_OBJC_CLASS_$_NSUserDefaults"], found["NSPrivacyAccessedAPICategoryUserDefaults"]
+  end
+
   def test_detects_objc_selectors
     found = RequiredReasonApis.detect(undefined_symbols: [], selectors: ["activeInputModes", "init"])
     assert_equal ["activeInputModes"], found["NSPrivacyAccessedAPICategoryActiveKeyboards"]

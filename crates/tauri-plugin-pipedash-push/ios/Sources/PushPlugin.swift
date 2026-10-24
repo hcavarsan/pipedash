@@ -10,11 +10,8 @@ private typealias DelegateIMP = @convention(c) (AnyObject, Selector, UIApplicati
 final class PushRegistry {
   static let shared = PushRegistry()
 
-  // Main queue only.
   private var pending: [Invoke] = []
   private var installed = false
-  // UIApplication.delegate is not retaining; when UIKit created the delegate, setting it to nil
-  // releases UIKit's reference, so this keeps it alive across the reassignment below.
   private var appDelegate: UIApplicationDelegate?
 
   private init() {}
@@ -41,7 +38,6 @@ final class PushRegistry {
       }
     }
 
-    // UIKit caches respondsToSelector for the delegate; re-assigning it flushes that cache.
     UIApplication.shared.delegate = nil
     UIApplication.shared.delegate = delegate
   }

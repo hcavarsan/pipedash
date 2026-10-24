@@ -8,7 +8,6 @@ import { mobileService } from '../services/mobile'
 import { useAuthStore } from '../stores/authStore'
 import type { AppLockStatus, UnlockVaultResponse, VaultStatusResponse } from '../types'
 import { getHttpStatus } from '../types/errors'
-import { isBiometricCancel } from '../utils/appLock'
 import { displayErrorNotification } from '../utils/errorDisplay'
 
 export function useVaultPasswordStatus(options?: { enabled?: boolean }) {
@@ -106,7 +105,7 @@ export function useSetAppLock() {
     mutationFn: ({ enabled, lockOnBackground }) => mobileService.setAppLock(enabled, lockOnBackground),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.vault.status() }),
     onError: (error) => {
-      if (!isBiometricCancel(error.message)) {
+      if (error.message !== 'cancelled') {
         displayErrorNotification(error, "Couldn't update app lock")
       }
     },

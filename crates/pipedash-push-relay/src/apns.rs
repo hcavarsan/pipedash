@@ -31,8 +31,6 @@ use crate::store::{
 pub const PRODUCTION_URL: &str = "https://api.push.apple.com";
 pub const SANDBOX_URL: &str = "https://api.sandbox.push.apple.com";
 
-// Apple rejects provider tokens older than an hour and throttles refreshes more
-// often than every twenty minutes.
 const TOKEN_MAX_AGE_SECS: u64 = 50 * 60;
 const _: () = assert!(TOKEN_MAX_AGE_SECS < 60 * 60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);

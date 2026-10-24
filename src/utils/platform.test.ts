@@ -7,7 +7,6 @@ Object.assign(globalThis, {
   window: { location: { protocol: 'http:', host: 'localhost' } },
 })
 
-// Dynamic import: the browser globals above must exist before the module graph loads.
 const { isDesktopTauri, isMobileOs, isMobilePlatform, normalizePlatform } = await import('./platform')
 
 test('maps Tauri OS names to the platforms the UI knows', () => {

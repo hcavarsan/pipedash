@@ -92,6 +92,11 @@ impl AppState {
             trusted_proxy,
         }
     }
+
+    pub fn prune_limiters(&self, now: Instant) {
+        self.limiter.prune(now);
+        self.registrations.prune(now);
+    }
 }
 
 pub fn router(state: AppState) -> Router {
@@ -168,7 +173,6 @@ struct NotifyRequest {
     thread_id: Option<String>,
 }
 
-// The token goes into the APNs URL path, so anything but hex is refused.
 fn normalize_token(token: &str) -> Result<String, ApiError> {
     let valid = (MIN_TOKEN_HEX_LEN..=MAX_TOKEN_HEX_LEN).contains(&token.len())
         && token.len() % 2 == 0
@@ -190,9 +194,6 @@ fn new_subscription_id() -> Result<String, ApiError> {
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-// Behind a trusted reverse proxy the client is the last X-Forwarded-For entry,
-// the one the proxy appended. IPv6 clients are grouped by /64 because a single
-// host owns a whole prefix.
 fn client_key(peer: IpAddr, headers: &HeaderMap, trusted_proxy: bool) -> String {
     let forwarded = trusted_proxy
         .then(|| {
@@ -322,7 +323,10 @@ async fn notify(
             Ok(StatusCode::ACCEPTED)
         }
         Outcome::Unregistered => {
-            state.store.delete(&key).await?;
+            state
+                .store
+                .delete_if_token(&key, &subscription.device_token)
+                .await?;
             Err(ApiError::Gone)
         }
         Outcome::Failed => Err(ApiError::BadGateway),
@@ -567,6 +571,49 @@ mod tests {
         assert_eq!(
             h.production.take_requests()[0].path,
             format!("/3/device/{}", token("ab"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_token_rotated_during_an_apns_rejection_keeps_the_subscription() {
+        let h = harness().await;
+        let id = subscribe(&h, "production", &token("ab")).await;
+        h.production
+            .reply_with(410, &json!({ "reason": "Unregistered" }).to_string());
+        let (arrived, release) = h.production.hold_replies();
+        let pending = tokio::spawn({
+            let app = h.app.clone();
+            let id = id.clone();
+            async move {
+                call(
+                    &app,
+                    Method::POST,
+                    "/v1/notifications",
+                    Some(json!({ "subscription_id": id, "title": "t", "body": "b" })),
+                )
+                .await
+            }
+        });
+        arrived.notified().await;
+
+        let (status, _) = call(
+            &h.app,
+            Method::PUT,
+            &format!("/v1/subscriptions/{id}"),
+            Some(json!({ "device_token": token("ef") })),
+        )
+        .await;
+        release.notify_one();
+
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(pending.await.unwrap().0, StatusCode::GONE);
+        assert_eq!(
+            h.store
+                .get(&subscription_key(&id))
+                .await
+                .unwrap()
+                .map(|subscription| subscription.device_token),
+            Some(token("ef"))
         );
     }
 

@@ -44,7 +44,6 @@ pub struct Subscription {
     pub bundle_id: String,
 }
 
-// The subscription id is a bearer secret, so only its hash is stored.
 pub fn subscription_key(subscription_id: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(subscription_id.as_bytes());
@@ -78,8 +77,6 @@ impl Store {
         Ok(Self { pool })
     }
 
-    // Keeps the newest `max_per_token` subscriptions of a device token, so
-    // repeated registrations of one token cannot pile up rows.
     pub async fn insert(
         &self, key: &str, subscription: &Subscription, now: u64, max_per_token: u32,
     ) -> sqlx::Result<()> {
@@ -171,6 +168,17 @@ impl Store {
         Ok(result.rows_affected())
     }
 
+    pub async fn delete_if_token(&self, key: &str, device_token: &str) -> sqlx::Result<bool> {
+        let result =
+            sqlx::query("DELETE FROM subscriptions WHERE id_hash = ?1 AND device_token = ?2")
+                .bind(key)
+                .bind(device_token)
+                .execute(&self.pool)
+                .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn delete(&self, key: &str) -> sqlx::Result<bool> {
         let result = sqlx::query("DELETE FROM subscriptions WHERE id_hash = ?1")
             .bind(key)
@@ -212,6 +220,23 @@ mod tests {
 
         assert!(store.delete(&key).await.unwrap());
         assert!(!store.delete(&key).await.unwrap());
+        assert_eq!(store.get(&key).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn delete_if_token_leaves_a_subscription_whose_token_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("relay.db")).await.unwrap();
+        let key = subscription_key("secret-id");
+        store
+            .insert(&key, &subscription("aa"), 1, 10)
+            .await
+            .unwrap();
+        store.update_token(&key, "bb", 2).await.unwrap();
+
+        assert!(!store.delete_if_token(&key, "aa").await.unwrap());
+        assert_eq!(store.get(&key).await.unwrap(), Some(subscription("bb")));
+        assert!(store.delete_if_token(&key, "bb").await.unwrap());
         assert_eq!(store.get(&key).await.unwrap(), None);
     }
 

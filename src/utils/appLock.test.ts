@@ -3,14 +3,7 @@ import { test } from 'node:test'
 
 import type { AppLockStatus } from '../types'
 
-import {
-  biometryLabel,
-  isBiometricCancel,
-  lockMeansSomething,
-  needsUnlock,
-  nextCoverLatch,
-  shouldShowPrivacyCover,
-} from './appLock'
+import { biometryLabel, lockMeansSomething, needsUnlock, nextCoverLatch, shouldShowPrivacyCover } from './appLock'
 
 const appLock = (overrides: Partial<AppLockStatus> = {}): AppLockStatus => ({
   supported: true,
@@ -67,12 +60,9 @@ test('with lock on background the cover latches until the lock reaches the UI', 
   assert.equal(nextCoverLatch(true, undefined, 'visible'), false)
 })
 
-test('biometric labels and cancel detection', () => {
+test('biometric labels', () => {
   assert.equal(biometryLabel('faceId'), 'Face ID')
   assert.equal(biometryLabel('touchId'), 'Touch ID')
   assert.equal(biometryLabel('none'), 'device passcode')
   assert.equal(biometryLabel(undefined), 'device passcode')
-  assert.equal(isBiometricCancel('cancelled'), true)
-  assert.equal(isBiometricCancel('User canceled'), true)
-  assert.equal(isBiometricCancel('Face ID not enrolled'), false)
 })

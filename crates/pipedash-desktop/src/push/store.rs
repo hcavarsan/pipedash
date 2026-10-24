@@ -31,8 +31,6 @@ static LOCK: Mutex<()> = Mutex::new(());
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PushFile {
     #[serde(default)]
-    pub device_token: Option<String>,
-    #[serde(default)]
     pub servers: Vec<ServerRecord>,
 }
 
@@ -150,7 +148,6 @@ mod tests {
     #[test]
     fn round_trip_holds_no_secret_fields() {
         let file = PushFile {
-            device_token: Some("abcd".to_owned()),
             servers: vec![ServerRecord {
                 id: "id1".to_owned(),
                 url: "https://ci.example.com".to_owned(),
@@ -161,7 +158,7 @@ mod tests {
         let json = serde_json::to_string(&file).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(keys(&value), BTreeSet::from(["device_token", "servers"]));
+        assert_eq!(keys(&value), BTreeSet::from(["servers"]));
         assert_eq!(
             keys(&value["servers"][0]),
             BTreeSet::from(["id", "url", "label", "paired_at"])

@@ -118,7 +118,7 @@ Stored by the relay, in the SQLite file, for each subscription:
 - the creation time,
 - the time of the last activity (creation, token rotation or a successful push).
 
-Kept only in memory: rate-limit counters, keyed by subscription hash for pushes and by client address for registrations (they are never written to disk and are forgotten after the limit window), and the current APNs token.
+Kept only in memory: rate-limit counters, keyed by subscription hash for pushes and by client address for registrations, and the current APNs token. Counters are never written to disk. A sweep every 5 minutes drops each one once its window has ended (1 minute for pushes, 1 hour for registrations).
 
 Never stored or logged: notification titles, bodies and thread ids, subscription ids, device tokens, pipeline names, and client IP addresses. The relay logs start-up, how many inactive subscriptions it removed, and the HTTP status APNs answered for a refused push, nothing else.
 

@@ -66,8 +66,6 @@ pub(crate) fn get_kubeconfig_path(config: &HashMap<String, String>) -> Option<St
         .map(|path| expand_path(path))
 }
 
-// "token" is the one config key the app stores in the encrypted vault instead
-// of the config table.
 pub(crate) const KUBECONFIG_CONTENT_KEY: &str = "token";
 
 #[derive(Clone, PartialEq, Eq)]

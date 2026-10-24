@@ -22,8 +22,6 @@ def release_version
   JSON.parse(File.read(File.join(TAURI_DIR, "tauri.conf.json"))).fetch("version")
 end
 
-# The App Store already shipped 1.0, so iOS versions are the release version with the major bumped:
-# release 0.4.0 ships as 1.4.0.
 def ios_version(version = release_version)
   core = version.split(/[-+]/, 2).first
   parts = core.split(".")
@@ -55,7 +53,6 @@ platform :ios do
     tauri("ios", "init", "--ci") unless File.directory?(File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"))
 
     Dir.mktmpdir("icons", TAURI_DIR) do |icons_out|
-      # `tauri icon` writes the iOS set into gen/apple when the output dir sits next to it.
       tauri("icon", APP_ICON, "--output", icons_out)
     end
 
@@ -162,7 +159,6 @@ platform :ios do
       team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM"),
       code_sign_identity: ENV.fetch("sigh_#{APP_ID}_appstore_certificate-name"),
     )
-    # tauri-cli only writes provisioningProfiles to ExportOptions when the profile comes from this env var
     ENV["IOS_MOBILE_PROVISION"] = [File.binread(ENV.fetch("sigh_#{APP_ID}_appstore_profile-path"))].pack("m0")
     build_number = latest_testflight_build_number(
       api_key: options.fetch(:api_key),

@@ -8,7 +8,10 @@ mod test_support;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{
+    Duration,
+    Instant,
+};
 
 use anyhow::Context;
 use tracing_subscriber::EnvFilter;
@@ -22,11 +25,9 @@ use crate::config::Config;
 use crate::routes::AppState;
 use crate::store::Store;
 
-// A subscription that has had no successful push and no token rotation for this
-// long is dropped. The app rotates its token on every launch, so only abandoned
-// pairings reach the limit.
 const INACTIVITY_LIMIT: Duration = Duration::from_secs(90 * 24 * 60 * 60);
 const EXPIRY_SWEEP: Duration = Duration::from_secs(60 * 60);
+const LIMITER_SWEEP: Duration = Duration::from_secs(5 * 60);
 
 async fn shutdown_signal() {
     let ctrl_c = async {
@@ -66,6 +67,16 @@ fn spawn_expiry(store: Store) {
     });
 }
 
+fn spawn_limiter_sweep(state: AppState) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(LIMITER_SWEEP);
+        loop {
+            tick.tick().await;
+            state.prune_limiters(Instant::now());
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -83,12 +94,14 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("Couldn't open the database")?;
     spawn_expiry(store.clone());
-    let app = routes::router(AppState::new(
+    let state = AppState::new(
         store,
         Arc::new(apns),
         config.allowed_bundle_ids,
         config.trusted_proxy,
-    ));
+    );
+    spawn_limiter_sweep(state.clone());
+    let app = routes::router(state);
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr)
         .await

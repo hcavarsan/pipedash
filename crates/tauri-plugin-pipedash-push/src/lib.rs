@@ -37,7 +37,6 @@ impl<R: Runtime, T: Manager<R>> PipedashPushExt<R> for T {
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     let builder = Builder::new("pipedash-push");
 
-    // On iOS the Swift plugin answers `register` directly.
     #[cfg(not(target_os = "ios"))]
     let builder = builder.invoke_handler(tauri::generate_handler![commands::register]);
 

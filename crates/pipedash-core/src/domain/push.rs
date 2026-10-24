@@ -18,8 +18,6 @@ pub struct PushSubscription {
 }
 
 impl PushSubscription {
-    // The relay subscription id is the capability to push to a device, so API
-    // clients only ever see this derived id.
     pub fn local_id(relay_subscription_id: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(relay_subscription_id.as_bytes());

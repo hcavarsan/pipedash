@@ -42,10 +42,8 @@ function tauriPlatform(): Platform {
   return cachedTauriPlatform
 }
 
-/** True in the Tauri iOS/Android app, whatever the window width. Use `useIsMobile` for narrow viewports. */
 export const isMobilePlatform = (): boolean => isTauri() && isMobileOs(tauriPlatform())
 
-/** True in the Tauri desktop app: the only place with window chrome and drag regions. */
 export const isDesktopTauri = (): boolean => isTauri() && !isMobilePlatform()
 
 function modernPlatformDetection(): Platform {

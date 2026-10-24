@@ -15,8 +15,6 @@ use crate::types::Kind;
 
 pub(crate) const PROVIDER_TYPE: &str = "fluxcd";
 pub(crate) const DEFAULT_FLUX_NAMESPACE: &str = "flux-system";
-// "token" is the one config key the app stores in the encrypted vault instead
-// of the config table.
 pub(crate) const KUBECONFIG_CONTENT_KEY: &str = "token";
 pub(crate) const CONTROLLERS: [&str; 3] = [
     "source-controller",

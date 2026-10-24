@@ -21,6 +21,7 @@ use ring::signature::{
     KeyPair,
     ECDSA_P256_SHA256_FIXED_SIGNING,
 };
+use tokio::sync::Notify;
 
 pub(crate) fn key_pem() -> (String, Vec<u8>) {
     let rng = SystemRandom::new();
@@ -50,10 +51,13 @@ pub(crate) struct Recorded {
     pub body: serde_json::Value,
 }
 
+type Gate = (Arc<Notify>, Arc<Notify>);
+
 #[derive(Clone)]
 struct Shared {
     requests: Arc<Mutex<Vec<Recorded>>>,
     reply: Arc<Mutex<(u16, String)>>,
+    gate: Arc<Mutex<Option<Gate>>>,
 }
 
 pub(crate) struct StubApns {
@@ -80,6 +84,11 @@ async fn record(State(shared): State<Shared>, request: Request) -> (StatusCode, 
         push_type: header("apns-push-type"),
         body: serde_json::from_slice(&body).unwrap(),
     });
+    let gate = shared.gate.lock().unwrap().clone();
+    if let Some((arrived, release)) = gate {
+        arrived.notify_one();
+        release.notified().await;
+    }
     let (status, body) = shared.reply.lock().unwrap().clone();
 
     (StatusCode::from_u16(status).unwrap(), body)
@@ -90,6 +99,7 @@ impl StubApns {
         let shared = Shared {
             requests: Arc::new(Mutex::new(Vec::new())),
             reply: Arc::new(Mutex::new((200, String::new()))),
+            gate: Arc::default(),
         };
         let app = Router::new()
             .route("/3/device/{token}", post(record))
@@ -103,6 +113,13 @@ impl StubApns {
 
     pub(crate) fn reply_with(&self, status: u16, body: &str) {
         *self.shared.reply.lock().unwrap() = (status, body.to_string());
+    }
+
+    pub(crate) fn hold_replies(&self) -> (Arc<Notify>, Arc<Notify>) {
+        let gate = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        *self.shared.gate.lock().unwrap() = Some(gate.clone());
+
+        gate
     }
 
     pub(crate) fn take_requests(&self) -> Vec<Recorded> {

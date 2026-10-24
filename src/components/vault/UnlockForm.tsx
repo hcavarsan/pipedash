@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useUnlockVault, useUnlockWithBiometrics, useVaultStatus } from '../../queries/useVaultQueries'
 import { formatErrorMessage } from '../../types/errors'
-import { biometryLabel, isBiometricCancel } from '../../utils/appLock'
+import { biometryLabel } from '../../utils/appLock'
 
 interface UnlockFormProps {
   onSuccess: () => void
@@ -42,15 +42,11 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
 
       if (result.success) {
         onSuccess()
-      } else if (!isBiometricCancel(result.message)) {
+      } else if (result.reason !== 'cancelled') {
         setError(result.message || 'Failed to unlock')
       }
     } catch (err) {
-      const message = formatErrorMessage(err)
-
-      if (!isBiometricCancel(message)) {
-        setError(message)
-      }
+      setError(formatErrorMessage(err))
     }
   }, [unlockWithBiometrics, onSuccess])
 

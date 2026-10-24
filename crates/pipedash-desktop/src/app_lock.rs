@@ -395,10 +395,7 @@ pub fn reset(lock: &AppLockState) {
 }
 
 fn failure(message: &str) -> UnlockVaultResponse {
-    UnlockVaultResponse {
-        success: false,
-        message: message.to_string(),
-    }
+    UnlockVaultResponse::failed(message)
 }
 
 fn error(message: &str) -> ErrorResponse {
@@ -416,10 +413,7 @@ pub async fn unlock_with_biometrics(
         return Ok(failure("App lock is not enabled"));
     }
     if !lock.locked() {
-        return Ok(UnlockVaultResponse {
-            success: true,
-            message: "Already unlocked".to_string(),
-        });
+        return Ok(UnlockVaultResponse::ok("Already unlocked"));
     }
 
     let outcome = {
@@ -428,7 +422,7 @@ pub async fn unlock_with_biometrics(
     };
     match outcome {
         AuthOutcome::Authenticated => {}
-        AuthOutcome::Cancelled => return Ok(failure("cancelled")),
+        AuthOutcome::Cancelled => return Ok(UnlockVaultResponse::cancelled()),
         AuthOutcome::Failed(message) => return Ok(failure(&message)),
     }
 
@@ -634,6 +628,18 @@ mod tests {
         assert_eq!(
             serde_json::to_value(Biometry::TouchId).unwrap(),
             serde_json::json!("touchId")
+        );
+    }
+
+    #[test]
+    fn only_a_cancelled_unlock_carries_a_reason() {
+        assert_eq!(
+            serde_json::to_value(UnlockVaultResponse::cancelled()).unwrap(),
+            serde_json::json!({ "success": false, "message": "cancelled", "reason": "cancelled" })
+        );
+        assert_eq!(
+            serde_json::to_value(UnlockVaultResponse::failed("nope")).unwrap(),
+            serde_json::json!({ "success": false, "message": "nope" })
         );
     }
 

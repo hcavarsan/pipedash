@@ -16,9 +16,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 axum.workspace = true
 base64.workspace = true
-# APNs only speaks HTTP/2; no other crate in the workspace needs it
 reqwest = { workspace = true, features = ["http2"] }
-# Already in the tree through rustls; signs the ES256 provider token
 ring.workspace = true
 rustls.workspace = true
 serde.workspace = true
@@ -31,7 +29,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
-# The stub APNs server must accept HTTP/2 without TLS
 axum = { workspace = true, features = ["http2"] }
 tempfile.workspace = true
 tower.workspace = true

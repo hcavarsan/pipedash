@@ -35,6 +35,7 @@ use crate::AppDataDir;
 
 const LABEL_MAX_CHARS: usize = 64;
 const RELAY_MISSING_CODE: &str = "PUSH_RELAY_NOT_CONFIGURED";
+static STATE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 type Result<T, E = PushError> = std::result::Result<T, E>;
 
@@ -326,14 +327,10 @@ async fn revoke_relay(base: &str, subscription_id: &str) {
 
 fn persist(
     dir: &Path, record: &ServerRecord, subscription_id: &str, api_token: &str,
-    device_token: Option<&str>,
 ) -> Result<()> {
     store::set_secret(Secret::ApiToken, &record.id, api_token)?;
     store::set_secret(Secret::RelaySubscription, &record.id, subscription_id)?;
     store::update(dir, |file| {
-        if let Some(device_token) = device_token {
-            file.device_token = Some(device_token.to_owned());
-        }
         file.servers.retain(|server| server.url != record.url);
         file.servers.push(record.clone());
     })
@@ -345,7 +342,6 @@ struct Pairing<'a> {
     api_token: &'a str,
     label: &'a str,
     device_token: &'a str,
-    record_device_token: bool,
 }
 
 async fn establish(
@@ -372,14 +368,7 @@ async fn establish(
         label: pairing.label.to_owned(),
         paired_at: stale.map_or_else(Utc::now, |stale| stale.paired_at),
     };
-    let device_token = pairing.record_device_token.then_some(pairing.device_token);
-    if let Err(error) = persist(
-        dir,
-        &record,
-        &subscription_id,
-        pairing.api_token,
-        device_token,
-    ) {
+    if let Err(error) = persist(dir, &record, &subscription_id, pairing.api_token) {
         if let Err(cleanup) =
             server::delete(pairing.url, pairing.host, pairing.api_token, &record.id).await
         {
@@ -403,6 +392,7 @@ async fn establish(
 async fn pair(
     app: &AppHandle, dir: &Path, server_url: &str, api_token: &str, label: Option<&str>,
 ) -> Result<()> {
+    let _state = STATE_LOCK.lock().await;
     let target = normalize_server_url(server_url)?;
     let api_token = api_token.trim();
     if api_token.is_empty() {
@@ -443,12 +433,12 @@ async fn pair(
         api_token,
         label: &label,
         device_token: &device_token,
-        record_device_token: true,
     };
     establish(dir, relay_url, &pairing, existing.as_ref()).await
 }
 
 async fn unpair(dir: &Path, id: &str) -> Result<()> {
+    let _state = STATE_LOCK.lock().await;
     let record = store::read(dir)?
         .servers
         .into_iter()
@@ -466,12 +456,7 @@ async fn unpair(dir: &Path, id: &str) -> Result<()> {
         }
     }
 
-    store::update(dir, |file| {
-        file.servers.retain(|server| server.id != id);
-        if file.servers.is_empty() {
-            file.device_token = None;
-        }
-    })?;
+    store::update(dir, |file| file.servers.retain(|server| server.id != id))?;
     store::forget(id);
     Ok(())
 }
@@ -543,13 +528,13 @@ async fn rotate_or_replace(
         api_token: &api_token,
         label: &server.label,
         device_token,
-        record_device_token: false,
     };
     establish(dir, relay_url, &pairing, Some(server)).await
 }
 
 #[cfg(target_os = "ios")]
 async fn sync_token(app: &AppHandle, dir: &Path) -> Result<()> {
+    let _state = STATE_LOCK.lock().await;
     let file = store::read(dir)?;
     let Some(relay_url) = relay::base_url() else {
         return Ok(());
@@ -558,25 +543,17 @@ async fn sync_token(app: &AppHandle, dir: &Path) -> Result<()> {
         return Ok(());
     }
     let device_token = acquire_device_token(app).await?;
-    // The relay expires subscriptions that see no activity, so a launch always
-    // refreshes them.
 
-    let mut all_rotated = true;
     for server in &file.servers {
         if let Err(error) = rotate_or_replace(dir, relay_url, server, &device_token).await {
-            all_rotated = false;
             tracing::warn!(host = %host_of(&server.url), %error, "push token sync failed");
         }
-    }
-    // Keeping the old token on failure makes the next launch retry the servers
-    // that failed.
-    if all_rotated {
-        store::update(dir, |file| file.device_token = Some(device_token))?;
     }
     Ok(())
 }
 
 pub async fn reset(dir: &Path) {
+    let _state = STATE_LOCK.lock().await;
     let servers = store::read(dir)
         .map(|file| file.servers)
         .unwrap_or_default();

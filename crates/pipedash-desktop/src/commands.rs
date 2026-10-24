@@ -1316,6 +1316,34 @@ pub struct VaultStatusResponse {
 pub struct UnlockVaultResponse {
     pub success: bool,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl UnlockVaultResponse {
+    pub fn ok(message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            message: message.into(),
+            reason: None,
+        }
+    }
+
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            message: message.into(),
+            reason: None,
+        }
+    }
+
+    pub fn cancelled() -> Self {
+        Self {
+            success: false,
+            message: "cancelled".to_string(),
+            reason: Some("cancelled".to_string()),
+        }
+    }
 }
 
 pub(crate) async fn vault_requires_password(config: &PipedashConfig) -> bool {
@@ -1389,10 +1417,7 @@ pub async fn unlock_vault(
 }
 
 fn unlock_failure(message: String) -> UnlockVaultResponse {
-    UnlockVaultResponse {
-        success: false,
-        message,
-    }
+    UnlockVaultResponse::failed(message)
 }
 
 pub(crate) async fn unlock_session(
@@ -1418,10 +1443,7 @@ pub(crate) async fn unlock_session(
             tracing::info!(
                 "Vault unlocked successfully - CoreContext recreated with encrypted token store"
             );
-            Ok(UnlockVaultResponse {
-                success: true,
-                message: "Vault unlocked successfully".to_string(),
-            })
+            Ok(UnlockVaultResponse::ok("Vault unlocked successfully"))
         }
         Err(e) => {
             tracing::warn!("Vault unlock failed: {}", e);
@@ -1452,17 +1474,11 @@ async fn unlock_keyring_session(
             std::env::set_var("PIPEDASH_VAULT_PASSWORD", password);
             tracing::info!("Vault password set for future migration (no encrypted tokens yet)");
         }
-        return Ok(UnlockVaultResponse {
-            success: true,
-            message: "Vault password set for migration".to_string(),
-        });
+        return Ok(UnlockVaultResponse::ok("Vault password set for migration"));
     }
 
     match boot_core(app, BootKind::Resume, authenticated).await {
-        Ok(_) => Ok(UnlockVaultResponse {
-            success: true,
-            message: "Vault unlocked successfully".to_string(),
-        }),
+        Ok(_) => Ok(UnlockVaultResponse::ok("Vault unlocked successfully")),
         Err(e) => Ok(unlock_failure(e.to_string())),
     }
 }
@@ -1471,10 +1487,7 @@ async fn unlock_keyring_session(
 pub async fn lock_vault(app: tauri::AppHandle) -> Result<UnlockVaultResponse, ErrorResponse> {
     app_lock::lock_session(&app).await;
 
-    Ok(UnlockVaultResponse {
-        success: true,
-        message: "Vault locked".to_string(),
-    })
+    Ok(UnlockVaultResponse::ok("Vault locked"))
 }
 
 #[tauri::command]
