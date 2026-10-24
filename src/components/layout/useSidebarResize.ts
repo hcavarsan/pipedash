@@ -15,7 +15,7 @@ import {
 const SNAP_TRANSITION_MS = 200
 const KEYBOARD_STEP = 16
 
-export const useSidebarResize = () => {
+export const useSidebarResize = (resizable: boolean) => {
   const [compact, setCompact] = useLocalStorage({ key: 'pipedash-sidebar-compact', defaultValue: false })
   const [width, setWidth] = useLocalStorage({ key: 'pipedash-sidebar-width', defaultValue: SIDEBAR_DEFAULT_WIDTH })
   const [draft, setDraft] = useState<SidebarSize | null>(null)
@@ -25,6 +25,10 @@ export const useSidebarResize = () => {
   const snapTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => () => clearTimeout(snapTimer.current), [])
+
+  if (!resizable && draft) {
+    setDraft(null)
+  }
 
   const size = draft ?? { width, compact }
 

@@ -20,7 +20,8 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
   const { isMobile } = useIsMobile()
   const [mobileOpened, { toggle: toggleMobile, close: closeMobile }] = useDisclosure(false)
   const [locationKey, setLocationKey] = useState(location.key)
-  const sidebar = useSidebarResize()
+  const resizable = !isMobile && !isSettingsPage
+  const sidebar = useSidebarResize(resizable)
   const compact = !isMobile && sidebar.compact
   const opened = isMobile ? mobileOpened : !sidebar.compact
   const toggle = isMobile ? toggleMobile : sidebar.toggle
@@ -57,7 +58,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
 
       <AppShell.Navbar>
         <Navbar compact={compact} />
-        {!isMobile && !isSettingsPage && <Box className="sidebar-resize-handle" {...sidebar.handleProps} />}
+        {resizable && <Box className="sidebar-resize-handle" {...sidebar.handleProps} />}
       </AppShell.Navbar>
 
       <AppShell.Main>{children}</AppShell.Main>
