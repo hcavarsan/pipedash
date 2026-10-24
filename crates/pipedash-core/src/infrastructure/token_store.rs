@@ -155,11 +155,15 @@ impl TokenStore for EnvTokenStore {
         }
 
         let var_name = self.env_var_name(provider_id);
-        std::env::var(&var_name).map_err(|_| {
-            DomainError::NotFound(format!(
+        std::env::var(&var_name).map_err(|e| match e {
+            std::env::VarError::NotPresent => DomainError::NotFound(format!(
                 "Token not found for provider {} (env var: {})",
                 provider_id, var_name
-            ))
+            )),
+            std::env::VarError::NotUnicode(_) => DomainError::DatabaseError(format!(
+                "Token for provider {} is not valid UTF-8 (env var: {})",
+                provider_id, var_name
+            )),
         })
     }
 
