@@ -1,3 +1,4 @@
+mod config_watcher;
 pub mod fetch_scheduler;
 pub mod services;
 #[cfg(test)]
@@ -5,6 +6,7 @@ pub(crate) mod test_support;
 
 use std::sync::Arc;
 
+pub use config_watcher::ConfigWatcher;
 pub use fetch_scheduler::{
     AttemptHandle,
     BackoffPolicy,

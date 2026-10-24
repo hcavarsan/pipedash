@@ -1615,7 +1615,8 @@ pub async fn get_config_content(
 
 #[tauri::command]
 pub async fn save_config_content(
-    app_data_dir: State<'_, AppDataDir>, content: String,
+    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
+    content: String,
 ) -> Result<(), ErrorResponse> {
     let config: PipedashConfig = toml::from_str(&content).map_err(|e| ErrorResponse {
         error: format!("Invalid TOML syntax: {}", e),
@@ -1642,6 +1643,15 @@ pub async fn save_config_content(
     })?;
 
     tracing::info!("Config file saved: {:?}", config_path);
+
+    let core = maybe_core.0.read().await.clone();
+    if let Some(core) = core {
+        core.apply_config_file().await.map_err(|e| ErrorResponse {
+            error: format!("config.toml was saved, but its providers couldn't be applied: {e}"),
+            details: None,
+        })?;
+    }
+
     Ok(())
 }
 

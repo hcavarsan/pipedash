@@ -174,7 +174,7 @@ async fn get_config_content(
 }
 
 async fn save_config_content(
-    State(_state): State<AppState>, Json(req): Json<SaveConfigContentRequest>,
+    State(state): State<AppState>, Json(req): Json<SaveConfigContentRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
     use pipedash_core::infrastructure::config::ConfigLoader;
 
@@ -194,6 +194,15 @@ async fn save_config_content(
     })?;
 
     tracing::info!("Config file saved: {:?}", config_path);
+
+    let inner = state.inner.read().await;
+    if let Some(core) = &inner.core {
+        core.apply_config_file().await.map_err(|e| {
+            AppError::internal(format!(
+                "config.toml was saved, but its providers couldn't be applied: {e}"
+            ))
+        })?;
+    }
 
     Ok(Json(serde_json::json!({"success": true})))
 }
