@@ -55,9 +55,15 @@ use crate::event::{
     CoreEvent,
     EventBus,
 };
-use crate::infrastructure::config::sync::ProviderSyncService;
+use crate::infrastructure::config::sync::{
+    ProviderSyncService,
+    SyncResult,
+};
 use crate::infrastructure::config::token_ref::TokenReference;
-use crate::infrastructure::config::ConfigLoader;
+use crate::infrastructure::config::{
+    ConfigLoader,
+    ConfigState,
+};
 use crate::infrastructure::database::{
     Repository,
     FETCH_STATUS_ERROR,
@@ -617,6 +623,66 @@ impl ProviderService {
         }
 
         failure.map_or(Ok(result), Err)
+    }
+
+    pub async fn apply_config_file(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
+        let result = config_state
+            .reload_providers(self.repository.config_backend().as_ref())
+            .await?;
+        if result.added.is_empty() && result.updated.is_empty() {
+            return Ok(result);
+        }
+
+        let ids: Vec<i64> = self
+            .repository
+            .config_backend()
+            .list_providers()
+            .await?
+            .into_iter()
+            .filter(|p| result.added.contains(&p.name) || result.updated.contains(&p.name))
+            .filter_map(|p| p.id)
+            .collect();
+        for id in ids {
+            self.reload_from_config(id).await;
+        }
+
+        tracing::info!(
+            added = result.added.len(),
+            updated = result.updated.len(),
+            "Applied provider changes from config file"
+        );
+        self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+
+        Ok(result)
+    }
+
+    async fn reload_from_config(&self, id: i64) {
+        let lock = self.commit_lock(id);
+        let guard = lock.lock().await;
+
+        let loaded = self
+            .repository
+            .get_provider(id)
+            .await
+            .and_then(|config| Ok(((self.provider_factory)(&config)?, config)));
+        let (provider, config) = match loaded {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                tracing::warn!(provider_id = id, error = %e, "Failed to load provider from config file");
+                return;
+            }
+        };
+
+        if let Err(e) = self.repository.reset_provider_fetch_status(id).await {
+            tracing::warn!(provider_id = id, error = %e, "Failed to reset fetch status");
+        }
+        let lease = self.replace(id, provider, config.refresh_interval).await;
+        self.health.send(HealthInput::ProvidersChanged {
+            changed: vec![self.health_input(&config, &lease)],
+        });
+        drop(guard);
+
+        self.queue_fetch(&lease);
     }
 
     pub async fn get_provider_config(&self, id: i64) -> DomainResult<ProviderConfig> {
@@ -2026,5 +2092,150 @@ type = "travis"
             Err(PluginError::Tls(_))
         ));
         assert!(matches!(rejected, DomainError::InvalidConfig(message) if message.contains("TLS")));
+    }
+
+    fn config_file(h: &Harness, providers: &[(&str, &str, i64)]) {
+        let mut content = String::new();
+        for (key, name, refresh_interval) in providers {
+            content.push_str(&format!(
+                "[providers.{key}]\nname = \"{name}\"\ntype = \"argocd\"\ntoken = \"token-{key}\"\nrefresh_interval = {refresh_interval}\n\n[providers.{key}.config]\nserver_url = \"{}\"\n\n",
+                h.argocd_url
+            ));
+        }
+        std::fs::write(h.config_state.config_path(), content).unwrap();
+    }
+
+    async fn provider_id(h: &Harness, key: &str) -> Option<i64> {
+        h.repository
+            .config_backend()
+            .list_providers()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|p| p.name == key)
+            .and_then(|p| p.id)
+    }
+
+    #[tokio::test]
+    async fn test_apply_config_file_adds_and_updates_changed_blocks_only() {
+        let h = Harness::new().await;
+        config_file(&h, &[("ci-a", "CI A", 30), ("ci-b", "CI B", 30)]);
+
+        let first = h
+            .provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+
+        assert_eq!(first.added, ["ci-a", "ci-b"]);
+        let a = provider_id(&h, "ci-a").await.unwrap();
+        let b = provider_id(&h, "ci-b").await.unwrap();
+        let loaded = h.provider_service.generation_of(a).await.unwrap();
+        assert!(h.provider_service.generation_of(b).await.is_some());
+        assert!(h
+            .bus
+            .events()
+            .iter()
+            .any(|e| matches!(e, CoreEvent::ProvidersChanged)));
+
+        h.provider_service
+            .update_provider_refresh_interval(b, 120)
+            .await
+            .unwrap();
+        config_file(
+            &h,
+            &[
+                ("ci-a", "CI Renamed", 30),
+                ("ci-b", "CI B", 30),
+                ("ci-c", "CI C", 60),
+            ],
+        );
+
+        let second = h
+            .provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+
+        assert_eq!(second.added, ["ci-c"]);
+        assert_eq!(second.updated, ["ci-a"]);
+        let c = provider_id(&h, "ci-c").await.unwrap();
+        assert_eq!(
+            h.repository.get_provider(c).await.unwrap().token,
+            "token-ci-c"
+        );
+        assert!(h.provider_service.generation_of(c).await.is_some());
+        assert_eq!(
+            h.repository.get_provider(a).await.unwrap().display_name(),
+            "CI Renamed"
+        );
+        assert_ne!(h.provider_service.generation_of(a).await, Some(loaded));
+        assert_eq!(
+            h.repository.get_provider(b).await.unwrap().refresh_interval,
+            120
+        );
+
+        let unchanged = h
+            .provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+        assert!(unchanged.added.is_empty() && unchanged.updated.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_apply_config_file_rejects_an_invalid_file_and_keeps_providers() {
+        let h = Harness::new().await;
+        config_file(&h, &[("ci-a", "CI A", 30)]);
+        h.provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+        std::fs::write(
+            h.config_state.config_path(),
+            "[providers.ci-a]\nname = \"CI Broken\"\ntype = \"\"\n",
+        )
+        .unwrap();
+
+        let result = h.provider_service.apply_config_file(&h.config_state).await;
+
+        assert!(matches!(result, Err(DomainError::InvalidConfig(_))));
+        let a = provider_id(&h, "ci-a").await.unwrap();
+        assert_eq!(
+            h.repository.get_provider(a).await.unwrap().display_name(),
+            "CI A"
+        );
+        assert_eq!(
+            h.config_state.get().await.providers["ci-a"].provider_type,
+            "argocd"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_config_watcher_applies_a_file_changed_on_disk() {
+        let h = Harness::new().await;
+        let watcher = crate::application::ConfigWatcher::new(
+            Arc::clone(&h.provider_service),
+            Arc::clone(&h.config_state),
+        )
+        .with_poll(Duration::from_millis(20));
+        watcher.start().await;
+
+        config_file(&h, &[("ci-a", "CI A", 30)]);
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let id = loop {
+            if let Some(id) = provider_id(&h, "ci-a").await {
+                break id;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the watcher never applied the file"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        watcher.stop().await;
+
+        assert!(h.provider_service.generation_of(id).await.is_some());
     }
 }

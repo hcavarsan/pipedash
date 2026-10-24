@@ -6,6 +6,7 @@ use std::sync::{
 
 use tokio::sync::{
     broadcast,
+    Mutex,
     RwLock,
 };
 
@@ -89,6 +90,8 @@ pub struct ConfigState {
     sync_service: ProviderSyncService,
 
     health: OnceLock<HealthHandle>,
+
+    reload_lock: Mutex<()>,
 }
 
 impl ConfigState {
@@ -127,6 +130,7 @@ impl ConfigState {
             platform,
             sync_service: ProviderSyncService::new(),
             health: OnceLock::new(),
+            reload_lock: Mutex::new(()),
         });
 
         Ok(state)
@@ -145,6 +149,7 @@ impl ConfigState {
             platform: Platform::detect(),
             sync_service: ProviderSyncService::new(),
             health: OnceLock::new(),
+            reload_lock: Mutex::new(()),
         })
     }
 
@@ -344,6 +349,45 @@ impl ConfigState {
                 delete_orphans,
             )
             .await
+    }
+
+    pub async fn reload_providers(
+        &self, config_backend: &dyn ConfigBackend,
+    ) -> DomainResult<SyncResult> {
+        let _reload = self.reload_lock.lock().await;
+        let file = ConfigLoader::load(&self.config_path)
+            .map_err(|e| DomainError::InvalidConfig(format!("Failed to reload config: {}", e)))?;
+
+        let validation = file.validate();
+        if !validation.errors.is_empty() {
+            return Err(DomainError::InvalidConfig(format!(
+                "Config validation failed: {:?}",
+                validation.errors
+            )));
+        }
+
+        let current = self.get().await;
+        if file.providers == current.providers {
+            return Ok(SyncResult::default());
+        }
+
+        let changed = file
+            .providers
+            .iter()
+            .filter(|(id, provider)| current.providers.get(*id) != Some(*provider))
+            .map(|(id, provider)| (id.clone(), provider.clone()))
+            .collect();
+        let result = self
+            .sync_service
+            .sync_toml_to_db(changed, config_backend, self.token_store.as_ref(), false)
+            .await?;
+
+        let mut config = self.config.write().await;
+        let mut next = (**config).clone();
+        next.providers = file.providers;
+        *config = Arc::new(next);
+
+        Ok(result)
     }
 
     async fn persist_config(&self, config: &PipedashConfig) -> DomainResult<()> {

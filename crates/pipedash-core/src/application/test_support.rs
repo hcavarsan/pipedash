@@ -434,10 +434,11 @@ impl Harness {
         let pool = init_database(temp_dir.path().join("harness.db"))
             .await
             .unwrap();
+        let token_store = Arc::new(MemoryTokenStore::new());
         let repository = Arc::new(Repository::new(
             Arc::new(SqliteConfigBackend::new(pool.clone())),
             DatabasePool::Sqlite(pool.clone()),
-            Arc::new(MemoryTokenStore::new()),
+            token_store.clone(),
         ));
         let metrics = metrics.then(|| {
             Arc::new(MetricsService::new(Arc::new(MetricsRepository::new(
@@ -454,7 +455,7 @@ impl Harness {
         let config_state = ConfigState::from_config(
             PipedashConfig::default(),
             temp_dir.path().join("config.toml"),
-            Arc::new(MemoryTokenStore::new()),
+            token_store,
         );
         config_state.attach_health(health.clone());
 

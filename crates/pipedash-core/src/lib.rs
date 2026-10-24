@@ -64,6 +64,8 @@ pub struct CoreContext {
     pub health_service: Arc<application::ProviderHealthService>,
 
     pub config_state: Arc<infrastructure::ConfigState>,
+
+    config_watcher: Arc<application::ConfigWatcher>,
 }
 
 impl CoreContext {
@@ -77,6 +79,10 @@ impl CoreContext {
             event_bus,
             token_store,
             http_client_manager,
+            config_watcher: Arc::new(application::ConfigWatcher::new(
+                Arc::clone(&services.provider_service),
+                Arc::clone(&config_state),
+            )),
             provider_service: services.provider_service,
             pipeline_service: services.pipeline_service,
             metrics_service,
@@ -221,6 +227,7 @@ impl CoreContext {
         let provider_service = Arc::clone(&self.provider_service);
         let refresh_manager = Arc::clone(&self.refresh_manager);
         let health_service = Arc::clone(&self.health_service);
+        let config_watcher = Arc::clone(&self.config_watcher);
         let health = self.health.clone();
 
         tokio::spawn(async move {
@@ -233,10 +240,18 @@ impl CoreContext {
                 changed: provider_service.health_inputs().await,
             });
             refresh_manager.start().await;
+            config_watcher.start().await;
         });
     }
 
+    pub async fn apply_config_file(&self) -> DomainResult<infrastructure::ConfigSyncResult> {
+        self.provider_service
+            .apply_config_file(&self.config_state)
+            .await
+    }
+
     pub async fn shutdown(&self) {
+        self.config_watcher.stop().await;
         self.refresh_manager.stop().await;
         self.health_service.stop().await;
     }
