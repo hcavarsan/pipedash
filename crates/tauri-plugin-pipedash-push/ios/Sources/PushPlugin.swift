@@ -13,12 +13,16 @@ final class PushRegistry {
   // Main queue only.
   private var pending: [Invoke] = []
   private var installed = false
+  // UIApplication.delegate is not retaining; when UIKit created the delegate, setting it to nil
+  // releases UIKit's reference, so this keeps it alive across the reassignment below.
+  private var appDelegate: UIApplicationDelegate?
 
   private init() {}
 
   func installDelegateHooks() {
     guard !installed, let delegate = UIApplication.shared.delegate else { return }
     installed = true
+    appDelegate = delegate
     let delegateClass: AnyClass = type(of: delegate)
 
     hook(
