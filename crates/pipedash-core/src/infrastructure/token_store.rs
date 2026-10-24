@@ -82,7 +82,7 @@ impl TokenStore for MemoryTokenStore {
             .read()
             .map_err(|e| DomainError::InternalError(format!("Lock poisoned: {}", e)))?;
         tokens.get(&provider_id).cloned().ok_or_else(|| {
-            DomainError::DatabaseError(format!("Token not found for provider {}", provider_id))
+            DomainError::NotFound(format!("Token not found for provider {}", provider_id))
         })
     }
 
@@ -155,11 +155,15 @@ impl TokenStore for EnvTokenStore {
         }
 
         let var_name = self.env_var_name(provider_id);
-        std::env::var(&var_name).map_err(|_| {
-            DomainError::DatabaseError(format!(
+        std::env::var(&var_name).map_err(|e| match e {
+            std::env::VarError::NotPresent => DomainError::NotFound(format!(
                 "Token not found for provider {} (env var: {})",
                 provider_id, var_name
-            ))
+            )),
+            std::env::VarError::NotUnicode(_) => DomainError::DatabaseError(format!(
+                "Token for provider {} is not valid UTF-8 (env var: {})",
+                provider_id, var_name
+            )),
         })
     }
 

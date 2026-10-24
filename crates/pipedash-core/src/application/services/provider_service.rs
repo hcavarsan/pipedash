@@ -702,7 +702,13 @@ impl ProviderService {
                 .ok_or_else(|| DomainError::ProviderNotFound(id.to_string()))?;
             sync.update_from_toml(key, provider, &row, backend).await?;
         }
-        ProviderSyncService::store_resolved_token(id, &provider.token, token_store).await?;
+        ProviderSyncService::store_resolved_token(
+            id,
+            &provider.token,
+            existing.is_none(),
+            token_store,
+        )
+        .await?;
 
         let config = self.repository.get_provider(id).await?;
         let instance = (self.provider_factory)(&config)?;
@@ -2298,6 +2304,25 @@ type = "travis"
             h.config_state.get().await.providers["ci-b"].name.as_deref(),
             Some("CI B2")
         );
+    }
+
+    #[tokio::test]
+    async fn test_apply_config_file_stores_an_empty_token_for_a_new_provider_without_one() {
+        let h = Harness::new().await;
+        config_file(&h, &[("ci-a", "CI A", 30)]);
+        let path = h.config_state.config_path();
+        let unset = std::fs::read_to_string(path)
+            .unwrap()
+            .replace("token-ci-a", "${PIPEDASH_TOKEN_UNSET_IN_TESTS:-}");
+        std::fs::write(path, unset).unwrap();
+
+        h.provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+
+        let a = provider_id(&h, "ci-a").await.unwrap();
+        assert_eq!(h.token_store.get_token(a).await.unwrap(), "");
     }
 
     #[tokio::test]

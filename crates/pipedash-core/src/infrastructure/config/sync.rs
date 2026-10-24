@@ -46,13 +46,13 @@ impl ProviderSyncService {
         let toml_ids: HashSet<String> = toml_providers.keys().cloned().collect();
 
         for (id, toml_provider) in toml_providers {
-            let provider_id = match db_providers.iter().find(|p| p.name == id) {
+            let (provider_id, created) = match db_providers.iter().find(|p| p.name == id) {
                 None => {
                     let provider_id = self
                         .create_from_toml(&id, &toml_provider, config_backend)
                         .await?;
                     result.added.push(id.clone());
-                    provider_id
+                    (provider_id, true)
                 }
                 Some(db_provider) => {
                     let Some(db_id) = db_provider.id else {
@@ -65,12 +65,13 @@ impl ProviderSyncService {
                         continue;
                     }
                     result.updated.push(id.clone());
-                    db_id
+                    (db_id, false)
                 }
             };
 
             if let Err(e) =
-                Self::store_resolved_token(provider_id, &toml_provider.token, token_store).await
+                Self::store_resolved_token(provider_id, &toml_provider.token, created, token_store)
+                    .await
             {
                 tracing::warn!(
                     provider = %id,
@@ -135,10 +136,11 @@ impl ProviderSyncService {
     }
 
     pub(crate) async fn store_resolved_token(
-        id: i64, token_ref: &str, token_store: &dyn TokenStore,
+        id: i64, token_ref: &str, created: bool, token_store: &dyn TokenStore,
     ) -> DomainResult<()> {
         match Self::resolve_token_ref(token_ref) {
             Some(resolved_token) => token_store.store_token(id, &resolved_token).await,
+            None if created => token_store.store_token(id, "").await,
             None => Ok(()),
         }
     }
@@ -508,6 +510,31 @@ mod tests {
 
         let db_providers = backend.list_providers().await.unwrap();
         assert_eq!(db_providers.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_sync_toml_to_db_stores_an_empty_token_when_none_resolves() {
+        let (backend, token_store, _temp) = create_test_backend().await;
+
+        let mut toml_providers = IndexMap::new();
+        toml_providers.insert(
+            "ci-jenkins".to_string(),
+            ProviderFileConfig {
+                name: Some("CI Jenkins".to_string()),
+                provider_type: "jenkins".to_string(),
+                token: String::new(),
+                refresh_interval: 60,
+                config: Default::default(),
+            },
+        );
+
+        ProviderSyncService::new()
+            .sync_toml_to_db(toml_providers, &backend, token_store.as_ref(), true)
+            .await
+            .unwrap();
+
+        let id = backend.list_providers().await.unwrap()[0].id.unwrap();
+        assert_eq!(token_store.get_token(id).await.unwrap(), "");
     }
 
     #[test]
