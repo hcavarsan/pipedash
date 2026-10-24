@@ -102,17 +102,23 @@ impl KeyringTokenStore {
                 DomainError::DatabaseError(format!("Failed to create old keyring entry: {e}"))
             })?;
 
-        if let Ok(token) = old_entry.get_password() {
-            let mut tokens = self.get_all_tokens_cached().await?;
-            tokens.insert(provider_id.to_string(), token.clone());
-            self.save_all_tokens(&tokens).await?;
+        let token = match old_entry.get_password() {
+            Ok(token) => token,
+            Err(keyring::Error::NoEntry) => return Ok(None),
+            Err(e) => {
+                return Err(DomainError::DatabaseError(format!(
+                    "Failed to read legacy keyring entry: {e}"
+                )))
+            }
+        };
 
-            let _ = old_entry.delete_credential();
+        let mut tokens = self.get_all_tokens_cached().await?;
+        tokens.insert(provider_id.to_string(), token.clone());
+        self.save_all_tokens(&tokens).await?;
 
-            return Ok(Some(token));
-        }
+        let _ = old_entry.delete_credential();
 
-        Ok(None)
+        Ok(Some(token))
     }
 
     pub async fn cleanup_legacy_entries(&self) -> DomainResult<usize> {
@@ -194,7 +200,7 @@ impl TokenStore for KeyringTokenStore {
             return Ok(token);
         }
 
-        Err(DomainError::DatabaseError(format!(
+        Err(DomainError::NotFound(format!(
             "Token not found in keyring for provider {}",
             provider_id
         )))

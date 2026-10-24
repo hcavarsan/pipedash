@@ -215,7 +215,11 @@ impl Repository {
             .await?
             .ok_or_else(|| DomainError::ProviderNotFound(id.to_string()))?;
 
-        provider.token = self.token_store.get_token(id).await?;
+        provider.token = match self.token_store.get_token(id).await {
+            Ok(token) => token,
+            Err(DomainError::NotFound(_)) => String::new(),
+            Err(e) => return Err(e),
+        };
 
         Ok(provider)
     }
@@ -1861,6 +1865,77 @@ mod tests {
         let changed = repository.get_cached_pipelines(None).await.unwrap();
         assert_eq!(changed[0].metadata, pipeline.metadata);
         assert_eq!(changed[0].status, pipeline.status);
+    }
+
+    fn jenkins_provider() -> ProviderConfig {
+        ProviderConfig {
+            id: None,
+            name: "ci-jenkins".to_string(),
+            provider_type: "jenkins".to_string(),
+            token: String::new(),
+            config: HashMap::new(),
+            refresh_interval: 60,
+            version: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn get_provider_reads_a_missing_token_entry_as_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let (manager, repository) = test_repository(&dir).await;
+        let id = manager
+            .config_backend()
+            .create_provider(&jenkins_provider())
+            .await
+            .unwrap();
+
+        let provider = repository.get_provider(id).await.unwrap();
+
+        assert_eq!(provider.name, "ci-jenkins");
+        assert_eq!(provider.token, "");
+    }
+
+    struct FailingTokenStore;
+
+    #[async_trait::async_trait]
+    impl TokenStore for FailingTokenStore {
+        async fn store_token(&self, _provider_id: i64, _token: &str) -> DomainResult<()> {
+            Ok(())
+        }
+
+        async fn get_token(&self, _provider_id: i64) -> DomainResult<String> {
+            Err(DomainError::AuthenticationFailed(
+                "vault is locked".to_string(),
+            ))
+        }
+
+        async fn delete_token(&self, _provider_id: i64) -> DomainResult<()> {
+            Ok(())
+        }
+
+        async fn get_all_tokens(&self) -> DomainResult<HashMap<i64, String>> {
+            Ok(HashMap::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn get_provider_fails_when_the_token_store_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let (manager, _) = test_repository(&dir).await;
+        let id = manager
+            .config_backend()
+            .create_provider(&jenkins_provider())
+            .await
+            .unwrap();
+        let repository = Repository::new(
+            manager.config_backend(),
+            manager.database_pool(),
+            Arc::new(FailingTokenStore),
+        );
+
+        let result = repository.get_provider(id).await;
+
+        assert!(matches!(result, Err(DomainError::AuthenticationFailed(_))));
     }
 
     #[tokio::test]

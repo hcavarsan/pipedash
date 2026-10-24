@@ -329,8 +329,6 @@ The API server serves the frontend directly (it's embedded in the binary). A sin
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PIPEDASH_DATA_DIR` | Platform default | Where Pipedash stores data files |
-| `PIPEDASH_DB_PATH` | `$DATA_DIR/pipedash.db` | Main database path |
-| `PIPEDASH_METRICS_DB_PATH` | `$DATA_DIR/metrics.db` | Metrics database path |
 | `PIPEDASH_METRICS_ENABLED` | `true` | Turn metrics collection on/off |
 | `PIPEDASH_BIND_ADDR` | `127.0.0.1:8080` | API server bind address. Overrides `server.bind_addr` in the config file |
 | `PIPEDASH_VAULT_PASSWORD` | Auto-generated | Password for encrypted token storage and API authentication |
