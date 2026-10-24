@@ -15,6 +15,9 @@ use crate::types::{
     Application,
     ApplicationList,
     SyncRequest,
+    SyncStrategy,
+    SyncStrategyApply,
+    SyncStrategyHook,
 };
 
 pub struct ArgocdClient {
@@ -95,22 +98,7 @@ impl ArgocdClient {
     ) -> PluginResult<()> {
         let url = self.endpoint(&format!("/applications/{}/sync", app_name))?;
 
-        let strategy = if force || apply_only {
-            Some(crate::types::SyncStrategy {
-                apply: if force {
-                    Some(crate::types::SyncStrategyApply { force: Some(true) })
-                } else {
-                    None
-                },
-                hook: if apply_only {
-                    Some(crate::types::SyncStrategyHook { force: Some(false) })
-                } else {
-                    None
-                },
-            })
-        } else {
-            None
-        };
+        let strategy = sync_strategy(force, apply_only);
 
         let sync_request = SyncRequest {
             revision,
@@ -151,5 +139,57 @@ impl ArgocdClient {
 
         check_response(response).await?;
         Ok(())
+    }
+}
+
+fn sync_strategy(force: bool, apply_only: bool) -> Option<SyncStrategy> {
+    if apply_only {
+        Some(SyncStrategy {
+            apply: Some(SyncStrategyApply { force: Some(force) }),
+            hook: None,
+        })
+    } else if force {
+        Some(SyncStrategy {
+            apply: None,
+            hook: Some(SyncStrategyHook { force: Some(true) }),
+        })
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn strategy_json(force: bool, apply_only: bool) -> serde_json::Value {
+        serde_json::to_value(sync_strategy(force, apply_only)).unwrap()
+    }
+
+    #[test]
+    fn apply_only_sync_skips_hooks() {
+        assert_eq!(
+            strategy_json(false, true),
+            json!({ "apply": { "force": false }, "hook": null })
+        );
+        assert_eq!(
+            strategy_json(true, true),
+            json!({ "apply": { "force": true }, "hook": null })
+        );
+    }
+
+    #[test]
+    fn force_sync_keeps_hooks() {
+        assert_eq!(
+            strategy_json(true, false),
+            json!({ "apply": null, "hook": { "force": true } })
+        );
+    }
+
+    #[test]
+    fn plain_sync_sends_no_strategy() {
+        assert_eq!(strategy_json(false, false), serde_json::Value::Null);
     }
 }
