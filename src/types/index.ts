@@ -570,15 +570,60 @@ export interface StoragePathsResponse {
 
 export type PasswordSource = 'env_var' | 'keyring' | 'session' | 'none'
 
+export type Biometry = 'none' | 'touchId' | 'faceId'
+
+export interface AppLockStatus {
+  supported: boolean
+  biometry: Biometry
+  biometry_available: boolean
+  enabled: boolean
+  lock_on_background: boolean
+  locked: boolean
+}
+
 export interface VaultStatusResponse {
   is_unlocked: boolean
   password_source: PasswordSource
   backend: StorageBackendType
   requires_password: boolean
   is_first_time?: boolean
+  app_lock?: AppLockStatus
 }
 
 export interface UnlockVaultResponse {
   success: boolean
   message: string
+  reason?: 'cancelled'
+}
+
+export interface ExportFileResult {
+  path: string
+  location: 'documents'
+}
+
+export interface PushServer {
+  id: string
+  url: string
+  label: string
+  paired_at: string
+}
+
+export interface PushStatus {
+  supported: boolean
+  relay_configured: boolean
+  permission: 'granted' | 'denied' | 'prompt'
+  servers: PushServer[]
+}
+
+export interface MobileDevice {
+  id: string
+  device_name: string
+  platform: 'ios'
+  created_at: string
+  last_success_at: string | null
+}
+
+export interface MobileDevicesResponse {
+  relay_configured: boolean
+  subscriptions: MobileDevice[]
 }

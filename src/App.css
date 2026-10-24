@@ -6,6 +6,13 @@
   -webkit-text-size-adjust: 100%;
 }
 
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
 * {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -34,10 +41,23 @@ body,
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--mantine-color-body);
+  padding-inline-start: calc(var(--app-shell-navbar-offset, 0rem) + var(--app-shell-padding) + var(--safe-left));
+  padding-inline-end: calc(var(--app-shell-aside-offset, 0rem) + var(--app-shell-padding) + var(--safe-right));
+  padding-bottom: calc(var(--app-shell-footer-offset, 0rem) + var(--app-shell-padding) + var(--safe-bottom));
 }
 
 .mantine-AppShell-navbar {
   transition-property: transform, top, height, width;
+  padding-inline-start: var(--safe-left);
+}
+
+.mantine-AppShell-header {
+  padding-inline: var(--safe-left) var(--safe-right);
+}
+
+.safe-area {
+  box-sizing: border-box;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 
 .sidebar-resize-handle {

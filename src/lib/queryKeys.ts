@@ -72,6 +72,16 @@ export const queryKeys = {
     status: () => [...queryKeys.vault.all, 'status'] as const,
   },
 
+  app: {
+    version: () => ['app', 'version'] as const,
+  },
+
+  push: {
+    all: ['push'] as const,
+    status: () => [...queryKeys.push.all, 'status'] as const,
+    devices: () => [...queryKeys.push.all, 'devices'] as const,
+  },
+
   tablePreferences: {
     all: ['tablePreferences'] as const,
     detail: (providerId: number, tableId: string) => [...queryKeys.tablePreferences.all, providerId, tableId] as const,

@@ -12,10 +12,13 @@ import {
 } from '../../../queries/useStorageQueries'
 import { useLockVault, useVaultStatus } from '../../../queries/useVaultQueries'
 import { isTauri } from '../../../services'
+import { lockMeansSomething } from '../../../utils/appLock'
+import { isMobilePlatform } from '../../../utils/platform'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
 import { SetupWizard } from '../../setup/SetupWizard'
+import { AppLockCard } from '../AppLockCard'
 import { ConfigEditorModal } from '../ConfigEditorModal'
 import { StoragePathsDisplay } from '../StoragePathsDisplay'
 import { STORAGE_BACKEND_LABELS } from '../storageLabels'
@@ -40,7 +43,7 @@ export const StorageSection = () => {
 
   const { data: vaultStatus } = useVaultStatus()
   const lockVaultMutation = useLockVault()
-  const canLockVault = vaultStatus?.requires_password && vaultStatus?.is_unlocked
+  const canLockVault = vaultStatus && lockMeansSomething(vaultStatus) && vaultStatus.is_unlocked
 
   const handleLockVault = () => lockVaultMutation.mutate()
 
@@ -205,14 +208,16 @@ export const StorageSection = () => {
               >
                 Test connection
               </Button>
-              <Button
-                variant="light"
-                color="gray"
-                leftSection={<IconSettings size={16} />}
-                onClick={() => setSetupWizardOpen(true)}
-              >
-                Configure storage
-              </Button>
+              {!isMobilePlatform() && (
+                <Button
+                  variant="light"
+                  color="gray"
+                  leftSection={<IconSettings size={16} />}
+                  onClick={() => setSetupWizardOpen(true)}
+                >
+                  Configure storage
+                </Button>
+              )}
               {canLockVault && (
                 <Button
                   variant="light"
@@ -226,7 +231,7 @@ export const StorageSection = () => {
               )}
             </Group>
 
-            {isTauri() && backend === 'sqlite' && !vaultStatus?.requires_password && (
+            {isTauri() && !isMobilePlatform() && backend === 'sqlite' && !vaultStatus?.requires_password && (
               <Text size="xs" c="dimmed" ta="center">
                 Configure storage to migrate to an encrypted database or PostgreSQL
               </Text>
@@ -244,6 +249,12 @@ export const StorageSection = () => {
       </Title>
 
       {renderContent()}
+
+      {isMobilePlatform() && (
+        <Box mt="md">
+          <AppLockCard />
+        </Box>
+      )}
 
       <SetupWizard opened={setupWizardOpen} onComplete={handleSetupComplete} onClose={handleSetupClose} />
 

@@ -46,6 +46,10 @@ pub enum CoreEvent {
         pipeline_ids: Vec<String>,
     },
 
+    PipelinesFailed {
+        pipelines: Vec<Pipeline>,
+    },
+
     RunTriggered {
         workflow_id: String,
     },
@@ -120,6 +124,8 @@ pub enum CoreEvent {
     },
 
     VaultUnlocked,
+
+    VaultLocked,
 }
 
 impl CoreEvent {
@@ -128,6 +134,7 @@ impl CoreEvent {
             CoreEvent::ProvidersChanged => "providers-changed",
             CoreEvent::PipelinesUpdated { .. } => "pipelines-updated",
             CoreEvent::PipelineStatusChanged { .. } => "pipeline-status-changed",
+            CoreEvent::PipelinesFailed { .. } => "pipelines-failed",
             CoreEvent::RunTriggered { .. } => "run-triggered",
             CoreEvent::RunCancelled { .. } => "run-cancelled",
             CoreEvent::MetricsGenerated { .. } => "metrics-generated",
@@ -144,6 +151,7 @@ impl CoreEvent {
             CoreEvent::PipelineCacheInvalidated { .. } => "pipeline-cache-invalidated",
             CoreEvent::RunHistoryCacheInvalidated { .. } => "run-history-cache-invalidated",
             CoreEvent::VaultUnlocked => "vault-unlocked",
+            CoreEvent::VaultLocked => "vault-locked",
         }
     }
 
@@ -161,6 +169,9 @@ impl CoreEvent {
             }),
             CoreEvent::PipelineStatusChanged { pipeline_ids } => serde_json::json!({
                 "pipeline_ids": pipeline_ids,
+            }),
+            CoreEvent::PipelinesFailed { pipelines } => serde_json::json!({
+                "pipelines": pipelines,
             }),
             CoreEvent::RunTriggered { workflow_id } => serde_json::json!(workflow_id),
             CoreEvent::RunCancelled { pipeline_id } => serde_json::json!(pipeline_id),
@@ -255,6 +266,7 @@ impl CoreEvent {
                 json
             }
             CoreEvent::VaultUnlocked => serde_json::json!({}),
+            CoreEvent::VaultLocked => serde_json::json!({}),
         }
     }
 }
@@ -345,6 +357,24 @@ mod tests {
         assert_eq!(
             alert(None).to_json_payload()["link"],
             serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn test_vault_lock_and_pipelines_failed_wire_format() {
+        assert_eq!(CoreEvent::VaultLocked.event_name(), "vault-locked");
+        assert_eq!(
+            CoreEvent::VaultLocked.to_json_payload(),
+            serde_json::json!({})
+        );
+
+        let failed = CoreEvent::PipelinesFailed {
+            pipelines: Vec::new(),
+        };
+        assert_eq!(failed.event_name(), "pipelines-failed");
+        assert_eq!(
+            failed.to_json_payload(),
+            serde_json::json!({ "pipelines": [] })
         );
     }
 }

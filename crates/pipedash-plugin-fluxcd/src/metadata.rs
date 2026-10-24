@@ -99,7 +99,7 @@ pub fn create_metadata() -> PluginMetadata {
         name: "FluxCD".to_string(),
         provider_type: config::PROVIDER_TYPE.to_string(),
         version: "0.1.0".to_string(),
-        description: "Monitor Flux Kustomizations and HelmReleases, inspect their status and history, and request reconciliation. Flux retains a limited history and groups repeated reconciliations.".to_string(),
+        description: "Monitor Flux Kustomizations and HelmReleases, inspect their status and history, and request reconciliation. Flux retains a limited history and groups repeated reconciliations. Connects with a kubeconfig file or pasted kubeconfig content.".to_string(),
         author: Some("Pipedash Team".to_string()),
         icon: Some("/provider-icons/fluxcd.svg".to_string()),
         config_schema: create_config_schema(),
@@ -116,12 +116,26 @@ fn create_config_schema() -> ConfigSchema {
             key: "kubeconfig".to_string(),
             label: "Kubeconfig".to_string(),
             description: Some(
-                "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Monitoring needs get/list permissions. Reconciliation also needs patch permission."
+                "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Monitoring needs get/list permissions. Reconciliation also needs patch permission."
                     .to_string(),
             ),
             field_type: ConfigFieldType::Text,
             required: false,
             default_value: Some(serde_json::Value::String(config::default_kubeconfig())),
+            options: None,
+            validation_regex: None,
+            validation_message: None,
+        })
+        .add_field(ConfigField {
+            key: config::KUBECONFIG_CONTENT_KEY.to_string(),
+            label: "Kubeconfig content".to_string(),
+            description: Some(
+                "Paste the kubeconfig YAML instead of using a file path, for example on iOS and Android where no kubeconfig file exists. When set, it is used instead of the path above and is stored with your other credentials. Use token or client certificate authentication: exec credential plugins (aws, gke-gcloud-auth-plugin, kubelogin) are not supported on iOS and Android."
+                    .to_string(),
+            ),
+            field_type: ConfigFieldType::TextArea,
+            required: false,
+            default_value: None,
             options: None,
             validation_regex: None,
             validation_message: None,

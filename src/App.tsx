@@ -26,7 +26,7 @@ import { useCancelRun, useReviewRun } from './queries/useRunHistoryQueries'
 import { useStoragePaths } from './queries/useStorageQueries'
 import { useVaultStatus } from './queries/useVaultQueries'
 import { PipelineDetailRoute, SettingsRoute, UnlockRoute } from './routes'
-import { service } from './services'
+import { isTauri, service } from './services'
 import { useAuthStore } from './stores/authStore'
 import { useModalStore } from './stores/modalStore'
 import type { Pipeline, PipelineRun, ReviewDecision } from './types'
@@ -57,7 +57,7 @@ function AppContent() {
 
   const isVaultUnlocked = vaultStatus?.is_unlocked ?? false
 
-  const shouldEnableQueries = !vaultStatus?.requires_password || (isVaultUnlocked && isAuthenticated)
+  const shouldEnableQueries = !vaultStatus?.requires_password || (isVaultUnlocked && (isTauri() || isAuthenticated))
 
   const {
     data: providers = [],

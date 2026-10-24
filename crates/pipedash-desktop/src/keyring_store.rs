@@ -10,13 +10,17 @@ use aes_gcm::{
     Nonce,
 };
 use async_trait::async_trait;
-use keyring::Entry;
 use pipedash_core::domain::{
     DomainError,
     DomainResult,
 };
 use pipedash_core::infrastructure::TokenStore;
 use tokio::sync::Mutex;
+
+use crate::credential::{
+    Entry,
+    Error as KeyringError,
+};
 
 const BACKUP_KDF_SALT: &[u8] = b"pipedash-backup-salt-v1";
 
@@ -62,7 +66,7 @@ impl KeyringTokenStore {
                     })?
                 }
             }
-            Err(keyring::Error::NoEntry) => HashMap::new(),
+            Err(KeyringError::NoEntry) => HashMap::new(),
             Err(e) => {
                 return Err(DomainError::DatabaseError(format!(
                     "Failed to get tokens from keyring: {e}"
@@ -104,7 +108,7 @@ impl KeyringTokenStore {
 
         let token = match old_entry.get_password() {
             Ok(token) => token,
-            Err(keyring::Error::NoEntry) => return Ok(None),
+            Err(KeyringError::NoEntry) => return Ok(None),
             Err(e) => {
                 return Err(DomainError::DatabaseError(format!(
                     "Failed to read legacy keyring entry: {e}"

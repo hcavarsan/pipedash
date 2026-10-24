@@ -14,6 +14,7 @@ import { IconAlertCircle, IconAlertTriangle, IconInfoCircle, IconKey } from '@ta
 import { useMemo } from 'react'
 
 import { isTauri } from '../../../services'
+import { isMobilePlatform } from '../../../utils/platform'
 import { STORAGE_BACKEND_LABELS } from '../../settings/storageLabels'
 
 import type { StorageBackend, StorageStepProps } from './types'
@@ -52,6 +53,30 @@ export function StorageStep({ state, setState, currentConfig, vaultStatus, error
 
     return analyzePasswordStrength(state.vaultPassword)
   }, [state.vaultPassword])
+
+  if (isMobilePlatform()) {
+    return (
+      <Stack gap="md">
+        <Card p="sm">
+          <Stack gap="xs">
+            <Text size="sm" fw={600}>
+              On-device storage
+            </Text>
+            <Text size="xs" c="dimmed">
+              Pipedash keeps its data in a SQLite database in the app's own storage. Provider tokens stay in the device
+              Keychain, so there is no vault password to set.
+            </Text>
+          </Stack>
+        </Card>
+
+        {error && (
+          <Alert icon={<IconAlertCircle size={16} />} color="red">
+            {error}
+          </Alert>
+        )}
+      </Stack>
+    )
+  }
 
   return (
     <Stack gap="md">

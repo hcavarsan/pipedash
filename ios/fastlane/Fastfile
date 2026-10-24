@@ -1,0 +1,207 @@
+require "fileutils"
+require "json"
+require "tmpdir"
+require_relative "required_reason_apis"
+
+default_platform(:ios)
+
+APP_ID = "com.henrique.pipedash"
+ROOT = File.expand_path("../..", __dir__)
+TAURI_DIR = File.join(ROOT, "crates/pipedash-desktop")
+APPLE_DIR = File.join(TAURI_DIR, "gen/apple")
+TARGET = "pipedash-desktop_iOS"
+TARGET_DIR = File.join(APPLE_DIR, TARGET)
+XCODE_FILES = File.join(ROOT, "ios/xcode")
+APP_ICON = File.join(TAURI_DIR, "icons/ios/app-icon-1024.png")
+REQUIRED_INFO_KEYS = %w[
+  CFBundleDisplayName NSFaceIDUsageDescription NSLocalNetworkUsageDescription UIFileSharingEnabled
+  LSSupportsOpeningDocumentsInPlace
+].freeze
+
+def release_version
+  JSON.parse(File.read(File.join(TAURI_DIR, "tauri.conf.json"))).fetch("version")
+end
+
+def ios_version(version = release_version)
+  core = version.split(/[-+]/, 2).first
+  parts = core.split(".")
+  UI.user_error!("Unsupported version #{version}: expected MAJOR.MINOR.PATCH") unless parts.length == 3
+  major, minor, patch = parts.map { |part| Integer(part, 10) }
+  "#{major + 1}.#{minor}.#{patch}"
+end
+
+def tauri(*args)
+  Dir.chdir(ROOT) { sh("bun", "run", "tauri", *args) }
+end
+
+def ios_build(build_number:, sign:)
+  config = JSON.generate({ version: ios_version, bundle: { iOS: { bundleVersion: build_number.to_s } } })
+  args = ["ios", "build", "--export-method", "app-store-connect", "--config", config]
+  args << "--no-sign" unless sign
+  tauri(*args)
+  Dir[File.join(APPLE_DIR, "build/arm64/*.ipa")].max_by { |path| File.mtime(path) } ||
+    UI.user_error!("No IPA found in #{APPLE_DIR}/build/arm64")
+end
+
+def plist_to_hash(path)
+  JSON.parse(sh("plutil", "-convert", "json", "-o", "-", path, log: false))
+end
+
+platform :ios do
+  desc "Generate the Xcode project with the privacy manifest, entitlements and app icon"
+  lane :prepare_project do
+    tauri("ios", "init", "--ci") unless File.directory?(File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"))
+
+    Dir.mktmpdir("icons", TAURI_DIR) do |icons_out|
+      tauri("icon", APP_ICON, "--output", icons_out)
+    end
+
+    FileUtils.cp(File.join(XCODE_FILES, "PrivacyInfo.xcprivacy"), TARGET_DIR)
+    sh("xcodegen", "generate", "--spec", File.join(APPLE_DIR, "project.yml"))
+    FileUtils.cp(File.join(XCODE_FILES, "pipedash.entitlements"), File.join(TARGET_DIR, "#{TARGET}.entitlements"))
+  end
+
+  desc "Check that an IPA meets the App Store requirements this project depends on"
+  lane :verify_ipa do |options|
+    ipa = options.fetch(:ipa)
+    Dir.mktmpdir do |dir|
+      sh("unzip", "-q", ipa, "-d", dir)
+      app = Dir[File.join(dir, "Payload/*.app")].first || UI.user_error!("No .app inside #{ipa}")
+      info = plist_to_hash(File.join(app, "Info.plist"))
+
+      missing_keys = REQUIRED_INFO_KEYS.reject { |key| info.key?(key) }
+      UI.user_error!("Info.plist is missing #{missing_keys.join(", ")}") unless missing_keys.empty?
+      UI.user_error!("ITSAppUsesNonExemptEncryption must be false") unless info["ITSAppUsesNonExemptEncryption"] == false
+      UI.user_error!("App icon is missing from Info.plist") unless info.key?("CFBundleIcons")
+      if options[:version] && info["CFBundleShortVersionString"] != options[:version]
+        UI.user_error!("CFBundleShortVersionString is #{info["CFBundleShortVersionString"]}, expected #{options[:version]}")
+      end
+
+      manifest_path = File.join(app, "PrivacyInfo.xcprivacy")
+      UI.user_error!("PrivacyInfo.xcprivacy is not bundled in the app") unless File.exist?(manifest_path)
+      manifest = plist_to_hash(manifest_path)
+
+      binary = File.join(app, info.fetch("CFBundleExecutable"))
+      undefined_symbols = sh("xcrun", "nm", "-u", binary, log: false).split("\n").map(&:strip)
+      selectors = sh("xcrun", "otool", "-v", "-s", "__TEXT", "__objc_methname", binary, log: false)
+                  .split("\n").map { |line| line.split("\t").last.to_s.strip }
+      detected = RequiredReasonApis.detect(undefined_symbols: undefined_symbols, selectors: selectors)
+      detected.each { |category, apis| UI.message("Required-reason API #{category}: #{apis.join(", ")}") }
+      undeclared = RequiredReasonApis.undeclared(detected, manifest)
+      UI.user_error!("PrivacyInfo.xcprivacy does not declare #{undeclared.keys.join(", ")}") unless undeclared.empty?
+
+      if options[:signed]
+        entitlements = sh("codesign", "-d", "--entitlements", "-", "--xml", app, log: false)
+        UI.user_error!("Signed app has no aps-environment entitlement") unless entitlements.include?("aps-environment")
+      end
+      UI.success("#{File.basename(ipa)} passed the App Store checks")
+    end
+  end
+
+  desc "Build an unsigned IPA and run the App Store checks (pull requests)"
+  lane :check do
+    prepare_project
+    verify_ipa(ipa: ios_build(build_number: 1, sign: false), version: ios_version)
+  end
+
+  desc "Build the app for the simulator and save iPhone and iPad screenshots of the first launch"
+  lane :screenshots do |options|
+    prepare_project
+    out_dir = File.expand_path(options.fetch(:output, File.join(ROOT, "ios/screenshots")))
+    FileUtils.mkdir_p(out_dir)
+    tauri("ios", "build", "--target", "aarch64-sim", "--debug")
+    app = Dir[File.join(APPLE_DIR, "build/arm64-sim/*.app")].first || UI.user_error!("No simulator app built")
+
+    devices = JSON.parse(sh("xcrun", "simctl", "list", "devices", "available", "--json", log: false))
+                  .fetch("devices").select { |runtime, _| runtime.include?("iOS") }.values.flatten
+    iphone = devices.select { |d| d["name"].start_with?("iPhone") }.max_by { |d| d["name"].include?("Pro Max") ? 1 : 0 }
+    ipad = devices.select { |d| d["name"].start_with?("iPad") }.max_by { |d| d["name"].include?("Pro 13") ? 1 : 0 }
+    UI.user_error!("No iPhone or iPad simulator available") unless iphone && ipad
+    not_running = [iphone, ipad].reject do |device|
+      udid = device.fetch("udid")
+      name = device["name"].tr(" ()", "_")
+      sh("xcrun", "simctl", "boot", udid)
+      sh("xcrun", "simctl", "bootstatus", udid, "-b")
+      sh("xcrun", "simctl", "install", udid, app)
+      with_env = { "SIMCTL_CHILD_RUST_LOG" => "info", "SIMCTL_CHILD_RUST_BACKTRACE" => "1" }
+      sh(with_env, "xcrun", "simctl", "launch", "--terminate-running-process",
+         "--stdout=#{File.join(out_dir, "#{name}.stdout.log")}",
+         "--stderr=#{File.join(out_dir, "#{name}.stderr.log")}", udid, APP_ID)
+      sleep(20)
+      running = sh("xcrun", "simctl", "spawn", udid, "launchctl", "list", log: false).include?(APP_ID)
+      sh("xcrun", "simctl", "io", udid, "screenshot", File.join(out_dir, "#{name}.png"))
+      File.write(File.join(out_dir, "#{name}.system.log"),
+                 sh("xcrun", "simctl", "spawn", udid, "log", "show", "--last", "2m", "--style", "compact",
+                    "--predicate", 'process == "pipedash"', log: false))
+      sh("xcrun", "simctl", "shutdown", udid)
+      running
+    end
+    Dir[File.expand_path("~/Library/Logs/DiagnosticReports/pipedash*")].each { |report| FileUtils.cp(report, out_dir) }
+    UI.user_error!("#{APP_ID} stopped within 20s on #{not_running.map { |d| d["name"] }.join(", ")}") unless not_running.empty?
+  end
+
+  private_lane :asc_api_key do
+    app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_KEY_CONTENT"),
+    )
+  end
+
+  private_lane :build_signed_ipa do |options|
+    setup_ci
+    match(type: "appstore", app_identifier: APP_ID, readonly: true)
+    prepare_project
+    update_code_signing_settings(
+      path: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
+      targets: [TARGET],
+      use_automatic_signing: false,
+      team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM"),
+      code_sign_identity: ENV.fetch("sigh_#{APP_ID}_appstore_certificate-name"),
+    )
+    ENV["IOS_MOBILE_PROVISION"] = [File.binread(ENV.fetch("sigh_#{APP_ID}_appstore_profile-path"))].pack("m0")
+    build_number = latest_testflight_build_number(
+      api_key: options.fetch(:api_key),
+      app_identifier: APP_ID,
+      initial_build_number: 0,
+    ).to_i + 1
+    ipa = ios_build(build_number: build_number, sign: true)
+    verify_ipa(ipa: ipa, version: ios_version, signed: true)
+    ipa
+  end
+
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    api_key = asc_api_key
+    ipa = build_signed_ipa(api_key: api_key)
+    upload_to_testflight(api_key: api_key, ipa: ipa, skip_waiting_for_build_processing: true)
+  end
+
+  desc "Build, upload and submit for App Store review"
+  lane :release do
+    demo = {
+      demo_token: ENV["APP_REVIEW_DEMO_TOKEN"].to_s,
+      demo_repository: ENV["APP_REVIEW_DEMO_REPOSITORY"].to_s,
+    }
+    blank = demo.select { |_, value| value.strip.empty? }.keys
+    UI.user_error!("Set #{blank.map { |key| "APP_REVIEW_#{key.upcase}" }.join(" and ")} for App Review") unless blank.empty?
+    FastlaneCore::Secrets.register(demo.fetch(:demo_token), name: :app_review_demo_token)
+    notes = format(File.read(File.join(__dir__, "review_notes.txt")), demo)
+
+    api_key = asc_api_key
+    ipa = build_signed_ipa(api_key: api_key)
+    upload_to_app_store(
+      api_key: api_key,
+      ipa: ipa,
+      app_identifier: APP_ID,
+      metadata_path: File.join(__dir__, "metadata"),
+      skip_screenshots: true,
+      app_review_information: { notes: notes },
+      submit_for_review: true,
+      automatic_release: false,
+      force: true,
+      run_precheck_before_submit: false,
+      submission_information: { add_id_info_uses_idfa: false },
+    )
+  end
+end

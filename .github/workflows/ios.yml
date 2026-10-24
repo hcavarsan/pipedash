@@ -1,0 +1,62 @@
+name: iOS
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "beta uploads to TestFlight, release also submits for App Store review"
+        type: choice
+        options:
+          - beta
+          - release
+        default: beta
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  ios:
+    name: Build and upload iOS app
+    runs-on: macos-26
+    environment: app-store
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up iOS build
+        uses: $/.github/actions/setup-ios
+        with:
+          rust-targets: aarch64-apple-ios
+
+      - name: Configure match deploy key
+        env:
+          MATCH_DEPLOY_KEY: ${{ secrets.MATCH_DEPLOY_KEY }}
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/match_key"
+          printf '%s\n' "$MATCH_DEPLOY_KEY" > "$RUNNER_TEMP/match_key"
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$RUNNER_TEMP/known_hosts"
+
+      - name: Build and upload
+        env:
+          LANE: ${{ inputs.lane || 'beta' }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          MATCH_GIT_URL: git@github.com:hcavarsan/pipedash-certificates-v2.git
+          GIT_SSH_COMMAND: ssh -i ${{ runner.temp }}/match_key -o IdentitiesOnly=yes -o UserKnownHostsFile=${{ runner.temp }}/known_hosts
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          APP_REVIEW_DEMO_TOKEN: ${{ secrets.APP_REVIEW_DEMO_TOKEN }}
+          APP_REVIEW_DEMO_REPOSITORY: ${{ vars.APP_REVIEW_DEMO_REPOSITORY }}
+          PIPEDASH_PUSH_RELAY_URL: ${{ vars.PIPEDASH_PUSH_RELAY_URL }}
+        working-directory: ios
+        run: bundle exec fastlane ios "$LANE"

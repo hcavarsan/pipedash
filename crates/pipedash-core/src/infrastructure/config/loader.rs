@@ -401,6 +401,7 @@ impl ConfigSources {
             "storage.data_dir" => Some("PIPEDASH_DATA_DIR"),
             "storage.backend" => Some("PIPEDASH_STORAGE_BACKEND"),
             "storage.postgres.connection_string" => Some("PIPEDASH_POSTGRES_URL"),
+            "push.relay_url" => Some("PIPEDASH_PUSH_RELAY_URL"),
             _ => None,
         };
 

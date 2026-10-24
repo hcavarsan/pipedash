@@ -1,10 +1,13 @@
+import { platform as tauriOsPlatform } from '@tauri-apps/plugin-os'
+
 import { isTauri } from '../services'
 
-type Platform = 'macos' | 'windows' | 'linux'
+export type Platform = 'macos' | 'windows' | 'linux' | 'ios' | 'android'
 
 let cachedPlatform: Platform | null = null
+let cachedTauriPlatform: Platform | null = null
 
-export function setPlatformOverride(platform: Platform | null): void {
+export function setPlatformOverride(platform: 'macos' | 'windows' | 'linux' | null): void {
   if (platform) {
     localStorage.setItem('platform-override', platform)
   } else {
@@ -18,6 +21,30 @@ export function getPlatformOverride(): Platform | null {
 
   return override as Platform | null
 }
+
+export function normalizePlatform(name: string): Platform {
+  switch (name) {
+    case 'macos':
+    case 'windows':
+    case 'ios':
+    case 'android':
+      return name
+    default:
+      return 'linux'
+  }
+}
+
+export const isMobileOs = (p: Platform): boolean => p === 'ios' || p === 'android'
+
+function tauriPlatform(): Platform {
+  cachedTauriPlatform ??= normalizePlatform(tauriOsPlatform())
+
+  return cachedTauriPlatform
+}
+
+export const isMobilePlatform = (): boolean => isTauri() && isMobileOs(tauriPlatform())
+
+export const isDesktopTauri = (): boolean => isTauri() && !isMobilePlatform()
 
 function modernPlatformDetection(): Platform {
   if ('userAgentData' in navigator) {
@@ -55,6 +82,10 @@ function fallbackPlatformDetection(): Platform {
 }
 
 export async function platform(): Promise<Platform> {
+  if (isMobilePlatform()) {
+    return tauriPlatform()
+  }
+
   const override = getPlatformOverride()
 
   if (override) {
@@ -65,16 +96,7 @@ export async function platform(): Promise<Platform> {
     return cachedPlatform
   }
 
-  if (!isTauri()) {
-    cachedPlatform = modernPlatformDetection()
-
-    return cachedPlatform
-  }
-
-  const { platform: getPlatform } = await import('@tauri-apps/plugin-os')
-  const p = await getPlatform()
-
-  cachedPlatform = p as Platform
+  cachedPlatform = isTauri() ? tauriPlatform() : modernPlatformDetection()
 
   return cachedPlatform
 }

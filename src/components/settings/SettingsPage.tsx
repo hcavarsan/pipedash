@@ -3,9 +3,11 @@ import { Box, Group, ScrollArea, Stack } from '@mantine/core'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { SettingsMobileTabs } from './SettingsMobileTabs'
 import { type SettingsSection, SettingsSidebar } from './SettingsSidebar'
+import { AboutSection } from './sections/AboutSection'
 import { CacheSection } from './sections/CacheSection'
 import { GeneralSection } from './sections/GeneralSection'
 import { MetricsSection } from './sections/MetricsSection'
+import { NotificationsSection } from './sections/NotificationsSection'
 import { ProvidersSection } from './sections/ProvidersSection'
 import { StorageSection } from './sections/StorageSection'
 
@@ -16,10 +18,12 @@ interface SettingsPageProps {
 
 const SECTION_CONTENT: Record<SettingsSection, (onRefresh?: () => Promise<void>) => React.ReactNode> = {
   general: (onRefresh) => <GeneralSection onRefresh={onRefresh} />,
+  notifications: () => <NotificationsSection />,
   providers: () => <ProvidersSection />,
   metrics: () => <MetricsSection />,
   cache: (onRefresh) => <CacheSection onRefresh={onRefresh} />,
   storage: () => <StorageSection />,
+  about: () => <AboutSection />,
 }
 
 export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps) => {

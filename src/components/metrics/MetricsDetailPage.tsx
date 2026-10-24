@@ -8,7 +8,8 @@ import { useAggregatedMetrics } from '../../queries/useMetricsQueries'
 import type { AggregationPeriod, AggregationType, MetricType } from '../../types'
 import { type DateRange, isDateRange } from '../../utils/dateRange'
 import { displayErrorNotification, displaySuccessNotification } from '../../utils/errorDisplay'
-import { saveFile } from '../../utils/saveFile'
+import { isMobilePlatform } from '../../utils/platform'
+import { describeSave, saveFile } from '../../utils/saveFile'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 
@@ -108,10 +109,14 @@ export const MetricsDetailPage = ({
       const binaryData = atob(dataUrl.split(',')[1])
       const bytes = Uint8Array.from(binaryData, (char) => char.charCodeAt(0))
 
-      if (
-        await saveFile(`${fileBaseName}.png`, bytes, { name: 'PNG Image', extension: 'png', mimeType: 'image/png' })
-      ) {
-        displaySuccessNotification('Chart exported as PNG')
+      const saved = await saveFile(`${fileBaseName}.png`, bytes, {
+        name: 'PNG Image',
+        extension: 'png',
+        mimeType: 'image/png',
+      })
+
+      if (saved) {
+        displaySuccessNotification(describeSave('Chart exported as PNG', saved))
       }
     } catch (error) {
       displayErrorNotification(error, "Couldn't export PNG")
@@ -137,10 +142,14 @@ export const MetricsDetailPage = ({
       ])
       const csvContent = [headers, ...rows].map((row) => row.map(cell).join(',')).join('\n')
 
-      if (
-        await saveFile(`${fileBaseName}.csv`, csvContent, { name: 'CSV File', extension: 'csv', mimeType: 'text/csv' })
-      ) {
-        displaySuccessNotification('Data exported as CSV')
+      const saved = await saveFile(`${fileBaseName}.csv`, csvContent, {
+        name: 'CSV File',
+        extension: 'csv',
+        mimeType: 'text/csv',
+      })
+
+      if (saved) {
+        displaySuccessNotification(describeSave('Data exported as CSV', saved))
       }
     } catch (error) {
       displayErrorNotification(error, "Couldn't export CSV")
@@ -226,9 +235,11 @@ export const MetricsDetailPage = ({
             </Button>
           </Menu.Target>
           <Menu.Dropdown>
-            <Menu.Item leftSection={<IconPhoto size={16} />} onClick={handleExportPNG}>
-              Export as PNG
-            </Menu.Item>
+            {!isMobilePlatform() && (
+              <Menu.Item leftSection={<IconPhoto size={16} />} onClick={handleExportPNG}>
+                Export as PNG
+              </Menu.Item>
+            )}
             <Menu.Item leftSection={<IconFileTypeCsv size={16} />} onClick={handleExportCSV}>
               Export as CSV
             </Menu.Item>

@@ -1,9 +1,10 @@
-import { Center, Paper, Stack, Title } from '@mantine/core'
+import { Box, Center, Paper, Stack, Title } from '@mantine/core'
 import { useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { AppLogo } from '../components/atoms/AppLogo'
 import { UnlockForm } from '../components/vault/UnlockForm'
+import { useVaultStatus } from '../queries/useVaultQueries'
 import { wsClient } from '../services'
 import { useAuthStore } from '../stores/authStore'
 
@@ -11,6 +12,7 @@ export function UnlockRoute() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const consumeReturnPath = useAuthStore((s) => s.consumeReturnPath)
+  const requiresPassword = useVaultStatus().data?.requires_password ?? true
 
   const handleSuccess = useCallback(() => {
     // Reconnect WebSocket after unlock
@@ -25,19 +27,21 @@ export function UnlockRoute() {
   }, [consumeReturnPath, navigate, searchParams])
 
   return (
-    <Center h="100vh" p={{ base: 'md', sm: 'xl' }}>
-      <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={{ base: '100%', xs: 420 }} withBorder>
-        <Stack gap="xl">
-          <Stack gap="md" align="center">
-            <AppLogo size={{ base: 48, sm: 56 }} alt="Pipedash" />
-            <Title order={2} ta="center">
-              Unlock vault
-            </Title>
-          </Stack>
+    <Box h="100vh" className="safe-area">
+      <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
+        <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={{ base: '100%', xs: 420 }} withBorder>
+          <Stack gap="xl">
+            <Stack gap="md" align="center">
+              <AppLogo size={{ base: 48, sm: 56 }} alt="Pipedash" />
+              <Title order={2} ta="center">
+                {requiresPassword ? 'Unlock vault' : 'Unlock Pipedash'}
+              </Title>
+            </Stack>
 
-          <UnlockForm onSuccess={handleSuccess} />
-        </Stack>
-      </Paper>
-    </Center>
+            <UnlockForm onSuccess={handleSuccess} />
+          </Stack>
+        </Paper>
+      </Center>
+    </Box>
   )
 }

@@ -1,4 +1,4 @@
-import { Box, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
+import { Box, Stack, Text, UnstyledButton } from '@mantine/core'
 import { Link } from 'react-router-dom'
 
 import { SETTINGS_SECTIONS, type SettingsSection } from './SettingsSidebar'
@@ -10,7 +10,7 @@ export const SettingsMobileTabs = ({ activeSection }: { activeSection: SettingsS
     p={4}
     style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
   >
-    <SimpleGrid cols={SETTINGS_SECTIONS.length} spacing={4}>
+    <Box style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
       {SETTINGS_SECTIONS.map((section) => {
         const active = activeSection === section.id
 
@@ -24,7 +24,8 @@ export const SettingsMobileTabs = ({ activeSection }: { activeSection: SettingsS
             aria-current={active ? 'page' : undefined}
             bdrs="sm"
             py={6}
-            miw={0}
+            px="sm"
+            flex="1 0 auto"
             c={active ? 'blue' : 'dimmed'}
             bg={active ? 'var(--mantine-color-blue-light)' : undefined}
           >
@@ -37,6 +38,6 @@ export const SettingsMobileTabs = ({ activeSection }: { activeSection: SettingsS
           </UnstyledButton>
         )
       })}
-    </SimpleGrid>
+    </Box>
   </Box>
 )

@@ -76,7 +76,7 @@ export const StandardModal = ({
           style={{
             flexShrink: 0,
             borderTop: '1px solid var(--mantine-color-default-border)',
-            paddingBottom: isMobile ? 'calc(var(--mantine-spacing-md) + env(safe-area-inset-bottom))' : undefined,
+            paddingBottom: isMobile ? 'calc(var(--mantine-spacing-md) + var(--safe-bottom))' : undefined,
           }}
         >
           {footer}
@@ -95,7 +95,7 @@ export const StandardModal = ({
           ...sharedStyles,
           header: {
             ...sharedStyles.header,
-            paddingTop: 'calc(var(--mantine-spacing-md) + env(safe-area-inset-top))',
+            paddingTop: 'calc(var(--mantine-spacing-md) + var(--safe-top))',
           },
           content: columnStyle,
         }}

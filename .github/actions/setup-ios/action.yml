@@ -1,0 +1,52 @@
+name: Set up iOS build
+description: Install the toolchain that builds the Tauri iOS app with fastlane.
+inputs:
+  rust-targets:
+    description: Space-separated Rust targets to install
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install mise
+      uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+      with:
+        install: false
+        cache: false
+
+    - name: Install mise tools
+      shell: bash
+      run: mise install
+
+    - name: Install dependencies
+      shell: bash
+      run: mise run install
+
+    - name: Install Ruby
+      uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1.335.0
+      with:
+        ruby-version: "3.4"
+        working-directory: ios
+
+    - name: Install fastlane
+      shell: bash
+      working-directory: ios
+      run: bundle install
+
+    - name: Install iOS toolchain
+      shell: bash
+      env:
+        RUST_TARGETS: ${{ inputs.rust-targets }}
+      run: |
+        read -r -a targets <<< "$RUST_TARGETS"
+        rustup target add "${targets[@]}"
+        brew install xcodegen
+
+    - name: Check Xcode version
+      shell: bash
+      run: |
+        xcodebuild -version
+        major=$(xcodebuild -version | awk 'NR==1 { split($2, v, "."); print v[1] }')
+        if [ "$major" -lt 26 ]; then
+          echo "App Store Connect requires Xcode 26 or later, found $major" >&2
+          exit 1
+        fi

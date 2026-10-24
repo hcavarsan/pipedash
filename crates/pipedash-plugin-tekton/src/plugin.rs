@@ -48,14 +48,10 @@ impl TektonPlugin {
     async fn client(&self) -> PluginResult<&client::TektonClient> {
         self.client
             .get_or_try_init(|| async {
-                let kubeconfig_path = config::get_kubeconfig_path(&self.config);
+                let source = config::get_kubeconfig_source(&self.config);
                 let context = config::get_context(&self.config);
 
-                client::TektonClient::from_kubeconfig(
-                    kubeconfig_path.as_deref(),
-                    context.as_deref(),
-                )
-                .await
+                client::TektonClient::from_kubeconfig(&source, context.as_deref()).await
             })
             .await
     }
@@ -131,32 +127,43 @@ impl TektonPlugin {
         Ok(runs.into_iter().next())
     }
 
-    fn get_available_contexts(&self, kubeconfig_path: Option<&str>) -> PluginResult<Vec<String>> {
+    fn get_available_contexts(
+        &self, source: &config::KubeconfigSource,
+    ) -> PluginResult<Vec<String>> {
         use std::collections::HashSet;
         use std::path::PathBuf;
 
-        let paths = if let Some(path_str) = kubeconfig_path {
-            config::split_kubeconfig_paths(path_str)
-        } else {
-            let default_path = config::get_default_kubeconfig_path();
-            config::split_kubeconfig_paths(&default_path)
-        };
-
         let mut all_contexts = HashSet::new();
 
-        for path_str in paths {
-            let path = PathBuf::from(&path_str);
-            if !path.exists() {
-                continue;
+        match source {
+            config::KubeconfigSource::Content(content) => {
+                for context in client::parse_kubeconfig_content(content)?.contexts {
+                    all_contexts.insert(context.name);
+                }
             }
+            config::KubeconfigSource::Path(kubeconfig_path) => {
+                let paths = if let Some(path_str) = kubeconfig_path {
+                    config::split_kubeconfig_paths(path_str)
+                } else {
+                    let default_path = config::get_default_kubeconfig_path();
+                    config::split_kubeconfig_paths(&default_path)
+                };
 
-            match kube::config::Kubeconfig::read_from(&path) {
-                Ok(kubeconfig) => {
-                    for context in kubeconfig.contexts {
-                        all_contexts.insert(context.name);
+                for path_str in paths {
+                    let path = PathBuf::from(&path_str);
+                    if !path.exists() {
+                        continue;
+                    }
+
+                    match kube::config::Kubeconfig::read_from(&path) {
+                        Ok(kubeconfig) => {
+                            for context in kubeconfig.contexts {
+                                all_contexts.insert(context.name);
+                            }
+                        }
+                        Err(_) => continue,
                     }
                 }
-                Err(_) => continue,
             }
         }
 
@@ -606,15 +613,13 @@ impl Plugin for TektonPlugin {
         &self, field_key: &str, config: &HashMap<String, String>,
     ) -> PluginResult<Vec<String>> {
         if field_key == "context" {
-            let kubeconfig_path = config::get_kubeconfig_path(config);
-            let contexts = self.get_available_contexts(kubeconfig_path.as_deref())?;
+            let contexts = self.get_available_contexts(&config::get_kubeconfig_source(config))?;
             Ok(contexts)
         } else if field_key == "namespaces" {
-            let kubeconfig_path = config::get_kubeconfig_path(config);
             let context = config::get_context(config);
 
             match client::TektonClient::from_kubeconfig(
-                kubeconfig_path.as_deref(),
+                &config::get_kubeconfig_source(config),
                 context.as_deref(),
             )
             .await
@@ -813,6 +818,30 @@ mod tests {
             .collect();
 
         assert_eq!(ids, vec!["tekton__1__ci__build"]);
+    }
+
+    #[tokio::test]
+    async fn pasted_kubeconfig_content_is_used_instead_of_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, _requests) = stub_apiserver(TWO_PIPELINES);
+        let from_file = config_for(&server, &dir, &[]);
+        let mut config = from_file.clone();
+        config.insert(
+            "kubeconfig_path".to_string(),
+            "/nonexistent/kubeconfig".to_string(),
+        );
+        config.insert(
+            "token".to_string(),
+            std::fs::read_to_string(&from_file["kubeconfig_path"]).unwrap(),
+        );
+        let mut plugin = TektonPlugin::new();
+        plugin.initialize(1, config.clone(), None).unwrap();
+
+        let contexts = plugin.get_field_options("context", &config).await.unwrap();
+        let available = plugin.fetch_available_pipelines(None).await.unwrap();
+
+        assert_eq!(contexts, vec!["ctx"]);
+        assert_eq!(available.items.len(), 2);
     }
 
     #[tokio::test]
