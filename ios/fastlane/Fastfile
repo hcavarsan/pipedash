@@ -1,0 +1,55 @@
+default_platform(:ios)
+
+APP_ID = "com.henrique.pipedash"
+ROOT = File.expand_path("../..", __dir__)
+APPLE_DIR = File.join(ROOT, "crates/pipedash-desktop/gen/apple")
+
+platform :ios do
+  private_lane :build_ipa do
+    setup_ci
+    match(type: "appstore", app_identifier: APP_ID, readonly: true)
+    update_code_signing_settings(
+      path: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
+      targets: ["pipedash-desktop_iOS"],
+      use_automatic_signing: false,
+      team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM"),
+      code_sign_identity: ENV.fetch("sigh_#{APP_ID}_appstore_certificate-name"),
+    )
+    ENV["IOS_MOBILE_PROVISION"] = [File.binread(ENV.fetch("sigh_#{APP_ID}_appstore_profile-path"))].pack("m0")
+    bundle_config = JSON.generate({ bundle: { iOS: { bundleVersion: ENV.fetch("GITHUB_RUN_NUMBER") } } })
+    Dir.chdir(ROOT) do
+      sh("bun", "run", "tauri", "ios", "build", "--export-method", "app-store-connect", "--config", bundle_config)
+    end
+    Dir[File.join(APPLE_DIR, "build/arm64/*.ipa")].first || UI.user_error!("No IPA found in #{APPLE_DIR}/build/arm64")
+  end
+
+  private_lane :asc_api_key do
+    app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_KEY_CONTENT"),
+    )
+  end
+
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    ipa = build_ipa
+    upload_to_testflight(api_key: asc_api_key, ipa: ipa, skip_waiting_for_build_processing: true)
+  end
+
+  desc "Build, upload and submit for App Store review"
+  lane :release do
+    ipa = build_ipa
+    upload_to_app_store(
+      api_key: asc_api_key,
+      ipa: ipa,
+      app_identifier: APP_ID,
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: true,
+      force: true,
+      run_precheck_before_submit: false,
+      submission_information: { add_id_info_uses_idfa: false },
+    )
+  end
+end

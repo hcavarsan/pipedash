@@ -1,0 +1,88 @@
+name: iOS
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "beta uploads to TestFlight, release also submits for App Store review"
+        type: choice
+        options:
+          - beta
+          - release
+        default: beta
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  ios:
+    name: Build and upload iOS app
+    runs-on: macos-latest
+    environment: app-store
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+        with:
+          install: false
+          cache: false
+
+      - name: Install mise tools
+        run: mise install
+
+      - name: Install dependencies
+        run: mise run install
+
+      - name: Install Ruby
+        uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1.335.0
+        with:
+          ruby-version: "3.4"
+          working-directory: ios
+
+      - name: Install fastlane
+        working-directory: ios
+        run: bundle install
+
+      - name: Install iOS toolchain
+        run: |
+          rustup target add aarch64-apple-ios
+          brew install xcodegen
+
+      - name: Generate Xcode project
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          bun run tauri ios init --ci
+          bun run tauri icon crates/pipedash-desktop/icons/icon.png
+
+      - name: Configure match deploy key
+        env:
+          MATCH_DEPLOY_KEY: ${{ secrets.MATCH_DEPLOY_KEY }}
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/match_key"
+          printf '%s\n' "$MATCH_DEPLOY_KEY" > "$RUNNER_TEMP/match_key"
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$RUNNER_TEMP/known_hosts"
+
+      - name: Build and upload
+        env:
+          LANE: ${{ inputs.lane || 'beta' }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          MATCH_GIT_URL: git@github.com:hcavarsan/pipedash-certificates-v2.git
+          GIT_SSH_COMMAND: ssh -i ${{ runner.temp }}/match_key -o IdentitiesOnly=yes -o UserKnownHostsFile=${{ runner.temp }}/known_hosts
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+        working-directory: ios
+        run: bundle exec fastlane ios "$LANE"
