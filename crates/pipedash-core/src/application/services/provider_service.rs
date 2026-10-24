@@ -690,10 +690,7 @@ impl ProviderService {
         let backend = self.repository.config_backend().as_ref();
         let id = match existing {
             Some(id) => id,
-            None => {
-                sync.create_from_toml(key, provider, backend, token_store)
-                    .await?
-            }
+            None => sync.create_from_toml(key, provider, backend).await?,
         };
 
         let lock = self.commit_lock(id);
@@ -703,9 +700,9 @@ impl ProviderService {
                 .get_provider(id)
                 .await?
                 .ok_or_else(|| DomainError::ProviderNotFound(id.to_string()))?;
-            sync.update_from_toml(key, provider, &row, backend, token_store)
-                .await?;
+            sync.update_from_toml(key, provider, &row, backend).await?;
         }
+        ProviderSyncService::store_resolved_token(id, &provider.token, token_store).await?;
 
         let config = self.repository.get_provider(id).await?;
         let instance = (self.provider_factory)(&config)?;
@@ -2300,6 +2297,41 @@ type = "travis"
         assert_eq!(
             h.config_state.get().await.providers["ci-b"].name.as_deref(),
             Some("CI B2")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_config_file_retries_a_token_the_store_failed_to_save() {
+        let h = Harness::new().await;
+        config_file(&h, &[("ci-a", "CI A", 30)]);
+        h.provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+        let a = provider_id(&h, "ci-a").await.unwrap();
+        let path = h.config_state.config_path();
+        let rotated = std::fs::read_to_string(path)
+            .unwrap()
+            .replace("token-ci-a", "rotated");
+        std::fs::write(path, rotated).unwrap();
+
+        h.token_store.fail_next_store();
+        assert!(h
+            .provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .is_err());
+        assert_eq!(h.stubs.token_of(a).as_deref(), Some("token-ci-a"));
+
+        h.provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+
+        assert_eq!(h.stubs.token_of(a).as_deref(), Some("rotated"));
+        assert_eq!(
+            h.config_state.get().await.providers["ci-a"].token,
+            "rotated"
         );
     }
 

@@ -46,26 +46,37 @@ impl ProviderSyncService {
         let toml_ids: HashSet<String> = toml_providers.keys().cloned().collect();
 
         for (id, toml_provider) in toml_providers {
-            match db_providers.iter().find(|p| p.name == id) {
+            let provider_id = match db_providers.iter().find(|p| p.name == id) {
                 None => {
-                    self.create_from_toml(&id, &toml_provider, config_backend, token_store)
+                    let provider_id = self
+                        .create_from_toml(&id, &toml_provider, config_backend)
                         .await?;
-                    result.added.push(id);
+                    result.added.push(id.clone());
+                    provider_id
                 }
                 Some(db_provider) => {
-                    if self
-                        .update_from_toml(
-                            &id,
-                            &toml_provider,
-                            db_provider,
-                            config_backend,
-                            token_store,
-                        )
+                    let Some(db_id) = db_provider.id else {
+                        continue;
+                    };
+                    if !self
+                        .update_from_toml(&id, &toml_provider, db_provider, config_backend)
                         .await?
                     {
-                        result.updated.push(id);
+                        continue;
                     }
+                    result.updated.push(id.clone());
+                    db_id
                 }
+            };
+
+            if let Err(e) =
+                Self::store_resolved_token(provider_id, &toml_provider.token, token_store).await
+            {
+                tracing::warn!(
+                    provider = %id,
+                    error = %e,
+                    "Failed to store resolved token - provider may not work until token is re-added"
+                );
             }
         }
 
@@ -90,12 +101,10 @@ impl ProviderSyncService {
 
     pub(crate) async fn create_from_toml(
         &self, key: &str, toml_provider: &ProviderFileConfig, config_backend: &dyn ConfigBackend,
-        token_store: &dyn TokenStore,
     ) -> DomainResult<i64> {
         let provider_config =
             Self::provider_config(key, toml_provider, toml_provider.token.clone());
         let id = config_backend.create_provider(&provider_config).await?;
-        Self::store_resolved_token(key, id, &toml_provider.token, token_store).await;
 
         tracing::info!(provider = %key, "Synced provider from TOML to database (new)");
         Ok(id)
@@ -103,7 +112,7 @@ impl ProviderSyncService {
 
     pub(crate) async fn update_from_toml(
         &self, key: &str, toml_provider: &ProviderFileConfig, db_provider: &ProviderConfig,
-        config_backend: &dyn ConfigBackend, token_store: &dyn TokenStore,
+        config_backend: &dyn ConfigBackend,
     ) -> DomainResult<bool> {
         let Some(db_id) = db_provider.id else {
             return Ok(false);
@@ -120,24 +129,17 @@ impl ProviderSyncService {
         config_backend
             .update_provider(db_id, &provider_config)
             .await?;
-        Self::store_resolved_token(key, db_id, &toml_provider.token, token_store).await;
 
         tracing::info!(provider = %key, "Synced provider from TOML to database (updated)");
         Ok(true)
     }
 
-    async fn store_resolved_token(
-        key: &str, id: i64, token_ref: &str, token_store: &dyn TokenStore,
-    ) {
-        let Some(resolved_token) = Self::resolve_token_ref(token_ref) else {
-            return;
-        };
-        if let Err(e) = token_store.store_token(id, &resolved_token).await {
-            tracing::warn!(
-                provider = %key,
-                error = %e,
-                "Failed to store resolved token - provider may not work until token is re-added"
-            );
+    pub(crate) async fn store_resolved_token(
+        id: i64, token_ref: &str, token_store: &dyn TokenStore,
+    ) -> DomainResult<()> {
+        match Self::resolve_token_ref(token_ref) {
+            Some(resolved_token) => token_store.store_token(id, &resolved_token).await,
+            None => Ok(()),
         }
     }
 
