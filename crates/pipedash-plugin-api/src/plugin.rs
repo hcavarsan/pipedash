@@ -165,6 +165,12 @@ pub trait Plugin: Send + Sync {
         ))
     }
 
+    async fn rerun_failed_jobs(&self, _pipeline_id: &str, _run_number: i64) -> PluginResult<()> {
+        Err(crate::error::PluginError::NotSupported(
+            "Re-running failed jobs not supported by this provider".to_string(),
+        ))
+    }
+
     async fn fetch_workflow_parameters(
         &self, _workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {

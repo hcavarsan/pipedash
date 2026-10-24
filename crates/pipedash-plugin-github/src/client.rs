@@ -636,6 +636,22 @@ impl GitHubClient {
         Ok(())
     }
 
+    pub async fn rerun_failed_jobs(
+        &self, owner: &str, repo: &str, run_id: u64,
+    ) -> PluginResult<()> {
+        debug!("Re-running failed jobs of run {run_id} for {owner}/{repo}");
+
+        let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs");
+
+        let _: serde_json::Value = self
+            .octocrab
+            .post(url, None::<&()>)
+            .await
+            .map_err(|e| map_octocrab_error("Failed to re-run failed jobs", e))?;
+
+        Ok(())
+    }
+
     pub async fn review_pending_deployments(
         &self, owner: &str, repo: &str, run_id: u64, run_number: i64, decision: ReviewDecision,
     ) -> PluginResult<()> {
@@ -727,6 +743,12 @@ pub(crate) fn run_to_pipeline_run(run: types::Run, pipeline_id: &str) -> Pipelin
 
     if run.status == "waiting" {
         metadata.insert("awaiting_review".to_string(), serde_json::json!(true));
+    }
+
+    if run.status == "completed"
+        && matches!(run.conclusion.as_deref(), Some("failure" | "timed_out"))
+    {
+        metadata.insert("can_rerun_failed_jobs".to_string(), serde_json::json!(true));
     }
 
     if let Some(owner) = run.repository.owner.as_ref() {

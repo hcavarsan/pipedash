@@ -998,6 +998,24 @@ impl PipelineService {
         Ok(())
     }
 
+    pub async fn rerun_failed_jobs(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
+        let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
+        let pipeline = cached_pipelines
+            .iter()
+            .find(|p| p.id == pipeline_id)
+            .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+
+        let provider = self
+            .provider_service
+            .get_provider(pipeline.provider_id)
+            .await?;
+        provider.rerun_failed_jobs(pipeline_id, run_number).await?;
+
+        self.invalidate_run_cache(pipeline_id).await;
+
+        Ok(())
+    }
+
     pub async fn clear_run_history_cache(&self, pipeline_id: &str) {
         let _ = self.repository.clear_cached_run_history(pipeline_id).await;
     }

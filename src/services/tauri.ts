@@ -331,6 +331,13 @@ export const tauriService = {
     })
   },
 
+  rerunFailedJobs: async (pipelineId: string, runNumber: number): Promise<void> => {
+    return invoke<void>('rerun_failed_jobs', {
+      pipelineId,
+      runNumber,
+    })
+  },
+
   openUrl: async (url: string): Promise<void> => {
     await openUrl(url)
   },

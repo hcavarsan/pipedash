@@ -360,6 +360,10 @@ class ApiClient {
     await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/review`, { decision })
   }
 
+  async rerunFailedJobs(pipelineId: string, runNumber: number): Promise<void> {
+    await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/rerun-failed-jobs`)
+  }
+
   async openUrl(url: string): Promise<void> {
     window.open(url, '_blank', 'noopener,noreferrer')
   }

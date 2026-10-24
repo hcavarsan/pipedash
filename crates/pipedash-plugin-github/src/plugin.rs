@@ -34,6 +34,7 @@ mod permission_mapping {
         ("monitor_status", "Actions (Read)"),
         ("trigger_dispatch", "Actions (Write)"),
         ("cancel_workflows", "Actions (Write)"),
+        ("rerun_failed_jobs", "Actions (Write)"),
         ("access_org_repos", "Organization members and teams (Read)"),
     ];
 
@@ -467,6 +468,31 @@ impl Plugin for GitHubPlugin {
             .await
     }
 
+    async fn rerun_failed_jobs(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
+        let parts: Vec<&str> = pipeline_id.split("__").collect();
+        if parts.len() != 5 {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid pipeline ID format: {} (expected 5 parts, got {})",
+                pipeline_id,
+                parts.len()
+            )));
+        }
+
+        let owner = parts[2];
+        let repo = parts[3];
+        let workflow_id_str = parts[4];
+        let workflow_id: u64 = workflow_id_str.parse().map_err(|_| {
+            PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id_str}"))
+        })?;
+
+        let client = self.client()?;
+        let run = client
+            .fetch_run_by_number(owner, repo, workflow_id, run_number)
+            .await?;
+
+        client.rerun_failed_jobs(owner, repo, run.id.0).await
+    }
+
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
         let client = self.client()?;
         client.check_token_permissions().await
@@ -755,6 +781,103 @@ mod tests {
             Some(&serde_json::json!(true))
         );
         server.abort();
+    }
+
+    fn finished_run(
+        id: u64, run_number: i64, status: &str, conclusion: Option<&str>,
+    ) -> serde_json::Value {
+        let mut run = waiting_run();
+        run["id"] = serde_json::json!(id);
+        run["run_number"] = serde_json::json!(run_number);
+        run["status"] = serde_json::json!(status);
+        run["conclusion"] = serde_json::json!(conclusion);
+        run
+    }
+
+    async fn stub_failed_runs(
+        rerun_reply: fn() -> Reply,
+    ) -> (GitHubPlugin, Recorded, tokio::task::JoinHandle<()>) {
+        serve(&[], move |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => ok(serde_json::json!({
+                "total_count": 2,
+                "workflow_runs": [
+                    finished_run(9002, 8, "completed", Some("failure")),
+                    finished_run(9001, 7, "completed", Some("failure")),
+                ]
+            })),
+            ("POST", "/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs") => rerun_reply(),
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn rerun_failed_jobs_posts_for_the_run_with_that_number() {
+        let (plugin, recorded, server) = stub_failed_runs(|| Reply {
+            status: 201,
+            headers: Vec::new(),
+            body: serde_json::json!({}),
+        })
+        .await;
+
+        plugin.rerun_failed_jobs(PIPELINE_ID, 7).await.unwrap();
+
+        let posted: Vec<String> = recorded
+            .lock()
+            .await
+            .iter()
+            .filter(|(method, _, _)| method == "POST")
+            .map(|(_, path, _)| path.clone())
+            .collect();
+        assert_eq!(
+            posted,
+            ["/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs"]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn rerun_failed_jobs_returns_the_github_refusal() {
+        let (plugin, _recorded, server) = stub_failed_runs(|| {
+            failure(
+                403,
+                "Unable to retry this workflow run because it was created over a month ago",
+                &[],
+            )
+        })
+        .await;
+
+        let error = plugin.rerun_failed_jobs(PIPELINE_ID, 7).await.unwrap_err();
+
+        assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
+        assert!(error.to_string().contains("over a month ago"), "{error}");
+        server.abort();
+    }
+
+    #[test]
+    fn only_failed_and_timed_out_runs_offer_a_failed_jobs_rerun() {
+        let cases = [
+            ("completed", Some("failure"), true),
+            ("completed", Some("timed_out"), true),
+            ("completed", Some("success"), false),
+            ("completed", Some("cancelled"), false),
+            ("completed", Some("startup_failure"), false),
+            ("completed", Some("action_required"), false),
+            ("in_progress", None, false),
+            ("waiting", None, false),
+        ];
+        for (status, conclusion, expected) in cases {
+            let run: crate::types::Run =
+                serde_json::from_value(finished_run(9001, 7, status, conclusion)).unwrap();
+
+            let run = client::run_to_pipeline_run(run, PIPELINE_ID);
+
+            assert_eq!(
+                run.metadata.get("can_rerun_failed_jobs") == Some(&serde_json::json!(true)),
+                expected,
+                "{status} {conclusion:?}"
+            );
+        }
     }
 
     fn failure(status: u16, message: &str, headers: &[(&'static str, &'static str)]) -> Reply {

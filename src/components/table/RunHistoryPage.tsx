@@ -24,6 +24,7 @@ import {
   IconGitBranch,
   IconHistory,
   IconRefresh,
+  IconRefreshAlert,
   IconSquare,
   IconUser,
   IconX,
@@ -72,6 +73,7 @@ interface RunHistoryPageProps {
   onRerun?: (pipeline: Pipeline, run: PipelineRun) => void
   onCancel?: (pipeline: Pipeline, run: PipelineRun) => void
   onReview?: (pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => Promise<void>
+  onRerunFailedJobs?: (pipeline: Pipeline, run: PipelineRun) => Promise<void>
   refreshTrigger?: number
   onLoadingChange?: (loading: boolean) => void
   initialTab?: 'history' | 'metrics'
@@ -101,6 +103,7 @@ export const RunHistoryPage = ({
   onRerun,
   onCancel,
   onReview,
+  onRerunFailedJobs,
   refreshTrigger,
   onLoadingChange,
   initialTab = 'history',
@@ -115,6 +118,7 @@ export const RunHistoryPage = ({
 
   const [cancellingRunNumber, setCancellingRunNumber] = useState<number | null>(null)
   const [reviewingRunNumber, setReviewingRunNumber] = useState<number | null>(null)
+  const [rerunningFailedRunNumber, setRerunningFailedRunNumber] = useState<number | null>(null)
   const { data: runsTable } = useTableDefinition(pipeline?.provider_id ?? 0, 'pipeline_runs')
   const defaultSortStatus = useMemo<DataTableSortStatus<PipelineRun>>(
     () => ({
@@ -277,6 +281,20 @@ export const RunHistoryPage = ({
     [onReview]
   )
 
+  const handleRerunFailedJobs = useCallback(
+    async (pipeline: Pipeline, run: PipelineRun) => {
+      setRerunningFailedRunNumber(run.run_number)
+      try {
+        if (onRerunFailedJobs) {
+          await onRerunFailedJobs(pipeline, run)
+        }
+      } finally {
+        setRerunningFailedRunNumber(null)
+      }
+    },
+    [onRerunFailedJobs]
+  )
+
   const rerunLoading = useModalStore((s) => s.rerunLoading)
 
   const renderRunActions = useCallback(
@@ -299,6 +317,10 @@ export const RunHistoryPage = ({
       const isReviewing = reviewingRunNumber === run.run_number
       const approveLabel = `Approve deployment review for run #${run.run_number}`
       const rejectLabel = `Reject deployment review for run #${run.run_number}`
+      const canRerunFailedJobs = run.metadata?.can_rerun_failed_jobs === true
+      const isRerunFailedBusy = rerunningFailedRunNumber !== null
+      const isRerunningFailed = rerunningFailedRunNumber === run.run_number
+      const rerunFailedLabel = `Re-run failed jobs of run #${run.run_number}`
 
       return (
         <Group gap="xs" wrap="nowrap" justify="flex-end">
@@ -371,6 +393,23 @@ export const RunHistoryPage = ({
                   <IconRefresh size={16} />
                 </ActionIcon>
               )}
+          {!isActive && canRerunFailedJobs && onRerunFailedJobs && (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="md"
+              title={rerunFailedLabel}
+              aria-label={rerunFailedLabel}
+              loading={isRerunningFailed}
+              disabled={isRerunFailedBusy}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleRerunFailedJobs(pipeline, run)
+              }}
+            >
+              <IconRefreshAlert size={16} />
+            </ActionIcon>
+          )}
           {withDetails && (
             <ActionIcon
               variant="subtle"
@@ -393,13 +432,16 @@ export const RunHistoryPage = ({
       cancellingRunNumber,
       handleCancelRun,
       handleReviewRun,
+      handleRerunFailedJobs,
       onCancel,
       onRerun,
+      onRerunFailedJobs,
       onReview,
       onViewRun,
       pipeline,
       rerunLoading,
       reviewingRunNumber,
+      rerunningFailedRunNumber,
       isFlux,
       labels.run,
     ]

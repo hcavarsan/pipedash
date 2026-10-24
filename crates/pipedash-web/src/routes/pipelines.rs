@@ -79,6 +79,10 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/trigger", post(trigger_pipeline))
         .route("/{id}/runs/{run_number}/cancel", post(cancel_run))
         .route("/{id}/runs/{run_number}/review", post(review_run))
+        .route(
+            "/{id}/runs/{run_number}/rerun-failed-jobs",
+            post(rerun_failed_jobs),
+        )
         .route("/{id}/workflow-params", get(get_workflow_parameters))
 }
 
@@ -150,6 +154,16 @@ async fn review_run(
     let pipeline_service = state.pipeline_service().await?;
     pipeline_service
         .review_run(&pipeline_id, run_number, request.decision)
+        .await?;
+    Ok(())
+}
+
+async fn rerun_failed_jobs(
+    State(state): State<AppState>, Path((pipeline_id, run_number)): Path<(String, i64)>,
+) -> ApiResult<()> {
+    let pipeline_service = state.pipeline_service().await?;
+    pipeline_service
+        .rerun_failed_jobs(&pipeline_id, run_number)
         .await?;
     Ok(())
 }

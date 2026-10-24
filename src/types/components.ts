@@ -13,4 +13,5 @@ export interface PipelineComponentProps {
   onRerun?: (pipeline: Pipeline, run: PipelineRun) => void
   onCancel?: (pipeline: Pipeline, run: PipelineRun) => void
   onReview?: (pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => Promise<void>
+  onRerunFailedJobs?: (pipeline: Pipeline, run: PipelineRun) => Promise<void>
 }
