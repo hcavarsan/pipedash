@@ -13,7 +13,9 @@ members = [
   "crates/pipedash-plugin-gitlab",
   "crates/pipedash-plugin-jenkins",
   "crates/pipedash-plugin-tekton",
+  "crates/pipedash-push-relay",
   "crates/pipedash-web",
+  "crates/tauri-plugin-pipedash-push",
 ]
 
 [workspace.package]
@@ -69,6 +71,7 @@ reqwest = { version = "0.13", default-features = false, features = [
   "json",
   "rustls-no-provider",
 ] }
+ring = "0.17"
 rust-embed = "8.13"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 secrecy = "0.10"
@@ -87,11 +90,13 @@ sqlx = { version = "0.9", features = [
 subtle = "2.6"
 tauri = "2"
 tauri-build = "2"
+tauri-plugin-biometric = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-os = "2"
+tauri-plugin-pipedash-push = { path = "crates/tauri-plugin-pipedash-push" }
 tempfile = "3.27"
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }

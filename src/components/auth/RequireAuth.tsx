@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useVaultStatus } from '../../queries/useVaultQueries'
 import { isTauri } from '../../services'
 import { useAuthStore } from '../../stores/authStore'
+import { needsUnlock as vaultNeedsUnlock } from '../../utils/appLock'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 
@@ -21,13 +22,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
 
   const { data: vaultStatus, isLoading: isLoadingVault, isError, error, refetch, isRefetching } = useVaultStatus()
 
-  const requiresPassword = vaultStatus?.requires_password ?? false
-  const isVaultUnlocked = vaultStatus?.is_unlocked ?? false
-
-  // Determine if we need to redirect to unlock
-  // Desktop (Tauri): Only check vault status - keyring/IPC handles auth, no Bearer token needed
-  // Web: Also require isAuthenticated because API requests need Bearer token in localStorage
-  const needsUnlock = requiresPassword && (isTauri() ? !isVaultUnlocked : !isVaultUnlocked || !isAuthenticated)
+  const needsUnlock = vaultStatus ? vaultNeedsUnlock(vaultStatus, isTauri(), isAuthenticated) : false
 
   useEffect(() => {
     if (!isLoadingVault && needsUnlock) {

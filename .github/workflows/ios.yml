@@ -22,7 +22,7 @@ concurrency:
 jobs:
   ios:
     name: Build and upload iOS app
-    runs-on: macos-latest
+    runs-on: macos-26
     environment: app-store
     permissions:
       contents: read # checkout the repository
@@ -32,39 +32,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install mise
-        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+      - name: Set up iOS build
+        uses: $/.github/actions/setup-ios
         with:
-          install: false
-          cache: false
-
-      - name: Install mise tools
-        run: mise install
-
-      - name: Install dependencies
-        run: mise run install
-
-      - name: Install Ruby
-        uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1.335.0
-        with:
-          ruby-version: "3.4"
-          working-directory: ios
-
-      - name: Install fastlane
-        working-directory: ios
-        run: bundle install
-
-      - name: Install iOS toolchain
-        run: |
-          rustup target add aarch64-apple-ios
-          brew install xcodegen
-
-      - name: Generate Xcode project
-        env:
-          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          bun run tauri ios init --ci
-          bun run tauri icon crates/pipedash-desktop/icons/icon.png
+          rust-targets: aarch64-apple-ios
 
       - name: Configure match deploy key
         env:
@@ -84,5 +55,8 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          APP_REVIEW_DEMO_TOKEN: ${{ secrets.APP_REVIEW_DEMO_TOKEN }}
+          APP_REVIEW_DEMO_REPOSITORY: ${{ vars.APP_REVIEW_DEMO_REPOSITORY }}
+          PIPEDASH_PUSH_RELAY_URL: ${{ vars.PIPEDASH_PUSH_RELAY_URL }}
         working-directory: ios
         run: bundle exec fastlane ios "$LANE"

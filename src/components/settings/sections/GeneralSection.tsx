@@ -12,7 +12,6 @@ import {
   Title,
   useMantineColorScheme,
 } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
 import { IconTrash } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
@@ -21,10 +20,8 @@ import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { useStorageConfig } from '@/queries/useStorageQueries'
 import { service } from '@/services'
-import { useNotificationStore } from '@/stores/notificationStore'
 import { displayErrorNotification } from '@/utils/errorDisplay'
-import { getPlatformOverride, platform, setPlatformOverride } from '@/utils/platform'
-import { requestSystemNotificationPermission, systemNotificationsSupported } from '@/utils/systemNotifications'
+import { getPlatformOverride, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
 
 import { useFactoryResetConfirm } from '../useFactoryResetConfirm'
 
@@ -46,11 +43,6 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
     setPlatformOverrideState(null)
     await onRefresh?.()
   })
-  const failureNotificationsEnabled = useNotificationStore((s) => s.failureNotificationsEnabled)
-  const setFailureNotificationsEnabled = useNotificationStore((s) => s.setFailureNotificationsEnabled)
-  const providerAlertsEnabled = useNotificationStore((s) => s.providerAlertsEnabled)
-  const setProviderAlertsEnabled = useNotificationStore((s) => s.setProviderAlertsEnabled)
-  const notificationsSupported = systemNotificationsSupported()
 
   const queryClient = useQueryClient()
   const general = useStorageConfig().data?.config.general
@@ -94,26 +86,6 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
     setPlatformOverrideState(value)
   }
 
-  const handleNotificationToggle = async (enabled: boolean, setEnabled: (enabled: boolean) => void) => {
-    if (!enabled) {
-      setEnabled(false)
-
-      return
-    }
-
-    if (!(await requestSystemNotificationPermission())) {
-      notifications.show({
-        title: 'Notifications blocked',
-        message: 'Allow notifications for Pipedash in your browser or system settings, then turn this on again.',
-        color: 'orange',
-      })
-
-      return
-    }
-
-    setEnabled(true)
-  }
-
   return (
     <>
       <Title order={2} size="lg" fw={600} mb="lg">
@@ -135,35 +107,25 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
 
             <Divider />
 
-            <Select
-              label="Platform"
-              description={`Detected: ${currentPlatform}`}
-              placeholder="Auto-detect"
-              data={[
-                { value: '', label: 'Auto-detect' },
-                { value: 'macos', label: 'macOS' },
-                { value: 'windows', label: 'Windows' },
-                { value: 'linux', label: 'Linux' },
-              ]}
-              value={platformOverride || ''}
-              onChange={handlePlatformChange}
-            />
+            {!isMobilePlatform() && (
+              <>
+                <Select
+                  label="Platform"
+                  description={`Detected: ${currentPlatform}`}
+                  placeholder="Auto-detect"
+                  data={[
+                    { value: '', label: 'Auto-detect' },
+                    { value: 'macos', label: 'macOS' },
+                    { value: 'windows', label: 'Windows' },
+                    { value: 'linux', label: 'Linux' },
+                  ]}
+                  value={platformOverride || ''}
+                  onChange={handlePlatformChange}
+                />
 
-            <Divider />
-
-            <Switch
-              label="Notify when a pipeline fails"
-              description={
-                notificationsSupported
-                  ? 'Show a system notification when a refresh finds a pipeline that just failed.'
-                  : 'Browsers allow notifications only over HTTPS or on localhost.'
-              }
-              checked={notificationsSupported && failureNotificationsEnabled}
-              onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setFailureNotificationsEnabled)}
-              disabled={!notificationsSupported}
-            />
-
-            <Divider />
+                <Divider />
+              </>
+            )}
 
             <Switch
               label="Check provider status pages"
@@ -171,20 +133,6 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
               checked={statusPagesChecked}
               onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
               disabled={!general}
-            />
-
-            <Divider />
-
-            <Switch
-              label="Notify me about provider outages"
-              description={
-                notificationsSupported
-                  ? 'Show a system notification when a provider reports an outage or recovers.'
-                  : 'Browsers allow notifications only over HTTPS or on localhost.'
-              }
-              checked={notificationsSupported && providerAlertsEnabled}
-              onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setProviderAlertsEnabled)}
-              disabled={!notificationsSupported}
             />
           </Stack>
         </Card>

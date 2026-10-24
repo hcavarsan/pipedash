@@ -18,7 +18,6 @@ import { IconAlertTriangle, IconEdit, IconPinFilled, IconPlus, IconStack2, IconT
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
-import { useIsMobile } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { useProviderDetails } from '../../queries/useProviderDetailsQuery'
 import { useAddProvider, useProviders, useRemoveProvider, useUpdateProvider } from '../../queries/useProvidersQueries'
@@ -76,8 +75,6 @@ const ProviderStatusLine = ({ provider }: { provider: ProviderSummary }) => {
 }
 
 export const Navbar = ({ compact = false }: NavbarProps) => {
-  const { isMobile } = useIsMobile()
-
   const { pathname } = useLocation()
   const [searchParams] = useSearchParams()
   const pinnedActive = pathname === '/pipelines' && searchParams.get('view') === 'pinned'
@@ -317,10 +314,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
       {content}
 
       <Divider />
-      <Box
-        p={compact ? 'sm' : 'md'}
-        pb={isMobile ? 'calc(var(--mantine-spacing-md) + env(safe-area-inset-bottom))' : undefined}
-      >
+      <Box p={compact ? 'sm' : 'md'} pb={`calc(var(--mantine-spacing-${compact ? 'sm' : 'md'}) + var(--safe-bottom))`}>
         {compact ? (
           <Center>
             <Tooltip label="Add provider" position="right">

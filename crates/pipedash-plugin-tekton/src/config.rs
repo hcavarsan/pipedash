@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fmt,
+};
 
 use pipedash_plugin_api::{
     PluginError,
@@ -61,6 +64,35 @@ pub(crate) fn get_kubeconfig_path(config: &HashMap<String, String>) -> Option<St
         .get("kubeconfig_path")
         .filter(|path| !path.trim().is_empty())
         .map(|path| expand_path(path))
+}
+
+// "token" is the one config key the app stores in the encrypted vault instead
+// of the config table.
+pub(crate) const KUBECONFIG_CONTENT_KEY: &str = "token";
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) enum KubeconfigSource {
+    Content(String),
+    Path(Option<String>),
+}
+
+impl fmt::Debug for KubeconfigSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Content(_) => f.write_str("Content(<redacted>)"),
+            Self::Path(path) => f.debug_tuple("Path").field(path).finish(),
+        }
+    }
+}
+
+pub(crate) fn get_kubeconfig_source(config: &HashMap<String, String>) -> KubeconfigSource {
+    match config
+        .get(KUBECONFIG_CONTENT_KEY)
+        .filter(|content| !content.trim().is_empty())
+    {
+        Some(content) => KubeconfigSource::Content(content.clone()),
+        None => KubeconfigSource::Path(get_kubeconfig_path(config)),
+    }
 }
 
 pub(crate) fn get_context(config: &HashMap<String, String>) -> Option<String> {
@@ -161,5 +193,55 @@ mod tests {
     fn test_parse_invalid_pipeline_id() {
         let id = "invalid__1__namespace__pipeline";
         assert!(parse_pipeline_id(id).is_err());
+    }
+
+    fn config(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn kubeconfig_content_is_parsed_from_config() {
+        let source = get_kubeconfig_source(&config(&[("token", "apiVersion: v1\nkind: Config\n")]));
+
+        assert_eq!(
+            source,
+            KubeconfigSource::Content("apiVersion: v1\nkind: Config\n".to_string())
+        );
+    }
+
+    #[test]
+    fn kubeconfig_content_wins_over_the_path() {
+        let source = get_kubeconfig_source(&config(&[
+            ("kubeconfig_path", "/home/me/.kube/config"),
+            ("token", "apiVersion: v1"),
+        ]));
+
+        assert_eq!(
+            source,
+            KubeconfigSource::Content("apiVersion: v1".to_string())
+        );
+    }
+
+    #[test]
+    fn blank_content_falls_back_to_the_path() {
+        let source = get_kubeconfig_source(&config(&[
+            ("kubeconfig_path", "/home/me/.kube/config"),
+            ("token", "  \n "),
+        ]));
+
+        assert_eq!(
+            source,
+            KubeconfigSource::Path(Some("/home/me/.kube/config".to_string()))
+        );
+    }
+
+    #[test]
+    fn kubeconfig_content_is_never_printed() {
+        let source = get_kubeconfig_source(&config(&[("token", "token: s3cr3t-value")]));
+
+        assert!(!format!("{source:?}").contains("s3cr3t-value"));
     }
 }

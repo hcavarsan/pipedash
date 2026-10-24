@@ -1,6 +1,7 @@
 import { Alert, Card, Code, Group, Stack, Text, Tooltip } from '@mantine/core'
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react'
 
+import { isMobilePlatform } from '../../../utils/platform'
 import { CopyButton } from '../../atoms/CopyButton'
 import { STORAGE_BACKEND_LABELS } from '../../settings/storageLabels'
 
@@ -26,6 +27,8 @@ export function ConfirmStep({
   error,
   vaultStatus,
 }: ConfirmStepProps) {
+  const onDevice = isMobilePlatform()
+
   const truncatePath = (path: string): string => {
     const segments = path.split('/')
 
@@ -69,7 +72,7 @@ export function ConfirmStep({
               </Group>
             )}
 
-            {state.backend === 'sqlite' && (
+            {state.backend === 'sqlite' && !onDevice && (
               <Group justify="space-between" wrap="nowrap" gap="xs">
                 <Text size="sm" c="dimmed" miw={LABEL_WIDTH} style={{ flexShrink: 0 }}>
                   Data directory
@@ -90,11 +93,11 @@ export function ConfirmStep({
                 Credentials
               </Text>
               <Text size="sm" fw={500}>
-                Encrypted storage
+                {onDevice ? 'Device Keychain' : 'Encrypted storage'}
               </Text>
             </Group>
 
-            {!vaultPasswordFromEnv && (
+            {!vaultPasswordFromEnv && !onDevice && (
               <Group justify="space-between" wrap="nowrap" gap="xs">
                 <Text size="sm" c="dimmed" miw={LABEL_WIDTH} style={{ flexShrink: 0 }}>
                   Vault password

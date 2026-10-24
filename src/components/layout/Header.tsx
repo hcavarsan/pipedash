@@ -8,7 +8,7 @@ import {
   IconRefresh,
   IconSettings,
 } from '@tabler/icons-react'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -16,8 +16,8 @@ import { useRefresh } from '../../hooks/useRefresh'
 import { logger } from '../../lib/logger'
 import { useRefreshAll } from '../../queries/useRefreshQueries'
 import { useLockVault, useVaultStatus } from '../../queries/useVaultQueries'
-import { isTauri } from '../../services'
-import { platform } from '../../utils/platform'
+import { lockMeansSomething } from '../../utils/appLock'
+import { isDesktopTauri, platform } from '../../utils/platform'
 import { AppLogo } from '../atoms/AppLogo'
 import { ConnectionStatus } from '../common/ConnectionStatus'
 import { WindowControls } from '../common/WindowControls'
@@ -38,10 +38,10 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
   const { data: vaultStatus } = useVaultStatus()
   const lockMutation = useLockVault()
   const isVaultUnlocked = vaultStatus?.is_unlocked ?? false
-  const requiresPassword = vaultStatus?.requires_password ?? false
-  const canLock = isVaultUnlocked && requiresPassword
+  const showLock = vaultStatus ? lockMeansSomething(vaultStatus) : false
+  const canLock = isVaultUnlocked && showLock
 
-  const isRunningInTauri = useMemo(() => isTauri(), [])
+  const showWindowChrome = isDesktopTauri()
 
   useEffect(() => {
     let isMounted = true
@@ -104,11 +104,11 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
         h="100%"
         gap={0}
         wrap="nowrap"
-        data-tauri-drag-region
-        pt={isMobile ? 'env(safe-area-inset-top)' : 0}
+        data-tauri-drag-region={showWindowChrome || undefined}
+        pt="var(--safe-top)"
         style={{ WebkitUserSelect: 'none', position: 'relative' }}
       >
-        {isRunningInTauri && isMacOS && !isMobile && (
+        {showWindowChrome && isMacOS && (
           <Group gap={0} wrap="nowrap" h="100%">
             <WindowControls />
             <Divider orientation="vertical" mx="xs" h="50%" />
@@ -132,7 +132,7 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
           </Group>
 
           <Group gap="sm" wrap="nowrap">
-            {requiresPassword && (
+            {showLock && (
               <Tooltip
                 label={
                   canLock ? (
@@ -185,7 +185,7 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
           </Group>
         </Group>
 
-        {isRunningInTauri && !isMacOS && !isMobile && (
+        {showWindowChrome && !isMacOS && (
           <Group gap={0} wrap="nowrap" h="100%">
             <Divider orientation="vertical" mx="sm" h="50%" />
             <WindowControls />

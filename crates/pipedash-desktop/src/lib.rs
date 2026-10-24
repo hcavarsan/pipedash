@@ -1,6 +1,11 @@
+mod app_lock;
 mod commands;
+mod core_boot;
+mod credential;
+mod export_file;
 pub mod fallback_store;
 pub mod keyring_store;
+mod push;
 mod system_notifications;
 pub mod tauri_event_bus;
 
@@ -90,101 +95,9 @@ fn ensure_desktop_config(app_data_dir: &Path, config_path: &Path) -> Result<bool
     Ok(true)
 }
 
-#[derive(Default)]
-struct BackupInfo {
-    main_db_backup: Option<PathBuf>,
-    main_db_original: Option<PathBuf>,
-    metrics_db_backup: Option<PathBuf>,
-    metrics_db_original: Option<PathBuf>,
-}
-
-fn is_database_corruption_error(error_msg: &str) -> bool {
-    let msg = error_msg.to_lowercase();
-    msg.contains("corrupt")
-        || msg.contains("malformed")
-        || msg.contains("database disk image")
-        || msg.contains("file is not a database")
-        || msg.contains("database is locked") && msg.contains("timeout")
-        || msg.contains("unable to open database")
-}
-
-fn reset_corrupted_databases(app_data_dir: &Path) -> Result<BackupInfo, String> {
-    let db_path = app_data_dir.join("pipedash.db");
-    let metrics_db_path = app_data_dir.join("metrics.db");
-
-    let backup_dir = app_data_dir.join("corrupt_backups");
-    std::fs::create_dir_all(&backup_dir)
-        .map_err(|e| format!("Failed to create backup directory: {}", e))?;
-
-    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-    let mut backup_info = BackupInfo::default();
-
-    if db_path.exists() {
-        let backup_name = format!("pipedash_{}.db.corrupt", timestamp);
-        let backup_path = backup_dir.join(&backup_name);
-        if let Err(e) = std::fs::rename(&db_path, &backup_path) {
-            tracing::warn!("Could not backup main db: {}. Removing directly.", e);
-            std::fs::remove_file(&db_path)
-                .map_err(|e| format!("Failed to remove corrupted main db: {}", e))?;
-        } else {
-            tracing::info!("Backed up main db to: {}", backup_name);
-            backup_info.main_db_backup = Some(backup_path);
-            backup_info.main_db_original = Some(db_path.clone());
-        }
-    }
-
-    if metrics_db_path.exists() {
-        let backup_name = format!("metrics_{}.db.corrupt", timestamp);
-        let backup_path = backup_dir.join(&backup_name);
-        if let Err(e) = std::fs::rename(&metrics_db_path, &backup_path) {
-            tracing::warn!("Could not backup metrics db: {}. Removing directly.", e);
-            std::fs::remove_file(&metrics_db_path)
-                .map_err(|e| format!("Failed to remove corrupted metrics db: {}", e))?;
-        } else {
-            tracing::info!("Backed up metrics db to: {}", backup_name);
-            backup_info.metrics_db_backup = Some(backup_path);
-            backup_info.metrics_db_original = Some(metrics_db_path.clone());
-        }
-    }
-
-    Ok(backup_info)
-}
-
-fn restore_database_backups(backup_info: &BackupInfo) -> Result<(), String> {
-    let mut restored = false;
-
-    if let (Some(backup), Some(original)) =
-        (&backup_info.main_db_backup, &backup_info.main_db_original)
-    {
-        if backup.exists() && !original.exists() {
-            std::fs::rename(backup, original)
-                .map_err(|e| format!("Failed to restore main db from backup: {}", e))?;
-            tracing::info!("Restored main database from backup");
-            restored = true;
-        }
-    }
-
-    if let (Some(backup), Some(original)) = (
-        &backup_info.metrics_db_backup,
-        &backup_info.metrics_db_original,
-    ) {
-        if backup.exists() && !original.exists() {
-            std::fs::rename(backup, original)
-                .map_err(|e| format!("Failed to restore metrics db from backup: {}", e))?;
-            tracing::info!("Restored metrics database from backup");
-            restored = true;
-        }
-    }
-
-    if restored {
-        tracing::info!("Databases restored to original state");
-    }
-
-    Ok(())
-}
-
 pub struct AppDataDir(pub PathBuf);
 
+#[derive(Default)]
 pub struct MaybeCoreContext(pub Arc<tokio::sync::RwLock<Option<Arc<CoreContext>>>>);
 
 impl MaybeCoreContext {
@@ -197,6 +110,11 @@ impl MaybeCoreContext {
     }
 }
 
+use app_lock::{
+    set_app_lock,
+    unlock_with_biometrics,
+    AppLockState,
+};
 use commands::{
     add_provider,
     analyze_config,
@@ -269,9 +187,14 @@ use commands::{
     validate_provider_credentials,
     validate_storage_config,
 };
-use fallback_store::FallbackTokenStore;
-use keyring_store::KeyringTokenStore;
-use tauri_event_bus::create_tauri_event_bus;
+use core_boot::BootKind;
+use export_file::save_export_file;
+use push::{
+    get_push_status,
+    push_pair_server,
+    push_send_test,
+    push_unpair_server,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -281,12 +204,24 @@ pub fn run() {
 
     pipedash_core::logging::init();
 
-    tauri::Builder::default()
+    if let Err(e) = credential::init() {
+        tracing::error!("Failed to initialize the credential store: {}", e);
+    }
+
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_pipedash_push::init());
+
+    #[cfg(mobile)]
+    let builder = builder
+        .plugin(tauri_plugin_biometric::init())
+        .on_window_event(app_lock::handle_window_event);
+
+    builder
         .setup(|app| {
             let app_data_dir = match app.path().app_data_dir() {
                 Ok(dir) => dir,
@@ -300,17 +235,16 @@ pub fn run() {
 
             if let Err(e) = std::fs::create_dir_all(&app_data_dir) {
                 tracing::error!("Failed to create app data directory: {}", e);
-                return Err(format!("Cannot create data directory: {}. Please check permissions.", e).into());
+                return Err(format!(
+                    "Cannot create data directory: {}. Please check permissions.",
+                    e
+                )
+                .into());
             }
 
             let config_path = app_data_dir.join("config.toml");
             std::env::set_var("PIPEDASH_CONFIG_PATH", config_path.as_os_str());
-            tracing::info!(
-                "Set PIPEDASH_CONFIG_PATH to: {}",
-                config_path.display()
-            );
-
-            let maybe_core_context = Arc::new(tokio::sync::RwLock::new(None));
+            tracing::info!("Set PIPEDASH_CONFIG_PATH to: {}", config_path.display());
 
             match ensure_desktop_config(&app_data_dir, &config_path) {
                 Ok(true) => {
@@ -327,229 +261,35 @@ pub fn run() {
                 }
             }
 
-            if config_path.exists() {
-                tracing::info!("Configuration found - initializing application");
+            let setup_complete = config_path.exists();
+            let app_lock = AppLockState::load(&app_data_dir, app_lock::SUPPORTED, setup_complete);
+            let start_locked = app_lock.locked();
 
-                let core_context = tauri::async_runtime::block_on(async {
-                    let config = ConfigLoader::load(&config_path).map_err(|e| {
-                        format!("Failed to load configuration: {}", e)
-                    })?;
+            app.manage(AppDataDir(app_data_dir.clone()));
+            app.manage(MaybeCoreContext::default());
+            app.manage(app_lock);
 
-                    let event_bus = create_tauri_event_bus(app.handle().clone());
-
-                    let vault_password_available = std::env::var("PIPEDASH_VAULT_PASSWORD").is_ok();
-
-                    let db_path = config.data_dir().join("pipedash.db");
-                    let has_encrypted_tokens =
-                        pipedash_core::infrastructure::database::has_encrypted_tokens(&db_path).await;
-
-                    let use_keyring = config.storage.backend.is_sqlite()
-                        && !vault_password_available
-                        && !has_encrypted_tokens;
-
-                    let use_fallback_store = config.storage.backend.is_sqlite() && vault_password_available;
-
-                    let vault_locked = if config.storage.backend.is_sqlite() {
-                        has_encrypted_tokens && !vault_password_available
-                    } else {
-                        !vault_password_available
-                    };
-
-                    if use_keyring {
-                        tracing::info!("Using system keyring for credential storage (desktop SQLite default - no encrypted tokens found)");
-                    } else if vault_locked {
-                        tracing::info!(
-                            "Vault is locked: encrypted tokens found but no password provided. \
-                            Starting in locked mode - UI will prompt for unlock."
-                        );
-                    } else if use_fallback_store {
-                        tracing::info!(
-                            "Using encrypted database with keyring fallback for credential storage \
-                            (migrating tokens from keyring to encrypted storage)"
-                        );
-                    } else if config.storage.backend.is_sqlite() {
-                        tracing::info!("Using encrypted database for credential storage (vault password detected)");
-                    } else {
-                        tracing::info!("Using encrypted database for credential storage (PostgreSQL backend)");
-                    }
-
-                    let create_storage_manager = || async {
-                        if use_keyring {
-                            let token_store: Arc<dyn pipedash_core::infrastructure::TokenStore> =
-                                Arc::new(KeyringTokenStore::new());
-                            pipedash_core::infrastructure::StorageManager::with_token_store(
-                                config.clone(),
-                                token_store,
-                                true
-                            ).await
-                        } else if vault_locked {
-                            tracing::warn!(
-                                "Starting with locked vault - tokens will be inaccessible until unlocked"
-                            );
-                            let token_store: Arc<dyn pipedash_core::infrastructure::TokenStore> =
-                                Arc::new(pipedash_core::infrastructure::secrets::MemoryTokenStore::new());
-                            pipedash_core::infrastructure::StorageManager::with_token_store_locked(
-                                config.clone(),
-                                token_store,
-                                true  // Desktop mode
-                            ).await
-                        } else if use_fallback_store {
-                            use pipedash_core::domain::DomainError;
-                            use pipedash_core::infrastructure::database::init_database;
-                            use pipedash_core::infrastructure::secrets::SqliteTokenStore;
-
-                            let data_dir = config.data_dir();
-                            let db_path = data_dir.join("pipedash.db");
-
-                            let pool = init_database(db_path).await.map_err(|e| {
-                                DomainError::DatabaseError(format!(
-                                    "Failed to initialize SQLite database: {}",
-                                    e
-                                ))
-                            })?;
-
-                            let primary_store: Arc<dyn pipedash_core::infrastructure::TokenStore> =
-                                Arc::new(SqliteTokenStore::new(pool, None).await?);
-
-                            let fallback_store: Arc<dyn pipedash_core::infrastructure::TokenStore> =
-                                Arc::new(KeyringTokenStore::new());
-
-                            let token_store: Arc<dyn pipedash_core::infrastructure::TokenStore> =
-                                Arc::new(FallbackTokenStore::new(primary_store, fallback_store));
-
-                            tracing::info!(
-                                "Created FallbackTokenStore: encrypted SQLite (primary) + keyring (fallback)"
-                            );
-
-                            pipedash_core::infrastructure::StorageManager::with_token_store(
-                                config.clone(),
-                                token_store,
-                                true  // Still desktop mode for other behaviors
-                            ).await
-                        } else {
-                            pipedash_core::infrastructure::StorageManager::from_config_allow_locked(
-                                config.clone(),
-                                false  // Not using desktop keyring mode
-                            ).await
-                        }
-                    };
-
-                    let storage_manager = match create_storage_manager().await {
-                        Ok(mgr) => mgr,
-                        Err(e) => {
-                            let error_msg = e.to_string();
-
-                            if !is_database_corruption_error(&error_msg) {
-                                tracing::error!(
-                                    "StorageManager initialization failed (not database corruption): {}",
-                                    error_msg
-                                );
-                                return Err(format!(
-                                    "Failed to initialize storage: {}. \
-                                    This appears to be a configuration issue, not database corruption. \
-                                    Check your PIPEDASH_VAULT_PASSWORD environment variable.",
-                                    error_msg
-                                ));
-                            }
-
-                            tracing::error!(
-                                "Database corruption detected: {}. Attempting recovery...",
-                                error_msg
-                            );
-
-                            let backup_info = match reset_corrupted_databases(&app_data_dir) {
-                                Ok(info) => info,
-                                Err(reset_err) => {
-                                    tracing::error!("Database backup failed: {}", reset_err);
-                                    return Err(format!(
-                                        "Failed to backup corrupted databases: {}. \
-                                        Original error: {}. \
-                                        Please try deleting the app data directory manually: {:?}",
-                                        reset_err, error_msg, app_data_dir
-                                    ));
-                                }
-                            };
-
-                            tracing::info!("Databases backed up. Retrying initialization...");
-
-                            match create_storage_manager().await {
-                                Ok(mgr) => {
-                                    tracing::info!("Recovery successful - initialized with fresh databases");
-                                    mgr
-                                }
-                                Err(retry_err) => {
-                                    tracing::error!(
-                                        "Recovery failed: {}. Rolling back database backups...",
-                                        retry_err
-                                    );
-
-                                    if let Err(restore_err) = restore_database_backups(&backup_info) {
-                                        tracing::error!(
-                                            "Failed to restore database backups: {}. \
-                                            Backups are still available in corrupt_backups directory.",
-                                            restore_err
-                                        );
-                                    }
-
-                                    return Err(format!(
-                                        "Recovery failed: {}. Databases have been restored to original state. \
-                                        Please check your configuration or contact support.",
-                                        retry_err
-                                    ));
-                                }
-                            }
-                        }
-                    };
-
-                    let ctx = CoreContext::with_storage_manager(&storage_manager, event_bus.clone())
-                        .await
-                        .map_err(|e| format!("Failed to create CoreContext: {}", e))?;
-                    Ok((ctx, vault_locked))
-                });
-
-                let core_context = match core_context {
-                    Ok((ctx, vault_locked)) => {
-                        let ctx_arc = Arc::new(ctx);
-
-                        let mut guard = maybe_core_context.blocking_write();
-                        *guard = Some(Arc::clone(&ctx_arc));
-                        drop(guard);
-
-                        if !vault_locked {
-                            let core_clone = Arc::clone(&ctx_arc);
-                            tauri::async_runtime::spawn(async move {
-                                if let Err(e) = core_clone.warmup_token_store().await {
-                                    tracing::warn!("Token store warmup failed: {}", e);
-                                }
-                                core_clone.start_background_tasks().await;
-                            });
-                        } else {
-                            tracing::info!(
-                                "Vault locked - background tasks deferred until unlock. \
-                                 Providers will not be loaded until vault is unlocked."
-                            );
-                        }
-
-                        tracing::info!("Pipedash initialized with CoreContext");
-                        ctx_arc
-                    }
-                    Err(e) => {
-                        tracing::error!("CoreContext initialization failed: {}", e);
-                        return Err(e.into());
-                    }
-                };
-
-                app.manage(core_context);
-            } else {
+            if !setup_complete {
                 tracing::info!("No configuration found - starting in setup mode");
                 tracing::info!("Setup wizard will be shown to complete initial configuration");
-            }
+            } else if start_locked {
+                tracing::info!("App lock enabled - starting locked; the core loads after unlock");
+            } else {
+                tracing::info!("Configuration found - initializing application");
 
-            app.manage(MaybeCoreContext(maybe_core_context));
+                tauri::async_runtime::block_on(core_boot::boot_core(
+                    app.handle(),
+                    BootKind::Launch,
+                ))
+                .map_err(|e| {
+                    tracing::error!("CoreContext initialization failed: {}", e);
+                    e
+                })?;
+            }
 
             system_notifications::register(app.handle())?;
 
-            app.manage(AppDataDir(app_data_dir));
+            push::spawn_token_sync(app.handle(), &app_data_dir);
 
             Ok(())
         })
@@ -624,6 +364,13 @@ pub fn run() {
             execute_storage_migration,
             factory_reset,
             restart_app,
+            unlock_with_biometrics,
+            set_app_lock,
+            save_export_file,
+            get_push_status,
+            push_pair_server,
+            push_unpair_server,
+            push_send_test,
             system_notifications::show_system_notification,
         ])
         .run(tauri::generate_context!())

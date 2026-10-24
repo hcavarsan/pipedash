@@ -3,6 +3,7 @@ pub mod health;
 pub mod metrics;
 pub mod pipeline;
 pub mod provider;
+pub mod push;
 pub mod refresh;
 pub mod validation;
 
@@ -53,6 +54,7 @@ pub use provider::{
     ProviderImportResult,
     ProviderSummary,
 };
+pub use push::PushSubscription;
 pub use refresh::{
     RefreshResult,
     RefreshState,

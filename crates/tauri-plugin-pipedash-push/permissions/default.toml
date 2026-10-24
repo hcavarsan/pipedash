@@ -1,0 +1,7 @@
+"$schema" = "schemas/schema.json"
+[default]
+description = """
+Allows registering for APNs remote notifications.
+"""
+
+permissions = ["allow-register"]

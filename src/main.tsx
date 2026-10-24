@@ -8,6 +8,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { PrivacyCover } from './components/vault/PrivacyCover'
 import { PluginProvider } from './contexts/PluginContext'
 import { BASE_PATH } from './lib/basePath'
 import { queryClient } from './lib/queryClient'
@@ -28,6 +29,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               <PluginProvider>
                 <Notifications position="bottom-right" pauseResetOnHover="notification" />
                 <App />
+                <PrivacyCover />
               </PluginProvider>
             </ModalsProvider>
           </ErrorBoundary>

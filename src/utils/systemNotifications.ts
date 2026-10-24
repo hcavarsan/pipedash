@@ -1,6 +1,10 @@
+import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification'
+
 import { logger } from '../lib/logger'
 import { isTauri, tauriService } from '../services'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
+
+import { isMobilePlatform } from './platform'
 
 export const SYSTEM_NOTIFICATION_CLICKED_EVENT = 'system-notification-clicked'
 
@@ -9,40 +13,64 @@ export const openNotificationDetails = (key: string): void => {
 }
 
 export const systemNotificationsSupported = (): boolean =>
-  'Notification' in window && (isTauri() || window.isSecureContext)
+  isTauri() || ('Notification' in window && window.isSecureContext)
+
+export function notificationProblem(kind: 'unsupported' | 'blocked'): string {
+  if (isMobilePlatform()) {
+    return kind === 'unsupported'
+      ? "Notifications aren't available on this device."
+      : 'Notifications are off for Pipedash. Turn them on in the Settings app under Notifications > Pipedash, then try again.'
+  }
+
+  return kind === 'unsupported'
+    ? 'Browsers allow notifications only over HTTPS or on localhost.'
+    : 'Allow notifications for Pipedash in your browser or system settings, then turn this on again.'
+}
+
+const permissionGranted = (): Promise<boolean> =>
+  isTauri() ? isPermissionGranted() : Promise.resolve(Notification.permission === 'granted')
 
 export async function requestSystemNotificationPermission(): Promise<boolean> {
   if (!systemNotificationsSupported()) {
     return false
   }
 
-  if (Notification.permission === 'granted') {
-    return true
-  }
+  try {
+    if (await permissionGranted()) {
+      return true
+    }
 
-  return (await Notification.requestPermission()) === 'granted'
+    const result = isTauri() ? await requestPermission() : await Notification.requestPermission()
+
+    return result === 'granted'
+  } catch (error) {
+    logger.warn('systemNotifications', "Couldn't request notification permission", error)
+
+    return false
+  }
 }
 
-export function showSystemNotification(title: string, body: string, notificationKey: string): void {
-  if (!systemNotificationsSupported() || Notification.permission !== 'granted') {
+async function deliver(title: string, body: string, notificationKey: string): Promise<void> {
+  if (!systemNotificationsSupported() || !(await permissionGranted())) {
     return
   }
 
   if (isTauri()) {
-    tauriService
-      .showSystemNotification(title, body, notificationKey)
-      .catch((error: unknown) => logger.warn('systemNotifications', "Couldn't show notification", error))
+    await tauriService.showSystemNotification(title, body, notificationKey)
+
     return
   }
 
-  try {
-    const notification = new Notification(title, { body })
+  const notification = new Notification(title, { body })
 
-    notification.onclick = () => {
-      window.focus()
-      openNotificationDetails(notificationKey)
-    }
-  } catch (error) {
-    logger.warn('systemNotifications', "Couldn't show notification", error)
+  notification.onclick = () => {
+    window.focus()
+    openNotificationDetails(notificationKey)
   }
+}
+
+export function showSystemNotification(title: string, body: string, notificationKey: string): void {
+  deliver(title, body, notificationKey).catch((error: unknown) =>
+    logger.warn('systemNotifications', "Couldn't show notification", error)
+  )
 }

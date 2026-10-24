@@ -2,7 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDisplayName</key>
+    <string>Pipedash</string>
     <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Pipedash uses Face ID to unlock the CI/CD provider tokens saved on this device.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Pipedash connects to the CI/CD servers you add on your local network, such as Jenkins, Gitea or Argo CD.</string>
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+    <key>UIUserInterfaceStyle</key>
+    <string>Dark</string>
+    <key>UIStatusBarStyle</key>
+    <string>UIStatusBarStyleLightContent</string>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
 </dict>
 </plist>

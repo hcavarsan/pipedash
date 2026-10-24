@@ -6,6 +6,7 @@
     },
     "windows": [
       {
+        "backgroundColor": "#242424",
         "decorations": false,
         "height": 1000,
         "title": "Pipedash",

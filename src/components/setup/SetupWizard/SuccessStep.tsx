@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { logger } from '../../../lib/logger'
 import { isTauri, service } from '../../../services'
+import { isMobilePlatform } from '../../../utils/platform'
 import { CopyButton } from '../../atoms/CopyButton'
 import { ErrorState } from '../../common/ErrorState'
 
@@ -19,12 +20,13 @@ export function SuccessStep({
   onComplete,
 }: SuccessStepProps) {
   const [restarting, setRestarting] = useState(false)
+  const onDevice = isMobilePlatform()
   const [restartError, setRestartError] = useState<unknown>(null)
 
   const envVarName = vaultStatus?.env_var_name || 'PIPEDASH_VAULT_PASSWORD'
   const exportCommand = `export ${envVarName}="${state.vaultPassword}"`
 
-  const showPasswordReminder = !vaultPasswordFromEnv && state.vaultPassword
+  const showPasswordReminder = !onDevice && !vaultPasswordFromEnv && state.vaultPassword
 
   const handleRestart = async () => {
     setRestarting(true)
@@ -125,17 +127,21 @@ export function SuccessStep({
       {migrationStats !== null && isTauri() ? (
         <>
           <Text size="sm" c="dimmed" ta="center">
-            Restart required to load the new database
+            {onDevice ? 'Reload' : 'Restart'} required to load the new database
           </Text>
           {restartError === null ? (
             <Button onClick={handleRestart} loading={restarting}>
-              Restart now
+              {onDevice ? 'Reload now' : 'Restart now'}
             </Button>
           ) : (
             <ErrorState
-              title="Couldn't restart Pipedash"
+              title={onDevice ? "Couldn't reload Pipedash" : "Couldn't restart Pipedash"}
               error={restartError}
-              hint="Close and reopen Pipedash manually to load the new database."
+              hint={
+                onDevice
+                  ? 'Close and reopen Pipedash to load the new database.'
+                  : 'Close and reopen Pipedash manually to load the new database.'
+              }
               onRetry={handleRestart}
               retrying={restarting}
             />

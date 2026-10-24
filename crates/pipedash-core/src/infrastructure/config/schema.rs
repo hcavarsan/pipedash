@@ -80,6 +80,9 @@ pub struct PipedashConfig {
 
     #[serde(default)]
     pub providers: IndexMap<String, ProviderFileConfig>,
+
+    #[serde(default, skip_serializing_if = "PushConfig::is_unset")]
+    pub push: PushConfig,
 }
 
 impl PipedashConfig {
@@ -232,6 +235,18 @@ pub struct PostgresConfig {
     pub connection_string: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PushConfig {
+    #[serde(default)]
+    pub relay_url: String,
+}
+
+impl PushConfig {
+    fn is_unset(&self) -> bool {
+        self.relay_url.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderFileConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -293,6 +308,7 @@ pub enum ConfigKey {
     DataDir,
     StorageBackend,
     PostgresConnectionString,
+    PushRelayUrl,
 }
 
 impl ConfigKey {
@@ -306,6 +322,7 @@ impl ConfigKey {
             Self::DataDir => "PIPEDASH_DATA_DIR",
             Self::StorageBackend => "PIPEDASH_STORAGE_BACKEND",
             Self::PostgresConnectionString => "PIPEDASH_POSTGRES_URL",
+            Self::PushRelayUrl => "PIPEDASH_PUSH_RELAY_URL",
         }
     }
 
@@ -353,6 +370,23 @@ mod tests {
 
         assert!(!config.server.cors_allow_all);
         assert!(!ServerConfig::default().cors_allow_all);
+    }
+
+    #[test]
+    fn test_push_relay_url_is_unset_by_default_and_read_from_the_push_table() {
+        let unset: PipedashConfig =
+            toml::from_str("[server]\nbind_addr = \"0.0.0.0:8080\"").unwrap();
+        let set: PipedashConfig =
+            toml::from_str("[push]\nrelay_url = \"https://relay.example.com\"").unwrap();
+
+        assert!(unset.push.relay_url.is_empty());
+        assert!(!toml::to_string(&unset).unwrap().contains("[push]"));
+        assert_eq!(set.push.relay_url, "https://relay.example.com");
+        assert!(toml::to_string(&set).unwrap().contains("relay_url"));
+        assert_eq!(
+            ConfigKey::PushRelayUrl.env_var_name(),
+            "PIPEDASH_PUSH_RELAY_URL"
+        );
     }
 
     #[test]

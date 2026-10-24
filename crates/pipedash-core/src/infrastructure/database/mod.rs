@@ -1,6 +1,7 @@
 use std::path::Path;
 
 mod metrics_repository;
+mod push_repository;
 mod repository;
 mod schema;
 mod sqlite_backend;
@@ -14,6 +15,7 @@ pub use metrics_repository::{
 };
 #[cfg(feature = "postgres")]
 pub use postgres_backend::PostgresConfigBackend;
+pub use push_repository::PushRepository;
 pub use repository::{
     DatabasePool,
     Repository,

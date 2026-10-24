@@ -1,0 +1,71 @@
+name: iOS check
+on:
+  pull_request:
+    paths:
+      - ".github/actions/setup-ios/**"
+      - ".github/workflows/ios-check.yml"
+      - "crates/**"
+      - "src/**"
+      - "ios/**"
+      - "index.html"
+      - "package.json"
+      - "bun.lock"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app-store-checks:
+    name: Unsigned IPA and App Store checks
+    runs-on: macos-26
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up iOS build
+        uses: $/.github/actions/setup-ios
+        with:
+          rust-targets: aarch64-apple-ios
+
+      - name: Build and check
+        working-directory: ios
+        run: bundle exec fastlane ios check
+
+  simulator:
+    name: Launch on iPhone and iPad simulators
+    runs-on: macos-26
+    permissions:
+      contents: read # checkout the repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up iOS build
+        uses: $/.github/actions/setup-ios
+        with:
+          rust-targets: aarch64-apple-ios-sim
+
+      - name: Launch and take screenshots
+        working-directory: ios
+        run: bundle exec fastlane ios screenshots output:"$RUNNER_TEMP/screenshots"
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-simulator-screenshots
+          path: ${{ runner.temp }}/screenshots
+          if-no-files-found: warn
+          retention-days: 14

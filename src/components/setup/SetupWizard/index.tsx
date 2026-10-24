@@ -15,6 +15,7 @@ import {
 import { useUnlockVault, useVaultPasswordStatus } from '../../../queries/useVaultQueries'
 import { isTauri } from '../../../services'
 import type { MigrationResult, PipedashConfig } from '../../../types'
+import { isMobilePlatform } from '../../../utils/platform'
 import { LoadingState } from '../../common/LoadingState'
 import { StandardModal } from '../../common/StandardModal'
 
@@ -66,8 +67,9 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
   }, [currentConfig])
 
   const vaultPasswordFromEnv = vaultStatus?.is_set === true
+  const needsVaultPassword = !vaultPasswordFromEnv && !isMobilePlatform()
   const isFromKeyring = useMemo(() => {
-    if (!currentConfig || !isTauri()) {
+    if (!currentConfig || !isTauri() || isMobilePlatform()) {
       return false
     }
     const currentBackend = currentConfig.config.storage.backend || 'sqlite'
@@ -159,12 +161,12 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       return false
     }
 
-    if (!vaultPasswordFromEnv && !passwordValid) {
+    if (needsVaultPassword && !passwordValid) {
       return false
     }
 
     return true
-  }, [state.backend, state.postgresUrl, vaultPasswordFromEnv, passwordValid])
+  }, [state.backend, state.postgresUrl, needsVaultPassword, passwordValid])
 
   const handleSave = useCallback(async () => {
     setError(null)
@@ -200,7 +202,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       }
 
       const unlockWithEnteredPassword = async () => {
-        if (vaultPasswordFromEnv || !state.vaultPassword) {
+        if (!needsVaultPassword || !state.vaultPassword) {
           return true
         }
 
@@ -216,7 +218,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       if (!currentConfig) {
         await createInitialConfigMutation.mutateAsync({
           config: newConfig,
-          vaultPassword: !vaultPasswordFromEnv ? state.vaultPassword : undefined,
+          vaultPassword: needsVaultPassword ? state.vaultPassword : undefined,
         })
 
         setStep(2)
@@ -233,7 +235,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
           migrate_tokens: true,
           migrate_cache: true,
           dry_run: false,
-          ...(!vaultPasswordFromEnv &&
+          ...(needsVaultPassword &&
             state.vaultPassword && {
               token_password: state.vaultPassword,
             }),
@@ -271,7 +273,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     state,
     needsMigration,
     showTransferStep,
-    vaultPasswordFromEnv,
+    needsVaultPassword,
     createInitialConfigMutation,
     saveStorageConfigMutation,
     planMigrationMutation,

@@ -1,4 +1,5 @@
 mod error;
+mod push;
 mod routes;
 mod state;
 mod static_files;
@@ -352,6 +353,8 @@ async fn main() -> anyhow::Result<()> {
     if let Ok(token) = std::env::var("PIPEDASH_VAULT_PASSWORD") {
         app_state.set_api_token(&token);
     }
+
+    push::spawn_failure_notifier(app_state.clone());
 
     let api_config = ApiServerConfig::resolve(file_server_config.as_ref())?;
 

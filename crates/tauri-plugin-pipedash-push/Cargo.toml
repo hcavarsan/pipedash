@@ -1,0 +1,16 @@
+[package]
+name = "tauri-plugin-pipedash-push"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+publish = false
+links = "tauri-plugin-pipedash-push"
+description = "Registers for APNs remote notifications on iOS and returns the device token."
+
+[dependencies]
+serde = { workspace = true }
+tauri = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
