@@ -46,73 +46,24 @@ impl ProviderSyncService {
         let toml_ids: HashSet<String> = toml_providers.keys().cloned().collect();
 
         for (id, toml_provider) in toml_providers {
-            let existing_db = db_providers.iter().find(|p| p.name == id);
-
-            match existing_db {
+            match db_providers.iter().find(|p| p.name == id) {
                 None => {
-                    let provider_config =
-                        Self::provider_config(&id, &toml_provider, toml_provider.token.clone());
-
-                    let new_provider_id = config_backend.create_provider(&provider_config).await?;
-
-                    if let Some(resolved_token) = Self::resolve_token_ref(&toml_provider.token) {
-                        if let Err(e) = token_store
-                            .store_token(new_provider_id, &resolved_token)
-                            .await
-                        {
-                            tracing::warn!(
-                                provider = %id,
-                                error = %e,
-                                "Failed to store resolved token - provider may not work until token is re-added"
-                            );
-                        }
-                    }
-
-                    result.added.push(id.clone());
-
-                    tracing::info!(
-                        provider = %id,
-                        "Synced provider from TOML to database (new)"
-                    );
+                    self.create_from_toml(&id, &toml_provider, config_backend, token_store)
+                        .await?;
+                    result.added.push(id);
                 }
                 Some(db_provider) => {
-                    if self.needs_update(&toml_provider, db_provider) {
-                        let provider_config = ProviderConfig {
-                            id: db_provider.id,
-                            version: db_provider.version,
-                            ..Self::provider_config(
-                                &id,
-                                &toml_provider,
-                                toml_provider.token.clone(),
-                            )
-                        };
-
-                        if let Some(db_id) = db_provider.id {
-                            config_backend
-                                .update_provider(db_id, &provider_config)
-                                .await?;
-
-                            if let Some(resolved_token) =
-                                Self::resolve_token_ref(&toml_provider.token)
-                            {
-                                if let Err(e) =
-                                    token_store.store_token(db_id, &resolved_token).await
-                                {
-                                    tracing::warn!(
-                                        provider = %id,
-                                        error = %e,
-                                        "Failed to store resolved token - provider may not work until token is re-added"
-                                    );
-                                }
-                            }
-
-                            result.updated.push(id.clone());
-
-                            tracing::info!(
-                                provider = %id,
-                                "Synced provider from TOML to database (updated)"
-                            );
-                        }
+                    if self
+                        .update_from_toml(
+                            &id,
+                            &toml_provider,
+                            db_provider,
+                            config_backend,
+                            token_store,
+                        )
+                        .await?
+                    {
+                        result.updated.push(id);
                     }
                 }
             }
@@ -135,6 +86,59 @@ impl ProviderSyncService {
         }
 
         Ok(result)
+    }
+
+    pub(crate) async fn create_from_toml(
+        &self, key: &str, toml_provider: &ProviderFileConfig, config_backend: &dyn ConfigBackend,
+        token_store: &dyn TokenStore,
+    ) -> DomainResult<i64> {
+        let provider_config =
+            Self::provider_config(key, toml_provider, toml_provider.token.clone());
+        let id = config_backend.create_provider(&provider_config).await?;
+        Self::store_resolved_token(key, id, &toml_provider.token, token_store).await;
+
+        tracing::info!(provider = %key, "Synced provider from TOML to database (new)");
+        Ok(id)
+    }
+
+    pub(crate) async fn update_from_toml(
+        &self, key: &str, toml_provider: &ProviderFileConfig, db_provider: &ProviderConfig,
+        config_backend: &dyn ConfigBackend, token_store: &dyn TokenStore,
+    ) -> DomainResult<bool> {
+        let Some(db_id) = db_provider.id else {
+            return Ok(false);
+        };
+        if !self.needs_update(toml_provider, db_provider) {
+            return Ok(false);
+        }
+
+        let provider_config = ProviderConfig {
+            id: db_provider.id,
+            version: db_provider.version,
+            ..Self::provider_config(key, toml_provider, toml_provider.token.clone())
+        };
+        config_backend
+            .update_provider(db_id, &provider_config)
+            .await?;
+        Self::store_resolved_token(key, db_id, &toml_provider.token, token_store).await;
+
+        tracing::info!(provider = %key, "Synced provider from TOML to database (updated)");
+        Ok(true)
+    }
+
+    async fn store_resolved_token(
+        key: &str, id: i64, token_ref: &str, token_store: &dyn TokenStore,
+    ) {
+        let Some(resolved_token) = Self::resolve_token_ref(token_ref) else {
+            return;
+        };
+        if let Err(e) = token_store.store_token(id, &resolved_token).await {
+            tracing::warn!(
+                provider = %key,
+                error = %e,
+                "Failed to store resolved token - provider may not work until token is re-added"
+            );
+        }
     }
 
     pub(crate) fn provider_config(

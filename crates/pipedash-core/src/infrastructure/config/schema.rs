@@ -232,7 +232,7 @@ pub struct PostgresConfig {
     pub connection_string: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderFileConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

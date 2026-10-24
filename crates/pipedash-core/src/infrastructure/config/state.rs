@@ -346,6 +346,37 @@ impl ConfigState {
             .await
     }
 
+    pub fn load_providers(&self) -> DomainResult<indexmap::IndexMap<String, ProviderFileConfig>> {
+        let file = ConfigLoader::load(&self.config_path)
+            .map_err(|e| DomainError::InvalidConfig(format!("Failed to reload config: {}", e)))?;
+
+        let validation = file.validate();
+        if !validation.errors.is_empty() {
+            return Err(DomainError::InvalidConfig(format!(
+                "Config validation failed: {:?}",
+                validation.errors
+            )));
+        }
+
+        Ok(file.providers)
+    }
+
+    pub async fn remember_provider(&self, id: &str, provider: &ProviderFileConfig) {
+        let mut config = self.config.write().await;
+        let mut next = (**config).clone();
+        next.providers.insert(id.to_string(), provider.clone());
+        *config = Arc::new(next);
+    }
+
+    pub async fn remember_providers(
+        &self, providers: indexmap::IndexMap<String, ProviderFileConfig>,
+    ) {
+        let mut config = self.config.write().await;
+        let mut next = (**config).clone();
+        next.providers = providers;
+        *config = Arc::new(next);
+    }
+
     async fn persist_config(&self, config: &PipedashConfig) -> DomainResult<()> {
         let existing_content = std::fs::read_to_string(&self.config_path).ok();
 
