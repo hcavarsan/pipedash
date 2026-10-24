@@ -295,7 +295,7 @@ impl TokenStore for SqliteTokenStore {
         .await
         .map_err(|e| DomainError::DatabaseError(format!("Failed to get token: {}", e)))?
         .ok_or_else(|| {
-            DomainError::DatabaseError(format!("Token not found for provider {}", provider_id))
+            DomainError::NotFound(format!("Token not found for provider {}", provider_id))
         })?;
 
         let token = self.decrypt_token(&row.1, &row.0).await?;

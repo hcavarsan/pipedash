@@ -194,7 +194,7 @@ impl TokenStore for KeyringTokenStore {
             return Ok(token);
         }
 
-        Err(DomainError::DatabaseError(format!(
+        Err(DomainError::NotFound(format!(
             "Token not found in keyring for provider {}",
             provider_id
         )))

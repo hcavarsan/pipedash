@@ -95,7 +95,8 @@ impl ProviderSyncService {
         let provider_config =
             Self::provider_config(key, toml_provider, toml_provider.token.clone());
         let id = config_backend.create_provider(&provider_config).await?;
-        Self::store_resolved_token(key, id, &toml_provider.token, token_store).await;
+        let token = Self::resolve_token_ref(&toml_provider.token).unwrap_or_default();
+        Self::store_token(key, id, &token, token_store).await;
 
         tracing::info!(provider = %key, "Synced provider from TOML to database (new)");
         Ok(id)
@@ -120,19 +121,16 @@ impl ProviderSyncService {
         config_backend
             .update_provider(db_id, &provider_config)
             .await?;
-        Self::store_resolved_token(key, db_id, &toml_provider.token, token_store).await;
+        if let Some(token) = Self::resolve_token_ref(&toml_provider.token) {
+            Self::store_token(key, db_id, &token, token_store).await;
+        }
 
         tracing::info!(provider = %key, "Synced provider from TOML to database (updated)");
         Ok(true)
     }
 
-    async fn store_resolved_token(
-        key: &str, id: i64, token_ref: &str, token_store: &dyn TokenStore,
-    ) {
-        let Some(resolved_token) = Self::resolve_token_ref(token_ref) else {
-            return;
-        };
-        if let Err(e) = token_store.store_token(id, &resolved_token).await {
+    async fn store_token(key: &str, id: i64, token: &str, token_store: &dyn TokenStore) {
+        if let Err(e) = token_store.store_token(id, token).await {
             tracing::warn!(
                 provider = %key,
                 error = %e,
@@ -506,6 +504,31 @@ mod tests {
 
         let db_providers = backend.list_providers().await.unwrap();
         assert_eq!(db_providers.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_sync_toml_to_db_stores_an_empty_token_when_none_resolves() {
+        let (backend, token_store, _temp) = create_test_backend().await;
+
+        let mut toml_providers = IndexMap::new();
+        toml_providers.insert(
+            "ci-jenkins".to_string(),
+            ProviderFileConfig {
+                name: Some("CI Jenkins".to_string()),
+                provider_type: "jenkins".to_string(),
+                token: String::new(),
+                refresh_interval: 60,
+                config: Default::default(),
+            },
+        );
+
+        ProviderSyncService::new()
+            .sync_toml_to_db(toml_providers, &backend, token_store.as_ref(), true)
+            .await
+            .unwrap();
+
+        let id = backend.list_providers().await.unwrap()[0].id.unwrap();
+        assert_eq!(token_store.get_token(id).await.unwrap(), "");
     }
 
     #[test]

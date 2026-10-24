@@ -30,7 +30,7 @@ impl TokenStore for FallbackTokenStore {
     }
 
     async fn get_token(&self, provider_id: i64) -> DomainResult<String> {
-        match self.primary.get_token(provider_id).await {
+        let primary_error = match self.primary.get_token(provider_id).await {
             Ok(token) => {
                 tracing::trace!(provider_id = provider_id, "Token found in primary store");
                 return Ok(token);
@@ -41,10 +41,11 @@ impl TokenStore for FallbackTokenStore {
                     error = %e,
                     "Token not found in primary store, trying fallback"
                 );
+                e
             }
-        }
+        };
 
-        match self.fallback.get_token(provider_id).await {
+        let fallback_error = match self.fallback.get_token(provider_id).await {
             Ok(token) => {
                 tracing::info!(
                     provider_id = provider_id,
@@ -80,13 +81,20 @@ impl TokenStore for FallbackTokenStore {
                     error = %e,
                     "Token not found in fallback store either"
                 );
+                e
             }
-        }
+        };
 
-        Err(DomainError::DatabaseError(format!(
+        let message = format!(
             "Token not found for provider {} (checked both encrypted storage and keyring)",
             provider_id
-        )))
+        );
+        match (primary_error, fallback_error) {
+            (DomainError::NotFound(_), DomainError::NotFound(_)) => {
+                Err(DomainError::NotFound(message))
+            }
+            _ => Err(DomainError::DatabaseError(message)),
+        }
     }
 
     async fn delete_token(&self, provider_id: i64) -> DomainResult<()> {
@@ -186,5 +194,49 @@ mod tests {
         let token = store.get_token(1).await.unwrap();
 
         assert_eq!(token, "primary-token");
+    }
+
+    struct LockedTokenStore;
+
+    #[async_trait]
+    impl TokenStore for LockedTokenStore {
+        async fn store_token(&self, _provider_id: i64, _token: &str) -> DomainResult<()> {
+            Ok(())
+        }
+
+        async fn get_token(&self, _provider_id: i64) -> DomainResult<String> {
+            Err(DomainError::AuthenticationFailed(
+                "vault is locked".to_string(),
+            ))
+        }
+
+        async fn delete_token(&self, _provider_id: i64) -> DomainResult<()> {
+            Ok(())
+        }
+
+        async fn get_all_tokens(&self) -> DomainResult<HashMap<i64, String>> {
+            Ok(HashMap::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_missing_token_is_not_found_only_when_both_stores_lack_it() {
+        let missing = FallbackTokenStore::new(
+            Arc::new(MemoryTokenStore::new()),
+            Arc::new(MemoryTokenStore::new()),
+        );
+        let locked = FallbackTokenStore::new(
+            Arc::new(LockedTokenStore),
+            Arc::new(MemoryTokenStore::new()),
+        );
+
+        assert!(matches!(
+            missing.get_token(1).await,
+            Err(DomainError::NotFound(_))
+        ));
+        assert!(matches!(
+            locked.get_token(1).await,
+            Err(DomainError::DatabaseError(_))
+        ));
     }
 }
