@@ -91,3 +91,24 @@ test('typing a slash is left alone, but the search command works from another in
   })
   assert.equal(document.activeElement, search)
 })
+
+test('the settings command waits while a dialog is open, so unsaved edits are not dropped', () => {
+  let settings = 0
+  const dialog = document.createElement('section')
+  dialog.className = 'mantine-Modal-content'
+  document.body.append(dialog)
+  renderHook(() =>
+    useAppShortcuts({
+      onSettings: () => {
+        settings += 1
+      },
+      onRefresh: () => {},
+    })
+  )
+
+  press(',', true)
+  assert.equal(settings, 0)
+  dialog.remove()
+  press(',', true)
+  assert.equal(settings, 1)
+})

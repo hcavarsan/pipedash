@@ -28,6 +28,17 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
   const [retentionDraft, setRetentionDraft] = useState<string | number>(config.default_retention_days)
   const [retentionTouched, setRetentionTouched] = useState(false)
   const [retentionError, setRetentionError] = useState<string | null>(null)
+  const [savedConfig, setSavedConfig] = useState(config)
+
+  if (config.enabled !== savedConfig.enabled || config.default_retention_days !== savedConfig.default_retention_days) {
+    setSavedConfig(config)
+    setMetricsEnabled(config.enabled)
+    if (Number(retentionDraft) === metricsRetention) {
+      setMetricsRetention(config.default_retention_days)
+      setRetentionDraft(config.default_retention_days)
+      setMetricsRetentionMode(RETENTION_DAYS.includes(config.default_retention_days) ? 'preset' : 'custom')
+    }
+  }
 
   const saveRetentionDraft = async () => {
     setRetentionTouched(true)
@@ -203,7 +214,7 @@ export const MetricsSection = () => {
       {isLoading ? (
         <LoadingState message="Loading metrics settings..." />
       ) : config ? (
-        <MetricsForm key={`${config.enabled}-${config.default_retention_days}`} config={config} />
+        <MetricsForm config={config} />
       ) : (
         <ErrorState
           title="Couldn't load metrics settings"

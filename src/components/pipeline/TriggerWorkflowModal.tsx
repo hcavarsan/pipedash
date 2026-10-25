@@ -419,7 +419,7 @@ export const TriggerWorkflowModal = ({
       <Button variant="default" size="sm" onClick={close} disabled={triggerMutation.isPending}>
         Cancel
       </Button>
-      <Button size="sm" onClick={handleTrigger} loading={triggerMutation.isPending} disabled={triggerDisabled}>
+      <Button size="sm" type="submit" form={formId} loading={triggerMutation.isPending} disabled={triggerDisabled}>
         {isFlux ? labels.trigger : isRerun ? 'Rerun workflow' : 'Trigger workflow'}
       </Button>
     </Group>
@@ -501,6 +501,7 @@ export const TriggerWorkflowModal = ({
     >
       <form
         ref={formRef}
+        id={formId}
         noValidate
         onSubmit={(event) => {
           event.preventDefault()

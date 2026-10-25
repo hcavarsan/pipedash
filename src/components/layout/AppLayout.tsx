@@ -37,6 +37,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
   const mainRef = useRef<HTMLElement>(null)
   const headerRef = useRef<HTMLElement>(null)
   const listPositions = useRef(new Map<string, { main: number; viewports: number[] }>())
+  const lastPage = useRef<string | null>(null)
 
   useEffect(() => {
     if (mobileShell) {
@@ -47,10 +48,16 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
       return
     }
     const route = `${location.pathname}${location.search}`
+    const page = `${location.pathname}?view=${new URLSearchParams(location.search).get('view') ?? ''}`
+    const samePage = lastPage.current === page
     const saved = location.pathname === '/pipelines' ? listPositions.current.get(route) : undefined
-    const position = { main: saved?.main ?? 0, viewports: [...(saved?.viewports ?? [])] }
+    const position = {
+      main: samePage ? main.scrollTop : (saved?.main ?? 0),
+      viewports: [...(saved?.viewports ?? [])],
+    }
     const restored = new WeakSet<HTMLElement>()
     let focused = false
+    lastPage.current = page
     const updateEdge = (event?: Event) => {
       if (!event || event.target === main) {
         position.main = main.scrollTop
@@ -63,7 +70,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
         })
       }
     }
-    const focusHeading = () => {
+    const arrive = () => {
       main.querySelectorAll<HTMLElement>('[data-scrollarea-viewport]').forEach((viewport, index) => {
         if (!restored.has(viewport) && viewport.scrollHeight > viewport.clientHeight) {
           viewport.scrollTop = saved?.viewports[index] ?? 0
@@ -80,12 +87,16 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
       }
     }
     const frame = requestAnimationFrame(() => {
-      main.scrollTop = position.main
+      if (!samePage) {
+        main.scrollTop = position.main
+        arrive()
+      }
       updateEdge()
-      focusHeading()
     })
-    const observer = new MutationObserver(focusHeading)
-    observer.observe(main, { childList: true, subtree: true })
+    const observer = new MutationObserver(arrive)
+    if (!samePage) {
+      observer.observe(main, { childList: true, subtree: true })
+    }
     main.addEventListener('scroll', updateEdge, { passive: true, capture: true })
 
     return () => {

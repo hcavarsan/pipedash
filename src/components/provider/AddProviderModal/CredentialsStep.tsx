@@ -14,7 +14,7 @@ import {
   TextInput,
 } from '@mantine/core'
 import { useQueries } from '@tanstack/react-query'
-import { type Dispatch, Fragment, type ReactNode, type RefObject, useId, useMemo } from 'react'
+import { type Dispatch, Fragment, type ReactNode, type RefObject, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
@@ -50,6 +50,7 @@ interface CredentialsStepProps {
   editMode: boolean
   isMobile: boolean
   formRef: RefObject<HTMLFormElement | null>
+  formId: string
   onSubmit: () => void
   permissionRow?: ReactNode
   secondaryRow?: ReactNode
@@ -64,13 +65,13 @@ export function CredentialsStep({
   editMode,
   isMobile,
   formRef,
+  formId,
   onSubmit,
   permissionRow,
   secondaryRow,
   scopeNote,
 }: CredentialsStepProps) {
   const mobileShell = useMobileShell()
-  const formId = useId()
   const { selectedPlugin, providerName, configValues, fieldErrors, submitting } = state
   const announcement = useErrorAnnouncement(fieldErrors)
 
@@ -492,6 +493,7 @@ export function CredentialsStep({
   return (
     <form
       ref={formRef}
+      id={formId}
       noValidate
       style={FORM_STYLE}
       onSubmit={(event) => {

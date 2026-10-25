@@ -1,6 +1,6 @@
 import { Box, Button, Group, Stack, Stepper, Text } from '@mantine/core'
 import { IconCheck, IconKey, IconList } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
@@ -202,6 +202,9 @@ export function AddProviderModal({
     }
   }, [validateCredentials, saveProvider])
 
+  const saveOnly = editMode && !selectionNeedsRefresh
+  const credentialsFormId = useId()
+
   const footer = useCallback(
     (requestClose: () => void) => {
       if (step === 'credentials') {
@@ -234,7 +237,7 @@ export function AddProviderModal({
               {editMode && (
                 <Button
                   size="sm"
-                  onClick={handleSaveCredentialsOnly}
+                  {...(saveOnly ? { type: 'submit', form: credentialsFormId } : { onClick: handleSaveCredentialsOnly })}
                   loading={submitting}
                   disabled={!selectedPlugin || !providerName.trim() || selectionNeedsRefresh}
                 >
@@ -244,7 +247,7 @@ export function AddProviderModal({
               <Button
                 variant={editMode ? 'default' : 'filled'}
                 size="sm"
-                onClick={handleNext}
+                {...(saveOnly ? { onClick: handleNext } : { type: 'submit', form: credentialsFormId })}
                 disabled={!selectedPlugin || !providerName.trim()}
               >
                 {isMobile ? 'Next' : `Next: select ${labels.items}`}
@@ -293,6 +296,8 @@ export function AddProviderModal({
       handleSaveCredentialsOnly,
       labels.items,
       selectionNeedsRefresh,
+      saveOnly,
+      credentialsFormId,
     ]
   )
 
@@ -307,8 +312,6 @@ export function AddProviderModal({
         loading={permission.checking}
       />
     ) : undefined
-
-  const saveOnly = editMode && !selectionNeedsRefresh
 
   const submitCredentials = () => {
     if (submitting) {
@@ -436,6 +439,7 @@ export function AddProviderModal({
                   editMode={editMode}
                   isMobile={isMobile}
                   formRef={credentialsRef}
+                  formId={credentialsFormId}
                   onSubmit={submitCredentials}
                   permissionRow={permissionRow}
                   secondaryRow={secondaryRow}

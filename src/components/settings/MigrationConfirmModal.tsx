@@ -1,6 +1,6 @@
 import { Alert, Badge, Button, Card, Checkbox, Group, PasswordInput, Stack, Text } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import type { MigrationOptions, MigrationPlan, MigrationStatsPreview } from '../../types'
@@ -34,6 +34,7 @@ export const MigrationConfirmModal = ({
   onConfirm,
 }: MigrationConfirmModalProps) => {
   const mobileShell = useMobileShell()
+  const formId = useId()
   const [loading, setLoading] = useState(false)
   const [password, setPassword] = useState('')
   const [migrateData, setMigrateData] = useState(true)
@@ -81,7 +82,7 @@ export const MigrationConfirmModal = ({
       <Button variant="default" size="sm" onClick={onClose} disabled={loading}>
         Cancel
       </Button>
-      <Button size="sm" onClick={handleConfirm} loading={loading} color="orange" disabled={mobileShell && blocked}>
+      <Button size="sm" type="submit" form={formId} loading={loading} color="orange" disabled={mobileShell && blocked}>
         Proceed with migration
       </Button>
     </Group>
@@ -206,6 +207,7 @@ export const MigrationConfirmModal = ({
       size="md"
     >
       <form
+        id={formId}
         noValidate
         onSubmit={(event) => {
           event.preventDefault()

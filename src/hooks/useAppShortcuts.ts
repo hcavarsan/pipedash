@@ -2,6 +2,7 @@ import { useHotkeys } from '@mantine/hooks'
 import { listen } from '@tauri-apps/api/event'
 import { useEffect } from 'react'
 import { logger } from '../lib/logger'
+import { dialogOpen } from '../lib/overlays'
 import { APP_COMMANDS } from '../lib/shortcuts'
 import { isDesktopTauri } from '../utils/platform'
 
@@ -13,9 +14,18 @@ interface AppShortcuts {
 }
 
 function focusSearch() {
+  if (dialogOpen()) {
+    return
+  }
   const input = document.querySelector<HTMLInputElement>('main [data-search-input]')
   input?.focus({ preventScroll: true })
   input?.select()
+}
+
+function whenNoDialog(action: (() => void) | undefined) {
+  if (action && !dialogOpen()) {
+    action()
+  }
 }
 
 export function useAppShortcuts({ onSettings, onSidebar, onRefresh, onLock }: AppShortcuts) {
@@ -38,7 +48,7 @@ export function useAppShortcuts({ onSettings, onSidebar, onRefresh, onLock }: Ap
         { preventDefault: false },
       ],
       ['mod+K', focusSearch],
-      ...(onSettings ? ([['mod+,', onSettings]] as [string, () => void][]) : []),
+      ...(onSettings ? ([['mod+,', () => whenNoDialog(onSettings)]] as [string, () => void][]) : []),
       ...(onSidebar ? ([['mod+\\', onSidebar]] as [string, () => void][]) : []),
       ...(desktop ? ([['mod+R', onRefresh]] as [string, () => void][]) : []),
       ...(desktop && onLock ? ([['mod+L', onLock]] as [string, () => void][]) : []),
@@ -57,7 +67,7 @@ export function useAppShortcuts({ onSettings, onSidebar, onRefresh, onLock }: Ap
           focusSearch()
           break
         case APP_COMMANDS.settings:
-          onSettings?.()
+          whenNoDialog(onSettings)
           break
         case APP_COMMANDS.sidebar:
           onSidebar?.()
