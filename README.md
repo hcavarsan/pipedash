@@ -216,6 +216,8 @@ When you start the app, Pipedash loads cached pipeline data from SQLite immediat
 
 Want to add a new CI/CD platform? Create a crate in `crates/pipedash-plugin-{name}/` and implement the `Plugin` trait from `pipedash-plugin-api`. The trait defines methods for fetching pipelines, validating credentials, triggering builds, and getting run history.
 
+`pipedash-plugin-api` holds the provider-neutral contract. Plugins using the GitHub/Gitea Actions workflow format can reuse `dispatch_inputs` and `dispatch_body` from `pipedash-plugin-actions`. Other plugins only need the contract and their own provider mapping.
+
 Each plugin follows this structure:
 - `schema.rs` - Table and column definitions for the provider
 - `metadata.rs` - Plugin metadata, config schema, and capabilities

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/pipedash-core",
   "crates/pipedash-desktop",
+  "crates/pipedash-plugin-actions",
   "crates/pipedash-plugin-api",
   "crates/pipedash-plugin-argocd",
   "crates/pipedash-plugin-bitbucket",
@@ -55,6 +56,7 @@ octocrab = { version = "0.54.5", default-features = false, features = [
   "tracing",
 ] }
 pipedash-core = { version = "0.4.0", path = "crates/pipedash-core" }
+pipedash-plugin-actions = { version = "0.4.0", path = "crates/pipedash-plugin-actions" }
 pipedash-plugin-api = { version = "0.4.0", path = "crates/pipedash-plugin-api" }
 pipedash-plugin-argocd = { version = "0.4.0", path = "crates/pipedash-plugin-argocd" }
 pipedash-plugin-bitbucket = { version = "0.4.0", path = "crates/pipedash-plugin-bitbucket" }
@@ -119,6 +121,7 @@ zeroize = "1.9"
 
 [patch.crates-io]
 pipedash-core = { path = "crates/pipedash-core" }
+pipedash-plugin-actions = { path = "crates/pipedash-plugin-actions" }
 pipedash-plugin-api = { path = "crates/pipedash-plugin-api" }
 pipedash-plugin-argocd = { path = "crates/pipedash-plugin-argocd" }
 pipedash-plugin-bitbucket = { path = "crates/pipedash-plugin-bitbucket" }

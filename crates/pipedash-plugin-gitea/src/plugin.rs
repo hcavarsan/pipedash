@@ -4,6 +4,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use pipedash_plugin_actions::{
+    dispatch_body,
+    dispatch_inputs,
+};
 use pipedash_plugin_api::*;
 
 use crate::{
@@ -228,7 +232,7 @@ impl Plugin for GiteaPlugin {
             },
             required: true,
         }];
-        parameters.extend(workflow_dispatch::dispatch_inputs(&source)?);
+        parameters.extend(dispatch_inputs(&source)?);
         Ok(parameters)
     }
 
@@ -236,7 +240,7 @@ impl Plugin for GiteaPlugin {
         let id = config::parse_pipeline_id(&params.workflow_id)?;
         let client = self.client()?;
 
-        let body = workflow_dispatch::dispatch_body(params.inputs);
+        let body = dispatch_body(params.inputs);
 
         client
             .dispatch_workflow(id.owner, id.repo, id.workflow, &body)

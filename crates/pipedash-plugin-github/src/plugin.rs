@@ -4,6 +4,10 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use octocrab::service::middleware::retry::RetryConfig;
 use octocrab::Octocrab;
+use pipedash_plugin_actions::{
+    dispatch_body,
+    dispatch_inputs,
+};
 use pipedash_plugin_api::*;
 
 use crate::{
@@ -322,7 +326,7 @@ impl Plugin for GitHubPlugin {
             },
             required: true,
         }];
-        parameters.extend(workflow_dispatch::dispatch_inputs(&source)?);
+        parameters.extend(dispatch_inputs(&source)?);
         Ok(parameters)
     }
 
@@ -343,7 +347,7 @@ impl Plugin for GitHubPlugin {
             PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id}"))
         })?;
 
-        let mut body = workflow_dispatch::dispatch_body(params.inputs);
+        let mut body = dispatch_body(params.inputs);
         let ref_value = body["ref"].as_str().unwrap_or("main").to_string();
         let client = self.client()?;
         let actions = client.octocrab.actions();
@@ -750,7 +754,7 @@ mod tests {
                     let first_read = history_reads.fetch_add(1, Ordering::SeqCst) == 0;
                     run["run_number"] = serde_json::json!(if first_read { 8 } else { 9 });
                     run["head_branch"] =
-                        serde_json::json!(if first_read { "main" } else { "other" });
+                        serde_json::json!(if first_read { "release" } else { "other" });
                     run["created_at"] = serde_json::json!(created_at);
                 }
                 ok(serde_json::json!({"total_count": 1, "workflow_runs": [run]}))
@@ -762,7 +766,12 @@ mod tests {
         let result = plugin
             .trigger_pipeline(TriggerParams {
                 workflow_id: PIPELINE_ID.to_string(),
-                inputs: Some(serde_json::json!({"ref": "main", "environment": "production"})),
+                inputs: Some(serde_json::json!({
+                    "ref": "release",
+                    "inputs.ref": "abc123",
+                    "inputs.environment": "production",
+                    "inputs.dry_run": false
+                })),
             })
             .await;
         server.abort();
@@ -772,7 +781,10 @@ mod tests {
         assert_eq!(response["logs_url"], "http://stub.invalid/acme/app");
         assert_eq!(
             posts(&recorded).await,
-            [serde_json::json!({"ref": "main", "inputs": {"environment": "production"}})]
+            [serde_json::json!({
+                "ref": "release",
+                "inputs": {"ref": "abc123", "environment": "production", "dry_run": false}
+            })]
         );
     }
 

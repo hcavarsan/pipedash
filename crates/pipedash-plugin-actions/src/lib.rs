@@ -1,3 +1,9 @@
+use pipedash_plugin_api::{
+    PluginError,
+    PluginResult,
+    WorkflowParameter,
+    WorkflowParameterType,
+};
 use serde::de::{
     Deserializer,
     IgnoredAny,
@@ -6,13 +12,6 @@ use serde::de::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-
-use crate::{
-    PluginError,
-    PluginResult,
-    WorkflowParameter,
-    WorkflowParameterType,
-};
 
 #[derive(Deserialize)]
 struct WorkflowFile {
@@ -95,20 +94,21 @@ pub fn dispatch_inputs(workflow_source: &str) -> PluginResult<Vec<WorkflowParame
 }
 
 pub fn dispatch_body(inputs: Option<Value>) -> Value {
-    let mut values = inputs
-        .and_then(|inputs| inputs.as_object().cloned())
-        .unwrap_or_default();
-    let ref_value = values
-        .remove("ref")
-        .and_then(|v| v.as_str().map(str::to_string))
-        .unwrap_or_else(|| "main".to_string());
+    let mut values = match inputs {
+        Some(Value::Object(values)) => values,
+        _ => serde_json::Map::new(),
+    };
+    let ref_value = match values.remove("ref") {
+        Some(Value::String(value)) => value,
+        _ => "main".to_string(),
+    };
     let inputs: serde_json::Map<String, Value> = values
         .into_iter()
-        .map(|(key, value)| {
-            (
-                key.strip_prefix(INPUT_PREFIX).unwrap_or(&key).to_string(),
-                value,
-            )
+        .map(|(mut key, value)| {
+            if key.starts_with(INPUT_PREFIX) {
+                key.replace_range(..INPUT_PREFIX.len(), "");
+            }
+            (key, value)
         })
         .collect();
 

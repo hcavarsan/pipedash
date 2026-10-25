@@ -7,7 +7,6 @@ pub mod registry;
 pub mod schema;
 pub mod types;
 pub mod utils;
-pub mod workflow_dispatch;
 
 pub use error::{
     PluginError,
