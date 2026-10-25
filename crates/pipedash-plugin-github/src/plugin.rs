@@ -32,14 +32,17 @@ impl Default for GitHubPlugin {
 
 mod permission_mapping {
 
-    pub const FINE_GRAINED_FEATURE_MAPPINGS: &[(&str, &str)] = &[
-        ("list_monitor_workflows", "Repository Metadata"),
-        ("view_run_history", "Repository Metadata"),
-        ("monitor_status", "Actions (Read)"),
-        ("trigger_dispatch", "Actions (Write)"),
-        ("cancel_workflows", "Actions (Write)"),
-        ("rerun_failed_jobs", "Actions (Write)"),
-        ("access_org_repos", "Organization members and teams (Read)"),
+    pub const FINE_GRAINED_FEATURE_MAPPINGS: &[(&str, &[&str])] = &[
+        ("list_monitor_workflows", &["Repository Metadata"]),
+        ("view_run_history", &["Repository Metadata"]),
+        ("monitor_status", &["Actions (Read)"]),
+        ("trigger_dispatch", &["Actions (Write)", "Contents (Read)"]),
+        ("cancel_workflows", &["Actions (Write)"]),
+        ("rerun_failed_jobs", &["Actions (Write)"]),
+        (
+            "access_org_repos",
+            &["Organization members and teams (Read)"],
+        ),
     ];
 
     pub fn map_feature_permissions(
@@ -49,7 +52,12 @@ mod permission_mapping {
             "fine_grained" => FINE_GRAINED_FEATURE_MAPPINGS
                 .iter()
                 .find(|(id, _)| *id == feature_id)
-                .map(|(_, perm)| vec![perm.to_string()])
+                .map(|(_, permissions)| {
+                    permissions
+                        .iter()
+                        .map(|permission| permission.to_string())
+                        .collect()
+                })
                 .unwrap_or_default(),
             _ => classic_permissions.to_vec(),
         }
@@ -503,7 +511,9 @@ impl Plugin for GitHubPlugin {
 
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
         let client = self.client()?;
-        client.check_token_permissions().await
+        client
+            .check_token_permissions(&config::get_repositories(&self.config))
+            .await
     }
 
     fn get_feature_availability(&self, status: &PermissionStatus) -> Vec<FeatureAvailability> {
@@ -1223,6 +1233,144 @@ mod tests {
 
         assert!(matches!(error, PluginError::RateLimited { .. }), "{error}");
         server.abort();
+    }
+
+    async fn stub_fine_grained_token(
+        config: &[(&str, &str)], contents: impl Fn(&str) -> Reply + Send + 'static,
+    ) -> (GitHubPlugin, Recorded, tokio::task::JoinHandle<()>) {
+        serve(config, move |method, path| match (method, path) {
+            ("GET", "/api/v3/user") => ok(serde_json::json!({})),
+            ("GET", "/api/v3/user/repos") => ok(serde_json::json!([{
+                "id": 1, "name": "app", "full_name": "acme/app", "private": true,
+                "url": "http://stub.invalid/acme/app"
+            }])),
+            ("GET", "/api/v3/user/memberships/orgs") => ok(serde_json::json!([])),
+            ("GET", path) if path.ends_with("/contents") => contents(path),
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn dispatch_requires_contents_access_on_every_selected_repository() {
+        for granted in [true, false] {
+            let (plugin, recorded, server) = stub_fine_grained_token(
+                &[("selected_items", "acme/public,acme/private")],
+                move |path| {
+                    if path.ends_with("/private/contents") && !granted {
+                        failure(403, "Resource not accessible by personal access token", &[])
+                    } else {
+                        ok(serde_json::json!([]))
+                    }
+                },
+            )
+            .await;
+
+            let mut status = plugin.check_permissions().await.unwrap();
+            server.abort();
+            let contents = status
+                .permissions
+                .iter()
+                .find(|check| check.permission.name == "Contents (Read)")
+                .unwrap();
+            assert_eq!(contents.granted, granted);
+            assert!(contents.permission.required);
+            status
+                .permissions
+                .iter_mut()
+                .find(|check| check.permission.name == "Actions (Write)")
+                .unwrap()
+                .granted = true;
+            let features = plugin.get_feature_availability(&status);
+            let dispatch = features
+                .iter()
+                .find(|feature| feature.feature.id == "trigger_dispatch")
+                .unwrap();
+            assert_eq!(dispatch.available, granted);
+            assert_eq!(
+                dispatch.missing_permissions,
+                if granted {
+                    vec![]
+                } else {
+                    vec!["Contents (Read)".to_string()]
+                }
+            );
+            assert!(
+                features
+                    .iter()
+                    .find(|feature| feature.feature.id == "cancel_workflows")
+                    .unwrap()
+                    .available
+            );
+            assert!(posts(&recorded).await.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn contents_access_is_checked_before_repository_selection() {
+        let (plugin, _recorded, server) = stub_fine_grained_token(&[], |path| {
+            assert_eq!(path, "/api/v3/repos/acme/app/contents");
+            ok(serde_json::json!([]))
+        })
+        .await;
+
+        let status = plugin.check_permissions().await.unwrap();
+        server.abort();
+
+        assert!(status
+            .permissions
+            .iter()
+            .any(|check| check.permission.name == "Contents (Read)" && check.granted));
+    }
+
+    #[tokio::test]
+    async fn contents_probe_errors_are_not_reported_as_missing_permissions() {
+        for status in [401, 429, 503] {
+            let (plugin, recorded, server) =
+                stub_fine_grained_token(&[("selected_items", "acme/app")], move |_| {
+                    failure(status, "Probe failed", &[("Retry-After", "120")])
+                })
+                .await;
+
+            let error = plugin.check_permissions().await.unwrap_err();
+            server.abort();
+
+            let expected = match (status, &error) {
+                (401, PluginError::AuthenticationFailed(_))
+                | (503, PluginError::ServiceUnavailable { .. }) => true,
+                (
+                    429,
+                    PluginError::RateLimited {
+                        retry_after: Some(hint),
+                        ..
+                    },
+                ) => *hint == Duration::from_secs(120),
+                _ => false,
+            };
+            assert!(expected, "{status}: {error}");
+            assert!(posts(&recorded).await.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn workflow_parameters_explain_missing_contents_permission() {
+        let (plugin, _recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42") => ok(workflow(42)),
+            ("GET", "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml") => {
+                failure(403, "Resource not accessible by personal access token", &[])
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let error = plugin
+            .fetch_workflow_parameters(PIPELINE_ID)
+            .await
+            .unwrap_err();
+        server.abort();
+
+        assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
+        assert!(error.to_string().contains("Contents (Read)"), "{error}");
     }
 
     #[tokio::test]

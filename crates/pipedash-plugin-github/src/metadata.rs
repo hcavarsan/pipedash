@@ -24,7 +24,7 @@ fn create_config_schema() -> ConfigSchema {
             key: "token".to_string(),
             label: "API Token".to_string(),
             description: Some(
-                "GitHub Personal Access Token or Fine-grained token with repo and workflow permissions"
+                "Classic PAT: repo (private repositories) or public_repo (public only), plus workflow. Fine-grained token: Actions read/write and Contents read on each selected repository."
                     .to_string(),
             ),
             field_type: ConfigFieldType::Password,

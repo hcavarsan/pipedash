@@ -545,7 +545,7 @@ impl GitHubClient {
                     .raw()
                     .send()
                     .await
-                    .map_err(|e| map_octocrab_error("Failed to fetch workflow file", e))?;
+                    .map_err(|e| map_octocrab_error("Failed to fetch workflow file. Fine-grained tokens need Contents (Read) on the repository", e))?;
 
                 self.octocrab
                     .body_to_string(response)
@@ -740,8 +740,12 @@ impl GitHubClient {
         Ok(())
     }
 
-    pub async fn check_token_permissions(&self) -> PluginResult<PermissionStatus> {
-        self.permission_checker.check_token_permissions().await
+    pub async fn check_token_permissions(
+        &self, repositories: &[String],
+    ) -> PluginResult<PermissionStatus> {
+        self.permission_checker
+            .check_token_permissions(repositories)
+            .await
     }
 }
 
