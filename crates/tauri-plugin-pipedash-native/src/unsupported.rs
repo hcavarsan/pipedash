@@ -13,6 +13,9 @@ use tauri::{
 use crate::{
     Accessibility,
     Appearance,
+    BuildWatchSnapshot,
+    BuildWatchStatus,
+    BuildWatchStopReason,
     Error,
     HapticKind,
     NotificationResponse,
@@ -42,6 +45,33 @@ impl<R: Runtime> PipedashNative<R> {
         Ok(Accessibility::default())
     }
 
+    pub async fn build_watch_status(&self) -> Result<BuildWatchStatus> {
+        Ok(BuildWatchStatus {
+            supported: false,
+            available: false,
+            reason: Some(
+                "Build watching requires a physical iOS device running iOS 26 or later".to_string(),
+            ),
+            watch: None,
+        })
+    }
+
+    pub async fn start_build_watch(&self, _watch: &BuildWatchSnapshot) -> Result<BuildWatchStatus> {
+        Err(Error::Unsupported)
+    }
+
+    pub async fn update_build_watch(
+        &self, _watch: &BuildWatchSnapshot,
+    ) -> Result<BuildWatchStatus> {
+        Err(Error::Unsupported)
+    }
+
+    pub async fn stop_build_watch(
+        &self, _session_id: &str, _reason: BuildWatchStopReason,
+    ) -> Result<BuildWatchStatus> {
+        Err(Error::Unsupported)
+    }
+
     pub async fn open_settings(&self) -> Result<()> {
         Err(Error::Unsupported)
     }
@@ -67,6 +97,12 @@ impl<R: Runtime> PipedashNative<R> {
     }
 
     pub fn on_notification_response<F: Fn(NotificationResponse) + Send + Sync + 'static>(
+        &self, _handler: F,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn on_build_watch_changed<F: Fn() + Send + Sync + 'static>(
         &self, _handler: F,
     ) -> Result<()> {
         Ok(())

@@ -1,5 +1,28 @@
 export type PipelineStatus = 'success' | 'failed' | 'running' | 'pending' | 'cancelled' | 'skipped'
 
+export interface BuildWatchSnapshot {
+  sessionId: string
+  pipelineId: string
+  pipelineName: string
+  providerName: string
+  providerType: string
+  runNumber: number
+  branch: string | null
+  status: PipelineStatus
+  startedAt: number
+  concludedAt: number | null
+  updatedAt: number
+  monitoring: 'watching' | 'completed' | 'interrupted' | 'stopped'
+  url: string
+}
+
+export interface BuildWatchStatus {
+  supported: boolean
+  available: boolean
+  reason: string | null
+  watch: BuildWatchSnapshot | null
+}
+
 export type ReviewDecision = 'approve' | 'reject'
 
 export interface AvailablePipeline {

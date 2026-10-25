@@ -27,6 +27,7 @@ import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
 
+import { BuildWatchControls } from './BuildWatchControls'
 import classes from './WorkflowLogsModal.module.css'
 
 interface WorkflowLogsModalProps {
@@ -358,6 +359,7 @@ export const WorkflowLogsModal = ({
 
     const notices = (
       <>
+        <BuildWatchControls pipelineId={pipelineId} runNumber={runNumber} status={runDetails.status} />
         {runDetails.metadata?.archived === true && (
           <Alert color="gray" title="Cached reconciliation">
             Flux no longer retains this entry. These details come from Pipedash's cache and will disappear if the cache

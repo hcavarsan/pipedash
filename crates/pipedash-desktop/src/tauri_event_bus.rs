@@ -27,6 +27,9 @@ unsafe impl<R: Runtime> Sync for TauriEventBus<R> {}
 #[async_trait]
 impl<R: Runtime + 'static> EventBus for TauriEventBus<R> {
     async fn emit(&self, event: CoreEvent) {
+        if let CoreEvent::ProviderRemoved { provider, .. } = &event {
+            crate::build_watch::interrupt_provider(&self.app_handle, provider.id);
+        }
         let event_name = event.event_name();
         if let Err(e) = self.app_handle.emit(event_name, event.to_json_payload()) {
             tracing::error!("Failed to emit event '{}': {}", event_name, e);

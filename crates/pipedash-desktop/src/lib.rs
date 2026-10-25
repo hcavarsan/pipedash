@@ -1,4 +1,5 @@
 mod app_lock;
+mod build_watch;
 mod commands;
 mod core_boot;
 mod credential;
@@ -189,6 +190,12 @@ use app_lock::{
     unlock_with_biometrics,
     AppLockState,
 };
+use build_watch::{
+    get_build_watch,
+    start_build_watch,
+    stop_build_watch,
+    BuildWatchState,
+};
 use commands::{
     add_provider,
     analyze_config,
@@ -291,7 +298,8 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_pipedash_push::init())
         .plugin(tauri_plugin_pipedash_native::init())
-        .manage(native::PendingIntent::default());
+        .manage(native::PendingIntent::default())
+        .manage(BuildWatchState::default());
 
     #[cfg(mobile)]
     let builder = builder
@@ -383,6 +391,7 @@ pub fn run() {
             }
 
             system_notifications::register(app.handle())?;
+            build_watch::register(app.handle())?;
 
             push::spawn_token_sync(app.handle(), &app_data_dir);
 
@@ -413,6 +422,9 @@ pub fn run() {
             get_cached_pipelines,
             fetch_run_history,
             get_workflow_run_details,
+            get_build_watch,
+            start_build_watch,
+            stop_build_watch,
             trigger_pipeline,
             cancel_pipeline_run,
             review_pipeline_run,

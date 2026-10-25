@@ -1921,6 +1921,7 @@ pub async fn factory_reset(
         error: e,
         details: None,
     })?;
+    crate::build_watch::interrupt(&app);
 
     let providers = core.provider_service.list_providers().await?;
     let providers_removed = providers.len();

@@ -21,6 +21,10 @@ use tauri::{
 use crate::{
     Accessibility,
     Appearance,
+    BuildWatchMonitoring,
+    BuildWatchSnapshot,
+    BuildWatchStatus,
+    BuildWatchStopReason,
     Error,
     HapticKind,
     NotificationResponse,
@@ -67,6 +71,13 @@ struct ShareArgs<'a> {
 struct ShareLinkArgs<'a> {
     url: &'a str,
     source_rect: ShareRect,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StopBuildWatchArgs<'a> {
+    session_id: &'a str,
+    reason: BuildWatchStopReason,
 }
 
 #[derive(Deserialize)]
@@ -120,6 +131,35 @@ impl<R: Runtime> PipedashNative<R> {
         self.call("accessibilityState", ()).await
     }
 
+    pub async fn build_watch_status(&self) -> Result<BuildWatchStatus> {
+        self.call("buildWatchStatus", ()).await
+    }
+
+    pub async fn start_build_watch(&self, watch: &BuildWatchSnapshot) -> Result<BuildWatchStatus> {
+        watch.validate()?;
+        if watch.monitoring != BuildWatchMonitoring::Watching {
+            return Err(Error::Native(
+                "Only an active build can be watched".to_string(),
+            ));
+        }
+        self.call("startBuildWatch", watch).await
+    }
+
+    pub async fn update_build_watch(&self, watch: &BuildWatchSnapshot) -> Result<BuildWatchStatus> {
+        watch.validate()?;
+        self.call("updateBuildWatch", watch).await
+    }
+
+    pub async fn stop_build_watch(
+        &self, session_id: &str, reason: BuildWatchStopReason,
+    ) -> Result<BuildWatchStatus> {
+        if session_id.trim().is_empty() || session_id.len() > 128 {
+            return Err(Error::Native("Invalid build watch session".to_string()));
+        }
+        self.call("stopBuildWatch", StopBuildWatchArgs { session_id, reason })
+            .await
+    }
+
     pub async fn open_settings(&self) -> Result<()> {
         self.call("openSettings", ()).await
     }
@@ -159,6 +199,12 @@ impl<R: Runtime> PipedashNative<R> {
                 handler(response);
             }
         })
+    }
+
+    pub fn on_build_watch_changed<F: Fn() + Send + Sync + 'static>(
+        &self, handler: F,
+    ) -> Result<()> {
+        self.listen("build-watch-changed", move |_| handler())
     }
 
     pub fn on_status_bar_tap<F: Fn() + Send + Sync + 'static>(&self, handler: F) -> Result<()> {

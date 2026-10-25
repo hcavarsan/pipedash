@@ -17,6 +17,7 @@ import { AppLayout } from './components/layout/AppLayout'
 import { fromOf } from './components/layout/mobileChrome'
 import { useGoBack, useRecordHistory } from './components/layout/useMobileBack'
 import { NotificationsPage } from './components/notifications/NotificationCenter'
+import { BuildWatchPanel } from './components/pipeline/BuildWatchControls'
 import { TriggerWorkflowModal } from './components/pipeline/TriggerWorkflowModal'
 import { WorkflowLogsModal } from './components/pipeline/WorkflowLogsModal'
 import { ProvidersPage } from './components/provider/ProvidersPage'
@@ -30,6 +31,7 @@ import { useProviderHealthAlerts } from './hooks/useProviderHealthAlerts'
 import { useEventSync } from './lib/eventSync'
 import { logger } from './lib/logger'
 import { queryKeys } from './lib/queryKeys'
+import { useBuildWatchLifecycle } from './queries/useBuildWatchQueries'
 import { usePipelines } from './queries/usePipelinesQueries'
 import { useProviders } from './queries/useProvidersQueries'
 import { useRefreshProvider } from './queries/useRefreshQueries'
@@ -52,6 +54,7 @@ function AppContent() {
   const mobileShell = useMobileShell()
 
   useEventSync()
+  useBuildWatchLifecycle()
   useRecordHistory()
   const goBack = useGoBack()
   useFailureNotifications()
@@ -253,6 +256,7 @@ function AppContent() {
 
   return (
     <AppLayout onOpenSettings={handleOpenSettings}>
+      <BuildWatchPanel onViewRun={handleViewRun} />
       <Routes>
         <Route path="/" element={<Navigate to="/pipelines" replace />} />
 

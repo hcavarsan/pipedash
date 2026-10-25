@@ -124,3 +124,11 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Motion on gestures uses springs from `src/lib/spring.ts`: damping 1 by default, a little bounce only after a flick. Reduce Motion replaces movement with a short fade.
 - Haptics fire in the same frame as the visual change and only for meaningful moments: a pull to refresh arming, a full swipe arming, a long-press menu opening, and success, warning and error outcomes.
 - Chrome and controls are not selectable. Content text such as errors, IDs, URLs and SHAs is.
+
+### Build watching
+
+- Watch follows one exact pipeline and run number. Its status panel opens that run and separates monitoring state from the provider's build result.
+- The native ActivityKit extension shows pipeline, provider, branch, status and elapsed time. Compact and minimal presentations fit the Dynamic Island. Expanded and Lock Screen presentations link to the run in Pipedash.
+- The background task's system progress UI is separate from the custom Live Activity. Its one unit completes only when the provider reports a terminal result. Polling never invents build progress.
+- iOS may interrupt monitoring. Locking Pipedash, removing the watched provider or resetting the app also interrupts it. Returning after a force quit never restarts a watch automatically.
+- A delayed activity shows its last confirmed state and a stale-data label. Completion freezes the timer. Watching stores no provider credentials in activity content.
