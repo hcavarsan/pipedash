@@ -13,6 +13,11 @@ on:
           - release
           - upload_screenshots
         default: beta
+      beta_ref:
+        description: "Branch to build for beta; leave blank to use the selected workflow ref"
+        type: string
+        required: false
+        default: ""
 
 permissions: {}
 
@@ -28,10 +33,17 @@ jobs:
     permissions:
       contents: read # checkout the repository
     steps:
+      - name: Reject beta ref for App Store lanes
+        if: ${{ inputs.beta_ref != '' && (inputs.lane || 'beta') != 'beta' }}
+        run: |
+          echo "::error::beta_ref is only supported by the beta lane"
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.beta_ref || github.ref }}
 
       - name: Set up iOS build
         uses: $/.github/actions/setup-ios
