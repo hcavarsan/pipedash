@@ -283,9 +283,28 @@ impl Plugin for GitHubPlugin {
     }
 
     async fn fetch_workflow_parameters(
-        &self, _workflow_id: &str,
+        &self, workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {
-        Ok(vec![WorkflowParameter {
+        let parts: Vec<&str> = workflow_id.split("__").collect();
+        if parts.len() != 5 {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid workflow ID format: {} (expected 5 parts, got {})",
+                workflow_id,
+                parts.len()
+            )));
+        }
+
+        let workflow_number_str = parts[4];
+        let workflow_number: u64 = workflow_number_str.parse().map_err(|_| {
+            PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_number_str}"))
+        })?;
+
+        let source = self
+            .client()?
+            .fetch_workflow_source(parts[2], parts[3], workflow_number)
+            .await?;
+
+        let mut parameters = vec![WorkflowParameter {
             name: "ref".to_string(),
             label: Some("Ref".to_string()),
             description: Some("Branch, tag, or commit SHA to run workflow on".to_string()),
@@ -293,7 +312,9 @@ impl Plugin for GitHubPlugin {
                 default: Some("main".to_string()),
             },
             required: true,
-        }])
+        }];
+        parameters.extend(workflow_dispatch::dispatch_inputs(&source)?);
+        Ok(parameters)
     }
 
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String> {
@@ -310,31 +331,8 @@ impl Plugin for GitHubPlugin {
         let repo = parts[3];
         let workflow_id = parts[4];
 
-        let ref_value = params
-            .inputs
-            .as_ref()
-            .and_then(|inputs| inputs.get("ref"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("main")
-            .to_string();
-
-        let mut body = serde_json::json!({
-            "ref": &ref_value,
-        });
-
-        if let Some(inputs) = params.inputs {
-            if let Some(obj) = inputs.as_object() {
-                let workflow_inputs: serde_json::Map<String, serde_json::Value> = obj
-                    .iter()
-                    .filter(|(k, _)| k.as_str() != "ref")
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-
-                if !workflow_inputs.is_empty() {
-                    body["inputs"] = serde_json::Value::Object(workflow_inputs);
-                }
-            }
-        }
+        let body = workflow_dispatch::dispatch_body(params.inputs);
+        let ref_value = body["ref"].as_str().unwrap_or("main").to_string();
 
         let client = self.client()?;
         let url = format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches");
@@ -636,7 +634,10 @@ mod tests {
                 let (method, path, body) = read_request(&mut stream).await;
                 let reply = handler(&method, &path);
                 log.lock().await.push((method, path, body));
-                let body = reply.body.to_string();
+                let body = match reply.body {
+                    serde_json::Value::String(text) => text,
+                    json => json.to_string(),
+                };
                 let extra: String = reply
                     .headers
                     .iter()
@@ -1093,6 +1094,55 @@ mod tests {
         );
         assert!(status.all_granted);
         assert_eq!(recorded.lock().await.len(), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn workflow_parameters_list_the_workflow_dispatch_inputs_after_ref() {
+        let source = "on:\n  push:\n  workflow_dispatch:\n    inputs:\n      environment:\n        description: Target\n        required: true\n        type: choice\n        options: [staging, production]\n      ref:\n        default: v1\n";
+        let (plugin, recorded, server) = serve(&[], move |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42") => ok(workflow(42)),
+            ("GET", "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml") => {
+                ok(serde_json::json!(source))
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let params = plugin.fetch_workflow_parameters(PIPELINE_ID).await.unwrap();
+        let summary: Vec<_> = params
+            .iter()
+            .map(|p| {
+                (
+                    p.name.as_str(),
+                    p.required,
+                    serde_json::to_value(&p.param_type).unwrap(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            summary,
+            [
+                (
+                    "ref",
+                    true,
+                    serde_json::json!({"type": "string", "default": "main"})
+                ),
+                (
+                    "inputs.environment",
+                    true,
+                    serde_json::json!({"type": "choice", "options": ["staging", "production"], "default": null})
+                ),
+                (
+                    "inputs.ref",
+                    false,
+                    serde_json::json!({"type": "string", "default": "v1"})
+                ),
+            ]
+        );
+        assert_eq!(params[1].label.as_deref(), Some("environment"));
+        assert_eq!(recorded.lock().await.len(), 2);
         server.abort();
     }
 

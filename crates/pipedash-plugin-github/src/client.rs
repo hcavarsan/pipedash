@@ -524,6 +524,37 @@ impl GitHubClient {
             .await
     }
 
+    pub async fn fetch_workflow_source(
+        &self, owner: &str, repo: &str, workflow_id: u64,
+    ) -> PluginResult<String> {
+        let url = format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}");
+
+        self.retry_policy
+            .retry(|| async {
+                let workflow: octocrab::models::workflows::WorkFlow = self
+                    .octocrab
+                    .get(&url, None::<&()>)
+                    .await
+                    .map_err(|e| map_octocrab_error("Failed to fetch workflow", e))?;
+
+                let response = self
+                    .octocrab
+                    .repos(owner, repo)
+                    .get_content()
+                    .path(workflow.path)
+                    .raw()
+                    .send()
+                    .await
+                    .map_err(|e| map_octocrab_error("Failed to fetch workflow file", e))?;
+
+                self.octocrab
+                    .body_to_string(response)
+                    .await
+                    .map_err(|e| map_octocrab_error("Failed to read workflow file", e))
+            })
+            .await
+    }
+
     pub async fn fetch_run_history(
         &self, owner: &str, repo: &str, workflow_id: u64, limit: usize,
     ) -> PluginResult<Vec<types::Run>> {
