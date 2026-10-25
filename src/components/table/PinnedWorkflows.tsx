@@ -47,7 +47,8 @@ export function PinnedWorkflows({
               title={pipeline.name}
               subtitle={[pipeline.repository, provider?.name ?? 'Unknown'].join(' · ')}
               value={relativeOrNever(pipeline.last_run, now)}
-              ariaLabel={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${pipeline.name}`}
+              hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
+              longPressMenu
               onClick={() => onViewHistory(pipeline)}
               swipeActions={workflowSwipeActions(pipeline, true, () => onUnpin(pipeline), onTrigger)}
               trailing={

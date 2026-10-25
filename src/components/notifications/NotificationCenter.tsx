@@ -13,14 +13,11 @@ import {
   VisuallyHidden,
 } from '@mantine/core'
 import { IconBell, IconBellCheck } from '@tabler/icons-react'
-import { listen } from '@tauri-apps/api/event'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
-import { logger } from '../../lib/logger'
 import { useProviders } from '../../queries/useProvidersQueries'
-import { isTauri } from '../../services'
 import {
   type CenterNotification,
   type CenterNotificationTone,
@@ -31,7 +28,6 @@ import type { HealthLevel } from '../../types'
 import { openConfirm } from '../../utils/confirm'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { providerAttention } from '../../utils/providerAttention'
-import { openNotificationDetails, SYSTEM_NOTIFICATION_CLICKED_EVENT } from '../../utils/systemNotifications'
 import { ProviderIcon } from '../atoms/ProviderIcon'
 import { IosGroup, IosRow } from '../ios/IosList'
 
@@ -102,30 +98,6 @@ export function NotificationHost() {
   const { data: providers } = useProviders()
   const [announcement, setAnnouncement] = useState('')
   const previousLevels = useRef<Map<number, HealthLevel> | null>(null)
-
-  useEffect(() => {
-    if (!isTauri()) {
-      return
-    }
-
-    let active = true
-    let unlisten: (() => void) | undefined
-
-    listen<string>(SYSTEM_NOTIFICATION_CLICKED_EVENT, (event) => openNotificationDetails(event.payload))
-      .then((stop) => {
-        if (active) {
-          unlisten = stop
-        } else {
-          stop()
-        }
-      })
-      .catch((error: unknown) => logger.warn('NotificationHost', "Couldn't listen for notification clicks", error))
-
-    return () => {
-      active = false
-      unlisten?.()
-    }
-  }, [])
 
   useEffect(() => {
     if (!providers) {

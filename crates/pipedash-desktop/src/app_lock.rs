@@ -389,9 +389,10 @@ fn delete_saved_vault_password() {
     }
 }
 
-pub fn reset(lock: &AppLockState) {
+pub fn reset(app: &AppHandle, lock: &AppLockState) {
     delete_saved_vault_password();
     lock.clear_settings();
+    crate::native::sync_privacy_cover(app, AppLockSettings::default());
 }
 
 fn failure(message: &str) -> UnlockVaultResponse {
@@ -519,6 +520,8 @@ pub async fn set_app_lock(
     if disabling {
         delete_saved_vault_password();
     }
+
+    crate::native::sync_privacy_cover(&app, requested);
 
     Ok(status(&app).await)
 }

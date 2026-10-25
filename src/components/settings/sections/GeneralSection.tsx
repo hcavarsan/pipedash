@@ -26,7 +26,7 @@ import { displayErrorNotification } from '@/utils/errorDisplay'
 import { getPlatformOverride, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
 
 import { IosGroup, IosRow } from '../../ios/IosList'
-import { RowSelect } from '../mobileParts'
+import { FieldRow, RowSelect, SwitchRow } from '../mobileParts'
 import { useFactoryResetConfirm } from '../useFactoryResetConfirm'
 
 interface GeneralSectionProps {
@@ -95,30 +95,24 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
     return (
       <Stack gap="lg" pb="md">
         <IosGroup footer="Choose Dark, Light, or follow your system setting.">
-          <IosRow
-            title="Theme"
-            accessory={
+          <FieldRow title="Theme">
+            {(id) => (
               <RowSelect
-                aria-label="Theme"
+                id={id}
                 data={THEME_OPTIONS}
                 value={colorScheme}
                 onChange={(value) => value && setColorScheme(value as MantineColorScheme)}
               />
-            }
-          />
+            )}
+          </FieldRow>
         </IosGroup>
 
         <IosGroup footer="Reads the public status page of each provider, or the one you configured. No credentials are sent.">
-          <IosRow
+          <SwitchRow
             title="Check provider status pages"
-            accessory={
-              <Switch
-                aria-label="Check provider status pages"
-                checked={statusPagesChecked}
-                onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
-                disabled={!general}
-              />
-            }
+            checked={statusPagesChecked}
+            onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
+            disabled={!general}
           />
         </IosGroup>
 

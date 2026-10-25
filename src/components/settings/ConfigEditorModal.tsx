@@ -4,6 +4,7 @@ import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { parse } from 'smol-toml'
 
+import { useDiscardGuard } from '../../hooks/useDiscardGuard'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { service } from '../../services'
@@ -14,6 +15,7 @@ import { formatCount } from '../../utils/formatCount'
 import { StandardModal } from '../common/StandardModal'
 
 import { MigrationConfirmModal } from './MigrationConfirmModal'
+import { TomlTextArea } from './TomlTextArea'
 
 const TomlEditor = lazy(() => import('./TomlEditor'))
 
@@ -225,39 +227,15 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     }
   }
 
-  const handleClose = () => {
-    if (hasChanges) {
-      openConfirm({
-        title: 'Discard changes?',
-        centered: true,
-        zIndex: 400,
-        children: <Text size="sm">Your edits to config.toml have not been saved and will be lost.</Text>,
-        labels: { confirm: 'Discard changes', cancel: 'Keep editing' },
-        confirmProps: { color: 'red' },
-        onConfirm: onClose,
-      })
+  const requestClose = useDiscardGuard(hasChanges, onClose)
 
-      return
-    }
-    onClose()
-  }
-
-  const footerContent = mobileShell ? (
-    <Stack gap="xs">
-      <Text size="xs" c="dimmed" ta="center">
-        {hasChanges ? 'Unsaved changes' : 'No changes'}
-      </Text>
-      <Button fullWidth onClick={handleSave} loading={loading} disabled={!!validationError || !hasChanges}>
-        Save
-      </Button>
-    </Stack>
-  ) : (
+  const footerContent = (
     <Group justify="space-between" w="100%">
       <Text size="xs" c="dimmed">
         {hasChanges ? 'Unsaved changes' : 'No changes'}
       </Text>
       <Group gap="sm">
-        <Button variant="default" size="sm" onClick={handleClose} disabled={loading}>
+        <Button variant="default" size="sm" onClick={requestClose} disabled={loading}>
           Cancel
         </Button>
         <Button size="sm" onClick={handleSave} loading={loading} disabled={!!validationError || !hasChanges}>
@@ -272,9 +250,17 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
   return (
     <StandardModal
       opened={opened}
-      onClose={handleClose}
+      onClose={onClose}
       title="Edit config.toml"
       footer={footerContent}
+      primaryAction={{
+        label: 'Save',
+        onClick: handleSave,
+        loading,
+        disabled: !!validationError || !hasChanges,
+      }}
+      dirty={hasChanges}
+      loading={loading}
       size="xl"
       contentPadding={false}
       disableScrollArea
@@ -371,29 +357,33 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
           )}
         </Box>
 
-        <Suspense fallback={<Loader size="sm" m="lg" />}>
-          <TomlEditor
-            height="100%"
-            theme={colorScheme === 'dark' ? 'vs-dark' : 'light'}
-            value={content}
-            onChange={handleEditorChange}
-            options={{
-              fontSize: mobileShell ? 16 : 14,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              wordWrap: 'on',
-              automaticLayout: true,
-              tabSize: 2,
-              insertSpaces: true,
-              lineNumbers: mobileShell ? 'off' : 'on',
-              glyphMargin: false,
-              folding: true,
-              lineDecorationsWidth: 0,
-              lineNumbersMinChars: 3,
-              padding: { top: 12, bottom: 12 },
-            }}
-          />
-        </Suspense>
+        {mobileShell ? (
+          <TomlTextArea value={content} onChange={handleEditorChange} disabled={loading} />
+        ) : (
+          <Suspense fallback={<Loader size="sm" m="lg" />}>
+            <TomlEditor
+              height="100%"
+              theme={colorScheme === 'dark' ? 'vs-dark' : 'light'}
+              value={content}
+              onChange={handleEditorChange}
+              options={{
+                fontSize: 14,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                wordWrap: 'on',
+                automaticLayout: true,
+                tabSize: 2,
+                insertSpaces: true,
+                lineNumbers: 'on',
+                glyphMargin: false,
+                folding: true,
+                lineDecorationsWidth: 0,
+                lineNumbersMinChars: 3,
+                padding: { top: 12, bottom: 12 },
+              }}
+            />
+          </Suspense>
+        )}
       </Stack>
 
       {analysis?.migration_plan && (

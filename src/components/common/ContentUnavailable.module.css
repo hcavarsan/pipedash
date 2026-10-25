@@ -1,0 +1,58 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5em;
+  padding: 3em 1.25em;
+  text-align: center;
+  font-size: var(--ios-fs-body);
+}
+
+.root[data-fill] {
+  justify-content: center;
+  min-height: 50vh;
+}
+
+.icon {
+  display: flex;
+  margin-bottom: 0.25em;
+  color: var(--ios-secondary-label);
+  font-size: 3em;
+  line-height: 1;
+}
+
+.icon svg {
+  width: 1em;
+  height: 1em;
+}
+
+.root[data-tone="error"] .icon {
+  color: var(--ios-red);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--ios-fs-title2);
+  font-weight: 700;
+  line-height: var(--ios-lh-title2);
+  color: var(--ios-label);
+  overflow-wrap: anywhere;
+}
+
+.description {
+  max-width: 24em;
+  margin: 0;
+  font-size: var(--ios-fs-subheadline);
+  line-height: var(--ios-lh-subheadline);
+  color: var(--ios-secondary-label);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75em;
+  margin-top: 0.5em;
+}

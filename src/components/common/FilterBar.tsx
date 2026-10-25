@@ -1,4 +1,4 @@
-import { ActionIcon, Box, Button, Group, Indicator, Select, Stack, TextInput } from '@mantine/core'
+import { ActionIcon, Box, Button, Group, Select, Stack, TextInput } from '@mantine/core'
 import { IconAdjustmentsHorizontal, IconFilter, IconSearch, IconX } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -9,6 +9,9 @@ import { STATUS_OPTIONS } from '../../theme/status'
 import { DATE_RANGE_OPTIONS } from '../../utils/dateRange'
 import { IosGroup, IosRow } from '../ios/IosList'
 
+import classes from './FilterBar.module.css'
+
+import { PhoneSearchField } from './PhoneSearchField'
 import { StandardModal } from './StandardModal'
 
 type FilterOption = string | { value: string; label: string }
@@ -223,12 +226,12 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
       : []),
   ]
 
-  const searchInput = (shell: boolean) =>
+  const searchInput = () =>
     filters.search && (
       <TextInput
         aria-label={filters.search.placeholder || 'Search'}
         placeholder={filters.search.placeholder || 'Search'}
-        leftSection={<IconSearch size={shell ? 18 : 14} />}
+        leftSection={<IconSearch size={14} />}
         rightSection={
           localSearchValue && (
             <ActionIcon
@@ -244,9 +247,10 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
         }
         value={localSearchValue}
         onChange={(e) => setLocalSearchValue(e.currentTarget.value)}
-        {...(shell
-          ? { flex: 1, enterKeyHint: 'search' as const }
-          : { miw: 200, flex: 1, maw: '100%', size: 'xs' as const })}
+        miw={200}
+        flex={1}
+        maw="100%"
+        size="xs"
       />
     )
 
@@ -255,21 +259,41 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
 
     return (
       <>
-        <Group gap="sm" wrap="nowrap">
-          {searchInput(true)}
-          {selects.length > 0 && (
-            <Indicator disabled={activeSelects === 0} label={activeSelects} size={18} offset={5} color="blue">
-              <ActionIcon
-                variant="default"
-                size={44}
+        <div
+          className={classes.reveal}
+          data-search-reveal
+          data-pinned={localSearchValue || activeSelects > 0 || sheetOpen ? true : undefined}
+        >
+          <div className={classes.bar}>
+            {filters.search && (
+              <PhoneSearchField
+                value={localSearchValue}
+                placeholder={filters.search.placeholder}
+                onChange={setLocalSearchValue}
+                onClear={() => {
+                  setLocalSearchValue('')
+                  filters.search?.onChange('')
+                }}
+              />
+            )}
+            {selects.length > 0 && (
+              <button
+                type="button"
+                className={classes.filter}
+                data-active={activeSelects > 0 || undefined}
                 aria-label={activeSelects > 0 ? `Filters, ${activeSelects} active` : 'Filters'}
                 onClick={() => setSheetOpen(true)}
               >
-                <IconAdjustmentsHorizontal size={22} />
-              </ActionIcon>
-            </Indicator>
-          )}
-        </Group>
+                <IconAdjustmentsHorizontal size={22} aria-hidden />
+                {activeSelects > 0 && (
+                  <span className={classes.badge} aria-hidden>
+                    {activeSelects}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
 
         <StandardModal opened={sheetOpen} onClose={() => setSheetOpen(false)} title="Filters" size="md">
           <Stack gap="lg">
@@ -315,7 +339,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
   return (
     <Box>
       <Group gap="sm" wrap="wrap" align="flex-start">
-        {searchInput(false)}
+        {searchInput()}
 
         {selects.map(({ key, label, data, value, onChange, searchable, leftSection }) => (
           <FilterSelect

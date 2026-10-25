@@ -12,26 +12,17 @@ interface SaveFileType {
   mimeType: string
 }
 
-export interface SavedFile {
-  hint?: string
-}
-
-export const describeSave = (message: string, saved: SavedFile): string =>
-  saved.hint ? `${message.replace(/\.?$/, '.')} ${saved.hint}` : message
-
 export async function saveFile(
   fileName: string,
   content: string | Uint8Array<ArrayBuffer>,
   fileType: SaveFileType
-): Promise<SavedFile | null> {
+): Promise<boolean> {
   if (isMobilePlatform()) {
     if (typeof content !== 'string') {
       throw new Error("This device can't export binary files")
     }
 
-    await mobileService.saveExportFile(fileName, content)
-
-    return { hint: 'Find it in Files > On My iPhone > Pipedash.' }
+    return (await mobileService.saveExportFile(fileName, content)).shared
   }
 
   if (isTauri()) {
@@ -41,7 +32,7 @@ export async function saveFile(
     })
 
     if (!filePath) {
-      return null
+      return false
     }
 
     if (typeof content === 'string') {
@@ -50,7 +41,7 @@ export async function saveFile(
       await writeFile(filePath, content)
     }
 
-    return {}
+    return true
   }
 
   const url = URL.createObjectURL(new Blob([content], { type: fileType.mimeType }))
@@ -61,5 +52,5 @@ export async function saveFile(
   link.click()
   URL.revokeObjectURL(url)
 
-  return {}
+  return true
 }

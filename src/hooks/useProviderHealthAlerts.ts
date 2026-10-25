@@ -36,7 +36,10 @@ export function useProviderHealthAlerts() {
           return
         }
 
-        showSystemNotification(alert.title, alert.body, alert.notification_key)
+        showSystemNotification(alert.title, alert.body, {
+          key: alert.notification_key,
+          providerId: alert.provider_ids[0],
+        })
       })
       .then((fn) => {
         if (active) {

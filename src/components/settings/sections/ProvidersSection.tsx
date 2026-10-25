@@ -45,7 +45,7 @@ import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
 import { IosGroup, IosRow } from '../../ios/IosList'
 import { AddProviderModal } from '../../provider/AddProviderModal'
-import { AccentText, RowNumberInput } from '../mobileParts'
+import { AccentText, FieldRow, RowNumberInput } from '../mobileParts'
 
 const CONNECTION_NOTE = 'Pipedash reports connection problems.'
 
@@ -361,10 +361,10 @@ export const ProvidersSection = () => {
                     )}
                     {isEditing ? (
                       <>
-                        <IosRow
-                          title="Refresh interval"
-                          accessory={
+                        <FieldRow title="Refresh interval">
+                          {(id) => (
                             <RowNumberInput
+                              id={id}
                               value={currentValue}
                               onChange={(val) =>
                                 setRefreshValues((prev) => ({ ...prev, [provider.id]: Number(val) || 30 }))
@@ -376,8 +376,8 @@ export const ProvidersSection = () => {
                               aria-label={`Refresh interval in seconds for ${provider.name}`}
                               disabled={saving}
                             />
-                          }
-                        />
+                          )}
+                        </FieldRow>
                         <IosRow
                           title={<AccentText>Save</AccentText>}
                           disabled={saving}

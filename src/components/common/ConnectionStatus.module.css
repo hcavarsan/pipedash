@@ -1,5 +1,9 @@
 :global(html):has(.banner) :global(.mantine-AppShell-main) {
-  padding-top: calc(var(--app-shell-header-offset, 0rem) + var(--app-shell-padding) + 28px);
+  padding-top: calc(
+    var(--app-shell-header-offset, 0rem) +
+    var(--app-shell-padding) +
+    var(--connection-banner-height, 28px)
+  );
 }
 
 .banner {
@@ -9,19 +13,28 @@
   right: 0;
   left: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  column-gap: 0.4em;
   box-sizing: border-box;
-  height: 28px;
-  padding: 0 calc(var(--safe-right) + 12px) 0 calc(var(--safe-left) + 12px);
+  min-height: calc(28px * var(--ios-chrome-scale, 1));
+  padding: 0.25em calc(var(--safe-right) + 12px) 0.25em calc(var(--safe-left) + 12px);
   border-bottom: 0.5px solid var(--ios-separator);
-  background: color-mix(in srgb, var(--ios-sheet) 92%, transparent);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  color: var(--mantine-color-orange-light-color);
-  font-size: 13px;
-  line-height: 1.25;
+  background: var(--ios-material-bar);
+  -webkit-backdrop-filter: var(--ios-material-filter);
+  backdrop-filter: var(--ios-material-filter);
+  color: var(--ios-orange);
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
+}
+
+.banner[data-actionable] {
+  min-height: 44px;
+}
+
+:global(html[data-increase-contrast]) .banner {
+  border-bottom-color: currentColor;
 }
 
 .icon {
@@ -31,21 +44,32 @@
 
 .text {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .detail {
-  color: var(--mantine-color-dimmed);
+  color: var(--ios-secondary-label);
+}
+
+:global(html[data-increase-contrast]) .detail {
+  color: var(--ios-label);
 }
 
 .action {
+  display: inline-flex;
   flex-shrink: 0;
-  padding: 0 0 0 6px;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.5em;
   border: 0;
   background: transparent;
-  color: var(--mantine-color-blue-light-color);
+  color: var(--ios-tint);
   font: inherit;
   font-weight: 600;
+}
+
+.action:active {
+  opacity: 0.5;
 }

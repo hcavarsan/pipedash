@@ -17,15 +17,15 @@
 
 .headingTitle {
   margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: var(--ios-fs-title2, 1.375rem);
+  font-weight: 600;
+  line-height: var(--ios-lh-title2, 1.25);
 }
 
 .headingSubtitle {
   margin: 0;
-  font-size: 15px;
-  line-height: 1.35;
+  font-size: var(--ios-fs-subheadline, 0.9375rem);
+  line-height: var(--ios-lh-subheadline, 1.35);
   color: var(--mantine-color-dimmed);
 }
 
@@ -46,8 +46,8 @@
 }
 
 .control textarea {
-  padding-top: 11px;
-  padding-bottom: 11px;
+  padding-top: 0.65em;
+  padding-bottom: 0.65em;
 }
 
 .error {
@@ -56,8 +56,8 @@
 
 .note {
   padding: 0 16px;
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: var(--ios-fs-footnote, 0.8125rem);
+  line-height: var(--ios-lh-footnote, 1.35);
   color: var(--mantine-color-dimmed);
 }
 
@@ -94,10 +94,9 @@
   -webkit-line-clamp: 2;
 }
 
-.footerCount {
-  text-align: center;
-  font-size: 13px;
-  color: var(--mantine-color-dimmed);
+.permissionName {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: var(--ios-fs-subheadline, 0.9375rem);
 }
 
 .line.granted {
@@ -112,11 +111,6 @@
   align-items: center;
   gap: 4px;
   color: var(--mantine-color-red-filled);
-}
-
-.permissionName {
-  font-family: var(--mantine-font-family-monospace);
-  font-size: 15px;
 }
 
 .line {

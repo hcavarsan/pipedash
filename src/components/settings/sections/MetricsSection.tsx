@@ -6,8 +6,8 @@ import { useGlobalMetricsConfig, useUpdateGlobalMetricsConfig } from '../../../q
 import type { GlobalMetricsConfig } from '../../../types'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
-import { IosGroup, IosRow } from '../../ios/IosList'
-import { RowNumberInput, RowSelect } from '../mobileParts'
+import { IosGroup } from '../../ios/IosList'
+import { FieldRow, RowNumberInput, RowSelect, SwitchRow } from '../mobileParts'
 
 const RETENTION_PRESETS = [7, 14, 30, 60, 90]
 
@@ -56,46 +56,39 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
     return (
       <Stack gap="lg" pb="md">
         <IosGroup>
-          <IosRow
+          <SwitchRow
             title="Enable metrics by default"
-            accessory={
-              <Switch
-                aria-label="Enable metrics by default"
-                checked={metricsEnabled}
-                onChange={(e) => handleEnabledChange(e.currentTarget.checked)}
-                disabled={isSaving}
-              />
-            }
+            checked={metricsEnabled}
+            onChange={(e) => handleEnabledChange(e.currentTarget.checked)}
+            disabled={isSaving}
           />
         </IosGroup>
 
         <IosGroup>
-          <IosRow
-            title="Retention period"
-            accessory={
+          <FieldRow title="Retention period">
+            {(id) => (
               <RowSelect
-                aria-label="Retention period"
+                id={id}
                 value={metricsRetentionMode === 'preset' ? metricsRetention.toString() : 'custom'}
                 onChange={handleRetentionChange}
                 data={RETENTION_OPTIONS}
                 disabled={isSaving}
               />
-            }
-          />
+            )}
+          </FieldRow>
           {metricsRetentionMode === 'custom' && (
-            <IosRow
-              title="Custom days"
-              accessory={
+            <FieldRow title="Custom days">
+              {(id) => (
                 <RowNumberInput
-                  aria-label="Custom retention days"
+                  id={id}
                   value={metricsRetention}
                   onChange={handleCustomRetentionChange}
                   min={1}
                   max={90}
                   disabled={isSaving}
                 />
-              }
-            />
+              )}
+            </FieldRow>
           )}
         </IosGroup>
       </Stack>
@@ -139,12 +132,15 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
 
 export const MetricsSection = () => {
   const { data: config, isLoading, error, refetch, isRefetching } = useGlobalMetricsConfig()
+  const mobileShell = useMobileShell()
 
   return (
     <Box>
-      <Title order={2} size="lg" fw={600} mb="lg">
-        Metrics
-      </Title>
+      {!mobileShell && (
+        <Title order={2} size="lg" fw={600} mb="lg">
+          Metrics
+        </Title>
+      )}
 
       {isLoading ? (
         <LoadingState message="Loading metrics settings..." />

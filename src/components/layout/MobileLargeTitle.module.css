@@ -1,0 +1,16 @@
+.title {
+  margin: 0;
+  padding: 0.1em 0.3em 0.3em;
+  color: var(--ios-label);
+  font-size: var(--ios-fs-large-title);
+  font-weight: 700;
+  letter-spacing: normal;
+  line-height: var(--ios-lh-large-title);
+  overflow-wrap: anywhere;
+  opacity: calc(1 - var(--title-collapse, 0));
+  transform: translateY(calc(var(--title-collapse, 0) * -4px));
+}
+
+.title:focus {
+  outline: none;
+}

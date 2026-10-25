@@ -1,0 +1,21 @@
+.editor {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 12em;
+  margin: 0;
+  padding: 0.75em 1rem calc(0.75em + var(--safe-bottom, 0px));
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: transparent;
+  color: inherit;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: var(--ios-fs-callout, 1rem);
+  line-height: var(--ios-lh-callout, 1.4);
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

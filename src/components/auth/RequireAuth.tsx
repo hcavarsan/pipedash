@@ -7,11 +7,13 @@ import { useMobileShell } from '../../hooks/useIsMobile'
 import { useVaultStatus } from '../../queries/useVaultQueries'
 import { isTauri } from '../../services'
 import { useAuthStore } from '../../stores/authStore'
+import { useMobileNavStore } from '../../stores/mobileNavStore'
 import { formatErrorMessage } from '../../types/errors'
 import { needsUnlock as vaultNeedsUnlock } from '../../utils/appLock'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StatusScreen } from '../ErrorBoundary/StatusScreen'
+import { fromOf } from '../layout/mobileChrome'
 
 interface RequireAuthProps {
   children: ReactNode
@@ -26,6 +28,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
 
   const { data: vaultStatus, isLoading: isLoadingVault, isError, error, refetch, isRefetching } = useVaultStatus()
   const mobileShell = useMobileShell()
+  const hold = useMobileNavStore((s) => s.hold)
 
   const needsUnlock = vaultStatus ? vaultNeedsUnlock(vaultStatus, isTauri(), isAuthenticated) : false
 
@@ -35,9 +38,10 @@ export function RequireAuth({ children }: RequireAuthProps) {
       const currentPath = location.pathname + location.search
 
       setReturnPath(currentPath)
+      hold({ path: currentPath, from: fromOf(location.state) })
       navigate('/unlock', { replace: true })
     }
-  }, [isLoadingVault, needsUnlock, location, setReturnPath, navigate])
+  }, [isLoadingVault, needsUnlock, location, setReturnPath, hold, navigate])
 
   if (isLoadingVault) {
     return <LoadingState variant="page" message="Checking vault status" />

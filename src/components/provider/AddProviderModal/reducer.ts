@@ -1,3 +1,5 @@
+import type { ProviderConfig } from '../../../types'
+
 import { type FormAction, type FormState, initialFormState } from './types'
 
 export function formReducer(state: FormState, action: FormAction): FormState {
@@ -158,4 +160,30 @@ export function formReducer(state: FormState, action: FormAction): FormState {
     default:
       return state
   }
+}
+
+const snapshot = (state: FormState): string =>
+  JSON.stringify({
+    plugin: state.selectedPlugin?.provider_type ?? null,
+    name: state.providerName,
+    config: Object.entries(state.configValues)
+      .filter(([key, value]) => key !== 'selected_items' && value !== '')
+      .sort(([a], [b]) => a.localeCompare(b)),
+    pipelines: [...state.selectedPipelines].sort(),
+  })
+
+export function isFormDirty(state: FormState, existingProvider?: ProviderConfig & { id: number }): boolean {
+  if (!state.selectedPlugin) {
+    return false
+  }
+
+  const pristine = existingProvider
+    ? formReducer(initialFormState, {
+        type: 'INIT_EDIT_MODE',
+        plugin: state.selectedPlugin,
+        provider: existingProvider,
+      })
+    : formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: state.selectedPlugin, isEditMode: false })
+
+  return snapshot(state) !== snapshot(pristine)
 }

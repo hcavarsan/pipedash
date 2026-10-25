@@ -1,8 +1,8 @@
-import { useEffect } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect } from 'react'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { ErrorBoundary } from '../components/ErrorBoundary'
-import { RunHistoryPage } from '../components/table/RunHistoryPage'
+import { type DetailTab, RunHistoryPage } from '../components/table/RunHistoryPage'
 import { usePlugins } from '../contexts/PluginContext'
 import type { Pipeline, PipelineComponentProps } from '../types'
 import { getReconcileBlockReason } from '../utils/pipelinePresentation'
@@ -22,11 +22,33 @@ export function PipelineDetailRoute({
   onRerunFailedJobs,
 }: PipelineDetailRouteProps) {
   const { pipelineId } = useParams()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { state } = useLocation()
   const navigate = useNavigate()
   const { getPluginByType } = usePlugins()
 
-  const tab = (searchParams.get('tab') || 'history') as 'history' | 'metrics'
+  const rawTab = searchParams.get('tab')
+  const tab: DetailTab = rawTab === 'metrics' ? 'metrics' : 'history'
+
+  const setTab = useCallback(
+    (next: DetailTab) => {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev)
+
+          if (next === 'metrics') {
+            params.set('tab', 'metrics')
+          } else {
+            params.delete('tab')
+          }
+
+          return params
+        },
+        { replace: true, state }
+      )
+    },
+    [setSearchParams, state]
+  )
 
   const actualPipeline = pipelines.find((p) => p.id === pipelineId) || null
 
@@ -61,11 +83,18 @@ export function PipelineDetailRoute({
     }
   }, [loading, actualPipeline, navigate])
 
+  useEffect(() => {
+    if (rawTab !== null && rawTab !== 'metrics') {
+      setTab('history')
+    }
+  }, [rawTab, setTab])
+
   return (
     <ErrorBoundary name="Pipeline history">
       <RunHistoryPage
         pipeline={pipeline}
-        initialTab={tab}
+        tab={tab}
+        onTabChange={setTab}
         onBack={handleBack}
         onViewRun={onViewRun || (() => undefined)}
         onRerun={actualPipeline && getReconcileBlockReason(actualPipeline) ? undefined : onRerun}

@@ -1,6 +1,7 @@
 import { IconCheck } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
+import { errorId, helpId } from '../../../utils/formFields'
 import { IosGroup } from '../../ios/IosList'
 
 import classes from './ShellForm.module.css'
@@ -13,13 +14,16 @@ interface StepHeadingProps {
 export function StepHeading({ title, subtitle }: StepHeadingProps) {
   return (
     <div className={classes.heading}>
-      <h2 className={classes.headingTitle}>{title}</h2>
+      <h2 className={classes.headingTitle} tabIndex={-1} data-step-heading>
+        {title}
+      </h2>
       {subtitle && <p className={classes.headingSubtitle}>{subtitle}</p>}
     </div>
   )
 }
 
 interface ShellFieldProps {
+  id?: string
   label?: string
   required?: boolean
   description?: string | null
@@ -27,15 +31,28 @@ interface ShellFieldProps {
   children: ReactNode
 }
 
-export function ShellField({ label, required, description, error, children }: ShellFieldProps) {
+export function ShellField({ id, label, required, description, error, children }: ShellFieldProps) {
   return (
     <IosGroup
-      header={label && required ? `${label} *` : label}
+      header={
+        label && required ? (
+          <>
+            {label}
+            <span aria-hidden> *</span>
+          </>
+        ) : (
+          label
+        )
+      }
       footer={
         error || description ? (
           <>
-            {error && <div className={classes.error}>{error}</div>}
-            {description && <div>{description}</div>}
+            {error && (
+              <div id={id ? errorId(id) : undefined} className={classes.error}>
+                {error}
+              </div>
+            )}
+            {description && <div id={id ? helpId(id) : undefined}>{description}</div>}
           </>
         ) : undefined
       }

@@ -3,10 +3,9 @@ import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notif
 import { logger } from '../lib/logger'
 import { isTauri, tauriService } from '../services'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
+import type { NotificationTarget } from '../types'
 
 import { isMobilePlatform } from './platform'
-
-export const SYSTEM_NOTIFICATION_CLICKED_EVENT = 'system-notification-clicked'
 
 export const openNotificationDetails = (key: string): void => {
   useNotificationCenterStore.getState().open({ type: 'notification', key })
@@ -50,13 +49,13 @@ export async function requestSystemNotificationPermission(): Promise<boolean> {
   }
 }
 
-async function deliver(title: string, body: string, notificationKey: string): Promise<void> {
+async function deliver(title: string, body: string, target: NotificationTarget): Promise<void> {
   if (!systemNotificationsSupported() || !(await permissionGranted())) {
     return
   }
 
   if (isTauri()) {
-    await tauriService.showSystemNotification(title, body, notificationKey)
+    await tauriService.showSystemNotification(title, body, target)
 
     return
   }
@@ -65,12 +64,12 @@ async function deliver(title: string, body: string, notificationKey: string): Pr
 
   notification.onclick = () => {
     window.focus()
-    openNotificationDetails(notificationKey)
+    openNotificationDetails(target.key)
   }
 }
 
-export function showSystemNotification(title: string, body: string, notificationKey: string): void {
-  deliver(title, body, notificationKey).catch((error: unknown) =>
+export function showSystemNotification(title: string, body: string, target: NotificationTarget): void {
+  deliver(title, body, target).catch((error: unknown) =>
     logger.warn('systemNotifications', "Couldn't show notification", error)
   )
 }

@@ -2,7 +2,7 @@ import { Alert, Button, Group, Text, Tooltip } from '@mantine/core'
 import { useNetwork } from '@mantine/hooks'
 import { IconLock, IconRefresh, IconWifiOff } from '@tabler/icons-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
@@ -88,6 +88,24 @@ export function ConnectionStatus() {
     wsClient.manualReconnect()
   }
 
+  const bannerRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) {
+      return
+    }
+
+    const root = document.documentElement
+    const sync = () => root.style.setProperty('--connection-banner-height', `${node.offsetHeight}px`)
+    const observer = new ResizeObserver(sync)
+
+    sync()
+    observer.observe(node)
+
+    return () => {
+      observer.disconnect()
+      root.style.removeProperty('--connection-banner-height')
+    }
+  }, [])
+
   const vaultLocked = vaultStatus?.requires_password && !vaultStatus?.is_unlocked
 
   if (mobileShell) {
@@ -109,7 +127,7 @@ export function ConnectionStatus() {
     }
 
     return banner ? (
-      <div className={classes.banner} role="status">
+      <div ref={bannerRef} className={classes.banner} role="status" data-actionable={banner.reconnect ? '' : undefined}>
         <span className={classes.icon} aria-hidden>
           {banner.icon}
         </span>

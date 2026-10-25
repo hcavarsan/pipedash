@@ -1,19 +1,37 @@
 .host {
   position: relative;
-  min-height: calc(100dvh - 44px - var(--safe-top) - var(--app-shell-padding) * 2 - 82px - var(--safe-bottom));
-  --swipe: 0;
+  min-height: calc(100dvh - 44px - var(--safe-top) - var(--app-shell-padding) * 2 - var(--tab-bar-reserve, 82px));
+  --depth: 0;
 }
 
-.underlay {
+.underlay,
+.overlay,
+.dim {
   position: absolute;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
-  transform: translateX(-30%);
+  visibility: hidden;
 }
 
-.underlay:empty {
-  display: none;
+.underlay,
+.overlay {
+  background: var(--mantine-color-body);
+}
+
+.dim {
+  background: #000;
+  opacity: calc(0.35 * var(--depth));
+}
+
+.host[data-mode="live"] .underlay,
+.host[data-mode="overlay"] .overlay,
+.host[data-mode="overlay"] .dim {
+  visibility: visible;
+}
+
+.host[data-mode="live"] .underlay {
+  will-change: transform;
 }
 
 .underlay::after {
@@ -21,7 +39,7 @@
   position: absolute;
   inset: 0;
   background: #000;
-  opacity: calc(0.35 * (1 - var(--swipe)));
+  opacity: calc(0.35 * var(--depth));
 }
 
 .page {
@@ -30,8 +48,44 @@
   background: var(--mantine-color-body);
 }
 
-.page[data-dragging] {
-  box-shadow: -10px 0 28px rgb(0 0 0 / 0.45);
+.host[data-mode="overlay"] .overlay {
+  overflow: visible;
+  clip-path: inset(0 -28px);
+}
+
+.host[data-mode="live"] .page,
+.host[data-mode="overlay"] .overlay {
+  will-change: transform;
+}
+
+.host[data-mode="live"] .page::before,
+.host[data-mode="overlay"] .overlay::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 28px;
+  background: linear-gradient(to left, rgb(0 0 0 / 0.22), transparent);
+  opacity: var(--depth);
+  pointer-events: none;
+}
+
+.placeholder {
+  padding: 0.1em 0.3em 0.3em;
+  color: var(--ios-label);
+  font-size: var(--ios-fs-large-title);
+  font-weight: 700;
+  line-height: var(--ios-lh-large-title);
+}
+
+.live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .spinner {
@@ -46,7 +100,7 @@
   margin-left: -11px;
   opacity: min(1, calc(var(--progress) * 1.5));
   pointer-events: none;
-  transform: translateY(calc(var(--pull) * 0.5 - 11px));
+  translate: 0 calc(var(--pull) * 0.5 - 11px);
 }
 
 .spoke {
@@ -57,10 +111,14 @@
   height: 6px;
   margin-left: -1px;
   border-radius: 1px;
-  background: var(--mantine-color-dimmed);
+  background: var(--ios-secondary-label);
   opacity: clamp(0, calc(var(--progress) * 12 - var(--i)), 1);
   transform-origin: 1px 11px;
   transform: rotate(calc(var(--i) * 30deg));
+}
+
+.spinner[data-armed] .spoke {
+  background: var(--ios-label);
 }
 
 .spinner[data-spinning] {
@@ -68,6 +126,7 @@
 }
 
 .spinner[data-spinning] .spoke {
+  background: var(--ios-label);
   opacity: calc(1 - var(--i) / 14);
 }
 

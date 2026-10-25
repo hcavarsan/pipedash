@@ -13,19 +13,33 @@ import {
   TextInput,
 } from '@mantine/core'
 import { useQueries } from '@tanstack/react-query'
-import { type Dispatch, Fragment, type ReactNode, useMemo } from 'react'
+import { type Dispatch, Fragment, type ReactNode, type RefObject, useId, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { service } from '../../../services'
 import type { ConfigField, PluginMetadata } from '../../../types'
+import { type FieldInputKind, fieldA11y, fieldAttributes, withoutType } from '../../../utils/formFields'
+import { handleFormEnter } from '../../../utils/formFocus'
 import { ProviderIcon } from '../../atoms/ProviderIcon'
+import { LiveStatus, useErrorAnnouncement } from '../../forms/LiveStatus'
 import { IosGroup, IosRow } from '../../ios/IosList'
 
 import { ShellField, StepHeading } from './ShellForm'
 import shell from './ShellForm.module.css'
 import type { FormAction, FormState } from './types'
+import { validateConfigField, validateProviderName } from './validation'
+
+const NAME_HINT = 'A friendly name to identify this provider'
+
+const INPUT_KINDS: Partial<Record<ConfigField['field_type'], FieldInputKind>> = {
+  Password: 'password',
+  Number: 'number',
+  TextArea: 'textarea',
+}
+
+const FORM_STYLE = { display: 'contents' } as const
 
 interface CredentialsStepProps {
   state: FormState
@@ -34,7 +48,10 @@ interface CredentialsStepProps {
   pluginsLoading: boolean
   editMode: boolean
   isMobile: boolean
+  formRef: RefObject<HTMLFormElement | null>
+  onSubmit: () => void
   permissionRow?: ReactNode
+  secondaryRow?: ReactNode
   scopeNote?: string
 }
 
@@ -45,19 +62,32 @@ export function CredentialsStep({
   pluginsLoading,
   editMode,
   isMobile,
+  formRef,
+  onSubmit,
   permissionRow,
+  secondaryRow,
   scopeNote,
 }: CredentialsStepProps) {
   const mobileShell = useMobileShell()
+  const formId = useId()
   const { selectedPlugin, providerName, configValues, fieldErrors, submitting } = state
+  const announcement = useErrorAnnouncement(fieldErrors)
 
   const configValuesKey = useMemo(() => JSON.stringify(configValues), [configValues])
   const debouncedConfigValuesKey = useDebounce(configValuesKey, DEBOUNCE_DELAYS.FILTER)
 
-  const dynamicFields =
-    selectedPlugin?.config_schema.fields.filter(
-      (field) => (field.field_type === 'Select' || field.field_type === 'MultiSelect') && !field.options?.length
-    ) ?? []
+  const fields = selectedPlugin?.config_schema.fields ?? []
+  const lastTextKey = [...fields].reverse().find((field) => field.field_type !== 'Boolean')?.key
+  const nameAttributes = {
+    autoCapitalize: 'words',
+    autoCorrect: 'off',
+    spellCheck: false,
+    autoComplete: 'off',
+    enterKeyHint: lastTextKey ? 'next' : 'go',
+  } as const
+  const dynamicFields = fields.filter(
+    (field) => (field.field_type === 'Select' || field.field_type === 'MultiSelect') && !field.options?.length
+  )
   const optionQueries = useQueries({
     queries: dynamicFields.map((field) => ({
       queryKey: ['providerFieldOptions', selectedPlugin?.provider_type, field.key, debouncedConfigValuesKey],
@@ -86,38 +116,90 @@ export function CredentialsStep({
     }
   }
 
-  const handleConfigChange = (key: string, value: string) => {
-    dispatch({ type: 'UPDATE_CONFIG', key, value })
+  const handleConfigChange = (field: ConfigField, value: string) => {
+    dispatch({ type: 'UPDATE_CONFIG', key: field.key, value })
+
+    if (fieldErrors[field.key]) {
+      const error = validateConfigField(field, value)
+
+      if (error) {
+        dispatch({ type: 'SET_FIELD_ERROR', key: field.key, error })
+      }
+    }
   }
+
+  const handleConfigBlur = (field: ConfigField) => {
+    const error = validateConfigField(field, configValues[field.key] || '')
+
+    if (error) {
+      dispatch({ type: 'SET_FIELD_ERROR', key: field.key, error })
+    } else if (fieldErrors[field.key]) {
+      dispatch({ type: 'CLEAR_FIELD_ERROR', key: field.key })
+    }
+  }
+
+  const handleNameChange = (name: string) => {
+    dispatch({ type: 'SET_PROVIDER_NAME', name })
+
+    if (fieldErrors.providerName) {
+      const error = validateProviderName(name)
+
+      if (error) {
+        dispatch({ type: 'SET_FIELD_ERROR', key: 'providerName', error })
+      }
+    }
+  }
+
+  const handleNameBlur = () => {
+    const error = validateProviderName(providerName)
+
+    if (error) {
+      dispatch({ type: 'SET_FIELD_ERROR', key: 'providerName', error })
+    } else if (fieldErrors.providerName) {
+      dispatch({ type: 'CLEAR_FIELD_ERROR', key: 'providerName' })
+    }
+  }
+
+  const attributesFor = (field: ConfigField) =>
+    fieldAttributes({
+      name: field.key,
+      label: field.label,
+      kind: INPUT_KINDS[field.field_type] ?? 'text',
+      defaultValue: field.default_value,
+      last: field.key === lastTextKey,
+    })
 
   const renderConfigField = (field: ConfigField) => {
     const value = configValues[field.key] || ''
     const fieldOptions = optionQueries[dynamicFields.findIndex((candidate) => candidate.key === field.key)]
     const loadingOptions = !!fieldOptions && (fieldOptions.isFetching || debouncedConfigValuesKey !== configValuesKey)
+    const attributes = attributesFor(field)
     const commonProps = {
       label: field.label,
       description: field.description ?? undefined,
       value,
       error: fieldErrors[field.key] || fieldOptions?.error?.message,
-      withAsterisk: field.required,
+      required: field.required,
+      onBlur: () => handleConfigBlur(field),
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | string) => {
         const newValue = typeof e === 'string' ? e : e?.currentTarget?.value
 
-        handleConfigChange(field.key, newValue)
+        handleConfigChange(field, newValue)
       },
     }
 
     switch (field.field_type) {
       case 'TextArea':
-        return <Textarea key={field.key} {...commonProps} rows={4} />
+        return <Textarea key={field.key} {...commonProps} {...attributes} rows={4} />
       case 'Password':
-        return <PasswordInput key={field.key} {...commonProps} />
+        return <PasswordInput key={field.key} {...commonProps} {...attributes} />
       case 'Number':
         return (
           <NumberInput
             key={field.key}
             {...commonProps}
-            onChange={(val) => handleConfigChange(field.key, String(val || ''))}
+            {...withoutType(attributes)}
+            onChange={(val) => handleConfigChange(field, String(val ?? ''))}
           />
         )
       case 'Select':
@@ -128,7 +210,7 @@ export function CredentialsStep({
             data={fieldOptions?.data ?? field.options ?? []}
             rightSection={loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined}
             disabled={submitting || loadingOptions}
-            onChange={(val) => handleConfigChange(field.key, val || '')}
+            onChange={(val) => handleConfigChange(field, val || '')}
             searchable
             clearable
           />
@@ -142,7 +224,7 @@ export function CredentialsStep({
             data={fieldOptions?.data ?? field.options ?? []}
             rightSection={loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined}
             disabled={submitting || loadingOptions}
-            onChange={(values) => handleConfigChange(field.key, values.join(','))}
+            onChange={(values) => handleConfigChange(field, values.join(','))}
             searchable
             clearable
           />
@@ -155,11 +237,11 @@ export function CredentialsStep({
             description={field.description ?? undefined}
             checked={value === 'true'}
             error={fieldErrors[field.key]}
-            onChange={(e) => handleConfigChange(field.key, String(e.currentTarget.checked))}
+            onChange={(e) => handleConfigChange(field, String(e.currentTarget.checked))}
           />
         )
       default:
-        return <TextInput key={field.key} {...commonProps} />
+        return <TextInput key={field.key} {...commonProps} {...attributes} />
     }
   }
 
@@ -169,15 +251,19 @@ export function CredentialsStep({
     const loadingOptions = !!fieldOptions && (fieldOptions.isFetching || debouncedConfigValuesKey !== configValuesKey)
     const error = fieldErrors[field.key] || fieldOptions?.error?.message
     const spinner = loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined
+    const id = `${formId}-${field.key}`
+    const attributes = attributesFor(field)
     const inputProps = {
       variant: 'unstyled',
       'aria-label': field.label,
-      'aria-invalid': !!error,
+      ...fieldA11y(id, { required: field.required, error, description: field.description }),
       value,
+      onBlur: () => handleConfigBlur(field),
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-        handleConfigChange(field.key, e.currentTarget.value),
+        handleConfigChange(field, e.currentTarget.value),
     } as const
     const fieldProps = {
+      id,
       label: field.label,
       required: field.required,
       description: field.description,
@@ -187,14 +273,14 @@ export function CredentialsStep({
     switch (field.field_type) {
       case 'Boolean':
         return (
-          <ShellField description={field.description} error={error}>
+          <ShellField id={id} description={field.description} error={error}>
             <IosRow
               title={field.label}
               accessory={
                 <Switch
                   aria-label={field.label}
                   checked={value === 'true'}
-                  onChange={(e) => handleConfigChange(field.key, String(e.currentTarget.checked))}
+                  onChange={(e) => handleConfigChange(field, String(e.currentTarget.checked))}
                 />
               }
             />
@@ -203,25 +289,23 @@ export function CredentialsStep({
       case 'TextArea':
         return (
           <ShellField {...fieldProps}>
-            <Textarea {...inputProps} autosize minRows={3} />
+            <Textarea {...inputProps} {...attributes} autosize minRows={3} />
           </ShellField>
         )
       case 'Password':
         return (
           <ShellField {...fieldProps}>
-            <PasswordInput {...inputProps} />
+            <PasswordInput {...inputProps} {...attributes} />
           </ShellField>
         )
       case 'Number':
         return (
           <ShellField {...fieldProps}>
             <NumberInput
-              variant="unstyled"
-              aria-label={field.label}
-              aria-invalid={!!error}
+              {...inputProps}
+              {...withoutType(attributes)}
               hideControls
-              value={value}
-              onChange={(val) => handleConfigChange(field.key, String(val || ''))}
+              onChange={(val) => handleConfigChange(field, String(val ?? ''))}
             />
           </ShellField>
         )
@@ -229,15 +313,12 @@ export function CredentialsStep({
         return (
           <ShellField {...fieldProps}>
             <Select
-              variant="unstyled"
-              aria-label={field.label}
-              aria-invalid={!!error}
+              {...inputProps}
               placeholder="Select"
-              value={value}
               data={fieldOptions?.data ?? field.options ?? []}
               rightSection={spinner}
               disabled={submitting || loadingOptions}
-              onChange={(val) => handleConfigChange(field.key, val || '')}
+              onChange={(val) => handleConfigChange(field, val || '')}
               clearable
             />
           </ShellField>
@@ -246,15 +327,13 @@ export function CredentialsStep({
         return (
           <ShellField {...fieldProps}>
             <MultiSelect
-              variant="unstyled"
-              aria-label={field.label}
-              aria-invalid={!!error}
+              {...inputProps}
               placeholder="Select"
               value={value ? value.split(',').filter(Boolean) : []}
               data={fieldOptions?.data ?? field.options ?? []}
               rightSection={spinner}
               disabled={submitting || loadingOptions}
-              onChange={(values) => handleConfigChange(field.key, values.join(','))}
+              onChange={(values) => handleConfigChange(field, values.join(','))}
               clearable
             />
           </ShellField>
@@ -262,135 +341,164 @@ export function CredentialsStep({
       default:
         return (
           <ShellField {...fieldProps}>
-            <TextInput {...inputProps} />
+            <TextInput {...inputProps} {...attributes} />
           </ShellField>
         )
     }
   }
 
-  if (mobileShell) {
+  const renderContent = () => {
+    if (mobileShell) {
+      const nameId = `${formId}-providerName`
+
+      return (
+        <div className={shell.step}>
+          {selectedPlugin ? (
+            <>
+              <StepHeading
+                title="Credentials"
+                subtitle={
+                  selectedPlugin.provider_type === 'fluxcd'
+                    ? 'Connect to your Kubernetes cluster'
+                    : 'Enter your API credentials'
+                }
+              />
+
+              <IosGroup header="Provider type" footer={selectedPlugin.description}>
+                <IosRow
+                  icon={<ProviderIcon name={selectedPlugin.name} icon={selectedPlugin.icon} size={30} />}
+                  title={selectedPlugin.name}
+                  chevron={!editMode}
+                  onClick={editMode ? undefined : () => handlePluginSelect(null)}
+                  disabled={submitting}
+                />
+              </IosGroup>
+
+              <ShellField
+                id={nameId}
+                label="Provider name"
+                required
+                description={NAME_HINT}
+                error={fieldErrors.providerName}
+              >
+                <TextInput
+                  variant="unstyled"
+                  aria-label="Provider name"
+                  {...fieldA11y(nameId, { required: true, error: fieldErrors.providerName, description: NAME_HINT })}
+                  {...nameAttributes}
+                  placeholder={
+                    selectedPlugin.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)'
+                  }
+                  value={providerName}
+                  onChange={(e) => handleNameChange(e.currentTarget.value)}
+                  onBlur={handleNameBlur}
+                  disabled={submitting}
+                />
+              </ShellField>
+
+              {fields.map((field) => (
+                <Fragment key={field.key}>{renderShellField(field)}</Fragment>
+              ))}
+
+              {permissionRow}
+              {scopeNote && <p className={shell.note}>{scopeNote}</p>}
+              {secondaryRow}
+            </>
+          ) : (
+            <>
+              <StepHeading
+                title="Choose a provider"
+                subtitle="Select the service whose pipelines you want to monitor"
+              />
+              {plugins.length > 0 ? (
+                <IosGroup>
+                  {plugins.map((plugin) => (
+                    <IosRow
+                      key={plugin.provider_type}
+                      icon={<ProviderIcon name={plugin.name} icon={plugin.icon} size={30} />}
+                      title={plugin.name}
+                      subtitle={plugin.description}
+                      chevron
+                      onClick={() => handlePluginSelect(plugin.provider_type)}
+                      disabled={submitting}
+                    />
+                  ))}
+                </IosGroup>
+              ) : (
+                !pluginsLoading && <p className={shell.note}>No provider types are available.</p>
+              )}
+            </>
+          )}
+        </div>
+      )
+    }
+
     return (
-      <div className={shell.step}>
-        {selectedPlugin ? (
-          <>
-            <StepHeading
-              title="Credentials"
-              subtitle={
-                selectedPlugin.provider_type === 'fluxcd'
-                  ? 'Connect to your Kubernetes cluster'
-                  : 'Enter your API credentials'
-              }
+      <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <ScrollArea style={{ flex: 1 }} type="auto">
+          <Stack gap={isMobile ? 'xs' : 'md'} px="lg" pb="lg" pt="xs">
+            <Select
+              label="Provider type"
+              placeholder="Select a provider type"
+              data={plugins.map((p) => ({
+                value: p.provider_type,
+                label: p.name,
+              }))}
+              value={selectedPlugin?.provider_type || null}
+              onChange={handlePluginSelect}
+              required
+              disabled={submitting || editMode}
             />
 
-            <IosGroup header="Provider type" footer={selectedPlugin.description}>
-              <IosRow
-                icon={<ProviderIcon name={selectedPlugin.name} icon={selectedPlugin.icon} size={30} />}
-                title={selectedPlugin.name}
-                chevron={!editMode}
-                onClick={editMode ? undefined : () => handlePluginSelect(null)}
-                disabled={submitting}
-              />
-            </IosGroup>
+            {selectedPlugin ? (
+              <Stack gap={isMobile ? 'xs' : 'md'}>
+                <Text size="sm" c="dimmed">
+                  {selectedPlugin.description}
+                </Text>
 
-            <ShellField
-              label="Provider name"
-              required
-              description="A friendly name to identify this provider"
-              error={fieldErrors.providerName}
-            >
-              <TextInput
-                variant="unstyled"
-                aria-label="Provider name"
-                aria-invalid={!!fieldErrors.providerName}
-                placeholder={
-                  selectedPlugin.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)'
-                }
-                value={providerName}
-                onChange={(e) => dispatch({ type: 'SET_PROVIDER_NAME', name: e.currentTarget.value })}
-                disabled={submitting}
-              />
-            </ShellField>
+                <TextInput
+                  label="Provider name"
+                  description={NAME_HINT}
+                  placeholder={
+                    selectedPlugin.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)'
+                  }
+                  {...nameAttributes}
+                  value={providerName}
+                  onChange={(e) => handleNameChange(e.currentTarget.value)}
+                  onBlur={handleNameBlur}
+                  disabled={submitting}
+                  error={fieldErrors.providerName}
+                  required
+                />
 
-            {selectedPlugin.config_schema.fields.map((field) => (
-              <Fragment key={field.key}>{renderShellField(field)}</Fragment>
-            ))}
-
-            {permissionRow}
-            {scopeNote && <p className={shell.note}>{scopeNote}</p>}
-          </>
-        ) : (
-          <>
-            <StepHeading title="Choose a provider" subtitle="Select the service whose pipelines you want to monitor" />
-            {plugins.length > 0 ? (
-              <IosGroup>
-                {plugins.map((plugin) => (
-                  <IosRow
-                    key={plugin.provider_type}
-                    icon={<ProviderIcon name={plugin.name} icon={plugin.icon} size={30} />}
-                    title={plugin.name}
-                    subtitle={plugin.description}
-                    chevron
-                    onClick={() => handlePluginSelect(plugin.provider_type)}
-                    disabled={submitting}
-                  />
-                ))}
-              </IosGroup>
+                {fields.map((field) => renderConfigField(field))}
+              </Stack>
             ) : (
-              !pluginsLoading && <p className={shell.note}>No provider types are available.</p>
+              !pluginsLoading && (
+                <Text size="sm" c="dimmed" ta="center" py="xl">
+                  Select a provider type to continue
+                </Text>
+              )
             )}
-          </>
-        )}
-      </div>
+          </Stack>
+        </ScrollArea>
+      </Box>
     )
   }
 
   return (
-    <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <ScrollArea style={{ flex: 1 }} type="auto">
-        <Stack gap={isMobile ? 'xs' : 'md'} px="lg" pb="lg" pt="xs">
-          <Select
-            label="Provider type"
-            placeholder="Select a provider type"
-            data={plugins.map((p) => ({
-              value: p.provider_type,
-              label: p.name,
-            }))}
-            value={selectedPlugin?.provider_type || null}
-            onChange={handlePluginSelect}
-            required
-            disabled={submitting || editMode}
-          />
-
-          {selectedPlugin ? (
-            <Stack gap={isMobile ? 'xs' : 'md'}>
-              <Text size="sm" c="dimmed">
-                {selectedPlugin.description}
-              </Text>
-
-              <TextInput
-                label="Provider name"
-                description="A friendly name to identify this provider"
-                placeholder={
-                  selectedPlugin.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)'
-                }
-                value={providerName}
-                onChange={(e) => dispatch({ type: 'SET_PROVIDER_NAME', name: e.currentTarget.value })}
-                disabled={submitting}
-                error={fieldErrors.providerName}
-                withAsterisk
-              />
-
-              {selectedPlugin.config_schema.fields.map((field) => renderConfigField(field))}
-            </Stack>
-          ) : (
-            !pluginsLoading && (
-              <Text size="sm" c="dimmed" ta="center" py="xl">
-                Select a provider type to continue
-              </Text>
-            )
-          )}
-        </Stack>
-      </ScrollArea>
-    </Box>
+    <form
+      ref={formRef}
+      noValidate
+      style={FORM_STYLE}
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+      onKeyDown={handleFormEnter}
+    >
+      {renderContent()}
+      <LiveStatus message={announcement} />
+    </form>
   )
 }

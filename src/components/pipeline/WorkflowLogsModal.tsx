@@ -1,5 +1,6 @@
-import { Alert, Box, Button, Code, Divider, Group, Loader, Paper, Stack, Text } from '@mantine/core'
-import { IconExternalLink, IconPlayerPlay, IconRefresh, IconSquare } from '@tabler/icons-react'
+import { Alert, Box, Button, Code, Divider, Group, Loader, Paper, Stack, Text, VisuallyHidden } from '@mantine/core'
+import { useClipboard } from '@mantine/hooks'
+import { IconCopy, IconExternalLink, IconPlayerPlay, IconRefresh, IconShare, IconSquare } from '@tabler/icons-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
@@ -72,6 +73,7 @@ export const WorkflowLogsModal = ({
   onCancelSuccess,
 }: WorkflowLogsModalProps) => {
   const [cancelling, setCancelling] = useState(false)
+  const clipboard = useClipboard({ timeout: 2000 })
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const abortRef = useRef(false)
@@ -185,6 +187,22 @@ export const WorkflowLogsModal = ({
     } finally {
       if (!abortRef.current) {
         setCancelling(false)
+      }
+    }
+  }
+
+  const handleShare = async (url: string) => {
+    if (typeof navigator.share !== 'function') {
+      clipboard.copy(url)
+
+      return
+    }
+
+    try {
+      await navigator.share({ title: `Run #${runNumber}`, url })
+    } catch (error: unknown) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        clipboard.copy(url)
       }
     }
   }
@@ -329,6 +347,7 @@ export const WorkflowLogsModal = ({
     if (mobileShell) {
       const hasLogs = isHttpUrl(runDetails.logs_url)
       const stoppable = isRunning && canCancel
+      const showRerun = !isRunning && canTrigger
       const note = isFlux
         ? (triggerBlockedReason ??
           'Reconcile uses the current resource configuration. It does not restore this historical revision.')
@@ -339,41 +358,55 @@ export const WorkflowLogsModal = ({
       return (
         <Stack gap="lg">
           {notices}
-          <IosGroup>
-            {rows.map(({ field, value }) =>
-              field.id === 'message' ||
-              (field.renderer === 'Text' && typeof value === 'string' && value.length > 32) ? (
-                <IosRow key={field.id} title={renderValue(field, value)} subtitle={field.label} />
-              ) : (
-                <IosRow
-                  key={field.id}
-                  title={field.label}
-                  value={<span className={classes.value}>{renderValue(field, value)}</span>}
-                />
-              )
-            )}
-          </IosGroup>
-          {(hasLogs || (!isRunning && canTrigger)) && (
-            <IosGroup footer={stoppable ? undefined : note}>
-              {hasLogs && (
-                <IosRow
-                  title="View full logs"
-                  accessory={<IconExternalLink size={18} />}
-                  onClick={() => openExternal(runDetails.logs_url)}
-                />
+          <div data-selectable>
+            <IosGroup>
+              {rows.map(({ field, value }) =>
+                field.id === 'message' ||
+                (field.renderer === 'Text' && typeof value === 'string' && value.length > 32) ? (
+                  <IosRow key={field.id} title={renderValue(field, value)} subtitle={field.label} />
+                ) : (
+                  <IosRow
+                    key={field.id}
+                    title={field.label}
+                    value={<span className={classes.value}>{renderValue(field, value)}</span>}
+                  />
+                )
               )}
-              {!isRunning && canTrigger && (
-                <IosRow
-                  title={
-                    <Text component="span" inherit c="blue">
-                      {isFlux ? labels.trigger : 'Rerun workflow'}
-                    </Text>
-                  }
-                  accessory={rerunMutation.isPending ? <Loader size="sm" /> : undefined}
-                  disabled={rerunMutation.isPending}
-                  onClick={handleRerun}
-                />
-              )}
+            </IosGroup>
+          </div>
+          {hasLogs && (
+            <IosGroup footer={showRerun || stoppable ? undefined : note}>
+              <IosRow
+                title="View logs"
+                accessory={<IconExternalLink size={18} />}
+                onClick={() => openExternal(runDetails.logs_url)}
+              />
+              <IosRow
+                title="Copy link"
+                value={clipboard.copied ? 'Copied' : undefined}
+                accessory={<IconCopy size={18} />}
+                onClick={() => clipboard.copy(runDetails.logs_url)}
+              />
+              <IosRow
+                title="Share link"
+                accessory={<IconShare size={18} />}
+                onClick={() => handleShare(runDetails.logs_url)}
+              />
+            </IosGroup>
+          )}
+          <VisuallyHidden role="status">{clipboard.copied ? 'Link copied' : ''}</VisuallyHidden>
+          {showRerun && (
+            <IosGroup footer={note}>
+              <IosRow
+                title={
+                  <Text component="span" inherit c="blue">
+                    {isFlux ? labels.trigger : 'Rerun workflow'}
+                  </Text>
+                }
+                accessory={rerunMutation.isPending ? <Loader size="sm" /> : undefined}
+                disabled={rerunMutation.isPending}
+                onClick={handleRerun}
+              />
             </IosGroup>
           )}
           {stoppable && (

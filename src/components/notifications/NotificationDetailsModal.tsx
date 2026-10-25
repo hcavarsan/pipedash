@@ -1,6 +1,6 @@
 import { Button, Group, Modal, Stack, Text, ThemeIcon } from '@mantine/core'
 import { IconExternalLink, IconHeartbeat, IconHistory } from '@tabler/icons-react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
@@ -21,6 +21,13 @@ export function NotificationDetailsModal() {
   const close = useNotificationCenterStore((state) => state.close)
   const { data: providers } = useProviders()
   const navigate = useNavigate()
+  const location = useLocation()
+  const openHistory = (pipelineId: string) => {
+    close()
+    navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, {
+      state: { from: location.pathname + location.search },
+    })
+  }
   const now = useNow(30_000)
   const mobileShell = useMobileShell()
 
@@ -65,10 +72,7 @@ export function NotificationDetailsModal() {
                     icon={<IconHistory size={18} aria-hidden />}
                     title="Open run history"
                     chevron
-                    onClick={() => {
-                      close()
-                      navigate(`/pipelines/${encodeURIComponent(notification.pipelineId ?? '')}`)
-                    }}
+                    onClick={() => openHistory(notification.pipelineId ?? '')}
                   />
                 )}
                 {related.map((provider) => (
@@ -135,10 +139,7 @@ export function NotificationDetailsModal() {
                 size="compact-sm"
                 variant="default"
                 leftSection={<IconHistory size={14} aria-hidden />}
-                onClick={() => {
-                  close()
-                  navigate(`/pipelines/${encodeURIComponent(notification.pipelineId ?? '')}`)
-                }}
+                onClick={() => openHistory(notification.pipelineId ?? '')}
               >
                 Open run history
               </Button>

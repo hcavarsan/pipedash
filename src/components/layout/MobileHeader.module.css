@@ -1,53 +1,142 @@
 .bar {
   position: relative;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
   height: 100%;
-  padding: var(--safe-top) 6px 0;
 }
 
-.side {
+.edge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: -12px;
+  left: 0;
+  background: var(--ios-material-bar);
+  -webkit-backdrop-filter: var(--ios-material-filter);
+  backdrop-filter: var(--ios-material-filter);
+  box-shadow: inset 0 -1px 0 var(--ios-material-edge);
+  opacity: var(--scroll-edge, 0);
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 12px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 12px), transparent);
+}
+
+:global(html[data-increase-contrast]) .edge {
+  bottom: 0;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+}
+
+.leading,
+.title,
+.trailing {
+  position: absolute;
+  top: var(--safe-top);
   display: flex;
   align-items: center;
-  min-width: 0;
+  height: 44px;
 }
 
-.sideEnd {
+.leading {
+  left: var(--inset);
+}
+
+.trailing {
+  right: var(--inset);
   justify-content: flex-end;
 }
 
 .back {
   display: flex;
   align-items: center;
+  min-width: 44px;
   min-height: 44px;
-  padding-right: 8px;
-  color: var(--mantine-color-blue-light-color);
-  font-size: 17px;
+  padding: 0 0.5em 0 0;
+  border: 0;
+  background: none;
+  color: var(--ios-tint);
+  font: inherit;
+  font-size: calc(17px * var(--ios-chrome-scale, 1));
+  line-height: calc(22px * var(--ios-chrome-scale, 1));
   text-decoration: none;
+  cursor: pointer;
 }
 
 .back:active {
   opacity: 0.5;
 }
 
-.title {
-  max-width: 52vw;
+.chevron {
+  flex: none;
+  width: calc(26px * var(--ios-chrome-scale, 1));
+  height: calc(26px * var(--ios-chrome-scale, 1));
+}
+
+.backLabel {
   overflow: hidden;
-  font-size: 17px;
-  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0;
-  transition: opacity 160ms ease;
 }
 
-.title[data-visible] {
-  opacity: 1;
+.measure {
+  position: absolute;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .title {
-    transition: none;
-  }
+.ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  color: var(--ios-secondary-label);
+}
+
+.title {
+  right: calc(var(--inset) + var(--side));
+  left: calc(var(--inset) + var(--side));
+  display: block;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ios-label);
+  font-size: calc(17px * var(--ios-chrome-scale, 1));
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 44px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title:focus {
+  outline: none;
+}
+
+.title[data-root] {
+  opacity: var(--title-collapse, 0);
+  transform: translateY(calc((1 - var(--title-collapse, 0)) * 6px));
+}
+
+.bar[data-transition] .layer {
+  will-change: opacity, transform;
+  pointer-events: none;
+}
+
+.bar[data-transition] .layer[data-bar-live] {
+  pointer-events: auto;
+}
+
+.bar[data-transition] .layer[data-depth="deeper"] {
+  opacity: calc(1 - var(--nav-progress, 0));
+  transform: translateX(calc(var(--nav-progress, 0) * 32px));
+}
+
+.bar[data-transition] .layer[data-depth="shallower"] {
+  opacity: var(--nav-progress, 0);
+  transform: translateX(calc((1 - var(--nav-progress, 0)) * -32px));
 }

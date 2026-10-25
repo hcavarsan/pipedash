@@ -44,6 +44,7 @@ tauri-plugin-fs.workspace = true
 tauri-plugin-notification.workspace = true
 tauri-plugin-opener.workspace = true
 tauri-plugin-os.workspace = true
+tauri-plugin-pipedash-native.workspace = true
 tauri-plugin-pipedash-push.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

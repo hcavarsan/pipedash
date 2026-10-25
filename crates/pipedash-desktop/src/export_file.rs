@@ -1,8 +1,11 @@
-use serde::Serialize;
-use tauri::{
-    AppHandle,
-    Manager,
+use std::path::{
+    Path,
+    PathBuf,
 };
+
+use serde::Serialize;
+use tauri::AppHandle;
+use tauri_plugin_pipedash_native::PipedashNativeExt;
 
 use crate::commands::ErrorResponse;
 
@@ -44,7 +47,7 @@ pub fn validate_file_name(name: &str) -> Result<&str, FileNameError> {
 #[derive(Debug, Serialize)]
 pub struct ExportFileResult {
     pub path: String,
-    pub location: &'static str,
+    pub shared: bool,
 }
 
 fn export_error(message: String) -> ErrorResponse {
@@ -54,34 +57,60 @@ fn export_error(message: String) -> ErrorResponse {
     }
 }
 
+const EXPORT_DIR: &str = "pipedash-exports";
+const CREATE_ATTEMPTS: usize = 8;
+
+fn create_export_dir(base: &Path) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(base)?;
+    for _ in 0..CREATE_ATTEMPTS {
+        let dir = base.join(format!("{:016x}", rand::random::<u64>()));
+        match std::fs::create_dir(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no free export folder",
+    ))
+}
+
+async fn write_export(base: &Path, name: &str, contents: &str) -> std::io::Result<PathBuf> {
+    let dir = create_export_dir(base)?;
+    let path = dir.join(name);
+    tokio::fs::write(&path, contents).await?;
+
+    Ok(path)
+}
+
 #[tauri::command]
 pub async fn save_export_file(
     app: AppHandle, file_name: String, contents: String,
 ) -> Result<ExportFileResult, ErrorResponse> {
     if !cfg!(mobile) {
         return Err(export_error(
-            "Saving to the Documents folder is only available on mobile".to_string(),
+            "Sharing exports is only available on mobile".to_string(),
         ));
     }
 
     let name = validate_file_name(&file_name).map_err(|e| export_error(e.to_string()))?;
-    let dir = app
-        .path()
-        .document_dir()
-        .map_err(|e| export_error(format!("Couldn't find the Documents folder: {}", e)))?;
-
-    tokio::fs::create_dir_all(&dir)
+    let base = std::env::temp_dir().join(EXPORT_DIR);
+    let path = write_export(&base, name, &contents)
         .await
-        .map_err(|e| export_error(format!("Couldn't open the Documents folder: {}", e)))?;
+        .map_err(|e| export_error(format!("Couldn't prepare the file: {}", e)))?;
 
-    let path = dir.join(name);
-    tokio::fs::write(&path, contents)
-        .await
-        .map_err(|e| export_error(format!("Couldn't save the file: {}", e)))?;
+    let shared = app.pipedash_native().share_file(&path).await;
+    if let Some(dir) = path.parent() {
+        if let Err(e) = tokio::fs::remove_dir_all(dir).await {
+            tracing::warn!(error = %e, "Couldn't remove the temporary export");
+        }
+    }
 
     Ok(ExportFileResult {
         path: path.display().to_string(),
-        location: "documents",
+        shared: shared.map_err(|e| export_error(format!("Couldn't share the file: {}", e)))?,
     })
 }
 
@@ -129,5 +158,22 @@ mod tests {
             Err(FileNameError::TooLong)
         );
         assert!(validate_file_name(&"x".repeat(MAX_FILE_NAME_BYTES)).is_ok());
+    }
+
+    #[tokio::test]
+    async fn every_export_gets_its_own_folder_so_names_never_collide() {
+        let base = tempfile::tempdir().unwrap();
+
+        let first = write_export(base.path(), "export.json", "one")
+            .await
+            .unwrap();
+        let second = write_export(base.path(), "export.json", "two")
+            .await
+            .unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(first.file_name(), second.file_name());
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "one");
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), "two");
     }
 }

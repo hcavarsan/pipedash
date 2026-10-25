@@ -5,6 +5,7 @@ mod credential;
 mod export_file;
 pub mod fallback_store;
 pub mod keyring_store;
+mod native;
 mod push;
 mod system_notifications;
 pub mod tauri_event_bus;
@@ -235,7 +236,9 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_pipedash_push::init());
+        .plugin(tauri_plugin_pipedash_push::init())
+        .plugin(tauri_plugin_pipedash_native::init())
+        .manage(native::PendingIntent::default());
 
     #[cfg(mobile)]
     let builder = builder
@@ -295,10 +298,12 @@ pub fn run() {
             let setup_complete = config_path.exists();
             let app_lock = AppLockState::load(&app_data_dir, app_lock::SUPPORTED, setup_complete);
             let start_locked = app_lock.locked();
+            let lock_settings = app_lock.settings();
 
             app.manage(AppDataDir(app_data_dir.clone()));
             app.manage(MaybeCoreContext::default());
             app.manage(app_lock);
+            native::sync_privacy_cover(app.handle(), lock_settings);
 
             if !setup_complete {
                 tracing::info!("No configuration found - starting in setup mode");
@@ -405,9 +410,17 @@ pub fn run() {
             push_unpair_server,
             push_send_test,
             system_notifications::show_system_notification,
+            native::native_haptic,
+            native::native_set_appearance,
+            native::native_accessibility,
+            native::native_open_settings,
+            native::native_set_badge,
+            native::native_release_privacy_cover,
+            native::native_take_pending_intent,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| native::on_run_event(app, &event));
 }
 
 #[cfg(test)]

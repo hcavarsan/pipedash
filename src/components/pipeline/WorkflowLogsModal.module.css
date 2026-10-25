@@ -5,8 +5,9 @@
 }
 
 .value :global(.mantine-ActionIcon-root) {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+  --ai-size: 44px;
+
+  min-width: 44px;
+  min-height: 44px;
+  margin-block: -0.5em;
 }

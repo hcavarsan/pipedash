@@ -1,352 +1,5 @@
 /* Applied only through the iOS theme (see ios.ts), which MantineProvider uses on the mobile shell. */
 
-/* ---------- Sheets (Modal) ---------- */
-
-.sheetInner {
-  align-items: flex-end;
-  padding: 0;
-}
-
-.sheetContent {
-  flex: 1 1 100%;
-  width: 100%;
-  max-width: 100%;
-  max-height: calc(100dvh - var(--safe-top) - 10px);
-  border-radius: 14px 14px 0 0;
-  border: 0;
-  background: var(--ios-sheet);
-  box-shadow: 0 -8px 40px rgb(0 0 0 / 0.45);
-}
-
-.sheetFull {
-  height: calc(100dvh - var(--safe-top) - 10px);
-}
-
-.sheetHeader {
-  position: sticky;
-  top: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  min-height: 0;
-  padding: 22px 16px 6px;
-  background: var(--ios-sheet);
-}
-
-.sheetHeader::before {
-  content: "";
-  position: absolute;
-  top: 6px;
-  left: 50%;
-  width: 36px;
-  height: 5px;
-  margin-left: -18px;
-  border-radius: 3px;
-  background: var(--ios-grabber);
-}
-
-.sheetTitle {
-  flex: 1 1 100%;
-  order: 1;
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: 0.01em;
-  padding-top: 2px;
-}
-
-.sheetClose {
-  order: 0;
-  margin-left: auto;
-  width: auto;
-  min-width: 44px;
-  height: 36px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--mantine-color-blue-light-color);
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.sheetClose svg {
-  display: none;
-}
-
-.sheetCloseLeading {
-  margin-left: 0;
-  margin-right: auto;
-  font-weight: 400;
-}
-
-.sheetBody {
-  padding: 8px 16px calc(16px + var(--safe-bottom));
-}
-
-.sheetFooter {
-  border-top: 0.5px solid var(--ios-separator);
-}
-
-.sheetFooter :where(.mantine-Group-root) > .mantine-Button-root {
-  flex: 1 1 0;
-}
-
-/* ---------- Alerts (confirm) ---------- */
-
-.alertInner {
-  align-items: center;
-  padding: 0 40px;
-}
-
-.alertContent {
-  flex: 0 1 300px;
-  width: 100%;
-  max-width: 300px;
-  border-radius: 14px;
-  border: 0;
-  overflow: hidden;
-  background: var(--ios-alert);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
-  backdrop-filter: blur(30px) saturate(180%);
-  box-shadow: 0 8px 40px rgb(0 0 0 / 0.5);
-  text-align: center;
-}
-
-.alertHeader {
-  display: block;
-  min-height: 0;
-  padding: 20px 16px 2px;
-  background: transparent;
-}
-
-.alertHeader::before {
-  display: none;
-}
-
-.alertTitle {
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.3;
-  text-align: center;
-}
-
-.alertBody {
-  padding: 0 16px;
-  font-size: 13px;
-  line-height: 1.35;
-}
-
-.alertBody :where(.mantine-Text-root) {
-  font-size: 13px;
-}
-
-.alertActions {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  align-items: stretch;
-  flex-wrap: nowrap;
-  margin: 0 -16px;
-}
-
-.alertActions[data-layout="row"] {
-  flex-direction: row;
-}
-
-.alertActions .alertButton {
-  flex: 1 1 0;
-  width: 100%;
-  max-width: none;
-  height: 44px;
-  min-height: 44px;
-  padding: 0 8px;
-  border-radius: 0;
-  border: 0;
-  border-top: 0.5px solid var(--ios-separator);
-  background: transparent;
-  color: var(--mantine-color-blue-light-color);
-  font-size: 17px;
-  font-weight: 400;
-}
-
-.alertActions[data-layout="row"] .alertButton + .alertButton {
-  border-left: 0.5px solid var(--ios-separator);
-}
-
-.alertActions .alertButton:active {
-  background: var(--ios-fill);
-}
-
-.alertActions .alertButtonPrimary {
-  font-weight: 600;
-}
-
-.alertActions .alertButtonDestructive {
-  color: var(--mantine-color-red-filled);
-}
-
-/* ---------- Banners (Notifications) ---------- */
-
-.toastRoot {
-  top: calc(var(--safe-top) + 6px);
-  width: calc(100% - 16px);
-  max-width: 440px;
-  pointer-events: none;
-}
-
-.toast {
-  --notification-color: var(--mantine-color-dimmed);
-  pointer-events: auto;
-  align-items: center;
-  min-height: 0;
-  padding: 10px 14px 10px 36px;
-  border: 0.5px solid var(--ios-separator);
-  border-radius: 22px;
-  background: color-mix(in srgb, var(--ios-sheet) 86%, transparent);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 0.35);
-}
-
-.toast::before {
-  top: 50%;
-  bottom: auto;
-  left: 14px;
-  width: 10px;
-  height: 10px;
-  margin-top: -5px;
-  border-radius: 50%;
-  background: var(--notification-color);
-}
-
-.toast[data-with-icon] {
-  padding-left: 12px;
-}
-
-.toast[data-with-icon]::before {
-  display: none;
-}
-
-.toastTitle {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.toastDescription {
-  font-size: 13px;
-  line-height: 1.3;
-  color: var(--mantine-color-dimmed);
-}
-
-.toastClose {
-  display: none;
-}
-
-/* ---------- Action sheet (Menu) and picker sheet (Combobox) ---------- */
-
-.menuDropdown {
-  max-height: 70dvh;
-  overflow-y: auto;
-  padding: 0;
-  border: 0;
-  border-radius: 14px;
-  background: var(--ios-alert);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
-  backdrop-filter: blur(30px) saturate(180%);
-  box-shadow: none;
-}
-
-.menuItem {
-  justify-content: center;
-  min-height: 56px;
-  padding: 0 16px;
-  border-radius: 0;
-  font-size: 20px;
-  text-align: center;
-}
-
-.menuItem + .menuItem {
-  border-top: 0.5px solid var(--ios-separator);
-}
-
-.menuItem:active {
-  background: var(--ios-fill);
-}
-
-.menuItemLabel {
-  flex: 0 1 auto;
-}
-
-.menuItemSection {
-  display: none;
-}
-
-.menuLabel {
-  padding: 14px 16px 6px;
-  font-size: 13px;
-  text-align: center;
-}
-
-.menuDivider {
-  margin: 0;
-  border-top: 8px solid var(--mantine-color-body);
-}
-
-.menuCancel {
-  position: relative;
-  margin-top: 8px;
-  font-weight: 600;
-  color: var(--mantine-color-blue-light-color);
-}
-
-.menuCancel::before {
-  content: "";
-  position: absolute;
-  top: -8px;
-  right: 0;
-  left: 0;
-  height: 8px;
-  background: var(--mantine-color-body);
-}
-
-.pickerDropdown {
-  max-height: min(65dvh, calc(100dvh - var(--keyboard-inset, 0px) - var(--safe-top) - 72px));
-  overflow-y: auto;
-  padding: 22px 0 var(--safe-bottom);
-  border: 0;
-  border-radius: 14px 14px 0 0;
-  background: var(--ios-sheet);
-  box-shadow: 0 -8px 40px rgb(0 0 0 / 0.45);
-}
-
-.pickerDropdown::before {
-  content: "";
-  position: absolute;
-  top: 6px;
-  left: 50%;
-  width: 36px;
-  height: 5px;
-  margin-left: -18px;
-  border-radius: 3px;
-  background: var(--ios-grabber);
-}
-
-.pickerOption {
-  min-height: 48px;
-  padding: 0 20px;
-  border-radius: 0;
-  font-size: 17px;
-}
-
-.pickerOption + .pickerOption {
-  border-top: 0.5px solid var(--ios-separator);
-}
-
-.pickerOption:active {
-  background: var(--ios-fill);
-}
-
 /* ---------- Segmented control (Tabs, SegmentedControl) ---------- */
 
 .tabsList {
@@ -362,18 +15,26 @@
 }
 
 .tab {
+  position: relative;
   flex: 1 1 0;
   justify-content: center;
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0 0.75em;
   border: 0;
   border-radius: 7px;
-  font-size: 13px;
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
   font-weight: 500;
   color: inherit;
   transition:
     background-color 160ms ease,
     box-shadow 160ms ease;
+}
+
+.tab::after {
+  content: "";
+  position: absolute;
+  inset: -6px 0;
 }
 
 .tab[data-active] {
@@ -396,6 +57,7 @@
   padding: 2px;
   border-radius: 9px;
   background: var(--ios-fill);
+  overflow: visible;
 }
 
 .segmentIndicator {
@@ -407,11 +69,20 @@
 }
 
 .segmentLabel {
+  position: relative;
   min-height: 32px;
-  padding: 0 10px;
-  font-size: 13px;
+  padding: 0 0.75em;
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
   font-weight: 500;
   color: inherit;
+  overflow: visible;
+}
+
+.segmentLabel::after {
+  content: "";
+  position: absolute;
+  inset: -6px 0;
 }
 
 .segmentLabel[data-active] {
@@ -422,9 +93,16 @@
 /* ---------- Switch ---------- */
 
 .switchTrack {
+  overflow: visible;
   border: 0;
   background: var(--ios-fill);
   transition: background-color 200ms ease;
+}
+
+.switchTrack::after {
+  content: "";
+  position: absolute;
+  inset: -7px -2px;
 }
 
 .switchTrack[data-checked] {
@@ -440,7 +118,8 @@
 }
 
 .switchLabel {
-  font-size: 17px;
+  font-size: var(--ios-fs-body);
+  line-height: var(--ios-lh-body);
 }
 
 /* ---------- Inputs ---------- */
@@ -450,7 +129,8 @@
   border: 0;
   border-radius: 10px;
   background: var(--ios-fill);
-  font-size: 17px;
+  font-size: max(16px, var(--ios-fs-body));
+  line-height: var(--ios-lh-body);
 }
 
 .input:focus,
@@ -458,9 +138,19 @@
   outline: 0;
 }
 
+:global(html[data-keyboard-focus]) .input:focus-visible {
+  outline: 2px solid var(--ios-tint);
+  outline-offset: 2px;
+}
+
+:global(html[data-increase-contrast]) .input {
+  border: 1px solid var(--ios-secondary-label);
+}
+
 .inputLabel {
-  margin-bottom: 6px;
-  font-size: 13px;
+  margin-bottom: 0.45em;
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -468,11 +158,13 @@
 }
 
 .inputDescription {
-  font-size: 13px;
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
 }
 
 .inputError {
-  font-size: 13px;
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
 }
 
 /* ---------- Buttons ---------- */
@@ -480,7 +172,8 @@
 .button {
   min-height: 44px;
   border-radius: 12px;
-  font-size: 17px;
+  font-size: var(--ios-fs-headline);
+  line-height: var(--ios-lh-headline);
   font-weight: 600;
   transition:
     background-color 120ms ease,
@@ -500,6 +193,15 @@
 .actionIcon:active {
   opacity: 0.6;
   transform: none;
+}
+
+.button:focus-visible,
+.actionIcon:focus-visible,
+.tab:focus-visible,
+.checkboxInput:focus-visible,
+input:focus-visible + .segmentLabel {
+  outline: 2px solid var(--ios-tint);
+  outline-offset: 2px;
 }
 
 /* ---------- Stepper (wizard progress) ---------- */
@@ -563,13 +265,6 @@
 }
 
 .checkboxLabel {
-  font-size: 17px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tab,
-  .button,
-  .switchTrack {
-    transition: none;
-  }
+  font-size: var(--ios-fs-body);
+  line-height: var(--ios-lh-body);
 }

@@ -7,6 +7,7 @@ import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { apiService, isTauri } from '@/services'
+import { displayErrorNotification } from '@/utils/errorDisplay'
 import { openExternal } from '@/utils/openExternal'
 
 import { IosGroup, IosRow } from '../../ios/IosList'
@@ -25,8 +26,11 @@ export function AboutSection() {
     staleTime: Infinity,
   })
 
-  const openLink = (url: string) =>
-    openExternal(url).catch((error: unknown) => logger.error('AboutSection', `Couldn't open ${url}`, error))
+  const openLink = (label: string, url: string) =>
+    openExternal(url).catch((error: unknown) => {
+      logger.error('AboutSection', `Couldn't open ${url}`, error)
+      displayErrorNotification(error, `Couldn't open ${label}`)
+    })
 
   if (mobileShell) {
     return (
@@ -39,9 +43,9 @@ export function AboutSection() {
             <IosRow
               key={url}
               title={label}
-              accessory={<IconExternalLink size={18} />}
+              accessory={<IconExternalLink size={18} aria-hidden />}
               onClick={() => {
-                void openLink(url)
+                void openLink(label, url)
               }}
             />
           ))}
@@ -80,9 +84,7 @@ export function AboutSection() {
                 rightSection={<IconExternalLink size={16} />}
                 onClick={(event: React.MouseEvent) => {
                   event.preventDefault()
-                  openExternal(url).catch((error: unknown) =>
-                    logger.error('AboutSection', `Couldn't open ${url}`, error)
-                  )
+                  void openLink(label, url)
                 }}
               >
                 {label}
