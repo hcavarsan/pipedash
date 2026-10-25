@@ -47,6 +47,7 @@ import {
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { events } from '../../services'
 import { useModalStore } from '../../stores/modalStore'
+import { usePullToRefresh } from '../../stores/pullRefreshStore'
 import { STATUS_META } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../types'
@@ -159,6 +160,8 @@ export const RunHistoryPage = ({
     error: runsError,
     refetch: refetchRuns,
   } = useRunHistory(pipeline?.id || '', page, PAGE_SIZE)
+
+  usePullToRefresh(mobileShell ? () => refetchRuns() : null)
 
   const { data: tablePreferences, isLoading: preferencesLoading } = useTablePreferences(
     pipeline?.provider_id ?? 0,

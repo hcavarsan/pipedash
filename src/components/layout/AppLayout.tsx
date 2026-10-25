@@ -10,7 +10,7 @@ import { ProviderModals } from '../provider/ProviderModals'
 
 import { Header } from './Header'
 import { MobileHeader } from './MobileHeader'
-import { MobileLargeTitle } from './MobileLargeTitle'
+import { MobilePage } from './MobilePage'
 import { MobileTabBar } from './MobileTabBar'
 import { Navbar } from './Navbar'
 import { useSidebarResize } from './useSidebarResize'
@@ -82,10 +82,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
         </AppShell.Navbar>
       )}
 
-      <AppShell.Main>
-        {mobileShell && <MobileLargeTitle />}
-        {children}
-      </AppShell.Main>
+      <AppShell.Main>{mobileShell ? <MobilePage>{children}</MobilePage> : children}</AppShell.Main>
 
       {mobileShell && <MobileTabBar />}
       <ProviderModals />

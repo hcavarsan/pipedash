@@ -15,7 +15,7 @@ const TABS: Array<{ id: MobileTab; label: string; ariaLabel: string; to: string;
 
 export function MobileTabBar() {
   const { pathname, search } = useLocation()
-  const { tab: activeTab } = mobileChrome(pathname, search)
+  const { tab: activeTab, back } = mobileChrome(pathname, search)
   const { unread, dotColor } = useUnreadNotifications()
 
   return (
@@ -32,6 +32,12 @@ export function MobileTabBar() {
             data-active={active || undefined}
             aria-current={active ? 'page' : undefined}
             aria-label={unreadLabel}
+            onClick={(event) => {
+              if (active && !back) {
+                event.preventDefault()
+                document.querySelector('.mantine-AppShell-main')?.scrollTo({ top: 0, behavior: 'smooth' })
+              }
+            }}
           >
             <Icon size={24} stroke={active ? 2 : 1.6} aria-hidden />
             <span className={classes.label}>{label}</span>

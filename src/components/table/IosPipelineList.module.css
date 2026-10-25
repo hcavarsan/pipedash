@@ -9,6 +9,10 @@
   --inset: 60px;
 }
 
+.row[data-swipeable] {
+  overflow: hidden;
+}
+
 .row + .row::before {
   content: "";
   position: absolute;

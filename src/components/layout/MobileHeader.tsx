@@ -13,12 +13,13 @@ import { ConnectionStatus } from '../common/ConnectionStatus'
 
 import classes from './MobileHeader.module.css'
 import { mobileChrome } from './mobileChrome'
+import { useMobileBack } from './useMobileBack'
 
 const LARGE_TITLE_COLLAPSE = 36
 
 export function MobileHeader() {
   useRefresh()
-  const { pathname, search, state } = useLocation()
+  const { pathname, search } = useLocation()
   const { title, back, tab } = mobileChrome(pathname, search)
   const pushedTitle = useMobileNavStore((s) => s.title)
   const scrolled = useScrolledPast(LARGE_TITLE_COLLAPSE)
@@ -28,18 +29,17 @@ export function MobileHeader() {
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const canLock = vaultStatus ? lockMeansSomething(vaultStatus) && vaultStatus.is_unlocked : false
   const refreshable = tab === 'pipelines' || tab === 'pinned'
-  const from = back && typeof state?.from === 'string' ? state.from : back?.to
-  const backLabel = back && from?.includes('view=pinned') ? 'Pinned' : back?.label
+  const backTarget = useMobileBack()
 
   return (
     <>
       <ConnectionStatus />
       <div className={classes.bar} data-scrolled={scrolled || back ? '' : undefined}>
         <div className={classes.side}>
-          {back && from && (
-            <Link to={from} className={classes.back} aria-label={`Back to ${backLabel}`}>
+          {backTarget && (
+            <Link to={backTarget.to} className={classes.back} aria-label={`Back to ${backTarget.label}`}>
               <IconChevronLeft size={26} aria-hidden />
-              <span>{backLabel}</span>
+              <span>{backTarget.label}</span>
             </Link>
           )}
           {!back && canLock && (

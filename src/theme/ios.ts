@@ -33,7 +33,7 @@ const bottomSheet = {
   position: 'fixed',
   top: 'auto',
   right: 0,
-  bottom: 0,
+  bottom: 'var(--keyboard-inset, 0px)',
   left: 0,
   width: '100%',
 } as const

@@ -9,6 +9,7 @@ import { getPipelineLabels, getReconcileBlockReason, getStatusLabel } from '../.
 import { providerAttention } from '../../utils/providerAttention'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
+import type { SwipeAction } from '../ios/SwipeActions'
 
 interface SectionHeadingProps {
   id?: string
@@ -176,4 +177,28 @@ export function WorkflowActionMenu({
       </Menu.Dropdown>
     </Menu>
   )
+}
+
+export function workflowSwipeActions(
+  pipeline: Pipeline,
+  isPinned: boolean,
+  onTogglePin: () => void,
+  onTrigger: (pipeline: Pipeline) => void
+): SwipeAction[] {
+  const pin: SwipeAction = { key: 'pin', label: isPinned ? 'Unpin' : 'Pin', tone: 'orange', onSelect: onTogglePin }
+
+  if (getReconcileBlockReason(pipeline)) {
+    return [pin]
+  }
+
+  return [
+    pin,
+    {
+      key: 'trigger',
+      label: getPipelineLabels(pipeline.provider_type).trigger,
+      tone: 'blue',
+      primary: true,
+      onSelect: () => onTrigger(pipeline),
+    },
+  ]
 }

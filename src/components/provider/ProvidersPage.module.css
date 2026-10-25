@@ -2,9 +2,10 @@
   position: relative;
   display: flex;
   align-items: center;
+  overflow: hidden;
 }
 
-.shell > :first-child {
+.shell a {
   flex: 1;
   min-width: 0;
   width: auto;

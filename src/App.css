@@ -304,6 +304,43 @@ select {
   background-color: var(--ios-fill);
 }
 
+html[data-ios],
+[data-ios] body,
+[data-ios] #root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+[data-ios] .mantine-AppShell-main {
+  height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+[data-ios] * {
+  touch-action: pan-x pan-y;
+}
+
+[data-ios] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+[data-ios] :is(input, textarea, pre, code, [contenteditable="true"], .monaco-editor, [data-selectable]) {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+[data-ios] :is(a, img) {
+  -webkit-user-drag: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

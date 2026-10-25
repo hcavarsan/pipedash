@@ -238,7 +238,6 @@ export function CredentialsStep({
               rightSection={spinner}
               disabled={submitting || loadingOptions}
               onChange={(val) => handleConfigChange(field.key, val || '')}
-              searchable
               clearable
             />
           </ShellField>
@@ -256,7 +255,6 @@ export function CredentialsStep({
               rightSection={spinner}
               disabled={submitting || loadingOptions}
               onChange={(values) => handleConfigChange(field.key, values.join(','))}
-              searchable
               clearable
             />
           </ShellField>

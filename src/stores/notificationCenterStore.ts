@@ -31,6 +31,7 @@ interface NotificationCenterState {
   selection: CenterSelection | null
   push: (input: NotificationInput) => void
   markAllRead: () => void
+  markRead: (key: string) => void
   clear: () => void
   open: (selection: CenterSelection) => void
   close: () => void
@@ -52,6 +53,9 @@ export const useNotificationCenterStore = create<NotificationCenterState>()((set
     set((state) =>
       state.items.every((item) => item.read) ? state : { items: state.items.map((item) => ({ ...item, read: true })) }
     ),
+
+  markRead: (key) =>
+    set((state) => ({ items: state.items.map((item) => (item.key === key ? { ...item, read: true } : item)) })),
 
   clear: () => set({ items: [] }),
 

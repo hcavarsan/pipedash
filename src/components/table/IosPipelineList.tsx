@@ -10,9 +10,10 @@ import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentat
 import { StatusDot } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup } from '../ios/IosList'
+import { type SwipeAction, SwipeActions } from '../ios/SwipeActions'
 
 import classes from './IosPipelineList.module.css'
-import { type TableRow, WorkflowActionMenu } from './PipelineRowParts'
+import { type TableRow, WorkflowActionMenu, workflowSwipeActions } from './PipelineRowParts'
 
 interface IosPipelineRowProps {
   status?: PipelineStatus | null
@@ -26,6 +27,7 @@ interface IosPipelineRowProps {
   ariaLabel: string
   onClick: () => void
   trailing?: ReactNode
+  swipeActions?: SwipeAction[]
 }
 
 export function IosPipelineRow({
@@ -40,16 +42,11 @@ export function IosPipelineRow({
   ariaLabel,
   onClick,
   trailing,
+  swipeActions,
 }: IosPipelineRowProps) {
   const alert = status && status !== 'success' ? (statusText ?? STATUS_META[status].label) : undefined
-
-  return (
-    <div
-      className={classes.row}
-      data-repo={expanded === undefined ? undefined : ''}
-      data-nested={nested ? '' : undefined}
-      data-trailing={trailing ? '' : undefined}
-    >
+  const body = (
+    <>
       <button type="button" className={classes.main} onClick={onClick} aria-label={ariaLabel} aria-expanded={expanded}>
         {status ? <StatusDot status={status} label={statusText} /> : <span className={classes.dotEmpty} aria-hidden />}
         <span className={classes.text}>
@@ -71,6 +68,18 @@ export function IosPipelineRow({
         </span>
       </button>
       {trailing && <div className={classes.trailing}>{trailing}</div>}
+    </>
+  )
+
+  return (
+    <div
+      className={classes.row}
+      data-repo={expanded === undefined ? undefined : ''}
+      data-nested={nested ? '' : undefined}
+      data-trailing={trailing ? '' : undefined}
+      data-swipeable={swipeActions?.length ? '' : undefined}
+    >
+      {swipeActions?.length ? <SwipeActions actions={swipeActions}>{body}</SwipeActions> : body}
     </div>
   )
 }
@@ -231,6 +240,12 @@ export function IosPipelineList({
             value={relativeOrNever(row.lastRun, now)}
             ariaLabel={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
             onClick={() => onViewHistory(pipeline)}
+            swipeActions={workflowSwipeActions(
+              pipeline,
+              pinnedKeys.includes(pinKey),
+              () => onTogglePin(pinKey),
+              onTrigger
+            )}
             trailing={
               <WorkflowActionMenu
                 pipeline={pipeline}

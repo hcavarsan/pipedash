@@ -294,6 +294,7 @@ function ShellNotificationList() {
   const items = useNotificationCenterStore((state) => state.items)
   const open = useNotificationCenterStore((state) => state.open)
   const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
+  const markRead = useNotificationCenterStore((state) => state.markRead)
   const clear = useNotificationCenterStore((state) => state.clear)
   const now = useNow(30_000)
   const affected = useAffectedProviders()
@@ -365,6 +366,19 @@ function ShellNotificationList() {
                 }
                 chevron
                 onClick={() => open({ type: 'notification', key: item.key })}
+                swipeActions={
+                  item.read
+                    ? undefined
+                    : [
+                        {
+                          key: 'read',
+                          label: 'Mark read',
+                          tone: 'blue',
+                          primary: true,
+                          onSelect: () => markRead(item.key),
+                        },
+                      ]
+                }
               />
             )
           })}

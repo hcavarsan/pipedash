@@ -252,7 +252,6 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
               value={selectedOrganization}
               onChange={handleOrganizationSelect}
               data={availableOrganizations.map((org) => ({ value: org.id, label: org.name }))}
-              searchable
             />
           </ShellField>
         )}

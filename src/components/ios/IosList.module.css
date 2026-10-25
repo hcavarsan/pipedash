@@ -48,7 +48,21 @@
   --inset: 60px;
 }
 
-.row + .row::before {
+.swipeRow {
+  display: flex;
+  overflow: hidden;
+}
+
+.item {
+  --inset: 16px;
+  position: relative;
+}
+
+.item[data-icon] {
+  --inset: 60px;
+}
+
+.item + .item::before {
   content: "";
   position: absolute;
   top: 0;

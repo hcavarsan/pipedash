@@ -9,7 +9,7 @@ import { StatusIcon } from '../atoms/StatusBadge'
 import { IosGroup } from '../ios/IosList'
 
 import { IosPipelineRow, relativeOrNever } from './IosPipelineList'
-import { WorkflowActionMenu, WorkflowActions } from './PipelineRowParts'
+import { WorkflowActionMenu, WorkflowActions, workflowSwipeActions } from './PipelineRowParts'
 
 interface PinnedWorkflowsProps {
   header?: string
@@ -49,6 +49,7 @@ export function PinnedWorkflows({
               value={relativeOrNever(pipeline.last_run, now)}
               ariaLabel={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${pipeline.name}`}
               onClick={() => onViewHistory(pipeline)}
+              swipeActions={workflowSwipeActions(pipeline, true, () => onUnpin(pipeline), onTrigger)}
               trailing={
                 <WorkflowActionMenu
                   pipeline={pipeline}

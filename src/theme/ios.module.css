@@ -311,7 +311,7 @@
 }
 
 .pickerDropdown {
-  max-height: 65dvh;
+  max-height: min(65dvh, calc(100dvh - var(--keyboard-inset, 0px) - var(--safe-top) - 72px));
   overflow-y: auto;
   padding: 22px 0 var(--safe-bottom);
   border: 0;

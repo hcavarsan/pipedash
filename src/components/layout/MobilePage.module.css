@@ -1,0 +1,84 @@
+.host {
+  position: relative;
+  min-height: calc(100dvh - 44px - var(--safe-top) - var(--app-shell-padding) * 2 - 82px - var(--safe-bottom));
+  --swipe: 0;
+}
+
+.underlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-30%);
+}
+
+.underlay:empty {
+  display: none;
+}
+
+.underlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: calc(0.35 * (1 - var(--swipe)));
+}
+
+.page {
+  position: relative;
+  min-height: inherit;
+  background: var(--mantine-color-body);
+}
+
+.page[data-dragging] {
+  box-shadow: -10px 0 28px rgb(0 0 0 / 0.45);
+}
+
+.spinner {
+  --pull: 0px;
+  --progress: 0;
+  position: fixed;
+  z-index: 90;
+  top: calc(44px + var(--safe-top));
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  opacity: min(1, calc(var(--progress) * 1.5));
+  pointer-events: none;
+  transform: translateY(calc(var(--pull) * 0.5 - 11px));
+}
+
+.spoke {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 6px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--mantine-color-dimmed);
+  opacity: clamp(0, calc(var(--progress) * 12 - var(--i)), 1);
+  transform-origin: 1px 11px;
+  transform: rotate(calc(var(--i) * 30deg));
+}
+
+.spinner[data-spinning] {
+  animation: spin 0.9s steps(12) infinite;
+}
+
+.spinner[data-spinning] .spoke {
+  opacity: calc(1 - var(--i) / 14);
+}
+
+@keyframes spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner[data-spinning] {
+    animation: none;
+  }
+}

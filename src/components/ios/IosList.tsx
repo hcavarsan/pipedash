@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import classes from './IosList.module.css'
+import { type SwipeAction, SwipeActions } from './SwipeActions'
 
 interface IosGroupProps {
   header?: ReactNode
@@ -32,6 +33,7 @@ interface IosRowProps {
   destructive?: boolean
   disabled?: boolean
   ariaLabel?: string
+  swipeActions?: SwipeAction[]
 }
 
 export function IosRow({
@@ -46,6 +48,7 @@ export function IosRow({
   destructive,
   disabled,
   ariaLabel,
+  swipeActions,
 }: IosRowProps) {
   const tappable = Boolean(to || onClick)
   const shared = {
@@ -77,21 +80,28 @@ export function IosRow({
     </>
   )
 
-  if (to) {
-    return (
-      <Link to={to} {...shared}>
+  const render = (className: string) =>
+    to ? (
+      <Link to={to} {...shared} className={className}>
         {content}
       </Link>
-    )
-  }
-
-  if (onClick) {
-    return (
-      <button type="button" onClick={onClick} disabled={disabled} {...shared}>
+    ) : onClick ? (
+      <button type="button" onClick={onClick} disabled={disabled} {...shared} className={className}>
         {content}
       </button>
+    ) : (
+      <div {...shared} className={className}>
+        {content}
+      </div>
+    )
+
+  if (swipeActions?.length) {
+    return (
+      <div className={`${classes.swipeRow} ${classes.item}`} data-icon={icon ? '' : undefined}>
+        <SwipeActions actions={swipeActions}>{render(classes.row)}</SwipeActions>
+      </div>
     )
   }
 
-  return <div {...shared}>{content}</div>
+  return render(`${classes.row} ${classes.item}`)
 }
