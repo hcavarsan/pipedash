@@ -169,6 +169,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
                     enterKeyHint="done"
                     value={proxyValue}
                     onChange={(e) => setProxyDraft(e.currentTarget.value)}
+                    disabled={generalMutation.isPending}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault()

@@ -689,10 +689,41 @@ impl ProviderService {
         let proxy_url = update.proxy_url.clone();
         config_state.update_general_settings(update).await?;
         if self.http_client_manager.set_proxy(&proxy_url)? {
-            self.load_all_providers().await?;
+            self.rebuild_loaded_providers().await;
         }
 
         Ok(())
+    }
+
+    async fn rebuild_loaded_providers(&self) {
+        let ids: Vec<i64> = self.providers.read().await.keys().copied().collect();
+        let mut changed = Vec::new();
+
+        for id in ids {
+            let lock = self.commit_lock(id);
+            let _guard = lock.lock().await;
+            if !self.providers.read().await.contains_key(&id) {
+                continue;
+            }
+
+            let rebuilt = match self.repository.get_provider(id).await {
+                Ok(config) => (self.provider_factory)(&config).map(|provider| (config, provider)),
+                Err(e) => Err(e),
+            };
+            match rebuilt {
+                Ok((config, provider)) => {
+                    let lease = self.replace(id, provider, config.refresh_interval).await;
+                    changed.push(self.health_input(&config, &lease));
+                }
+                Err(e) => {
+                    tracing::warn!(provider_id = id, error = %e, "Failed to rebuild provider");
+                }
+            }
+        }
+
+        if !changed.is_empty() {
+            self.health.send(HealthInput::ProvidersChanged { changed });
+        }
     }
 
     async fn apply_config_provider(
