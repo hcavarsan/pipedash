@@ -12,6 +12,7 @@ async-trait.workspace = true
 chrono.workspace = true
 futures.workspace = true
 octocrab.workspace = true
+pipedash-plugin-actions.workspace = true
 pipedash-plugin-api.workspace = true
 reqwest.workspace = true
 secrecy.workspace = true

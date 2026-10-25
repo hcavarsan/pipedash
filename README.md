@@ -69,6 +69,8 @@ When you trigger or rerun a workflow, Pipedash fetches available parameters from
 
 For GitHub Actions, Run and Rerun create a new `workflow_dispatch` run on the selected ref. An empty `204 No Content` response means GitHub accepted the dispatch.
 
+For private repositories, GitHub fine-grained tokens need `Contents: Read` to load workflow inputs, in addition to `Actions: Read and write` to trigger runs. Add these permissions to each selected repository, including when updating an existing token. Classic PATs use `repo` for private repositories or `public_repo` for public repositories, plus `workflow`. The provider's permission check tests Contents access on every configured repository, or one accessible repository before selection.
+
 **Privacy and security**
 
 Everything runs locally on your machine. Pipedash connects to your CI/CD providers and, unless you turn it off in Settings → General, to their public status pages (hosted by Atlassian Statuspage or status.io) or a status page you configure. Status checks send no credentials. No analytics or telemetry.
@@ -215,6 +217,8 @@ When you start the app, Pipedash loads cached pipeline data from SQLite immediat
 ## Adding providers
 
 Want to add a new CI/CD platform? Create a crate in `crates/pipedash-plugin-{name}/` and implement the `Plugin` trait from `pipedash-plugin-api`. The trait defines methods for fetching pipelines, validating credentials, triggering builds, and getting run history.
+
+`pipedash-plugin-api` holds the provider-neutral contract. Plugins using the GitHub/Gitea Actions workflow format can reuse `dispatch_inputs` and `dispatch_body` from `pipedash-plugin-actions`. Other plugins only need the contract and their own provider mapping.
 
 Each plugin follows this structure:
 - `schema.rs` - Table and column definitions for the provider

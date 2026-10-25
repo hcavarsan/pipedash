@@ -126,6 +126,11 @@ impl PermissionChecker {
                 required: true,
             },
             Permission {
+                name: "Contents (Read)".to_string(),
+                description: "Read workflow files and dispatch inputs. Required for the Run and Rerun forms on private repositories.".to_string(),
+                required: true,
+            },
+            Permission {
                 name: "Actions (Write)".to_string(),
                 description: "Trigger workflow dispatches and cancel running workflows".to_string(),
                 required: false,
@@ -216,7 +221,9 @@ impl PermissionChecker {
         }
     }
 
-    pub async fn check_token_permissions(&self) -> PluginResult<PermissionStatus> {
+    pub async fn check_token_permissions(
+        &self, repositories: &[String],
+    ) -> PluginResult<PermissionStatus> {
         debug!("Starting permission check");
         match self.check_classic_token_scopes().await {
             Ok(status) => {
@@ -226,7 +233,7 @@ impl PermissionChecker {
             Err(e) if e.is_transient() => Err(e),
             Err(e) => {
                 warn!("Classic token check failed, trying fine-grained: {}", e);
-                self.check_fine_grained_permissions().await
+                self.check_fine_grained_permissions(repositories).await
             }
         }
     }
@@ -266,10 +273,15 @@ impl PermissionChecker {
         Ok(Self::build_classic_pat_status(&granted_scopes))
     }
 
-    async fn check_fine_grained_permissions(&self) -> PluginResult<PermissionStatus> {
+    async fn check_fine_grained_permissions(
+        &self, repositories: &[String],
+    ) -> PluginResult<PermissionStatus> {
         debug!("Checking fine-grained token permissions via capability tests");
 
-        let capabilities = self.test_fine_grained_capabilities().await;
+        let mut capabilities = self.test_fine_grained_capabilities().await;
+        if self.test_contents_access(repositories).await? {
+            capabilities.insert("Contents (Read)".to_string());
+        }
         debug!("Fine-grained token capabilities: {:?}", capabilities);
 
         Ok(Self::build_fine_grained_status(&capabilities))
@@ -295,6 +307,71 @@ impl PermissionChecker {
         }
 
         capabilities.into_iter().collect()
+    }
+
+    async fn test_contents_access(&self, repositories: &[String]) -> PluginResult<bool> {
+        let mut discovered = Vec::new();
+        if repositories.is_empty() {
+            let available: Vec<serde_json::Value> = tokio::time::timeout(
+                Self::api_timeout(),
+                self.octocrab.get("/user/repos", Some(&[("per_page", "1")])),
+            )
+            .await
+            .map_err(|_| {
+                PluginError::NetworkError(
+                    "Repository lookup for Contents (Read) timed out".to_string(),
+                )
+            })?
+            .map_err(|e| {
+                crate::client::map_octocrab_error(
+                    "Failed to find a repository for the Contents (Read) check",
+                    e,
+                )
+            })?;
+            if let Some(name) = available
+                .first()
+                .and_then(|repo| repo["full_name"].as_str())
+            {
+                discovered.push(name.to_string());
+            }
+            if discovered.is_empty() {
+                return Ok(false);
+            }
+        }
+
+        for repository in repositories.iter().chain(discovered.iter()) {
+            let (owner, repo) = repository
+                .split_once('/')
+                .filter(|(owner, repo)| {
+                    !owner.is_empty() && !repo.is_empty() && !repo.contains('/')
+                })
+                .ok_or_else(|| {
+                    PluginError::InvalidConfig(format!("Invalid repository: {repository}"))
+                })?;
+            let response: Result<serde_json::Value, _> = tokio::time::timeout(
+                Self::api_timeout(),
+                self.octocrab
+                    .get(format!("/repos/{owner}/{repo}/contents"), None::<&()>),
+            )
+            .await
+            .map_err(|_| {
+                PluginError::NetworkError(format!(
+                    "Contents (Read) check for {repository} timed out"
+                ))
+            })?;
+            if let Err(error) = response {
+                let error =
+                    crate::client::map_octocrab_error("Failed to check Contents (Read)", error);
+                if matches!(
+                    error,
+                    PluginError::PermissionDenied(_) | PluginError::PipelineNotFound(_)
+                ) {
+                    return Ok(false);
+                }
+                return Err(error);
+            }
+        }
+        Ok(true)
     }
 
     async fn test_repository_access(&self) -> bool {

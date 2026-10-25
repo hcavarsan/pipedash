@@ -4,6 +4,10 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use octocrab::service::middleware::retry::RetryConfig;
 use octocrab::Octocrab;
+use pipedash_plugin_actions::{
+    dispatch_body,
+    dispatch_inputs,
+};
 use pipedash_plugin_api::*;
 
 use crate::{
@@ -28,14 +32,17 @@ impl Default for GitHubPlugin {
 
 mod permission_mapping {
 
-    pub const FINE_GRAINED_FEATURE_MAPPINGS: &[(&str, &str)] = &[
-        ("list_monitor_workflows", "Repository Metadata"),
-        ("view_run_history", "Repository Metadata"),
-        ("monitor_status", "Actions (Read)"),
-        ("trigger_dispatch", "Actions (Write)"),
-        ("cancel_workflows", "Actions (Write)"),
-        ("rerun_failed_jobs", "Actions (Write)"),
-        ("access_org_repos", "Organization members and teams (Read)"),
+    pub const FINE_GRAINED_FEATURE_MAPPINGS: &[(&str, &[&str])] = &[
+        ("list_monitor_workflows", &["Repository Metadata"]),
+        ("view_run_history", &["Repository Metadata"]),
+        ("monitor_status", &["Actions (Read)"]),
+        ("trigger_dispatch", &["Actions (Write)", "Contents (Read)"]),
+        ("cancel_workflows", &["Actions (Write)"]),
+        ("rerun_failed_jobs", &["Actions (Write)"]),
+        (
+            "access_org_repos",
+            &["Organization members and teams (Read)"],
+        ),
     ];
 
     pub fn map_feature_permissions(
@@ -45,7 +52,12 @@ mod permission_mapping {
             "fine_grained" => FINE_GRAINED_FEATURE_MAPPINGS
                 .iter()
                 .find(|(id, _)| *id == feature_id)
-                .map(|(_, perm)| vec![perm.to_string()])
+                .map(|(_, permissions)| {
+                    permissions
+                        .iter()
+                        .map(|permission| permission.to_string())
+                        .collect()
+                })
                 .unwrap_or_default(),
             _ => classic_permissions.to_vec(),
         }
@@ -292,9 +304,28 @@ impl Plugin for GitHubPlugin {
     }
 
     async fn fetch_workflow_parameters(
-        &self, _workflow_id: &str,
+        &self, workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {
-        Ok(vec![WorkflowParameter {
+        let parts: Vec<&str> = workflow_id.split("__").collect();
+        if parts.len() != 5 {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid workflow ID format: {} (expected 5 parts, got {})",
+                workflow_id,
+                parts.len()
+            )));
+        }
+
+        let workflow_number_str = parts[4];
+        let workflow_number: u64 = workflow_number_str.parse().map_err(|_| {
+            PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_number_str}"))
+        })?;
+
+        let source = self
+            .client()?
+            .fetch_workflow_source(parts[2], parts[3], workflow_number)
+            .await?;
+
+        let mut parameters = vec![WorkflowParameter {
             name: "ref".to_string(),
             label: Some("Ref".to_string()),
             description: Some("Branch, tag, or commit SHA to run workflow on".to_string()),
@@ -302,7 +333,9 @@ impl Plugin for GitHubPlugin {
                 default: Some("main".to_string()),
             },
             required: true,
-        }])
+        }];
+        parameters.extend(dispatch_inputs(&source)?);
+        Ok(parameters)
     }
 
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String> {
@@ -322,30 +355,13 @@ impl Plugin for GitHubPlugin {
             PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id}"))
         })?;
 
-        let ref_value = params
-            .inputs
-            .as_ref()
-            .and_then(|inputs| inputs.get("ref"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("main")
-            .to_string();
-
+        let mut body = dispatch_body(params.inputs);
+        let ref_value = body["ref"].as_str().unwrap_or("main").to_string();
         let client = self.client()?;
         let actions = client.octocrab.actions();
         let mut dispatch = actions.create_workflow_dispatch(owner, repo, workflow_id, &ref_value);
-
-        if let Some(inputs) = params.inputs {
-            if let Some(obj) = inputs.as_object() {
-                let workflow_inputs: serde_json::Map<String, serde_json::Value> = obj
-                    .iter()
-                    .filter(|(k, _)| k.as_str() != "ref")
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-
-                if !workflow_inputs.is_empty() {
-                    dispatch = dispatch.inputs(serde_json::Value::Object(workflow_inputs));
-                }
-            }
+        if let Some(inputs) = body.get_mut("inputs") {
+            dispatch = dispatch.inputs(inputs.take());
         }
 
         let previous_runs = client
@@ -495,7 +511,9 @@ impl Plugin for GitHubPlugin {
 
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
         let client = self.client()?;
-        client.check_token_permissions().await
+        client
+            .check_token_permissions(&config::get_repositories(&self.config))
+            .await
     }
 
     fn get_feature_availability(&self, status: &PermissionStatus) -> Vec<FeatureAvailability> {
@@ -636,7 +654,10 @@ mod tests {
                 let (method, path, body) = read_request(&mut stream).await;
                 let reply = handler(&method, &path);
                 log.lock().await.push((method, path, body));
-                let body = reply.body.to_string();
+                let body = match reply.body {
+                    serde_json::Value::String(text) => text,
+                    json => json.to_string(),
+                };
                 let extra: String = reply
                     .headers
                     .iter()
@@ -743,7 +764,7 @@ mod tests {
                     let first_read = history_reads.fetch_add(1, Ordering::SeqCst) == 0;
                     run["run_number"] = serde_json::json!(if first_read { 8 } else { 9 });
                     run["head_branch"] =
-                        serde_json::json!(if first_read { "main" } else { "other" });
+                        serde_json::json!(if first_read { "release" } else { "other" });
                     run["created_at"] = serde_json::json!(created_at);
                 }
                 ok(serde_json::json!({"total_count": 1, "workflow_runs": [run]}))
@@ -755,7 +776,12 @@ mod tests {
         let result = plugin
             .trigger_pipeline(TriggerParams {
                 workflow_id: PIPELINE_ID.to_string(),
-                inputs: Some(serde_json::json!({"ref": "main", "environment": "production"})),
+                inputs: Some(serde_json::json!({
+                    "ref": "release",
+                    "inputs.ref": "abc123",
+                    "inputs.environment": "production",
+                    "inputs.dry_run": false
+                })),
             })
             .await;
         server.abort();
@@ -765,7 +791,10 @@ mod tests {
         assert_eq!(response["logs_url"], "http://stub.invalid/acme/app");
         assert_eq!(
             posts(&recorded).await,
-            [serde_json::json!({"ref": "main", "inputs": {"environment": "production"}})]
+            [serde_json::json!({
+                "ref": "release",
+                "inputs": {"ref": "abc123", "environment": "production", "dry_run": false}
+            })]
         );
     }
 
@@ -1206,6 +1235,144 @@ mod tests {
         server.abort();
     }
 
+    async fn stub_fine_grained_token(
+        config: &[(&str, &str)], contents: impl Fn(&str) -> Reply + Send + 'static,
+    ) -> (GitHubPlugin, Recorded, tokio::task::JoinHandle<()>) {
+        serve(config, move |method, path| match (method, path) {
+            ("GET", "/api/v3/user") => ok(serde_json::json!({})),
+            ("GET", "/api/v3/user/repos") => ok(serde_json::json!([{
+                "id": 1, "name": "app", "full_name": "acme/app", "private": true,
+                "url": "http://stub.invalid/acme/app"
+            }])),
+            ("GET", "/api/v3/user/memberships/orgs") => ok(serde_json::json!([])),
+            ("GET", path) if path.ends_with("/contents") => contents(path),
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn dispatch_requires_contents_access_on_every_selected_repository() {
+        for granted in [true, false] {
+            let (plugin, recorded, server) = stub_fine_grained_token(
+                &[("selected_items", "acme/public,acme/private")],
+                move |path| {
+                    if path.ends_with("/private/contents") && !granted {
+                        failure(403, "Resource not accessible by personal access token", &[])
+                    } else {
+                        ok(serde_json::json!([]))
+                    }
+                },
+            )
+            .await;
+
+            let mut status = plugin.check_permissions().await.unwrap();
+            server.abort();
+            let contents = status
+                .permissions
+                .iter()
+                .find(|check| check.permission.name == "Contents (Read)")
+                .unwrap();
+            assert_eq!(contents.granted, granted);
+            assert!(contents.permission.required);
+            status
+                .permissions
+                .iter_mut()
+                .find(|check| check.permission.name == "Actions (Write)")
+                .unwrap()
+                .granted = true;
+            let features = plugin.get_feature_availability(&status);
+            let dispatch = features
+                .iter()
+                .find(|feature| feature.feature.id == "trigger_dispatch")
+                .unwrap();
+            assert_eq!(dispatch.available, granted);
+            assert_eq!(
+                dispatch.missing_permissions,
+                if granted {
+                    vec![]
+                } else {
+                    vec!["Contents (Read)".to_string()]
+                }
+            );
+            assert!(
+                features
+                    .iter()
+                    .find(|feature| feature.feature.id == "cancel_workflows")
+                    .unwrap()
+                    .available
+            );
+            assert!(posts(&recorded).await.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn contents_access_is_checked_before_repository_selection() {
+        let (plugin, _recorded, server) = stub_fine_grained_token(&[], |path| {
+            assert_eq!(path, "/api/v3/repos/acme/app/contents");
+            ok(serde_json::json!([]))
+        })
+        .await;
+
+        let status = plugin.check_permissions().await.unwrap();
+        server.abort();
+
+        assert!(status
+            .permissions
+            .iter()
+            .any(|check| check.permission.name == "Contents (Read)" && check.granted));
+    }
+
+    #[tokio::test]
+    async fn contents_probe_errors_are_not_reported_as_missing_permissions() {
+        for status in [401, 429, 503] {
+            let (plugin, recorded, server) =
+                stub_fine_grained_token(&[("selected_items", "acme/app")], move |_| {
+                    failure(status, "Probe failed", &[("Retry-After", "120")])
+                })
+                .await;
+
+            let error = plugin.check_permissions().await.unwrap_err();
+            server.abort();
+
+            let expected = match (status, &error) {
+                (401, PluginError::AuthenticationFailed(_))
+                | (503, PluginError::ServiceUnavailable { .. }) => true,
+                (
+                    429,
+                    PluginError::RateLimited {
+                        retry_after: Some(hint),
+                        ..
+                    },
+                ) => *hint == Duration::from_secs(120),
+                _ => false,
+            };
+            assert!(expected, "{status}: {error}");
+            assert!(posts(&recorded).await.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn workflow_parameters_explain_missing_contents_permission() {
+        let (plugin, _recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42") => ok(workflow(42)),
+            ("GET", "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml") => {
+                failure(403, "Resource not accessible by personal access token", &[])
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let error = plugin
+            .fetch_workflow_parameters(PIPELINE_ID)
+            .await
+            .unwrap_err();
+        server.abort();
+
+        assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
+        assert!(error.to_string().contains("Contents (Read)"), "{error}");
+    }
+
     #[tokio::test]
     async fn permission_check_uses_the_configured_api_url() {
         let (plugin, recorded, server) = serve(&[], |method, path| match (method, path) {
@@ -1226,6 +1393,55 @@ mod tests {
         );
         assert!(status.all_granted);
         assert_eq!(recorded.lock().await.len(), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn workflow_parameters_list_the_workflow_dispatch_inputs_after_ref() {
+        let source = "on:\n  push:\n  workflow_dispatch:\n    inputs:\n      environment:\n        description: Target\n        required: true\n        type: choice\n        options: [staging, production]\n      ref:\n        default: v1\n";
+        let (plugin, recorded, server) = serve(&[], move |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42") => ok(workflow(42)),
+            ("GET", "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml") => {
+                ok(serde_json::json!(source))
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let params = plugin.fetch_workflow_parameters(PIPELINE_ID).await.unwrap();
+        let summary: Vec<_> = params
+            .iter()
+            .map(|p| {
+                (
+                    p.name.as_str(),
+                    p.required,
+                    serde_json::to_value(&p.param_type).unwrap(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            summary,
+            [
+                (
+                    "ref",
+                    true,
+                    serde_json::json!({"type": "string", "default": "main"})
+                ),
+                (
+                    "inputs.environment",
+                    true,
+                    serde_json::json!({"type": "choice", "options": ["staging", "production"], "default": null})
+                ),
+                (
+                    "inputs.ref",
+                    false,
+                    serde_json::json!({"type": "string", "default": "v1"})
+                ),
+            ]
+        );
+        assert_eq!(params[1].label.as_deref(), Some("environment"));
+        assert_eq!(recorded.lock().await.len(), 2);
         server.abort();
     }
 

@@ -4213,6 +4213,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pipedash-plugin-actions"
+version = "0.4.0"
+dependencies = [
+ "pipedash-plugin-api",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+]
+
+[[package]]
 name = "pipedash-plugin-api"
 version = "0.4.0"
 dependencies = [
@@ -4302,11 +4312,11 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "pipedash-plugin-actions",
  "pipedash-plugin-api",
  "reqwest",
  "rustls",
  "serde",
- "serde-saphyr",
  "serde_json",
  "tokio",
  "tracing",
@@ -4320,6 +4330,7 @@ dependencies = [
  "chrono",
  "futures",
  "octocrab",
+ "pipedash-plugin-actions",
  "pipedash-plugin-api",
  "reqwest",
  "rustls",

@@ -1,0 +1,14 @@
+[package]
+name = "pipedash-plugin-actions"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Shared Actions workflow helpers for Pipedash plugins"
+repository = "https://github.com/hcavarsan/pipedash"
+license = "GPL-3.0"
+
+[dependencies]
+pipedash-plugin-api.workspace = true
+serde.workspace = true
+serde-saphyr.workspace = true
+serde_json.workspace = true
