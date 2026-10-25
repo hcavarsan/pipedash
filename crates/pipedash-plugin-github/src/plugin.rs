@@ -68,6 +68,15 @@ impl GitHubPlugin {
             .as_ref()
             .ok_or_else(|| PluginError::Internal("Plugin not initialized".to_string()))
     }
+
+    fn matches_trigger(
+        run: &crate::types::Run, previous_run_number: i64, ref_value: &str,
+        trigger_time: chrono::DateTime<chrono::Utc>,
+    ) -> bool {
+        run.run_number > previous_run_number
+            && run.head_branch == ref_value
+            && run.created_at.timestamp() >= trigger_time.timestamp()
+    }
 }
 
 #[async_trait]
@@ -343,7 +352,7 @@ impl Plugin for GitHubPlugin {
             .fetch_run_history(owner, repo, workflow_id_u64, 5)
             .await?;
         let previous_latest_run_number = previous_runs.first().map(|r| r.run_number).unwrap_or(0);
-        let trigger_time = chrono::Utc::now().timestamp();
+        let trigger_time = chrono::Utc::now();
 
         dispatch
             .send()
@@ -359,9 +368,7 @@ impl Plugin for GitHubPlugin {
                 .await?;
 
             for run in runs {
-                if run.run_number > previous_latest_run_number
-                    && run.head_branch == ref_value
-                    && run.created_at.timestamp() >= trigger_time
+                if Self::matches_trigger(&run, previous_latest_run_number, &ref_value, trigger_time)
                 {
                     tracing::debug!(
                         run_number = run.run_number,
@@ -687,19 +694,43 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn trigger_run_matching_uses_second_precision() {
+        let trigger_time = "2026-10-20T10:00:00.500Z".parse().unwrap();
+        let cases = [
+            ("2026-10-20T10:00:00Z", 8, "main", true),
+            ("2026-10-20T09:59:59Z", 8, "main", false),
+            ("2026-10-20T10:00:01Z", 8, "main", true),
+            ("2026-10-20T10:00:00Z", 7, "main", false),
+            ("2026-10-20T10:00:00Z", 8, "other", false),
+        ];
+        for (created_at, run_number, head_branch, expected) in cases {
+            let mut run: crate::types::Run = serde_json::from_value(waiting_run()).unwrap();
+            run.created_at = created_at.parse().unwrap();
+            run.run_number = run_number;
+            run.head_branch = head_branch.to_string();
+
+            assert_eq!(
+                GitHubPlugin::matches_trigger(&run, 7, "main", trigger_time),
+                expected,
+                "created_at={created_at}, run_number={run_number}, head_branch={head_branch}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn trigger_accepts_204_no_content_from_dispatch() {
         use std::sync::atomic::{
-            AtomicBool,
             AtomicUsize,
             Ordering,
         };
 
-        let dispatched = AtomicBool::new(false);
+        let dispatched_at = std::sync::Mutex::new(None);
         let history_reads = AtomicUsize::new(0);
         let (plugin, recorded, server) = serve(&[], move |method, path| match (method, path) {
             ("POST", "/api/v3/repos/acme/app/actions/workflows/42/dispatches") => {
-                dispatched.store(true, Ordering::SeqCst);
+                *dispatched_at.lock().unwrap() =
+                    Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
                 Reply {
                     status: 204,
                     headers: Vec::new(),
@@ -708,14 +739,12 @@ mod tests {
             }
             ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => {
                 let mut run = waiting_run();
-                if dispatched.load(Ordering::SeqCst) {
+                if let Some(created_at) = dispatched_at.lock().unwrap().as_ref() {
                     let first_read = history_reads.fetch_add(1, Ordering::SeqCst) == 0;
                     run["run_number"] = serde_json::json!(if first_read { 8 } else { 9 });
                     run["head_branch"] =
                         serde_json::json!(if first_read { "main" } else { "other" });
-                    run["created_at"] = serde_json::json!(
-                        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-                    );
+                    run["created_at"] = serde_json::json!(created_at);
                 }
                 ok(serde_json::json!({"total_count": 1, "workflow_runs": [run]}))
             }
