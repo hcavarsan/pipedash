@@ -2,6 +2,7 @@ import {
   Box,
   Loader,
   MultiSelect,
+  NativeSelect,
   NumberInput,
   PasswordInput,
   ScrollArea,
@@ -13,7 +14,7 @@ import {
   TextInput,
 } from '@mantine/core'
 import { useQueries } from '@tanstack/react-query'
-import { type Dispatch, Fragment, type ReactNode, type RefObject, useId, useMemo } from 'react'
+import { type Dispatch, Fragment, type ReactNode, type RefObject, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
@@ -49,6 +50,7 @@ interface CredentialsStepProps {
   editMode: boolean
   isMobile: boolean
   formRef: RefObject<HTMLFormElement | null>
+  formId: string
   onSubmit: () => void
   permissionRow?: ReactNode
   secondaryRow?: ReactNode
@@ -63,13 +65,13 @@ export function CredentialsStep({
   editMode,
   isMobile,
   formRef,
+  formId,
   onSubmit,
   permissionRow,
   secondaryRow,
   scopeNote,
 }: CredentialsStepProps) {
   const mobileShell = useMobileShell()
-  const formId = useId()
   const { selectedPlugin, providerName, configValues, fieldErrors, submitting } = state
   const announcement = useErrorAnnouncement(fieldErrors)
 
@@ -160,32 +162,50 @@ export function CredentialsStep({
     }
   }
 
-  const attributesFor = (field: ConfigField) =>
-    fieldAttributes({
-      name: field.key,
-      label: field.label,
-      kind: INPUT_KINDS[field.field_type] ?? 'text',
-      defaultValue: field.default_value,
-      last: field.key === lastTextKey,
-    })
+  const nameProps = {
+    ...nameAttributes,
+    placeholder: selectedPlugin?.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)',
+    value: providerName,
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => handleNameChange(event.currentTarget.value),
+    onBlur: handleNameBlur,
+    disabled: submitting,
+  }
 
-  const renderConfigField = (field: ConfigField) => {
+  const fieldStateFor = (field: ConfigField) => {
     const value = configValues[field.key] || ''
     const fieldOptions = optionQueries[dynamicFields.findIndex((candidate) => candidate.key === field.key)]
     const loadingOptions = !!fieldOptions && (fieldOptions.isFetching || debouncedConfigValuesKey !== configValuesKey)
-    const attributes = attributesFor(field)
+
+    return {
+      value,
+      options: fieldOptions?.data ?? field.options ?? [],
+      loadingOptions,
+      error: fieldErrors[field.key] || fieldOptions?.error?.message,
+      spinner: loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined,
+      attributes: fieldAttributes({
+        name: field.key,
+        label: field.label,
+        kind: INPUT_KINDS[field.field_type] ?? 'text',
+        defaultValue: field.default_value,
+        last: field.key === lastTextKey,
+      }),
+      inputProps: {
+        value,
+        onBlur: () => handleConfigBlur(field),
+        onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+          handleConfigChange(field, event.currentTarget.value),
+      },
+    }
+  }
+
+  const renderConfigField = (field: ConfigField) => {
+    const { value, options, loadingOptions, error, spinner, attributes, inputProps } = fieldStateFor(field)
     const commonProps = {
+      ...inputProps,
       label: field.label,
       description: field.description ?? undefined,
-      value,
-      error: fieldErrors[field.key] || fieldOptions?.error?.message,
+      error,
       required: field.required,
-      onBlur: () => handleConfigBlur(field),
-      onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | string) => {
-        const newValue = typeof e === 'string' ? e : e?.currentTarget?.value
-
-        handleConfigChange(field, newValue)
-      },
     }
 
     switch (field.field_type) {
@@ -207,8 +227,8 @@ export function CredentialsStep({
           <Select
             key={field.key}
             {...commonProps}
-            data={fieldOptions?.data ?? field.options ?? []}
-            rightSection={loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined}
+            data={options}
+            rightSection={spinner}
             disabled={submitting || loadingOptions}
             onChange={(val) => handleConfigChange(field, val || '')}
             searchable
@@ -221,8 +241,8 @@ export function CredentialsStep({
             key={field.key}
             {...commonProps}
             value={value ? value.split(',').filter(Boolean) : []}
-            data={fieldOptions?.data ?? field.options ?? []}
-            rightSection={loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined}
+            data={options}
+            rightSection={spinner}
             disabled={submitting || loadingOptions}
             onChange={(values) => handleConfigChange(field, values.join(','))}
             searchable
@@ -246,21 +266,21 @@ export function CredentialsStep({
   }
 
   const renderShellField = (field: ConfigField) => {
-    const value = configValues[field.key] || ''
-    const fieldOptions = optionQueries[dynamicFields.findIndex((candidate) => candidate.key === field.key)]
-    const loadingOptions = !!fieldOptions && (fieldOptions.isFetching || debouncedConfigValuesKey !== configValuesKey)
-    const error = fieldErrors[field.key] || fieldOptions?.error?.message
-    const spinner = loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined
+    const {
+      value,
+      options,
+      loadingOptions,
+      error,
+      spinner,
+      attributes,
+      inputProps: sharedInputProps,
+    } = fieldStateFor(field)
     const id = `${formId}-${field.key}`
-    const attributes = attributesFor(field)
     const inputProps = {
       variant: 'unstyled',
       'aria-label': field.label,
       ...fieldA11y(id, { required: field.required, error, description: field.description }),
-      value,
-      onBlur: () => handleConfigBlur(field),
-      onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-        handleConfigChange(field, e.currentTarget.value),
+      ...sharedInputProps,
     } as const
     const fieldProps = {
       id,
@@ -312,14 +332,12 @@ export function CredentialsStep({
       case 'Select':
         return (
           <ShellField {...fieldProps}>
-            <Select
+            <NativeSelect
               {...inputProps}
-              placeholder="Select"
-              data={fieldOptions?.data ?? field.options ?? []}
+              data={[{ value: '', label: 'Select' }, ...options]}
               rightSection={spinner}
               disabled={submitting || loadingOptions}
-              onChange={(val) => handleConfigChange(field, val || '')}
-              clearable
+              onChange={(event) => handleConfigChange(field, event.currentTarget.value)}
             />
           </ShellField>
         )
@@ -330,7 +348,7 @@ export function CredentialsStep({
               {...inputProps}
               placeholder="Select"
               value={value ? value.split(',').filter(Boolean) : []}
-              data={fieldOptions?.data ?? field.options ?? []}
+              data={options}
               rightSection={spinner}
               disabled={submitting || loadingOptions}
               onChange={(values) => handleConfigChange(field, values.join(','))}
@@ -385,14 +403,7 @@ export function CredentialsStep({
                   variant="unstyled"
                   aria-label="Provider name"
                   {...fieldA11y(nameId, { required: true, error: fieldErrors.providerName, description: NAME_HINT })}
-                  {...nameAttributes}
-                  placeholder={
-                    selectedPlugin.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)'
-                  }
-                  value={providerName}
-                  onChange={(e) => handleNameChange(e.currentTarget.value)}
-                  onBlur={handleNameBlur}
-                  disabled={submitting}
+                  {...nameProps}
                 />
               </ShellField>
 
@@ -459,14 +470,7 @@ export function CredentialsStep({
                 <TextInput
                   label="Provider name"
                   description={NAME_HINT}
-                  placeholder={
-                    selectedPlugin.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)'
-                  }
-                  {...nameAttributes}
-                  value={providerName}
-                  onChange={(e) => handleNameChange(e.currentTarget.value)}
-                  onBlur={handleNameBlur}
-                  disabled={submitting}
+                  {...nameProps}
                   error={fieldErrors.providerName}
                   required
                 />
@@ -489,6 +493,7 @@ export function CredentialsStep({
   return (
     <form
       ref={formRef}
+      id={formId}
       noValidate
       style={FORM_STYLE}
       onSubmit={(event) => {

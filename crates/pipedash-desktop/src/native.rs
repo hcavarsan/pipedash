@@ -27,6 +27,7 @@ use tauri_plugin_pipedash_native::{
     NotificationResponse,
     PipedashNativeExt,
     PrivacyCover,
+    ShareRect,
 };
 
 use crate::{
@@ -290,6 +291,16 @@ pub async fn native_accessibility(app: AppHandle) -> Result<Accessibility, Error
 pub async fn native_open_settings(app: AppHandle) -> Result<(), ErrorResponse> {
     app.pipedash_native()
         .open_settings()
+        .await
+        .map_err(native_error)
+}
+
+#[tauri::command]
+pub async fn native_share_link(
+    app: AppHandle, url: String, source_rect: ShareRect,
+) -> Result<bool, ErrorResponse> {
+    app.pipedash_native()
+        .share_link(&url, source_rect)
         .await
         .map_err(native_error)
 }

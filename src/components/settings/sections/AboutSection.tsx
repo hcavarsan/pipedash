@@ -1,4 +1,4 @@
-import { Button, Card, Divider, Stack, Text, Title } from '@mantine/core'
+import { Button, Card, Divider, Stack, Text } from '@mantine/core'
 import { IconExternalLink } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import { getVersion } from '@tauri-apps/api/app'
@@ -55,44 +55,38 @@ export function AboutSection() {
   }
 
   return (
-    <>
-      <Title order={2} size="lg" fw={600} mb="lg">
-        About
-      </Title>
-
-      <Card padding="md">
-        <Stack gap="md">
-          <Stack gap={0}>
-            <Text size="sm" fw={600}>
-              Pipedash
-            </Text>
-            <Text size="xs" c="dimmed">
-              Version {version ?? 'unknown'}
-            </Text>
-          </Stack>
-
-          <Divider />
-
-          <Stack gap="xs">
-            {LINKS.map(({ label, url }) => (
-              <Button
-                key={url}
-                component="a"
-                href={url}
-                variant="default"
-                justify="space-between"
-                rightSection={<IconExternalLink size={16} />}
-                onClick={(event: React.MouseEvent) => {
-                  event.preventDefault()
-                  void openLink(label, url)
-                }}
-              >
-                {label}
-              </Button>
-            ))}
-          </Stack>
+    <Card padding="md">
+      <Stack gap="md">
+        <Stack gap={0}>
+          <Text size="sm" fw={600}>
+            Pipedash
+          </Text>
+          <Text size="xs" c="dimmed">
+            Version {version ?? 'unknown'}
+          </Text>
         </Stack>
-      </Card>
-    </>
+
+        <Divider />
+
+        <Stack gap="xs">
+          {LINKS.map(({ label, url }) => (
+            <Button
+              key={url}
+              component="a"
+              href={url}
+              variant="default"
+              justify="space-between"
+              rightSection={<IconExternalLink size={16} />}
+              onClick={(event: React.MouseEvent) => {
+                event.preventDefault()
+                void openLink(label, url)
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </Stack>
+      </Stack>
+    </Card>
   )
 }

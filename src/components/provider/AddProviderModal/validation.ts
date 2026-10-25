@@ -21,3 +21,20 @@ export function validateConfigField(field: ValidatedField, value: string): strin
 }
 
 export const validateProviderName = (name: string): string | null => (name.trim() ? null : PROVIDER_NAME_ERROR)
+
+export function mapProviderFieldErrors(
+  errors: Record<string, string>,
+  configFields: Pick<ConfigField, 'key'>[]
+): Record<string, string> {
+  const fields: Record<string, string> = {}
+
+  for (const [key, message] of Object.entries(errors)) {
+    const field = key === 'name' ? 'providerName' : key.replace(/^config\./, '')
+
+    if (field === 'providerName' || configFields.some((candidate) => candidate.key === field)) {
+      fields[field] = message
+    }
+  }
+
+  return fields
+}

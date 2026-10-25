@@ -3,6 +3,7 @@
 /* ---------- Segmented control (Tabs, SegmentedControl) ---------- */
 
 .tabsList {
+  min-height: 44px;
   display: flex;
   gap: 0;
   padding: 2px;
@@ -21,6 +22,7 @@
   min-height: 32px;
   padding: 0 0.75em;
   border: 0;
+  outline: 0;
   border-radius: 7px;
   font-size: var(--ios-fs-footnote);
   line-height: var(--ios-lh-footnote);
@@ -56,20 +58,28 @@
 .segmentRoot {
   padding: 2px;
   border-radius: 9px;
+  min-height: 44px;
+  align-items: center;
+  border: 0;
   background: var(--ios-fill);
   overflow: visible;
 }
 
 .segmentIndicator {
+  border: 0;
+  outline: 0;
   border-radius: 7px;
   background: var(--ios-segment-active);
-  box-shadow:
-    0 3px 8px rgb(0 0 0 / 0.12),
-    0 3px 1px rgb(0 0 0 / 0.04);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
 }
 
 .segmentLabel {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  outline: 0;
   min-height: 32px;
   padding: 0 0.75em;
   font-size: var(--ios-fs-footnote);
@@ -90,6 +100,47 @@
   font-weight: 600;
 }
 
+.segmentLabel::before {
+  display: none;
+}
+
+:global(html[data-ios]:not([data-keyboard-focus]))
+  :is(button, a, input, select, textarea, label, [tabindex]):focus-visible {
+  outline: 0;
+}
+
+:global(html[data-ios]:not([data-keyboard-focus])) input:focus + .segmentLabel {
+  outline: 0;
+}
+
+:global(html[data-ios]) :global(.mantine-Button-root):hover:not(:disabled, [data-variant="transparent"]),
+:global(html[data-ios]) :global(.mantine-ActionIcon-root):hover:not(:disabled, [data-variant="transparent"]) {
+  background: var(--button-bg, var(--ai-bg, transparent));
+  color: var(--button-color, var(--ai-color, inherit));
+}
+
+:global(html[data-ios]) :global(.mantine-CloseButton-root):hover {
+  background: transparent;
+}
+
+:global(html[data-ios]) :global(.mantine-ActionIcon-root)[data-row-menu]:is(:hover, :active) {
+  background: transparent;
+}
+
+:global(html[data-ios]) .tab:hover:not([data-active]) {
+  background: transparent;
+  color: inherit;
+}
+
+:global(html[data-ios]) .tab[data-active]:hover {
+  background: var(--ios-segment-active);
+  color: inherit;
+}
+
+:global(html[data-ios]) .segmentLabel:hover {
+  color: inherit;
+}
+
 /* ---------- Switch ---------- */
 
 .switchTrack {
@@ -105,8 +156,16 @@
   inset: -7px -2px;
 }
 
-.switchTrack[data-checked] {
+input:checked + .switchTrack {
   background: var(--ios-green);
+}
+
+input:disabled + .switchTrack {
+  opacity: 0.4;
+}
+
+:global(html[data-ios]:not([data-keyboard-focus])) input:focus + .switchTrack {
+  outline: 0;
 }
 
 .switchThumb {
@@ -195,11 +254,11 @@
   transform: none;
 }
 
-.button:focus-visible,
-.actionIcon:focus-visible,
-.tab:focus-visible,
-.checkboxInput:focus-visible,
-input:focus-visible + .segmentLabel {
+:global(html[data-keyboard-focus]) .button:focus-visible,
+:global(html[data-keyboard-focus]) .actionIcon:focus-visible,
+:global(html[data-keyboard-focus]) .tab:focus-visible,
+:global(html[data-keyboard-focus]) .checkboxInput:focus-visible,
+:global(html[data-keyboard-focus]) input:focus-visible + .segmentLabel {
   outline: 2px solid var(--ios-tint);
   outline-offset: 2px;
 }

@@ -14,6 +14,7 @@ import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { openExternal } from '../../utils/openExternal'
 import { fetchHint, providerAttention, scheduleNote } from '../../utils/providerAttention'
 import { ProviderIcon } from '../atoms/ProviderIcon'
+import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
 import { ProviderRecoveryActions } from '../provider/ProviderRecoveryActions'
 
@@ -35,7 +36,7 @@ const maintenanceWindow = ({ starts_at, ends_at }: Maintenance): string | null =
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Stack gap={6}>
+    <Stack gap="2xs">
       <Divider label={title} labelPosition="left" />
       {children}
     </Stack>
@@ -85,7 +86,7 @@ function ComponentRow({ component }: { component: ComponentHealth }) {
 
 function IncidentItem({ incident, source, now }: { incident: Incident; source: string; now: number }) {
   return (
-    <Stack gap={2}>
+    <Stack gap="4xs">
       <LinkedName name={incident.name} url={incident.url} source={source} />
       <Text size="xs" c="dimmed">
         {HEALTH_META[incident.level].label} · {incident.phase} · Updated {formatRelativeTime(incident.updated_at, now)}
@@ -150,7 +151,7 @@ function ServiceStatus({ provider, now }: { provider: ProviderSummary; now: numb
       </Group>
 
       {page.components.length > 0 && (
-        <Stack gap={4}>
+        <Stack gap="3xs">
           {page.components.map((component) => (
             <ComponentRow key={component.name} component={component} />
           ))}
@@ -162,7 +163,7 @@ function ServiceStatus({ provider, now }: { provider: ProviderSummary; now: numb
       ))}
 
       {signal?.maintenances.map((item) => (
-        <Stack key={item.id} gap={2}>
+        <Stack key={item.id} gap="4xs">
           <LinkedName name={item.name} url={item.url} source={page.name} />
           <Text size="xs" c="dimmed">
             {[item.in_progress ? 'Maintenance in progress' : 'Scheduled maintenance', maintenanceWindow(item)]
@@ -173,7 +174,7 @@ function ServiceStatus({ provider, now }: { provider: ProviderSummary; now: numb
       ))}
 
       {page.other_incidents.length > 0 && (
-        <Stack gap={6}>
+        <Stack gap="2xs">
           <Text size="xs" c="dimmed">
             Other incidents on this page. They don't affect the services Pipedash uses.
           </Text>
@@ -228,7 +229,7 @@ function Connection({ provider, now, onNavigate }: { provider: ProviderSummary; 
           {note}
         </Text>
       ))}
-      <Group gap="xs" mt={4}>
+      <Group gap="xs" mt="3xs">
         <ProviderRecoveryActions providerId={provider.id} kind={attention.kind} onNavigate={onNavigate} />
       </Group>
     </Section>
@@ -420,7 +421,7 @@ export function ProviderStatusModal() {
   }
 
   return (
-    <Modal
+    <StandardModal
       opened={Boolean(provider)}
       onClose={close}
       size="lg"
@@ -449,6 +450,6 @@ export function ProviderStatusModal() {
           <Connection provider={provider} now={now} onNavigate={close} />
         </Stack>
       )}
-    </Modal>
+    </StandardModal>
   )
 }

@@ -9,15 +9,16 @@ interface CopyButtonProps {
 
 export const CopyButton = ({ value, label }: CopyButtonProps) => {
   const { copy, copied } = useClipboard({ timeout: 2000 })
+  const currentLabel = copied ? 'Copied' : label
 
   return (
     <>
-      <Tooltip label={copied ? 'Copied' : label}>
+      <Tooltip label={currentLabel}>
         <ActionIcon
           variant="subtle"
           color={copied ? 'green' : 'gray'}
           size="sm"
-          aria-label={label}
+          aria-label={currentLabel}
           onClick={(event) => {
             event.stopPropagation()
             copy(value)

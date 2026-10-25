@@ -2,13 +2,15 @@
   --pad: 1em;
   --glyph: 1.1em;
   --gap: 0.75em;
-  --check: 26px;
+  --check: 22px;
   --inset: calc(var(--pad) + var(--glyph) + var(--gap));
   position: relative;
   display: flex;
   align-items: stretch;
   min-height: 64px;
   font-size: var(--ios-fs-body);
+  background: var(--ios-cell);
+  background-image: linear-gradient(var(--row-press, transparent), var(--row-press, transparent));
 }
 
 .row[data-selecting] {
@@ -22,6 +24,8 @@
 .row + .row::before {
   content: "";
   position: absolute;
+  z-index: 2;
+  pointer-events: none;
   top: 0;
   right: 0;
   left: var(--inset);
@@ -55,10 +59,11 @@
   padding-right: var(--pad);
 }
 
-.main:active,
-.row[data-pressing] .main,
-.row:has([data-row-menu][aria-expanded="true"]) .main {
-  background: var(--ios-fill);
+.row:has(.main:active),
+.row:has([data-row-menu]:active),
+.row[data-pressing],
+.row:has([data-row-menu][aria-expanded="true"]) {
+  --row-press: var(--ios-fill);
 }
 
 .main:focus-visible {
@@ -71,10 +76,29 @@
 }
 
 .check {
-  display: flex;
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
   width: var(--check);
+  height: var(--check);
+  box-sizing: border-box;
+  border: 1.5px solid var(--ios-separator);
+  border-radius: 50%;
+  color: var(--ios-on-tint, white);
   pointer-events: none;
+}
+
+.check[data-selected] {
+  border-color: var(--ios-tint);
+  background: var(--ios-tint);
+}
+
+.check[data-disabled] {
+  visibility: hidden;
+}
+
+.check svg {
+  display: block;
 }
 
 .text {
@@ -149,24 +173,19 @@
 .toolbar {
   position: fixed;
   z-index: 160;
-  left: calc(var(--safe-left) + 16px);
-  right: calc(var(--safe-right) + 16px);
-  bottom: calc(var(--safe-bottom) + 6px);
+  inset-inline: 0;
+  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  max-width: 480px;
-  min-height: 56px;
-  margin-inline: auto;
-  padding: 5px 12px;
+  min-height: calc(66px + var(--safe-bottom));
+  padding: 5px calc(12px + var(--safe-right)) calc(5px + var(--safe-bottom)) calc(12px + var(--safe-left));
   box-sizing: border-box;
-  border-radius: calc(var(--ios-radius-grouped) + 6px);
-  border: 0.5px solid var(--ios-separator);
-  background: var(--ios-material-regular);
+  border-top: 0.5px solid var(--ios-separator);
+  background: var(--ios-material-bar);
   -webkit-backdrop-filter: var(--ios-material-filter);
   backdrop-filter: var(--ios-material-filter);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 0.2);
 }
 
 .count {

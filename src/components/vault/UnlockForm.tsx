@@ -12,8 +12,11 @@ import {
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useUnlockVault, useUnlockWithBiometrics, useVaultStatus } from '../../queries/useVaultQueries'
-import { formatErrorMessage } from '../../types/errors'
 import { biometryLabel } from '../../utils/appLock'
+import { errorMessage } from '../../utils/errorDisplay'
+import { ErrorState } from '../common/ErrorState'
+import { FormErrorDisplay } from '../common/FormErrorDisplay'
+import { LoadingState } from '../common/LoadingState'
 
 interface UnlockFormProps {
   onSuccess: () => void
@@ -25,15 +28,23 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [blurred, setBlurred] = useState({ password: false, confirmation: false })
   const autoPrompted = useRef(false)
   const confirmRef = useRef<HTMLInputElement>(null)
 
-  const { data: vaultStatus, isLoading: isLoadingStatus } = useVaultStatus()
+  const {
+    data: vaultStatus,
+    isLoading: isLoadingStatus,
+    isError: statusFailed,
+    error: statusError,
+    refetch,
+    isRefetching,
+  } = useVaultStatus()
   const unlockMutation = useUnlockVault()
   const { mutateAsync: unlockWithBiometrics, isPending: biometricPending } = useUnlockWithBiometrics()
   const mobileShell = useMobileShell()
 
-  const isFirstTime = vaultStatus?.is_first_time ?? true
+  const isFirstTime = mobileShell ? (vaultStatus?.is_first_time ?? true) : vaultStatus?.is_first_time === true
   const requiresPassword = vaultStatus?.requires_password ?? true
   const appLock = vaultStatus?.app_lock
   const biometricEnabled = appLock?.enabled === true
@@ -54,10 +65,10 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
       if (result.success) {
         onSuccess()
       } else if (result.reason !== 'cancelled') {
-        setError(result.message || 'Failed to unlock')
+        setError(result.message || "Couldn't unlock the vault. Check the password and try again.")
       }
     } catch (err) {
-      setError(formatErrorMessage(err))
+      setError(errorMessage(err, "Couldn't unlock the vault. Check the password and try again."))
     }
   }, [unlockWithBiometrics, onSuccess])
 
@@ -70,15 +81,22 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
 
   const handleUnlock = async () => {
     setError(null)
+    if (!mobileShell) {
+      setBlurred({ password: true, confirmation: true })
+    }
 
     if (!password.trim()) {
-      setError('Password is required')
+      if (mobileShell) {
+        setError('Password is required')
+      }
 
       return
     }
 
     if (isFirstTime && password !== confirmPassword) {
-      setError('Passwords do not match')
+      if (mobileShell) {
+        setError('Passwords do not match')
+      }
 
       return
     }
@@ -91,10 +109,10 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
         setConfirmPassword('')
         onSuccess()
       } else {
-        setError(result.message || 'Failed to unlock vault')
+        setError(result.message || "Couldn't unlock the vault. Check the password and try again.")
       }
     } catch (err) {
-      setError(formatErrorMessage(err))
+      setError(errorMessage(err, "Couldn't unlock the vault. Check the password and try again."))
     }
   }
 
@@ -115,10 +133,22 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
 
   const passwordFieldProps = {
     value: password,
-    onChange: (e: ChangeEvent<HTMLInputElement>) => setPassword(e.currentTarget.value),
+    onChange: (e: ChangeEvent<HTMLInputElement>) => {
+      setPassword(e.currentTarget.value)
+      if (!mobileShell) {
+        setError(null)
+      }
+    },
+    onBlur: () => setBlurred((value) => ({ ...value, password: true })),
     onKeyDown: focusConfirm,
     disabled: isLoading,
-    error: error && !confirmPassword ? error : undefined,
+    error: mobileShell
+      ? error && !confirmPassword
+        ? error
+        : undefined
+      : blurred.password && !password.trim()
+        ? 'Password is required'
+        : undefined,
     size: 'md',
     autoComplete: isFirstTime ? 'new-password' : 'current-password',
     enterKeyHint: isFirstTime ? 'next' : 'go',
@@ -129,9 +159,21 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
   const confirmFieldProps = {
     ref: confirmRef,
     value: confirmPassword,
-    onChange: (e: ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.currentTarget.value),
+    onChange: (e: ChangeEvent<HTMLInputElement>) => {
+      setConfirmPassword(e.currentTarget.value)
+      if (!mobileShell) {
+        setError(null)
+      }
+    },
+    onBlur: () => setBlurred((value) => ({ ...value, confirmation: true })),
     disabled: isLoading,
-    error: error && confirmPassword ? error : undefined,
+    error: mobileShell
+      ? error && confirmPassword
+        ? error
+        : undefined
+      : blurred.confirmation && password !== confirmPassword
+        ? 'Passwords do not match'
+        : undefined,
     size: 'md',
     autoComplete: 'new-password',
     enterKeyHint: 'go',
@@ -148,11 +190,28 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
       if (result.success) {
         onSuccess()
       } else {
-        setError(result.message || 'Failed to unlock')
+        setError(result.message || "Couldn't unlock the vault. Check the password and try again.")
       }
     } catch (err) {
-      setError(formatErrorMessage(err))
+      setError(errorMessage(err, "Couldn't unlock the vault. Check the password and try again."))
     }
+  }
+
+  if (!mobileShell && isLoadingStatus) {
+    return <LoadingState message="Loading vault status…" />
+  }
+
+  if (!mobileShell && statusFailed) {
+    return (
+      <ErrorState
+        title="Couldn't load vault status"
+        error={statusError}
+        onRetry={() => {
+          void refetch()
+        }}
+        retrying={isRefetching}
+      />
+    )
   }
 
   if (!requiresPassword && !biometricEnabled && !plainUnlock) {
@@ -236,11 +295,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
         </Button>
       )}
 
-      {!requiresPassword && error && (
-        <Text size="sm" c="red" ta="center" role="alert">
-          {error}
-        </Text>
-      )}
+      <FormErrorDisplay title="Couldn't unlock vault" globalError={error} onDismiss={() => setError(null)} />
 
       {requiresPassword && (
         <form noValidate onSubmit={handleSubmit}>

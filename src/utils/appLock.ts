@@ -24,15 +24,5 @@ export const needsUnlock = (status: LockState, tauri: boolean, hasToken: boolean
   return !status.is_unlocked || (!tauri && !hasToken)
 }
 
-export const nextCoverLatch = (
-  latched: boolean,
-  appLock: VaultStatusResponse['app_lock'],
-  visibility: DocumentVisibilityState
-): boolean =>
-  appLock?.enabled === true && appLock.lock_on_background && !appLock.locked && (latched || visibility === 'hidden')
-
-export const shouldShowPrivacyCover = (
-  appLockEnabled: boolean,
-  visibility: DocumentVisibilityState,
-  latched: boolean
-): boolean => appLockEnabled && (visibility === 'hidden' || latched)
+export const shouldShowPrivacyCover = (appLockEnabled: boolean, visibility: DocumentVisibilityState): boolean =>
+  appLockEnabled && visibility === 'hidden'

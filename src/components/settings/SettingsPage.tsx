@@ -1,8 +1,10 @@
 import { Box, Group, ScrollArea, Stack } from '@mantine/core'
+import { useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
+import { PageHeader } from '../common/PageHeader'
 import { SettingsMobileTabs } from './SettingsMobileTabs'
-import { type SettingsSection, SettingsSidebar } from './SettingsSidebar'
+import { SETTINGS_SECTIONS, type SettingsSection, SettingsSidebar } from './SettingsSidebar'
 import { AboutSection } from './sections/AboutSection'
 import { CacheSection } from './sections/CacheSection'
 import { GeneralSection } from './sections/GeneralSection'
@@ -16,10 +18,15 @@ interface SettingsPageProps {
   onRefresh?: () => Promise<void>
 }
 
-const SECTION_CONTENT: Record<SettingsSection, (onRefresh?: () => Promise<void>) => React.ReactNode> = {
+type SectionContent = (
+  onRefresh?: () => Promise<void>,
+  onHeaderActionsChange?: (actions: React.ReactNode) => void
+) => React.ReactNode
+
+const SECTION_CONTENT: Record<SettingsSection, SectionContent> = {
   general: (onRefresh) => <GeneralSection onRefresh={onRefresh} />,
   notifications: () => <NotificationsSection />,
-  providers: () => <ProvidersSection />,
+  providers: (_onRefresh, onHeaderActionsChange) => <ProvidersSection onHeaderActionsChange={onHeaderActionsChange} />,
   metrics: () => <MetricsSection />,
   cache: (onRefresh) => <CacheSection onRefresh={onRefresh} />,
   storage: () => <StorageSection />,
@@ -29,6 +36,8 @@ const SECTION_CONTENT: Record<SettingsSection, (onRefresh?: () => Promise<void>)
 export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps) => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
+  const [headerActions, setHeaderActions] = useState<React.ReactNode>(null)
+  const sectionTitle = SETTINGS_SECTIONS.find((section) => section.id === activeSection)?.label
 
   const content = (
     <ScrollArea flex={1}>
@@ -38,7 +47,12 @@ export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps) =>
         maw={isMobile ? undefined : 720}
         className={mobileShell ? 'settings-pushed' : undefined}
       >
-        {SECTION_CONTENT[activeSection](onRefresh)}
+        {!mobileShell && (
+          <Box mb="lg">
+            <PageHeader title={sectionTitle} actions={headerActions} />
+          </Box>
+        )}
+        {SECTION_CONTENT[activeSection](onRefresh, setHeaderActions)}
       </Box>
     </ScrollArea>
   )

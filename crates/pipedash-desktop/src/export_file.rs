@@ -77,7 +77,7 @@ fn create_export_dir(base: &Path) -> std::io::Result<PathBuf> {
     ))
 }
 
-async fn write_export(base: &Path, name: &str, contents: &str) -> std::io::Result<PathBuf> {
+async fn write_export(base: &Path, name: &str, contents: &[u8]) -> std::io::Result<PathBuf> {
     let dir = create_export_dir(base)?;
     let path = dir.join(name);
     tokio::fs::write(&path, contents).await?;
@@ -87,7 +87,7 @@ async fn write_export(base: &Path, name: &str, contents: &str) -> std::io::Resul
 
 #[tauri::command]
 pub async fn save_export_file(
-    app: AppHandle, file_name: String, contents: String,
+    app: AppHandle, file_name: String, contents: Vec<u8>,
 ) -> Result<ExportFileResult, ErrorResponse> {
     if !cfg!(mobile) {
         return Err(export_error(
@@ -164,10 +164,10 @@ mod tests {
     async fn every_export_gets_its_own_folder_so_names_never_collide() {
         let base = tempfile::tempdir().unwrap();
 
-        let first = write_export(base.path(), "export.json", "one")
+        let first = write_export(base.path(), "export.json", b"one")
             .await
             .unwrap();
-        let second = write_export(base.path(), "export.json", "two")
+        let second = write_export(base.path(), "export.json", b"two")
             .await
             .unwrap();
 
@@ -175,5 +175,16 @@ mod tests {
         assert_eq!(first.file_name(), second.file_name());
         assert_eq!(std::fs::read_to_string(&first).unwrap(), "one");
         assert_eq!(std::fs::read_to_string(&second).unwrap(), "two");
+    }
+
+    #[tokio::test]
+    async fn binary_exports_preserve_every_byte() {
+        let base = tempfile::tempdir().unwrap();
+        let bytes = [0x89, b'P', b'N', b'G', 0, 0xff];
+        let path = write_export(base.path(), "chart.png", &bytes)
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
     }
 }

@@ -7,6 +7,7 @@ import { service } from '../services'
 import { useAuthStore } from '../stores/authStore'
 import type { MigrationOptions, MigrationPlan, MigrationResult, PipedashConfig } from '../types'
 import { getHttpStatus } from '../types/errors'
+import { errorMessage } from '../utils/errorDisplay'
 import { formatCount } from '../utils/formatCount'
 
 export function useStorageConfig(options?: { enabled?: boolean }) {
@@ -80,7 +81,7 @@ export function useSaveStorageConfig() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't save configuration",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Check the storage configuration and try again.'),
         color: 'red',
       })
     },
@@ -94,8 +95,8 @@ export function useTestStorageConnection() {
     onSuccess: (result) => {
       if (!result.success) {
         notifications.show({
-          title: 'Connection failed',
-          message: result.message || 'Failed to connect to storage',
+          title: "Couldn't connect to storage",
+          message: result.message || 'Check the storage connection settings and try again.',
           color: 'red',
         })
 
@@ -111,8 +112,8 @@ export function useTestStorageConnection() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Connection failed',
-        message: error.message || 'Failed to connect to storage',
+        title: "Couldn't connect to storage",
+        message: errorMessage(error, 'Check the storage connection settings and try again.'),
         color: 'red',
       })
     },
@@ -151,7 +152,7 @@ export function useCreateInitialConfig() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't create configuration",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Check the initial configuration and try again.'),
         color: 'red',
       })
     },
@@ -164,8 +165,8 @@ export function usePlanStorageMigration() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Migration planning failed',
-        message: error.message || 'Failed to plan storage migration',
+        title: "Couldn't plan storage migration",
+        message: errorMessage(error, 'Check the migration settings and try again.'),
         color: 'red',
       })
     },
@@ -195,7 +196,7 @@ export function useExecuteMigration() {
         })
       } else {
         notifications.show({
-          title: 'Migration failed',
+          title: "Couldn't migrate storage",
           message: result.errors?.join(', ') || 'Migration completed with errors',
           color: 'red',
         })
@@ -204,8 +205,8 @@ export function useExecuteMigration() {
 
     onError: (error: Error) => {
       notifications.show({
-        title: 'Migration failed',
-        message: error.message || 'Failed to execute migration',
+        title: "Couldn't migrate storage",
+        message: errorMessage(error, 'Check the storage connection and try again.'),
         color: 'red',
       })
     },

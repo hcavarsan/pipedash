@@ -306,7 +306,9 @@ async function dismiss(drag: SheetDrag, velocity: number) {
 
     await fade.finished
 
-    if (!(await handle.closeNow())) {
+    if (await handle.closeNow()) {
+      cleanup(drag)
+    } else {
       fade.cancel()
       await settleTo(drag, restStop(drag), 0)
     }

@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { haptic } from '../../lib/haptics'
 
-import { createLongPress } from './longPress'
-
-const CLICK_GUARD_MS = 600
+import { createLongPress, guardLongPressClick } from './longPress'
 
 export function openRowMenu(row: HTMLElement): boolean {
   const target = row.querySelector<HTMLElement>('[data-row-menu]')
@@ -30,6 +28,7 @@ export function useLongPress(onLongPress: (row: HTMLElement) => boolean, enabled
     }
 
     let activePointer: number | null = null
+    let removeClickGuard: (() => void) | undefined
 
     const open = () => {
       if (latest.current(element)) {
@@ -42,19 +41,16 @@ export function useLongPress(onLongPress: (row: HTMLElement) => boolean, enabled
     }
 
     const press = createLongPress(() => {
+      const pointerId = activePointer
+
       if (!open()) {
         element.removeAttribute('data-pressing')
 
         return
       }
 
-      const block = (event: Event) => {
-        event.preventDefault()
-        event.stopPropagation()
-      }
-
-      element.addEventListener('click', block, { capture: true, once: true })
-      window.setTimeout(() => element.removeEventListener('click', block, { capture: true }), CLICK_GUARD_MS)
+      removeClickGuard?.()
+      removeClickGuard = guardLongPressClick(document, pointerId)
     })
 
     const abort = () => {
@@ -109,6 +105,7 @@ export function useLongPress(onLongPress: (row: HTMLElement) => boolean, enabled
 
     return () => {
       press.cancel()
+      removeClickGuard?.()
       element.removeAttribute('data-pressing')
       element.removeEventListener('pointerdown', onDown)
       element.removeEventListener('pointermove', onMove)

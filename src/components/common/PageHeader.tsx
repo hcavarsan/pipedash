@@ -1,4 +1,4 @@
-import { ActionIcon, Box, Group, Stack, Text, Title } from '@mantine/core'
+import { ActionIcon, Box, Group, Stack, Text, Title, Tooltip } from '@mantine/core'
 import { IconArrowLeft } from '@tabler/icons-react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
@@ -34,17 +34,19 @@ export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', action
       <Group gap="xs" align="center" h={isMobile ? 32 : 40} justify="space-between" wrap="nowrap">
         <Group gap="xs" align="center" flex={1} miw={0}>
           {onBack && (
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size={isMobile ? 'sm' : 'md'}
-              onClick={onBack}
-              aria-label={backLabel}
-            >
-              <IconArrowLeft size={16} />
-            </ActionIcon>
+            <Tooltip label={backLabel}>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size={isMobile ? 'sm' : 'md'}
+                onClick={onBack}
+                aria-label={backLabel}
+              >
+                <IconArrowLeft size={16} />
+              </ActionIcon>
+            </Tooltip>
           )}
-          <Stack gap={2} flex={1} miw={0}>
+          <Stack gap="4xs" flex={1} miw={0}>
             <Title
               order={2}
               fw={600}
@@ -52,6 +54,7 @@ export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', action
               lineClamp={1}
               miw={0}
               tabIndex={-1}
+              id="page-heading"
               data-page-heading
             >
               {title}

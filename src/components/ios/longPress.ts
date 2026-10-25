@@ -69,3 +69,34 @@ export function createLongPress(
     },
   }
 }
+
+export function guardLongPressClick(target: EventTarget, pointerId: number | null) {
+  const block = (event: Event) => {
+    if ('pointerId' in event && event.pointerId !== pointerId) {
+      remove()
+      return
+    }
+    if (event.type === 'pointerdown') {
+      return
+    }
+
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    if (event.type === 'click') {
+      remove()
+    }
+  }
+  const remove = () => {
+    clearTimeout(timer)
+    target.removeEventListener('click', block, { capture: true })
+    target.removeEventListener('mousedown', block, { capture: true })
+    target.removeEventListener('pointerdown', block, { capture: true })
+  }
+  const timer = setTimeout(remove, 600)
+
+  target.addEventListener('click', block, { capture: true })
+  target.addEventListener('mousedown', block, { capture: true })
+  target.addEventListener('pointerdown', block, { capture: true })
+
+  return remove
+}

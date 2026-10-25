@@ -56,7 +56,7 @@ const PathRow = ({ label, path, kind, canOpen, onEdit }: PathRowProps) => {
         </Text>
       </Tooltip>
 
-      <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+      <Group gap="3xs" wrap="nowrap" style={{ flexShrink: 0 }}>
         {onEdit && (
           <Tooltip label={`Edit ${label.toLowerCase()} file`} position="top">
             <ActionIcon

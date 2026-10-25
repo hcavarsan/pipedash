@@ -1,4 +1,4 @@
-import { Button, Group, Menu, SegmentedControl, Select, Stack, UnstyledButton } from '@mantine/core'
+import { Button, Group, Menu, SegmentedControl, Stack, UnstyledButton } from '@mantine/core'
 import { IconDownload, IconFileTypeCsv, IconPhoto } from '@tabler/icons-react'
 import { toPng } from 'html-to-image'
 import { useEffect, useRef, useState } from 'react'
@@ -8,9 +8,10 @@ import { useAggregatedMetrics } from '../../queries/useMetricsQueries'
 import type { AggregationPeriod, AggregationType, MetricType } from '../../types'
 import { type DateRange, isDateRange } from '../../utils/dateRange'
 import { displayErrorNotification, displaySuccessNotification } from '../../utils/errorDisplay'
-import { isMobilePlatform } from '../../utils/platform'
+import { formatDateTime } from '../../utils/formatDateTime'
 import { saveFile } from '../../utils/saveFile'
 import { ErrorState } from '../common/ErrorState'
+import { FilterSelect } from '../common/FilterBar'
 import { LoadingState } from '../common/LoadingState'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup } from '../ios/IosList'
@@ -123,7 +124,7 @@ export const MetricsDetailPage = ({
       })
 
       if (saved) {
-        displaySuccessNotification('Chart exported as PNG')
+        displaySuccessNotification('Chart exported as PNG', 'Chart exported')
       }
     } catch (error) {
       displayErrorNotification(error, "Couldn't export PNG")
@@ -140,7 +141,7 @@ export const MetricsDetailPage = ({
       const headers = ['Timestamp', 'Date', `Value (${VALUE_UNITS[metricType]})`, 'Count', 'Min', 'Max', 'Avg']
       const rows = data.metrics.map((metric) => [
         metric.timestamp,
-        new Date(metric.timestamp).toLocaleString(),
+        formatDateTime(metric.timestamp),
         hasObservation(metric, metricType) ? metric.value : null,
         metric.count,
         metric.min,
@@ -156,21 +157,12 @@ export const MetricsDetailPage = ({
       })
 
       if (saved) {
-        displaySuccessNotification('Data exported as CSV')
+        displaySuccessNotification('Data exported as CSV', 'Data exported')
       }
     } catch (error) {
       displayErrorNotification(error, "Couldn't export CSV")
     }
   }
-
-  const fieldProps = (label: string) => ({
-    label: isMobile ? undefined : label,
-    'aria-label': label,
-    size: isMobile ? ('xs' as const) : ('sm' as const),
-    allowDeselect: false,
-    flex: 1,
-    miw: 120,
-  })
 
   const renderBody = () => {
     if (metricsQuery.isError) {
@@ -201,7 +193,7 @@ export const MetricsDetailPage = ({
     }
 
     return (
-      <Stack gap={isMobile ? 'sm' : 'md'}>
+      <Stack gap={mobileShell ? 'lg' : isMobile ? 'sm' : 'md'}>
         <MetricsChart
           data={data}
           selectedIndex={selectedDataPointIndex}
@@ -216,11 +208,9 @@ export const MetricsDetailPage = ({
 
   const exportMenuItems = (
     <Menu.Dropdown>
-      {!isMobilePlatform() && (
-        <Menu.Item leftSection={<IconPhoto size={16} />} onClick={handleExportPNG}>
-          Export as PNG
-        </Menu.Item>
-      )}
+      <Menu.Item leftSection={<IconPhoto size={16} />} onClick={handleExportPNG}>
+        Export as PNG
+      </Menu.Item>
       <Menu.Item leftSection={<IconFileTypeCsv size={16} />} onClick={handleExportCSV}>
         Export as CSV
       </Menu.Item>
@@ -230,12 +220,19 @@ export const MetricsDetailPage = ({
 
   if (mobileShell) {
     return (
-      <Stack gap="lg" pt="xs" pb="md">
-        {repository && (
-          <div className={classes.caption}>
-            {repository} / {pipelineName}
-          </div>
-        )}
+      <Stack gap="lg" pb="md">
+        <div className={classes.detailHeader}>
+          <div className={classes.caption}>{repository ? `${repository} / ${pipelineName}` : pipelineName}</div>
+          <Menu position="bottom" disabled={!canExport}>
+            <Menu.Target>
+              <UnstyledButton className={classes.exportButton} disabled={!canExport} aria-label="Export metrics">
+                <IconDownload size={18} aria-hidden />
+                Export
+              </UnstyledButton>
+            </Menu.Target>
+            {exportMenuItems}
+          </Menu>
+        </div>
 
         <Stack gap="sm">
           <IosGroup>
@@ -261,22 +258,6 @@ export const MetricsDetailPage = ({
           />
         </Stack>
 
-        <IosGroup>
-          <Menu position="bottom" disabled={!canExport}>
-            <Menu.Target>
-              <UnstyledButton
-                className={`${classes.menuRow} ${classes.menuRowAction}`}
-                disabled={!canExport}
-                aria-label="Export"
-              >
-                <IconDownload size={20} aria-hidden />
-                Export
-              </UnstyledButton>
-            </Menu.Target>
-            {exportMenuItems}
-          </Menu>
-        </IosGroup>
-
         {renderBody()}
       </Stack>
     )
@@ -284,28 +265,31 @@ export const MetricsDetailPage = ({
 
   return (
     <Stack gap={isMobile ? 'xs' : 'md'} pt="xs" pb="md">
-      <Group align="flex-end" gap="sm">
-        <Select
-          {...fieldProps('Time range')}
+      <Group component="section" aria-label="Metrics filters and export" align="flex-start" gap="sm" wrap="wrap">
+        <FilterSelect
+          label="Time range"
+          clearable={false}
           value={dateRange}
           onChange={(value) => isDateRange(value) && setDateRange(value)}
           data={getRangeOptions(retentionDays)}
         />
-        <Select
-          {...fieldProps('Group by')}
+        <FilterSelect
+          label="Group by"
+          clearable={false}
           value={aggregationPeriod}
           onChange={(value) => isAggregationPeriod(value) && setAggregationPeriod(value)}
           data={AGGREGATION_PERIOD_OPTIONS}
         />
-        <Select
-          {...fieldProps('Aggregation')}
+        <FilterSelect
+          label="Aggregation"
+          clearable={false}
           value={aggregationType}
           onChange={(value) => isAggregationType(value) && setAggregationType(value)}
           data={AGGREGATION_TYPE_OPTIONS}
         />
         <Menu position="bottom-end" shadow="md" disabled={!canExport}>
           <Menu.Target>
-            <Button variant="default" size="sm" leftSection={<IconDownload size={16} />} disabled={!canExport}>
+            <Button variant="default" size="xs" leftSection={<IconDownload size={16} />} disabled={!canExport}>
               Export
             </Button>
           </Menu.Target>

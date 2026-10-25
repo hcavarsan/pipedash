@@ -25,8 +25,8 @@ export function ProviderStatusButton({ provider }: { provider: ProviderSummary |
   const button = (
     <UnstyledButton
       className="interactive-surface"
-      px={4}
-      py={2}
+      px={mobileShell ? 4 : '3xs'}
+      py={mobileShell ? 2 : '4xs'}
       mih={mobileShell ? 44 : undefined}
       maw="100%"
       aria-label={`View ${provider.name} service status${attention ? `: ${headline}` : ''}`}

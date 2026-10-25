@@ -5,7 +5,13 @@ import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { ReviewDecision } from '../types'
+import { openConfirm } from '../utils/confirm'
+import { errorMessage } from '../utils/errorDisplay'
 import { formatCount } from '../utils/formatCount'
+
+function notifyCancellationRequested(message: string) {
+  notifications.show({ title: 'Cancellation requested', message, color: 'gray' })
+}
 
 export function useRunHistory(pipelineId: string, page = 1, pageSize = 20) {
   return useQuery({
@@ -79,7 +85,7 @@ export function useSaveTablePreferences() {
 
       notifications.show({
         title: "Couldn't save preferences",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try saving the table preferences again.'),
         color: 'red',
       })
     },
@@ -120,7 +126,7 @@ export function useClearRunHistoryCache() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't clear cache",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try clearing the run history cache again.'),
         color: 'red',
       })
     },
@@ -130,7 +136,7 @@ export function useClearRunHistoryCache() {
 export function useCancelRun() {
   const queryClient = useQueryClient()
 
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
       service.cancelPipelineRun(pipelineId, runNumber),
 
@@ -142,21 +148,41 @@ export function useCancelRun() {
         queryKey: queryKeys.runs.list(pipelineId),
       })
 
-      notifications.show({
-        title: 'Run cancelled',
-        message: `Run #${runNumber} cancellation requested`,
-        color: 'gray',
-      })
+      notifyCancellationRequested(`Run #${runNumber} cancellation requested`)
     },
 
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't cancel run",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Check the run in your provider before trying again.'),
         color: 'red',
       })
     },
   })
+
+  const cancel = async (variables: { pipelineId: string; runNumber: number }) => {
+    const { promise, resolve } = Promise.withResolvers<boolean>()
+    openConfirm({
+      title: 'Cancel run',
+      children: `This cancels run #${variables.runNumber}. You can't undo this.`,
+      labels: { confirm: 'Cancel run', cancel: 'Keep running' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => resolve(true),
+      onCancel: () => resolve(false),
+      onClose: () => resolve(false),
+    })
+    const confirmed = await promise
+
+    if (!confirmed) {
+      return false
+    }
+
+    await mutation.mutateAsync(variables)
+
+    return true
+  }
+
+  return { ...mutation, mutateAsync: cancel }
 }
 
 export function useReviewRun() {
@@ -191,7 +217,7 @@ export function useReviewRun() {
     onError: (error: Error, { decision }) => {
       notifications.show({
         title: decision === 'approve' ? "Couldn't approve run" : "Couldn't reject run",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Check the deployment review in your provider and try again.'),
         color: 'red',
       })
     },
@@ -223,7 +249,7 @@ export function useRerunFailedJobs() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't re-run failed jobs",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Check the run in your provider and try rerunning failed jobs again.'),
         color: 'red',
       })
     },
@@ -256,17 +282,13 @@ export function useCancelRuns() {
       })
 
       if (failed.length === 0) {
-        notifications.show({
-          title: 'Runs cancelled',
-          message: `Cancellation requested for ${formatCount(cancelled.length, 'run')}`,
-          color: 'gray',
-        })
+        notifyCancellationRequested(`Cancellation requested for ${formatCount(cancelled.length, 'run')}`)
 
         return
       }
 
       notifications.show({
-        title: 'Some runs were not cancelled',
+        title: "Couldn't request cancellation for every run",
         message: `Cancellation requested for ${cancelled.length} of ${formatCount(runNumbers.length, 'run')}. Failed: ${failed.map((runNumber) => `#${runNumber}`).join(', ')}`,
         color: 'red',
       })

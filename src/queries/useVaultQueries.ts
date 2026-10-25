@@ -8,7 +8,7 @@ import { mobileService } from '../services/mobile'
 import { useAuthStore } from '../stores/authStore'
 import type { AppLockStatus, UnlockVaultResponse, VaultStatusResponse } from '../types'
 import { getHttpStatus } from '../types/errors'
-import { displayErrorNotification } from '../utils/errorDisplay'
+import { displayErrorNotification, errorMessage } from '../utils/errorDisplay'
 
 export function useVaultPasswordStatus(options?: { enabled?: boolean }) {
   return useQuery({
@@ -78,7 +78,7 @@ export function useLockVault() {
     onError: (error) => {
       notifications.show({
         title: "Couldn't lock vault",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try locking the vault again.'),
         color: 'red',
       })
     },

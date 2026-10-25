@@ -58,6 +58,10 @@ platform :ios do
     end
     AppIconAppearances.write(File.join(APPLE_DIR, "Assets.xcassets/AppIcon.appiconset"), source_file: APP_ICON)
 
+    launch_screens = Dir[File.join(APPLE_DIR, "**/LaunchScreen.storyboard")]
+    UI.user_error!("The generated iOS project has no launch screen") if launch_screens.empty?
+    launch_screens.each { |path| FileUtils.cp(File.join(XCODE_FILES, "LaunchScreen.storyboard"), path) }
+
     FileUtils.cp(File.join(XCODE_FILES, "PrivacyInfo.xcprivacy"), TARGET_DIR)
     sh("xcodegen", "generate", "--spec", File.join(APPLE_DIR, "project.yml"))
     FileUtils.cp(File.join(XCODE_FILES, "pipedash.entitlements"), File.join(TARGET_DIR, "#{TARGET}.entitlements"))

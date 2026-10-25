@@ -46,6 +46,10 @@
   box-shadow: 0 8px 40px rgb(0 0 0 / 0.35);
 }
 
+:global(html[data-ios]) .sheetContent {
+  background-color: var(--ios-sheet);
+}
+
 .sheetContent[data-detent="large"] {
   --sheet-expand: 1;
   height: 100%;
@@ -58,7 +62,7 @@
 .sheetHeader {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
   align-items: center;
   column-gap: 8px;
   min-height: 0;
@@ -183,7 +187,28 @@
 }
 
 .sheetBody {
-  padding: 8px 16px calc(16px + var(--sheet-pb, var(--safe-bottom)));
+  padding: 16px 16px calc(16px + var(--sheet-pb, var(--safe-bottom)));
+}
+
+.sheetHeader,
+.sheetBody,
+.sheetFooter {
+  flex-shrink: 0;
+  background: var(--ios-sheet);
+}
+
+.sheetBody {
+  flex-shrink: 1;
+}
+
+.sheetClose:hover,
+.sheetAction:hover {
+  background: transparent;
+  color: var(--ios-tint);
+}
+
+.sheetAction[data-destructive]:hover {
+  color: var(--ios-red);
 }
 
 .sheetFooter {
@@ -285,6 +310,15 @@
   font-size: var(--ios-fs-body);
   font-weight: 400;
   line-height: var(--ios-lh-body);
+}
+
+.alertActions .alertButton:hover {
+  background: transparent;
+  color: var(--ios-tint);
+}
+
+.alertActions .alertButtonDestructive:hover {
+  color: var(--ios-red);
 }
 
 .alertActions .alertButton :global(.mantine-Button-label) {
@@ -451,6 +485,14 @@
   border-top: 0;
 }
 
+.menuItem:hover {
+  background: var(--ios-material-thick);
+}
+
+:global(html[data-keyboard-focus]) .menuItem[data-hovered] {
+  background: var(--ios-fill);
+}
+
 .menuItem:active {
   background: var(--ios-fill);
 }
@@ -521,6 +563,15 @@
 
 .pickerOption + .pickerOption {
   border-top: 0.5px solid var(--ios-separator);
+}
+
+.pickerOption:hover,
+.pickerOption[data-combobox-selected] {
+  background: transparent;
+}
+
+:global(html[data-keyboard-focus]) .pickerOption[data-combobox-selected] {
+  background: var(--ios-fill);
 }
 
 .pickerOption:active {

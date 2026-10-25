@@ -86,6 +86,8 @@
   content: "";
   position: absolute;
   top: 0;
+  z-index: 2;
+  pointer-events: none;
   right: 0;
   left: var(--inset);
   height: 0.5px;
@@ -93,6 +95,9 @@
 }
 
 .row[data-tappable]:active,
+.row:has(.accessory:active),
+.row:has(label:active),
+.row:has(input:active),
 .row[data-pressing],
 .item[data-pressing] .row,
 .row:has([data-row-menu][aria-expanded="true"]),
@@ -119,7 +124,7 @@
 
 .text {
   display: flex;
-  flex: 1 1 9em;
+  flex: 1 1 6em;
   flex-direction: column;
   min-width: 0;
 }

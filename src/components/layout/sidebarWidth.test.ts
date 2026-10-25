@@ -7,13 +7,13 @@ const expanded = { width: 300, compact: false }
 const rail = { width: 300, compact: true }
 const wide = 1600
 
-test('follows the pointer between the minimum and maximum width', () => {
+test('chooses the expanded release target within the width limits', () => {
   assert.deepEqual(sizeAtOffset(250.6, expanded, wide), { width: 251, compact: false })
   assert.deepEqual(sizeAtOffset(150, expanded, wide), { width: 200, compact: false })
   assert.deepEqual(sizeAtOffset(900, expanded, wide), { width: SIDEBAR_MAX_WIDTH, compact: false })
 })
 
-test('snaps to the rail below the midpoint and keeps the expanded width to restore', () => {
+test('chooses the compact release target below the midpoint and preserves expanded width', () => {
   assert.deepEqual(sizeAtOffset(133, expanded, wide), { width: 300, compact: true })
   assert.deepEqual(sizeAtOffset(134, rail, wide), { width: 200, compact: false })
 })

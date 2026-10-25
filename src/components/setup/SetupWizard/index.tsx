@@ -23,7 +23,7 @@ import { StepRegion } from '../../forms/StepRegion'
 
 import { ConfirmStep } from './ConfirmStep'
 import { Onboarding, StepHeader } from './Onboarding'
-import { StorageStep } from './StorageStep'
+import { isPostgresUrl, StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
 import { TransferStep } from './TransferStep'
 import type { SetupState, SetupWizardProps, StorageBackend } from './types'
@@ -172,16 +172,16 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
   }, [opened, loading, currentConfig, defaultDataDir])
 
   const canProceedFromStorage = useMemo(() => {
-    if (state.backend === 'postgres' && !state.postgresUrl.trim()) {
+    if (state.backend === 'postgres' && !isPostgresUrl(state.postgresUrl)) {
       return false
     }
 
-    if (needsVaultPassword && !passwordValid) {
+    if ((!isMobilePlatform() && checkingVault) || (needsVaultPassword && !passwordValid)) {
       return false
     }
 
     return true
-  }, [state.backend, state.postgresUrl, needsVaultPassword, passwordValid])
+  }, [state.backend, state.postgresUrl, needsVaultPassword, passwordValid, checkingVault])
 
   const handleComplete = useCallback(() => {
     onComplete()
@@ -334,7 +334,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
   const handleClose = useCallback(() => onClose?.(), [onClose])
 
   const handleContinueFromTransfer = useCallback(() => {
-    if (!state.transferData && needsMigration) {
+    if (mobileShell && !state.transferData && needsMigration) {
       const changes = []
 
       if (isDatabaseBackendChange) {
@@ -430,7 +430,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
             Back
           </Button>
           <Button size="sm" onClick={handleContinueFromTransfer} fullWidth={isMobile}>
-            Continue
+            {!state.transferData && needsMigration ? 'Switch without transferring' : 'Continue'}
           </Button>
         </Group>
       )
@@ -443,7 +443,11 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
             Back
           </Button>
           <Button size="sm" onClick={handleSave} loading={saving} fullWidth={isMobile}>
-            {needsMigration && state.transferData ? 'Save and transfer' : 'Save'}
+            {needsMigration && !state.transferData
+              ? 'Switch without transferring'
+              : needsMigration
+                ? 'Save and transfer'
+                : 'Save'}
           </Button>
         </Group>
       )

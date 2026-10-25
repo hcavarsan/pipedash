@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Card, Group, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core'
+import { Alert, Box, Button, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconCheck, IconCloudUpload, IconLock, IconSettings } from '@tabler/icons-react'
 import { useState } from 'react'
@@ -149,7 +149,7 @@ export const StorageSection = () => {
               title="Credentials"
               value={
                 vaultStatus?.password_source === 'keyring'
-                  ? 'System keyring'
+                  ? 'Device Keychain'
                   : `Encrypted in ${STORAGE_BACKEND_LABELS[backend]}`
               }
             />
@@ -201,7 +201,7 @@ export const StorageSection = () => {
       <Stack gap="md">
         <Card padding="md">
           <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg">
-            <Stack gap={4}>
+            <Stack gap="3xs">
               <Text size="xs" c="dimmed">
                 Storage backend
               </Text>
@@ -210,7 +210,7 @@ export const StorageSection = () => {
               </Text>
             </Stack>
 
-            <Stack gap={4}>
+            <Stack gap="3xs">
               <Text size="xs" c="dimmed">
                 Credentials
               </Text>
@@ -221,7 +221,7 @@ export const StorageSection = () => {
               </Text>
             </Stack>
 
-            <Stack gap={4}>
+            <Stack gap="3xs">
               <Text size="xs" c="dimmed">
                 Cache backend
               </Text>
@@ -305,12 +305,6 @@ export const StorageSection = () => {
 
   return (
     <Box>
-      {!mobileShell && (
-        <Title order={2} size="lg" fw={600} mb="lg">
-          Storage
-        </Title>
-      )}
-
       {renderContent()}
 
       {isMobilePlatform() && (

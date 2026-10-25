@@ -4,7 +4,7 @@
   z-index: 200;
   display: flex;
   flex-direction: column;
-  background: var(--mantine-color-body);
+  background: var(--ios-grouped-bg);
 }
 
 .scroll {
@@ -35,7 +35,7 @@
 
 .footer {
   padding: 12px calc(var(--safe-right) + 16px) calc(12px + var(--safe-bottom)) calc(var(--safe-left) + 16px);
-  background: var(--mantine-color-body);
+  background: var(--ios-grouped-bg);
 }
 
 .stepHeader {
@@ -66,10 +66,9 @@
 
 .stepCount {
   font-size: var(--ios-fs-footnote, 0.8125rem);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: var(--mantine-color-dimmed);
+  line-height: var(--ios-lh-footnote, 1.2);
+  font-weight: 400;
+  color: var(--ios-secondary-label);
 }
 
 .stepTitle {

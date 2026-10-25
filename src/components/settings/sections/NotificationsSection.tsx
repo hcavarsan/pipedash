@@ -1,4 +1,4 @@
-import { Card, Divider, Stack, Switch, Title } from '@mantine/core'
+import { Card, Divider, Stack, Switch } from '@mantine/core'
 import { useState } from 'react'
 
 import { useMobileShell } from '@/hooks/useIsMobile'
@@ -78,45 +78,39 @@ export function NotificationsSection() {
   }
 
   return (
-    <>
-      <Title order={2} size="lg" fw={600} mb="lg">
-        Notifications
-      </Title>
+    <Stack gap="md">
+      <Card padding="md">
+        <Stack gap="md">
+          <Switch
+            label="Notify when a pipeline fails"
+            description={
+              notificationsSupported
+                ? 'Show a system notification when a refresh finds a pipeline that just failed.'
+                : notificationProblem('unsupported')
+            }
+            checked={notificationsSupported && failureNotificationsEnabled}
+            onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setFailureNotificationsEnabled)}
+            disabled={!notificationsSupported}
+          />
 
-      <Stack gap="md">
-        <Card padding="md">
-          <Stack gap="md">
-            <Switch
-              label="Notify when a pipeline fails"
-              description={
-                notificationsSupported
-                  ? 'Show a system notification when a refresh finds a pipeline that just failed.'
-                  : notificationProblem('unsupported')
-              }
-              checked={notificationsSupported && failureNotificationsEnabled}
-              onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setFailureNotificationsEnabled)}
-              disabled={!notificationsSupported}
-            />
+          <Divider />
 
-            <Divider />
+          <Switch
+            label="Notify me about provider outages"
+            description={
+              notificationsSupported
+                ? 'Show a system notification when a provider reports an outage or recovers.'
+                : notificationProblem('unsupported')
+            }
+            checked={notificationsSupported && providerAlertsEnabled}
+            onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setProviderAlertsEnabled)}
+            disabled={!notificationsSupported}
+          />
+        </Stack>
+      </Card>
 
-            <Switch
-              label="Notify me about provider outages"
-              description={
-                notificationsSupported
-                  ? 'Show a system notification when a provider reports an outage or recovers.'
-                  : notificationProblem('unsupported')
-              }
-              checked={notificationsSupported && providerAlertsEnabled}
-              onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setProviderAlertsEnabled)}
-              disabled={!notificationsSupported}
-            />
-          </Stack>
-        </Card>
-
-        {isMobilePlatform() && <PushNotificationsCard />}
-        {!isTauri() && <MobileDevicesCard />}
-      </Stack>
-    </>
+      {isMobilePlatform() && <PushNotificationsCard />}
+      {!isTauri() && <MobileDevicesCard />}
+    </Stack>
   )
 }

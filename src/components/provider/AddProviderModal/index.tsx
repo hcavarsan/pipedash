@@ -1,13 +1,13 @@
 import { Box, Button, Group, Stack, Stepper, Text } from '@mantine/core'
 import { IconCheck, IconKey, IconList } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
-import { useDiscardGuard } from '../../../hooks/useDiscardGuard'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
+import { iosClasses } from '../../../theme/ios'
 import type { ProviderConfig } from '../../../types'
-import { isAuthError, isNetworkError, isValidationError, toPipedashError } from '../../../types/errors'
-import { displayErrorNotification } from '../../../utils/errorDisplay'
+import { isValidationError, toPipedashError } from '../../../types/errors'
+import { errorMessage } from '../../../utils/errorDisplay'
 import { useFocusFirstInvalid } from '../../../utils/formFocus'
 import { getPipelineLabels } from '../../../utils/pipelinePresentation'
 import { FormErrorDisplay } from '../../common/FormErrorDisplay'
@@ -23,7 +23,7 @@ import { PipelinesStep } from './PipelinesStep'
 import { formReducer, isFormDirty } from './reducer'
 import { type AddProviderModalProps, initialFormState } from './types'
 import { usePermissionCheck } from './usePermissionCheck'
-import { validateConfigField, validateProviderName } from './validation'
+import { mapProviderFieldErrors, validateConfigField, validateProviderName } from './validation'
 
 export function AddProviderModal({
   opened,
@@ -63,7 +63,6 @@ export function AddProviderModal({
   const credentialsRef = useRef<HTMLFormElement>(null)
   const focusFirstInvalid = useFocusFirstInvalid(credentialsRef)
   const dirty = isFormDirty(state, editMode ? existingProvider : undefined)
-  const requestClose = useDiscardGuard(dirty, onClose)
 
   useEffect(() => {
     if (!opened) {
@@ -122,6 +121,71 @@ export function AddProviderModal({
     dispatch({ type: 'SET_STEP', step: 'credentials' })
   }, [])
 
+  const saveProvider = useCallback(
+    async (includeSelection: boolean) => {
+      if (!selectedPlugin) {
+        return
+      }
+
+      const { token = '', ...config } = configValues
+
+      if (includeSelection) {
+        config.selected_items = Array.from(selectedPipelines).join(',')
+      }
+
+      const savedConfig: ProviderConfig = {
+        name: providerName,
+        provider_type: selectedPlugin.provider_type,
+        token,
+        config,
+        refresh_interval: existingProvider?.refresh_interval ?? 30,
+      }
+
+      try {
+        dispatch({ type: 'SET_SUBMITTING', submitting: true })
+        dispatch({ type: 'SET_ERROR', error: null })
+
+        if (editMode && existingProvider && onUpdate) {
+          await onUpdate(existingProvider.id, savedConfig)
+        } else if (onAdd) {
+          await onAdd(savedConfig)
+        }
+
+        onClose()
+      } catch (err: unknown) {
+        const failure = toPipedashError(err)
+        const fields = isValidationError(failure)
+          ? mapProviderFieldErrors(failure.fields ?? {}, selectedPlugin.config_schema.fields)
+          : {}
+
+        dispatch({ type: 'SET_FIELD_ERRORS', errors: fields })
+        dispatch({
+          type: 'SET_ERROR',
+          error: errorMessage(err, editMode ? "Couldn't update provider" : "Couldn't add provider"),
+        })
+
+        if (Object.keys(fields).length > 0) {
+          dispatch({ type: 'SET_STEP', step: 'credentials' })
+          focusFirstInvalid()
+        }
+      } finally {
+        dispatch({ type: 'SET_SUBMITTING', submitting: false })
+      }
+    },
+    [
+      selectedPlugin,
+      configValues,
+      selectedPipelines,
+      providerName,
+      existingProvider,
+      editMode,
+      onUpdate,
+      onAdd,
+      onClose,
+      focusFirstInvalid,
+    ]
+  )
+
   const handleSubmit = useCallback(async () => {
     if (!selectedPlugin || selectedPipelines.size === 0) {
       dispatch({ type: 'SET_ERROR', error: `Please select at least one ${labels.item}` })
@@ -129,189 +193,113 @@ export function AddProviderModal({
       return
     }
 
-    let success = false
-
-    try {
-      dispatch({ type: 'SET_SUBMITTING', submitting: true })
-      dispatch({ type: 'SET_ERROR', error: null })
-
-      const finalConfig = { ...configValues }
-      const token = finalConfig.token || ''
-
-      delete finalConfig.token
-      finalConfig.selected_items = Array.from(selectedPipelines).join(',')
-
-      const providerConfig: ProviderConfig = {
-        name: providerName,
-        provider_type: selectedPlugin.provider_type,
-        token,
-        config: finalConfig,
-        refresh_interval: existingProvider?.refresh_interval ?? 30,
-      }
-
-      if (editMode && existingProvider && onUpdate) {
-        await onUpdate(existingProvider.id, providerConfig)
-      } else if (onAdd) {
-        await onAdd(providerConfig)
-      }
-
-      success = true
-    } catch (err: unknown) {
-      const error = toPipedashError(err)
-
-      if (isValidationError(error)) {
-        dispatch({ type: 'SET_ERROR', error: 'Validation failed. Please check your input.' })
-      } else if (isAuthError(error)) {
-        dispatch({ type: 'SET_ERROR', error: 'Authentication failed. Please check your credentials.' })
-      } else if (isNetworkError(error)) {
-        dispatch({ type: 'SET_ERROR', error: 'Network error. Please check your connection.' })
-      }
-
-      displayErrorNotification(err, editMode ? "Couldn't update provider" : "Couldn't add provider")
-    } finally {
-      dispatch({ type: 'SET_SUBMITTING', submitting: false })
-      if (success) {
-        onClose()
-      }
-    }
-  }, [
-    selectedPlugin,
-    selectedPipelines,
-    configValues,
-    providerName,
-    editMode,
-    existingProvider,
-    onUpdate,
-    onAdd,
-    onClose,
-    labels.item,
-  ])
+    await saveProvider(true)
+  }, [selectedPlugin, selectedPipelines.size, labels.item, saveProvider])
 
   const handleSaveCredentialsOnly = useCallback(async () => {
-    if (!validateCredentials() || !selectedPlugin) {
-      return
+    if (validateCredentials()) {
+      await saveProvider(false)
     }
+  }, [validateCredentials, saveProvider])
 
-    try {
-      dispatch({ type: 'SET_SUBMITTING', submitting: true })
-      dispatch({ type: 'SET_ERROR', error: null })
+  const saveOnly = editMode && !selectionNeedsRefresh
+  const credentialsFormId = useId()
 
-      const finalConfig = { ...configValues }
-      const token = finalConfig.token || ''
+  const footer = useCallback(
+    (requestClose: () => void) => {
+      if (step === 'credentials') {
+        return (
+          <Group justify="space-between" gap="xs">
+            <Group gap="xs">
+              {selectedPlugin && selectedPlugin.required_permissions.length > 0 && (
+                <PermissionCheckButton
+                  onClick={permission.checkPermissions}
+                  disabled={
+                    submitting ||
+                    selectedPlugin.config_schema.fields.some(
+                      (field) => field.required && !configValues[field.key]?.trim()
+                    )
+                  }
+                  loading={permission.checking}
+                />
+              )}
+              {selectionNeedsRefresh && (
+                <Text size="xs" c="dimmed">
+                  Select {labels.items} again after changing connection scope.
+                </Text>
+              )}
+            </Group>
 
-      delete finalConfig.token
-
-      const providerConfig: ProviderConfig = {
-        name: providerName,
-        provider_type: selectedPlugin.provider_type,
-        token,
-        config: finalConfig,
-        refresh_interval: existingProvider?.refresh_interval ?? 30,
+            <Group gap="xs">
+              <Button variant="default" size="sm" onClick={requestClose} disabled={submitting}>
+                Cancel
+              </Button>
+              {editMode && (
+                <Button
+                  size="sm"
+                  {...(saveOnly ? { type: 'submit', form: credentialsFormId } : { onClick: handleSaveCredentialsOnly })}
+                  loading={submitting}
+                  disabled={!selectedPlugin || !providerName.trim() || selectionNeedsRefresh}
+                >
+                  Save
+                </Button>
+              )}
+              <Button
+                variant={editMode ? 'default' : 'filled'}
+                size="sm"
+                {...(saveOnly ? { onClick: handleNext } : { type: 'submit', form: credentialsFormId })}
+                disabled={!selectedPlugin || !providerName.trim()}
+              >
+                {isMobile ? 'Next' : `Next: select ${labels.items}`}
+              </Button>
+            </Group>
+          </Group>
+        )
       }
 
-      if (existingProvider && onUpdate) {
-        await onUpdate(existingProvider.id, providerConfig)
-      }
-
-      onClose()
-    } catch (err: unknown) {
-      displayErrorNotification(err, "Couldn't update provider")
-    } finally {
-      dispatch({ type: 'SET_SUBMITTING', submitting: false })
-    }
-  }, [validateCredentials, selectedPlugin, configValues, providerName, existingProvider, onUpdate, onClose])
-
-  const footer = useMemo(() => {
-    if (step === 'credentials') {
       return (
-        <Group justify="space-between" gap="xs">
-          <Group gap="xs">
-            {selectedPlugin && selectedPlugin.required_permissions.length > 0 && (
-              <PermissionCheckButton
-                onClick={permission.checkPermissions}
-                disabled={
-                  submitting ||
-                  selectedPlugin.config_schema.fields.some(
-                    (field) => field.required && !configValues[field.key]?.trim()
-                  )
-                }
-                loading={permission.checking}
-              />
-            )}
-            {selectionNeedsRefresh && (
-              <Text size="xs" c="dimmed">
-                Select {labels.items} again after changing connection scope.
+        <Group justify="space-between">
+          <Group gap="sm">
+            <Button variant="default" size="sm" onClick={handleBack} disabled={submitting}>
+              Back
+            </Button>
+            {selectedPipelines.size > 0 && (
+              <Text size="sm" c="dimmed">
+                {selectedPipelines.size} selected
               </Text>
             )}
           </Group>
-
           <Group gap="xs">
             <Button variant="default" size="sm" onClick={requestClose} disabled={submitting}>
               Cancel
             </Button>
-            {editMode && (
-              <Button
-                size="sm"
-                onClick={handleSaveCredentialsOnly}
-                loading={submitting}
-                disabled={!selectedPlugin || !providerName.trim() || selectionNeedsRefresh}
-              >
-                Save
-              </Button>
-            )}
-            <Button
-              variant={editMode ? 'default' : 'filled'}
-              size="sm"
-              onClick={handleNext}
-              disabled={!selectedPlugin || !providerName.trim()}
-            >
-              {isMobile ? 'Next' : `Next: select ${labels.items}`}
+            <Button size="sm" onClick={handleSubmit} loading={submitting} disabled={selectedPipelines.size === 0}>
+              {editMode ? (isMobile ? 'Update' : 'Update provider') : isMobile ? 'Add' : 'Add provider'}
             </Button>
           </Group>
         </Group>
       )
-    }
-
-    return (
-      <Group justify="space-between">
-        <Group gap="sm">
-          <Button variant="default" size="sm" onClick={handleBack} disabled={submitting}>
-            Back
-          </Button>
-          {selectedPipelines.size > 0 && (
-            <Text size="sm" c="dimmed">
-              {selectedPipelines.size} selected
-            </Text>
-          )}
-        </Group>
-        <Group gap="xs">
-          <Button variant="default" size="sm" onClick={requestClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSubmit} loading={submitting} disabled={selectedPipelines.size === 0}>
-            {editMode ? (isMobile ? 'Update' : 'Update provider') : isMobile ? 'Add' : 'Add provider'}
-          </Button>
-        </Group>
-      </Group>
-    )
-  }, [
-    step,
-    selectedPlugin,
-    configValues,
-    submitting,
-    permission,
-    editMode,
-    providerName,
-    isMobile,
-    selectedPipelines.size,
-    handleNext,
-    handleBack,
-    handleSubmit,
-    handleSaveCredentialsOnly,
-    requestClose,
-    labels.items,
-    selectionNeedsRefresh,
-  ])
+    },
+    [
+      step,
+      selectedPlugin,
+      configValues,
+      submitting,
+      permission,
+      editMode,
+      providerName,
+      isMobile,
+      selectedPipelines.size,
+      handleNext,
+      handleBack,
+      handleSubmit,
+      handleSaveCredentialsOnly,
+      labels.items,
+      selectionNeedsRefresh,
+      saveOnly,
+      credentialsFormId,
+    ]
+  )
 
   const permissionRow =
     selectedPlugin && selectedPlugin.required_permissions.length > 0 ? (
@@ -324,8 +312,6 @@ export function AddProviderModal({
         loading={permission.checking}
       />
     ) : undefined
-
-  const saveOnly = editMode && !selectionNeedsRefresh
 
   const submitCredentials = () => {
     if (submitting) {
@@ -383,28 +369,43 @@ export function AddProviderModal({
     >
       <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <Box px="lg" pt={mobileShell ? 0 : 'md'} style={{ flexShrink: 0 }}>
-          <Stepper
-            active={activeStepIndex}
-            size={isMobile ? 'xs' : 'sm'}
-            iconSize={mobileShell ? 8 : isMobile ? 32 : 42}
-          >
-            <Stepper.Step
-              aria-label="Step 1: Credentials"
-              label={isMobile ? undefined : 'Credentials'}
-              description={
-                isMobile ? undefined : isFlux ? 'Connect to your Kubernetes cluster' : 'Enter your API credentials'
-              }
-              icon={<IconKey size={18} />}
-              completedIcon={<IconCheck size={18} />}
-            />
-            <Stepper.Step
-              aria-label={`Step 2: Select ${labels.items}`}
-              label={isMobile ? undefined : `Select ${labels.items}`}
-              description={isMobile ? undefined : `Choose ${labels.items} to monitor`}
-              icon={<IconList size={18} />}
-              completedIcon={<IconCheck size={18} />}
-            />
-          </Stepper>
+          {mobileShell ? (
+            <Group
+              className={iosClasses.stepperSteps}
+              gap={6}
+              justify="center"
+              role="img"
+              aria-label={`Step ${activeStepIndex + 1} of 2`}
+            >
+              {[0, 1].map((index) => (
+                <Box
+                  key={index}
+                  className={iosClasses.stepperStepIcon}
+                  data-progress={index <= activeStepIndex || undefined}
+                  aria-hidden
+                />
+              ))}
+            </Group>
+          ) : (
+            <Stepper active={activeStepIndex} size={isMobile ? 'xs' : 'sm'} iconSize={isMobile ? 32 : 42}>
+              <Stepper.Step
+                aria-label="Step 1: Credentials"
+                label={isMobile ? undefined : 'Credentials'}
+                description={
+                  isMobile ? undefined : isFlux ? 'Connect to your Kubernetes cluster' : 'Enter your API credentials'
+                }
+                icon={<IconKey size={18} />}
+                completedIcon={<IconCheck size={18} />}
+              />
+              <Stepper.Step
+                aria-label={`Step 2: Select ${labels.items}`}
+                label={isMobile ? undefined : `Select ${labels.items}`}
+                description={isMobile ? undefined : `Choose ${labels.items} to monitor`}
+                icon={<IconList size={18} />}
+                completedIcon={<IconCheck size={18} />}
+              />
+            </Stepper>
+          )}
           {isMobile && !mobileShell && (
             <Text size="sm" fw={500} ta="center" mt="xs">
               Step {activeStepIndex + 1} of 2: {activeStepIndex === 0 ? 'Credentials' : `Select ${labels.items}`}
@@ -416,7 +417,11 @@ export function AddProviderModal({
           <LoadingState variant="section" message="Loading available providers..." />
         ) : (
           <>
-            <FormErrorDisplay globalError={error} onDismiss={() => dispatch({ type: 'SET_ERROR', error: null })} />
+            <FormErrorDisplay
+              title={mobileShell ? "Couldn't save" : editMode ? "Couldn't update provider" : "Couldn't add provider"}
+              globalError={error}
+              onDismiss={() => dispatch({ type: 'SET_ERROR', error: null })}
+            />
 
             <StepRegion
               stepKey={step}
@@ -434,6 +439,7 @@ export function AddProviderModal({
                   editMode={editMode}
                   isMobile={isMobile}
                   formRef={credentialsRef}
+                  formId={credentialsFormId}
                   onSubmit={submitCredentials}
                   permissionRow={permissionRow}
                   secondaryRow={secondaryRow}

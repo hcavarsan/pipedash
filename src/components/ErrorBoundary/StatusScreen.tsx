@@ -16,7 +16,7 @@ export function StatusScreen({ icon, title, message, hint, detail, actions, minH
     <Center mih={minHeight} h="100%" px="lg" py="xl" role="alert">
       <Stack align="center" gap="lg" w="100%" maw={360}>
         {icon}
-        <Stack align="center" gap={6}>
+        <Stack align="center" gap="2xs">
           <Title order={3} ta="center">
             {title}
           </Title>

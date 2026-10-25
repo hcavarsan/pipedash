@@ -35,8 +35,17 @@ export const mobileService = {
   setAppLock: (enabled: boolean, lockOnBackground: boolean): Promise<AppLockStatus> =>
     call('set_app_lock', { enabled, lockOnBackground }),
 
-  saveExportFile: (fileName: string, contents: string): Promise<ExportFileResult> =>
-    call('save_export_file', { fileName, contents }),
+  saveExportFile: (fileName: string, contents: string | Uint8Array<ArrayBuffer>): Promise<ExportFileResult> =>
+    call('save_export_file', {
+      fileName,
+      contents: Array.from(typeof contents === 'string' ? new TextEncoder().encode(contents) : contents),
+    }),
+
+  shareLink: (url: string, sourceRect: DOMRect): Promise<boolean> =>
+    call('native_share_link', {
+      url,
+      sourceRect: { x: sourceRect.x, y: sourceRect.y, width: sourceRect.width, height: sourceRect.height },
+    }),
 
   getPushStatus: (): Promise<PushStatus> => call('get_push_status'),
 

@@ -65,6 +65,7 @@ export const useProviderStore = create<ProviderStore>()(
       closeEditProviderModal: () =>
         set({
           editProviderModal: { open: false, provider: null },
+          editRequestId: null,
         }),
     }),
     { name: 'ProviderStore' }

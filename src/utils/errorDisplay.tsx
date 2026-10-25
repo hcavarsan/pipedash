@@ -10,7 +10,6 @@ export const NOTIFICATION_DURATIONS = {
   SUCCESS: 3000,
   ERROR: 5000,
   ERROR_MOBILE: 8000,
-  INFO: 4000,
   WARNING: 5000,
 } as const
 
@@ -21,9 +20,19 @@ export interface NotificationActions {
 
 let sequence = 0
 
+export function errorMessage(error: unknown, fallback: string): string {
+  const candidate =
+    typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
+      ? error.message
+      : error
+  const message = formatErrorMessage(candidate).trim()
+
+  return !message || /^(an? )?unknown error( occurred)?[.!]?$/i.test(message) ? fallback : message
+}
+
 export function displayErrorNotification(
   error: unknown,
-  title = 'Error',
+  title: string,
   { onRetry, onDetails }: NotificationActions = {}
 ): void {
   const id = `error-${++sequence}`
@@ -63,12 +72,12 @@ export function displayErrorNotification(
   })
 }
 
-export function displaySuccessNotification(message: string, title = 'Success'): void {
+export function displaySuccessNotification(message: string, title: string): void {
   haptic('success')
   notifications.show({ title, message, color: 'green', autoClose: NOTIFICATION_DURATIONS.SUCCESS })
 }
 
-export function displayWarningNotification(message: string, title = 'Warning'): void {
+export function displayWarningNotification(message: string, title: string): void {
   haptic('warning')
   notifications.show({ title, message, color: 'orange', autoClose: NOTIFICATION_DURATIONS.WARNING })
 }

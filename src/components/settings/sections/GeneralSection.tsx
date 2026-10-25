@@ -10,7 +10,6 @@ import {
   Stack,
   Switch,
   Text,
-  Title,
   useMantineColorScheme,
 } from '@mantine/core'
 import { IconTrash } from '@tabler/icons-react'
@@ -25,6 +24,8 @@ import { service } from '@/services'
 import { displayErrorNotification } from '@/utils/errorDisplay'
 import { getPlatformOverride, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
 
+import { ErrorState } from '../../common/ErrorState'
+import { LoadingState } from '../../common/LoadingState'
 import { IosGroup, IosRow } from '../../ios/IosList'
 import { FieldRow, RowSelect, SwitchRow } from '../mobileParts'
 import { useFactoryResetConfirm } from '../useFactoryResetConfirm'
@@ -50,7 +51,8 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
   })
 
   const queryClient = useQueryClient()
-  const general = useStorageConfig().data?.config.general
+  const storageConfig = useStorageConfig()
+  const general = storageConfig.data?.config.general
   const statusPagesMutation = useMutation({
     mutationFn: (enabled: boolean) => {
       if (!general) {
@@ -130,82 +132,88 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
   }
 
   return (
-    <>
-      <Title order={2} size="lg" fw={600} mb="lg">
-        General
-      </Title>
+    <Stack gap="md">
+      <Card padding="md">
+        <Stack gap="md">
+          <Input.Wrapper label="Theme" description="Choose Dark, Light, or follow your system setting.">
+            <SegmentedControl
+              mt="xs"
+              aria-label="Theme"
+              fullWidth
+              data={THEME_OPTIONS}
+              value={colorScheme}
+              onChange={(value) => setColorScheme(value as MantineColorScheme)}
+            />
+          </Input.Wrapper>
 
-      <Stack gap="md">
-        <Card padding="md">
-          <Stack gap="md">
-            <Input.Wrapper label="Theme" description="Choose Dark, Light, or follow your system setting.">
-              <SegmentedControl
-                mt="xs"
-                fullWidth
-                data={THEME_OPTIONS}
-                value={colorScheme}
-                onChange={(value) => setColorScheme(value as MantineColorScheme)}
+          <Divider />
+
+          {!isMobilePlatform() && (
+            <>
+              <Select
+                label="Platform"
+                description={`Detected: ${currentPlatform}`}
+                placeholder="Auto-detect"
+                data={[
+                  { value: '', label: 'Auto-detect' },
+                  { value: 'macos', label: 'macOS' },
+                  { value: 'windows', label: 'Windows' },
+                  { value: 'linux', label: 'Linux' },
+                ]}
+                value={platformOverride || ''}
+                onChange={handlePlatformChange}
               />
-            </Input.Wrapper>
 
-            <Divider />
+              <Divider />
+            </>
+          )}
 
-            {!isMobilePlatform() && (
-              <>
-                <Select
-                  label="Platform"
-                  description={`Detected: ${currentPlatform}`}
-                  placeholder="Auto-detect"
-                  data={[
-                    { value: '', label: 'Auto-detect' },
-                    { value: 'macos', label: 'macOS' },
-                    { value: 'windows', label: 'Windows' },
-                    { value: 'linux', label: 'Linux' },
-                  ]}
-                  value={platformOverride || ''}
-                  onChange={handlePlatformChange}
-                />
-
-                <Divider />
-              </>
-            )}
-
+          {storageConfig.isLoading ? (
+            <LoadingState variant="compact" message="Loading provider status page setting…" />
+          ) : storageConfig.error || !general ? (
+            <ErrorState
+              title="Couldn't load provider status page setting"
+              error={storageConfig.error ?? 'The storage configuration did not include general settings.'}
+              onRetry={() => storageConfig.refetch()}
+              retrying={storageConfig.isRefetching}
+            />
+          ) : (
             <Switch
               label="Check provider status pages"
               description="Reads the public status page of each provider, or the one you configured. No credentials are sent."
               checked={statusPagesChecked}
               onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
-              disabled={!general}
+              disabled={statusPagesMutation.isPending}
             />
+          )}
+        </Stack>
+      </Card>
+
+      <Card padding="md">
+        <Stack gap="md">
+          <Stack gap={0}>
+            <Text size="sm" fw={600} c="red">
+              Danger zone
+            </Text>
+            <Text size="xs" c="dimmed">
+              Permanently delete all application data
+            </Text>
           </Stack>
-        </Card>
 
-        <Card padding="md">
-          <Stack gap="md">
-            <Stack gap={0}>
-              <Text size="sm" fw={600} c="red">
-                Danger zone
-              </Text>
-              <Text size="xs" c="dimmed">
-                Permanently delete all application data
-              </Text>
-            </Stack>
+          <Divider />
 
-            <Divider />
-
-            <Button
-              leftSection={<IconTrash size={16} />}
-              variant="light"
-              color="red"
-              fullWidth
-              onClick={confirmReset}
-              loading={isResetting}
-            >
-              Factory reset
-            </Button>
-          </Stack>
-        </Card>
-      </Stack>
-    </>
+          <Button
+            leftSection={<IconTrash size={16} />}
+            variant="light"
+            color="red"
+            fullWidth
+            onClick={confirmReset}
+            loading={isResetting}
+          >
+            Factory reset
+          </Button>
+        </Stack>
+      </Card>
+    </Stack>
   )
 }

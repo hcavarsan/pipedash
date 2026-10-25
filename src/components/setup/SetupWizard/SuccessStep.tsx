@@ -119,7 +119,7 @@ export function SuccessStep({
             </Text>
             <SimpleGrid cols={4} spacing="xs">
               {migratedCounts.map(({ label, value }) => (
-                <Stack key={label} gap={2} align="center">
+                <Stack key={label} gap="4xs" align="center">
                   <Text size="xs" c="dimmed">
                     {label}
                   </Text>

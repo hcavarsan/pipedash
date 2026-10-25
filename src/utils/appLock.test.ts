@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { AppLockStatus } from '../types'
 
-import { biometryLabel, lockMeansSomething, needsUnlock, nextCoverLatch, shouldShowPrivacyCover } from './appLock'
+import { biometryLabel, lockMeansSomething, needsUnlock, shouldShowPrivacyCover } from './appLock'
 
 const appLock = (overrides: Partial<AppLockStatus> = {}): AppLockStatus => ({
   supported: true,
@@ -40,24 +40,11 @@ test('encrypted vault asks for unlock until opened; the web also needs its token
   assert.equal(needsUnlock({ ...vault, is_unlocked: false }, true, true), true)
 })
 
-test('the privacy cover needs app lock and a hidden page or a latch', () => {
-  assert.equal(shouldShowPrivacyCover(true, 'hidden', false), true)
-  assert.equal(shouldShowPrivacyCover(true, 'visible', false), false)
-  assert.equal(shouldShowPrivacyCover(false, 'hidden', false), false)
-  assert.equal(shouldShowPrivacyCover(true, 'visible', true), true)
-})
-
-test('with lock on background the cover latches until the lock reaches the UI', () => {
-  const lock = (overrides: Partial<AppLockStatus> = {}) =>
-    appLock({ enabled: true, lock_on_background: true, ...overrides })
-
-  assert.equal(nextCoverLatch(false, lock(), 'visible'), false)
-  assert.equal(nextCoverLatch(false, lock(), 'hidden'), true)
-  assert.equal(nextCoverLatch(true, lock(), 'visible'), true)
-  assert.equal(nextCoverLatch(true, lock({ locked: true }), 'visible'), false)
-  assert.equal(nextCoverLatch(false, lock({ lock_on_background: false }), 'hidden'), false)
-  assert.equal(nextCoverLatch(true, lock({ enabled: false }), 'visible'), false)
-  assert.equal(nextCoverLatch(true, undefined, 'visible'), false)
+test('the privacy cover clears on visibility return, including a cancelled native presentation', () => {
+  assert.equal(shouldShowPrivacyCover(true, 'hidden'), true)
+  assert.equal(shouldShowPrivacyCover(true, 'visible'), false)
+  assert.equal(shouldShowPrivacyCover(false, 'hidden'), false)
+  assert.equal(shouldShowPrivacyCover(false, 'visible'), false)
 })
 
 test('biometric labels', () => {

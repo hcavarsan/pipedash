@@ -1,17 +1,43 @@
 .trafficLight {
+  --traffic-light-foreground: var(--mantine-color-black);
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 12px;
+  width: var(--mantine-spacing-lg);
+  height: var(--mantine-spacing-lg);
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background-color: var(--traffic-light-color);
-  color: var(--mantine-color-black);
+  background: transparent;
+  color: var(--traffic-light-foreground);
   cursor: pointer;
 
-  &:hover {
+  &[data-kind="close"] {
+    --traffic-light-color: #ff5f57;
+    --traffic-light-hover-color: #ff4136;
+  }
+
+  &[data-kind="minimize"] {
+    --traffic-light-color: #febc2e;
+    --traffic-light-hover-color: #f0a000;
+  }
+
+  &[data-kind="maximize"] {
+    --traffic-light-color: #28c840;
+    --traffic-light-hover-color: #1fb032;
+  }
+
+  &::before {
+    content: "";
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: var(--traffic-light-color);
+  }
+
+  &:hover::before {
     background-color: var(--traffic-light-hover-color);
   }
 
@@ -23,6 +49,7 @@
 
 .trafficLightIcon {
   display: flex;
+  position: relative;
   opacity: 0;
 
   .trafficLight:hover &,

@@ -6,10 +6,11 @@ import type { Pipeline, ProviderSummary } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusIcon } from '../atoms/StatusBadge'
+import { useContextMenu } from '../common/ContextMenu'
 import { IosGroup } from '../ios/IosList'
 
 import { IosPipelineRow, relativeOrNever } from './IosPipelineList'
-import { WorkflowActionMenu, WorkflowActions, workflowSwipeActions } from './PipelineRowParts'
+import { WorkflowActionMenu, WorkflowActions, workflowMenuItems, workflowSwipeActions } from './PipelineRowParts'
 
 interface PinnedWorkflowsProps {
   header?: string
@@ -32,6 +33,18 @@ export function PinnedWorkflows({
 }: PinnedWorkflowsProps) {
   const mobileShell = useMobileShell()
   const now = useNow(30_000)
+  const contextMenu = useContextMenu()
+  const pinnedMenu = (pipeline: Pipeline) =>
+    contextMenu(() =>
+      workflowMenuItems({
+        pipeline,
+        isPinned: true,
+        onTogglePin: () => onUnpin(pipeline),
+        onTrigger,
+        onViewMetrics,
+        onViewHistory,
+      })
+    )
 
   if (mobileShell) {
     return (
@@ -72,10 +85,11 @@ export function PinnedWorkflows({
   return (
     <SimpleGrid cols={{ base: 1, sm: 2, lg: 3, xl: 4 }} spacing="sm">
       {pipelines.map((pipeline) => (
-        <Card key={pipeline.id} padding="sm">
+        <Card key={pipeline.id} padding="sm" {...pinnedMenu(pipeline)}>
           <Stack gap="xs" h="100%" justify="space-between">
             <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
               <UnstyledButton
+                className="interactive-surface"
                 onClick={() => onViewHistory(pipeline)}
                 aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${pipeline.name}`}
                 miw={0}

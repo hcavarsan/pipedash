@@ -1,17 +1,31 @@
-import { Alert, Badge, Box, Button, Group, Loader, Stack, Text, useComputedColorScheme } from '@mantine/core'
+import {
+  Alert,
+  Badge,
+  Box,
+  Button,
+  Group,
+  Loader,
+  px,
+  Stack,
+  Text,
+  useComputedColorScheme,
+  useMantineTheme,
+} from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { parse } from 'smol-toml'
 
-import { useDiscardGuard } from '../../hooks/useDiscardGuard'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { service } from '../../services'
+import { SPACING_PX } from '../../theme'
 import type { ConfigAnalysisResponse, MigrationOptions } from '../../types'
-import { formatErrorMessage } from '../../types/errors'
 import { openConfirm } from '../../utils/confirm'
+import { errorMessage } from '../../utils/errorDisplay'
 import { formatCount } from '../../utils/formatCount'
+import { FormErrorDisplay } from '../common/FormErrorDisplay'
+import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
 
 import { MigrationConfirmModal } from './MigrationConfirmModal'
@@ -28,11 +42,14 @@ interface ConfigEditorModalProps {
 
 export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: ConfigEditorModalProps) => {
   const colorScheme = useComputedColorScheme('dark')
+  const theme = useMantineTheme()
   const mobileShell = useMobileShell()
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
 
   const [analysis, setAnalysis] = useState<ConfigAnalysisResponse | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
@@ -43,6 +60,8 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       setContent(initialContent)
       setValidationError(null)
       setHasChanges(false)
+      setSaveError(null)
+      setAnalysisError(null)
       setAnalysis(null)
       setAnalyzing(false)
     }
@@ -76,6 +95,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       }
 
       setAnalyzing(true)
+      setAnalysisError(null)
       try {
         const result = await service.analyzeConfig(newContent)
 
@@ -86,8 +106,13 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
         } else if (validationError && result.valid) {
           setValidationError(null)
         }
+
+        return result
       } catch (err) {
         logger.error('ConfigEditorModal', 'Analysis failed', err)
+        setAnalysisError(errorMessage(err, 'Check the TOML syntax and try again.'))
+
+        return null
       } finally {
         setAnalyzing(false)
       }
@@ -111,46 +136,50 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     setContent(newValue)
     setHasChanges(newValue !== initialContent)
     validateTOML(newValue)
+    setSaveError(null)
+    setAnalysis(null)
   }
 
   const handleSave = async () => {
-    if (!validationError) {
-      await analyzeChanges(content)
-    }
+    setSaveError(null)
 
     if (!validateTOML(content)) {
-      notifications.show({
-        title: 'Configuration is invalid',
-        message: 'Fix the validation errors before saving',
-        color: 'red',
-      })
-
+      if (mobileShell) {
+        notifications.show({
+          title: 'Configuration is invalid',
+          message: 'Fix the validation errors before saving',
+          color: 'red',
+        })
+      }
       return
     }
 
-    if (analysis && !analysis.valid) {
-      notifications.show({
-        title: 'Configuration is invalid',
-        message: 'Fix the validation errors before saving',
-        color: 'red',
-      })
+    const currentAnalysis = await analyzeChanges(content)
 
+    if (!currentAnalysis?.valid) {
+      if (mobileShell && currentAnalysis && !currentAnalysis.valid) {
+        notifications.show({
+          title: 'Configuration is invalid',
+          message: 'Fix the validation errors before saving',
+          color: 'red',
+        })
+      }
       return
     }
 
-    if (analysis?.migration_plan) {
+    if (currentAnalysis.migration_plan) {
       setShowMigrationModal(true)
 
       return
     }
 
-    if (analysis?.warnings && analysis.warnings.length > 0) {
+    if (mobileShell && currentAnalysis.warnings.length > 0) {
       openConfirm({
         zIndex: mobileShell ? 400 : undefined,
         title: 'Configuration warnings',
         children: (
           <Stack gap="xs">
-            {analysis.warnings.map((w) => (
+            {currentAnalysis.warnings.map((w) => (
               <Text key={`${w.field}:${w.message}`} size="sm">
                 • {w.message}
               </Text>
@@ -180,13 +209,15 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       onSaved?.()
       onClose()
     } catch (err) {
-      const errorMessage = formatErrorMessage(err)
-
-      notifications.show({
-        title: "Couldn't save configuration",
-        message: errorMessage,
-        color: 'red',
-      })
+      if (mobileShell) {
+        notifications.show({
+          title: "Couldn't save configuration",
+          message: errorMessage(err, 'Check the file for errors and try again.'),
+          color: 'red',
+        })
+      } else {
+        setSaveError(errorMessage(err, 'Check the file for errors and try again.'))
+      }
     } finally {
       setLoading(false)
     }
@@ -218,8 +249,8 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       onClose()
     } catch (err) {
       notifications.show({
-        title: 'Migration failed',
-        message: formatErrorMessage(err),
+        title: "Couldn't save configuration",
+        message: errorMessage(err, 'Check the file for errors and try again.'),
         color: 'red',
       })
     } finally {
@@ -227,9 +258,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     }
   }
 
-  const requestClose = useDiscardGuard(hasChanges, onClose)
-
-  const footerContent = (
+  const footerContent = (requestClose: () => void) => (
     <Group justify="space-between" w="100%">
       <Text size="xs" c="dimmed">
         {hasChanges ? 'Unsaved changes' : 'No changes'}
@@ -238,7 +267,12 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
         <Button variant="default" size="sm" onClick={requestClose} disabled={loading}>
           Cancel
         </Button>
-        <Button size="sm" onClick={handleSave} loading={loading} disabled={!!validationError || !hasChanges}>
+        <Button
+          size="sm"
+          onClick={handleSave}
+          loading={loading || analyzing}
+          disabled={!!validationError || !hasChanges}
+        >
           Save
         </Button>
       </Group>
@@ -256,7 +290,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       primaryAction={{
         label: 'Save',
         onClick: handleSave,
-        loading,
+        loading: loading || analyzing,
         disabled: !!validationError || !hasChanges,
       }}
       dirty={hasChanges}
@@ -267,10 +301,22 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     >
       <Stack gap={0} style={{ flex: 1, overflow: 'hidden' }}>
         <Box {...noticesProps}>
-          {analyzing && (
-            <Alert icon={<Loader size={16} />} color="gray" mx="lg" mt="md">
-              <Text size="sm">Analyzing configuration...</Text>
-            </Alert>
+          {analyzing &&
+            (mobileShell ? (
+              <Alert icon={<Loader size={16} />} color="gray" mx="lg" mt="md">
+                <Text size="sm">Analyzing configuration...</Text>
+              </Alert>
+            ) : (
+              <Box mx="lg" mt="md">
+                <LoadingState variant="compact" message="Analyzing configuration…" />
+              </Box>
+            ))}
+
+          {(saveError || analysisError) && (
+            <Box mx="lg" mt="md">
+              <FormErrorDisplay title="Couldn't save configuration" globalError={saveError} />
+              <FormErrorDisplay title="Couldn't analyze configuration" globalError={analysisError} />
+            </Box>
           )}
 
           {analysis?.migration_plan && (
@@ -360,14 +406,15 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
         {mobileShell ? (
           <TomlTextArea value={content} onChange={handleEditorChange} disabled={loading} />
         ) : (
-          <Suspense fallback={<Loader size="sm" m="lg" />}>
+          <Suspense fallback={<LoadingState message="Loading configuration editor…" />}>
             <TomlEditor
               height="100%"
               theme={colorScheme === 'dark' ? 'vs-dark' : 'light'}
               value={content}
               onChange={handleEditorChange}
               options={{
-                fontSize: 14,
+                fontSize: Number(px(theme.fontSizes.sm)),
+                ariaLabel: 'Configuration editor',
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
                 wordWrap: 'on',
@@ -379,7 +426,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
                 folding: true,
                 lineDecorationsWidth: 0,
                 lineNumbersMinChars: 3,
-                padding: { top: 12, bottom: 12 },
+                padding: { top: SPACING_PX.sm, bottom: SPACING_PX.sm },
               }}
             />
           </Suspense>

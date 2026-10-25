@@ -5,6 +5,7 @@ import { REFRESH_INTERVALS } from '../constants/intervals'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
+import { errorMessage } from '../utils/errorDisplay'
 
 export function useCacheStats() {
   return useQuery({
@@ -37,7 +38,7 @@ export function useClearCache() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't clear caches",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try clearing the caches again.'),
         color: 'red',
       })
     },
@@ -64,7 +65,7 @@ export function useClearPipelinesCache() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't clear pipelines cache",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try clearing the pipelines cache again.'),
         color: 'red',
       })
     },
@@ -91,7 +92,7 @@ export function useClearRunHistoryCache() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't clear run history cache",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try clearing the run history cache again.'),
         color: 'red',
       })
     },
@@ -118,7 +119,7 @@ export function useClearWorkflowParamsCache() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't clear workflow parameters cache",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try clearing the workflow parameters cache again.'),
         color: 'red',
       })
     },

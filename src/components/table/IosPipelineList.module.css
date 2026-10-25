@@ -7,6 +7,8 @@
   display: flex;
   align-items: center;
   font-size: var(--ios-fs-body);
+  background: var(--ios-cell);
+  background-image: linear-gradient(var(--row-press, transparent), var(--row-press, transparent));
 }
 
 .row[data-nested] {
@@ -21,6 +23,8 @@
   content: "";
   position: absolute;
   top: 0;
+  z-index: 2;
+  pointer-events: none;
   right: 0;
   left: var(--inset);
   height: 0.5px;
@@ -55,10 +59,11 @@
   padding-right: 4px;
 }
 
-.main:active,
-.row[data-pressing] .main,
-.row:has([data-row-menu][aria-expanded="true"]) .main {
-  background: var(--ios-fill);
+.row:has(.main:active),
+.row:has([data-row-menu]:active),
+.row[data-pressing],
+.row:has([data-row-menu][aria-expanded="true"]) {
+  --row-press: var(--ios-fill);
 }
 
 .main:focus-visible {

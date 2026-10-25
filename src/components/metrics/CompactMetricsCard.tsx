@@ -1,4 +1,4 @@
-import { Card, Group, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
+import { Button, Card, Group, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconChevronRight, IconMaximize } from '@tabler/icons-react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
@@ -25,7 +25,7 @@ const CardStat = ({ label, value, shell }: { label: string; value: string; shell
       <div className={classes.compactValue}>{value}</div>
     </div>
   ) : (
-    <Stack gap={4}>
+    <Stack gap="3xs">
       <Text size="xs" c="dimmed">
         {label}
       </Text>
@@ -111,6 +111,13 @@ export const CompactMetricsCard = ({ metricType, data, title, loading, onExpand 
           {renderBody()}
         </Stack>
       </UnstyledButton>
+      {!loading && (!data || data.metrics.length === 0) && (
+        <Group px="md" pb="md">
+          <Button variant="default" size="sm" onClick={onExpand}>
+            Change time range
+          </Button>
+        </Group>
+      )}
     </Card>
   )
 }

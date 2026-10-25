@@ -5,8 +5,10 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { registerSheet, type SheetHandle, useSheetStack } from '../../hooks/useSheetStack'
+import { PRESENT_EASING } from '../../lib/motion'
 import type { SheetDetent } from '../../lib/sheetDetents'
 import { iosClasses } from '../../theme/ios'
+import { TYPOGRAPHY } from '../../theme/typography'
 import type { ModalBaseProps } from '../../types'
 import { confirmDiscard } from '../../utils/confirm'
 
@@ -23,7 +25,7 @@ export interface ModalAction {
 interface StandardModalProps extends ModalBaseProps {
   title: ReactNode
   children: ReactNode
-  footer?: ReactNode
+  footer?: ReactNode | ((requestClose: () => void) => ReactNode)
   loading?: boolean
   closable?: boolean
   size?: ModalSize
@@ -42,7 +44,6 @@ const DESKTOP_LAYOUT: Record<ModalSize, { width: string; height?: string }> = {
   xl: { width: 'min(1400px, 95vw)', height: 'min(90vh, 1000px)' },
 }
 
-const PRESENT_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)'
 const CLOSE_WAIT_MS = 600
 
 const columnStyle = { display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' } as const
@@ -101,7 +102,7 @@ export const StandardModal = ({
 
   const busy = loading || Boolean(primaryAction?.loading)
   const locked = busy || !closable
-  const padding = contentPadding ? 'var(--mantine-spacing-lg)' : '0px'
+  const padding = contentPadding ? (mobileShell ? '16px' : 'var(--mantine-spacing-lg)') : '0px'
   const hasFooter = Boolean(footer) && !(mobileShell && primaryAction)
   const bottomInset = mobileShell && !hasFooter ? `calc(${padding} + var(--sheet-pb, 0px))` : undefined
 
@@ -154,7 +155,10 @@ export const StandardModal = ({
   }
 
   const sharedStyles = {
-    title: { fontWeight: 600, fontSize: 'var(--mantine-font-size-lg)' },
+    title: {
+      fontWeight: TYPOGRAPHY.MODAL_TITLE.weight,
+      fontSize: `var(--mantine-font-size-${TYPOGRAPHY.MODAL_TITLE.size})`,
+    },
     header: {
       borderBottom: '1px solid var(--mantine-color-default-border)',
       paddingInline: 'var(--mantine-spacing-lg)',
@@ -167,7 +171,12 @@ export const StandardModal = ({
       {disableScrollArea ? (
         <Box style={{ ...columnStyle, flex: 1, padding, paddingBottom: bottomInset }}>{children}</Box>
       ) : (
-        <ScrollArea type="auto" style={{ flex: 1, minHeight: 0 }}>
+        <ScrollArea
+          type={mobileShell ? 'scroll' : 'auto'}
+          scrollbarSize={mobileShell ? 3 : undefined}
+          scrollHideDelay={mobileShell ? 200 : undefined}
+          style={{ flex: 1, minHeight: 0 }}
+        >
           <Box p={padding} pb={bottomInset}>
             {children}
           </Box>
@@ -188,7 +197,7 @@ export const StandardModal = ({
                 : undefined,
           }}
         >
-          {footer}
+          {typeof footer === 'function' ? footer(requestClose) : footer}
         </Box>
       )}
     </>
@@ -232,7 +241,10 @@ export const StandardModal = ({
             inert: covered > 0 ? true : undefined,
           },
         }}
-        styles={{ body: sharedStyles.body, content: columnStyle }}
+        styles={{
+          body: { ...sharedStyles.body, paddingTop: contentPadding ? 0 : 16 },
+          content: columnStyle,
+        }}
       >
         <Modal.Overlay color="#000" backgroundOpacity={0.45} />
         <Modal.Content>

@@ -71,9 +71,22 @@ button.tile:active {
   opacity: 1;
 }
 
+.desktopPoint:focus {
+  outline: none;
+}
+
+.desktopRing {
+  stroke: var(--mantine-primary-color-filled);
+  stroke-width: 2.5;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.desktopPoint:focus-visible .desktopRing {
+  opacity: 1;
+}
+
 .stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 6.5em), 1fr));
   margin: 0;
   overflow: hidden;
   border-radius: var(--ios-radius-grouped);
@@ -82,19 +95,25 @@ button.tile:active {
 }
 
 .stat {
-  min-width: 0;
-  padding: 0.7em 0.85em;
-  box-shadow:
-    -0.5px 0 0 var(--ios-separator),
-    0 -0.5px 0 var(--ios-separator);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1em;
+  min-height: 44px;
+  padding: 0.65em 1em;
+}
+
+.stat + .stat {
+  border-top: 0.5px solid var(--ios-separator);
 }
 
 .statValue {
   margin: 0;
-  font-size: var(--ios-fs-headline);
+  color: var(--ios-label);
+  font-size: var(--ios-fs-body);
   font-weight: 600;
-  line-height: var(--ios-lh-headline);
-  overflow-wrap: anywhere;
+  line-height: var(--ios-lh-body);
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
@@ -182,4 +201,34 @@ button.tile:active {
   color: var(--ios-secondary-label);
   font-size: var(--ios-fs-body);
   text-align: right;
+}
+
+.detailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+}
+
+.detailHeader .caption {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.exportButton {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.4em;
+  min-height: 44px;
+  color: var(--ios-tint);
+  font-size: var(--ios-fs-body);
+}
+
+.exportButton:disabled {
+  opacity: 0.4;
+}
+
+.exportButton:active {
+  opacity: 0.5;
 }
