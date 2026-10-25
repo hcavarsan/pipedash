@@ -160,8 +160,9 @@ Run the focused Ruby checks without building or publishing:
 
 ```bash
 cd ios
-ruby -I fastlane -e 'Dir["fastlane/*_test.rb"].sort.each { |path| require_relative path }'
+bundle exec ruby -e 'Dir["fastlane/*_test.rb"].sort.each { |file| require_relative file }'
 ```
+
 ## Push notifications
 
 The app registers its APNs device token with the push relay and pairs with a self-hosted pipedash-web server,
