@@ -11,8 +11,7 @@
   translate: 0 calc(-8px * var(--sheet-cover));
   transition:
     scale 350ms cubic-bezier(0.32, 0.72, 0, 1),
-    translate 350ms cubic-bezier(0.32, 0.72, 0, 1),
-    bottom 250ms ease-out;
+    translate 350ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .sheetInner[data-sheet-covered] {
@@ -62,7 +61,7 @@
 .sheetHeader {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
   align-items: center;
   column-gap: 8px;
   min-height: 0;
@@ -359,8 +358,8 @@
   --notification-color: var(--ios-secondary-label);
   pointer-events: auto;
   align-items: center;
-  min-height: 0;
-  padding: 0.7em 0.95em 0.7em 2.4em;
+  min-height: 44px;
+  padding: 0.7em 44px 0.7em 2.4em;
   border: 0.5px solid var(--ios-separator);
   border-radius: var(--ios-radius-grouped);
   background: var(--ios-material-regular);
@@ -407,30 +406,29 @@
 }
 
 .toastClose {
+  flex-shrink: 0;
   position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-.toastClose:focus-visible {
-  top: 0;
+  top: 50%;
   right: 0;
   width: 44px;
   height: 44px;
-  clip-path: none;
+  margin: 0;
+  translate: 0 -50%;
+}
+
+.toastClose:hover {
+  background: transparent;
 }
 
 /* ---------- Action sheet (Menu) and picker sheet (Combobox) ---------- */
 
 .menuDropdown {
-  max-height: 70dvh;
+  max-height: min(
+    70dvh,
+    calc(100dvh - var(--keyboard-inset, 0px) - var(--safe-top) - max(8px, var(--safe-bottom)) - 10px)
+  );
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0;
   border: 0;
   background: transparent;
@@ -530,8 +528,13 @@
 }
 
 .pickerDropdown {
-  max-height: min(65dvh, calc(100dvh - var(--keyboard-inset, 0px) - var(--safe-top) - 72px));
+  max-height: min(
+    342px,
+    65dvh,
+    calc(100dvh - var(--keyboard-inset, 0px) - var(--safe-top) - max(8px, var(--safe-bottom)) - 10px)
+  );
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 22px 0 0;
   border: 0;
   border-radius: var(--ios-radius-sheet);

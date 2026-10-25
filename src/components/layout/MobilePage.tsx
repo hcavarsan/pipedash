@@ -529,12 +529,14 @@ export function MobilePage({ children }: { children: ReactNode }) {
       rest(velocity)
 
       refreshNow()
-        .catch(() => undefined)
+        .then(
+          () => say('Updated'),
+          () => say("Couldn't refresh")
+        )
         .finally(() => {
           inflight = false
           spinner.removeAttribute('data-spinning')
           main.removeAttribute('aria-busy')
-          say('Updated')
           statusTimer = window.setTimeout(() => say(''), 2000)
           if (mine === run && !dragging) {
             rest(0)
@@ -641,7 +643,12 @@ export function MobilePage({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <div className={classes.spinner} ref={spinnerRef} aria-hidden>
+      <div
+        className={classes.spinner}
+        ref={spinnerRef}
+        style={{ '--pull-hold': `${PULL_HOLD}px` } as React.CSSProperties}
+        aria-hidden
+      >
         {SPOKES.map((index) => (
           <span key={index} className={classes.spoke} style={{ '--i': index } as React.CSSProperties} />
         ))}

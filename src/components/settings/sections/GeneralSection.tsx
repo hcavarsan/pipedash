@@ -74,6 +74,31 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
   const statusPagesChecked = statusPagesMutation.isPending
     ? statusPagesMutation.variables
     : (general?.status_pages_enabled ?? false)
+  const statusPagesControl = storageConfig.isLoading ? (
+    <LoadingState variant="compact" message="Loading provider status page setting…" />
+  ) : storageConfig.error || !general ? (
+    <ErrorState
+      title="Couldn't load provider status page setting"
+      error={storageConfig.error ?? 'The storage configuration did not include general settings.'}
+      onRetry={() => storageConfig.refetch()}
+      retrying={storageConfig.isRefetching}
+    />
+  ) : mobileShell ? (
+    <SwitchRow
+      title="Check provider status pages"
+      checked={statusPagesChecked}
+      onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
+      disabled={statusPagesMutation.isPending}
+    />
+  ) : (
+    <Switch
+      label="Check provider status pages"
+      description="Reads the public status page of each provider, or the one you configured. No credentials are sent."
+      checked={statusPagesChecked}
+      onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
+      disabled={statusPagesMutation.isPending}
+    />
+  )
 
   useEffect(() => {
     const loadPlatform = async () => {
@@ -110,12 +135,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
         </IosGroup>
 
         <IosGroup footer="Reads the public status page of each provider, or the one you configured. No credentials are sent.">
-          <SwitchRow
-            title="Check provider status pages"
-            checked={statusPagesChecked}
-            onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
-            disabled={!general}
-          />
+          {statusPagesControl}
         </IosGroup>
 
         <IosGroup footer="Permanently delete all application data">
@@ -168,24 +188,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
             </>
           )}
 
-          {storageConfig.isLoading ? (
-            <LoadingState variant="compact" message="Loading provider status page setting…" />
-          ) : storageConfig.error || !general ? (
-            <ErrorState
-              title="Couldn't load provider status page setting"
-              error={storageConfig.error ?? 'The storage configuration did not include general settings.'}
-              onRetry={() => storageConfig.refetch()}
-              retrying={storageConfig.isRefetching}
-            />
-          ) : (
-            <Switch
-              label="Check provider status pages"
-              description="Reads the public status page of each provider, or the one you configured. No credentials are sent."
-              checked={statusPagesChecked}
-              onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
-              disabled={statusPagesMutation.isPending}
-            />
-          )}
+          {statusPagesControl}
         </Stack>
       </Card>
 

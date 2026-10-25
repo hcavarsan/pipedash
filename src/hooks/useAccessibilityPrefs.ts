@@ -1,8 +1,7 @@
 import { useEffect } from 'react'
 
-import { mobileService, type NativeAccessibility } from '../services/mobile'
+import { mobileService, NATIVE_ACCESSIBILITY_EVENT, type NativeAccessibility } from '../services/mobile'
 import { isMobilePlatform } from '../utils/platform'
-import { isMobileShell } from './useIsMobile'
 
 const REDUCE_TRANSPARENCY = '(prefers-reduced-transparency: reduce)'
 const MORE_CONTRAST = '(prefers-contrast: more)'
@@ -27,7 +26,7 @@ export function useAccessibilityPrefs(): void {
       root.toggleAttribute('data-increase-contrast', contrast.matches || native.increaseContrast)
     }
     const refreshNative = () => {
-      if (!isMobileShell() || !isMobilePlatform()) {
+      if (!isMobilePlatform()) {
         return
       }
 
@@ -58,6 +57,7 @@ export function useAccessibilityPrefs(): void {
     transparency.addEventListener('change', apply)
     contrast.addEventListener('change', apply)
     document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener(NATIVE_ACCESSIBILITY_EVENT, refreshNative)
     document.addEventListener('keydown', onKeyDown, true)
     document.addEventListener('pointerdown', onPointer, true)
     document.addEventListener('touchstart', onPointer, { capture: true, passive: true })
@@ -67,6 +67,7 @@ export function useAccessibilityPrefs(): void {
       transparency.removeEventListener('change', apply)
       contrast.removeEventListener('change', apply)
       document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener(NATIVE_ACCESSIBILITY_EVENT, refreshNative)
       document.removeEventListener('keydown', onKeyDown, true)
       document.removeEventListener('pointerdown', onPointer, true)
       document.removeEventListener('touchstart', onPointer, true)

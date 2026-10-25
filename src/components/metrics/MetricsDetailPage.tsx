@@ -1,6 +1,6 @@
-import { Button, Group, Menu, SegmentedControl, Stack, UnstyledButton } from '@mantine/core'
+import { Button, Group, Loader, Menu, SegmentedControl, Stack, UnstyledButton } from '@mantine/core'
 import { IconDownload, IconFileTypeCsv, IconPhoto } from '@tabler/icons-react'
-import { toPng } from 'html-to-image'
+import { toBlob } from 'html-to-image'
 import { useEffect, useRef, useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
@@ -67,6 +67,7 @@ export const MetricsDetailPage = ({
   const [aggregationPeriod, setAggregationPeriod] = useState<AggregationPeriod>(initialAggregation)
   const [aggregationType, setAggregationType] = useState<AggregationType>(getDefaultAggregationType(metricType))
   const [selectedDataPointIndex, setSelectedDataPointIndex] = useState<number | null>(null)
+  const [exporting, setExporting] = useState<'png' | 'csv' | null>(null)
   const chartRef = useRef<HTMLDivElement>(null)
 
   const [prevMetricType, setPrevMetricType] = useState(metricType)
@@ -102,65 +103,62 @@ export const MetricsDetailPage = ({
   }
 
   const hasData = !!data && data.metrics.length > 0
-  const canExport = hasData && !metricsQuery.isFetching
+  const canExport = hasData && !metricsQuery.isFetching && exporting === null
   const metricLabel = METRIC_CONFIG[metricType].label.toLowerCase()
   const fileBaseName = `${pipelineName.replace(/[^a-z0-9]/gi, '_')}_${metricType}_${dateRange}`
 
-  const handleExportPNG = async () => {
-    if (!chartRef.current) {
+  const handleExport = async (format: 'png' | 'csv') => {
+    if (!canExport || !data) {
       return
     }
 
+    setExporting(format)
     try {
-      const backgroundColor = window.getComputedStyle(document.body).backgroundColor
-      const dataUrl = await toPng(chartRef.current, { quality: 1, pixelRatio: 2, backgroundColor })
-      const binaryData = atob(dataUrl.split(',')[1])
-      const bytes = Uint8Array.from(binaryData, (char) => char.charCodeAt(0))
+      let content: string | Uint8Array<ArrayBuffer>
 
-      const saved = await saveFile(`${fileBaseName}.png`, bytes, {
-        name: 'PNG Image',
-        extension: 'png',
-        mimeType: 'image/png',
+      if (format === 'png') {
+        if (!chartRef.current) {
+          throw new Error('The chart is not ready to export.')
+        }
+        const backgroundColor = window.getComputedStyle(document.body).backgroundColor
+        const image = await toBlob(chartRef.current, { pixelRatio: 2, backgroundColor })
+
+        if (!image) {
+          throw new Error('The chart image could not be created.')
+        }
+        content = new Uint8Array(await image.arrayBuffer())
+      } else {
+        const cell = (value: number | string | null) => `"${value ?? ''}"`
+        const headers = ['Timestamp', 'Date', `Value (${VALUE_UNITS[metricType]})`, 'Count', 'Min', 'Max', 'Avg']
+        const rows = data.metrics.map((metric) => [
+          metric.timestamp,
+          formatDateTime(metric.timestamp),
+          hasObservation(metric, metricType) ? metric.value : null,
+          metric.count,
+          metric.min,
+          metric.max,
+          hasObservation(metric, metricType) ? metric.avg : null,
+        ])
+
+        content = [headers, ...rows].map((row) => row.map(cell).join(',')).join('\n')
+      }
+
+      const saved = await saveFile(`${fileBaseName}.${format}`, content, {
+        name: format === 'png' ? 'PNG Image' : 'CSV File',
+        extension: format,
+        mimeType: format === 'png' ? 'image/png' : 'text/csv',
       })
 
       if (saved) {
-        displaySuccessNotification('Chart exported as PNG', 'Chart exported')
+        displaySuccessNotification(
+          format === 'png' ? 'Chart exported as PNG' : 'Data exported as CSV',
+          format === 'png' ? 'Chart exported' : 'Data exported'
+        )
       }
     } catch (error) {
-      displayErrorNotification(error, "Couldn't export PNG")
-    }
-  }
-
-  const handleExportCSV = async () => {
-    if (!data) {
-      return
-    }
-
-    try {
-      const cell = (value: number | string | null) => `"${value ?? ''}"`
-      const headers = ['Timestamp', 'Date', `Value (${VALUE_UNITS[metricType]})`, 'Count', 'Min', 'Max', 'Avg']
-      const rows = data.metrics.map((metric) => [
-        metric.timestamp,
-        formatDateTime(metric.timestamp),
-        hasObservation(metric, metricType) ? metric.value : null,
-        metric.count,
-        metric.min,
-        metric.max,
-        hasObservation(metric, metricType) ? metric.avg : null,
-      ])
-      const csvContent = [headers, ...rows].map((row) => row.map(cell).join(',')).join('\n')
-
-      const saved = await saveFile(`${fileBaseName}.csv`, csvContent, {
-        name: 'CSV File',
-        extension: 'csv',
-        mimeType: 'text/csv',
-      })
-
-      if (saved) {
-        displaySuccessNotification('Data exported as CSV', 'Data exported')
-      }
-    } catch (error) {
-      displayErrorNotification(error, "Couldn't export CSV")
+      displayErrorNotification(error, `Couldn't export ${format.toUpperCase()}`)
+    } finally {
+      setExporting(null)
     }
   }
 
@@ -208,10 +206,10 @@ export const MetricsDetailPage = ({
 
   const exportMenuItems = (
     <Menu.Dropdown>
-      <Menu.Item leftSection={<IconPhoto size={16} />} onClick={handleExportPNG}>
+      <Menu.Item leftSection={<IconPhoto size={16} />} onClick={() => handleExport('png')}>
         Export as PNG
       </Menu.Item>
-      <Menu.Item leftSection={<IconFileTypeCsv size={16} />} onClick={handleExportCSV}>
+      <Menu.Item leftSection={<IconFileTypeCsv size={16} />} onClick={() => handleExport('csv')}>
         Export as CSV
       </Menu.Item>
       <ActionSheetCancel />
@@ -225,9 +223,14 @@ export const MetricsDetailPage = ({
           <div className={classes.caption}>{repository ? `${repository} / ${pipelineName}` : pipelineName}</div>
           <Menu position="bottom" disabled={!canExport}>
             <Menu.Target>
-              <UnstyledButton className={classes.exportButton} disabled={!canExport} aria-label="Export metrics">
-                <IconDownload size={18} aria-hidden />
-                Export
+              <UnstyledButton
+                className={classes.exportButton}
+                disabled={!canExport}
+                aria-label="Export metrics"
+                aria-busy={exporting !== null}
+              >
+                {exporting ? <Loader size={18} /> : <IconDownload size={18} aria-hidden />}
+                {exporting ? 'Exporting…' : 'Export'}
               </UnstyledButton>
             </Menu.Target>
             {exportMenuItems}
@@ -289,7 +292,13 @@ export const MetricsDetailPage = ({
         />
         <Menu position="bottom-end" shadow="md" disabled={!canExport}>
           <Menu.Target>
-            <Button variant="default" size="xs" leftSection={<IconDownload size={16} />} disabled={!canExport}>
+            <Button
+              variant="default"
+              size="xs"
+              leftSection={<IconDownload size={16} />}
+              disabled={!canExport}
+              loading={exporting !== null}
+            >
               Export
             </Button>
           </Menu.Target>

@@ -5,7 +5,7 @@ import classes from './iosOverlays.module.css'
 const PRESENT_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)'
 const OVERLAY_Z = 499
 const FLOATING_Z = 500
-const FLOAT_BOTTOM = 'max(8px, calc(var(--safe-bottom) - 14px))'
+const FLOAT_BOTTOM = 'calc(max(8px, var(--safe-bottom)) + var(--keyboard-inset, 0px))'
 const FLOAT_SIDE_LEFT = 'max(calc(8px + var(--safe-left)), calc((100vw - 480px) / 2))'
 const FLOAT_SIDE_RIGHT = 'max(calc(8px + var(--safe-right)), calc((100vw - 480px) / 2))'
 
@@ -26,7 +26,7 @@ const actionSheet = floatingSheet(FLOAT_BOTTOM)
 
 const pickerProps = {
   classNames: { dropdown: classes.pickerDropdown, option: classes.pickerOption },
-  styles: { dropdown: floatingSheet(`calc(${FLOAT_BOTTOM} + var(--keyboard-inset, 0px))`) },
+  styles: { dropdown: floatingSheet(FLOAT_BOTTOM) },
 }
 
 export { classes as iosOverlayClasses }
@@ -86,11 +86,11 @@ export const iosOverlayComponents = {
     },
   }),
   Select: Select.extend({
-    defaultProps: { checkIconPosition: 'right', maxDropdownHeight: 320 },
+    defaultProps: { checkIconPosition: 'right', withScrollArea: false },
     ...pickerProps,
   }),
   MultiSelect: MultiSelect.extend({
-    defaultProps: { checkIconPosition: 'right', maxDropdownHeight: 320 },
+    defaultProps: { checkIconPosition: 'right', withScrollArea: false },
     ...pickerProps,
   }),
 }

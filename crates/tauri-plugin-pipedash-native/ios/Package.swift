@@ -23,6 +23,10 @@ let package = Package(
       dependencies: [
         .byName(name: "Tauri")
       ],
-      path: "Sources")
+      path: "Sources"),
+    .testTarget(
+      name: "PipedashNativeTests",
+      dependencies: ["tauri-plugin-pipedash-native"],
+      path: "Tests")
   ]
 )

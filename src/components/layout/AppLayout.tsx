@@ -149,6 +149,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
           header: mobileShell
             ? {
                 background: 'transparent',
+                paddingInline: 'max(var(--safe-left), var(--safe-right))',
                 borderBottom: 0,
                 backdropFilter: 'none',
                 WebkitBackdropFilter: 'none',

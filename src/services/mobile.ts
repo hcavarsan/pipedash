@@ -11,6 +11,7 @@ import {
 
 export const NATIVE_INTENT_EVENT = 'native-intent'
 export const STATUS_BAR_TAP_EVENT = 'native-status-bar-tap'
+export const NATIVE_ACCESSIBILITY_EVENT = 'pipedash:accessibility-change'
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   try {

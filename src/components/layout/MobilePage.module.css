@@ -93,7 +93,7 @@
   --progress: 0;
   position: fixed;
   z-index: 90;
-  top: calc(44px + var(--safe-top));
+  top: calc(44px + var(--safe-top) + var(--connection-banner-height, 0px));
   left: 50%;
   width: 22px;
   height: 22px;
@@ -122,22 +122,28 @@
 }
 
 .spinner[data-spinning] {
-  animation: spin 0.9s steps(12) infinite;
+  opacity: 1;
+  translate: 0 calc(var(--pull-hold) * 0.5 - 11px);
 }
 
 .spinner[data-spinning] .spoke {
   background: var(--ios-label);
-  opacity: calc(1 - var(--i) / 14);
+  animation: pulse 0.9s linear infinite;
+  animation-delay: calc(var(--i) * 0.075s - 0.9s);
 }
 
-@keyframes spin {
+@keyframes pulse {
+  from {
+    opacity: 1;
+  }
   to {
-    rotate: 360deg;
+    opacity: 0.15;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .spinner[data-spinning] {
+  .spinner[data-spinning] .spoke {
     animation: none;
+    opacity: calc(1 - var(--i) / 14);
   }
 }

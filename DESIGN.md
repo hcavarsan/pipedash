@@ -102,20 +102,23 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 ## iPhone
 
 - The phone shell sets `data-ios` on the root. Desktop and iPad styles never read these tokens.
+- Safe areas use the larger of WebKit's CSS inset and the native `WKWebView.safeAreaInsets` value. The native bridge updates on layout changes and navigation. The phone header reserves equal side insets to keep its title centered in landscape.
 - Text uses the `--ios-fs-*` and `--ios-lh-*` tokens: large title, title1 to title3, headline, body, callout, subheadline, footnote, caption1 and caption2. The Mantine sizes map to them: `xs` footnote, `sm` subheadline, `md` body, `lg` title3, `xl` title2. Headline is 600, the navigation large title is 700, everything else is 400. Letter spacing stays `normal` because the system font tracks itself.
 - Dynamic Type: when WebKit supports `font: -apple-system-body`, a hidden probe measures the body size and sets `--ios-text-scale` on the root. It updates live. Paddings next to text use `em` and containers use minimum heights, so rows grow with the text. Zoom stays enabled.
 - `TYPOGRAPHY` roles (`headline`, `body`, `callout`, `subheadline`, `caption`) resolve to the same small Mantine sizes on desktop and to the iOS styles on the phone shell.
 - Colors follow the iOS roles: `--ios-label`, `--ios-secondary-label`, `--ios-bg`, `--ios-grouped-bg`, `--ios-cell`, `--ios-tint`, `--ios-red` and `--ios-green`, each defined for light and dark. Root pages sit on the grouped background so white cells show in light mode. Inside sheets and popovers in dark mode, cells are `#2c2c2e` and the background is `#1c1c1e`. Run status colors keep their own scale.
 - Bars, sheets and alerts use the `--ios-material-*` tokens with `--ios-material-filter`. Never stack a translucent surface on another.
 - Reduce Transparency (system setting or the native bridge) sets `data-reduce-transparency`: materials become opaque and the blur is removed. Increase Contrast sets `data-increase-contrast`: the tint, red, green and secondary label switch to the accessible values, separators turn opaque, and materials get a visible edge through `--ios-material-edge`.
+- Native accessibility preferences apply on wide iPads too and update when the system setting changes.
 - Controls keep a 44pt touch area even when the visual is smaller. Keyboard focus shows a 2px tint ring. Touch shows none, and hover styles never apply on touch.
-- Segmented controls look like the iOS ones: no border, a raised thumb, iOS colors. Theme and retention pickers use native selects.
+- Segmented controls look like the iOS ones: no border, a raised thumb and iOS colors. Theme and retention pickers use native selects without an idle border. Keyboard navigation keeps its focus ring.
 - Every sheet uses one background for its header and body, and content starts 16pt below the header. Multi-step sheets show a compact progress row instead of a desktop stepper.
+- Sheets resize with the keyboard before revealing the focused field. Inline forms also scroll focused fields into the visible viewport. Picker sheets use one scroll surface and stay above the keyboard and home indicator.
 - The pressed highlight covers the whole row, including the chevron and the trailing … button.
-- The search row on list pages, including run history, hides by default. A short pull reveals it, a longer pull refreshes.
+- The search row on list pages, including run history, hides by default. A short pull reveals it, a longer pull refreshes. During refresh, the indicator stays fixed below the header and connection banner. Its spokes fade without rotating the container.
 - With filters active, the filter button switches to the filled icon in the tint color, and its label carries the count.
 - Run history edit mode uses 22pt selection circles and a full-width bottom toolbar with the bar material and the safe-area inset. The tab bar is hidden and inert while editing.
-- Exports open the system document picker so you choose where the file goes, the same way import does. Cancelling shows nothing. Sharing a link opens the share sheet from a full-width 44pt row.
+- Exports open the system document picker so you choose the destination. Chart PNG and CSV exports stay busy until the picker finishes. Cancelling shows no success message. Native exports attempt to delete their temporary folder after success, cancellation or picker errors. Cleanup failures are logged. Sharing a link opens the share sheet from a full-width 44pt row.
 - The launch screen and the app switcher cover use the grouped background with no image, so opening the app never flashes a different color or a small icon.
 - Motion on gestures uses springs from `src/lib/spring.ts`: damping 1 by default, a little bounce only after a flick. Reduce Motion replaces movement with a short fade.
 - Haptics fire in the same frame as the visual change and only for meaningful moments: a pull to refresh arming, a full swipe arming, a long-press menu opening, and success, warning and error outcomes.

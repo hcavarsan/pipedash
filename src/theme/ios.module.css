@@ -184,10 +184,14 @@ input:disabled + .switchTrack {
 /* ---------- Inputs ---------- */
 
 .input {
+  -webkit-appearance: none;
+  appearance: none;
   min-height: 44px;
   border: 0;
   border-radius: 10px;
   background: var(--ios-fill);
+  box-shadow: none;
+  outline: 0;
   font-size: max(16px, var(--ios-fs-body));
   line-height: var(--ios-lh-body);
 }
@@ -202,7 +206,7 @@ input:disabled + .switchTrack {
   outline-offset: 2px;
 }
 
-:global(html[data-increase-contrast]) .input {
+:global(html[data-increase-contrast]) .input:where(:not([data-variant="unstyled"])) {
   border: 1px solid var(--ios-secondary-label);
 }
 

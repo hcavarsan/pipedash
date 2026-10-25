@@ -54,19 +54,28 @@ function publishInset(inset: number) {
 
 function revealFocusedField() {
   const field = document.activeElement
-  const sheet = field instanceof HTMLElement && field.matches(FIELD_SELECTOR) ? field.closest(SHEET_SELECTOR) : null
 
-  if (!(field instanceof HTMLElement) || !sheet) {
+  if (!(field instanceof HTMLElement) || !field.matches(FIELD_SELECTOR)) {
     return
   }
 
-  for (let parent = field.parentElement; parent && parent !== sheet.parentElement; parent = parent.parentElement) {
+  const boundary = field.closest(SHEET_SELECTOR) ?? document.body
+  const viewport = window.visualViewport
+  const visibleTop = viewport?.offsetTop ?? 0
+  const visibleBottom = visibleTop + (viewport?.height ?? window.innerHeight)
+
+  for (let parent = field.parentElement; parent && parent !== boundary.parentElement; parent = parent.parentElement) {
     const overflows = parent.scrollHeight > parent.clientHeight
 
     if (overflows && /(auto|scroll)/.test(getComputedStyle(parent).overflowY)) {
       const target = field.getBoundingClientRect()
       const view = parent.getBoundingClientRect()
-      const delta = scrollDeltaToReveal(target.top, target.bottom, view.top, view.bottom)
+      const delta = scrollDeltaToReveal(
+        target.top,
+        target.bottom,
+        Math.max(view.top, visibleTop),
+        Math.min(view.bottom, visibleBottom)
+      )
 
       if (delta !== 0) {
         parent.scrollBy({ top: delta, behavior: scrollBehavior() })

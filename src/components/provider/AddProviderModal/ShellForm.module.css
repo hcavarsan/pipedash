@@ -9,6 +9,10 @@
   padding: 8px 16px 24px;
 }
 
+.step > * {
+  flex-shrink: 0;
+}
+
 .heading {
   display: flex;
   flex-direction: column;
