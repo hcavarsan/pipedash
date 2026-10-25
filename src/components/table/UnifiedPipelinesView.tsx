@@ -14,7 +14,7 @@ import type { DataTableSortStatus } from 'mantine-datatable'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { useIsMobile } from '../../hooks/useIsMobile'
+import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { usePipelineFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
 import { pinKey, usePinnedStore } from '../../stores/pinnedStore'
@@ -171,6 +171,7 @@ export const UnifiedPipelinesView = ({
   const orphanedPipelines = useRef<Set<string>>(new Set())
 
   const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
 
   const { filters, setFilter, clearFilters } = usePipelineFilters()
   const {
@@ -471,7 +472,7 @@ export const UnifiedPipelinesView = ({
     .filter((issue): issue is EmptyTableIssue => issue !== null)
   const firstIssue = emptyTableIssues[0]
 
-  const pageHeading = <PageHeader title={title} />
+  const pageHeading = mobileShell && !isFluxView ? null : <PageHeader title={title} />
 
   if (error) {
     return (

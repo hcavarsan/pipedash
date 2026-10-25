@@ -15,11 +15,13 @@ interface EditProviderModalState {
 interface ProviderStoreState {
   addProviderModal: AddProviderModalState
   editProviderModal: EditProviderModalState
+  editRequestId: number | null
 }
 
 interface ProviderStoreActions {
   openAddProviderModal: () => void
   closeAddProviderModal: () => void
+  requestEditProvider: (id: number) => void
   openEditProviderModal: (provider: ProviderConfig & { id: number }) => void
   closeEditProviderModal: () => void
 }
@@ -34,6 +36,7 @@ const initialState: ProviderStoreState = {
     open: false,
     provider: null,
   },
+  editRequestId: null,
 }
 
 export const useProviderStore = create<ProviderStore>()(
@@ -51,9 +54,12 @@ export const useProviderStore = create<ProviderStore>()(
           addProviderModal: { open: false },
         }),
 
+      requestEditProvider: (id) => set({ editRequestId: id }),
+
       openEditProviderModal: (provider) =>
         set({
           editProviderModal: { open: true, provider },
+          editRequestId: null,
         }),
 
       closeEditProviderModal: () =>

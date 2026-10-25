@@ -95,19 +95,10 @@ function SectionLabel({ children }: { children: string }) {
   )
 }
 
-export function NotificationCenter() {
+export function NotificationHost() {
   const { data: providers } = useProviders()
-  const items = useNotificationCenterStore((state) => state.items)
-  const open = useNotificationCenterStore((state) => state.open)
-  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
-  const clear = useNotificationCenterStore((state) => state.clear)
-  const [opened, setOpened] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const previousLevels = useRef<Map<number, HealthLevel> | null>(null)
-  const now = useNow(30_000)
-
-  const unread = items.filter((item) => !item.read).length
-  const dotColor = unreadDotColor(items)
 
   useEffect(() => {
     if (!isTauri()) {
@@ -125,7 +116,7 @@ export function NotificationCenter() {
           stop()
         }
       })
-      .catch((error: unknown) => logger.warn('NotificationCenter', "Couldn't listen for notification clicks", error))
+      .catch((error: unknown) => logger.warn('NotificationHost', "Couldn't listen for notification clicks", error))
 
     return () => {
       active = false
@@ -159,6 +150,127 @@ export function NotificationCenter() {
     }
   }, [providers])
 
+  return (
+    <>
+      <VisuallyHidden role="status">{announcement}</VisuallyHidden>
+      <NotificationDetailsModal />
+      <ProviderStatusModal />
+    </>
+  )
+}
+
+interface NotificationListProps {
+  title?: string
+  onSelect?: () => void
+}
+
+function NotificationList({ title, onSelect }: NotificationListProps) {
+  const { data: providers } = useProviders()
+  const items = useNotificationCenterStore((state) => state.items)
+  const open = useNotificationCenterStore((state) => state.open)
+  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
+  const clear = useNotificationCenterStore((state) => state.clear)
+  const now = useNow(30_000)
+  const unread = items.filter((item) => !item.read).length
+  const affected = (providers ?? []).flatMap((provider) => {
+    const { headline } = providerAttention(provider)
+
+    return headline ? [{ provider, headline }] : []
+  })
+
+  const select = (selection: Parameters<typeof open>[0]) => {
+    onSelect?.()
+    open(selection)
+  }
+
+  return (
+    <>
+      <Group justify={title ? 'space-between' : 'flex-end'} px="md" py="sm" mih={44}>
+        {title && (
+          <Text fw={600} size="sm">
+            {title}
+          </Text>
+        )}
+        <Group gap={4}>
+          {unread > 0 && (
+            <Button size="compact-xs" variant="subtle" color="gray" onClick={markAllRead}>
+              Mark all read
+            </Button>
+          )}
+          {items.length > 0 && (
+            <Button size="compact-xs" variant="subtle" color="gray" onClick={clear}>
+              Clear
+            </Button>
+          )}
+        </Group>
+      </Group>
+
+      {items.length === 0 && affected.length === 0 ? (
+        <Stack align="center" gap={4} px="md" pb="lg" pt="xs">
+          <Box c="dimmed">
+            <IconBellCheck size={24} aria-hidden />
+          </Box>
+          <Text size="sm" fw={500}>
+            You're all caught up
+          </Text>
+          <Text size="xs" c="dimmed" ta="center">
+            Provider outages and pipeline failures show up here.
+          </Text>
+        </Stack>
+      ) : (
+        <ScrollArea.Autosize mah={title ? 440 : undefined} type="auto">
+          <Stack gap={2} px={6} pb={6}>
+            {affected.length > 0 && <SectionLabel>Affecting pipelines now</SectionLabel>}
+            {affected.map(({ provider, headline }) => (
+              <Row
+                key={provider.id}
+                leading={<ProviderIcon name={provider.name} icon={provider.icon} size={16} />}
+                title={provider.name}
+                subtitle={headline}
+                onClick={() => select({ type: 'provider', providerId: provider.id })}
+              />
+            ))}
+            {affected.length > 0 && items.length > 0 && <SectionLabel>Recent</SectionLabel>}
+            {items.map((item) => {
+              const ItemIcon = notificationIcon(item)
+
+              return (
+                <Row
+                  key={item.key}
+                  leading={<ItemIcon size={16} aria-hidden />}
+                  title={item.title}
+                  subtitle={`${notificationLabel(item)} · ${formatRelativeTime(item.at, now)}`}
+                  unread={!item.read}
+                  onClick={() => select({ type: 'notification', key: item.key })}
+                />
+              )
+            })}
+          </Stack>
+        </ScrollArea.Autosize>
+      )}
+    </>
+  )
+}
+
+export function useUnreadNotifications() {
+  const items = useNotificationCenterStore((state) => state.items)
+
+  return { unread: items.filter((item) => !item.read).length, dotColor: unreadDotColor(items) }
+}
+
+export function NotificationsPage() {
+  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
+
+  useEffect(() => markAllRead, [markAllRead])
+
+  return <NotificationList />
+}
+
+export function NotificationCenter() {
+  const [opened, setOpened] = useState(false)
+  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
+  const { unread, dotColor } = useUnreadNotifications()
+
   const toggle = (next: boolean) => {
     if (!next) {
       markAllRead()
@@ -167,97 +279,22 @@ export function NotificationCenter() {
   }
 
   const label = unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'
-  const affected = (providers ?? []).flatMap((provider) => {
-    const { headline } = providerAttention(provider)
-
-    return headline ? [{ provider, headline }] : []
-  })
-
-  const select = (selection: Parameters<typeof open>[0]) => {
-    toggle(false)
-    open(selection)
-  }
 
   return (
-    <>
-      <VisuallyHidden role="status">{announcement}</VisuallyHidden>
-      <Indicator color={dotColor ?? 'gray'} disabled={!dotColor} size={8} offset={7} withBorder>
-        <Popover opened={opened} onChange={toggle} position="bottom-end" width={380} shadow="md" trapFocus returnFocus>
-          <Popover.Target>
-            <Tooltip label="Notifications" position="bottom" disabled={opened}>
-              <ActionIcon variant="subtle" size="lg" color="gray" aria-label={label} onClick={() => toggle(!opened)}>
-                <IconBell size={20} />
-              </ActionIcon>
-            </Tooltip>
-          </Popover.Target>
+    <Indicator color={dotColor ?? 'gray'} disabled={!dotColor} size={8} offset={7} withBorder>
+      <Popover opened={opened} onChange={toggle} position="bottom-end" width={380} shadow="md" trapFocus returnFocus>
+        <Popover.Target>
+          <Tooltip label="Notifications" position="bottom" disabled={opened}>
+            <ActionIcon variant="subtle" size="lg" color="gray" aria-label={label} onClick={() => toggle(!opened)}>
+              <IconBell size={20} />
+            </ActionIcon>
+          </Tooltip>
+        </Popover.Target>
 
-          <Popover.Dropdown p={0} maw="calc(100vw - 16px)">
-            <Group justify="space-between" px="md" py="sm">
-              <Text fw={600} size="sm">
-                Notifications
-              </Text>
-              <Group gap={4}>
-                {unread > 0 && (
-                  <Button size="compact-xs" variant="subtle" color="gray" onClick={markAllRead}>
-                    Mark all read
-                  </Button>
-                )}
-                {items.length > 0 && (
-                  <Button size="compact-xs" variant="subtle" color="gray" onClick={clear}>
-                    Clear
-                  </Button>
-                )}
-              </Group>
-            </Group>
-
-            {items.length === 0 && affected.length === 0 ? (
-              <Stack align="center" gap={4} px="md" pb="lg" pt="xs">
-                <Box c="dimmed">
-                  <IconBellCheck size={24} aria-hidden />
-                </Box>
-                <Text size="sm" fw={500}>
-                  You're all caught up
-                </Text>
-                <Text size="xs" c="dimmed" ta="center">
-                  Provider outages and pipeline failures show up here.
-                </Text>
-              </Stack>
-            ) : (
-              <ScrollArea.Autosize mah={440} type="auto">
-                <Stack gap={2} px={6} pb={6}>
-                  {affected.length > 0 && <SectionLabel>Affecting pipelines now</SectionLabel>}
-                  {affected.map(({ provider, headline }) => (
-                    <Row
-                      key={provider.id}
-                      leading={<ProviderIcon name={provider.name} icon={provider.icon} size={16} />}
-                      title={provider.name}
-                      subtitle={headline}
-                      onClick={() => select({ type: 'provider', providerId: provider.id })}
-                    />
-                  ))}
-                  {affected.length > 0 && items.length > 0 && <SectionLabel>Recent</SectionLabel>}
-                  {items.map((item) => {
-                    const ItemIcon = notificationIcon(item)
-
-                    return (
-                      <Row
-                        key={item.key}
-                        leading={<ItemIcon size={16} aria-hidden />}
-                        title={item.title}
-                        subtitle={`${notificationLabel(item)} · ${formatRelativeTime(item.at, now)}`}
-                        unread={!item.read}
-                        onClick={() => select({ type: 'notification', key: item.key })}
-                      />
-                    )
-                  })}
-                </Stack>
-              </ScrollArea.Autosize>
-            )}
-          </Popover.Dropdown>
-        </Popover>
-      </Indicator>
-      <NotificationDetailsModal />
-      <ProviderStatusModal />
-    </>
+        <Popover.Dropdown p={0} maw="calc(100vw - 16px)">
+          <NotificationList title="Notifications" onSelect={() => toggle(false)} />
+        </Popover.Dropdown>
+      </Popover>
+    </Indicator>
   )
 }

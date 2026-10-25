@@ -1,6 +1,6 @@
 import { Box, Group, ScrollArea, Stack } from '@mantine/core'
 
-import { useIsMobile } from '../../hooks/useIsMobile'
+import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { SettingsMobileTabs } from './SettingsMobileTabs'
 import { type SettingsSection, SettingsSidebar } from './SettingsSidebar'
 import { AboutSection } from './sections/AboutSection'
@@ -28,14 +28,23 @@ const SECTION_CONTENT: Record<SettingsSection, (onRefresh?: () => Promise<void>)
 
 export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps) => {
   const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
 
   const content = (
     <ScrollArea flex={1}>
-      <Box p={isMobile ? 'md' : 'xl'} maw={isMobile ? undefined : 720}>
+      <Box
+        p={isMobile ? 'md' : 'xl'}
+        maw={isMobile ? undefined : 720}
+        className={mobileShell ? 'settings-pushed' : undefined}
+      >
         {SECTION_CONTENT[activeSection](onRefresh)}
       </Box>
     </ScrollArea>
   )
+
+  if (mobileShell) {
+    return content
+  }
 
   if (isMobile) {
     return (

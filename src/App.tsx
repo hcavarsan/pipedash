@@ -9,12 +9,15 @@ import { ErrorState } from './components/common/ErrorState'
 import { LoadingState } from './components/common/LoadingState'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AppLayout } from './components/layout/AppLayout'
+import { NotificationsPage } from './components/notifications/NotificationCenter'
 import { TriggerWorkflowModal } from './components/pipeline/TriggerWorkflowModal'
 import { WorkflowLogsModal } from './components/pipeline/WorkflowLogsModal'
+import { ProvidersPage } from './components/provider/ProvidersPage'
 import { SetupWizard } from './components/setup/SetupWizard'
 import { UnifiedPipelinesView } from './components/table/UnifiedPipelinesView'
 import { usePlugins } from './contexts/PluginContext'
 import { useFailureNotifications } from './hooks/useFailureNotifications'
+import { useMobileShell } from './hooks/useIsMobile'
 import { useProviderHealthAlerts } from './hooks/useProviderHealthAlerts'
 import { useEventSync } from './lib/eventSync'
 import { logger } from './lib/logger'
@@ -38,6 +41,7 @@ function AppContent() {
   const location = useLocation()
   const queryClient = useQueryClient()
   const { getPluginByType } = usePlugins()
+  const mobileShell = useMobileShell()
 
   useEventSync()
   useFailureNotifications()
@@ -267,7 +271,44 @@ function AppContent() {
           }
         />
 
-        <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
+        <Route
+          path="/settings"
+          element={
+            mobileShell ? (
+              <ErrorBoundary scope="route">
+                <SettingsRoute onRefresh={invalidateAll} />
+              </ErrorBoundary>
+            ) : (
+              <Navigate to="/settings/general" replace />
+            )
+          }
+        />
+
+        <Route
+          path="/providers"
+          element={
+            mobileShell ? (
+              <ErrorBoundary scope="route">
+                <ProvidersPage />
+              </ErrorBoundary>
+            ) : (
+              <Navigate to="/pipelines" replace />
+            )
+          }
+        />
+
+        <Route
+          path="/notifications"
+          element={
+            mobileShell ? (
+              <ErrorBoundary scope="route">
+                <NotificationsPage />
+              </ErrorBoundary>
+            ) : (
+              <Navigate to="/pipelines" replace />
+            )
+          }
+        />
 
         <Route
           path="/settings/:section"

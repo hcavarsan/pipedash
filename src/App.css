@@ -60,6 +60,73 @@ body,
   padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 
+[data-mobile-shell] .mantine-AppShell-main {
+  padding-bottom: calc(var(--app-shell-padding) + 82px + var(--safe-bottom));
+}
+
+.ios-group {
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--mantine-color-default);
+  border: 1px solid var(--mantine-color-default-border);
+}
+
+.ios-row-shell {
+  position: relative;
+}
+
+.ios-row {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  align-content: center;
+  position: relative;
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 120ms ease;
+}
+
+.ios-row:active {
+  background-color: var(--mantine-color-default-hover);
+}
+
+.ios-group > :not(:first-child)::before,
+.ios-group > .ios-row-shell:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 56px;
+  height: 1px;
+  background: var(--mantine-color-default-border);
+}
+
+.ios-group > :not(:first-child) {
+  position: relative;
+}
+
+.ios-icon-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--mantine-color-default-hover);
+  color: var(--mantine-color-dimmed);
+}
+
+.ios-link-button {
+  color: var(--mantine-color-blue-light-color);
+}
+
+.settings-pushed h2:first-of-type {
+  display: none;
+}
+
 .sidebar-resize-handle {
   position: absolute;
   top: 0;

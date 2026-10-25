@@ -13,24 +13,19 @@ import {
   ThemeIcon,
   Tooltip,
 } from '@mantine/core'
-import { modals } from '@mantine/modals'
 import { IconAlertTriangle, IconEdit, IconPinFilled, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
-import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
-import { logger } from '../../lib/logger'
-import { useProviderDetails } from '../../queries/useProviderDetailsQuery'
-import { useAddProvider, useProviders, useRemoveProvider, useUpdateProvider } from '../../queries/useProvidersQueries'
+import { useProviders } from '../../queries/useProvidersQueries'
 import { useProviderStore } from '../../stores/providerStore'
-import type { ProviderConfig, ProviderSummary } from '../../types'
-import { displayErrorNotification } from '../../utils/errorDisplay'
+import type { ProviderSummary } from '../../types'
 import { formatCount } from '../../utils/formatCount'
 import { formatTime } from '../../utils/formatDateTime'
 import { ProviderIcon } from '../atoms/ProviderIcon'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
-import { AddProviderModal } from '../provider/AddProviderModal'
+import { useConfirmRemoveProvider } from '../provider/ProviderModals'
 
 interface NavbarProps {
   compact?: boolean
@@ -55,7 +50,7 @@ const NavTile = ({ icon: Icon, size }: { icon: typeof IconStack2; size: number }
   </ThemeIcon>
 )
 
-const ProviderAvatar = ({ provider, size }: { provider: ProviderSummary; size: number }) => (
+export const ProviderAvatar = ({ provider, size }: { provider: ProviderSummary; size: number }) => (
   <ProviderIcon
     name={provider.name}
     icon={provider.icon}
@@ -64,7 +59,7 @@ const ProviderAvatar = ({ provider, size }: { provider: ProviderSummary; size: n
   />
 )
 
-const ProviderStatusLine = ({ provider }: { provider: ProviderSummary }) => {
+export const ProviderStatusLine = ({ provider }: { provider: ProviderSummary }) => {
   const { text, failed } = providerStatus(provider)
 
   return (
@@ -80,12 +75,8 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
   const pinnedActive = pathname === '/pipelines' && searchParams.get('view') === 'pinned'
   const providerParam = pathname === '/pipelines' && !pinnedActive ? searchParams.get('provider') : null
 
-  const addProviderModal = useProviderStore((s) => s.addProviderModal)
-  const editProviderModal = useProviderStore((s) => s.editProviderModal)
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
-  const closeAddProviderModal = useProviderStore((s) => s.closeAddProviderModal)
-  const openEditProviderModal = useProviderStore((s) => s.openEditProviderModal)
-  const closeEditProviderModal = useProviderStore((s) => s.closeEditProviderModal)
+  const requestEditProvider = useProviderStore((s) => s.requestEditProvider)
 
   const {
     data: providers = [],
@@ -95,62 +86,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
     isRefetching: refetchingProviders,
   } = useProviders()
 
-  const { mutateAsync: addProviderMutation } = useAddProvider()
-  const { mutateAsync: updateProviderMutation } = useUpdateProvider()
-  const { mutateAsync: removeProviderMutation } = useRemoveProvider()
-
-  const [selectedEditId, setSelectedEditId] = useState<number | null>(null)
-  const { data: providerDetails } = useProviderDetails(selectedEditId)
-
-  useEffect(() => {
-    if (providerDetails && selectedEditId) {
-      openEditProviderModal(providerDetails)
-      setSelectedEditId(null)
-    }
-  }, [providerDetails, selectedEditId, openEditProviderModal])
-
-  const handleRemove = useCallback(
-    (id: number, name: string) => {
-      modals.openConfirmModal({
-        title: 'Remove provider',
-        children: (
-          <Text size="sm">
-            Remove &quot;{name}&quot; and its pipelines from Pipedash? This action cannot be undone.
-          </Text>
-        ),
-        labels: { confirm: 'Remove provider', cancel: 'Cancel' },
-        confirmProps: { color: 'red' },
-        onConfirm: async () => {
-          try {
-            await removeProviderMutation(id)
-          } catch (err) {
-            logger.error('Navbar', 'Failed to remove provider', err)
-            displayErrorNotification(err, "Couldn't remove provider")
-          }
-        },
-      })
-    },
-    [removeProviderMutation]
-  )
-
-  const handleUpdateProvider = useCallback(
-    async (id: number, config: ProviderConfig) => {
-      await updateProviderMutation({ id, config })
-    },
-    [updateProviderMutation]
-  )
-
-  const handleAddProvider = useCallback(
-    async (config: ProviderConfig) => {
-      await addProviderMutation(config)
-    },
-    [addProviderMutation]
-  )
-
-  const handleCloseAddModal = useCallback(() => {
-    closeAddProviderModal()
-    refetchProviders()
-  }, [closeAddProviderModal, refetchProviders])
+  const confirmRemove = useConfirmRemoveProvider()
 
   const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
   const allActive = pathname === '/pipelines' && providerParam === null && !pinnedActive
@@ -285,7 +221,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
                     variant="subtle"
                     color="gray"
                     aria-label={`Edit ${provider.name}`}
-                    onClick={() => setSelectedEditId(provider.id)}
+                    onClick={() => requestEditProvider(provider.id)}
                   >
                     <IconEdit size={14} />
                   </ActionIcon>
@@ -296,7 +232,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
                     variant="subtle"
                     color="gray"
                     aria-label={`Remove ${provider.name}`}
-                    onClick={() => handleRemove(provider.id, provider.name)}
+                    onClick={() => confirmRemove(provider.id, provider.name)}
                   >
                     <IconTrash size={14} />
                   </ActionIcon>
@@ -341,18 +277,6 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
           </Button>
         )}
       </Box>
-
-      <AddProviderModal opened={addProviderModal.open} onClose={handleCloseAddModal} onAdd={handleAddProvider} />
-
-      {editProviderModal.provider && (
-        <AddProviderModal
-          opened={editProviderModal.open}
-          onClose={closeEditProviderModal}
-          onUpdate={handleUpdateProvider}
-          editMode
-          existingProvider={editProviderModal.provider}
-        />
-      )}
     </Stack>
   )
 }
