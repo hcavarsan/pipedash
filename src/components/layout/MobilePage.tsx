@@ -14,8 +14,9 @@ import { MobileLargeTitle } from './MobileLargeTitle'
 import classes from './MobilePage.module.css'
 import { fromOf, type MobileTab, mobileChrome, routeKey, splitLocation } from './mobileChrome'
 import { edgeOffset, scrollEdge, swipeProgress, titleCollapse, transitionKind } from './navigation'
+import { createSearchReveal, type Reveal } from './searchReveal'
 import { captureSnapshot, mountSnapshot, snapshotCollapse, updateSnapshot } from './snapshots'
-import { createSpringValue, type SpringValue } from './springValue'
+import { createSpringValue } from './springValue'
 import { useGoBack } from './useMobileBack'
 
 const PARALLAX = 0.3
@@ -26,22 +27,12 @@ const FLICK_SPEED = 500
 const SPOKES = Array.from({ length: 12 }, (_, index) => index)
 const REVEAL_SETTLE_MS = 150
 
-interface Reveal {
-  element: HTMLElement
-  bar: HTMLElement
-  full: number
-  spring: SpringValue
-}
-
 interface PullContext {
   origin: number
   height: number
   reveal: Reveal | null
   revealOrigin: number
 }
-
-const revealIsOpen = (element: HTMLElement) =>
-  element.hasAttribute('data-open') || element.hasAttribute('data-pinned') || element.matches(':focus-within')
 
 type Mode = 'idle' | 'live' | 'overlay'
 
@@ -450,49 +441,10 @@ export function MobilePage({ children }: { children: ReactNode }) {
     let grabbing = false
     let run = 0
     let statusTimer = 0
-    let reveal: Reveal | null = null
     let touching = false
     let settleTimer = 0
 
-    const closedReveal = (): Reveal | null => {
-      const element = pageRef.current?.querySelector<HTMLElement>('[data-search-reveal]')
-      const bar = element?.firstElementChild
-
-      if (!element || !(bar instanceof HTMLElement) || revealIsOpen(element)) {
-        return null
-      }
-
-      if (reveal?.element !== element) {
-        const full = bar.offsetHeight
-
-        reveal = {
-          element,
-          bar,
-          full,
-          spring: createSpringValue(0, (value) => {
-            element.style.height = `${value}px`
-            bar.style.opacity = String(full > 0 ? Math.min(1, value / full) : 1)
-          }),
-        }
-      }
-
-      return reveal
-    }
-
-    const settleReveal = (target: Reveal, open: boolean, velocity: number) => {
-      target.spring.to(open ? target.full : 0, velocity, springFor(velocity)).then((live) => {
-        if (!live) {
-          return
-        }
-
-        target.element.toggleAttribute('data-open', open)
-        target.element.style.height = ''
-        target.bar.style.opacity = ''
-        if (!open && reveal === target) {
-          reveal = null
-        }
-      })
-    }
+    const reveals = createSearchReveal(() => pageRef.current)
 
     const hideRevealOutOfView = () => {
       const element = pageRef.current?.querySelector<HTMLElement>('[data-search-reveal][data-open]')
@@ -594,7 +546,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
       axis: 'y',
       retry: true,
       begin: () => {
-        const closed = closedReveal()
+        const closed = reveals.closed()
 
         if ((!refreshRef.current && !closed) || overlayOpen() || main.scrollTop > 0) {
           return null
@@ -641,7 +593,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
           const shown = context.reveal.spring.value
           const open = armed || shown >= context.reveal.full / 2 || (vy > FLICK_SPEED && shown > 0)
 
-          settleReveal(context.reveal, open, vy)
+          reveals.settle(context.reveal, open, vy, springFor(vy))
         }
 
         if (armed && !inflight) {
@@ -658,7 +610,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
         arm(false)
         rest(0)
         if (context.reveal) {
-          settleReveal(context.reveal, false, 0)
+          reveals.settle(context.reveal, false, 0, SPRING_DEFAULT)
         }
       },
     })
@@ -666,7 +618,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
     return () => {
       stop()
       pull.grab()
-      reveal?.spring.grab()
+      reveals.stop()
       run += 1
       window.clearTimeout(statusTimer)
       window.clearTimeout(settleTimer)
