@@ -95,6 +95,26 @@ fn ensure_desktop_config(app_data_dir: &Path, config_path: &Path) -> Result<bool
     Ok(true)
 }
 
+#[cfg(any(mobile, test))]
+fn follow_app_container(config_path: &Path) -> Result<bool, String> {
+    if !config_path.exists() {
+        return Ok(false);
+    }
+
+    let content = std::fs::read_to_string(config_path)
+        .map_err(|e| format!("Failed to read config: {}", e))?;
+    let mut config =
+        ConfigLoader::parse_raw(&content).map_err(|e| format!("Failed to parse config: {}", e))?;
+    if config.storage.data_dir.is_empty() {
+        return Ok(false);
+    }
+
+    config.storage.data_dir.clear();
+    ConfigLoader::save(&config, config_path)
+        .map_err(|e| format!("Failed to save config: {}", e))?;
+    Ok(true)
+}
+
 pub struct AppDataDir(pub PathBuf);
 
 #[derive(Default)]
@@ -259,6 +279,16 @@ pub fn run() {
                         "Failed to ensure desktop config: {}. This is unexpected for desktop.",
                         e
                     );
+                }
+            }
+
+            #[cfg(mobile)]
+            {
+                std::env::set_var("PIPEDASH_DATA_DIR", app_data_dir.as_os_str());
+                match follow_app_container(&config_path) {
+                    Ok(true) => tracing::info!("Storage now follows the app container"),
+                    Ok(false) => {}
+                    Err(e) => tracing::error!("Failed to update storage location: {}", e),
                 }
             }
 
@@ -436,5 +466,31 @@ mod tests {
             assert!(config.general.status_pages_enabled);
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_config_from_an_old_app_container_follows_the_current_one() {
+        let root = tempfile::tempdir().unwrap();
+        let config_path = root.path().join("config.toml");
+        std::fs::write(
+            &config_path,
+            "[general]\nmetrics_enabled = true\n\n[storage]\n\
+             data_dir = \"/var/mobile/Containers/Data/Application/OLD-UUID/Library/Application Support/com.henrique.pipedash\"\n\
+             backend = \"sqlite\"\n\n[providers.github]\ntype = \"github\"\ntoken = \"${GITHUB_TOKEN}\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(follow_app_container(&config_path), Ok(true));
+
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(!text.contains("OLD-UUID"), "{text}");
+        assert!(
+            text.contains("${GITHUB_TOKEN}"),
+            "env references must stay unexpanded: {text}"
+        );
+        let config = ConfigLoader::parse_raw(&text).unwrap();
+        assert!(config.storage.data_dir.is_empty());
+        assert!(config.storage.backend.is_sqlite());
+        assert_eq!(follow_app_container(&config_path), Ok(false));
     }
 }

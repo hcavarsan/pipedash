@@ -250,11 +250,15 @@ async fn create_storage_manager(
                     "StorageManager initialization failed (not database corruption): {}",
                     error_msg
                 );
+                let hint = if cfg!(mobile) {
+                    ""
+                } else {
+                    " Check your PIPEDASH_VAULT_PASSWORD environment variable."
+                };
                 BootError::Storage(format!(
                     "Failed to initialize storage: {}. \
-                    This appears to be a configuration issue, not database corruption. \
-                    Check your PIPEDASH_VAULT_PASSWORD environment variable.",
-                    error_msg
+                    This appears to be a configuration issue, not database corruption.{}",
+                    error_msg, hint
                 ))
             }
         });

@@ -329,7 +329,9 @@ impl ConfigLoader {
                 Item::Value(config.storage.backend.to_string().into()),
             );
 
-            if !config.storage.data_dir.is_empty() {
+            if config.storage.data_dir.is_empty() {
+                storage.remove("data_dir");
+            } else {
                 storage.insert(
                     "data_dir",
                     Item::Value(config.storage.data_dir.clone().into()),
@@ -553,6 +555,25 @@ bind_addr = "${NONEXISTENT_VAR:-127.0.0.1:8080}"
         let reloaded = ConfigLoader::load(&path).unwrap();
         assert!(!reloaded.general.status_pages_enabled);
         assert_eq!(reloaded.general.default_refresh_interval, 30);
+    }
+
+    #[test]
+    fn test_save_with_the_default_data_dir_drops_the_old_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "[storage]\n# where data lives\ndata_dir = \"/old/custom/dir\"\nbackend = \"sqlite\"\n",
+        )
+        .unwrap();
+        let mut config = ConfigLoader::load(&path).unwrap();
+        config.storage.data_dir.clear();
+
+        ConfigLoader::save(&config, &path).unwrap();
+
+        let reloaded = ConfigLoader::load(&path).unwrap();
+        assert!(reloaded.storage.data_dir.is_empty());
+        assert_eq!(reloaded.data_dir(), PipedashConfig::default_data_dir());
     }
 
     #[test]
