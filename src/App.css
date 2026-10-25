@@ -64,65 +64,6 @@ body,
   padding-bottom: calc(var(--app-shell-padding) + 82px + var(--safe-bottom));
 }
 
-.ios-group {
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--mantine-color-default);
-  border: 1px solid var(--mantine-color-default-border);
-}
-
-.ios-row-shell {
-  position: relative;
-}
-
-.ios-row {
-  display: block;
-  width: 100%;
-  min-height: 52px;
-  padding: 10px 14px;
-  box-sizing: border-box;
-  align-content: center;
-  position: relative;
-  color: inherit;
-  text-decoration: none;
-  transition: background-color 120ms ease;
-}
-
-.ios-row:active {
-  background-color: var(--mantine-color-default-hover);
-}
-
-.ios-group > :not(:first-child)::before,
-.ios-group > .ios-row-shell:not(:first-child)::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 56px;
-  height: 1px;
-  background: var(--mantine-color-default-border);
-}
-
-.ios-group > :not(:first-child) {
-  position: relative;
-}
-
-.ios-icon-tile {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: var(--mantine-color-default-hover);
-  color: var(--mantine-color-dimmed);
-}
-
-.ios-link-button {
-  color: var(--mantine-color-blue-light-color);
-}
-
 .settings-pushed h2:first-of-type {
   display: none;
 }
@@ -295,6 +236,72 @@ select {
     background: transparent;
     border: none;
   }
+}
+
+[data-ios] {
+  --ios-sheet: #f2f2f7;
+  --ios-alert: rgb(249 249 249 / 0.92);
+  --ios-cell: #fff;
+  --ios-chevron: rgb(60 60 67 / 0.3);
+  --ios-separator: rgb(60 60 67 / 0.29);
+  --ios-fill: rgb(120 120 128 / 0.16);
+  --ios-grabber: rgb(60 60 67 / 0.3);
+  --ios-segment-active: #fff;
+  --ios-checkbox-border: rgb(60 60 67 / 0.3);
+  --ios-green: #30d158;
+  --ios-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --switch-height-sm: 31px;
+  --switch-width-sm: 51px;
+  --switch-thumb-size-sm: 27px;
+  --switch-height-md: 31px;
+  --switch-width-md: 51px;
+  --switch-thumb-size-md: 27px;
+  --switch-height-lg: 31px;
+  --switch-width-lg: 51px;
+  --switch-thumb-size-lg: 27px;
+}
+
+[data-ios][data-mantine-color-scheme="dark"] {
+  --ios-sheet: #1c1c1e;
+  --ios-alert: rgb(44 44 46 / 0.92);
+  --ios-cell: #2c2c2e;
+  --ios-chevron: rgb(235 235 245 / 0.3);
+  --ios-separator: rgb(84 84 88 / 0.65);
+  --ios-fill: rgb(120 120 128 / 0.32);
+  --ios-grabber: rgb(235 235 245 / 0.3);
+  --ios-segment-active: #636366;
+  --ios-checkbox-border: rgb(235 235 245 / 0.3);
+}
+
+[data-ios] body {
+  font-size: 17px;
+  -webkit-touch-callout: none;
+}
+
+[data-ios] input,
+[data-ios] textarea,
+[data-ios] select {
+  font-size: 17px;
+}
+
+[data-ios] .mantine-AppShell-header {
+  background: color-mix(in srgb, var(--mantine-color-body) 78%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 0.5px solid transparent;
+  transition: border-color 160ms ease;
+}
+
+[data-ios] .mantine-AppShell-header:has([data-scrolled]) {
+  border-bottom-color: var(--ios-separator);
+}
+
+[data-ios] .interactive-surface:hover {
+  background-color: transparent;
+}
+
+[data-ios] .interactive-surface:active {
+  background-color: var(--ios-fill);
 }
 
 @media (prefers-reduced-motion: reduce) {

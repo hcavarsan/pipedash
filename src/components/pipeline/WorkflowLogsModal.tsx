@@ -1,8 +1,8 @@
-import { Alert, Box, Button, Code, Divider, Group, Paper, Stack, Text } from '@mantine/core'
+import { Alert, Box, Button, Code, Divider, Group, Loader, Paper, Stack, Text } from '@mantine/core'
 import { IconExternalLink, IconPlayerPlay, IconRefresh, IconSquare } from '@tabler/icons-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
-import { useIsMobile } from '../../hooks/useIsMobile'
+import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { useRerunWorkflow, useRunDetails } from '../../queries/useRunDetailsQuery'
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
@@ -14,12 +14,16 @@ import { filterVisibleColumns } from '../../utils/columnBuilder'
 import { type CellValue, renderCellValue } from '../../utils/dynamicRenderers'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 import { getValueByPath } from '../../utils/objectPath'
+import { isHttpUrl, openExternal } from '../../utils/openExternal'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { CopyButton } from '../atoms/CopyButton'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
+import { IosGroup, IosRow } from '../ios/IosList'
+
+import classes from './WorkflowLogsModal.module.css'
 
 interface WorkflowLogsModalProps {
   opened: boolean
@@ -69,6 +73,7 @@ export const WorkflowLogsModal = ({
 }: WorkflowLogsModalProps) => {
   const [cancelling, setCancelling] = useState(false)
   const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
   const abortRef = useRef(false)
   const labels = getPipelineLabels(providerType)
   const isFlux = providerType === 'fluxcd'
@@ -301,8 +306,8 @@ export const WorkflowLogsModal = ({
       return [{ field, value }]
     })
 
-    return (
-      <Stack gap={isMobile ? 'xs' : 'md'}>
+    const notices = (
+      <>
         {runDetails.metadata?.archived === true && (
           <Alert color="gray" title="Cached reconciliation">
             Flux no longer retains this entry. These details come from Pipedash's cache and will disappear if the cache
@@ -318,7 +323,77 @@ export const WorkflowLogsModal = ({
             <Text size={TYPOGRAPHY.HELPER_TEXT.size}>Details refresh automatically every 10 seconds.</Text>
           </Alert>
         )}
+      </>
+    )
 
+    if (mobileShell) {
+      const hasLogs = isHttpUrl(runDetails.logs_url)
+      const stoppable = isRunning && canCancel
+      const note = isFlux
+        ? (triggerBlockedReason ??
+          'Reconcile uses the current resource configuration. It does not restore this historical revision.')
+        : isPending && canCancel
+          ? 'This run is pending. It can be stopped or rerun once it starts.'
+          : undefined
+
+      return (
+        <Stack gap="lg">
+          {notices}
+          <IosGroup>
+            {rows.map(({ field, value }) =>
+              field.id === 'message' ||
+              (field.renderer === 'Text' && typeof value === 'string' && value.length > 32) ? (
+                <IosRow key={field.id} title={renderValue(field, value)} subtitle={field.label} />
+              ) : (
+                <IosRow
+                  key={field.id}
+                  title={field.label}
+                  value={<span className={classes.value}>{renderValue(field, value)}</span>}
+                />
+              )
+            )}
+          </IosGroup>
+          {(hasLogs || (!isRunning && canTrigger)) && (
+            <IosGroup footer={stoppable ? undefined : note}>
+              {hasLogs && (
+                <IosRow
+                  title="View full logs"
+                  accessory={<IconExternalLink size={18} />}
+                  onClick={() => openExternal(runDetails.logs_url)}
+                />
+              )}
+              {!isRunning && canTrigger && (
+                <IosRow
+                  title={
+                    <Text component="span" inherit c="blue">
+                      {isFlux ? labels.trigger : 'Rerun workflow'}
+                    </Text>
+                  }
+                  accessory={rerunMutation.isPending ? <Loader size="sm" /> : undefined}
+                  disabled={rerunMutation.isPending}
+                  onClick={handleRerun}
+                />
+              )}
+            </IosGroup>
+          )}
+          {stoppable && (
+            <IosGroup footer={note}>
+              <IosRow
+                title="Stop workflow"
+                destructive
+                accessory={cancelling ? <Loader size="sm" /> : undefined}
+                disabled={isPending || cancelling}
+                onClick={handleCancel}
+              />
+            </IosGroup>
+          )}
+        </Stack>
+      )
+    }
+
+    return (
+      <Stack gap={isMobile ? 'xs' : 'md'}>
+        {notices}
         <Paper withBorder p={isMobile ? 'md' : 'lg'}>
           <Stack gap="sm">
             {rows.map(({ field, value }, index) => (
@@ -348,7 +423,8 @@ export const WorkflowLogsModal = ({
       onClose={onClose}
       size="lg"
       title={isFlux ? 'Reconciliation details' : 'Run details'}
-      footer={footer}
+      footer={mobileShell ? undefined : footer}
+      fullHeight
     >
       {renderContent()}
     </StandardModal>

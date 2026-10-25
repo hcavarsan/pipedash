@@ -2,7 +2,10 @@ import { Button, Center, Code, Group, Paper, Stack, Text, ThemeIcon, Title } fro
 import { IconAlertTriangle } from '@tabler/icons-react'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
+
+import { StatusScreen } from './StatusScreen'
 
 type Scope = 'app' | 'route' | 'feature'
 
@@ -38,7 +41,40 @@ interface BoundaryFallbackProps {
 }
 
 function BoundaryFallback({ scope, name, error, componentStack, onRetry }: BoundaryFallbackProps) {
+  const mobileShell = useMobileShell()
   const title = name ? `${name} failed to load` : SCOPE_TITLE[scope]
+
+  if (mobileShell) {
+    return (
+      <StatusScreen
+        icon={
+          <ThemeIcon variant="transparent" color="red" size={48}>
+            <IconAlertTriangle size={40} aria-hidden />
+          </ThemeIcon>
+        }
+        title={title}
+        message={error.message || 'An unexpected error occurred'}
+        minHeight={scope === 'app' ? '100dvh' : 400}
+        detail={
+          import.meta.env.DEV && componentStack ? (
+            <Code block fz="xs" mah={200} w="100%" style={{ overflow: 'auto' }}>
+              {componentStack}
+            </Code>
+          ) : null
+        }
+        actions={
+          <>
+            <Button size="md" fullWidth onClick={() => window.location.reload()}>
+              Reload page
+            </Button>
+            <Button size="md" fullWidth variant="default" onClick={onRetry}>
+              Try again
+            </Button>
+          </>
+        }
+      />
+    )
+  }
 
   return (
     <Center mih={SCOPE_MIN_HEIGHT[scope]} p="xl" role="alert">

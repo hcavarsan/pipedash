@@ -2,10 +2,14 @@ import { Alert, Badge, Box, Button, Card, Code, Divider, Group, Stack, Text, The
 import { IconAlertCircle, IconCheck, IconRefresh, IconX } from '@tabler/icons-react'
 import type React from 'react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import type { FeatureAvailability, PermissionStatus, PluginMetadata } from '../../types'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
+import { IosGroup, IosRow } from '../ios/IosList'
+
+import classes from './AddProviderModal/ShellForm.module.css'
 
 const formatPermissionDescription = (description: string) => {
   const parts: (string | React.ReactNode)[] = []
@@ -30,6 +34,49 @@ const formatPermissionDescription = (description: string) => {
   return parts.length > 0 ? parts : [description]
 }
 
+function ShellPermissions({ status, features }: { status: PermissionStatus; features: FeatureAvailability[] }) {
+  const tokenType = status.metadata?.token_type
+
+  return (
+    <Stack gap="lg">
+      {tokenType && (
+        <IosGroup>
+          <IosRow title="Token type" value={tokenType === 'classic_pat' ? 'Classic PAT' : 'Fine-grained token'} />
+        </IosGroup>
+      )}
+      <IosGroup>
+        {status.permissions.map((check) => {
+          const featureNames = features
+            .filter((f) => f.feature.required_permissions.includes(check.permission.name))
+            .map((f) => f.feature.name)
+
+          return (
+            <IosRow
+              key={check.permission.name}
+              title={<span className={classes.permissionName}>{check.permission.name}</span>}
+              subtitle={
+                <>
+                  <span className={`${classes.line} ${check.granted ? classes.granted : classes.missing}`}>
+                    {check.granted ? <IconCheck size={14} aria-hidden /> : <IconX size={14} aria-hidden />}
+                    {check.granted ? 'Granted' : 'Missing'} · {check.permission.required ? 'Required' : 'Optional'}
+                  </span>
+                  <span className={classes.line}>{formatPermissionDescription(check.permission.description)}</span>
+                  {featureNames.length > 0 && (
+                    <span className={classes.line}>
+                      {check.granted ? 'With this you can: ' : "Missing this means you can't: "}
+                      {featureNames.join(', ')}
+                    </span>
+                  )}
+                </>
+              }
+            />
+          )
+        })}
+      </IosGroup>
+    </Stack>
+  )
+}
+
 interface PermissionCheckModalProps {
   opened: boolean
   onClose: () => void
@@ -51,6 +98,8 @@ export const PermissionCheckModal = ({
   loading,
   error,
 }: PermissionCheckModalProps) => {
+  const mobileShell = useMobileShell()
+  const shellTitle = metadata?.provider_type === 'fluxcd' ? 'Kubernetes permissions' : 'Token permissions'
   const modalTitle = (
     <Group justify="space-between" w="100%">
       <Text fw={600}>{metadata?.provider_type === 'fluxcd' ? 'Kubernetes permissions' : 'Token permissions'}</Text>
@@ -63,11 +112,13 @@ export const PermissionCheckModal = ({
   )
 
   return (
-    <StandardModal opened={opened} onClose={onClose} title={modalTitle} size="md">
+    <StandardModal opened={opened} onClose={onClose} title={mobileShell ? shellTitle : modalTitle} size="md">
       {loading ? (
         <LoadingState variant="section" message="Checking permissions..." />
       ) : error ? (
         <ErrorState title="Couldn't check permissions" error={error} onRetry={onRetry} />
+      ) : status && mobileShell ? (
+        <ShellPermissions status={status} features={features} />
       ) : status ? (
         <Stack gap="sm">
           {status.permissions.map((check) => {

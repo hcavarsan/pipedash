@@ -3,10 +3,13 @@ import { IconExternalLink } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import { getVersion } from '@tauri-apps/api/app'
 
+import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { apiService, isTauri } from '@/services'
 import { openExternal } from '@/utils/openExternal'
+
+import { IosGroup, IosRow } from '../../ios/IosList'
 
 const LINKS = [
   { label: 'Privacy Policy', url: 'https://github.com/hcavarsan/pipedash/blob/main/PRIVACY.md' },
@@ -15,11 +18,37 @@ const LINKS = [
 ]
 
 export function AboutSection() {
+  const mobileShell = useMobileShell()
   const { data: version } = useQuery({
     queryKey: queryKeys.app.version(),
     queryFn: () => (isTauri() ? getVersion() : apiService.getServerVersion()),
     staleTime: Infinity,
   })
+
+  const openLink = (url: string) =>
+    openExternal(url).catch((error: unknown) => logger.error('AboutSection', `Couldn't open ${url}`, error))
+
+  if (mobileShell) {
+    return (
+      <Stack gap="lg" pb="md">
+        <IosGroup>
+          <IosRow title="Pipedash" value={`Version ${version ?? 'unknown'}`} />
+        </IosGroup>
+        <IosGroup>
+          {LINKS.map(({ label, url }) => (
+            <IosRow
+              key={url}
+              title={label}
+              accessory={<IconExternalLink size={18} />}
+              onClick={() => {
+                void openLink(url)
+              }}
+            />
+          ))}
+        </IosGroup>
+      </Stack>
+    )
+  }
 
   return (
     <>

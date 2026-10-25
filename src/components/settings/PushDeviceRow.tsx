@@ -1,5 +1,9 @@
-import { ActionIcon, Group, Stack, Text, Tooltip } from '@mantine/core'
-import { IconSend, IconTrash } from '@tabler/icons-react'
+import { ActionIcon, Group, Menu, Stack, Text, Tooltip } from '@mantine/core'
+import { IconDots, IconSend, IconTrash } from '@tabler/icons-react'
+
+import { useMobileShell } from '../../hooks/useIsMobile'
+import { ActionSheetCancel } from '../ios/ActionSheetCancel'
+import { IosRow } from '../ios/IosList'
 
 interface PushDeviceRowProps {
   title: string
@@ -21,35 +25,72 @@ export const PushDeviceRow = ({
   removing,
   onTest,
   onRemove,
-}: PushDeviceRowProps) => (
-  <Group justify="space-between" wrap="nowrap" gap="sm">
-    <Stack gap={0} miw={0}>
-      <Text size="sm" fw={500} truncate>
-        {title}
-      </Text>
-      <Text size="xs" c="dimmed" truncate>
-        {subtitle}
-      </Text>
-    </Stack>
+}: PushDeviceRowProps) => {
+  const mobileShell = useMobileShell()
 
-    <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
-      <Tooltip label={testLabel}>
-        <ActionIcon variant="subtle" color="gray" size="lg" aria-label={testLabel} loading={testing} onClick={onTest}>
-          <IconSend size={16} />
-        </ActionIcon>
-      </Tooltip>
-      <Tooltip label={removeLabel}>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          size="lg"
-          aria-label={removeLabel}
-          loading={removing}
-          onClick={onRemove}
-        >
-          <IconTrash size={16} />
-        </ActionIcon>
-      </Tooltip>
+  if (mobileShell) {
+    return (
+      <IosRow
+        title={title}
+        subtitle={subtitle}
+        accessory={
+          <Menu position="bottom-end">
+            <Menu.Target>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                aria-label={`Actions for ${title}`}
+                loading={testing || removing}
+              >
+                <IconDots size={20} />
+              </ActionIcon>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Label>{title}</Menu.Label>
+              <Menu.Item leftSection={<IconSend size={18} />} onClick={onTest}>
+                Send test push
+              </Menu.Item>
+              <Menu.Item color="red" leftSection={<IconTrash size={18} />} onClick={onRemove}>
+                Remove
+              </Menu.Item>
+              <ActionSheetCancel />
+            </Menu.Dropdown>
+          </Menu>
+        }
+      />
+    )
+  }
+
+  return (
+    <Group justify="space-between" wrap="nowrap" gap="sm">
+      <Stack gap={0} miw={0}>
+        <Text size="sm" fw={500} truncate>
+          {title}
+        </Text>
+        <Text size="xs" c="dimmed" truncate>
+          {subtitle}
+        </Text>
+      </Stack>
+
+      <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+        <Tooltip label={testLabel}>
+          <ActionIcon variant="subtle" color="gray" size="lg" aria-label={testLabel} loading={testing} onClick={onTest}>
+            <IconSend size={16} />
+          </ActionIcon>
+        </Tooltip>
+        <Tooltip label={removeLabel}>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="lg"
+            aria-label={removeLabel}
+            loading={removing}
+            onClick={onRemove}
+          >
+            <IconTrash size={16} />
+          </ActionIcon>
+        </Tooltip>
+      </Group>
     </Group>
-  </Group>
-)
+  )
+}

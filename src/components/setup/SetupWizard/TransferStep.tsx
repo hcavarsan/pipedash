@@ -1,9 +1,60 @@
 import { Alert, Group, Radio, Stack, Text } from '@mantine/core'
-import { IconAlertCircle, IconDatabase, IconDatabaseOff } from '@tabler/icons-react'
+import { IconAlertCircle, IconCheck, IconDatabase, IconDatabaseOff } from '@tabler/icons-react'
+
+import { useMobileShell } from '../../../hooks/useIsMobile'
+import { IosGroup, IosRow } from '../../ios/IosList'
 
 import type { TransferStepProps } from './types'
 
 export function TransferStep({ state, setState, error }: TransferStepProps) {
+  const mobileShell = useMobileShell()
+
+  if (mobileShell) {
+    const options = [
+      {
+        transfer: true,
+        title: 'Transfer data',
+        subtitle: 'Recommended. Migrate providers, tokens, and history to the new location.',
+        icon: <IconDatabase size={18} aria-hidden />,
+      },
+      {
+        transfer: false,
+        title: 'Start fresh',
+        subtitle:
+          'Start with an empty database. Existing providers and credentials stay behind in the previous location.',
+        icon: <IconDatabaseOff size={18} aria-hidden />,
+      },
+    ]
+
+    return (
+      <Stack gap="md">
+        <IosGroup header="Existing data">
+          {options.map((option) => {
+            const selected = state.transferData === option.transfer
+
+            return (
+              <IosRow
+                key={option.title}
+                icon={option.icon}
+                title={option.title}
+                subtitle={option.subtitle}
+                ariaLabel={selected ? `${option.title}, selected` : option.title}
+                accessory={selected ? <IconCheck size={20} color="var(--mantine-color-blue-light-color)" /> : undefined}
+                onClick={() => setState({ ...state, transferData: option.transfer })}
+              />
+            )
+          })}
+        </IosGroup>
+
+        {error && (
+          <Text size="sm" c="red" px="md">
+            {error}
+          </Text>
+        )}
+      </Stack>
+    )
+  }
+
   return (
     <Stack gap="md">
       <Radio.Group

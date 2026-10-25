@@ -1,10 +1,14 @@
-import { Group, Paper, Table, Text, UnstyledButton } from '@mantine/core'
-import { IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react'
+import { Group, Menu, Paper, Stack, Table, Text, UnstyledButton } from '@mantine/core'
+import { IconCheck, IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react'
 import { useState } from 'react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import type { AggregatedMetric, AggregatedMetrics } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
+import { ActionSheetCancel } from '../ios/ActionSheetCancel'
+import { IosGroup, IosRow } from '../ios/IosList'
 
+import classes from './metrics.module.css'
 import { formatMetricValue, hasObservation, METRIC_CONFIG } from './metricsUtils'
 
 interface MetricsDataTableProps {
@@ -19,6 +23,7 @@ type SortDirection = 'asc' | 'desc'
 const SORT_ARIA: Record<SortDirection, 'ascending' | 'descending'> = { asc: 'ascending', desc: 'descending' }
 
 export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDataTableProps) => {
+  const mobileShell = useMobileShell()
   const [sort, setSort] = useState<{ field: SortField; direction: SortDirection } | null>(null)
   const metricType = data.metric_type
 
@@ -79,6 +84,68 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
       <IconChevronUp size={14} aria-hidden />
     ) : (
       <IconChevronDown size={14} aria-hidden />
+    )
+  }
+
+  if (mobileShell) {
+    const sortLabel = sort
+      ? `${columns.find(({ field }) => field === sort.field)?.label} · ${sort.direction === 'asc' ? 'Ascending' : 'Descending'}`
+      : 'Default'
+
+    return (
+      <Stack gap="lg">
+        <IosGroup footer="Choose the same column again to reverse or clear the order.">
+          <Menu position="bottom" withinPortal>
+            <Menu.Target>
+              <UnstyledButton className={classes.menuRow}>
+                <span>Sort by</span>
+                <span className={classes.menuRowValue}>{sortLabel}</span>
+              </UnstyledButton>
+            </Menu.Target>
+            <Menu.Dropdown>
+              {columns.map(({ field, label }) => (
+                <Menu.Item
+                  key={field}
+                  onClick={() => handleSort(field)}
+                  rightSection={
+                    sort?.field === field ? (
+                      sort.direction === 'asc' ? (
+                        <IconChevronUp size={16} aria-hidden />
+                      ) : (
+                        <IconChevronDown size={16} aria-hidden />
+                      )
+                    ) : null
+                  }
+                >
+                  {label}
+                </Menu.Item>
+              ))}
+              <ActionSheetCancel />
+            </Menu.Dropdown>
+          </Menu>
+        </IosGroup>
+
+        <IosGroup header={`Data points (${data.metrics.length} periods)`}>
+          {sortedMetrics.map((metric) => {
+            const originalIndex = data.metrics.indexOf(metric)
+            const isSelected = selectedIndex === originalIndex
+            const range = `Min ${formatMetricValue(metric.min, metricType)} · Max ${formatMetricValue(metric.max, metricType)}`
+
+            return (
+              <IosRow
+                key={metric.timestamp}
+                title={formatDateTime(metric.timestamp)}
+                subtitle={`Count ${metric.count} · ${range}`}
+                value={formatMetricValue(hasObservation(metric, metricType) ? metric.value : null, metricType)}
+                accessory={
+                  isSelected ? <IconCheck size={18} color="var(--mantine-color-anchor)" aria-hidden /> : undefined
+                }
+                onClick={() => onRowClick(isSelected ? null : originalIndex)}
+              />
+            )
+          })}
+        </IosGroup>
+      </Stack>
     )
   }
 

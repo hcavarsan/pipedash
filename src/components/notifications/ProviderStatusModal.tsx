@@ -2,6 +2,7 @@ import { Anchor, Button, Divider, Group, Modal, Stack, Text } from '@mantine/cor
 import { IconExternalLink } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
 import { useProviders } from '../../queries/useProvidersQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
@@ -13,6 +14,7 @@ import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { openExternal } from '../../utils/openExternal'
 import { fetchHint, providerAttention, scheduleNote } from '../../utils/providerAttention'
 import { ProviderIcon } from '../atoms/ProviderIcon'
+import { IosGroup, IosRow } from '../ios/IosList'
 import { ProviderRecoveryActions } from '../provider/ProviderRecoveryActions'
 
 export const openLink = (url: string) => {
@@ -93,6 +95,28 @@ function IncidentItem({ incident, source, now }: { incident: Incident; source: s
   )
 }
 
+type StatusPage = NonNullable<ProviderSummary['health']['status_page']>
+
+const checkedText = (page: StatusPage, now: number): string => {
+  if (page.error) {
+    return page.checked_at
+      ? `${page.error}. Last successful check ${formatRelativeTime(page.checked_at, now)}`
+      : page.error
+  }
+
+  return page.checked_at ? `Checked ${formatRelativeTime(page.checked_at, now)}` : 'Not checked yet'
+}
+
+const connectionState = (provider: ProviderSummary, failureTitle: string | undefined, now: number): string => {
+  if (provider.last_fetch_status === 'success') {
+    const lastFetch = provider.last_fetch_at ? formatRelativeTime(provider.last_fetch_at, now) : null
+
+    return `Working · last fetch ${lastFetch ?? 'just now'}`
+  }
+
+  return provider.last_fetch_status === 'error' ? (failureTitle ?? 'Last fetch failed') : 'Not fetched yet'
+}
+
 function ServiceStatus({ provider, now }: { provider: ProviderSummary; now: number }) {
   const page = provider.health.status_page
   const signal = provider.health.signals.find((item) => item.kind === 'status_page')
@@ -105,13 +129,7 @@ function ServiceStatus({ provider, now }: { provider: ProviderSummary; now: numb
     )
   }
 
-  const checked = page.error
-    ? page.checked_at
-      ? `${page.error}. Last successful check ${formatRelativeTime(page.checked_at, now)}`
-      : page.error
-    : page.checked_at
-      ? `Checked ${formatRelativeTime(page.checked_at, now)}`
-      : 'Not checked yet'
+  const checked = checkedText(page, now)
 
   return (
     <Stack gap="sm">
@@ -187,13 +205,7 @@ function Controllers({ provider }: { provider: ProviderSummary }) {
 function Connection({ provider, now, onNavigate }: { provider: ProviderSummary; now: number; onNavigate: () => void }) {
   const attention = providerAttention(provider)
   const connection = provider.health.signals.find((item) => item.kind === 'connection' || item.kind === 'rate_limit')
-  const lastFetch = provider.last_fetch_at ? formatRelativeTime(provider.last_fetch_at, now) : null
-  const state =
-    provider.last_fetch_status === 'success'
-      ? `Working · last fetch ${lastFetch ?? 'just now'}`
-      : provider.last_fetch_status === 'error'
-        ? (connection?.title ?? 'Last fetch failed')
-        : 'Not fetched yet'
+  const state = connectionState(provider, connection?.title, now)
   const notes = [fetchHint(provider), scheduleNote(provider)].filter(Boolean)
 
   return (
@@ -223,15 +235,189 @@ function Connection({ provider, now, onNavigate }: { provider: ProviderSummary; 
   )
 }
 
+function healthText(component: ComponentHealth) {
+  const healthy = component.level === 'operational'
+
+  return (
+    <Text span inherit c={healthy ? 'dimmed' : HEALTH_META[component.level].color}>
+      {component.detail ?? HEALTH_META[component.level].label}
+    </Text>
+  )
+}
+
+function ShellComponentRows({ components }: { components: ComponentHealth[] }) {
+  return (
+    <>
+      {components.map((component) => (
+        <IosRow key={component.name} title={component.name} value={healthText(component)} />
+      ))}
+    </>
+  )
+}
+
+function ShellIncidentRow({ incident, now }: { incident: Incident; now: number }) {
+  const { url } = incident
+  const updated = formatRelativeTime(incident.updated_at, now)
+  const meta = `${HEALTH_META[incident.level].label} · ${incident.phase} · Updated ${updated}`
+
+  return (
+    <IosRow
+      title={incident.name}
+      subtitle={
+        <>
+          {meta}
+          {incident.latest_update && (
+            <>
+              <br />
+              {incident.latest_update}
+            </>
+          )}
+        </>
+      }
+      chevron={Boolean(url)}
+      onClick={url ? () => openLink(url) : undefined}
+    />
+  )
+}
+
+function ShellMaintenanceRow({ item }: { item: Maintenance }) {
+  const { url } = item
+  const meta = [item.in_progress ? 'Maintenance in progress' : 'Scheduled maintenance', maintenanceWindow(item)]
+
+  return (
+    <IosRow
+      title={item.name}
+      subtitle={meta.filter(Boolean).join(' · ')}
+      chevron={Boolean(url)}
+      onClick={url ? () => openLink(url) : undefined}
+    />
+  )
+}
+
+interface ShellProviderStatusProps {
+  provider: ProviderSummary
+  now: number
+  onNavigate: () => void
+}
+
+function ShellProviderStatus({ provider, now, onNavigate }: ShellProviderStatusProps) {
+  const attention = providerAttention(provider)
+  const page = provider.health.status_page
+  const signal = provider.health.signals.find((item) => item.kind === 'status_page')
+  const instance = provider.health.signals.find((item) => item.kind === 'instance')
+  const connection = provider.health.signals.find((item) => item.kind === 'connection' || item.kind === 'rate_limit')
+  const notes = [
+    fetchHint(provider),
+    scheduleNote(provider),
+    provider.last_fetch_status === 'error' && provider.last_updated
+      ? `Showing data from ${formatRelativeTime(provider.last_updated, now)}`
+      : null,
+    ...attention.staleNotes,
+  ].filter(Boolean)
+
+  return (
+    <>
+      {page ? (
+        <IosGroup
+          header={`${page.name} status`}
+          footer={`${checkedText(page, now)}${signal?.evidence === 'stale' ? ' · Last report may be out of date' : ''}`}
+        >
+          <ShellComponentRows components={page.components} />
+          <IosRow
+            icon={<IconExternalLink size={18} aria-hidden />}
+            title="Open status page"
+            chevron
+            onClick={() => openLink(page.url)}
+          />
+        </IosGroup>
+      ) : (
+        <IosGroup header="Service status" footer="Pipedash reports connection problems.">
+          <IosRow title="No public status page" />
+        </IosGroup>
+      )}
+
+      {signal && signal.incidents.length > 0 && (
+        <IosGroup header="Incidents">
+          {signal.incidents.map((incident) => (
+            <ShellIncidentRow key={incident.id} incident={incident} now={now} />
+          ))}
+        </IosGroup>
+      )}
+
+      {signal && signal.maintenances.length > 0 && (
+        <IosGroup header="Maintenance">
+          {signal.maintenances.map((item) => (
+            <ShellMaintenanceRow key={item.id} item={item} />
+          ))}
+        </IosGroup>
+      )}
+
+      {page && page.other_incidents.length > 0 && (
+        <IosGroup
+          header="Other incidents"
+          footer="Other incidents on this page. They don't affect the services Pipedash uses."
+        >
+          {page.other_incidents.map((incident) => (
+            <ShellIncidentRow key={incident.id} incident={incident} now={now} />
+          ))}
+        </IosGroup>
+      )}
+
+      {instance && (
+        <IosGroup header="Controllers">
+          <ShellComponentRows components={instance.components} />
+        </IosGroup>
+      )}
+
+      <IosGroup
+        header="Pipedash connection"
+        footer={notes.length > 0 ? notes.map((note) => <div key={note}>{note}</div>) : undefined}
+      >
+        <IosRow title={connectionState(provider, connection?.title, now)} />
+        <Group gap="xs" p="sm" style={{ borderTop: '0.5px solid var(--ios-separator)' }}>
+          <ProviderRecoveryActions providerId={provider.id} kind={attention.kind} onNavigate={onNavigate} />
+        </Group>
+      </IosGroup>
+    </>
+  )
+}
+
 export function ProviderStatusModal() {
   const selection = useNotificationCenterStore((state) => state.selection)
   const close = useNotificationCenterStore((state) => state.close)
   const { data: providers } = useProviders()
   const now = useNow(30_000)
+  const mobileShell = useMobileShell()
 
   const provider =
     selection?.type === 'provider' ? providers?.find((item) => item.id === selection.providerId) : undefined
   const attention = provider ? providerAttention(provider) : null
+
+  if (mobileShell) {
+    return (
+      <Modal
+        opened={Boolean(provider)}
+        onClose={close}
+        title={
+          provider && (
+            <Group gap="sm" wrap="nowrap">
+              <ProviderIcon name={provider.name} icon={provider.icon} size={28} />
+              {provider.name}
+            </Group>
+          )
+        }
+      >
+        {provider && (
+          <Stack gap={24}>
+            <Text size="sm" c="dimmed">
+              {attention?.headline ?? 'No problems affecting your pipelines'}
+            </Text>
+            <ShellProviderStatus provider={provider} now={now} onNavigate={close} />
+          </Stack>
+        )}
+      </Modal>
+    )
+  }
 
   return (
     <Modal

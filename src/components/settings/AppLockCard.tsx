@@ -1,9 +1,12 @@
 import { Card, Stack, Switch, Text } from '@mantine/core'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { useSetAppLock, useVaultStatus } from '../../queries/useVaultQueries'
 import { biometryLabel } from '../../utils/appLock'
+import { IosGroup, IosRow } from '../ios/IosList'
 
 export function AppLockCard() {
+  const mobileShell = useMobileShell()
   const { data: vaultStatus } = useVaultStatus()
   const setAppLock = useSetAppLock()
   const appLock = vaultStatus?.app_lock
@@ -13,6 +16,45 @@ export function AppLockCard() {
   }
 
   const label = biometryLabel(appLock.biometry)
+
+  if (mobileShell) {
+    const description = appLock.biometry_available
+      ? `Ask for ${label} before Pipedash shows your pipelines and tokens.`
+      : `${label} isn't set up on this device. Pipedash asks for your device passcode instead.`
+
+    return (
+      <IosGroup header="Security" footer={description}>
+        <IosRow
+          title={`Require ${label}`}
+          accessory={
+            <Switch
+              aria-label={`Require ${label}`}
+              checked={appLock.enabled}
+              disabled={setAppLock.isPending}
+              onChange={(e) =>
+                setAppLock.mutate({
+                  enabled: e.currentTarget.checked,
+                  lockOnBackground: e.currentTarget.checked && appLock.lock_on_background,
+                })
+              }
+            />
+          }
+        />
+        <IosRow
+          title="Lock when leaving the app"
+          subtitle="Lock Pipedash each time you switch to another app."
+          accessory={
+            <Switch
+              aria-label="Lock when leaving the app"
+              checked={appLock.enabled && appLock.lock_on_background}
+              disabled={!appLock.enabled || setAppLock.isPending}
+              onChange={(e) => setAppLock.mutate({ enabled: true, lockOnBackground: e.currentTarget.checked })}
+            />
+          }
+        />
+      </IosGroup>
+    )
+  }
 
   return (
     <Card padding="md">

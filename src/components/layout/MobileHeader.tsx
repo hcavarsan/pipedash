@@ -1,63 +1,69 @@
-import { ActionIcon, Box, Group, Title, UnstyledButton } from '@mantine/core'
+import { ActionIcon } from '@mantine/core'
 import { IconChevronLeft, IconLock, IconPlus, IconRefresh } from '@tabler/icons-react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { useRefresh } from '../../hooks/useRefresh'
+import { useScrolledPast } from '../../hooks/useScrolledPast'
 import { useRefreshAll } from '../../queries/useRefreshQueries'
 import { useLockVault, useVaultStatus } from '../../queries/useVaultQueries'
+import { useMobileNavStore } from '../../stores/mobileNavStore'
 import { useProviderStore } from '../../stores/providerStore'
 import { lockMeansSomething } from '../../utils/appLock'
 import { ConnectionStatus } from '../common/ConnectionStatus'
 
+import classes from './MobileHeader.module.css'
 import { mobileChrome } from './mobileChrome'
+
+const LARGE_TITLE_COLLAPSE = 36
 
 export function MobileHeader() {
   useRefresh()
-  const { pathname, search } = useLocation()
+  const { pathname, search, state } = useLocation()
   const { title, back, tab } = mobileChrome(pathname, search)
+  const pushedTitle = useMobileNavStore((s) => s.title)
+  const scrolled = useScrolledPast(LARGE_TITLE_COLLAPSE)
   const refreshAll = useRefreshAll()
   const lockMutation = useLockVault()
   const { data: vaultStatus } = useVaultStatus()
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const canLock = vaultStatus ? lockMeansSomething(vaultStatus) && vaultStatus.is_unlocked : false
   const refreshable = tab === 'pipelines' || tab === 'pinned'
+  const from = back && typeof state?.from === 'string' ? state.from : back?.to
+  const backLabel = back && from?.includes('view=pinned') ? 'Pinned' : back?.label
 
   return (
     <>
       <ConnectionStatus />
-      <Group h="100%" wrap="nowrap" justify="space-between" gap="xs" px="sm" pt="var(--safe-top)">
-        <Group gap={0} wrap="nowrap" flex={1} miw={0}>
-          {back ? (
-            <UnstyledButton
-              component={Link}
-              to={back.to}
-              mih={44}
-              c="blue"
-              aria-label={`Back to ${back.label}`}
-              style={{ display: 'flex', alignItems: 'center' }}
-            >
-              <IconChevronLeft size={24} aria-hidden />
-              <Box fz="md">{back.label}</Box>
-            </UnstyledButton>
-          ) : (
-            <Title order={2} fz={26} fw={700} lh={1.2} lineClamp={1} pl="xs">
-              {title}
-            </Title>
+      <div className={classes.bar} data-scrolled={scrolled || back ? '' : undefined}>
+        <div className={classes.side}>
+          {back && from && (
+            <Link to={from} className={classes.back} aria-label={`Back to ${backLabel}`}>
+              <IconChevronLeft size={26} aria-hidden />
+              <span>{backLabel}</span>
+            </Link>
           )}
-        </Group>
-
-        {back && (
-          <Title order={3} fz="md" fw={600} lh={1.2} ta="center" lineClamp={1} maw="40%">
-            {title}
-          </Title>
-        )}
-
-        <Group gap={0} wrap="nowrap" flex={1} miw={0} justify="flex-end">
-          {canLock && (
+          {!back && canLock && (
             <ActionIcon
               variant="subtle"
               color="gray"
-              size={44}
+              aria-label="Lock Pipedash"
+              loading={lockMutation.isPending}
+              onClick={() => lockMutation.mutate()}
+            >
+              <IconLock size={22} />
+            </ActionIcon>
+          )}
+        </div>
+
+        <div className={classes.title} data-visible={scrolled || back ? '' : undefined}>
+          {pushedTitle ?? title}
+        </div>
+
+        <div className={`${classes.side} ${classes.sideEnd}`}>
+          {back && canLock && (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
               aria-label="Lock Pipedash"
               loading={lockMutation.isPending}
               onClick={() => lockMutation.mutate()}
@@ -69,7 +75,6 @@ export function MobileHeader() {
             <ActionIcon
               variant="subtle"
               color="gray"
-              size={44}
               aria-label="Refresh all"
               loading={refreshAll.isPending}
               onClick={() => refreshAll.mutate()}
@@ -78,18 +83,12 @@ export function MobileHeader() {
             </ActionIcon>
           )}
           {tab === 'providers' && (
-            <ActionIcon
-              variant="subtle"
-              color="blue"
-              size={44}
-              aria-label="Add provider"
-              onClick={openAddProviderModal}
-            >
+            <ActionIcon variant="subtle" color="blue" aria-label="Add provider" onClick={openAddProviderModal}>
               <IconPlus size={24} />
             </ActionIcon>
           )}
-        </Group>
-      </Group>
+        </div>
+      </div>
     </>
   )
 }

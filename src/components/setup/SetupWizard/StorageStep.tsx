@@ -13,8 +13,10 @@ import {
 import { IconAlertCircle, IconAlertTriangle, IconInfoCircle, IconKey } from '@tabler/icons-react'
 import { useMemo } from 'react'
 
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { isTauri } from '../../../services'
 import { isMobilePlatform } from '../../../utils/platform'
+import { IosGroup, IosRow } from '../../ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../settings/storageLabels'
 
 import type { StorageBackend, StorageStepProps } from './types'
@@ -39,6 +41,7 @@ function analyzePasswordStrength(password: string): string[] {
 }
 
 export function StorageStep({ state, setState, currentConfig, vaultStatus, error, checkingVault }: StorageStepProps) {
+  const mobileShell = useMobileShell()
   const passwordsMatch = state.vaultPassword === state.vaultPasswordConfirm
   const vaultPasswordFromEnv = vaultStatus?.is_set === true
 
@@ -55,6 +58,26 @@ export function StorageStep({ state, setState, currentConfig, vaultStatus, error
   }, [state.vaultPassword])
 
   if (isMobilePlatform()) {
+    if (mobileShell) {
+      return (
+        <Stack gap="md">
+          <IosGroup
+            header="On-device storage"
+            footer="Pipedash keeps its data in a SQLite database in the app's own storage. Provider tokens stay in the device Keychain, so there is no vault password to set."
+          >
+            <IosRow title="Database" value={STORAGE_BACKEND_LABELS.sqlite} />
+            <IosRow title="Provider tokens" value="Device Keychain" />
+          </IosGroup>
+
+          {error && (
+            <Text size="sm" c="red" px="md">
+              {error}
+            </Text>
+          )}
+        </Stack>
+      )
+    }
+
     return (
       <Stack gap="md">
         <Card p="sm">

@@ -4,15 +4,19 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { AppLogo } from '../components/atoms/AppLogo'
 import { UnlockForm } from '../components/vault/UnlockForm'
+import { useMobileShell } from '../hooks/useIsMobile'
 import { useVaultStatus } from '../queries/useVaultQueries'
 import { wsClient } from '../services'
 import { useAuthStore } from '../stores/authStore'
+
+import classes from './UnlockRoute.module.css'
 
 export function UnlockRoute() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const consumeReturnPath = useAuthStore((s) => s.consumeReturnPath)
   const requiresPassword = useVaultStatus().data?.requires_password ?? true
+  const mobileShell = useMobileShell()
 
   const handleSuccess = useCallback(() => {
     // Reconnect WebSocket after unlock
@@ -25,6 +29,23 @@ export function UnlockRoute() {
 
     navigate(returnTo, { replace: true })
   }, [consumeReturnPath, navigate, searchParams])
+
+  if (mobileShell) {
+    return (
+      <div className={classes.screen}>
+        <div className={classes.hero}>
+          <AppLogo size={76} alt="Pipedash" />
+          <h1 className={classes.title}>{requiresPassword ? 'Unlock vault' : 'Unlock Pipedash'}</h1>
+          <p className={classes.subtitle}>
+            {requiresPassword ? 'Enter your password to continue.' : 'Pipedash is locked.'}
+          </p>
+        </div>
+        <div className={classes.form}>
+          <UnlockForm onSuccess={handleSuccess} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <Box h="100vh" className="safe-area">

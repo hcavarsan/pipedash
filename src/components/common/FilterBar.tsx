@@ -1,11 +1,15 @@
-import { ActionIcon, Box, Button, Group, Select, TextInput } from '@mantine/core'
-import { IconFilter, IconSearch, IconX } from '@tabler/icons-react'
+import { ActionIcon, Box, Button, Group, Indicator, Select, Stack, TextInput } from '@mantine/core'
+import { IconAdjustmentsHorizontal, IconFilter, IconSearch, IconX } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../constants/intervals'
 import { useDebounce } from '../../hooks/useDebounce'
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { STATUS_OPTIONS } from '../../theme/status'
 import { DATE_RANGE_OPTIONS } from '../../utils/dateRange'
+import { IosGroup, IosRow } from '../ios/IosList'
+
+import { StandardModal } from './StandardModal'
 
 type FilterOption = string | { value: string; label: string }
 
@@ -82,6 +86,8 @@ const FilterSelect = ({ label, data, value, onChange, searchable, leftSection }:
 )
 
 export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
+  const mobileShell = useMobileShell()
+  const [sheetOpen, setSheetOpen] = useState(false)
   const [localSearchValue, setLocalSearchValue] = useState(filters.search?.value || '')
   const debouncedSearchValue = useDebounce(localSearchValue, DEBOUNCE_DELAYS.FILTER)
 
@@ -166,78 +172,162 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
     filters.dateRange?.onChange(null)
   }, [filters, onClearAll])
 
+  const selects = [
+    ...(filters.status
+      ? [
+          {
+            key: 'status',
+            label: 'Status',
+            data: [{ value: '', label: 'All statuses' }, ...(filters.status.options ?? STATUS_OPTIONS)],
+            value: filters.status.value,
+            onChange: filters.status.onChange,
+            leftSection: <IconFilter size={14} />,
+            searchable: false,
+          },
+        ]
+      : []),
+    ...OPTION_FILTERS.flatMap(({ key, label, allLabel }) => {
+      const filter = filters[key]
+
+      if (!filter || filter.options.length === 0) {
+        return []
+      }
+
+      return [
+        {
+          key,
+          label: filter.label ?? label,
+          data: [
+            { value: '', label: filter.allLabel ?? allLabel },
+            ...filter.options.map((option) => (typeof option === 'string' ? { value: option, label: option } : option)),
+          ],
+          value: filter.value,
+          onChange: filter.onChange,
+          leftSection: undefined,
+          searchable: true,
+        },
+      ]
+    }),
+    ...(filters.dateRange
+      ? [
+          {
+            key: 'dateRange',
+            label: 'Time range',
+            data: dateRangeOptions,
+            value: filters.dateRange.value,
+            onChange: filters.dateRange.onChange,
+            leftSection: undefined,
+            searchable: false,
+          },
+        ]
+      : []),
+  ]
+
+  const searchInput = (shell: boolean) =>
+    filters.search && (
+      <TextInput
+        aria-label={filters.search.placeholder || 'Search'}
+        placeholder={filters.search.placeholder || 'Search'}
+        leftSection={<IconSearch size={shell ? 18 : 14} />}
+        rightSection={
+          localSearchValue && (
+            <ActionIcon
+              size="xs"
+              variant="subtle"
+              color="gray"
+              aria-label="Clear search"
+              onClick={() => setLocalSearchValue('')}
+            >
+              <IconX size={14} />
+            </ActionIcon>
+          )
+        }
+        value={localSearchValue}
+        onChange={(e) => setLocalSearchValue(e.currentTarget.value)}
+        {...(shell
+          ? { flex: 1, enterKeyHint: 'search' as const }
+          : { miw: 200, flex: 1, maw: '100%', size: 'xs' as const })}
+      />
+    )
+
+  if (mobileShell) {
+    const activeSelects = selects.filter((select) => select.value).length
+
+    return (
+      <>
+        <Group gap="sm" wrap="nowrap">
+          {searchInput(true)}
+          {selects.length > 0 && (
+            <Indicator disabled={activeSelects === 0} label={activeSelects} size={18} offset={5} color="blue">
+              <ActionIcon
+                variant="default"
+                size={44}
+                aria-label={activeSelects > 0 ? `Filters, ${activeSelects} active` : 'Filters'}
+                onClick={() => setSheetOpen(true)}
+              >
+                <IconAdjustmentsHorizontal size={22} />
+              </ActionIcon>
+            </Indicator>
+          )}
+        </Group>
+
+        <StandardModal opened={sheetOpen} onClose={() => setSheetOpen(false)} title="Filters" size="md">
+          <Stack gap="lg">
+            <IosGroup>
+              {selects.map(({ key, label, data, value, onChange, searchable }) => (
+                <IosRow
+                  key={key}
+                  title={label}
+                  accessory={
+                    <Select
+                      aria-label={label}
+                      placeholder="All"
+                      data={data}
+                      value={value}
+                      onChange={onChange}
+                      searchable={searchable}
+                      variant="unstyled"
+                      w={190}
+                      styles={{ input: { background: 'transparent', textAlign: 'right', paddingLeft: 0 } }}
+                    />
+                  }
+                />
+              ))}
+            </IosGroup>
+            {hasActiveFilters && (
+              <IosGroup>
+                <IosRow
+                  title="Clear filters"
+                  destructive
+                  onClick={() => {
+                    clearAllFilters()
+                    setSheetOpen(false)
+                  }}
+                />
+              </IosGroup>
+            )}
+          </Stack>
+        </StandardModal>
+      </>
+    )
+  }
+
   return (
     <Box>
       <Group gap="sm" wrap="wrap" align="flex-start">
-        {filters.search && (
-          <TextInput
-            aria-label={filters.search.placeholder || 'Search'}
-            placeholder={filters.search.placeholder || 'Search'}
-            leftSection={<IconSearch size={14} />}
-            rightSection={
-              localSearchValue && (
-                <ActionIcon
-                  size="xs"
-                  variant="subtle"
-                  color="gray"
-                  aria-label="Clear search"
-                  onClick={() => setLocalSearchValue('')}
-                >
-                  <IconX size={14} />
-                </ActionIcon>
-              )
-            }
-            value={localSearchValue}
-            onChange={(e) => setLocalSearchValue(e.currentTarget.value)}
-            miw={200}
-            flex={1}
-            maw="100%"
-            size="xs"
-          />
-        )}
+        {searchInput(false)}
 
-        {filters.status && (
+        {selects.map(({ key, label, data, value, onChange, searchable, leftSection }) => (
           <FilterSelect
-            label="Status"
-            data={[{ value: '', label: 'All statuses' }, ...(filters.status.options ?? STATUS_OPTIONS)]}
-            value={filters.status.value}
-            onChange={filters.status.onChange}
-            leftSection={<IconFilter size={14} />}
+            key={key}
+            label={label}
+            data={data}
+            value={value}
+            onChange={onChange}
+            searchable={searchable}
+            leftSection={leftSection}
           />
-        )}
-
-        {OPTION_FILTERS.map(({ key, label, allLabel }) => {
-          const filter = filters[key]
-
-          if (!filter || filter.options.length === 0) {
-            return null
-          }
-
-          return (
-            <FilterSelect
-              key={key}
-              label={filter.label ?? label}
-              data={[
-                { value: '', label: filter.allLabel ?? allLabel },
-                ...filter.options.map((option) =>
-                  typeof option === 'string' ? { value: option, label: option } : option
-                ),
-              ]}
-              value={filter.value}
-              onChange={filter.onChange}
-              searchable
-            />
-          )
-        })}
-
-        {filters.dateRange && (
-          <FilterSelect
-            label="Time range"
-            data={dateRangeOptions}
-            value={filters.dateRange.value}
-            onChange={filters.dateRange.onChange}
-          />
-        )}
+        ))}
 
         {hasActiveFilters && (
           <Button variant="subtle" color="gray" onClick={clearAllFilters} size="xs" leftSection={<IconX size={14} />}>

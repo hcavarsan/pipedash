@@ -1,11 +1,14 @@
-import { ActionIcon, Group, Loader, Text, Tooltip } from '@mantine/core'
-import { IconChartLine, IconPin, IconPinFilled, IconPlayerPlayFilled, IconRefresh } from '@tabler/icons-react'
+import { ActionIcon, Group, Loader, Menu, Text, Tooltip } from '@mantine/core'
+import { IconChartLine, IconDots, IconPin, IconPinFilled, IconPlayerPlayFilled, IconRefresh } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
-import type { Pipeline, PipelineStatus } from '../../types'
+import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
+import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getReconcileBlockReason, getStatusLabel } from '../../utils/pipelinePresentation'
+import { providerAttention } from '../../utils/providerAttention'
 import { StatusBadge } from '../atoms/StatusBadge'
+import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 
 interface SectionHeadingProps {
   id?: string
@@ -126,5 +129,51 @@ export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, on
         </ActionIcon>
       </Tooltip>
     </Group>
+  )
+}
+
+interface WorkflowActionMenuProps extends WorkflowActionsProps {
+  provider?: ProviderSummary
+  onViewHistory: (pipeline: Pipeline) => void
+}
+
+export function WorkflowActionMenu({
+  pipeline,
+  provider,
+  isPinned,
+  onTogglePin,
+  onTrigger,
+  onViewMetrics,
+  onViewHistory,
+}: WorkflowActionMenuProps) {
+  const openNotifications = useNotificationCenterStore((state) => state.open)
+  const labels = getPipelineLabels(pipeline.provider_type)
+  const blockedReason = getReconcileBlockReason(pipeline)
+  const headline = provider ? providerAttention(provider).headline : null
+
+  return (
+    <Menu position="bottom">
+      <Menu.Target>
+        <ActionIcon variant="subtle" color="gray" aria-label={`Actions for ${pipeline.name}`}>
+          <IconDots size={22} />
+        </ActionIcon>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>{pipeline.name}</Menu.Label>
+        {blockedReason && <Menu.Label>{blockedReason}</Menu.Label>}
+        <Menu.Item onClick={() => onViewHistory(pipeline)}>{labels.history}</Menu.Item>
+        {onViewMetrics && <Menu.Item onClick={() => onViewMetrics(pipeline)}>View metrics</Menu.Item>}
+        <Menu.Item disabled={!!blockedReason} onClick={() => onTrigger(pipeline)}>
+          {labels.trigger}
+        </Menu.Item>
+        <Menu.Item onClick={onTogglePin}>{isPinned ? 'Unpin' : 'Pin'}</Menu.Item>
+        {provider && (
+          <Menu.Item onClick={() => openNotifications({ type: 'provider', providerId: provider.id })}>
+            {provider.name} service status{headline ? ` · ${headline}` : ''}
+          </Menu.Item>
+        )}
+        <ActionSheetCancel />
+      </Menu.Dropdown>
+    </Menu>
   )
 }

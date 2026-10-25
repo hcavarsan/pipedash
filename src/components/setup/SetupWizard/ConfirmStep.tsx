@@ -1,8 +1,10 @@
 import { Alert, Card, Code, Group, Stack, Text, Tooltip } from '@mantine/core'
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react'
 
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { isMobilePlatform } from '../../../utils/platform'
 import { CopyButton } from '../../atoms/CopyButton'
+import { IosGroup, IosRow } from '../../ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../settings/storageLabels'
 
 import type { ConfirmStepProps } from './types'
@@ -28,6 +30,7 @@ export function ConfirmStep({
   vaultStatus,
 }: ConfirmStepProps) {
   const onDevice = isMobilePlatform()
+  const mobileShell = useMobileShell()
 
   const truncatePath = (path: string): string => {
     const segments = path.split('/')
@@ -42,6 +45,38 @@ export function ConfirmStep({
   const envVarName = vaultStatus?.env_var_name || 'PIPEDASH_VAULT_PASSWORD'
   const exportCommand = `export ${envVarName}="${state.vaultPassword}"`
   const showEnvVarSection = !vaultPasswordFromEnv && state.vaultPassword
+
+  if (mobileShell) {
+    return (
+      <Stack gap="md">
+        <IosGroup
+          header="Configuration summary"
+          footer={
+            showTransferStep && !state.transferData ? (
+              <Text span inherit c="orange">
+                Your existing providers and credentials will not be transferred.
+              </Text>
+            ) : undefined
+          }
+        >
+          <IosRow title="Database" value={STORAGE_BACKEND_LABELS[state.backend]} />
+          {state.backend === 'postgres' && (
+            <IosRow title="Connection" value={summarizeConnection(state.postgresUrl) ?? 'Unavailable'} />
+          )}
+          <IosRow title="Credentials" value="Device Keychain" />
+          {showTransferStep && (
+            <IosRow title="Data migration" value={state.transferData ? 'Transfer data' : 'Fresh start'} />
+          )}
+        </IosGroup>
+
+        {error && (
+          <Text size="sm" c="red" px="md">
+            {error}
+          </Text>
+        )}
+      </Stack>
+    )
+  }
 
   return (
     <Stack gap="md">

@@ -3,7 +3,7 @@ import { IconCheck, IconKey, IconList } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useReducer } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
-import { useIsMobile } from '../../../hooks/useIsMobile'
+import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import type { ProviderConfig } from '../../../types'
 import { isAuthError, isNetworkError, isValidationError, toPipedashError } from '../../../types/errors'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
@@ -17,6 +17,7 @@ import { PermissionCheckModal } from '../PermissionCheckModal'
 import { CredentialsStep } from './CredentialsStep'
 import { PipelinesStep } from './PipelinesStep'
 import { formReducer } from './reducer'
+import shell from './ShellForm.module.css'
 import { type AddProviderModalProps, initialFormState } from './types'
 import { usePermissionCheck } from './usePermissionCheck'
 
@@ -29,6 +30,7 @@ export function AddProviderModal({
   existingProvider,
 }: AddProviderModalProps) {
   const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
   const { plugins, loading: pluginsLoading } = usePlugins()
 
   const [state, dispatch] = useReducer(formReducer, initialFormState)
@@ -326,6 +328,52 @@ export function AddProviderModal({
     selectionNeedsRefresh,
   ])
 
+  const permissionRow =
+    selectedPlugin && selectedPlugin.required_permissions.length > 0 ? (
+      <PermissionCheckButton
+        onClick={permission.checkPermissions}
+        disabled={
+          submitting ||
+          selectedPlugin.config_schema.fields.some((field) => field.required && !configValues[field.key]?.trim())
+        }
+        loading={permission.checking}
+      />
+    ) : undefined
+
+  const shellFooter =
+    step === 'credentials' ? (
+      <Stack gap="xs">
+        {editMode && (
+          <Button
+            fullWidth
+            onClick={handleSaveCredentialsOnly}
+            loading={submitting}
+            disabled={!selectedPlugin || !providerName.trim() || selectionNeedsRefresh}
+          >
+            Save
+          </Button>
+        )}
+        <Button
+          fullWidth
+          variant={editMode ? 'default' : 'filled'}
+          onClick={handleNext}
+          disabled={!selectedPlugin || !providerName.trim()}
+        >
+          Next
+        </Button>
+      </Stack>
+    ) : (
+      <Stack gap="xs">
+        {selectedPipelines.size > 0 && <Text className={shell.footerCount}>{selectedPipelines.size} selected</Text>}
+        <Button fullWidth onClick={handleSubmit} loading={submitting} disabled={selectedPipelines.size === 0}>
+          {editMode ? 'Update provider' : 'Add provider'}
+        </Button>
+        <Button fullWidth variant="default" onClick={handleBack} disabled={submitting}>
+          Back
+        </Button>
+      </Stack>
+    )
+
   const activeStepIndex = step === 'credentials' ? 0 : 1
 
   return (
@@ -335,14 +383,19 @@ export function AddProviderModal({
       title={editMode ? 'Edit provider' : 'Add provider'}
       loading={submitting}
       closable={!permission.modalOpen}
-      footer={footer}
+      footer={mobileShell ? shellFooter : footer}
       contentPadding={false}
       size="lg"
+      fullHeight
       disableScrollArea
     >
       <Stack gap={isMobile ? 'xs' : 'md'} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <Box px="lg" pt="md" style={{ flexShrink: 0 }}>
-          <Stepper active={activeStepIndex} size={isMobile ? 'xs' : 'sm'} iconSize={isMobile ? 32 : 42}>
+        <Box px="lg" pt={mobileShell ? 0 : 'md'} style={{ flexShrink: 0 }}>
+          <Stepper
+            active={activeStepIndex}
+            size={isMobile ? 'xs' : 'sm'}
+            iconSize={mobileShell ? 8 : isMobile ? 32 : 42}
+          >
             <Stepper.Step
               aria-label="Step 1: Credentials"
               label={isMobile ? undefined : 'Credentials'}
@@ -360,7 +413,7 @@ export function AddProviderModal({
               completedIcon={<IconCheck size={18} />}
             />
           </Stepper>
-          {isMobile && (
+          {isMobile && !mobileShell && (
             <Text size="sm" fw={500} ta="center" mt="xs">
               Step {activeStepIndex + 1} of 2: {activeStepIndex === 0 ? 'Credentials' : `Select ${labels.items}`}
             </Text>
@@ -381,6 +434,10 @@ export function AddProviderModal({
                 pluginsLoading={pluginsLoading}
                 editMode={editMode}
                 isMobile={isMobile}
+                permissionRow={permissionRow}
+                scopeNote={
+                  selectionNeedsRefresh ? `Select ${labels.items} again after changing connection scope.` : undefined
+                }
               />
             )}
 

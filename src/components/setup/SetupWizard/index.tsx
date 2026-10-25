@@ -1,9 +1,8 @@
 import { Box, Button, Group, ScrollArea, Stack, Stepper, Text } from '@mantine/core'
-import { modals } from '@mantine/modals'
 import { IconCheck, IconDatabase, IconListCheck, IconTransfer } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { useIsMobile } from '../../../hooks/useIsMobile'
+import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import {
   useCreateInitialConfig,
   useDefaultDataDir,
@@ -16,11 +15,13 @@ import { useUnlockVault, useVaultPasswordStatus } from '../../../queries/useVaul
 import { isTauri } from '../../../services'
 import type { MigrationResult, PipedashConfig } from '../../../types'
 import { formatErrorMessage } from '../../../types/errors'
+import { openConfirm } from '../../../utils/confirm'
 import { isMobilePlatform } from '../../../utils/platform'
 import { LoadingState } from '../../common/LoadingState'
 import { StandardModal } from '../../common/StandardModal'
 
 import { ConfirmStep } from './ConfirmStep'
+import { Onboarding, StepHeader } from './Onboarding'
 import { StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
 import { TransferStep } from './TransferStep'
@@ -51,6 +52,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
   })
 
   const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
 
   const saving =
     createInitialConfigMutation.isPending ||
@@ -317,11 +319,16 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         changes.push('data directory')
       }
 
-      modals.openConfirmModal({
+      openConfirm({
         title: 'Skip data transfer?',
         centered: true,
         zIndex: 400,
-        children: (
+        children: mobileShell ? (
+          <Text size="sm">
+            You are changing <strong>{changes.join(' and ')}</strong> without transferring data. Existing providers,
+            credentials and history stay in the previous location and won't be available after switching.
+          </Text>
+        ) : (
           <Stack gap="sm">
             <Text size="sm">
               You are changing <strong>{changes.join(' and ')}</strong> without transferring data.
@@ -354,11 +361,53 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       setError(null)
       setStep(2)
     }
-  }, [state.transferData, needsMigration, isDatabaseBackendChange, isFromKeyring, isDataDirChange])
+  }, [state.transferData, needsMigration, isDatabaseBackendChange, isFromKeyring, isDataDirChange, mobileShell])
 
   const footer = useMemo(() => {
     if (loading || isSuccessStep) {
       return null
+    }
+
+    if (mobileShell) {
+      if (currentStep === 'storage') {
+        return (
+          <Button
+            size="lg"
+            fullWidth
+            onClick={() => {
+              setError(null)
+              setStep(1)
+            }}
+            disabled={!canProceedFromStorage}
+          >
+            Continue
+          </Button>
+        )
+      }
+
+      if (currentStep === 'transfer') {
+        return (
+          <Stack gap={4}>
+            <Button size="lg" fullWidth onClick={handleContinueFromTransfer}>
+              Continue
+            </Button>
+            <Button size="md" fullWidth variant="subtle" onClick={() => setStep(0)}>
+              Back
+            </Button>
+          </Stack>
+        )
+      }
+
+      return (
+        <Stack gap={4}>
+          <Button size="lg" fullWidth onClick={handleSave} loading={saving}>
+            {needsMigration && state.transferData ? 'Save and transfer' : 'Save'}
+          </Button>
+          <Button size="md" fullWidth variant="subtle" onClick={() => setStep(step - 1)} disabled={saving}>
+            Back
+          </Button>
+        </Stack>
+      )
     }
 
     if (currentStep === 'storage') {
@@ -425,6 +474,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     handleSave,
     handleContinueFromTransfer,
     isMobile,
+    mobileShell,
   ])
 
   const getCurrentStepContent = () => {
@@ -468,6 +518,37 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
           />
         )
     }
+  }
+
+  if (mobileShell) {
+    const body = (
+      <>
+        {!loading && !isSuccessStep && <StepHeader step={step} labels={stepperSteps.map((s) => s.label)} />}
+        {getCurrentStepContent()}
+      </>
+    )
+
+    if (!onClose) {
+      return (
+        <Onboarding title={isSuccessStep ? undefined : 'Welcome to Pipedash'} footer={footer}>
+          {body}
+        </Onboarding>
+      )
+    }
+
+    return (
+      <StandardModal
+        opened={opened}
+        onClose={isSuccessStep ? handleComplete : handleClose}
+        title={showTransferStep ? 'Storage settings' : 'Welcome to Pipedash'}
+        size="lg"
+        fullHeight
+        loading={saving}
+        footer={footer}
+      >
+        {body}
+      </StandardModal>
+    )
   }
 
   return (

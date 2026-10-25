@@ -6,6 +6,7 @@ import {
   Divider,
   FileButton,
   Group,
+  Loader,
   NumberInput,
   SimpleGrid,
   Stack,
@@ -13,12 +14,12 @@ import {
   Title,
   Tooltip,
 } from '@mantine/core'
-import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import { IconDownload, IconEdit, IconExternalLink, IconSettings, IconTrash, IconUpload } from '@tabler/icons-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import { logger } from '../../../lib/logger'
 import { useProviderDetails } from '../../../queries/useProviderDetailsQuery'
@@ -34,6 +35,7 @@ import { useStorageConfig } from '../../../queries/useStorageQueries'
 import { useProviderStore } from '../../../stores/providerStore'
 import { HEALTH_META } from '../../../theme/status'
 import type { ProviderConfig, ProviderSummary } from '../../../types'
+import { openConfirm } from '../../../utils/confirm'
 import { formatCount } from '../../../utils/formatCount'
 import { formatDateTime, formatTime } from '../../../utils/formatDateTime'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
@@ -41,19 +43,13 @@ import { openExternal } from '../../../utils/openExternal'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
+import { IosGroup, IosRow } from '../../ios/IosList'
 import { AddProviderModal } from '../../provider/AddProviderModal'
+import { AccentText, RowNumberInput } from '../mobileParts'
 
 const CONNECTION_NOTE = 'Pipedash reports connection problems.'
 
-const ProviderStatusInfo = ({
-  provider,
-  statusPagesEnabled,
-  now,
-}: {
-  provider: ProviderSummary
-  statusPagesEnabled: boolean
-  now: number
-}) => {
+const getStatusDetails = (provider: ProviderSummary, statusPagesEnabled: boolean, now: number) => {
   const { status_page: page, signals, level } = provider.health
   const upcoming = statusPagesEnabled
     ? signals
@@ -73,6 +69,20 @@ const ProviderStatusInfo = ({
         .filter(Boolean)
         .join(' · ')
     : null
+
+  return { page, upcoming, summary }
+}
+
+const ProviderStatusInfo = ({
+  provider,
+  statusPagesEnabled,
+  now,
+}: {
+  provider: ProviderSummary
+  statusPagesEnabled: boolean
+  now: number
+}) => {
+  const { page, upcoming, summary } = getStatusDetails(provider, statusPagesEnabled, now)
 
   return (
     <Stack gap={4}>
@@ -115,7 +125,51 @@ const ProviderStatusInfo = ({
   )
 }
 
+const ProviderStatusRows = ({
+  provider,
+  statusPagesEnabled,
+  now,
+}: {
+  provider: ProviderSummary
+  statusPagesEnabled: boolean
+  now: number
+}) => {
+  const { page, upcoming, summary } = getStatusDetails(provider, statusPagesEnabled, now)
+  const note = statusPagesEnabled ? `No public status page. ${CONNECTION_NOTE}` : CONNECTION_NOTE
+
+  return (
+    <>
+      <IosRow title="Status" subtitle={statusPagesEnabled && page ? summary : note} />
+      {statusPagesEnabled && page?.error && (
+        <IosRow
+          title="Status page check failed"
+          subtitle={
+            <Text span inherit c="orange">
+              {page.error}
+              {page.checked_at && ` · last successful check ${formatDateTime(page.checked_at)}`}
+            </Text>
+          }
+        />
+      )}
+      {upcoming.map((item) => (
+        <IosRow key={item.id} title="Maintenance" subtitle={`${item.name} · ${formatDateTime(item.at)}`} />
+      ))}
+      {statusPagesEnabled && page && (
+        <IosRow
+          title="Open status page"
+          ariaLabel={`Open ${page.name} status page`}
+          accessory={<IconExternalLink size={18} aria-hidden />}
+          onClick={() => {
+            void openExternal(page.url)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
 export const ProvidersSection = () => {
+  const mobileShell = useMobileShell()
   const { getPluginDisplayName } = usePlugins()
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
 
@@ -169,7 +223,7 @@ export const ProvidersSection = () => {
 
   const handleRemove = useCallback(
     (id: number, name: string) => {
-      modals.openConfirmModal({
+      openConfirm({
         title: 'Remove provider',
         children: (
           <Text size="sm">
@@ -239,6 +293,157 @@ export const ProvidersSection = () => {
     setEditModalOpened(false)
     setEditingProvider(null)
   }, [])
+
+  const editModal = editingProvider?.id && (
+    <AddProviderModal
+      opened={editModalOpened}
+      onClose={handleCloseEditModal}
+      onUpdate={handleUpdateProvider}
+      editMode
+      existingProvider={editingProvider as ProviderConfig & { id: number }}
+    />
+  )
+
+  if (mobileShell) {
+    return (
+      <>
+        <Stack gap="lg" pb="md">
+          {loading ? (
+            <LoadingState message="Loading providers..." />
+          ) : providersError ? (
+            <ErrorState
+              title="Couldn't load providers"
+              error={providersError}
+              onRetry={() => refetchProviders()}
+              retrying={isRefetchingProviders}
+            />
+          ) : providers.length === 0 ? (
+            <EmptyState
+              title="No providers configured"
+              description="Add a CI/CD provider to start monitoring pipelines."
+              action={
+                <Button size="sm" onClick={openAddProviderModal}>
+                  Add provider
+                </Button>
+              }
+            />
+          ) : (
+            providers.map((provider) => {
+              const isEditing = editingId === provider.id
+              const currentValue = refreshValues[provider.id] ?? provider.refresh_interval
+              const saving = updateRefreshIntervalMutation.isPending
+
+              return (
+                <Stack key={provider.id} gap="sm">
+                  <IosGroup>
+                    <IosRow
+                      title={provider.name}
+                      subtitle={[
+                        getPluginDisplayName(provider.provider_type),
+                        formatCount(provider.pipeline_count, 'pipeline'),
+                      ].join(' · ')}
+                    />
+                    {provider.last_fetch_status === 'error' && (
+                      <IosRow
+                        title={
+                          <Text span inherit c="red">
+                            Fetch failed
+                          </Text>
+                        }
+                        subtitle={provider.last_fetch_error || 'Failed to fetch'}
+                      />
+                    )}
+                    {provider.paused_until && (
+                      <IosRow
+                        title={`Paused until ${formatTime(provider.paused_until)}`}
+                        subtitle="The API quota is almost used up. Pipedash resumes refreshing at the reset time."
+                      />
+                    )}
+                    {isEditing ? (
+                      <>
+                        <IosRow
+                          title="Refresh interval"
+                          accessory={
+                            <RowNumberInput
+                              value={currentValue}
+                              onChange={(val) =>
+                                setRefreshValues((prev) => ({ ...prev, [provider.id]: Number(val) || 30 }))
+                              }
+                              min={5}
+                              max={300}
+                              step={5}
+                              suffix="s"
+                              aria-label={`Refresh interval in seconds for ${provider.name}`}
+                              disabled={saving}
+                            />
+                          }
+                        />
+                        <IosRow
+                          title={<AccentText>Save</AccentText>}
+                          disabled={saving}
+                          onClick={() => handleSaveRefreshInterval(provider.id, provider.refresh_interval)}
+                          accessory={saving ? <Loader size={18} /> : undefined}
+                        />
+                        <IosRow title="Cancel" disabled={saving} onClick={handleCancelEdit} />
+                      </>
+                    ) : (
+                      <IosRow
+                        title="Refresh interval"
+                        value={`${provider.refresh_interval}s`}
+                        chevron
+                        ariaLabel={`Edit refresh interval for ${provider.name}`}
+                        onClick={() => handleEditRefreshInterval(provider.id, provider.refresh_interval)}
+                      />
+                    )}
+                    <ProviderStatusRows provider={provider} statusPagesEnabled={statusPagesEnabled} now={now} />
+                    <IosRow title="Edit provider" chevron onClick={() => handleEdit(provider.id)} />
+                  </IosGroup>
+                  <IosGroup>
+                    <IosRow
+                      title="Remove provider"
+                      destructive
+                      ariaLabel={`Remove ${provider.name}`}
+                      onClick={() => handleRemove(provider.id, provider.name)}
+                    />
+                  </IosGroup>
+                </Stack>
+              )
+            })
+          )}
+
+          <IosGroup>
+            <FileButton
+              accept=".toml"
+              resetRef={importResetRef}
+              onChange={(file) => {
+                if (file) {
+                  importProvidersMutation.mutate(file)
+                  importResetRef.current?.()
+                }
+              }}
+            >
+              {(props) => (
+                <IosRow
+                  title="Import providers"
+                  disabled={loading || importProvidersMutation.isPending}
+                  onClick={props.onClick}
+                  accessory={importProvidersMutation.isPending ? <Loader size={18} /> : <IconUpload size={18} />}
+                />
+              )}
+            </FileButton>
+            <IosRow
+              title="Export providers"
+              disabled={loading || providers.length === 0 || exportProvidersMutation.isPending}
+              onClick={() => exportProvidersMutation.mutate()}
+              accessory={exportProvidersMutation.isPending ? <Loader size={18} /> : <IconDownload size={18} />}
+            />
+          </IosGroup>
+        </Stack>
+
+        {editModal}
+      </>
+    )
+  }
 
   return (
     <>
@@ -456,15 +661,7 @@ export const ProvidersSection = () => {
         )}
       </Box>
 
-      {editingProvider?.id && (
-        <AddProviderModal
-          opened={editModalOpened}
-          onClose={handleCloseEditModal}
-          onUpdate={handleUpdateProvider}
-          editMode
-          existingProvider={editingProvider as ProviderConfig & { id: number }}
-        />
-      )}
+      {editModal}
     </>
   )
 }

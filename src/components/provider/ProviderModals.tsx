@@ -1,5 +1,4 @@
 import { Text } from '@mantine/core'
-import { modals } from '@mantine/modals'
 import { useCallback, useEffect } from 'react'
 
 import { logger } from '../../lib/logger'
@@ -7,6 +6,7 @@ import { useProviderDetails } from '../../queries/useProviderDetailsQuery'
 import { useAddProvider, useProviders, useRemoveProvider, useUpdateProvider } from '../../queries/useProvidersQueries'
 import { useProviderStore } from '../../stores/providerStore'
 import type { ProviderConfig } from '../../types'
+import { openConfirm } from '../../utils/confirm'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 
 import { AddProviderModal } from './AddProviderModal'
@@ -16,7 +16,7 @@ export function useConfirmRemoveProvider() {
 
   return useCallback(
     (id: number, name: string) => {
-      modals.openConfirmModal({
+      openConfirm({
         title: 'Remove provider',
         children: (
           <Text size="sm">

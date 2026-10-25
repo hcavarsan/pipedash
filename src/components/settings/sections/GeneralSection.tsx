@@ -3,6 +3,7 @@ import {
   Card,
   Divider,
   Input,
+  Loader,
   type MantineColorScheme,
   SegmentedControl,
   Select,
@@ -16,6 +17,7 @@ import { IconTrash } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
+import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { useStorageConfig } from '@/queries/useStorageQueries'
@@ -23,6 +25,8 @@ import { service } from '@/services'
 import { displayErrorNotification } from '@/utils/errorDisplay'
 import { getPlatformOverride, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
 
+import { IosGroup, IosRow } from '../../ios/IosList'
+import { RowSelect } from '../mobileParts'
 import { useFactoryResetConfirm } from '../useFactoryResetConfirm'
 
 interface GeneralSectionProps {
@@ -36,6 +40,7 @@ const THEME_OPTIONS = [
 ]
 
 export function GeneralSection({ onRefresh }: GeneralSectionProps) {
+  const mobileShell = useMobileShell()
   const [platformOverride, setPlatformOverrideState] = useState<string | null>(null)
   const [currentPlatform, setCurrentPlatform] = useState<string>('linux')
   const { colorScheme, setColorScheme } = useMantineColorScheme()
@@ -84,6 +89,50 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
   const handlePlatformChange = (value: string | null) => {
     setPlatformOverride(value as 'macos' | 'windows' | 'linux' | null)
     setPlatformOverrideState(value)
+  }
+
+  if (mobileShell) {
+    return (
+      <Stack gap="lg" pb="md">
+        <IosGroup footer="Choose Dark, Light, or follow your system setting.">
+          <IosRow
+            title="Theme"
+            accessory={
+              <RowSelect
+                aria-label="Theme"
+                data={THEME_OPTIONS}
+                value={colorScheme}
+                onChange={(value) => value && setColorScheme(value as MantineColorScheme)}
+              />
+            }
+          />
+        </IosGroup>
+
+        <IosGroup footer="Reads the public status page of each provider, or the one you configured. No credentials are sent.">
+          <IosRow
+            title="Check provider status pages"
+            accessory={
+              <Switch
+                aria-label="Check provider status pages"
+                checked={statusPagesChecked}
+                onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
+                disabled={!general}
+              />
+            }
+          />
+        </IosGroup>
+
+        <IosGroup footer="Permanently delete all application data">
+          <IosRow
+            title="Factory reset"
+            destructive
+            disabled={isResetting}
+            onClick={confirmReset}
+            accessory={isResetting ? <Loader size={18} color="red" /> : undefined}
+          />
+        </IosGroup>
+      </Stack>
+    )
   }
 
   return (

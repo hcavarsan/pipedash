@@ -24,6 +24,10 @@ export function mobileChrome(pathname: string, search: string): MobileChrome {
     case 'notifications':
       return { title: 'Notifications', back: null, tab: 'notifications' }
     default: {
+      if (root === 'pipelines' && segment) {
+        return { title: 'History', back: { to: '/pipelines', label: 'Pipelines' }, tab: 'pipelines' }
+      }
+
       const pinned = !segment && new URLSearchParams(search).get('view') === 'pinned'
 
       return { title: pinned ? 'Pinned' : 'Pipelines', back: null, tab: pinned ? 'pinned' : 'pipelines' }

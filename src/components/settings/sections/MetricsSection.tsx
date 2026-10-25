@@ -1,10 +1,13 @@
 import { Box, Card, Divider, NumberInput, Select, Stack, Switch, Title } from '@mantine/core'
 import { useState } from 'react'
 
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useGlobalMetricsConfig, useUpdateGlobalMetricsConfig } from '../../../queries/useMetricsQueries'
 import type { GlobalMetricsConfig } from '../../../types'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
+import { IosGroup, IosRow } from '../../ios/IosList'
+import { RowNumberInput, RowSelect } from '../mobileParts'
 
 const RETENTION_PRESETS = [7, 14, 30, 60, 90]
 
@@ -15,6 +18,7 @@ const RETENTION_OPTIONS = [
 
 const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
   const updateGlobalMutation = useUpdateGlobalMetricsConfig()
+  const mobileShell = useMobileShell()
 
   const [metricsEnabled, setMetricsEnabled] = useState(config.enabled)
   const [metricsRetention, setMetricsRetention] = useState(config.default_retention_days)
@@ -47,6 +51,56 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
   }
 
   const isSaving = updateGlobalMutation.isPending
+
+  if (mobileShell) {
+    return (
+      <Stack gap="lg" pb="md">
+        <IosGroup>
+          <IosRow
+            title="Enable metrics by default"
+            accessory={
+              <Switch
+                aria-label="Enable metrics by default"
+                checked={metricsEnabled}
+                onChange={(e) => handleEnabledChange(e.currentTarget.checked)}
+                disabled={isSaving}
+              />
+            }
+          />
+        </IosGroup>
+
+        <IosGroup>
+          <IosRow
+            title="Retention period"
+            accessory={
+              <RowSelect
+                aria-label="Retention period"
+                value={metricsRetentionMode === 'preset' ? metricsRetention.toString() : 'custom'}
+                onChange={handleRetentionChange}
+                data={RETENTION_OPTIONS}
+                disabled={isSaving}
+              />
+            }
+          />
+          {metricsRetentionMode === 'custom' && (
+            <IosRow
+              title="Custom days"
+              accessory={
+                <RowNumberInput
+                  aria-label="Custom retention days"
+                  value={metricsRetention}
+                  onChange={handleCustomRetentionChange}
+                  min={1}
+                  max={90}
+                  disabled={isSaving}
+                />
+              }
+            />
+          )}
+        </IosGroup>
+      </Stack>
+    )
+  }
 
   return (
     <Card padding="md">

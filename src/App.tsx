@@ -1,5 +1,6 @@
-import { Center, Code } from '@mantine/core'
+import { Button, Center, Code, ThemeIcon } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
+import { IconAlertCircle } from '@tabler/icons-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
@@ -8,6 +9,7 @@ import { RequireAuth } from './components/auth'
 import { ErrorState } from './components/common/ErrorState'
 import { LoadingState } from './components/common/LoadingState'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { StatusScreen } from './components/ErrorBoundary/StatusScreen'
 import { AppLayout } from './components/layout/AppLayout'
 import { NotificationsPage } from './components/notifications/NotificationCenter'
 import { TriggerWorkflowModal } from './components/pipeline/TriggerWorkflowModal'
@@ -365,6 +367,35 @@ interface ConfigErrorScreenProps {
 
 function ConfigErrorScreen({ errors, onRetry, retrying }: ConfigErrorScreenProps) {
   const { data: storagePaths } = useStoragePaths()
+  const mobileShell = useMobileShell()
+  const hint = storagePaths ? (
+    <>
+      Fix the errors in <Code>{storagePaths.config_file}</Code>, then retry.
+    </>
+  ) : (
+    'Fix the errors in your Pipedash configuration file, then retry.'
+  )
+
+  if (mobileShell) {
+    return (
+      <StatusScreen
+        icon={
+          <ThemeIcon variant="transparent" color="red" size={48}>
+            <IconAlertCircle size={40} aria-hidden />
+          </ThemeIcon>
+        }
+        title="Configuration file has errors"
+        message={errors.join(', ') || 'Unknown error'}
+        hint={hint}
+        minHeight="100dvh"
+        actions={
+          <Button size="md" fullWidth loading={retrying} onClick={onRetry}>
+            Retry
+          </Button>
+        }
+      />
+    )
+  }
 
   return (
     <Center h="100%" p="xl">
@@ -372,15 +403,7 @@ function ConfigErrorScreen({ errors, onRetry, retrying }: ConfigErrorScreenProps
         <ErrorState
           title="Configuration file has errors"
           error={errors.join(', ') || 'Unknown error'}
-          hint={
-            storagePaths ? (
-              <>
-                Fix the errors in <Code>{storagePaths.config_file}</Code>, then retry.
-              </>
-            ) : (
-              'Fix the errors in your Pipedash configuration file, then retry.'
-            )
-          }
+          hint={hint}
           onRetry={onRetry}
           retrying={retrying}
         />

@@ -1,6 +1,6 @@
-import { Box, Button, Card, Divider, SimpleGrid, Stack, Text, Title } from '@mantine/core'
-import { modals } from '@mantine/modals'
+import { Box, Button, Card, Divider, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core'
 
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import {
   useCacheStats,
   useClearCache,
@@ -8,8 +8,10 @@ import {
   useClearRunHistoryCache,
   useClearWorkflowParamsCache,
 } from '../../../queries/useCacheQueries'
+import { openConfirm } from '../../../utils/confirm'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
+import { IosGroup, IosRow } from '../../ios/IosList'
 
 interface CacheSectionProps {
   onRefresh?: () => Promise<void>
@@ -25,6 +27,7 @@ const CACHE_NAMES: Record<CacheType, string> = {
 }
 
 export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
+  const mobileShell = useMobileShell()
   const { data: cacheStats, isLoading, error, refetch, isRefetching } = useCacheStats()
 
   const clearMutations = {
@@ -36,7 +39,7 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
   const isClearing = Object.values(clearMutations).some((mutation) => mutation.isPending)
 
   const handleClearCache = (type: CacheType) => {
-    modals.openConfirmModal({
+    openConfirm({
       title: `Clear ${CACHE_NAMES[type]}?`,
       children: <Text size="sm">Cached data will be deleted and re-fetched when needed.</Text>,
       labels: { confirm: `Clear ${CACHE_NAMES[type]}`, cancel: 'Cancel' },
@@ -72,6 +75,42 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
       { key: 'run_history' as const, label: 'Run history', count: cacheStats.run_history_count },
       { key: 'workflow_params' as const, label: 'Workflow parameters', count: cacheStats.workflow_params_count },
     ]
+
+    if (mobileShell) {
+      return (
+        <Stack gap="lg" pb="md">
+          <IosGroup>
+            {cacheItems.map((item) => (
+              <IosRow key={item.key} title={item.label} value={`${item.count} items`} />
+            ))}
+            {cacheStats.metrics_count > 0 && <IosRow title="Metrics" value={`${cacheStats.metrics_count} items`} />}
+          </IosGroup>
+
+          <IosGroup footer="Cached data is deleted and re-fetched when needed.">
+            {cacheItems.map((item) => (
+              <IosRow
+                key={item.key}
+                title={`Clear ${item.label.toLowerCase()}`}
+                ariaLabel={`Clear ${CACHE_NAMES[item.key]}`}
+                destructive
+                disabled={isClearing}
+                onClick={() => handleClearCache(item.key)}
+              />
+            ))}
+          </IosGroup>
+
+          <IosGroup>
+            <IosRow
+              title="Clear all caches"
+              destructive
+              disabled={isClearing}
+              onClick={() => handleClearCache('all')}
+              accessory={clearMutations.all.isPending ? <Loader size={18} color="red" /> : undefined}
+            />
+          </IosGroup>
+        </Stack>
+      )
+    }
 
     return (
       <Card padding="md">

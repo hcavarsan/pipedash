@@ -1,8 +1,8 @@
 import { Button, Card, Group, NumberInput, Select, Skeleton, Stack, Switch, Text } from '@mantine/core'
-import { modals } from '@mantine/modals'
 import { IconTrash } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import {
   useFlushMetrics,
@@ -12,11 +12,16 @@ import {
   useUpdateGlobalMetricsConfig,
   useUpdatePipelineMetricsConfig,
 } from '../../queries/useMetricsQueries'
+import { openConfirm } from '../../utils/confirm'
 import { formatCount } from '../../utils/formatCount'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
+import { IosGroup, IosRow } from '../ios/IosList'
+
+import { MetricsPickerRow } from './MetricsPickerRow'
+import classes from './metrics.module.css'
 
 const RETENTION_PRESETS = [7, 14, 30, 60, 90]
 
@@ -53,6 +58,7 @@ export const MetricsConfigModal = ({
   pipelineName,
   onConfigChange,
 }: MetricsConfigModalProps) => {
+  const mobileShell = useMobileShell()
   const globalConfig = useGlobalMetricsConfig()
   const pipelineConfig = usePipelineMetricsConfig(pipelineId || '')
   const stats = useMetricsStorageStats()
@@ -80,7 +86,8 @@ export const MetricsConfigModal = ({
   }, [config])
 
   const handleFlush = () => {
-    modals.openConfirmModal({
+    openConfirm({
+      zIndex: mobileShell ? 400 : undefined,
       title: 'Delete metrics',
       children: (
         <Text size="sm">
@@ -120,7 +127,8 @@ export const MetricsConfigModal = ({
       return
     }
 
-    modals.openConfirmModal({
+    openConfirm({
+      zIndex: mobileShell ? 400 : undefined,
       title: 'Disable metrics',
       children: (
         <Text size="sm">
@@ -138,7 +146,11 @@ export const MetricsConfigModal = ({
   const isSaving = updateGlobal.isPending || updatePipeline.isPending
   const isBusy = isSaving || flushMutation.isPending
 
-  const footer = (
+  const footer = mobileShell ? (
+    <Button fullWidth onClick={handleSave} loading={isSaving} disabled={!config || flushMutation.isPending}>
+      Save
+    </Button>
+  ) : (
     <Group justify="flex-end" gap="sm">
       <Button variant="default" size="sm" onClick={onClose} disabled={isBusy}>
         Cancel
@@ -197,6 +209,98 @@ export const MetricsConfigModal = ({
 
     if (!config) {
       return <LoadingState message="Loading metrics settings..." />
+    }
+
+    if (mobileShell) {
+      const retentionFooter = retentionMode === 'custom' ? 'Enter 1 to 90 days.' : 'How long to keep metrics data.'
+      const busyOrOff = !enabled || isBusy
+
+      return (
+        <>
+          <IosGroup
+            footer={
+              pipelineId
+                ? `Collect and store metrics for ${pipelineName ?? 'this pipeline'}.`
+                : 'Enable metrics collection by default for new pipelines.'
+            }
+          >
+            <IosRow
+              title="Enable metrics"
+              accessory={
+                <Switch
+                  aria-label="Enable metrics"
+                  checked={enabled}
+                  onChange={(e) => setEnabled(e.currentTarget.checked)}
+                  disabled={isBusy}
+                />
+              }
+            />
+          </IosGroup>
+
+          <IosGroup footer={retentionFooter}>
+            <MetricsPickerRow
+              label="Retention period"
+              value={retentionMode === 'preset' ? retentionDays.toString() : 'custom'}
+              onChange={(val) => {
+                if (val === 'custom') {
+                  setRetentionMode('custom')
+                } else {
+                  setRetentionMode('preset')
+                  setRetentionDays(Number(val) || 7)
+                }
+              }}
+              data={RETENTION_OPTIONS}
+              disabled={busyOrOff}
+            />
+            {retentionMode === 'custom' && (
+              <IosRow
+                title="Days"
+                accessory={
+                  <NumberInput
+                    variant="unstyled"
+                    hideControls
+                    aria-label="Custom retention (days)"
+                    classNames={{ root: classes.numberRoot, input: classes.numberInput }}
+                    value={retentionDays}
+                    onChange={(val) => setRetentionDays(Number(val) || 7)}
+                    min={1}
+                    max={90}
+                    disabled={busyOrOff}
+                  />
+                }
+              />
+            )}
+          </IosGroup>
+
+          {stats.isError || !stats.data ? (
+            renderStorage()
+          ) : (
+            <IosGroup header="Stored metrics">
+              {pipelineId && (
+                <IosRow title="This pipeline" value={formatCount(pipelineStats?.metrics_count ?? 0, 'metric')} />
+              )}
+              <IosRow
+                title="All pipelines"
+                subtitle={`${stats.data.estimated_size_mb.toFixed(2)} MB`}
+                value={formatCount(stats.data.total_metrics_count, 'metric')}
+              />
+              <IosRow
+                title="Last cleanup"
+                subtitle={`All pipelines · ${stats.data.last_cleanup_at ? formatDateTime(stats.data.last_cleanup_at) : '—'}`}
+              />
+            </IosGroup>
+          )}
+
+          <IosGroup>
+            <IosRow
+              title={pipelineId ? 'Delete pipeline metrics' : 'Delete all metrics'}
+              destructive
+              disabled={!stats.data || isSaving || flushMutation.isPending}
+              onClick={handleFlush}
+            />
+          </IosGroup>
+        </>
+      )
     }
 
     return (
@@ -279,10 +383,17 @@ export const MetricsConfigModal = ({
       opened={opened}
       onClose={onClose}
       size="md"
-      title={pipelineId ? `Configure metrics: ${pipelineName}` : 'Global metrics configuration'}
+      loading={mobileShell && isBusy}
+      title={
+        mobileShell
+          ? 'Configure metrics'
+          : pipelineId
+            ? `Configure metrics: ${pipelineName}`
+            : 'Global metrics configuration'
+      }
       footer={footer}
     >
-      <Stack gap="sm">{renderContent()}</Stack>
+      <Stack gap={mobileShell ? 'lg' : 'sm'}>{renderContent()}</Stack>
     </StandardModal>
   )
 }

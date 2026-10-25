@@ -1,13 +1,16 @@
 import { ActionIcon, Card, Group, Stack, Text, Tooltip } from '@mantine/core'
+import { useClipboard } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
-import { IconEdit, IconFolderOpen } from '@tabler/icons-react'
+import { IconCheck, IconCopy, IconEdit, IconFolderOpen } from '@tabler/icons-react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { service } from '../../services'
 import type { PipedashConfig, StoragePathsResponse } from '../../types'
 import { formatErrorMessage } from '../../types/errors'
 import { isDesktopTauri } from '../../utils/platform'
 import { CopyButton } from '../atoms/CopyButton'
+import { IosGroup, IosRow } from '../ios/IosList'
 
 interface StoragePathsDisplayProps {
   paths: StoragePathsResponse
@@ -86,9 +89,47 @@ const PathRow = ({ label, path, kind, canOpen, onEdit }: PathRowProps) => {
   )
 }
 
+const CopyPathRow = ({ label, path }: { label: string; path: string }) => {
+  const { copy, copied } = useClipboard({ timeout: 2000 })
+
+  return (
+    <IosRow
+      title={label}
+      subtitle={path}
+      ariaLabel={`Copy ${label.toLowerCase()} path`}
+      onClick={() => copy(path)}
+      accessory={copied ? <IconCheck size={18} color="var(--ios-green)" /> : <IconCopy size={18} aria-hidden />}
+    />
+  )
+}
+
 export const StoragePathsDisplay = ({ paths, config, onEditConfig }: StoragePathsDisplayProps) => {
   const canOpen = isDesktopTauri()
+  const mobileShell = useMobileShell()
   const isPostgres = config?.storage?.backend === 'postgres'
+
+  if (mobileShell) {
+    return (
+      <>
+        <IosGroup header="Storage paths" footer="Tap a path to copy it.">
+          <CopyPathRow label="Configuration" path={paths.config_file} />
+          {!isPostgres && (
+            <>
+              <CopyPathRow label="Database" path={paths.pipedash_db} />
+              <CopyPathRow label="Metrics DB" path={paths.metrics_db} />
+              <CopyPathRow label="Data directory" path={paths.data_dir} />
+              <CopyPathRow label="Cache directory" path={paths.cache_dir} />
+            </>
+          )}
+        </IosGroup>
+        {onEditConfig && (
+          <IosGroup>
+            <IosRow title="Edit configuration file" icon={<IconEdit size={16} />} chevron onClick={onEditConfig} />
+          </IosGroup>
+        )}
+      </>
+    )
+  }
 
   return (
     <Card padding="md">

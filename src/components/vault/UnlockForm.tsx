@@ -2,6 +2,7 @@ import { Button, Divider, PasswordInput, Stack, Text } from '@mantine/core'
 import { IconFaceId, IconFingerprint } from '@tabler/icons-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { useUnlockVault, useUnlockWithBiometrics, useVaultStatus } from '../../queries/useVaultQueries'
 import { formatErrorMessage } from '../../types/errors'
 import { biometryLabel } from '../../utils/appLock'
@@ -21,6 +22,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
   const { data: vaultStatus, isLoading: isLoadingStatus } = useVaultStatus()
   const unlockMutation = useUnlockVault()
   const { mutateAsync: unlockWithBiometrics, isPending: biometricPending } = useUnlockWithBiometrics()
+  const mobileShell = useMobileShell()
 
   const isFirstTime = vaultStatus?.is_first_time ?? true
   const requiresPassword = vaultStatus?.requires_password ?? true
@@ -113,6 +115,84 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
 
   if (!requiresPassword && !biometricEnabled && !plainUnlock) {
     return null
+  }
+
+  if (mobileShell) {
+    return (
+      <Stack gap="md">
+        {requiresPassword && (
+          <>
+            <Stack gap="sm">
+              <PasswordInput
+                aria-label="Password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.currentTarget.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isLoading}
+                error={error && !confirmPassword ? error : undefined}
+                size="md"
+                autoComplete="current-password"
+                enterKeyHint="go"
+                autoFocus={!biometricEnabled}
+                data-autofocus
+              />
+
+              {isFirstTime && (
+                <PasswordInput
+                  aria-label="Confirm password"
+                  placeholder="Confirm password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.currentTarget.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={isLoading}
+                  error={error && confirmPassword ? error : undefined}
+                  size="md"
+                  autoComplete="new-password"
+                  enterKeyHint="go"
+                />
+              )}
+            </Stack>
+
+            <Button fullWidth size="lg" onClick={handleUnlock} loading={unlockMutation.isPending || isLoadingStatus}>
+              Unlock
+            </Button>
+          </>
+        )}
+
+        {biometricEnabled && (
+          <Button
+            fullWidth
+            size="lg"
+            variant={requiresPassword ? 'subtle' : 'filled'}
+            leftSection={appLock?.biometry === 'touchId' ? <IconFingerprint size={22} /> : <IconFaceId size={22} />}
+            onClick={handleBiometricUnlock}
+            loading={biometricPending}
+            disabled={isLoading && !biometricPending}
+          >
+            {requiresPassword ? 'Use' : 'Unlock with'} {biometryLabel(appLock?.biometry)}
+          </Button>
+        )}
+
+        {plainUnlock && (
+          <Button fullWidth size="lg" onClick={handlePlainUnlock} loading={unlockMutation.isPending}>
+            Unlock
+          </Button>
+        )}
+
+        {!requiresPassword && error && (
+          <Text size="sm" c="red" ta="center">
+            {error}
+          </Text>
+        )}
+
+        {showCancelButton && onCancel && (
+          <Button fullWidth variant="subtle" color="gray" size="lg" onClick={onCancel} disabled={isLoading}>
+            Cancel
+          </Button>
+        )}
+      </Stack>
+    )
   }
 
   return (

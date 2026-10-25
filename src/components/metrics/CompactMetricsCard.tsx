@@ -1,11 +1,13 @@
 import { Card, Group, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
-import { IconMaximize } from '@tabler/icons-react'
+import { IconChevronRight, IconMaximize } from '@tabler/icons-react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import type { AggregatedMetrics, MetricType } from '../../types'
 import { EmptyState } from '../common/EmptyState'
 import { LoadingState } from '../common/LoadingState'
 
 import { MetricsChart } from './MetricsChart'
+import classes from './metrics.module.css'
 import { formatMetricValue, getMetricStats, METRIC_CONFIG } from './metricsUtils'
 
 interface CompactMetricsCardProps {
@@ -28,6 +30,8 @@ const CardStat = ({ label, value }: { label: string; value: string }) => (
 )
 
 export const CompactMetricsCard = ({ metricType, data, title, loading, onExpand }: CompactMetricsCardProps) => {
+  const mobileShell = useMobileShell()
+
   const renderBody = () => {
     if (loading) {
       return <LoadingState message={`Loading ${METRIC_CONFIG[metricType].label.toLowerCase()}...`} />
@@ -47,6 +51,20 @@ export const CompactMetricsCard = ({ metricType, data, title, loading, onExpand 
         </SimpleGrid>
         <MetricsChart data={data} chartTitle={title} compact />
       </>
+    )
+  }
+
+  if (mobileShell) {
+    return (
+      <UnstyledButton className={classes.tile} aria-label={`Expand ${title}`} onClick={onExpand}>
+        <Stack gap="sm">
+          <div className={classes.tileHead}>
+            <span className={classes.tileTitle}>{title}</span>
+            <IconChevronRight size={18} className={classes.chevron} aria-hidden />
+          </div>
+          {renderBody()}
+        </Stack>
+      </UnstyledButton>
     )
   }
 

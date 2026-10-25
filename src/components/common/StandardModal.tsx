@@ -1,7 +1,8 @@
 import { Box, Drawer, Modal, ScrollArea } from '@mantine/core'
 import type { ReactNode } from 'react'
 
-import { useIsMobile } from '../../hooks/useIsMobile'
+import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
+import { iosClasses } from '../../theme/ios'
 import type { ModalBaseProps } from '../../types'
 
 type ModalSize = 'md' | 'lg' | 'xl'
@@ -15,6 +16,7 @@ interface StandardModalProps extends ModalBaseProps {
   size?: ModalSize
   contentPadding?: boolean
   disableScrollArea?: boolean
+  fullHeight?: boolean
 }
 
 const DESKTOP_LAYOUT: Record<ModalSize, { width: string; height?: string }> = {
@@ -36,8 +38,10 @@ export const StandardModal = ({
   size = 'lg',
   contentPadding = true,
   disableScrollArea = false,
+  fullHeight = size === 'xl',
 }: StandardModalProps) => {
   const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
   const padding = contentPadding ? 'var(--mantine-spacing-lg)' : 0
 
   const sharedProps = {
@@ -71,6 +75,7 @@ export const StandardModal = ({
       )}
       {footer && (
         <Box
+          className={mobileShell ? iosClasses.sheetFooter : undefined}
           px="lg"
           py="md"
           style={{
@@ -84,6 +89,22 @@ export const StandardModal = ({
       )}
     </>
   )
+
+  if (mobileShell) {
+    return (
+      <Modal
+        {...sharedProps}
+        closeButtonProps={{ 'aria-label': 'Close dialog', children: footer ? 'Cancel' : 'Done' }}
+        classNames={{
+          content: fullHeight ? iosClasses.sheetFull : undefined,
+          close: footer ? iosClasses.sheetCloseLeading : undefined,
+        }}
+        styles={{ body: sharedStyles.body, content: columnStyle }}
+      >
+        {content}
+      </Modal>
+    )
+  }
 
   if (isMobile) {
     return (

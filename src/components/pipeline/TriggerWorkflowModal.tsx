@@ -2,13 +2,14 @@ import { Button, Group, NumberInput, Select, Stack, Switch, Text, TextInput } fr
 import { notifications } from '@mantine/notifications'
 import { useEffect, useRef, useState } from 'react'
 
-import { useIsMobile } from '../../hooks/useIsMobile'
+import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTriggerWorkflow, useWorkflowParameters } from '../../queries/useWorkflowQueries'
 import type { Pipeline, WorkflowParameter } from '../../types'
 import { getPipelineLabels, getReconcileBlockReason } from '../../utils/pipelinePresentation'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
+import { IosGroup, IosRow } from '../ios/IosList'
 
 interface TriggerWorkflowModalProps {
   opened: boolean
@@ -51,6 +52,7 @@ export const TriggerWorkflowModal = ({
   initialInputs,
 }: TriggerWorkflowModalProps) => {
   const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({})
   const isSubmittingRef = useRef(false)
   const labels = getPipelineLabels(pipeline.provider_type)
@@ -141,6 +143,124 @@ export const TriggerWorkflowModal = ({
     )
   }
 
+  const renderShellRow = (param: WorkflowParameter) => {
+    const label = param.label || param.name
+    const value = paramValues[param.name]
+    const isDisabled = triggerMutation.isPending
+    const title = (
+      <>
+        {label}
+        {param.required && (
+          <Text component="span" inherit c="red">
+            {' *'}
+          </Text>
+        )}
+      </>
+    )
+    const subtitle = param.description || undefined
+    const placeholder = param.required ? 'Required' : 'Optional'
+    const rightAligned = {
+      input: {
+        height: 32,
+        minHeight: 32,
+        paddingInline: 0,
+        background: 'transparent',
+        textAlign: 'right' as const,
+      },
+    }
+
+    switch (param.type) {
+      case 'boolean':
+        return (
+          <IosRow
+            key={param.name}
+            title={title}
+            subtitle={subtitle}
+            accessory={
+              <Switch
+                aria-label={label}
+                checked={Boolean(value)}
+                onChange={(e) => setParamValues({ ...paramValues, [param.name]: e.currentTarget.checked })}
+                disabled={isDisabled}
+              />
+            }
+          />
+        )
+
+      case 'choice': {
+        const options = param.options ? [...new Set(param.options)] : []
+        const validValue = typeof value === 'string' && value !== '' && options.includes(value) ? value : null
+
+        return (
+          <IosRow
+            key={param.name}
+            title={title}
+            subtitle={subtitle}
+            accessory={
+              <Select
+                aria-label={label}
+                variant="unstyled"
+                placeholder="Select"
+                data={options}
+                value={validValue}
+                onChange={(val) => setParamValues({ ...paramValues, [param.name]: val })}
+                clearable={!param.required}
+                disabled={isDisabled}
+                w={160}
+                rightSection={<span />}
+                rightSectionPointerEvents="none"
+                styles={rightAligned}
+              />
+            }
+          />
+        )
+      }
+
+      case 'number':
+        return (
+          <IosRow
+            key={param.name}
+            title={title}
+            subtitle={subtitle}
+            accessory={
+              <NumberInput
+                aria-label={label}
+                variant="unstyled"
+                hideControls
+                placeholder={placeholder}
+                value={typeof value === 'number' || typeof value === 'string' ? value : ''}
+                onChange={(val) => setParamValues({ ...paramValues, [param.name]: val })}
+                disabled={isDisabled}
+                w={140}
+                styles={rightAligned}
+              />
+            }
+          />
+        )
+
+      default:
+        return (
+          <IosRow
+            key={param.name}
+            title={title}
+            subtitle={subtitle}
+            accessory={
+              <TextInput
+                aria-label={label}
+                variant="unstyled"
+                placeholder={placeholder}
+                value={value ? String(value) : ''}
+                onChange={(e) => setParamValues({ ...paramValues, [param.name]: e.currentTarget.value })}
+                disabled={isDisabled}
+                w={160}
+                styles={rightAligned}
+              />
+            }
+          />
+        )
+    }
+  }
+
   const renderParameterInput = (param: WorkflowParameter) => {
     const label = param.label || param.name
     const value = paramValues[param.name]
@@ -213,9 +333,11 @@ export const TriggerWorkflowModal = ({
 
   const footer = (
     <Group justify="flex-end" gap="sm" grow={isMobile}>
-      <Button variant="default" size="sm" onClick={onClose} disabled={triggerMutation.isPending}>
-        Cancel
-      </Button>
+      {!mobileShell && (
+        <Button variant="default" size="sm" onClick={onClose} disabled={triggerMutation.isPending}>
+          Cancel
+        </Button>
+      )}
       <Button
         size="sm"
         onClick={handleTrigger}
@@ -264,6 +386,10 @@ export const TriggerWorkflowModal = ({
           This workflow has no parameters. It runs with its defaults.
         </Text>
       )
+    }
+
+    if (mobileShell) {
+      return <IosGroup>{parameters.map((param) => renderShellRow(param))}</IosGroup>
     }
 
     return <Stack gap={isMobile ? 'xs' : 'sm'}>{parameters.map((param) => renderParameterInput(param))}</Stack>

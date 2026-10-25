@@ -6,6 +6,7 @@ import {
   Checkbox,
   Group,
   Loader,
+  Menu,
   Skeleton,
   Stack,
   Tabs,
@@ -13,13 +14,13 @@ import {
   UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure, useIntersection } from '@mantine/hooks'
-import { modals } from '@mantine/modals'
 import {
   IconAdjustments,
   IconCalendar,
   IconChartLine,
   IconCheck,
   IconClock,
+  IconDots,
   IconFileText,
   IconGitBranch,
   IconHistory,
@@ -34,7 +35,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { PAGE_SIZES } from '../../constants/pagination'
 import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
-import { useIsMobile } from '../../hooks/useIsMobile'
+import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTableColumns } from '../../hooks/useTableColumns'
 import { useRunHistoryFilters } from '../../hooks/useUrlState'
 import {
@@ -46,8 +47,10 @@ import {
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { events } from '../../services'
 import { useModalStore } from '../../stores/modalStore'
+import { STATUS_META } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../types'
+import { openConfirm } from '../../utils/confirm'
 import { getDateRangeStart } from '../../utils/dateRange'
 import { formatCount } from '../../utils/formatCount'
 import { formatDateTime } from '../../utils/formatDateTime'
@@ -62,8 +65,11 @@ import { LoadingState } from '../common/LoadingState'
 import { PageContainer } from '../common/PageContainer'
 import { PageHeader } from '../common/PageHeader'
 import { StandardTable } from '../common/StandardTable'
+import { ActionSheetCancel } from '../ios/ActionSheetCancel'
+import { IosGroup, IosRow } from '../ios/IosList'
 import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
 
+import { IosRunList, IosRunToolbar } from './IosRunList'
 import { TableCustomizationModal } from './TableCustomizationModal'
 
 interface RunHistoryPageProps {
@@ -110,6 +116,7 @@ export const RunHistoryPage = ({
   isLoadingPipeline = false,
 }: RunHistoryPageProps) => {
   const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
   const labels = getPipelineLabels(pipeline?.provider_type)
   const isFlux = pipeline?.provider_type === 'fluxcd'
 
@@ -131,6 +138,7 @@ export const RunHistoryPage = ({
   const sortStatus = sortOverride ?? defaultSortStatus
   const [activeTab, setActiveTab] = useState<string>(initialTab)
   const [customizeModalOpened, { open: openCustomizeModal, close: closeCustomizeModal }] = useDisclosure(false)
+  const [selecting, setSelecting] = useState(false)
   const [accumulatedRuns, setAccumulatedRuns] = useState<PipelineRun[]>([])
   const { ref: loadMoreRef, entry } = useIntersection({ threshold: 0.5 })
 
@@ -247,7 +255,7 @@ export const RunHistoryPage = ({
 
   const handleCancelRun = useCallback(
     (pipeline: Pipeline, run: PipelineRun) => {
-      modals.openConfirmModal({
+      openConfirm({
         title: 'Cancel run',
         children: <Text size="sm">This cancels run #{run.run_number}. You can't undo this.</Text>,
         labels: { confirm: 'Cancel run', cancel: 'Keep running' },
@@ -446,6 +454,74 @@ export const RunHistoryPage = ({
       labels.run,
     ]
   )
+
+  const renderRunMenu = (run: PipelineRun) => {
+    if (!pipeline) {
+      return null
+    }
+
+    const isActive = run.status === 'running' || run.status === 'pending'
+    const isAwaitingReview = run.metadata?.awaiting_review === true
+    const isReviewBusy = reviewingRunNumber !== null
+    const busy =
+      cancellingRunNumber === run.run_number ||
+      reviewingRunNumber === run.run_number ||
+      rerunningFailedRunNumber === run.run_number ||
+      (rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number)
+
+    return (
+      <Menu position="bottom-end">
+        <Menu.Target>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            loading={busy}
+            aria-label={`Actions for ${labels.run} #${run.run_number}`}
+          >
+            <IconDots size={22} />
+          </ActionIcon>
+        </Menu.Target>
+        <Menu.Dropdown>
+          {isAwaitingReview && onReview && (
+            <>
+              <Menu.Item disabled={isReviewBusy} onClick={() => handleReviewRun(pipeline, run, 'approve')}>
+                Approve deployment
+              </Menu.Item>
+              <Menu.Item color="red" disabled={isReviewBusy} onClick={() => handleReviewRun(pipeline, run, 'reject')}>
+                Reject deployment
+              </Menu.Item>
+            </>
+          )}
+          {isActive
+            ? onCancel &&
+              !isAwaitingReview && (
+                <Menu.Item
+                  color="red"
+                  disabled={run.status === 'pending' || cancellingRunNumber === run.run_number}
+                  onClick={() => handleCancelRun(pipeline, run)}
+                >
+                  {run.status === 'pending' ? 'Cancel unavailable while pending' : `Cancel ${labels.run}`}
+                </Menu.Item>
+              )
+            : onRerun && (
+                <Menu.Item onClick={() => onRerun(pipeline, run)}>
+                  {isFlux ? `Reconcile ${pipeline.name}` : `Rerun ${labels.run}`}
+                </Menu.Item>
+              )}
+          {!isActive && run.metadata?.can_rerun_failed_jobs === true && onRerunFailedJobs && (
+            <Menu.Item
+              disabled={rerunningFailedRunNumber !== null}
+              onClick={() => handleRerunFailedJobs(pipeline, run)}
+            >
+              Re-run failed jobs
+            </Menu.Item>
+          )}
+          <Menu.Item onClick={() => onViewRun(pipeline.id, run.run_number)}>View details</Menu.Item>
+          <ActionSheetCancel />
+        </Menu.Dropdown>
+      </Menu>
+    )
+  }
 
   const actionsColumn = useMemo(
     () => ({
@@ -679,7 +755,28 @@ export const RunHistoryPage = ({
 
   const renderMobileCards = (currentPipeline: Pipeline, emptyState: ReactNode) => (
     <Stack gap="md">
-      {sortedRuns.map((run) => {
+      {mobileShell && sortedRuns.length > 0 && (
+        <IosRunList
+          runs={sortedRuns}
+          isFlux={isFlux}
+          noun={labels.run}
+          label={formatCount(sortedRuns.length, labels.run)}
+          onSelect={sortedRuns.some(isRunCancellable) ? () => setSelecting(true) : undefined}
+          selecting={selecting}
+          selectedNumbers={selectedRuns.map((run) => run.run_number)}
+          isSelectable={isRunCancellable}
+          onToggle={(run) =>
+            selectRuns(
+              selectedRuns.some((selectedRun) => selectedRun.run_number === run.run_number)
+                ? selectedRuns.filter((selectedRun) => selectedRun.run_number !== run.run_number)
+                : [...selectedRuns, run]
+            )
+          }
+          onOpen={(run) => onViewRun(currentPipeline.id, run.run_number)}
+          renderMenu={renderRunMenu}
+        />
+      )}
+      {(mobileShell ? [] : sortedRuns).map((run) => {
         const selectable = isRunCancellable(run)
         const selected = selectedRuns.some((selectedRun) => selectedRun.run_number === run.run_number)
 
@@ -884,9 +981,21 @@ export const RunHistoryPage = ({
           !isLoadingPipeline && pipeline?.name ? pipeline.name : <Skeleton height="1.5rem" width="min(250px, 60vw)" />
         }
         onBack={onBack}
-        actions={headerActions}
+        actions={mobileShell ? undefined : headerActions}
       />
-      {isFlux && pipeline && (
+      {isFlux && pipeline && mobileShell && (
+        <IosGroup>
+          <IosRow
+            title={
+              <Text component="span" fw={600} c={`var(--status-${STATUS_META[pipeline.status].tone})`}>
+                {getStatusLabel(pipeline) ?? STATUS_META[pipeline.status].label}
+              </Text>
+            }
+            subtitle={String(pipeline.metadata?.message ?? '') || undefined}
+          />
+        </IosGroup>
+      )}
+      {isFlux && pipeline && !mobileShell && (
         <Group gap="sm" align="flex-start" mb="sm">
           <StatusBadge status={pipeline.status} label={getStatusLabel(pipeline)} size="md" />
           <Text size="sm" style={{ overflowWrap: 'anywhere', flex: 1 }}>
@@ -895,7 +1004,12 @@ export const RunHistoryPage = ({
         </Group>
       )}
       {pipeline?.metadata?.history_scope === 'bounded_reconciliation' && (
-        <Text size="sm" c="dimmed" mb="sm">
+        <Text
+          size={mobileShell ? 'xs' : 'sm'}
+          c="dimmed"
+          mb={mobileShell ? undefined : 'sm'}
+          px={mobileShell ? 'md' : undefined}
+        >
           FluxCD retains a limited reconciliation history. Repeated reconciliations may be grouped, and older entries
           may be unavailable.
         </Text>
@@ -907,10 +1021,10 @@ export const RunHistoryPage = ({
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         <Tabs.List mb="sm">
-          <Tabs.Tab value="history" leftSection={<IconHistory size={16} />}>
+          <Tabs.Tab value="history" leftSection={mobileShell ? undefined : <IconHistory size={16} />}>
             {labels.history}
           </Tabs.Tab>
-          <Tabs.Tab value="metrics" leftSection={<IconChartLine size={16} />}>
+          <Tabs.Tab value="metrics" leftSection={mobileShell ? undefined : <IconChartLine size={16} />}>
             Metrics
           </Tabs.Tab>
         </Tabs.List>
@@ -960,7 +1074,7 @@ export const RunHistoryPage = ({
                     },
                   }}
                 />
-                {selectedRuns.length > 0 && (
+                {!mobileShell && selectedRuns.length > 0 && (
                   <Button
                     size="xs"
                     variant="light"
@@ -992,6 +1106,18 @@ export const RunHistoryPage = ({
           )}
         </Tabs.Panel>
       </Tabs>
+
+      {mobileShell && selecting && activeTab === 'history' && (
+        <IosRunToolbar
+          count={selectedRuns.length}
+          cancelling={isCancellingSelected}
+          onDone={() => {
+            selectRuns([])
+            setSelecting(false)
+          }}
+          onCancelRuns={cancelSelected}
+        />
+      )}
 
       <TableCustomizationModal
         opened={customizeModalOpened}

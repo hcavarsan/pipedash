@@ -1,0 +1,80 @@
+.screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--mantine-color-body);
+}
+
+.scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: calc(var(--safe-top) + 32px) calc(var(--safe-right) + 16px) 24px calc(var(--safe-left) + 16px);
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.footer {
+  padding: 12px calc(var(--safe-right) + 16px) calc(12px + var(--safe-bottom)) calc(var(--safe-left) + 16px);
+  background: var(--mantine-color-body);
+}
+
+.stepHeader {
+  margin-bottom: 20px;
+}
+
+.dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ios-fill);
+}
+
+.dot[data-active] {
+  background: var(--mantine-color-blue-filled);
+}
+
+.dot[data-done] {
+  background: var(--mantine-color-blue-light-color);
+}
+
+.stepCount {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.stepTitle {
+  margin: 2px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+}

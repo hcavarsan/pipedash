@@ -1,14 +1,15 @@
-import { Alert, Badge, Button, Group, Loader, Stack, Text, useComputedColorScheme } from '@mantine/core'
-import { modals } from '@mantine/modals'
+import { Alert, Badge, Box, Button, Group, Loader, Stack, Text, useComputedColorScheme } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { parse } from 'smol-toml'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { service } from '../../services'
 import type { ConfigAnalysisResponse, MigrationOptions } from '../../types'
 import { formatErrorMessage } from '../../types/errors'
+import { openConfirm } from '../../utils/confirm'
 import { formatCount } from '../../utils/formatCount'
 import { StandardModal } from '../common/StandardModal'
 
@@ -25,6 +26,7 @@ interface ConfigEditorModalProps {
 
 export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: ConfigEditorModalProps) => {
   const colorScheme = useComputedColorScheme('dark')
+  const mobileShell = useMobileShell()
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -141,7 +143,8 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     }
 
     if (analysis?.warnings && analysis.warnings.length > 0) {
-      modals.openConfirmModal({
+      openConfirm({
+        zIndex: mobileShell ? 400 : undefined,
         title: 'Configuration warnings',
         children: (
           <Stack gap="xs">
@@ -224,7 +227,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
 
   const handleClose = () => {
     if (hasChanges) {
-      modals.openConfirmModal({
+      openConfirm({
         title: 'Discard changes?',
         centered: true,
         zIndex: 400,
@@ -239,7 +242,16 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     onClose()
   }
 
-  const footerContent = (
+  const footerContent = mobileShell ? (
+    <Stack gap="xs">
+      <Text size="xs" c="dimmed" ta="center">
+        {hasChanges ? 'Unsaved changes' : 'No changes'}
+      </Text>
+      <Button fullWidth onClick={handleSave} loading={loading} disabled={!!validationError || !hasChanges}>
+        Save
+      </Button>
+    </Stack>
+  ) : (
     <Group justify="space-between" w="100%">
       <Text size="xs" c="dimmed">
         {hasChanges ? 'Unsaved changes' : 'No changes'}
@@ -255,6 +267,8 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     </Group>
   )
 
+  const noticesProps = mobileShell ? ({ mah: '35dvh', flex: '0 0 auto', style: { overflowY: 'auto' } } as const) : {}
+
   return (
     <StandardModal
       opened={opened}
@@ -266,83 +280,96 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       disableScrollArea
     >
       <Stack gap={0} style={{ flex: 1, overflow: 'hidden' }}>
-        {analyzing && (
-          <Alert icon={<Loader size={16} />} color="gray" mx="lg" mt="md">
-            <Text size="sm">Analyzing configuration...</Text>
-          </Alert>
-        )}
+        <Box {...noticesProps}>
+          {analyzing && (
+            <Alert icon={<Loader size={16} />} color="gray" mx="lg" mt="md">
+              <Text size="sm">Analyzing configuration...</Text>
+            </Alert>
+          )}
 
-        {analysis?.migration_plan && (
-          <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Migration required" mx="lg" mt="md">
-            <Text size="sm" fw={500}>
-              These changes require migrating {analysis.migration_plan.steps.length} components to the new storage
-              backend.
-            </Text>
-            {analysis.stats && (
-              <Group gap="xs" mt="xs">
-                <Badge size="sm">{formatCount(analysis.stats.providers_count, 'provider')}</Badge>
-                <Badge size="sm">{formatCount(analysis.stats.tokens_count, 'token')}</Badge>
-                <Badge size="sm">
-                  {formatCount(analysis.stats.cache_entries_count, 'cache entry', 'cache entries')}
-                </Badge>
-              </Group>
-            )}
-          </Alert>
-        )}
-
-        {analysis?.errors.map((error) => (
-          <Alert
-            key={`${error.field}:${error.message}`}
-            icon={<IconAlertCircle size={16} />}
-            color="red"
-            title={error.field}
-            mx="lg"
-            mt="md"
-          >
-            <Text size="sm">{error.message}</Text>
-            <Text size="xs" c="dimmed" mt={4}>
-              Error code: {error.code}
-            </Text>
-          </Alert>
-        ))}
-
-        {analysis?.warnings.map((warning) => (
-          <Alert
-            key={`${warning.field}:${warning.message}`}
-            icon={<IconAlertCircle size={16} />}
-            color="orange"
-            title={warning.field}
-            mx="lg"
-            mt="md"
-          >
-            <Text size="sm">{warning.message}</Text>
-          </Alert>
-        ))}
-
-        {analysis?.postgres_connection && (
-          <Alert
-            icon={analysis.postgres_connection.success ? <IconCheck size={16} /> : <IconX size={16} />}
-            color={analysis.postgres_connection.success ? 'green' : 'red'}
-            title={
-              analysis.postgres_connection.success ? 'PostgreSQL connection successful' : 'PostgreSQL connection failed'
-            }
-            mx="lg"
-            mt="md"
-          >
-            <Text size="sm">{analysis.postgres_connection.message}</Text>
-            {analysis.postgres_connection.latency_ms && (
-              <Text size="xs" c="dimmed" mt={4}>
-                Connection latency: {analysis.postgres_connection.latency_ms}ms
+          {analysis?.migration_plan && (
+            <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Migration required" mx="lg" mt="md">
+              <Text size="sm" fw={500}>
+                These changes require migrating {analysis.migration_plan.steps.length} components to the new storage
+                backend.
               </Text>
-            )}
-          </Alert>
-        )}
+              {analysis.stats && mobileShell && (
+                <Text size="xs" c="dimmed" mt="xs">
+                  {[
+                    formatCount(analysis.stats.providers_count, 'provider'),
+                    formatCount(analysis.stats.tokens_count, 'token'),
+                    formatCount(analysis.stats.cache_entries_count, 'cache entry', 'cache entries'),
+                  ].join(' · ')}
+                </Text>
+              )}
+              {analysis.stats && !mobileShell && (
+                <Group gap="xs" mt="xs">
+                  <Badge size="sm">{formatCount(analysis.stats.providers_count, 'provider')}</Badge>
+                  <Badge size="sm">{formatCount(analysis.stats.tokens_count, 'token')}</Badge>
+                  <Badge size="sm">
+                    {formatCount(analysis.stats.cache_entries_count, 'cache entry', 'cache entries')}
+                  </Badge>
+                </Group>
+              )}
+            </Alert>
+          )}
 
-        {validationError && !analysis && (
-          <Alert icon={<IconAlertCircle size={16} />} color="red" title="Validation error" mx="lg" mt="md">
-            <Text size="sm">{validationError}</Text>
-          </Alert>
-        )}
+          {analysis?.errors.map((error) => (
+            <Alert
+              key={`${error.field}:${error.message}`}
+              icon={<IconAlertCircle size={16} />}
+              color="red"
+              title={error.field}
+              mx="lg"
+              mt="md"
+            >
+              <Text size="sm">{error.message}</Text>
+              <Text size="xs" c="dimmed" mt={4}>
+                Error code: {error.code}
+              </Text>
+            </Alert>
+          ))}
+
+          {analysis?.warnings.map((warning) => (
+            <Alert
+              key={`${warning.field}:${warning.message}`}
+              icon={<IconAlertCircle size={16} />}
+              color="orange"
+              title={warning.field}
+              mx="lg"
+              mt="md"
+            >
+              <Text size="sm">{warning.message}</Text>
+            </Alert>
+          ))}
+
+          {analysis?.postgres_connection && (
+            <Alert
+              icon={analysis.postgres_connection.success ? <IconCheck size={16} /> : <IconX size={16} />}
+              color={analysis.postgres_connection.success ? 'green' : 'red'}
+              title={
+                analysis.postgres_connection.success
+                  ? 'PostgreSQL connection successful'
+                  : 'PostgreSQL connection failed'
+              }
+              mx="lg"
+              mt="md"
+            >
+              <Text size="sm">{analysis.postgres_connection.message}</Text>
+              {analysis.postgres_connection.latency_ms && (
+                <Text size="xs" c="dimmed" mt={4}>
+                  Connection latency: {analysis.postgres_connection.latency_ms}ms
+                </Text>
+              )}
+            </Alert>
+          )}
+
+          {validationError && !analysis && (
+            <Alert icon={<IconAlertCircle size={16} />} color="red" title="Validation error" mx="lg" mt="md">
+              <Text size="sm">{validationError}</Text>
+            </Alert>
+          )}
+        </Box>
 
         <Suspense fallback={<Loader size="sm" m="lg" />}>
           <TomlEditor
@@ -351,14 +378,14 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
             value={content}
             onChange={handleEditorChange}
             options={{
-              fontSize: 14,
+              fontSize: mobileShell ? 16 : 14,
               minimap: { enabled: false },
               scrollBeyondLastLine: false,
               wordWrap: 'on',
               automaticLayout: true,
               tabSize: 2,
               insertSpaces: true,
-              lineNumbers: 'on',
+              lineNumbers: mobileShell ? 'off' : 'on',
               glyphMargin: false,
               folding: true,
               lineDecorationsWidth: 0,

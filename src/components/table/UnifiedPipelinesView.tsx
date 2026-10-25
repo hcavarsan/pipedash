@@ -35,6 +35,7 @@ import { StandardTable } from '../common/StandardTable'
 import { ProviderRecoveryActions } from '../provider/ProviderRecoveryActions'
 import { ProviderStatusButton } from '../provider/ProviderStatusButton'
 
+import { IosPipelineList } from './IosPipelineList'
 import { MobilePipelineCards } from './MobilePipelineCards'
 import { PinnedWorkflows } from './PinnedWorkflows'
 import { RepositoryFetchIndicator, RowStatus, SectionHeading, type TableRow, WorkflowActions } from './PipelineRowParts'
@@ -512,8 +513,9 @@ export const UnifiedPipelinesView = ({
 
   const showPinnedSection = !pinnedView && providerFilter === null && pinnedPipelines.length > 0
 
-  const pinnedGrid = (
+  const pinnedGrid = (header?: string) => (
     <PinnedWorkflows
+      header={header}
       pipelines={pinnedPipelines}
       getProvider={getProvider}
       onViewHistory={onViewHistory}
@@ -586,7 +588,7 @@ export const UnifiedPipelinesView = ({
 
       {pinnedView ? (
         pinnedPipelines.length > 0 ? (
-          pinnedGrid
+          pinnedGrid()
         ) : filtersActive ? (
           noMatches
         ) : (
@@ -603,20 +605,23 @@ export const UnifiedPipelinesView = ({
         )
       ) : (
         <>
-          {showPinnedSection && (
-            <Stack gap="sm" component="section" aria-labelledby="pinned-workflows-title">
-              <SectionHeading
-                id="pinned-workflows-title"
-                icon={<IconPinFilled size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
-                label="Pinned"
-                count={pinnedPipelines.length}
-              />
-              {pinnedGrid}
-            </Stack>
-          )}
+          {showPinnedSection &&
+            (mobileShell ? (
+              pinnedGrid('Pinned')
+            ) : (
+              <Stack gap="sm" component="section" aria-labelledby="pinned-workflows-title">
+                <SectionHeading
+                  id="pinned-workflows-title"
+                  icon={<IconPinFilled size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
+                  label="Pinned"
+                  count={pinnedPipelines.length}
+                />
+                {pinnedGrid()}
+              </Stack>
+            ))}
 
           <Stack gap="sm" flex={1} mih={0}>
-            {showPinnedSection && rows.length > 0 && (
+            {!mobileShell && showPinnedSection && rows.length > 0 && (
               <SectionHeading
                 icon={<IconFolder size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
                 label={isFluxView ? 'Sources' : 'Repositories'}
@@ -645,6 +650,21 @@ export const UnifiedPipelinesView = ({
                   }
                 />
               )
+            ) : mobileShell ? (
+              <IosPipelineList
+                header={isFluxView ? 'Sources' : 'Repositories'}
+                groupTitle={labels.groupTitle}
+                sortStatus={sortStatus}
+                onSortStatusChange={setSortStatus}
+                rows={rows}
+                getProvider={getProvider}
+                onToggleRepo={toggleRepo}
+                onViewHistory={onViewHistory}
+                onTrigger={onTrigger}
+                pinnedKeys={pinnedKeys}
+                onTogglePin={togglePin}
+                onViewMetrics={onViewMetrics}
+              />
             ) : isMobile ? (
               <MobilePipelineCards
                 rows={rows}

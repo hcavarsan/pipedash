@@ -1,0 +1,144 @@
+.tile {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ios-cell);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.tile:active {
+  box-shadow: inset 0 0 0 999px var(--ios-fill);
+}
+
+.tileHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tileTitle {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.chevron {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--ios-chevron);
+}
+
+.caption {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--mantine-color-dimmed);
+}
+
+.readout {
+  min-height: 18px;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--mantine-color-dimmed);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-radius: 12px;
+  background: var(--ios-cell);
+}
+
+.stat {
+  padding: 12px 14px;
+  min-width: 0;
+}
+
+.stat + .stat {
+  border-left: 0.5px solid var(--ios-separator);
+}
+
+.statValue {
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.menuRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  font-size: 17px;
+  text-align: left;
+}
+
+.menuRow:active {
+  background: var(--ios-fill);
+}
+
+.menuRow:disabled {
+  opacity: 0.5;
+}
+
+.menuRowAction {
+  justify-content: flex-start;
+  color: var(--mantine-color-anchor);
+}
+
+.menuRowValue {
+  color: var(--mantine-color-dimmed);
+}
+
+.tile :global(.recharts-wrapper) *:focus {
+  outline: none;
+}
+
+.pickerInput.pickerInput {
+  height: 100%;
+  padding-right: 40px;
+  padding-left: 16px;
+  background: transparent;
+  color: var(--mantine-color-dimmed);
+  font-size: 17px;
+  text-align: right;
+}
+
+.pickerRoot {
+  position: absolute;
+  inset: 0;
+}
+
+.pickerWrapper {
+  height: 100%;
+}
+
+.pickerSection {
+  right: 16px;
+}
+
+.numberRoot {
+  width: 110px;
+}
+
+.numberInput.numberInput {
+  padding: 0;
+  background: transparent;
+  color: var(--mantine-color-dimmed);
+  font-size: 17px;
+  text-align: right;
+}

@@ -1,0 +1,51 @@
+:global(html):has(.banner) :global(.mantine-AppShell-main) {
+  padding-top: calc(var(--app-shell-header-offset, 0rem) + var(--app-shell-padding) + 28px);
+}
+
+.banner {
+  position: fixed;
+  z-index: 140;
+  top: calc(44px + var(--safe-top));
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 calc(var(--safe-right) + 12px) 0 calc(var(--safe-left) + 12px);
+  border-bottom: 0.5px solid var(--ios-separator);
+  background: color-mix(in srgb, var(--ios-sheet) 92%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  color: var(--mantine-color-orange-light-color);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  color: var(--mantine-color-dimmed);
+}
+
+.action {
+  flex-shrink: 0;
+  padding: 0 0 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--mantine-color-blue-light-color);
+  font: inherit;
+  font-weight: 600;
+}

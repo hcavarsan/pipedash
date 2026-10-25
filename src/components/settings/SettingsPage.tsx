@@ -33,7 +33,8 @@ export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps) =>
   const content = (
     <ScrollArea flex={1}>
       <Box
-        p={isMobile ? 'md' : 'xl'}
+        p={mobileShell ? 0 : isMobile ? 'md' : 'xl'}
+        pt={mobileShell ? 'sm' : undefined}
         maw={isMobile ? undefined : 720}
         className={mobileShell ? 'settings-pushed' : undefined}
       >

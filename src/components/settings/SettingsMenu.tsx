@@ -1,7 +1,6 @@
-import { Box, Group, Stack, Text, UnstyledButton } from '@mantine/core'
-import { IconChevronRight } from '@tabler/icons-react'
-import { Link } from 'react-router-dom'
+import { Stack } from '@mantine/core'
 
+import { IosGroup, IosRow } from '../ios/IosList'
 import { SETTINGS_SECTIONS, type SettingsSection } from './SettingsSidebar'
 
 const GROUPS: SettingsSection[][] = [
@@ -14,7 +13,7 @@ export function SettingsMenu() {
   return (
     <Stack gap="lg" pb="md">
       {GROUPS.map((ids) => (
-        <Box key={ids.join()} className="ios-group">
+        <IosGroup key={ids.join()}>
           {ids.map((id) => {
             const section = SETTINGS_SECTIONS.find((item) => item.id === id)
 
@@ -22,23 +21,9 @@ export function SettingsMenu() {
               return null
             }
 
-            return (
-              <UnstyledButton key={id} className="ios-row" component={Link} to={`/settings/${id}`}>
-                <Group wrap="nowrap" gap="sm">
-                  <Box className="ios-icon-tile" aria-hidden>
-                    {section.icon}
-                  </Box>
-                  <Text size="md" fw={500} flex={1}>
-                    {section.label}
-                  </Text>
-                  <Box c="dimmed" aria-hidden style={{ display: 'flex' }}>
-                    <IconChevronRight size={18} />
-                  </Box>
-                </Group>
-              </UnstyledButton>
-            )
+            return <IosRow key={id} title={section.label} icon={section.icon} to={`/settings/${id}`} />
           })}
-        </Box>
+        </IosGroup>
       ))}
     </Stack>
   )

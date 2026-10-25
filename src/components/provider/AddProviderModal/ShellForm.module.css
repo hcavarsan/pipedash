@@ -1,0 +1,128 @@
+.step {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 16px 24px;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.headingTitle {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.headingSubtitle {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--mantine-color-dimmed);
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+.control > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.control :is(input, textarea, [data-variant="unstyled"]) {
+  background: transparent;
+}
+
+.control textarea {
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+.error {
+  color: var(--mantine-color-red-filled);
+}
+
+.note {
+  padding: 0 16px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--mantine-color-dimmed);
+}
+
+.search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -8px 0;
+  padding: 8px 0;
+  background: var(--ios-sheet);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--ios-chevron);
+  border-radius: 50%;
+  color: #fff;
+}
+
+.check[data-checked] {
+  border-color: var(--mantine-color-blue-filled);
+  background: var(--mantine-color-blue-filled);
+}
+
+.clamp {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.footerCount {
+  text-align: center;
+  font-size: 13px;
+  color: var(--mantine-color-dimmed);
+}
+
+.line.granted {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--mantine-color-green-filled);
+}
+
+.line.missing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--mantine-color-red-filled);
+}
+
+.permissionName {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: 15px;
+}
+
+.line {
+  display: block;
+}
+
+.line + .line {
+  margin-top: 4px;
+}

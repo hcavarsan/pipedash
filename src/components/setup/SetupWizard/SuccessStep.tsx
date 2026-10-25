@@ -1,12 +1,14 @@
-import { Button, Card, Code, Group, SimpleGrid, Stack, Text, ThemeIcon } from '@mantine/core'
-import { IconAlertTriangle, IconCheck } from '@tabler/icons-react'
+import { Button, Card, Code, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core'
+import { IconAlertTriangle, IconCheck, IconCircleCheckFilled } from '@tabler/icons-react'
 import { useState } from 'react'
 
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
 import { isTauri, service } from '../../../services'
 import { isMobilePlatform } from '../../../utils/platform'
 import { CopyButton } from '../../atoms/CopyButton'
 import { ErrorState } from '../../common/ErrorState'
+import { IosGroup, IosRow } from '../../ios/IosList'
 
 import type { SuccessStepProps } from './types'
 
@@ -21,6 +23,7 @@ export function SuccessStep({
 }: SuccessStepProps) {
   const [restarting, setRestarting] = useState(false)
   const onDevice = isMobilePlatform()
+  const mobileShell = useMobileShell()
   const [restartError, setRestartError] = useState<unknown>(null)
 
   const envVarName = vaultStatus?.env_var_name || 'PIPEDASH_VAULT_PASSWORD'
@@ -49,6 +52,54 @@ export function SuccessStep({
         { label: 'Metrics', value: migrationStats.metrics_migrated },
       ]
     : []
+
+  if (mobileShell) {
+    const needsReload = migrationStats !== null && isTauri()
+
+    return (
+      <Stack gap="xl" style={{ flex: 1 }}>
+        <Stack align="center" gap="xs" pt="xl">
+          <IconCircleCheckFilled size={80} color="var(--ios-green)" aria-hidden />
+          <Title order={2} ta="center">
+            Setup complete
+          </Title>
+          <Text size="sm" c="dimmed" ta="center">
+            {needsReload ? 'Reload required to load the new database' : 'Add providers to start monitoring pipelines'}
+          </Text>
+        </Stack>
+
+        {migrationStats !== null && (
+          <IosGroup header="Migration summary">
+            {migratedCounts.map(({ label, value }) => (
+              <IosRow key={label} title={label} value={value} />
+            ))}
+          </IosGroup>
+        )}
+
+        {needsReload && restartError !== null && (
+          <ErrorState
+            title="Couldn't reload Pipedash"
+            error={restartError}
+            hint="Close and reopen Pipedash to load the new database."
+            onRetry={handleRestart}
+            retrying={restarting}
+          />
+        )}
+
+        {(!needsReload || restartError === null) && (
+          <Button
+            size="lg"
+            fullWidth
+            mt="auto"
+            onClick={needsReload ? handleRestart : onComplete}
+            loading={needsReload && restarting}
+          >
+            {needsReload ? 'Reload now' : 'Get started'}
+          </Button>
+        )}
+      </Stack>
+    )
+  }
 
   return (
     <Stack gap="md" align="center" py="xl">

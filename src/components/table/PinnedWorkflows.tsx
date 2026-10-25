@@ -1,13 +1,18 @@
 import { Card, Group, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
+import { useNow } from '../../hooks/useNow'
 import type { Pipeline, ProviderSummary } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusIcon } from '../atoms/StatusBadge'
+import { IosGroup } from '../ios/IosList'
 
-import { WorkflowActions } from './PipelineRowParts'
+import { IosPipelineRow, relativeOrNever } from './IosPipelineList'
+import { WorkflowActionMenu, WorkflowActions } from './PipelineRowParts'
 
 interface PinnedWorkflowsProps {
+  header?: string
   pipelines: Pipeline[]
   getProvider: (providerId: number) => ProviderSummary | undefined
   onViewHistory: (pipeline: Pipeline) => void
@@ -17,6 +22,7 @@ interface PinnedWorkflowsProps {
 }
 
 export function PinnedWorkflows({
+  header,
   pipelines,
   getProvider,
   onViewHistory,
@@ -24,6 +30,43 @@ export function PinnedWorkflows({
   onUnpin,
   onViewMetrics,
 }: PinnedWorkflowsProps) {
+  const mobileShell = useMobileShell()
+  const now = useNow(30_000)
+
+  if (mobileShell) {
+    return (
+      <IosGroup header={header}>
+        {pipelines.map((pipeline) => {
+          const provider = getProvider(pipeline.provider_id)
+
+          return (
+            <IosPipelineRow
+              key={pipeline.id}
+              status={pipeline.status}
+              statusText={getStatusLabel(pipeline)}
+              title={pipeline.name}
+              subtitle={[pipeline.repository, provider?.name ?? 'Unknown'].join(' · ')}
+              value={relativeOrNever(pipeline.last_run, now)}
+              ariaLabel={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${pipeline.name}`}
+              onClick={() => onViewHistory(pipeline)}
+              trailing={
+                <WorkflowActionMenu
+                  pipeline={pipeline}
+                  provider={provider}
+                  isPinned
+                  onTogglePin={() => onUnpin(pipeline)}
+                  onTrigger={onTrigger}
+                  onViewMetrics={onViewMetrics}
+                  onViewHistory={onViewHistory}
+                />
+              }
+            />
+          )
+        })}
+      </IosGroup>
+    )
+  }
+
   return (
     <SimpleGrid cols={{ base: 1, sm: 2, lg: 3, xl: 4 }} spacing="sm">
       {pipelines.map((pipeline) => (

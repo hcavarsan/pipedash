@@ -2,6 +2,7 @@ import { Button, Text } from '@mantine/core'
 import { IconRefresh, IconSettings } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { useRefreshProvider } from '../../queries/useRefreshQueries'
 import type { FailureKind } from '../../types'
 import { displayErrorNotification } from '../../utils/errorDisplay'
@@ -17,11 +18,12 @@ interface ProviderRecoveryActionsProps {
 
 export function ProviderRecoveryActions({ providerId, kind, onNavigate }: ProviderRecoveryActionsProps) {
   const refresh = useRefreshProvider()
+  const buttonSize = useMobileShell() ? 'sm' : 'compact-xs'
 
   return (
     <>
       <Button
-        size="compact-xs"
+        size={buttonSize}
         variant="default"
         leftSection={<IconRefresh size={14} aria-hidden />}
         loading={refresh.isPending}
@@ -35,7 +37,7 @@ export function ProviderRecoveryActions({ providerId, kind, onNavigate }: Provid
         <Button
           component={Link}
           to="/settings/providers"
-          size="compact-xs"
+          size={buttonSize}
           variant="default"
           leftSection={<IconSettings size={14} aria-hidden />}
           onClick={onNavigate}

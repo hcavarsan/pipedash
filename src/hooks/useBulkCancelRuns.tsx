@@ -1,9 +1,9 @@
 import { Text } from '@mantine/core'
-import { modals } from '@mantine/modals'
 import { useCallback, useMemo, useState } from 'react'
 
 import { useCancelRuns } from '../queries/useRunHistoryQueries'
 import type { PipelineRun } from '../types'
+import { openConfirm } from '../utils/confirm'
 
 interface UseBulkCancelRunsOptions {
   pipelineId: string | undefined
@@ -46,7 +46,7 @@ export function useBulkCancelRuns({ pipelineId, page, runs, enabled, cancellingR
     const runNumbers = selectedRuns.map((run) => run.run_number)
     const cancelLabel = runNumbers.length === 1 ? 'Cancel run' : `Cancel ${runNumbers.length} runs`
 
-    modals.openConfirmModal({
+    openConfirm({
       title: cancelLabel,
       children: (
         <Text size="sm">

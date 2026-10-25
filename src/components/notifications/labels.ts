@@ -11,6 +11,12 @@ import {
 import type { CenterNotification } from '../../stores/notificationCenterStore'
 import { HEALTH_META } from '../../theme/status'
 
+export const TONE_COLORS: Record<CenterNotification['tone'], string> = {
+  danger: 'var(--mantine-color-red-filled)',
+  warning: 'var(--mantine-color-orange-filled)',
+  success: 'var(--mantine-color-green-filled)',
+}
+
 export function notificationLabel({ tone, level, pipelineId }: CenterNotification): string {
   if (tone === 'success') {
     return 'Resolved'

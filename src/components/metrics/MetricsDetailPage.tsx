@@ -1,9 +1,9 @@
-import { Button, Group, Menu, Select, Stack } from '@mantine/core'
+import { Button, Group, Menu, SegmentedControl, Select, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconDownload, IconFileTypeCsv, IconPhoto } from '@tabler/icons-react'
 import { toPng } from 'html-to-image'
 import { useEffect, useRef, useState } from 'react'
 
-import { useIsMobile } from '../../hooks/useIsMobile'
+import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useAggregatedMetrics } from '../../queries/useMetricsQueries'
 import type { AggregationPeriod, AggregationType, MetricType } from '../../types'
 import { type DateRange, isDateRange } from '../../utils/dateRange'
@@ -12,10 +12,14 @@ import { isMobilePlatform } from '../../utils/platform'
 import { describeSave, saveFile } from '../../utils/saveFile'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
+import { ActionSheetCancel } from '../ios/ActionSheetCancel'
+import { IosGroup } from '../ios/IosList'
 
 import { MetricsChart } from './MetricsChart'
 import { MetricsDataTable } from './MetricsDataTable'
 import { MetricsEmptyState } from './MetricsEmptyState'
+import { MetricsPickerRow } from './MetricsPickerRow'
+import classes from './metrics.module.css'
 import {
   AGGREGATION_PERIOD_OPTIONS,
   AGGREGATION_TYPE_OPTIONS,
@@ -33,6 +37,7 @@ interface MetricsDetailPageProps {
   pipelineId: string
   pipelineName: string
   metricType: MetricType
+  repository?: string
   initialDateRange: DateRange
   initialAggregation: AggregationPeriod
   retentionDays: number
@@ -48,6 +53,7 @@ const VALUE_UNITS: Record<MetricType, string> = {
 export const MetricsDetailPage = ({
   pipelineId,
   pipelineName,
+  repository,
   metricType,
   initialDateRange,
   initialAggregation,
@@ -55,6 +61,7 @@ export const MetricsDetailPage = ({
   refreshTrigger,
 }: MetricsDetailPageProps) => {
   const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
   const [dateRange, setDateRange] = useState<DateRange>(initialDateRange)
   const [aggregationPeriod, setAggregationPeriod] = useState<AggregationPeriod>(initialAggregation)
   const [aggregationType, setAggregationType] = useState<AggregationType>(getDefaultAggregationType(metricType))
@@ -207,6 +214,74 @@ export const MetricsDetailPage = ({
     )
   }
 
+  const exportMenuItems = (
+    <Menu.Dropdown>
+      {!isMobilePlatform() && (
+        <Menu.Item leftSection={<IconPhoto size={16} />} onClick={handleExportPNG}>
+          Export as PNG
+        </Menu.Item>
+      )}
+      <Menu.Item leftSection={<IconFileTypeCsv size={16} />} onClick={handleExportCSV}>
+        Export as CSV
+      </Menu.Item>
+      <ActionSheetCancel />
+    </Menu.Dropdown>
+  )
+
+  if (mobileShell) {
+    return (
+      <Stack gap="lg" pt="xs" pb="md">
+        {repository && (
+          <Text size="xs" c="dimmed">
+            {repository} / {pipelineName}
+          </Text>
+        )}
+
+        <Stack gap="sm">
+          <IosGroup>
+            <MetricsPickerRow
+              label="Time range"
+              value={dateRange}
+              onChange={(value) => isDateRange(value) && setDateRange(value)}
+              data={getRangeOptions(retentionDays)}
+            />
+            <MetricsPickerRow
+              label="Aggregation"
+              value={aggregationType}
+              onChange={(value) => isAggregationType(value) && setAggregationType(value)}
+              data={AGGREGATION_TYPE_OPTIONS}
+            />
+          </IosGroup>
+          <SegmentedControl
+            fullWidth
+            aria-label="Group by"
+            value={aggregationPeriod}
+            onChange={(value) => isAggregationPeriod(value) && setAggregationPeriod(value)}
+            data={AGGREGATION_PERIOD_OPTIONS}
+          />
+        </Stack>
+
+        <IosGroup>
+          <Menu position="bottom" disabled={!canExport}>
+            <Menu.Target>
+              <UnstyledButton
+                className={`${classes.menuRow} ${classes.menuRowAction}`}
+                disabled={!canExport}
+                aria-label="Export"
+              >
+                <IconDownload size={20} aria-hidden />
+                Export
+              </UnstyledButton>
+            </Menu.Target>
+            {exportMenuItems}
+          </Menu>
+        </IosGroup>
+
+        {renderBody()}
+      </Stack>
+    )
+  }
+
   return (
     <Stack gap={isMobile ? 'xs' : 'md'} pt="xs" pb="md">
       <Group align="flex-end" gap="sm">
@@ -234,16 +309,7 @@ export const MetricsDetailPage = ({
               Export
             </Button>
           </Menu.Target>
-          <Menu.Dropdown>
-            {!isMobilePlatform() && (
-              <Menu.Item leftSection={<IconPhoto size={16} />} onClick={handleExportPNG}>
-                Export as PNG
-              </Menu.Item>
-            )}
-            <Menu.Item leftSection={<IconFileTypeCsv size={16} />} onClick={handleExportCSV}>
-              Export as CSV
-            </Menu.Item>
-          </Menu.Dropdown>
+          {exportMenuItems}
         </Menu>
       </Group>
 

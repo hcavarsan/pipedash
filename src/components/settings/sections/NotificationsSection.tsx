@@ -1,6 +1,7 @@
 import { Card, Divider, Stack, Switch, Title } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 
+import { useMobileShell } from '@/hooks/useIsMobile'
 import { isTauri } from '@/services'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { isMobilePlatform } from '@/utils/platform'
@@ -10,10 +11,12 @@ import {
   systemNotificationsSupported,
 } from '@/utils/systemNotifications'
 
+import { IosGroup, IosRow } from '../../ios/IosList'
 import { MobileDevicesCard } from '../MobileDevicesCard'
 import { PushNotificationsCard } from '../PushNotificationsCard'
 
 export function NotificationsSection() {
+  const mobileShell = useMobileShell()
   const failureNotificationsEnabled = useNotificationStore((s) => s.failureNotificationsEnabled)
   const setFailureNotificationsEnabled = useNotificationStore((s) => s.setFailureNotificationsEnabled)
   const providerAlertsEnabled = useNotificationStore((s) => s.providerAlertsEnabled)
@@ -38,6 +41,42 @@ export function NotificationsSection() {
     }
 
     setEnabled(true)
+  }
+
+  if (mobileShell) {
+    return (
+      <Stack gap="lg" pb="md">
+        <IosGroup footer={notificationsSupported ? undefined : notificationProblem('unsupported')}>
+          <IosRow
+            title="Notify when a pipeline fails"
+            subtitle="Show a system notification when a refresh finds a pipeline that just failed."
+            accessory={
+              <Switch
+                aria-label="Notify when a pipeline fails"
+                checked={notificationsSupported && failureNotificationsEnabled}
+                onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setFailureNotificationsEnabled)}
+                disabled={!notificationsSupported}
+              />
+            }
+          />
+          <IosRow
+            title="Notify me about provider outages"
+            subtitle="Show a system notification when a provider reports an outage or recovers."
+            accessory={
+              <Switch
+                aria-label="Notify me about provider outages"
+                checked={notificationsSupported && providerAlertsEnabled}
+                onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setProviderAlertsEnabled)}
+                disabled={!notificationsSupported}
+              />
+            }
+          />
+        </IosGroup>
+
+        {isMobilePlatform() && <PushNotificationsCard />}
+        {!isTauri() && <MobileDevicesCard />}
+      </Stack>
+    )
   }
 
   return (

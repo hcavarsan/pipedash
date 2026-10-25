@@ -2,12 +2,14 @@ import { Button, Group, Modal, Stack, Text, ThemeIcon } from '@mantine/core'
 import { IconExternalLink, IconHeartbeat, IconHistory } from '@tabler/icons-react'
 import { useNavigate } from 'react-router-dom'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
 import { useProviders } from '../../queries/useProvidersQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
+import { IosGroup, IosRow } from '../ios/IosList'
 
-import { notificationIcon, notificationLabel } from './labels'
+import { notificationIcon, notificationLabel, TONE_COLORS } from './labels'
 import { openLink } from './ProviderStatusModal'
 
 const LINK_LABELS = { incident: 'View incident', status_page: 'Open status page' } as const
@@ -20,6 +22,7 @@ export function NotificationDetailsModal() {
   const { data: providers } = useProviders()
   const navigate = useNavigate()
   const now = useNow(30_000)
+  const mobileShell = useMobileShell()
 
   const notification =
     selection?.type === 'notification' ? (items.find((item) => item.key === selection.key) ?? null) : null
@@ -27,6 +30,63 @@ export function NotificationDetailsModal() {
     ? (providers ?? []).filter((provider) => notification.providerIds.includes(provider.id))
     : []
   const HeaderIcon = notification ? notificationIcon(notification) : null
+
+  if (mobileShell) {
+    return (
+      <Modal opened={Boolean(notification)} onClose={close} title={notification?.title}>
+        {notification && HeaderIcon && (
+          <Stack gap={24}>
+            <IosGroup>
+              <IosRow
+                icon={<HeaderIcon size={18} color={TONE_COLORS[notification.tone]} aria-hidden />}
+                title={notificationLabel(notification)}
+                value={formatRelativeTime(notification.at, now)}
+              />
+            </IosGroup>
+
+            {notification.body && (
+              <IosGroup header="Details">
+                <IosRow title={notification.body} />
+              </IosGroup>
+            )}
+
+            {(notification.link || notification.pipelineId || related.length > 0) && (
+              <IosGroup>
+                {notification.link && (
+                  <IosRow
+                    icon={<IconExternalLink size={18} aria-hidden />}
+                    title={LINK_LABELS[notification.link.kind]}
+                    chevron
+                    onClick={() => notification.link && openLink(notification.link.url)}
+                  />
+                )}
+                {notification.pipelineId && (
+                  <IosRow
+                    icon={<IconHistory size={18} aria-hidden />}
+                    title="Open run history"
+                    chevron
+                    onClick={() => {
+                      close()
+                      navigate(`/pipelines/${encodeURIComponent(notification.pipelineId ?? '')}`)
+                    }}
+                  />
+                )}
+                {related.map((provider) => (
+                  <IosRow
+                    key={provider.id}
+                    icon={<IconHeartbeat size={18} aria-hidden />}
+                    title={related.length > 1 ? `${provider.name} status` : 'View service status'}
+                    chevron
+                    onClick={() => open({ type: 'provider', providerId: provider.id })}
+                  />
+                ))}
+              </IosGroup>
+            )}
+          </Stack>
+        )}
+      </Modal>
+    )
+  }
 
   return (
     <Modal

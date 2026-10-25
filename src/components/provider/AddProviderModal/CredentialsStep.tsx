@@ -13,13 +13,18 @@ import {
   TextInput,
 } from '@mantine/core'
 import { useQueries } from '@tanstack/react-query'
-import { type Dispatch, useMemo } from 'react'
+import { type Dispatch, Fragment, type ReactNode, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { service } from '../../../services'
 import type { ConfigField, PluginMetadata } from '../../../types'
+import { ProviderIcon } from '../../atoms/ProviderIcon'
+import { IosGroup, IosRow } from '../../ios/IosList'
 
+import { ShellField, StepHeading } from './ShellForm'
+import shell from './ShellForm.module.css'
 import type { FormAction, FormState } from './types'
 
 interface CredentialsStepProps {
@@ -29,6 +34,8 @@ interface CredentialsStepProps {
   pluginsLoading: boolean
   editMode: boolean
   isMobile: boolean
+  permissionRow?: ReactNode
+  scopeNote?: string
 }
 
 export function CredentialsStep({
@@ -38,7 +45,10 @@ export function CredentialsStep({
   pluginsLoading,
   editMode,
   isMobile,
+  permissionRow,
+  scopeNote,
 }: CredentialsStepProps) {
+  const mobileShell = useMobileShell()
   const { selectedPlugin, providerName, configValues, fieldErrors, submitting } = state
 
   const configValuesKey = useMemo(() => JSON.stringify(configValues), [configValues])
@@ -151,6 +161,189 @@ export function CredentialsStep({
       default:
         return <TextInput key={field.key} {...commonProps} />
     }
+  }
+
+  const renderShellField = (field: ConfigField) => {
+    const value = configValues[field.key] || ''
+    const fieldOptions = optionQueries[dynamicFields.findIndex((candidate) => candidate.key === field.key)]
+    const loadingOptions = !!fieldOptions && (fieldOptions.isFetching || debouncedConfigValuesKey !== configValuesKey)
+    const error = fieldErrors[field.key] || fieldOptions?.error?.message
+    const spinner = loadingOptions ? <Loader size="xs" aria-label={`Loading ${field.label}`} /> : undefined
+    const inputProps = {
+      variant: 'unstyled',
+      'aria-label': field.label,
+      'aria-invalid': !!error,
+      value,
+      onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+        handleConfigChange(field.key, e.currentTarget.value),
+    } as const
+    const fieldProps = {
+      label: field.label,
+      required: field.required,
+      description: field.description,
+      error,
+    }
+
+    switch (field.field_type) {
+      case 'Boolean':
+        return (
+          <ShellField description={field.description} error={error}>
+            <IosRow
+              title={field.label}
+              accessory={
+                <Switch
+                  aria-label={field.label}
+                  checked={value === 'true'}
+                  onChange={(e) => handleConfigChange(field.key, String(e.currentTarget.checked))}
+                />
+              }
+            />
+          </ShellField>
+        )
+      case 'TextArea':
+        return (
+          <ShellField {...fieldProps}>
+            <Textarea {...inputProps} autosize minRows={3} />
+          </ShellField>
+        )
+      case 'Password':
+        return (
+          <ShellField {...fieldProps}>
+            <PasswordInput {...inputProps} />
+          </ShellField>
+        )
+      case 'Number':
+        return (
+          <ShellField {...fieldProps}>
+            <NumberInput
+              variant="unstyled"
+              aria-label={field.label}
+              aria-invalid={!!error}
+              hideControls
+              value={value}
+              onChange={(val) => handleConfigChange(field.key, String(val || ''))}
+            />
+          </ShellField>
+        )
+      case 'Select':
+        return (
+          <ShellField {...fieldProps}>
+            <Select
+              variant="unstyled"
+              aria-label={field.label}
+              aria-invalid={!!error}
+              placeholder="Select"
+              value={value}
+              data={fieldOptions?.data ?? field.options ?? []}
+              rightSection={spinner}
+              disabled={submitting || loadingOptions}
+              onChange={(val) => handleConfigChange(field.key, val || '')}
+              searchable
+              clearable
+            />
+          </ShellField>
+        )
+      case 'MultiSelect':
+        return (
+          <ShellField {...fieldProps}>
+            <MultiSelect
+              variant="unstyled"
+              aria-label={field.label}
+              aria-invalid={!!error}
+              placeholder="Select"
+              value={value ? value.split(',').filter(Boolean) : []}
+              data={fieldOptions?.data ?? field.options ?? []}
+              rightSection={spinner}
+              disabled={submitting || loadingOptions}
+              onChange={(values) => handleConfigChange(field.key, values.join(','))}
+              searchable
+              clearable
+            />
+          </ShellField>
+        )
+      default:
+        return (
+          <ShellField {...fieldProps}>
+            <TextInput {...inputProps} />
+          </ShellField>
+        )
+    }
+  }
+
+  if (mobileShell) {
+    return (
+      <div className={shell.step}>
+        {selectedPlugin ? (
+          <>
+            <StepHeading
+              title="Credentials"
+              subtitle={
+                selectedPlugin.provider_type === 'fluxcd'
+                  ? 'Connect to your Kubernetes cluster'
+                  : 'Enter your API credentials'
+              }
+            />
+
+            <IosGroup header="Provider type" footer={selectedPlugin.description}>
+              <IosRow
+                icon={<ProviderIcon name={selectedPlugin.name} icon={selectedPlugin.icon} size={30} />}
+                title={selectedPlugin.name}
+                chevron={!editMode}
+                onClick={editMode ? undefined : () => handlePluginSelect(null)}
+                disabled={submitting}
+              />
+            </IosGroup>
+
+            <ShellField
+              label="Provider name"
+              required
+              description="A friendly name to identify this provider"
+              error={fieldErrors.providerName}
+            >
+              <TextInput
+                variant="unstyled"
+                aria-label="Provider name"
+                aria-invalid={!!fieldErrors.providerName}
+                placeholder={
+                  selectedPlugin.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)'
+                }
+                value={providerName}
+                onChange={(e) => dispatch({ type: 'SET_PROVIDER_NAME', name: e.currentTarget.value })}
+                disabled={submitting}
+              />
+            </ShellField>
+
+            {selectedPlugin.config_schema.fields.map((field) => (
+              <Fragment key={field.key}>{renderShellField(field)}</Fragment>
+            ))}
+
+            {permissionRow}
+            {scopeNote && <p className={shell.note}>{scopeNote}</p>}
+          </>
+        ) : (
+          <>
+            <StepHeading title="Choose a provider" subtitle="Select the service whose pipelines you want to monitor" />
+            {plugins.length > 0 ? (
+              <IosGroup>
+                {plugins.map((plugin) => (
+                  <IosRow
+                    key={plugin.provider_type}
+                    icon={<ProviderIcon name={plugin.name} icon={plugin.icon} size={30} />}
+                    title={plugin.name}
+                    subtitle={plugin.description}
+                    chevron
+                    onClick={() => handlePluginSelect(plugin.provider_type)}
+                    disabled={submitting}
+                  />
+                ))}
+              </IosGroup>
+            ) : (
+              !pluginsLoading && <p className={shell.note}>No provider types are available.</p>
+            )}
+          </>
+        )}
+      </div>
+    )
   }
 
   return (

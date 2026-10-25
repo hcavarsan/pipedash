@@ -15,3 +15,6 @@ export const useMobileShell = (): boolean => {
 
   return isMobilePlatform() && isMobile
 }
+
+export const isMobileShell = (): boolean =>
+  isMobilePlatform() && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches

@@ -1,7 +1,8 @@
-import { Button, Grid, Group, Select, Stack } from '@mantine/core'
+import { Button, Grid, Group, SegmentedControl, Select, Stack } from '@mantine/core'
 import { IconAdjustments, IconChartLine } from '@tabler/icons-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { useMetricsEventListeners } from '../../hooks/useMetricsEventListeners'
 import { useMetricsFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
@@ -13,14 +14,17 @@ import {
 import { service } from '../../services'
 import type { AggregationPeriod, MetricType } from '../../types'
 import { type DateRange, isDateRange } from '../../utils/dateRange'
+import { formatCount } from '../../utils/formatCount'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
+import { IosGroup, IosRow } from '../ios/IosList'
 import { CompactMetricsCard } from '../metrics/CompactMetricsCard'
 import { MetricsConfigModal } from '../metrics/MetricsConfigModal'
 import { MetricsDetailPage } from '../metrics/MetricsDetailPage'
 import { MetricsEmptyState } from '../metrics/MetricsEmptyState'
+import { MetricsPickerRow } from '../metrics/MetricsPickerRow'
 import {
   AGGREGATION_PERIOD_OPTIONS,
   buildChartTitle,
@@ -45,6 +49,7 @@ export const PipelineMetricsView = ({
   repository,
   refreshTrigger,
 }: PipelineMetricsViewProps) => {
+  const mobileShell = useMobileShell()
   const { filters, setFilter } = useMetricsFilters()
   const dateRange: DateRange = isDateRange(filters.dateRange) ? filters.dateRange : '24h'
   const aggregationPeriod: AggregationPeriod = isAggregationPeriod(filters.period) ? filters.period : 'hourly'
@@ -161,17 +166,31 @@ export const PipelineMetricsView = ({
       )
     }
 
+    const renderCard = (type: MetricType) => (
+      <CompactMetricsCard
+        metricType={type}
+        data={metricQueries[type].data}
+        title={buildChartTitle(type, getDefaultAggregationType(type), aggregationPeriod, dateRange)}
+        loading={metricQueries[type].isPending}
+        onExpand={() => handleExpandMetric(type)}
+      />
+    )
+
+    if (mobileShell) {
+      return (
+        <Stack gap="md">
+          {METRIC_TYPES.map((type) => (
+            <Fragment key={type}>{renderCard(type)}</Fragment>
+          ))}
+        </Stack>
+      )
+    }
+
     return (
       <Grid gap="md">
         {METRIC_TYPES.map((type) => (
           <Grid.Col key={type} span={{ base: 12, md: 4 }}>
-            <CompactMetricsCard
-              metricType={type}
-              data={metricQueries[type].data}
-              title={buildChartTitle(type, getDefaultAggregationType(type), aggregationPeriod, dateRange)}
-              loading={metricQueries[type].isPending}
-              onExpand={() => handleExpandMetric(type)}
-            />
+            {renderCard(type)}
           </Grid.Col>
         ))}
       </Grid>
@@ -206,6 +225,41 @@ export const PipelineMetricsView = ({
             </Button>
           }
         />
+      )
+    }
+
+    if (mobileShell) {
+      return (
+        <Stack gap="lg" pb="md">
+          <Stack gap="sm">
+            <IosGroup>
+              <MetricsPickerRow
+                label="Time range"
+                value={dateRange}
+                onChange={(value) => isDateRange(value) && setFilter('dateRange', value)}
+                data={getRangeOptions(retentionDays)}
+              />
+            </IosGroup>
+            <SegmentedControl
+              fullWidth
+              aria-label="Group by"
+              value={aggregationPeriod}
+              onChange={(value) => isAggregationPeriod(value) && setFilter('period', value)}
+              data={AGGREGATION_PERIOD_OPTIONS}
+            />
+          </Stack>
+
+          {renderMetrics()}
+
+          <IosGroup footer={`Metrics are kept for ${formatCount(retentionDays, 'day')}.`}>
+            <IosRow
+              title="Configure metrics"
+              icon={<IconAdjustments size={18} />}
+              chevron
+              onClick={() => setConfigModalOpened(true)}
+            />
+          </IosGroup>
+        </Stack>
       )
     }
 
@@ -253,11 +307,16 @@ export const PipelineMetricsView = ({
         opened={showDetailPage}
         onClose={() => setShowDetailPage(false)}
         size="xl"
-        title={`${METRIC_CONFIG[selectedMetricType].label} · ${repository ? `${repository} / ` : ''}${pipelineName}`}
+        title={
+          mobileShell
+            ? METRIC_CONFIG[selectedMetricType].label
+            : `${METRIC_CONFIG[selectedMetricType].label} · ${repository ? `${repository} / ` : ''}${pipelineName}`
+        }
       >
         <MetricsDetailPage
           pipelineId={pipelineId}
           pipelineName={pipelineName}
+          repository={repository}
           metricType={selectedMetricType}
           initialDateRange={dateRange}
           initialAggregation={aggregationPeriod}

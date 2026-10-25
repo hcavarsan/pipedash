@@ -1,9 +1,13 @@
-import { Alert, Badge, Button, Card, Checkbox, Group, PasswordInput, Stack, Text } from '@mantine/core'
+import { Alert, Badge, Button, Card, Checkbox, Group, PasswordInput, Stack, Switch, Text } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useState } from 'react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import type { MigrationOptions, MigrationPlan, MigrationStatsPreview } from '../../types'
 import { StandardModal } from '../common/StandardModal'
+import { IosGroup, IosRow } from '../ios/IosList'
+
+import { RowTextInput } from './mobileParts'
 
 interface MigrationConfirmModalProps {
   opened: boolean
@@ -20,6 +24,7 @@ export const MigrationConfirmModal = ({
   stats,
   onConfirm,
 }: MigrationConfirmModalProps) => {
+  const mobileShell = useMobileShell()
   const [loading, setLoading] = useState(false)
   const [password, setPassword] = useState('')
   const [migrateData, setMigrateData] = useState(true)
@@ -46,6 +51,85 @@ export const MigrationConfirmModal = ({
     { label: 'Cache entries', value: stats?.cache_entries_count },
     { label: 'Migration steps', value: migrationPlan.steps.length },
   ]
+
+  if (mobileShell) {
+    return (
+      <StandardModal
+        opened={opened}
+        onClose={onClose}
+        title="Migration required"
+        loading={loading}
+        footer={
+          <Button
+            fullWidth
+            onClick={handleConfirm}
+            loading={loading}
+            color="orange"
+            disabled={needsPassword && !password}
+          >
+            Proceed with migration
+          </Button>
+        }
+        size="md"
+      >
+        <Stack gap="lg">
+          <Text size="sm" c="dimmed" px="md">
+            These configuration changes require migrating your data to the new storage backend. This process will move
+            your providers, tokens, and cache to the new location.
+          </Text>
+
+          <IosGroup header="Migration summary">
+            {summaryRows.map((row) => (
+              <IosRow key={row.label} title={row.label} value={row.value ?? 'Unavailable'} />
+            ))}
+          </IosGroup>
+
+          <IosGroup footer="Turn off to start with a fresh database. Existing data will remain in the old location.">
+            <IosRow
+              title="Migrate existing data"
+              accessory={
+                <Switch
+                  aria-label="Migrate existing data"
+                  checked={migrateData}
+                  onChange={(e) => setMigrateData(e.currentTarget.checked)}
+                  disabled={loading}
+                />
+              }
+            />
+          </IosGroup>
+
+          {needsPassword && (
+            <IosGroup
+              header="Vault password"
+              footer={
+                password ? (
+                  'Required to decrypt and migrate your encrypted tokens.'
+                ) : (
+                  <Text span inherit c="red">
+                    Password is required for token migration
+                  </Text>
+                )
+              }
+            >
+              <IosRow
+                title="Password"
+                accessory={
+                  <RowTextInput
+                    aria-label="Vault password"
+                    type="password"
+                    placeholder="Required"
+                    value={password}
+                    onChange={(e) => setPassword(e.currentTarget.value)}
+                    disabled={loading}
+                  />
+                }
+              />
+            </IosGroup>
+          )}
+        </Stack>
+      </StandardModal>
+    )
+  }
 
   const modalFooter = (
     <Group justify="flex-end" gap="sm">

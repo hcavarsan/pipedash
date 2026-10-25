@@ -1,7 +1,21 @@
-import { ActionIcon, Box, Button, Checkbox, Group, ScrollArea, Stack, Text, TextInput, Tooltip } from '@mantine/core'
 import {
+  ActionIcon,
+  Box,
+  Button,
+  Checkbox,
+  Group,
+  Menu,
+  ScrollArea,
+  Stack,
+  Text,
+  TextInput,
+  Tooltip,
+} from '@mantine/core'
+import {
+  IconCheck,
   IconChevronDown,
   IconChevronUp,
+  IconDots,
   IconEye,
   IconEyeOff,
   IconRefresh,
@@ -11,10 +25,15 @@ import {
 import type { DataTableColumn } from 'mantine-datatable'
 import { useEffect, useState } from 'react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { PipelineRun } from '../../types'
 import { EmptyState } from '../common/EmptyState'
 import { StandardModal } from '../common/StandardModal'
+import { ActionSheetCancel } from '../ios/ActionSheetCancel'
+import { IosGroup, IosRow } from '../ios/IosList'
+
+import classes from './IosPipelineList.module.css'
 
 interface TableCustomizationModalProps {
   opened: boolean
@@ -43,6 +62,7 @@ export function TableCustomizationModal({
   currentOrder,
   currentVisibility,
 }: TableCustomizationModalProps) {
+  const mobileShell = useMobileShell()
   const [columnItems, setColumnItems] = useState<ColumnItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -188,6 +208,127 @@ export function TableCustomizationModal({
       </Group>
     </Group>
   )
+
+  if (mobileShell) {
+    return (
+      <StandardModal
+        opened={opened}
+        onClose={onClose}
+        title="Customize columns"
+        size="md"
+        fullHeight
+        footer={
+          <Group gap="sm" wrap="nowrap">
+            <Button variant="default" onClick={handleReset}>
+              Reset
+            </Button>
+            <Button flex={1} onClick={handleApply}>
+              Apply
+            </Button>
+          </Group>
+        }
+      >
+        <Stack gap="lg">
+          <TextInput
+            aria-label="Search columns"
+            placeholder="Search columns"
+            leftSection={<IconSearch size={18} />}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+
+          <IosGroup>
+            <IosRow
+              title="Show all columns"
+              onClick={() => setColumnItems((prev) => prev.map((item) => ({ ...item, visible: true })))}
+            />
+            <IosRow
+              title="Hide optional columns"
+              onClick={() =>
+                setColumnItems((prev) => prev.map((item) => (item.locked ? item : { ...item, visible: false })))
+              }
+            />
+          </IosGroup>
+
+          {filteredItems.length === 0 ? (
+            <EmptyState
+              title={columnItems.length === 0 ? 'No columns available' : 'No columns match your search'}
+              description={
+                columnItems.length === 0
+                  ? "This provider's table schema has no columns to customize."
+                  : `No column title contains "${searchQuery}".`
+              }
+              action={
+                columnItems.length > 0 && (
+                  <Button variant="default" onClick={() => setSearchQuery('')}>
+                    Clear search
+                  </Button>
+                )
+              }
+            />
+          ) : (
+            <IosGroup
+              header={`Columns · ${visibleCount} of ${totalCount} shown`}
+              footer="Hidden columns are not shown in the table. Required columns cannot be hidden."
+            >
+              {filteredItems.map((item) => {
+                const actualIndex = columnItems.indexOf(item)
+
+                return (
+                  <div
+                    key={item.id}
+                    className={classes.row}
+                    data-flat=""
+                    data-trailing={item.moveable ? '' : undefined}
+                  >
+                    <button
+                      type="button"
+                      className={classes.main}
+                      disabled={item.locked}
+                      aria-pressed={item.visible}
+                      onClick={() => handleToggleVisibility(item.id)}
+                    >
+                      <span className={classes.text}>
+                        <span className={classes.title}>{item.title}</span>
+                      </span>
+                      {item.locked && <span className={classes.value}>Required</span>}
+                      <span className={classes.check} aria-hidden>
+                        {item.visible && <IconCheck size={20} />}
+                      </span>
+                    </button>
+                    {item.moveable && (
+                      <div className={classes.trailing}>
+                        <Menu position="bottom">
+                          <Menu.Target>
+                            <ActionIcon variant="subtle" color="gray" aria-label={`Reorder ${item.title}`}>
+                              <IconDots size={22} />
+                            </ActionIcon>
+                          </Menu.Target>
+                          <Menu.Dropdown>
+                            <Menu.Label>{item.title}</Menu.Label>
+                            <Menu.Item disabled={actualIndex === 0} onClick={() => handleMoveUp(actualIndex)}>
+                              Move up
+                            </Menu.Item>
+                            <Menu.Item
+                              disabled={actualIndex === columnItems.length - 1}
+                              onClick={() => handleMoveDown(actualIndex)}
+                            >
+                              Move down
+                            </Menu.Item>
+                            <ActionSheetCancel />
+                          </Menu.Dropdown>
+                        </Menu>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </IosGroup>
+          )}
+        </Stack>
+      </StandardModal>
+    )
+  }
 
   return (
     <StandardModal

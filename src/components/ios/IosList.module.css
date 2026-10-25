@@ -1,0 +1,125 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.header {
+  padding: 0 16px;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.footer {
+  padding: 0 16px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--mantine-color-dimmed);
+}
+
+.group {
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--ios-cell);
+}
+
+.row {
+  --inset: 16px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  transition: background-color 120ms ease;
+}
+
+.row[data-icon] {
+  --inset: 60px;
+}
+
+.row + .row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--inset);
+  height: 0.5px;
+  background: var(--ios-separator);
+}
+
+.row[data-tappable]:active {
+  background: var(--ios-fill);
+}
+
+.row[data-disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--ios-fill);
+  color: var(--mantine-color-dimmed);
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.title {
+  font-size: 17px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.row[data-destructive] .title {
+  color: var(--mantine-color-red-filled);
+}
+
+.subtitle {
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--mantine-color-dimmed);
+  overflow-wrap: anywhere;
+}
+
+.value {
+  flex-shrink: 0;
+  max-width: 50%;
+  font-size: 17px;
+  color: var(--mantine-color-dimmed);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.accessory {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.chevron {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--ios-chevron);
+}

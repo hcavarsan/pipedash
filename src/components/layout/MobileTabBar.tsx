@@ -33,10 +33,16 @@ export function MobileTabBar() {
             aria-current={active ? 'page' : undefined}
             aria-label={unreadLabel}
           >
-            <Icon size={22} stroke={active ? 2 : 1.6} aria-hidden />
+            <Icon size={24} stroke={active ? 2 : 1.6} aria-hidden />
             <span className={classes.label}>{label}</span>
-            {id === 'notifications' && dotColor && (
-              <span className={classes.badge} style={{ background: `var(--mantine-color-${dotColor}-filled)` }} />
+            {id === 'notifications' && unread > 0 && dotColor && (
+              <span
+                className={classes.badge}
+                style={{ background: `var(--mantine-color-${dotColor}-filled)` }}
+                aria-hidden
+              >
+                {unread > 99 ? '99+' : unread}
+              </span>
             )}
           </Link>
         )

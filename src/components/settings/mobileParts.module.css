@@ -1,0 +1,24 @@
+.field {
+  flex-shrink: 0;
+}
+
+.fieldInput.fieldInput {
+  height: 28px;
+  min-height: 28px;
+  padding-block: 0;
+  padding-inline-start: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mantine-color-text);
+  font-size: 17px;
+  text-align: right;
+  text-overflow: ellipsis;
+}
+
+.fieldInput.fieldInput::placeholder {
+  color: var(--mantine-color-dimmed);
+}
+
+.fieldSelect.fieldSelect {
+  padding-inline-end: 24px;
+}

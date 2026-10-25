@@ -1,0 +1,31 @@
+.shell {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.shell > :first-child {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.shell + .shell::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 60px;
+  height: 0.5px;
+  background: var(--ios-separator);
+}
+
+.actions {
+  flex-shrink: 0;
+  margin: 0 4px 0 -8px;
+  color: var(--mantine-color-dimmed);
+}
+
+.addTitle {
+  color: var(--mantine-color-blue-light-color);
+}

@@ -1,8 +1,9 @@
-import { Alert, Box, Button, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core'
+import { Alert, Box, Button, Card, Group, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconCheck, IconCloudUpload, IconLock, IconSettings } from '@tabler/icons-react'
 import { useState } from 'react'
 
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
 import {
   useConfigContent,
@@ -18,6 +19,7 @@ import { isMobilePlatform } from '../../../utils/platform'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
+import { IosGroup, IosRow } from '../../ios/IosList'
 import { SetupWizard } from '../../setup/SetupWizard'
 import { AppLockCard } from '../AppLockCard'
 import { ConfigEditorModal } from '../ConfigEditorModal'
@@ -25,6 +27,7 @@ import { StoragePathsDisplay } from '../StoragePathsDisplay'
 import { STORAGE_BACKEND_LABELS } from '../storageLabels'
 
 export const StorageSection = () => {
+  const mobileShell = useMobileShell()
   const {
     data: storageConfig,
     isLoading: loadingStorage,
@@ -134,6 +137,63 @@ export const StorageSection = () => {
           icon={<IconSettings size={24} />}
           action={<Button onClick={() => setSetupWizardOpen(true)}>Configure storage</Button>}
         />
+      )
+    }
+
+    if (mobileShell) {
+      return (
+        <Stack gap="lg">
+          <IosGroup>
+            <IosRow title="Storage backend" value={STORAGE_BACKEND_LABELS[backend]} />
+            <IosRow
+              title="Credentials"
+              value={
+                vaultStatus?.password_source === 'keyring'
+                  ? 'System keyring'
+                  : `Encrypted in ${STORAGE_BACKEND_LABELS[backend]}`
+              }
+            />
+            <IosRow title="Cache backend" value={isPostgres ? STORAGE_BACKEND_LABELS.postgres : 'Local filesystem'} />
+          </IosGroup>
+
+          {storagePathsError ? (
+            <ErrorState
+              title="Couldn't load storage paths"
+              error={storagePathsError}
+              onRetry={() => refetchStoragePaths()}
+              retrying={isRefetchingPaths}
+            />
+          ) : storagePaths ? (
+            <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
+          ) : (
+            <LoadingState message="Loading storage paths..." />
+          )}
+
+          <IosGroup
+            footer={
+              connectionStatus && (
+                <Text span inherit c={connectionStatus === 'success' ? 'green' : 'red'}>
+                  {connectionMessage}
+                </Text>
+              )
+            }
+          >
+            <IosRow
+              title="Test connection"
+              onClick={testConnection}
+              disabled={testConnectionMutation.isPending}
+              accessory={testConnectionMutation.isPending ? <Loader size={18} /> : undefined}
+            />
+            {canLockVault && (
+              <IosRow
+                title="Lock vault"
+                onClick={handleLockVault}
+                disabled={lockVaultMutation.isPending}
+                accessory={lockVaultMutation.isPending ? <Loader size={18} /> : undefined}
+              />
+            )}
+          </IosGroup>
+        </Stack>
       )
     }
 
@@ -252,7 +312,7 @@ export const StorageSection = () => {
       {renderContent()}
 
       {isMobilePlatform() && (
-        <Box mt="md">
+        <Box mt={mobileShell ? 'lg' : 'md'}>
           <AppLockCard />
         </Box>
       )}

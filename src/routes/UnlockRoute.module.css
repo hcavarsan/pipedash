@@ -1,0 +1,38 @@
+.screen {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100dvh;
+  overflow-y: auto;
+  padding: calc(var(--safe-top) + max(48px, 14dvh)) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 32px)
+    calc(var(--safe-left) + 24px);
+  background: var(--mantine-color-body);
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 15px;
+  color: var(--mantine-color-dimmed);
+}
+
+.form {
+  width: 100%;
+  max-width: 360px;
+}

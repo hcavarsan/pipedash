@@ -2,13 +2,23 @@ import { Alert, Button, Group, Text, Tooltip } from '@mantine/core'
 import { useNetwork } from '@mantine/hooks'
 import { IconLock, IconRefresh, IconWifiOff } from '@tabler/icons-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
+import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { useVaultStatus } from '@/queries/useVaultQueries'
 import { isTauri, service } from '@/services'
 import { WS_EVENTS, wsClient } from '@/services/websocket'
+
+import classes from './ConnectionStatus.module.css'
+
+interface ShellBanner {
+  icon: ReactNode
+  title: string
+  detail: string
+  reconnect?: boolean
+}
 
 interface ConnectionState {
   status: 'connected' | 'disconnected' | 'reconnecting'
@@ -32,6 +42,7 @@ export function ConnectionStatus() {
   const queryClient = useQueryClient()
   const { online } = useNetwork()
   const wasOnline = useRef(online)
+  const mobileShell = useMobileShell()
 
   useEffect(() => {
     if (isTauri()) {
@@ -78,6 +89,42 @@ export function ConnectionStatus() {
   }
 
   const vaultLocked = vaultStatus?.requires_password && !vaultStatus?.is_unlocked
+
+  if (mobileShell) {
+    let banner: ShellBanner | null = null
+
+    if (vaultLocked) {
+      banner = { icon: <IconLock size={14} />, title: 'Vault locked', detail: 'Token storage is locked' }
+    } else if (isTauri() ? !online : connectionState.status !== 'connected') {
+      const reconnecting = connectionState.status === 'reconnecting'
+
+      banner = isTauri()
+        ? { icon: <IconWifiOff size={14} />, title: "You're offline", detail: 'Refreshes when back online' }
+        : {
+            icon: <IconWifiOff size={14} />,
+            title: reconnecting ? 'Reconnecting' : 'Disconnected',
+            detail: reconnecting ? `Attempt ${connectionState.reconnectAttempts}` : 'Live updates unavailable',
+            reconnect: true,
+          }
+    }
+
+    return banner ? (
+      <div className={classes.banner} role="status">
+        <span className={classes.icon} aria-hidden>
+          {banner.icon}
+        </span>
+        <span className={classes.text}>
+          {banner.title}
+          <span className={classes.detail}> · {banner.detail}</span>
+        </span>
+        {banner.reconnect && (
+          <button type="button" className={classes.action} onClick={handleManualReconnect}>
+            Reconnect
+          </button>
+        )}
+      </div>
+    ) : null
+  }
 
   if (isTauri()) {
     if (vaultLocked) {

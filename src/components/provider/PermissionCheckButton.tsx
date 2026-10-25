@@ -1,5 +1,8 @@
-import { Button } from '@mantine/core'
+import { Button, Loader } from '@mantine/core'
 import { IconShieldCheck } from '@tabler/icons-react'
+
+import { useMobileShell } from '../../hooks/useIsMobile'
+import { IosGroup, IosRow } from '../ios/IosList'
 
 interface PermissionCheckButtonProps {
   onClick: () => void
@@ -8,6 +11,23 @@ interface PermissionCheckButtonProps {
 }
 
 export const PermissionCheckButton = ({ onClick, disabled = false, loading = false }: PermissionCheckButtonProps) => {
+  const mobileShell = useMobileShell()
+
+  if (mobileShell) {
+    return (
+      <IosGroup footer="Verify that these credentials grant the access Pipedash needs.">
+        <IosRow
+          icon={<IconShieldCheck size={18} />}
+          title="Check permissions"
+          chevron={!loading}
+          accessory={loading ? <Loader size="sm" aria-label="Checking permissions" /> : undefined}
+          onClick={onClick}
+          disabled={disabled}
+        />
+      </IosGroup>
+    )
+  }
+
   return (
     <Button
       variant="default"

@@ -18,6 +18,7 @@ import { type Dispatch, useEffect, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
+import { useMobileShell } from '../../../hooks/useIsMobile'
 import { usePipelinePreview, useProviderOrganizations } from '../../../queries/useProviderFieldQueries'
 import { TYPOGRAPHY } from '../../../theme/typography'
 import type { AvailablePipeline, ProviderConfig } from '../../../types'
@@ -25,7 +26,10 @@ import { getPipelineLabels, type PipelineLabels } from '../../../utils/pipelineP
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
+import { IosGroup, IosRow } from '../../ios/IosList'
 
+import { CheckCircle, ShellField, StepHeading } from './ShellForm'
+import shell from './ShellForm.module.css'
 import type { FormAction, FormState } from './types'
 
 interface PipelinesStepProps {
@@ -36,6 +40,7 @@ interface PipelinesStepProps {
 }
 
 export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: PipelinesStepProps) {
+  const mobileShell = useMobileShell()
   const { selectedPlugin, selectedOrganization, selectedPipelines, repositorySearch } = state
   const labels = getPipelineLabels(selectedPlugin?.provider_type)
 
@@ -178,6 +183,13 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
             description={`This ${labels.group} has no accessible ${labels.items}.`}
           />
         )
+      ) : mobileShell ? (
+        <ShellPipelineList
+          pipelines={availablePipelines}
+          selectedPipelines={selectedPipelines}
+          onToggle={handlePipelineToggle}
+          onSelectAll={handleSelectAll}
+        />
       ) : (
         <ScrollArea style={{ flex: 1, minHeight: 0 }} type="auto">
           {isMobile ? (
@@ -209,12 +221,61 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
         {results}
         {allPipelines?.has_more && (
           <Group justify="center" pt={4}>
-            <Button size="sm" variant="default" onClick={handleLoadMore} loading={loadingMore} disabled={loadingMore}>
+            <Button
+              size={mobileShell ? 'md' : 'sm'}
+              variant="default"
+              fullWidth={mobileShell}
+              onClick={handleLoadMore}
+              loading={loadingMore}
+              disabled={loadingMore}
+            >
               Load more
             </Button>
           </Group>
         )}
       </>
+    )
+  }
+
+  if (mobileShell) {
+    const ready = !loadingOrganizations && !organizationsFailed
+
+    return (
+      <div className={shell.step}>
+        <StepHeading title={`Select ${labels.items}`} subtitle={`Choose ${labels.items} to monitor`} />
+        {ready && availableOrganizations.length > 1 && (
+          <ShellField label={labels.groupTitle}>
+            <Select
+              variant="unstyled"
+              aria-label={labels.groupTitle}
+              placeholder={`Select ${labels.group}`}
+              value={selectedOrganization}
+              onChange={handleOrganizationSelect}
+              data={availableOrganizations.map((org) => ({ value: org.id, label: org.name }))}
+              searchable
+            />
+          </ShellField>
+        )}
+        {ready && (
+          <div className={shell.search}>
+            <TextInput
+              aria-label={`Search ${labels.items}`}
+              placeholder={`Search ${labels.items}`}
+              value={repositorySearch}
+              onChange={(e) => handleSearchChange(e.currentTarget.value)}
+              leftSection={
+                searchingPipelines && !loadingPipelines && !loadingMore ? (
+                  <Loader size={16} />
+                ) : (
+                  <IconSearch size={16} />
+                )
+              }
+              disabled={!selectedOrganization}
+            />
+          </div>
+        )}
+        {renderBody()}
+      </div>
     )
   }
 
@@ -385,5 +446,46 @@ function PipelinesTable({ pipelines, selectedPipelines, onToggle, onSelectAll, l
         ))}
       </Table.Tbody>
     </Table>
+  )
+}
+
+interface ShellPipelineListProps {
+  pipelines: AvailablePipeline[]
+  selectedPipelines: Set<string>
+  onToggle: (id: string) => void
+  onSelectAll: () => void
+}
+
+function ShellPipelineList({ pipelines, selectedPipelines, onToggle, onSelectAll }: ShellPipelineListProps) {
+  const allSelected = pipelines.every((pipeline) => selectedPipelines.has(pipeline.id))
+
+  return (
+    <IosGroup>
+      <IosRow
+        title={allSelected ? 'Deselect all' : 'Select all'}
+        accessory={<CheckCircle checked={allSelected} />}
+        onClick={onSelectAll}
+      />
+      {pipelines.map((pipeline) => {
+        const selected = selectedPipelines.has(pipeline.id)
+        const source = [pipeline.organization, pipeline.repository].filter(Boolean).join(' · ')
+
+        return (
+          <IosRow
+            key={pipeline.id}
+            title={pipeline.name}
+            subtitle={
+              <>
+                {source && <span className={shell.clamp}>{source}</span>}
+                {pipeline.description && <span className={shell.clamp}>{pipeline.description}</span>}
+              </>
+            }
+            accessory={<CheckCircle checked={selected} />}
+            onClick={() => onToggle(pipeline.id)}
+            ariaLabel={`${pipeline.name}, ${selected ? 'selected' : 'not selected'}`}
+          />
+        )
+      })}
+    </IosGroup>
   )
 }

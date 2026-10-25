@@ -29,3 +29,11 @@ test('titles name the screen', () => {
   assert.equal(mobileChrome('/providers', '').title, 'Providers')
   assert.equal(mobileChrome('/notifications', '').title, 'Notifications')
 })
+
+test('a pipeline route pushes a back button to the list', () => {
+  assert.deepEqual(mobileChrome('/pipelines/abc', ''), {
+    title: 'History',
+    back: { to: '/pipelines', label: 'Pipelines' },
+    tab: 'pipelines',
+  })
+})
