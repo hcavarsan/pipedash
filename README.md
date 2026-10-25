@@ -67,6 +67,8 @@ What you can do:
 
 When you trigger or rerun a workflow, Pipedash fetches available parameters from the plugin (workflow inputs for GitHub Actions, pipeline variables for GitLab CI, build parameters for Jenkins/Buildkite) and shows them in a form.
 
+For GitHub Actions, Run and Rerun create a new `workflow_dispatch` run on the selected ref. An empty `204 No Content` response means GitHub accepted the dispatch.
+
 **Privacy and security**
 
 Everything runs locally on your machine. Pipedash connects to your CI/CD providers and, unless you turn it off in Settings → General, to their public status pages (hosted by Atlassian Statuspage or status.io) or a status page you configure. Status checks send no credentials. No analytics or telemetry.
