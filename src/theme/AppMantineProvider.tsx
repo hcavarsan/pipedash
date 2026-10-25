@@ -45,6 +45,7 @@ export function AppMantineProvider({ children }: { children: ReactNode }) {
       theme={mobileShell ? iosTheme : theme}
       defaultColorScheme="dark"
       cssVariablesResolver={mobileShell ? iosCssVariablesResolver : v8CssVariablesResolver}
+      getStyleNonce={() => document.querySelector<HTMLStyleElement>('#app-color-scheme')?.nonce ?? ''}
     >
       <NativeAppearanceSync />
       {children}

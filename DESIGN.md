@@ -9,6 +9,7 @@ Pipedash is a CI/CD dashboard. People open it to find the pipeline that failed a
 - Use only colors that follow the scheme: `var(--mantine-color-body)`, `--mantine-color-default`, `--mantine-color-default-border`, `--mantine-color-default-hover`, `--mantine-color-text`, `--mantine-color-dimmed`, and `--mantine-color-<color>-light`. In code, use `c="dimmed"` or leave the default text color. Never hardcode `--mantine-color-dark-*`, hex, or `rgba`.
 - The brand palettes (blue, green, red, yellow, gray) are defined once in `src/theme/index.ts`. The desktop and web theme turns on `autoContrast` and uses shade 7 as the primary in both schemes, so text on filled buttons stays above 4.5:1. The macOS window buttons in `WindowControls.module.css` keep the system traffic-light colors as custom properties; that is the only other fixed color outside the status tokens.
 - `src/theme/index.ts` exports `baseTheme`, shared with the phone theme, and `theme`, which adds the desktop and web defaults on top. Desktop-only defaults never reach the phone shell.
+- Runtime Mantine styles reuse Tauri's nonce from `#app-color-scheme`. Keep `getStyleNonce` on the provider so layout and theme rules pass the packaged content security policy.
 
 ## Color roles
 
