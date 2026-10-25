@@ -1,3 +1,4 @@
+import PipedashActivityModels
 import SwiftRs
 import Tauri
 import UIKit
@@ -479,6 +480,15 @@ class NativePlugin: Plugin {
     NotificationRouter.shared.install(plugin: self)
     AppearanceController.shared.start()
     PrivacyCoverController.shared.start()
+    #if compiler(>=6.2) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
+    if #available(iOS 26.0, *), !ProcessInfo.processInfo.isiOSAppOnMac {
+      DispatchQueue.main.async { [weak self] in
+        BuildWatchController.shared.onChange = { [weak self] in
+          try? self?.trigger("build-watch-changed", data: BuildWatchController.shared.status())
+        }
+      }
+    }
+    #endif
     for name in [
       UIAccessibility.reduceTransparencyStatusDidChangeNotification,
       UIAccessibility.darkerSystemColorsStatusDidChangeNotification,
@@ -528,6 +538,72 @@ class NativePlugin: Plugin {
       self.statusBarProxy = StatusBarTapProxy(host: host) { [weak self] in
         try? self?.trigger("statusBarTap", data: EmptyPayload())
       }
+    }
+  }
+
+  @objc func buildWatchStatus(_ invoke: Invoke) {
+    DispatchQueue.main.async {
+      #if compiler(>=6.2) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
+      if #available(iOS 26.0, *), !ProcessInfo.processInfo.isiOSAppOnMac {
+        invoke.resolve(BuildWatchController.shared.status())
+        return
+      }
+      #endif
+      invoke.resolve(unsupportedBuildWatchStatus())
+    }
+  }
+
+  @objc func startBuildWatch(_ invoke: Invoke) throws {
+    let snapshot = try invoke.parseArgs(BuildWatchSnapshot.self)
+    try snapshot.validate()
+    DispatchQueue.main.async {
+      #if compiler(>=6.2) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
+      if #available(iOS 26.0, *), !ProcessInfo.processInfo.isiOSAppOnMac {
+        do {
+          invoke.resolve(try BuildWatchController.shared.start(snapshot))
+        } catch {
+          invoke.reject(error.localizedDescription)
+        }
+        return
+      }
+      #endif
+      invoke.reject(unsupportedBuildWatchStatus().reason ?? "Build watching is unavailable")
+    }
+  }
+
+  @objc func updateBuildWatch(_ invoke: Invoke) throws {
+    let snapshot = try invoke.parseArgs(BuildWatchSnapshot.self)
+    try snapshot.validate()
+    DispatchQueue.main.async {
+      #if compiler(>=6.2) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
+      if #available(iOS 26.0, *), !ProcessInfo.processInfo.isiOSAppOnMac {
+        do {
+          invoke.resolve(try BuildWatchController.shared.update(snapshot))
+        } catch {
+          invoke.reject(error.localizedDescription)
+        }
+        return
+      }
+      #endif
+      invoke.resolve(unsupportedBuildWatchStatus())
+    }
+  }
+
+  @objc func stopBuildWatch(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(StopBuildWatchArgs.self)
+    try args.validate()
+    DispatchQueue.main.async {
+      #if compiler(>=6.2) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
+      if #available(iOS 26.0, *), !ProcessInfo.processInfo.isiOSAppOnMac {
+        do {
+          invoke.resolve(try BuildWatchController.shared.stop(args))
+        } catch {
+          invoke.reject(error.localizedDescription)
+        }
+        return
+      }
+      #endif
+      invoke.resolve(unsupportedBuildWatchStatus())
     }
   }
 

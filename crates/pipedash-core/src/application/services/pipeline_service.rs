@@ -1,3 +1,5 @@
+mod run_watch;
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{
@@ -16,6 +18,10 @@ use futures::future::{
     BoxFuture,
     FutureExt,
     Shared,
+};
+pub use run_watch::{
+    RunWatch,
+    WatchedRun,
 };
 use tokio::sync::{
     watch,
@@ -68,6 +74,7 @@ use crate::domain::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    Provider,
     RefreshResult,
     RefreshState,
     TriggerParams,
@@ -430,29 +437,30 @@ impl PipelineService {
                     return RefreshResult::failed(id, error.failure_kind(), error.to_string())
                 }
             };
-            let handle = match self
-                .scheduler
-                .claim_forced(id, lease.generation, Instant::now())
-            {
-                ForcedClaim::Claimed(claim) => {
-                    let handle = claim.handle();
-                    self.dispatcher.fetch_now(vec![claim]);
-                    handle
-                }
-                ForcedClaim::Joined(handle) => handle,
-                ForcedClaim::Recent(outcome) => {
-                    return RefreshResult {
-                        provider_id: id,
-                        state: RefreshState::Recent,
-                        kind: match outcome {
-                            Outcome::Failed { kind, .. } => Some(kind),
-                            Outcome::Success | Outcome::Cancelled => None,
-                        },
-                        message: None,
-                    };
-                }
-                ForcedClaim::Refused => return not_found(id),
-            };
+            let (handle, joined) =
+                match self
+                    .scheduler
+                    .claim_forced(id, lease.generation, Instant::now())
+                {
+                    ForcedClaim::Claimed(claim) => {
+                        let handle = claim.handle();
+                        self.dispatcher.fetch_now(vec![claim]);
+                        (handle, false)
+                    }
+                    ForcedClaim::Joined(handle) => (handle, true),
+                    ForcedClaim::Recent(outcome) => {
+                        return RefreshResult {
+                            provider_id: id,
+                            state: RefreshState::Recent,
+                            kind: match outcome {
+                                Outcome::Failed { kind, .. } => Some(kind),
+                                Outcome::Success | Outcome::Cancelled => None,
+                            },
+                            message: None,
+                        };
+                    }
+                    ForcedClaim::Refused => return not_found(id),
+                };
 
             match handle.wait().await {
                 FetchResult::Committed(Ok(_)) => return RefreshResult::new(id, RefreshState::Ok),
@@ -468,6 +476,7 @@ impl PipelineService {
                         message: None,
                     };
                 }
+                FetchResult::Cancelled if joined => continue,
                 FetchResult::Superseded | FetchResult::Cancelled => {
                     return RefreshResult::new(id, RefreshState::Pending)
                 }
@@ -918,6 +927,14 @@ impl PipelineService {
             .provider_service
             .get_provider(pipeline.provider_id)
             .await?;
+        self.fetch_run_details_from(provider.as_ref(), pipeline, run_number)
+            .await
+    }
+
+    async fn fetch_run_details_from(
+        &self, provider: &dyn Provider, pipeline: &Pipeline, run_number: i64,
+    ) -> DomainResult<PipelineRun> {
+        let pipeline_id = pipeline.id.as_str();
         match provider.fetch_run_details(pipeline_id, run_number).await {
             Err(error @ DomainError::PipelineNotFound(_)) if pipeline.provider_type == "fluxcd" => {
                 let cached = self

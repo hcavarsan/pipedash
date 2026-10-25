@@ -146,9 +146,11 @@ pub(crate) struct StubProvider {
     pub(crate) run_gate: Option<Arc<Gate>>,
     pub(crate) parameter_gate: Option<Arc<Gate>>,
     pub(crate) fetches: AtomicUsize,
+    pub(crate) run_fetches: AtomicUsize,
     pub(crate) parameter_fetches: AtomicUsize,
     pub(crate) pipelines: Mutex<DomainResult<Vec<Pipeline>>>,
     pub(crate) runs: Mutex<Vec<PipelineRun>>,
+    pub(crate) run_response: Mutex<Option<DomainResult<PipelineRun>>>,
     pub(crate) parameters: Mutex<DomainResult<Vec<WorkflowParameter>>>,
     pub(crate) rate_limit: Mutex<Option<RateLimit>>,
     pub(crate) capabilities: PluginCapabilities,
@@ -166,6 +168,7 @@ impl StubProvider {
             run_gate: None,
             parameter_gate: None,
             fetches: AtomicUsize::new(0),
+            run_fetches: AtomicUsize::new(0),
             parameter_fetches: AtomicUsize::new(0),
             pipelines: Mutex::new(Ok(vec![pipeline(
                 provider_id,
@@ -173,6 +176,7 @@ impl StubProvider {
                 PipelineStatus::Success,
             )])),
             runs: Mutex::new(Vec::new()),
+            run_response: Mutex::new(None),
             parameters: Mutex::new(Ok(vec![parameter("branch")])),
             rate_limit: Mutex::new(None),
             capabilities: PluginCapabilities::default(),
@@ -265,9 +269,22 @@ impl Provider for StubProvider {
     }
 
     async fn fetch_run_details(
-        &self, _pipeline_id: &str, _run_number: i64,
+        &self, pipeline_id: &str, run_number: i64,
     ) -> DomainResult<PipelineRun> {
-        Err(DomainError::NotSupported("stub".to_string()))
+        self.run_fetches.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.run_gate {
+            gate.pass().await;
+        }
+        if let Some(response) = self.run_response.lock().unwrap().clone() {
+            return response;
+        }
+        self.runs
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|run| run.pipeline_id == pipeline_id && run.run_number == run_number)
+            .cloned()
+            .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))
     }
 
     async fn trigger_pipeline(&self, _params: TriggerParams) -> DomainResult<String> {

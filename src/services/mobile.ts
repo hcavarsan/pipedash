@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 import {
   type AppLockStatus,
+  type BuildWatchStatus,
   type ExportFileResult,
   type NativeIntent,
   type PushStatus,
@@ -49,6 +50,13 @@ export const mobileService = {
     }),
 
   getPushStatus: (): Promise<PushStatus> => call('get_push_status'),
+
+  getBuildWatch: (): Promise<BuildWatchStatus> => call('get_build_watch'),
+
+  startBuildWatch: (pipelineId: string, runNumber: number): Promise<BuildWatchStatus> =>
+    call('start_build_watch', { pipelineId, runNumber }),
+
+  stopBuildWatch: (): Promise<BuildWatchStatus> => call('stop_build_watch'),
 
   pushPairServer: (serverUrl: string, apiToken: string, label?: string): Promise<PushStatus> =>
     call('push_pair_server', { serverUrl, apiToken, label }),

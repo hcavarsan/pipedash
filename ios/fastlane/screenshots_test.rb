@@ -12,7 +12,7 @@ class ScreenshotLanesTest < Minitest::Test
   FIXTURE_FASTLANE = File.join(FIXTURE_ROOT, "ios/fastlane")
   FileUtils.mkdir_p([FIXTURE_FASTLANE, File.join(FIXTURE_ROOT, "ios/app-store-screenshots")])
   FileUtils.cp(File.join(__dir__, "Fastfile"), FIXTURE_FASTLANE)
-  %w[app_icon_appearances.rb required_reason_apis.rb].each do |name|
+  %w[app_icon_appearances.rb required_reason_apis.rb build_activity_project.rb].each do |name|
     FileUtils.ln_s(File.join(__dir__, name), FIXTURE_FASTLANE)
   end
   FASTFILE = Fastlane::FastFile.new(File.join(FIXTURE_FASTLANE, "Fastfile"))

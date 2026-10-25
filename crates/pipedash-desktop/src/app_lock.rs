@@ -342,6 +342,7 @@ pub async fn lock_session(app: &AppHandle) {
     let core = app.state::<MaybeCoreContext>().0.write().await.take();
     std::env::remove_var(VAULT_PASSWORD_ENV);
     lock.set_locked(true);
+    crate::build_watch::interrupt(app);
 
     if let Some(core) = core {
         core.event_bus.emit(CoreEvent::VaultLocked).await;

@@ -3,14 +3,15 @@ require "json"
 require "tmpdir"
 require_relative "app_icon_appearances"
 require_relative "required_reason_apis"
+require_relative "build_activity_project"
 
 default_platform(:ios)
 
-APP_ID = "com.henrique.pipedash"
+APP_ID = BuildActivityProject::APP_ID
 ROOT = File.expand_path("../..", __dir__)
 TAURI_DIR = File.join(ROOT, "crates/pipedash-desktop")
 APPLE_DIR = File.join(TAURI_DIR, "gen/apple")
-TARGET = "pipedash-desktop_iOS"
+TARGET = BuildActivityProject::APP_TARGET
 TARGET_DIR = File.join(APPLE_DIR, TARGET)
 XCODE_FILES = File.join(ROOT, "ios/xcode")
 APP_ICON = File.join(TAURI_DIR, "icons/ios/app-icon-1024.png")
@@ -35,11 +36,32 @@ def tauri(*args)
   Dir.chdir(ROOT) { sh("bun", "run", "tauri", *args) }
 end
 
+def ios_config(build_number)
+  JSON.generate({ version: ios_version, bundle: { iOS: { bundleVersion: build_number.to_s } } })
+end
+
 def ios_build(build_number:, sign:)
-  config = JSON.generate({ version: ios_version, bundle: { iOS: { bundleVersion: build_number.to_s } } })
-  args = ["ios", "build", "--export-method", "app-store-connect", "--config", config]
-  args << "--no-sign" unless sign
+  args = ["ios", "build", "--export-method", "app-store-connect", "--config", ios_config(build_number)]
+  args << (sign ? "--archive-only" : "--no-sign")
   tauri(*args)
+  if sign
+    archive = Dir[File.join(APPLE_DIR, "**", "#{TARGET}.xcarchive")].max_by { |path| File.mtime(path) } ||
+      UI.user_error!("No archive found in #{APPLE_DIR}")
+    profiles = BuildActivityProject::SIGNING_TARGETS.values.to_h do |bundle_id|
+      [bundle_id, ENV.fetch("sigh_#{bundle_id}_appstore_profile-name")]
+    end
+    return build_app(
+      skip_build_archive: true,
+      project: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
+      scheme: TARGET,
+      archive_path: archive,
+      export_method: "app-store-connect",
+      export_options: BuildActivityProject.export_options(profiles, team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM")),
+      skip_profile_detection: true,
+      output_directory: File.join(APPLE_DIR, "build/arm64"),
+      output_name: "pipedash.ipa",
+    )
+  end
   Dir[File.join(APPLE_DIR, "build/arm64/*.ipa")].max_by { |path| File.mtime(path) } ||
     UI.user_error!("No IPA found in #{APPLE_DIR}/build/arm64")
 end
@@ -49,8 +71,8 @@ def plist_to_hash(path)
 end
 
 platform :ios do
-  desc "Generate the Xcode project with the privacy manifest, entitlements and app icon"
-  lane :prepare_project do
+  desc "Generate the app and build activity extension with privacy, entitlements and app icons"
+  lane :prepare_project do |options|
     tauri("ios", "init", "--ci") unless File.directory?(File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"))
 
     Dir.mktmpdir("icons", TAURI_DIR) do |icons_out|
@@ -63,6 +85,10 @@ platform :ios do
     launch_screens.each { |path| FileUtils.cp(File.join(XCODE_FILES, "LaunchScreen.storyboard"), path) }
 
     FileUtils.cp(File.join(XCODE_FILES, "PrivacyInfo.xcprivacy"), TARGET_DIR)
+    metadata = BuildActivityProject.cargo_metadata(root: ROOT)
+    BuildActivityProject.stage_tauri_api(metadata, root: ROOT)
+    BuildActivityProject.write(File.join(APPLE_DIR, "project.yml"), root: ROOT,
+                               version: ios_version, build_number: options.fetch(:build_number, 1))
     sh("xcodegen", "generate", "--spec", File.join(APPLE_DIR, "project.yml"))
     FileUtils.cp(File.join(XCODE_FILES, "pipedash.entitlements"), File.join(TARGET_DIR, "#{TARGET}.entitlements"))
   end
@@ -83,6 +109,13 @@ platform :ios do
         UI.user_error!("CFBundleShortVersionString is #{info["CFBundleShortVersionString"]}, expected #{options[:version]}")
       end
 
+      extension = File.join(app, "PlugIns", "#{BuildActivityProject::TARGET}.appex")
+      UI.user_error!("Build activity extension is not embedded in the app") unless File.directory?(extension)
+      extension_info = plist_to_hash(File.join(extension, "Info.plist"))
+      BuildActivityProject.verify_metadata!(info, extension_info)
+      extension_binary = File.join(extension, extension_info.fetch("CFBundleExecutable"))
+      UI.user_error!("Build activity extension executable is missing") unless File.file?(extension_binary)
+
       manifest_path = File.join(app, "PrivacyInfo.xcprivacy")
       UI.user_error!("PrivacyInfo.xcprivacy is not bundled in the app") unless File.exist?(manifest_path)
       manifest = plist_to_hash(manifest_path)
@@ -99,6 +132,11 @@ platform :ios do
       if options[:signed]
         entitlements = sh("codesign", "-d", "--entitlements", "-", "--xml", app, log: false)
         UI.user_error!("Signed app has no aps-environment entitlement") unless entitlements.include?("aps-environment")
+        sh("codesign", "--verify", "--deep", "--strict", app)
+        extension_entitlements = sh("codesign", "-d", "--entitlements", "-", "--xml", extension, log: false)
+        unless extension_entitlements.include?("#{ENV.fetch('APPLE_DEVELOPMENT_TEAM')}.#{BuildActivityProject::BUNDLE_ID}")
+          UI.user_error!("Signed build activity extension has the wrong application identifier")
+        end
       end
       UI.success("#{File.basename(ipa)} passed the App Store checks")
     end
@@ -115,7 +153,7 @@ platform :ios do
     prepare_project
     out_dir = File.expand_path(options.fetch(:output, File.join(ROOT, "ios/screenshots")))
     FileUtils.mkdir_p(out_dir)
-    tauri("ios", "build", "--target", "aarch64-sim", "--debug")
+    tauri("ios", "build", "--target", "aarch64-sim", "--debug", "--no-sign", "--config", ios_config(1))
     app = Dir[File.join(APPLE_DIR, "build/arm64-sim/*.app")].first || UI.user_error!("No simulator app built")
 
     devices = JSON.parse(sh("xcrun", "simctl", "list", "devices", "available", "--json", log: false))
@@ -191,21 +229,24 @@ platform :ios do
 
   private_lane :build_signed_ipa do |options|
     setup_ci
-    match(type: "appstore", app_identifier: APP_ID, readonly: true)
-    prepare_project
-    update_code_signing_settings(
-      path: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
-      targets: [TARGET],
-      use_automatic_signing: false,
-      team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM"),
-      code_sign_identity: ENV.fetch("sigh_#{APP_ID}_appstore_certificate-name"),
-    )
-    ENV["IOS_MOBILE_PROVISION"] = [File.binread(ENV.fetch("sigh_#{APP_ID}_appstore_profile-path"))].pack("m0")
+    match(type: "appstore", app_identifier: BuildActivityProject::SIGNING_TARGETS.values, readonly: true)
     build_number = latest_testflight_build_number(
       api_key: options.fetch(:api_key),
       app_identifier: APP_ID,
       initial_build_number: 0,
     ).to_i + 1
+    prepare_project(build_number: build_number)
+    BuildActivityProject::SIGNING_TARGETS.each do |target, bundle_id|
+      update_code_signing_settings(
+        path: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
+        targets: [target],
+        use_automatic_signing: false,
+        team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM"),
+        code_sign_identity: ENV.fetch("sigh_#{bundle_id}_appstore_certificate-name"),
+        profile_name: ENV.fetch("sigh_#{bundle_id}_appstore_profile-name"),
+      )
+    end
+    ENV["IOS_MOBILE_PROVISION"] = [File.binread(ENV.fetch("sigh_#{APP_ID}_appstore_profile-path"))].pack("m0")
     ipa = ios_build(build_number: build_number, sign: true)
     verify_ipa(ipa: ipa, version: ios_version, signed: true)
     ipa

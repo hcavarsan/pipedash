@@ -22,6 +22,7 @@ import {
   IconCheck,
   IconClock,
   IconDots,
+  IconEye,
   IconFileText,
   IconGitBranch,
   IconHistory,
@@ -39,6 +40,7 @@ import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTableColumns } from '../../hooks/useTableColumns'
 import { useRunHistoryFilters } from '../../hooks/useUrlState'
+import { useBuildWatch } from '../../queries/useBuildWatchQueries'
 import {
   useClearRunHistoryCache,
   useRunHistory,
@@ -124,6 +126,10 @@ export const RunHistoryPage = ({
 }: RunHistoryPageProps) => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
+  const buildWatch = useBuildWatch()
+  const watching = buildWatch.data?.watch?.monitoring === 'watching'
+  const watchDisabled =
+    buildWatch.busy || buildWatch.isFetching || buildWatch.isError || !buildWatch.data?.available || watching
   const labels = getPipelineLabels(pipeline?.provider_type)
   const isFlux = pipeline?.provider_type === 'fluxcd'
 
@@ -319,6 +325,17 @@ export const RunHistoryPage = ({
         disabled?: boolean
         loading?: boolean
       }[] = []
+      if (active && buildWatch.data?.supported) {
+        actions.push({
+          label: buildWatch.data.available
+            ? `Watch run #${run.run_number}`
+            : `Watch unavailable: ${buildWatch.data.reason ?? 'Allow Live Activities and background execution in iOS Settings.'}`,
+          icon: <IconEye size={16} />,
+          disabled: watchDisabled,
+          loading: buildWatch.busy,
+          onClick: () => buildWatch.start(pipeline.id, run.run_number),
+        })
+      }
       if (awaitingReview && onReview) {
         actions.push(
           {
@@ -402,6 +419,8 @@ export const RunHistoryPage = ({
       handleRerunFailedJobs,
       labels.run,
       onViewRun,
+      buildWatch,
+      watchDisabled,
     ]
   )
 
@@ -508,6 +527,17 @@ export const RunHistoryPage = ({
           </ActionIcon>
         </Menu.Target>
         <Menu.Dropdown>
+          {isActive && buildWatch.data?.supported && (
+            <Menu.Item
+              leftSection={buildWatch.busy ? <Loader size="xs" /> : <IconEye size={16} />}
+              disabled={watchDisabled}
+              onClick={() => buildWatch.start(pipeline.id, run.run_number)}
+            >
+              {buildWatch.data.available
+                ? 'Watch run'
+                : `Watch unavailable: ${buildWatch.data.reason ?? 'Check Live Activities and background execution in iOS Settings.'}`}
+            </Menu.Item>
+          )}
           {isAwaitingReview && onReview && (
             <>
               <Menu.Item disabled={isReviewBusy} onClick={() => handleReviewRun(pipeline, run, 'approve')}>

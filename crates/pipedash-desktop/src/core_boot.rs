@@ -164,6 +164,7 @@ pub async fn boot_core(
     let maybe_core = app.state::<MaybeCoreContext>();
     let old = maybe_core.0.write().await.replace(Arc::clone(&core));
     if let Some(old) = old {
+        crate::build_watch::interrupt(app);
         old.shutdown().await;
     }
     lock.set_locked(false);

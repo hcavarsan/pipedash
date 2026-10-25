@@ -82,6 +82,11 @@ export const queryKeys = {
     devices: () => [...queryKeys.push.all, 'devices'] as const,
   },
 
+  buildWatch: {
+    all: ['buildWatch'] as const,
+    status: () => [...queryKeys.buildWatch.all, 'status'] as const,
+  },
+
   tablePreferences: {
     all: ['tablePreferences'] as const,
     detail: (providerId: number, tableId: string) => [...queryKeys.tablePreferences.all, providerId, tableId] as const,

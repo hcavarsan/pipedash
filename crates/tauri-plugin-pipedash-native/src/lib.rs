@@ -23,6 +23,11 @@ pub use mobile::PipedashNative;
 pub use model::{
     Accessibility,
     Appearance,
+    BuildWatchMonitoring,
+    BuildWatchRunStatus,
+    BuildWatchSnapshot,
+    BuildWatchStatus,
+    BuildWatchStopReason,
     HapticKind,
     NotificationResponse,
     PrivacyCover,
