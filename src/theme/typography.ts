@@ -1,8 +1,8 @@
 export const TYPOGRAPHY = {
   MODAL_TITLE: { size: 'lg', weight: 600 },
-  ITEM_TITLE: { size: 'sm', weight: 500 },
-  FIELD_LABEL: { size: 'xs' },
-  FIELD_VALUE: { size: 'sm' },
-  FIELD_VALUE_SMALL: { size: 'xs' },
-  HELPER_TEXT: { size: 'sm' },
+  ITEM_TITLE: { size: 'headline', weight: 'var(--type-headline-weight)' },
+  FIELD_LABEL: { size: 'caption' },
+  FIELD_VALUE: { size: 'body' },
+  FIELD_VALUE_SMALL: { size: 'callout' },
+  HELPER_TEXT: { size: 'subheadline' },
 } as const

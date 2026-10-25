@@ -1,0 +1,12 @@
+{
+  "app": {
+    "windows": [
+      {
+        "decorations": false,
+        "height": 1000,
+        "title": "Pipedash",
+        "width": 1700
+      }
+    ]
+  }
+}

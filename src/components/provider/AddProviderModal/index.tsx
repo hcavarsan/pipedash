@@ -1,25 +1,29 @@
 import { Box, Button, Group, Stack, Stepper, Text } from '@mantine/core'
 import { IconCheck, IconKey, IconList } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useReducer } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 
 import { usePlugins } from '../../../contexts/PluginContext'
+import { useDiscardGuard } from '../../../hooks/useDiscardGuard'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import type { ProviderConfig } from '../../../types'
 import { isAuthError, isNetworkError, isValidationError, toPipedashError } from '../../../types/errors'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
+import { useFocusFirstInvalid } from '../../../utils/formFocus'
 import { getPipelineLabels } from '../../../utils/pipelinePresentation'
 import { FormErrorDisplay } from '../../common/FormErrorDisplay'
 import { LoadingState } from '../../common/LoadingState'
 import { StandardModal } from '../../common/StandardModal'
+import { StepRegion } from '../../forms/StepRegion'
+import { IosGroup, IosRow } from '../../ios/IosList'
 import { PermissionCheckButton } from '../PermissionCheckButton'
 import { PermissionCheckModal } from '../PermissionCheckModal'
 
 import { CredentialsStep } from './CredentialsStep'
 import { PipelinesStep } from './PipelinesStep'
-import { formReducer } from './reducer'
-import shell from './ShellForm.module.css'
+import { formReducer, isFormDirty } from './reducer'
 import { type AddProviderModalProps, initialFormState } from './types'
 import { usePermissionCheck } from './usePermissionCheck'
+import { validateConfigField, validateProviderName } from './validation'
 
 export function AddProviderModal({
   opened,
@@ -56,6 +60,10 @@ export function AddProviderModal({
   })
 
   const { reset: resetPermission } = permission
+  const credentialsRef = useRef<HTMLFormElement>(null)
+  const focusFirstInvalid = useFocusFirstInvalid(credentialsRef)
+  const dirty = isFormDirty(state, editMode ? existingProvider : undefined)
+  const requestClose = useDiscardGuard(dirty, onClose)
 
   useEffect(() => {
     if (!opened) {
@@ -70,39 +78,12 @@ export function AddProviderModal({
     }
   }, [opened, editMode, existingProvider, plugins, resetPermission])
 
-  const validateField = useCallback(
-    (
-      field: {
-        key: string
-        label: string
-        required: boolean
-        validation_regex?: string | null
-        validation_message?: string | null
-      },
-      value: string
-    ): string | null => {
-      if (field.required && !value?.trim()) {
-        return `${field.label} is required`
-      }
-
-      if (field.validation_regex && value) {
-        const regex = new RegExp(field.validation_regex)
-
-        if (!regex.test(value)) {
-          return field.validation_message || `Invalid format for ${field.label}`
-        }
-      }
-
-      return null
-    },
-    []
-  )
-
   const validateCredentials = useCallback((): boolean => {
     const errors: Record<string, string> = {}
+    const nameError = validateProviderName(providerName)
 
-    if (!providerName.trim()) {
-      errors.providerName = 'Provider name is required'
+    if (nameError) {
+      errors.providerName = nameError
     }
 
     if (!selectedPlugin) {
@@ -112,7 +93,7 @@ export function AddProviderModal({
     }
 
     for (const field of selectedPlugin.config_schema.fields) {
-      const fieldError = validateField(field, configValues[field.key] || '')
+      const fieldError = validateConfigField(field, configValues[field.key] || '')
 
       if (fieldError) {
         errors[field.key] = fieldError
@@ -121,8 +102,12 @@ export function AddProviderModal({
 
     dispatch({ type: 'SET_FIELD_ERRORS', errors })
 
+    if (Object.keys(errors).length > 0) {
+      focusFirstInvalid()
+    }
+
     return Object.keys(errors).length === 0
-  }, [providerName, selectedPlugin, configValues, validateField])
+  }, [providerName, selectedPlugin, configValues, focusFirstInvalid])
 
   const handleNext = useCallback(() => {
     if (!validateCredentials() || !selectedPlugin) {
@@ -261,7 +246,7 @@ export function AddProviderModal({
           </Group>
 
           <Group gap="xs">
-            <Button variant="default" size="sm" onClick={onClose} disabled={submitting}>
+            <Button variant="default" size="sm" onClick={requestClose} disabled={submitting}>
               Cancel
             </Button>
             {editMode && (
@@ -300,7 +285,7 @@ export function AddProviderModal({
           )}
         </Group>
         <Group gap="xs">
-          <Button variant="default" size="sm" onClick={onClose} disabled={submitting}>
+          <Button variant="default" size="sm" onClick={requestClose} disabled={submitting}>
             Cancel
           </Button>
           <Button size="sm" onClick={handleSubmit} loading={submitting} disabled={selectedPipelines.size === 0}>
@@ -323,7 +308,7 @@ export function AddProviderModal({
     handleBack,
     handleSubmit,
     handleSaveCredentialsOnly,
-    onClose,
+    requestClose,
     labels.items,
     selectionNeedsRefresh,
   ])
@@ -340,39 +325,43 @@ export function AddProviderModal({
       />
     ) : undefined
 
-  const shellFooter =
-    step === 'credentials' ? (
-      <Stack gap="xs">
-        {editMode && (
-          <Button
-            fullWidth
-            onClick={handleSaveCredentialsOnly}
-            loading={submitting}
-            disabled={!selectedPlugin || !providerName.trim() || selectionNeedsRefresh}
-          >
-            Save
-          </Button>
-        )}
-        <Button
-          fullWidth
-          variant={editMode ? 'default' : 'filled'}
-          onClick={handleNext}
-          disabled={!selectedPlugin || !providerName.trim()}
-        >
-          Next
-        </Button>
-      </Stack>
-    ) : (
-      <Stack gap="xs">
-        {selectedPipelines.size > 0 && <Text className={shell.footerCount}>{selectedPipelines.size} selected</Text>}
-        <Button fullWidth onClick={handleSubmit} loading={submitting} disabled={selectedPipelines.size === 0}>
-          {editMode ? 'Update provider' : 'Add provider'}
-        </Button>
-        <Button fullWidth variant="default" onClick={handleBack} disabled={submitting}>
-          Back
-        </Button>
-      </Stack>
-    )
+  const saveOnly = editMode && !selectionNeedsRefresh
+
+  const submitCredentials = () => {
+    if (submitting) {
+      return
+    }
+
+    if (saveOnly) {
+      void handleSaveCredentialsOnly()
+    } else {
+      handleNext()
+    }
+  }
+
+  const primaryAction =
+    step === 'credentials'
+      ? {
+          label: saveOnly ? 'Save' : 'Next',
+          onClick: submitCredentials,
+          loading: submitting,
+          disabled: !selectedPlugin || !providerName.trim(),
+        }
+      : {
+          label: editMode ? 'Update' : 'Add',
+          onClick: handleSubmit,
+          loading: submitting,
+          disabled: selectedPipelines.size === 0,
+        }
+
+  const backAction = step === 'pipelines' ? { label: 'Back', onClick: () => !submitting && handleBack() } : undefined
+
+  const secondaryRow =
+    mobileShell && saveOnly && step === 'credentials' ? (
+      <IosGroup>
+        <IosRow title={`Next: select ${labels.items}`} chevron onClick={handleNext} disabled={submitting} />
+      </IosGroup>
+    ) : undefined
 
   const activeStepIndex = step === 'credentials' ? 0 : 1
 
@@ -382,8 +371,11 @@ export function AddProviderModal({
       onClose={onClose}
       title={editMode ? 'Edit provider' : 'Add provider'}
       loading={submitting}
+      dirty={dirty}
       closable={!permission.modalOpen}
-      footer={mobileShell ? shellFooter : footer}
+      footer={footer}
+      primaryAction={primaryAction}
+      backAction={backAction}
       contentPadding={false}
       size="lg"
       fullHeight
@@ -426,24 +418,35 @@ export function AddProviderModal({
           <>
             <FormErrorDisplay globalError={error} onDismiss={() => dispatch({ type: 'SET_ERROR', error: null })} />
 
-            {step === 'credentials' && (
-              <CredentialsStep
-                state={state}
-                dispatch={dispatch}
-                plugins={plugins}
-                pluginsLoading={pluginsLoading}
-                editMode={editMode}
-                isMobile={isMobile}
-                permissionRow={permissionRow}
-                scopeNote={
-                  selectionNeedsRefresh ? `Select ${labels.items} again after changing connection scope.` : undefined
-                }
-              />
-            )}
+            <StepRegion
+              stepKey={step}
+              position={`Step ${activeStepIndex + 1} of 2`}
+              title={step === 'credentials' ? 'Credentials' : `Select ${labels.items}`}
+              hiddenHeading={!mobileShell}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+            >
+              {step === 'credentials' && (
+                <CredentialsStep
+                  state={state}
+                  dispatch={dispatch}
+                  plugins={plugins}
+                  pluginsLoading={pluginsLoading}
+                  editMode={editMode}
+                  isMobile={isMobile}
+                  formRef={credentialsRef}
+                  onSubmit={submitCredentials}
+                  permissionRow={permissionRow}
+                  secondaryRow={secondaryRow}
+                  scopeNote={
+                    selectionNeedsRefresh ? `Select ${labels.items} again after changing connection scope.` : undefined
+                  }
+                />
+              )}
 
-            {step === 'pipelines' && (
-              <PipelinesStep state={state} dispatch={dispatch} providerConfig={providerConfig} isMobile={isMobile} />
-            )}
+              {step === 'pipelines' && (
+                <PipelinesStep state={state} dispatch={dispatch} providerConfig={providerConfig} isMobile={isMobile} />
+              )}
+            </StepRegion>
           </>
         )}
       </Stack>

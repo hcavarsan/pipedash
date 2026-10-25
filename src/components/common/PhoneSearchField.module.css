@@ -1,0 +1,95 @@
+.search {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--ios-fs-body);
+}
+
+.form {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+  margin: 0;
+}
+
+.field {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.4em;
+  min-width: 0;
+  min-height: 44px;
+  padding-inline: 0.75em 0.25em;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--ios-fill-tertiary);
+  color: var(--ios-secondary-label);
+}
+
+.icon {
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ios-label);
+  font-family: inherit;
+  font-size: var(--ios-fs-body);
+  line-height: var(--ios-lh-body);
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.input::placeholder {
+  color: var(--ios-secondary-label);
+  opacity: 1;
+}
+
+.input::-webkit-search-cancel-button,
+.input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.field:focus-within {
+  outline: 2px solid var(--ios-tint);
+  outline-offset: -2px;
+}
+
+.clear,
+.cancel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+}
+
+.clear {
+  color: var(--ios-secondary-label);
+}
+
+.cancel {
+  padding-inline: 0.25em;
+  color: var(--ios-tint);
+  font-size: var(--ios-fs-body);
+  line-height: var(--ios-lh-body);
+}
+
+.cancel:active,
+.clear:active {
+  opacity: 0.5;
+}

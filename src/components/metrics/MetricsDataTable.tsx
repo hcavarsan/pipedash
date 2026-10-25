@@ -9,7 +9,7 @@ import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup, IosRow } from '../ios/IosList'
 
 import classes from './metrics.module.css'
-import { formatMetricValue, hasObservation, METRIC_CONFIG } from './metricsUtils'
+import { formatMetricValue, formatNumber, hasObservation, METRIC_CONFIG } from './metricsUtils'
 
 interface MetricsDataTableProps {
   data: AggregatedMetrics
@@ -135,11 +135,14 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
               <IosRow
                 key={metric.timestamp}
                 title={formatDateTime(metric.timestamp)}
-                subtitle={`Count ${metric.count} · ${range}`}
-                value={formatMetricValue(hasObservation(metric, metricType) ? metric.value : null, metricType)}
-                accessory={
-                  isSelected ? <IconCheck size={18} color="var(--mantine-color-anchor)" aria-hidden /> : undefined
+                subtitle={<span className={classes.num}>{`Count ${formatNumber(metric.count)} · ${range}`}</span>}
+                value={
+                  <span className={classes.num}>
+                    {formatMetricValue(hasObservation(metric, metricType) ? metric.value : null, metricType)}
+                  </span>
                 }
+                accessory={isSelected ? <IconCheck size={18} color="var(--ios-tint)" aria-hidden /> : undefined}
+                selected={isSelected}
                 onClick={() => onRowClick(isSelected ? null : originalIndex)}
               />
             )

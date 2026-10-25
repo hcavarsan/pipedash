@@ -1,6 +1,14 @@
 import { Button, Divider, PasswordInput, Stack, Text } from '@mantine/core'
 import { IconFaceId, IconFingerprint } from '@tabler/icons-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  type SyntheticEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useUnlockVault, useUnlockWithBiometrics, useVaultStatus } from '../../queries/useVaultQueries'
@@ -18,6 +26,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const autoPrompted = useRef(false)
+  const confirmRef = useRef<HTMLInputElement>(null)
 
   const { data: vaultStatus, isLoading: isLoadingStatus } = useVaultStatus()
   const unlockMutation = useUnlockVault()
@@ -89,11 +98,44 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !isLoading) {
-      handleUnlock()
+  const handleSubmit = (event: SyntheticEvent) => {
+    event.preventDefault()
+
+    if (!isLoading) {
+      void handleUnlock()
     }
   }
+
+  const focusConfirm = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isFirstTime && event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      confirmRef.current?.focus()
+    }
+  }
+
+  const passwordFieldProps = {
+    value: password,
+    onChange: (e: ChangeEvent<HTMLInputElement>) => setPassword(e.currentTarget.value),
+    onKeyDown: focusConfirm,
+    disabled: isLoading,
+    error: error && !confirmPassword ? error : undefined,
+    size: 'md',
+    autoComplete: isFirstTime ? 'new-password' : 'current-password',
+    enterKeyHint: isFirstTime ? 'next' : 'go',
+    autoFocus: !biometricEnabled,
+    'data-autofocus': true,
+  } as const
+
+  const confirmFieldProps = {
+    ref: confirmRef,
+    value: confirmPassword,
+    onChange: (e: ChangeEvent<HTMLInputElement>) => setConfirmPassword(e.currentTarget.value),
+    disabled: isLoading,
+    error: error && confirmPassword ? error : undefined,
+    size: 'md',
+    autoComplete: 'new-password',
+    enterKeyHint: 'go',
+  } as const
 
   const plainUnlock = !requiresPassword && !biometricEnabled && appLock?.locked === true
 
@@ -121,43 +163,21 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
     return (
       <Stack gap="md">
         {requiresPassword && (
-          <>
-            <Stack gap="sm">
-              <PasswordInput
-                aria-label="Password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.currentTarget.value)}
-                onKeyDown={handleKeyDown}
-                disabled={isLoading}
-                error={error && !confirmPassword ? error : undefined}
-                size="md"
-                autoComplete="current-password"
-                enterKeyHint="go"
-                autoFocus={!biometricEnabled}
-                data-autofocus
-              />
+          <form noValidate onSubmit={handleSubmit}>
+            <Stack gap="md">
+              <Stack gap="sm">
+                <PasswordInput aria-label="Password" placeholder="Password" {...passwordFieldProps} />
 
-              {isFirstTime && (
-                <PasswordInput
-                  aria-label="Confirm password"
-                  placeholder="Confirm password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.currentTarget.value)}
-                  onKeyDown={handleKeyDown}
-                  disabled={isLoading}
-                  error={error && confirmPassword ? error : undefined}
-                  size="md"
-                  autoComplete="new-password"
-                  enterKeyHint="go"
-                />
-              )}
+                {isFirstTime && (
+                  <PasswordInput aria-label="Confirm password" placeholder="Confirm password" {...confirmFieldProps} />
+                )}
+              </Stack>
+
+              <Button type="submit" fullWidth size="lg" loading={unlockMutation.isPending || isLoadingStatus}>
+                Unlock
+              </Button>
             </Stack>
-
-            <Button fullWidth size="lg" onClick={handleUnlock} loading={unlockMutation.isPending || isLoadingStatus}>
-              Unlock
-            </Button>
-          </>
+          </form>
         )}
 
         {biometricEnabled && (
@@ -181,7 +201,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
         )}
 
         {!requiresPassword && error && (
-          <Text size="sm" c="red" ta="center">
+          <Text size="sm" c="red" ta="center" role="alert">
             {error}
           </Text>
         )}
@@ -217,47 +237,29 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
       )}
 
       {!requiresPassword && error && (
-        <Text size="sm" c="red" ta="center">
+        <Text size="sm" c="red" ta="center" role="alert">
           {error}
         </Text>
       )}
 
       {requiresPassword && (
-        <>
-          {biometricEnabled && <Divider label="or use your password" />}
+        <form noValidate onSubmit={handleSubmit}>
+          <Stack gap="lg">
+            {biometricEnabled && <Divider label="or use your password" />}
 
-          <Stack gap="md">
-            <PasswordInput
-              label="Password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.currentTarget.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isLoading}
-              error={error && !confirmPassword ? error : undefined}
-              size="md"
-              autoFocus={!biometricEnabled}
-              data-autofocus
-            />
+            <Stack gap="md">
+              <PasswordInput label="Password" placeholder="Enter your password" {...passwordFieldProps} />
 
-            {isFirstTime && (
-              <PasswordInput
-                label="Confirm password"
-                placeholder="Re-enter your password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.currentTarget.value)}
-                onKeyDown={handleKeyDown}
-                disabled={isLoading}
-                error={error && confirmPassword ? error : undefined}
-                size="md"
-              />
-            )}
+              {isFirstTime && (
+                <PasswordInput label="Confirm password" placeholder="Re-enter your password" {...confirmFieldProps} />
+              )}
+            </Stack>
+
+            <Button type="submit" fullWidth size="md" loading={unlockMutation.isPending || isLoadingStatus}>
+              Unlock
+            </Button>
           </Stack>
-
-          <Button fullWidth size="md" onClick={handleUnlock} loading={unlockMutation.isPending || isLoadingStatus}>
-            Unlock
-          </Button>
-        </>
+        </form>
       )}
 
       {showCancelButton && onCancel && (

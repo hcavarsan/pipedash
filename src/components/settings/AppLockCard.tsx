@@ -3,7 +3,9 @@ import { Card, Stack, Switch, Text } from '@mantine/core'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useSetAppLock, useVaultStatus } from '../../queries/useVaultQueries'
 import { biometryLabel } from '../../utils/appLock'
-import { IosGroup, IosRow } from '../ios/IosList'
+import { IosGroup } from '../ios/IosList'
+
+import { SwitchRow } from './mobileParts'
 
 export function AppLockCard() {
   const mobileShell = useMobileShell()
@@ -24,33 +26,23 @@ export function AppLockCard() {
 
     return (
       <IosGroup header="Security" footer={description}>
-        <IosRow
+        <SwitchRow
           title={`Require ${label}`}
-          accessory={
-            <Switch
-              aria-label={`Require ${label}`}
-              checked={appLock.enabled}
-              disabled={setAppLock.isPending}
-              onChange={(e) =>
-                setAppLock.mutate({
-                  enabled: e.currentTarget.checked,
-                  lockOnBackground: e.currentTarget.checked && appLock.lock_on_background,
-                })
-              }
-            />
+          checked={appLock.enabled}
+          disabled={setAppLock.isPending}
+          onChange={(e) =>
+            setAppLock.mutate({
+              enabled: e.currentTarget.checked,
+              lockOnBackground: e.currentTarget.checked && appLock.lock_on_background,
+            })
           }
         />
-        <IosRow
+        <SwitchRow
           title="Lock when leaving the app"
           subtitle="Lock Pipedash each time you switch to another app."
-          accessory={
-            <Switch
-              aria-label="Lock when leaving the app"
-              checked={appLock.enabled && appLock.lock_on_background}
-              disabled={!appLock.enabled || setAppLock.isPending}
-              onChange={(e) => setAppLock.mutate({ enabled: true, lockOnBackground: e.currentTarget.checked })}
-            />
-          }
+          checked={appLock.enabled && appLock.lock_on_background}
+          disabled={!appLock.enabled || setAppLock.isPending}
+          onChange={(e) => setAppLock.mutate({ enabled: true, lockOnBackground: e.currentTarget.checked })}
         />
       </IosGroup>
     )

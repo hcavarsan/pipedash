@@ -2,6 +2,7 @@ import { Center } from '@mantine/core'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 
 import { useVaultStatus } from '../../queries/useVaultQueries'
+import { mobileService } from '../../services/mobile'
 import { nextCoverLatch, shouldShowPrivacyCover } from '../../utils/appLock'
 import { isMobilePlatform } from '../../utils/platform'
 import { AppLogo } from '../atoms/AppLogo'
@@ -28,6 +29,8 @@ export function PrivacyCover() {
   useEffect(() => {
     if (visibility === 'visible' && isMobilePlatform()) {
       refetch()
+        .finally(() => mobileService.releasePrivacyCover())
+        .catch(() => undefined)
     }
   }, [visibility, refetch])
 

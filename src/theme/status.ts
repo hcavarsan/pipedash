@@ -4,7 +4,7 @@ import {
   IconCircleCaretRightFilled,
   IconCircleCheck,
   IconCircleCheckFilled,
-  IconCircleChevronsRightFilled,
+  IconCircleChevronsRight,
   IconCircleRectangleFilled,
   IconCircleXFilled,
   IconClockFilled,
@@ -22,7 +22,7 @@ export const STATUS_META: Record<PipelineStatus, { label: string; tone: StatusTo
   running: { label: 'Running', tone: 'running', icon: IconCircleCaretRightFilled },
   pending: { label: 'Pending', tone: 'pending', icon: IconClockFilled },
   cancelled: { label: 'Cancelled', tone: 'neutral', icon: IconCircleRectangleFilled },
-  skipped: { label: 'Skipped', tone: 'neutral', icon: IconCircleChevronsRightFilled },
+  skipped: { label: 'Skipped', tone: 'neutral', icon: IconCircleChevronsRight },
 }
 
 export const STATUS_OPTIONS = (Object.keys(STATUS_META) as PipelineStatus[]).map((status) => ({

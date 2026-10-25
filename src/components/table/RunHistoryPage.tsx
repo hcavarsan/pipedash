@@ -68,10 +68,13 @@ import { PageHeader } from '../common/PageHeader'
 import { StandardTable } from '../common/StandardTable'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup, IosRow } from '../ios/IosList'
+import type { SwipeAction } from '../ios/SwipeActions'
 import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
 
 import { IosRunList, IosRunToolbar } from './IosRunList'
 import { TableCustomizationModal } from './TableCustomizationModal'
+
+export type DetailTab = 'history' | 'metrics'
 
 interface RunHistoryPageProps {
   pipeline: Pipeline | null
@@ -83,7 +86,8 @@ interface RunHistoryPageProps {
   onRerunFailedJobs?: (pipeline: Pipeline, run: PipelineRun) => Promise<void>
   refreshTrigger?: number
   onLoadingChange?: (loading: boolean) => void
-  initialTab?: 'history' | 'metrics'
+  tab: DetailTab
+  onTabChange: (tab: DetailTab) => void
   isLoadingPipeline?: boolean
 }
 
@@ -113,7 +117,8 @@ export const RunHistoryPage = ({
   onRerunFailedJobs,
   refreshTrigger,
   onLoadingChange,
-  initialTab = 'history',
+  tab,
+  onTabChange,
   isLoadingPipeline = false,
 }: RunHistoryPageProps) => {
   const { isMobile } = useIsMobile()
@@ -137,7 +142,7 @@ export const RunHistoryPage = ({
   )
   const [sortOverride, setSortOverride] = useState<DataTableSortStatus<PipelineRun> | null>(null)
   const sortStatus = sortOverride ?? defaultSortStatus
-  const [activeTab, setActiveTab] = useState<string>(initialTab)
+
   const [customizeModalOpened, { open: openCustomizeModal, close: closeCustomizeModal }] = useDisclosure(false)
   const [selecting, setSelecting] = useState(false)
   const [accumulatedRuns, setAccumulatedRuns] = useState<PipelineRun[]>([])
@@ -458,6 +463,47 @@ export const RunHistoryPage = ({
     ]
   )
 
+  const getRunSwipeActions = (run: PipelineRun): SwipeAction[] => {
+    if (!pipeline) {
+      return []
+    }
+
+    const isActive = run.status === 'running' || run.status === 'pending'
+    const isAwaitingReview = run.metadata?.awaiting_review === true
+    const actions: SwipeAction[] = []
+
+    if (isAwaitingReview && onReview && reviewingRunNumber === null) {
+      actions.push({
+        key: 'approve',
+        label: 'Approve',
+        tone: 'green',
+        onSelect: () => handleReviewRun(pipeline, run, 'approve'),
+      })
+    }
+
+    if (isActive) {
+      if (onCancel && !isAwaitingReview && run.status !== 'pending' && cancellingRunNumber !== run.run_number) {
+        actions.push({
+          key: 'cancel',
+          label: 'Cancel',
+          tone: 'red',
+          primary: true,
+          onSelect: () => handleCancelRun(pipeline, run),
+        })
+      }
+    } else if (onRerun && !(rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number)) {
+      actions.push({
+        key: 'rerun',
+        label: isFlux ? 'Reconcile' : 'Rerun',
+        tone: 'blue',
+        primary: true,
+        onSelect: () => onRerun(pipeline, run),
+      })
+    }
+
+    return actions
+  }
+
   const renderRunMenu = (run: PipelineRun) => {
     if (!pipeline) {
       return null
@@ -479,6 +525,7 @@ export const RunHistoryPage = ({
             variant="subtle"
             color="gray"
             loading={busy}
+            data-row-menu
             aria-label={`Actions for ${labels.run} #${run.run_number}`}
           >
             <IconDots size={22} />
@@ -551,7 +598,7 @@ export const RunHistoryPage = ({
   } = useTableColumns(pipeline?.provider_id, 'pipeline_runs', additionalColumns, columnPreferences)
 
   const headerActions = useMemo(() => {
-    const shouldShow = !isMobile && activeTab === 'history'
+    const shouldShow = !isMobile && tab === 'history'
     const isLoading = isLoadingPipeline || !pipeline
 
     if (isLoading && shouldShow) {
@@ -581,7 +628,7 @@ export const RunHistoryPage = ({
         </Button>
       </Box>
     )
-  }, [isMobile, activeTab, openCustomizeModal, isLoadingPipeline, pipeline, schemaLoading, schemaError])
+  }, [isMobile, tab, openCustomizeModal, isLoadingPipeline, pipeline, schemaLoading, schemaError])
 
   const sourceRuns = isMobile && accumulatedRuns.length > 0 ? accumulatedRuns : runs
 
@@ -776,6 +823,7 @@ export const RunHistoryPage = ({
             )
           }
           onOpen={(run) => onViewRun(currentPipeline.id, run.run_number)}
+          getSwipeActions={getRunSwipeActions}
           renderMenu={renderRunMenu}
         />
       )}
@@ -858,7 +906,7 @@ export const RunHistoryPage = ({
           <Group justify="center" gap="xs" role="status">
             <Loader size="sm" />
             <Text size="sm" c="dimmed">
-              Loading more {labels.runs}...
+              Loading more {labels.runs}…
             </Text>
           </Group>
         )}
@@ -1019,8 +1067,8 @@ export const RunHistoryPage = ({
       )}
 
       <Tabs
-        value={activeTab}
-        onChange={(value) => setActiveTab(value || 'history')}
+        value={tab}
+        onChange={(value) => onTabChange(value === 'metrics' ? 'metrics' : 'history')}
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         <Tabs.List mb="sm">
@@ -1044,17 +1092,22 @@ export const RunHistoryPage = ({
           }}
         >
           {isHistoryLoading || !pipeline ? (
-            <LoadingState message={`Loading ${labels.history.toLowerCase()}...`} />
+            <LoadingState message={`Loading ${labels.history.toLowerCase()}…`} />
           ) : (
             <>
-              <Group justify="space-between" align="flex-start" wrap="nowrap">
+              <Group
+                justify="space-between"
+                align="flex-start"
+                wrap="nowrap"
+                style={mobileShell ? { display: 'contents' } : undefined}
+              >
                 <FilterBar
                   onClearAll={clearFilters}
                   filters={{
                     search: {
                       value: search,
                       onChange: (value) => setFilter('search', value),
-                      placeholder: `Search ${labels.runs}...`,
+                      placeholder: `Search ${labels.runs}…`,
                     },
                     status: {
                       value: statusFilter,
@@ -1098,7 +1151,7 @@ export const RunHistoryPage = ({
 
         <Tabs.Panel value="metrics" style={{ width: '100%' }}>
           {isLoadingPipeline || !pipeline ? (
-            <LoadingState message="Loading pipeline..." />
+            <LoadingState message="Loading pipeline…" />
           ) : (
             <PipelineMetricsView
               pipelineId={pipeline.id}
@@ -1110,7 +1163,7 @@ export const RunHistoryPage = ({
         </Tabs.Panel>
       </Tabs>
 
-      {mobileShell && selecting && activeTab === 'history' && (
+      {mobileShell && selecting && tab === 'history' && (
         <IosRunToolbar
           count={selectedRuns.length}
           cancelling={isCancellingSelected}

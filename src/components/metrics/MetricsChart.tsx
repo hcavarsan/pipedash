@@ -1,5 +1,5 @@
 import { Badge, Box, Card, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core'
-import { type KeyboardEvent, type RefObject, type SyntheticEvent, useRef } from 'react'
+import { type KeyboardEvent, type RefObject, type SyntheticEvent, useEffect, useRef } from 'react'
 import {
   Area,
   AreaChart,
@@ -15,11 +15,14 @@ import {
 } from 'recharts'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
+import { haptic } from '../../lib/haptics'
+import { trackTouches } from '../../lib/touchTracker'
 import type { AggregatedMetrics, AggregationPeriod, MetricType } from '../../types'
 import { formatCount } from '../../utils/formatCount'
 
+import { nearestIndex, type PlotSpan } from './chartScrub'
 import classes from './metrics.module.css'
-import { formatMetricValue, getMetricStats, hasObservation, METRIC_CONFIG } from './metricsUtils'
+import { formatMetricValue, formatNumber, getMetricStats, hasObservation, METRIC_CONFIG } from './metricsUtils'
 
 interface MetricsChartProps {
   data: AggregatedMetrics
@@ -51,6 +54,7 @@ interface CustomDotProps {
   color: string
   onSelect?: (index: number) => void
   small?: boolean
+  shell?: boolean
 }
 
 interface BarShapeProps {
@@ -83,10 +87,26 @@ const AXIS_STYLE = {
 const SHELL_AXIS_STYLE = {
   axisLine: { stroke: 'var(--ios-separator)' },
   tickLine: false,
-  tick: { fill: 'var(--mantine-color-dimmed)', fontSize: 13 },
+  tick: { fill: 'var(--ios-secondary-label)', fontSize: 'var(--ios-fs-footnote)' },
 }
 
-const getSelectProps = (onSelect: (() => void) | undefined, label: string, isSelected: boolean) => {
+const SHELL_MARGIN = { top: 8, right: 12, left: 0, bottom: 0 }
+const SHELL_Y_WIDTH = 56
+const SHELL_X_HEIGHT = 28
+
+interface Scrub {
+  span: PlotSpan
+  last: number | null
+}
+
+const plotSpan = (plot: HTMLElement, yAxisWidth: number): PlotSpan => {
+  const rect = plot.getBoundingClientRect()
+  const left = SHELL_MARGIN.left + yAxisWidth
+
+  return { left: rect.left + left, width: rect.width - left - SHELL_MARGIN.right }
+}
+
+const getSelectProps = (onSelect: (() => void) | undefined, label: string, isSelected: boolean, shell: boolean) => {
   if (!onSelect) {
     return {}
   }
@@ -101,6 +121,7 @@ const getSelectProps = (onSelect: (() => void) | undefined, label: string, isSel
     tabIndex: 0,
     'aria-label': label,
     'aria-pressed': isSelected,
+    className: shell ? classes.point : undefined,
     onClick: handleSelect,
     onKeyDown: (event: KeyboardEvent) => {
       if (event.key === 'Enter' || event.key === ' ') {
@@ -112,7 +133,7 @@ const getSelectProps = (onSelect: (() => void) | undefined, label: string, isSel
   }
 }
 
-const CustomDot = ({ cx, cy, payload, color, onSelect, small = false }: CustomDotProps) => {
+const CustomDot = ({ cx, cy, payload, color, onSelect, small = false, shell = false }: CustomDotProps) => {
   if (typeof cx !== 'number' || typeof cy !== 'number' || !payload || payload.value === null) {
     return null
   }
@@ -120,7 +141,8 @@ const CustomDot = ({ cx, cy, payload, color, onSelect, small = false }: CustomDo
   const { isSelected, index, label } = payload
 
   return (
-    <g {...getSelectProps(onSelect && (() => onSelect(index)), label, isSelected)}>
+    <g {...getSelectProps(onSelect && (() => onSelect(index)), label, isSelected, shell)}>
+      {shell && onSelect && <circle className={classes.ring} cx={cx} cy={cy} r={15} fill="none" />}
       {isSelected && <circle cx={cx} cy={cy} r={10} fill={color} fillOpacity={0.2} stroke="none" />}
       <circle
         cx={cx}
@@ -182,12 +204,21 @@ export const MetricsChart = ({
   const { color } = METRIC_CONFIG[metricType]
   const seriesColor = `var(--mantine-color-${color}-filled)`
   const chartHeight = compact ? (mobileShell ? 120 : 150) : isMobile ? 300 : 450
-  const dateFormat = (mobileShell ? SHELL_DATE_FORMATS : DATE_FORMATS)[data.aggregation_period]
-  const hoverIndex = useRef<number | null>(null)
+  const dateFormatter = new Intl.DateTimeFormat(
+    undefined,
+    (mobileShell ? SHELL_DATE_FORMATS : DATE_FORMATS)[data.aggregation_period]
+  )
+  const textScale = mobileShell
+    ? Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ios-text-scale')) || 1
+    : 1
+  const yAxisWidth = mobileShell ? Math.round(SHELL_Y_WIDTH * textScale) : 80
+  const plotRef = useRef<HTMLDivElement>(null)
+  const scrubbed = useRef(false)
+  const band = metricType === 'run_frequency'
 
   const chartData: ChartPoint[] = data.metrics.map((metric, index) => {
-    const date = new Date(metric.timestamp).toLocaleString('en-US', dateFormat)
-    const value = hasObservation(metric, metricType) ? Number(metric.value.toFixed(2)) : null
+    const date = dateFormatter.format(new Date(metric.timestamp))
+    const value = hasObservation(metric, metricType) ? Math.round(metric.value * 100) / 100 : null
 
     return {
       date,
@@ -201,44 +232,81 @@ export const MetricsChart = ({
   const handleSelect = (index: number) => onDataPointClick?.(selectedIndex === index ? null : index)
   const onSelect = !compact && onDataPointClick ? handleSelect : undefined
   const selectedPoint = selectedIndex === null || selectedIndex === undefined ? undefined : chartData[selectedIndex]
+  const scrubbable = mobileShell && !compact && Boolean(onDataPointClick)
+  const pointCount = chartData.length
+  const selectedRef = useRef(selectedIndex)
 
-  const dot = (props: Omit<CustomDotProps, 'color' | 'onSelect' | 'small'>) => (
-    <CustomDot {...props} color={seriesColor} onSelect={onSelect} small={compact} />
+  useEffect(() => {
+    selectedRef.current = selectedIndex
+  }, [selectedIndex])
+
+  useEffect(() => {
+    const plot = plotRef.current
+
+    if (!scrubbable || !plot) {
+      return
+    }
+
+    const handleClick = (event: globalThis.MouseEvent) => {
+      if (scrubbed.current) {
+        scrubbed.current = false
+
+        return
+      }
+
+      if (event.target instanceof Element && event.target.closest('[role="button"]')) {
+        return
+      }
+
+      const index = nearestIndex(event.clientX, plotSpan(plot, yAxisWidth), pointCount, band)
+
+      if (index !== null) {
+        onDataPointClick?.(selectedRef.current === index ? null : index)
+      }
+    }
+
+    plot.addEventListener('click', handleClick)
+
+    const untrack = trackTouches<Scrub>(plot, {
+      axis: 'x',
+      begin: () => {
+        scrubbed.current = false
+
+        return { span: plotSpan(plot, yAxisWidth), last: null }
+      },
+      move: (scrub, drag) => {
+        const index = nearestIndex(drag.startX + drag.dx, scrub.span, pointCount, band)
+
+        if (index === null || index === scrub.last) {
+          return
+        }
+
+        scrub.last = index
+        scrubbed.current = true
+        haptic('selection')
+        onDataPointClick?.(index)
+      },
+      end: () => undefined,
+    })
+
+    return () => {
+      plot.removeEventListener('click', handleClick)
+      untrack()
+    }
+  }, [scrubbable, pointCount, band, yAxisWidth, onDataPointClick])
+
+  const dot = (props: Omit<CustomDotProps, 'color' | 'onSelect' | 'small' | 'shell'>) => (
+    <CustomDot {...props} color={seriesColor} onSelect={onSelect} small={compact} shell={mobileShell} />
   )
-
-  const readIndex = (state: { activeTooltipIndex?: unknown }) =>
-    state.activeTooltipIndex === null || state.activeTooltipIndex === undefined
-      ? null
-      : Number(state.activeTooltipIndex)
-
-  const selectIndex = (index: number | null) => {
-    if (index !== null && Number.isInteger(index) && index >= 0 && index < chartData.length) {
-      handleSelect(index)
-    }
-  }
-
-  const handleChartMove = (state: { activeTooltipIndex?: unknown }) => {
-    hoverIndex.current = readIndex(state)
-  }
-
-  const handleChartClick = (state: { activeTooltipIndex?: unknown }) => {
-    const index = readIndex(state)
-
-    if (index === null) {
-      window.setTimeout(() => selectIndex(hoverIndex.current), 60)
-    } else {
-      selectIndex(index)
-    }
-  }
 
   const chartProps = {
     data: chartData,
     margin: mobileShell
-      ? { top: 8, right: compact ? 8 : 12, left: compact ? 8 : 0, bottom: compact ? 4 : 0 }
+      ? compact
+        ? { top: 8, right: 8, left: 8, bottom: 4 }
+        : SHELL_MARGIN
       : { top: 5, right: 5, left: 5, bottom: 5 },
     accessibilityLayer: !compact,
-    onClick: mobileShell && onSelect ? handleChartClick : undefined,
-    onMouseMove: mobileShell && onSelect ? handleChartMove : undefined,
   }
   const axisStyle = mobileShell ? SHELL_AXIS_STYLE : AXIS_STYLE
   const grid = compact ? null : (
@@ -249,7 +317,14 @@ export const MetricsChart = ({
     />
   )
   const xAxis = compact ? null : mobileShell ? (
-    <XAxis dataKey="date" height={28} tickMargin={6} minTickGap={16} interval="preserveStartEnd" {...axisStyle} />
+    <XAxis
+      dataKey="date"
+      height={Math.round(SHELL_X_HEIGHT * textScale)}
+      tickMargin={6}
+      minTickGap={16}
+      interval="preserveStartEnd"
+      {...axisStyle}
+    />
   ) : (
     <XAxis dataKey="date" angle={-45} textAnchor="end" height={80} {...axisStyle} />
   )
@@ -257,18 +332,19 @@ export const MetricsChart = ({
     <YAxis
       tickFormatter={(value: number) => formatMetricValue(value, metricType)}
       allowDecimals={metricType !== 'run_frequency'}
-      width={mobileShell ? 56 : 80}
+      width={yAxisWidth}
       {...axisStyle}
     />
   )
-  const tooltip = compact ? null : (
-    <Tooltip
-      content={({ label, payload }) => <CustomTooltip label={label} payload={payload} metricType={metricType} />}
-      cursor={false}
-      filterNull={false}
-      isAnimationActive={false}
-    />
-  )
+  const tooltip =
+    compact || mobileShell ? null : (
+      <Tooltip
+        content={({ label, payload }) => <CustomTooltip label={label} payload={payload} metricType={metricType} />}
+        cursor={false}
+        filterNull={false}
+        isAnimationActive={false}
+      />
+    )
 
   const renderChart = () => {
     switch (metricType) {
@@ -328,9 +404,22 @@ export const MetricsChart = ({
                   {...getSelectProps(
                     onSelect && payload && (() => onSelect(payload.index)),
                     payload?.label ?? '',
-                    !!payload?.isSelected
+                    !!payload?.isSelected,
+                    mobileShell
                   )}
                 >
+                  {mobileShell && onSelect && (
+                    <rect
+                      className={classes.ring}
+                      x={(x ?? 0) - 3}
+                      y={(y ?? 0) - 3}
+                      width={(width ?? 0) + 6}
+                      height={(height ?? 0) + 6}
+                      rx={7}
+                      ry={7}
+                      fill="none"
+                    />
+                  )}
                   <rect
                     x={x}
                     y={y}
@@ -351,10 +440,17 @@ export const MetricsChart = ({
     }
   }
 
-  const plot = (
+  const chart = (
     <ResponsiveContainer width="100%" height={chartHeight}>
       {renderChart()}
     </ResponsiveContainer>
+  )
+  const plot = scrubbable ? (
+    <div ref={plotRef} className={classes.plot}>
+      {chart}
+    </div>
+  ) : (
+    chart
   )
 
   if (compact) {
@@ -367,7 +463,7 @@ export const MetricsChart = ({
     const summary =
       stats.observed === stats.total
         ? formatCount(stats.total, 'period')
-        : `${stats.observed} of ${formatCount(stats.total, 'period')} have runs`
+        : `${formatNumber(stats.observed)} of ${formatCount(stats.total, 'period')} have runs`
     const shellStats = [
       { label: 'Average', value: stats.average },
       { label: 'Latest', value: stats.latest },
@@ -376,14 +472,14 @@ export const MetricsChart = ({
 
     return (
       <Stack gap="md">
-        <div className={classes.stats}>
+        <dl className={classes.stats}>
           {shellStats.map(({ label, value }) => (
             <div key={label} className={classes.stat}>
-              <div className={classes.caption}>{label}</div>
-              <div className={classes.statValue}>{formatMetricValue(value, metricType)}</div>
+              <dt className={classes.caption}>{label}</dt>
+              <dd className={classes.statValue}>{formatMetricValue(value, metricType)}</dd>
             </div>
           ))}
-        </div>
+        </dl>
         <div className={classes.tile} ref={chartRef}>
           <div className={classes.tileTitle}>{chartTitle}</div>
           <div className={classes.caption}>{summary}</div>
@@ -394,7 +490,7 @@ export const MetricsChart = ({
               aria-live="polite"
               style={selectedPoint ? { color: seriesColor } : undefined}
             >
-              {selectedPoint ? selectedPoint.label : 'Tap a point to see its value'}
+              {selectedPoint ? selectedPoint.label : 'Touch the chart and slide to read values'}
             </div>
           )}
         </div>

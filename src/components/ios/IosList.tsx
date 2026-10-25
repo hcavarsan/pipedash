@@ -1,22 +1,46 @@
 import { IconChevronRight } from '@tabler/icons-react'
-import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { type ReactNode, useId } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 
 import classes from './IosList.module.css'
 import { type SwipeAction, SwipeActions } from './SwipeActions'
+import { useRowMenuLongPress } from './useLongPress'
 
 interface IosGroupProps {
   header?: ReactNode
+  headerAction?: ReactNode
+  headingLevel?: 2 | 3
   footer?: ReactNode
   children: ReactNode
 }
 
-export function IosGroup({ header, footer, children }: IosGroupProps) {
+export function IosGroup({ header, headerAction, headingLevel = 2, footer, children }: IosGroupProps) {
+  const id = useId()
+  const headingId = `${id}-heading`
+  const footerId = `${id}-footer`
+  const Heading = headingLevel === 3 ? 'h3' : 'h2'
   return (
-    <section className={classes.section}>
-      {header && <div className={classes.header}>{header}</div>}
+    <section
+      className={classes.section}
+      aria-labelledby={header ? headingId : undefined}
+      aria-describedby={footer ? footerId : undefined}
+    >
+      {(header || headerAction) && (
+        <div className={classes.headerRow}>
+          {header && (
+            <Heading id={headingId} className={classes.header}>
+              {header}
+            </Heading>
+          )}
+          {headerAction}
+        </div>
+      )}
       <div className={classes.group}>{children}</div>
-      {footer && <div className={classes.footer}>{footer}</div>}
+      {footer && (
+        <div id={footerId} className={classes.footer}>
+          {footer}
+        </div>
+      )}
     </section>
   )
 }
@@ -32,6 +56,8 @@ interface IosRowProps {
   chevron?: boolean
   destructive?: boolean
   disabled?: boolean
+  selected?: boolean
+  longPressMenu?: boolean
   ariaLabel?: string
   swipeActions?: SwipeAction[]
 }
@@ -47,9 +73,13 @@ export function IosRow({
   chevron = Boolean(to),
   destructive,
   disabled,
+  selected,
+  longPressMenu,
   ariaLabel,
   swipeActions,
 }: IosRowProps) {
+  const location = useLocation()
+  const pressRef = useRowMenuLongPress(Boolean(longPressMenu))
   const tappable = Boolean(to || onClick)
   const shared = {
     className: classes.row,
@@ -57,6 +87,7 @@ export function IosRow({
     'data-tappable': tappable ? '' : undefined,
     'data-destructive': destructive ? '' : undefined,
     'data-disabled': disabled ? '' : undefined,
+    'data-selected': selected ? '' : undefined,
     'aria-label': ariaLabel,
   }
   const content = (
@@ -80,28 +111,48 @@ export function IosRow({
     </>
   )
 
-  const render = (className: string) =>
+  const render = (className: string, ref?: (element: HTMLElement | null) => void) =>
     to ? (
-      <Link to={to} {...shared} className={className}>
+      <Link
+        to={to}
+        state={{ from: `${location.pathname}${location.search}` }}
+        {...shared}
+        aria-current={selected ? 'true' : undefined}
+        className={className}
+        ref={ref}
+      >
         {content}
       </Link>
     ) : onClick ? (
-      <button type="button" onClick={onClick} disabled={disabled} {...shared} className={className}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        {...shared}
+        aria-pressed={selected}
+        className={className}
+        ref={ref}
+      >
         {content}
       </button>
     ) : (
-      <div {...shared} className={className}>
+      <div {...shared} className={className} ref={ref}>
         {content}
       </div>
     )
 
   if (swipeActions?.length) {
     return (
-      <div className={`${classes.swipeRow} ${classes.item}`} data-icon={icon ? '' : undefined}>
+      <div
+        ref={pressRef}
+        className={`${classes.swipeRow} ${classes.item}`}
+        data-icon={icon ? '' : undefined}
+        data-selected={selected ? '' : undefined}
+      >
         <SwipeActions actions={swipeActions}>{render(classes.row)}</SwipeActions>
       </div>
     )
   }
 
-  return render(`${classes.row} ${classes.item}`)
+  return render(`${classes.row} ${classes.item}`, pressRef)
 }

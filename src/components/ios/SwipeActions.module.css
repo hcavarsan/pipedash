@@ -6,57 +6,114 @@
   align-items: center;
   min-width: 0;
   background: var(--ios-cell);
+  will-change: transform;
 }
 
 .underlay {
-  --pos: 0px;
   position: absolute;
   z-index: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  width: max(var(--actions), var(--pos));
+  inset: 0;
+  overflow: hidden;
   visibility: hidden;
+  background: var(--ios-fill);
 }
 
 .slide[data-revealed] ~ .underlay {
   visibility: visible;
 }
 
-.action {
-  flex: 0 0 80px;
+.rest {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+}
+
+.action,
+.primary {
+  box-sizing: border-box;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 0.5em;
   border: 0;
-  background: var(--mantine-color-gray-filled);
+  background: var(--ios-secondary-label);
   color: #fff;
   font: inherit;
-  font-size: 15px;
-  font-weight: 500;
-  white-space: nowrap;
+  font-size: var(--ios-fs-subheadline);
+  line-height: var(--ios-lh-subheadline);
+  overflow-wrap: anywhere;
 }
 
-.action[data-primary] {
-  flex: 1 0 80px;
+.action {
+  flex: 0 0 80px;
+  width: 80px;
 }
 
-.action:active {
+.primary {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 0;
+  transform: translateX(calc(100% - 80px));
+}
+
+.label {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 80px;
+  padding: 0 0.5em;
+}
+
+.action:active,
+.primary:active {
   filter: brightness(0.85);
 }
 
-.action[data-tone="blue"] {
-  background: var(--mantine-color-blue-filled);
+.underlay[data-tone="blue"] {
+  background: var(--ios-tint);
 }
 
-.action[data-tone="red"] {
-  background: var(--mantine-color-red-filled);
+.underlay[data-tone="red"] {
+  background: var(--ios-red);
 }
 
-.action[data-tone="orange"] {
-  background: var(--mantine-color-orange-filled);
+.underlay[data-tone="orange"] {
+  background: var(--ios-orange);
 }
 
-.action[data-tone="green"] {
+.underlay[data-tone="green"] {
   background: var(--ios-green);
+}
+
+.action[data-tone="blue"],
+.primary[data-tone="blue"] {
+  background: var(--ios-tint);
+}
+
+.action[data-tone="red"],
+.primary[data-tone="red"] {
+  background: var(--ios-red);
+}
+
+.action[data-tone="orange"],
+.primary[data-tone="orange"] {
+  background: var(--ios-orange);
+}
+
+.action[data-tone="green"],
+.primary[data-tone="green"] {
+  background: var(--ios-green);
+}
+
+.action:focus-visible,
+.primary:focus-visible {
+  outline: 2px solid var(--ios-label);
+  outline-offset: -4px;
 }

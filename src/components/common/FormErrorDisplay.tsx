@@ -2,6 +2,8 @@ import { Alert } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useEffect, useRef } from 'react'
 
+import { scrollBehavior } from '../../lib/motion'
+
 interface FormErrorDisplayProps {
   globalError?: string | null
   onDismiss?: () => void
@@ -12,7 +14,7 @@ export function FormErrorDisplay({ globalError, onDismiss }: FormErrorDisplayPro
 
   useEffect(() => {
     if (globalError) {
-      errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      errorRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'nearest' })
     }
   }, [globalError])
 

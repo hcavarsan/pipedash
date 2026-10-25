@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { mobileChrome } from './mobileChrome'
+import { fromOf, mobileChrome, routeKey, splitLocation } from './mobileChrome'
 
 test('tabs follow the top-level route and the pinned view', () => {
   assert.equal(mobileChrome('/pipelines', '').tab, 'pipelines')
@@ -36,4 +36,48 @@ test('a pipeline route pushes a back button to the list', () => {
     back: { to: '/pipelines', label: 'Pipelines' },
     tab: 'pipelines',
   })
+})
+
+test('a detail opened from pinned keeps the pinned tab and label', () => {
+  assert.deepEqual(mobileChrome('/pipelines/abc', '', { from: '/pipelines?view=pinned' }), {
+    title: 'History',
+    back: { to: '/pipelines?view=pinned', label: 'Pinned' },
+    tab: 'pinned',
+  })
+})
+
+test('a detail opened from alerts belongs to the notifications tab', () => {
+  const chrome = mobileChrome('/pipelines/abc', '', { from: '/notifications' })
+
+  assert.equal(chrome.tab, 'notifications')
+  assert.deepEqual(chrome.back, { to: '/notifications', label: 'Notifications' })
+})
+
+test('invalid or self-referencing origins fall back to the canonical parent', () => {
+  const canonical = mobileChrome('/pipelines/abc', '')
+
+  assert.deepEqual(mobileChrome('/pipelines/abc', '', { from: 5 }), canonical)
+  assert.deepEqual(mobileChrome('/pipelines/abc', '', { from: 'pipelines' }), canonical)
+  assert.deepEqual(mobileChrome('/pipelines/abc', '', { from: '/pipelines/abc' }), canonical)
+  assert.deepEqual(mobileChrome('/pipelines/abc', '', null), canonical)
+})
+
+test('roots ignore an origin', () => {
+  assert.deepEqual(mobileChrome('/providers', '', { from: '/notifications' }), mobileChrome('/providers', ''))
+})
+
+test('fromOf only accepts absolute paths', () => {
+  assert.equal(fromOf({ from: '/settings' }), '/settings')
+  assert.equal(fromOf({ from: 'settings' }), null)
+  assert.equal(fromOf(undefined), null)
+})
+
+test('locations split into path and query', () => {
+  assert.deepEqual(splitLocation('/pipelines?view=pinned'), { pathname: '/pipelines', search: '?view=pinned' })
+  assert.deepEqual(splitLocation('/settings'), { pathname: '/settings', search: '' })
+})
+
+test('route keys separate the same path under different tabs', () => {
+  assert.notEqual(routeKey('/pipelines/abc', '', { from: '/pipelines?view=pinned' }), routeKey('/pipelines/abc', ''))
+  assert.equal(routeKey('/pipelines', '?provider=1'), routeKey('/pipelines', ''))
 })

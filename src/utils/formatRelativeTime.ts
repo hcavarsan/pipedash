@@ -15,5 +15,5 @@ export function formatRelativeTime(value: string | number | Date, now: number): 
     }
   }
 
-  return 'just now'
+  return RELATIVE_FORMAT.format(0, 'second')
 }

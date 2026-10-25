@@ -48,7 +48,9 @@ export function StepHeader({ step, labels }: StepHeaderProps) {
       <div className={classes.stepCount}>
         Step {step + 1} of {labels.length}
       </div>
-      <h2 className={classes.stepTitle}>{labels[step]}</h2>
+      <h2 className={classes.stepTitle} tabIndex={-1} data-step-heading>
+        {labels[step]}
+      </h2>
     </div>
   )
 }

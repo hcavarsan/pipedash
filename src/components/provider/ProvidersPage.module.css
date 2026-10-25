@@ -1,8 +1,13 @@
 .shell {
+  --pad: 1em;
+  --icon: 30px;
+  --gap: 0.75em;
+  --inset: calc(var(--pad) + var(--icon) + var(--gap));
   position: relative;
   display: flex;
   align-items: center;
   overflow: hidden;
+  font-size: var(--ios-fs-body);
 }
 
 .shell a {
@@ -16,17 +21,22 @@
   position: absolute;
   top: 0;
   right: 0;
-  left: 60px;
+  left: var(--inset);
   height: 0.5px;
   background: var(--ios-separator);
+}
+
+.shell[data-pressing] a,
+.shell:has([data-row-menu][aria-expanded="true"]) a {
+  background: var(--ios-fill);
 }
 
 .actions {
   flex-shrink: 0;
   margin: 0 4px 0 -8px;
-  color: var(--mantine-color-dimmed);
+  color: var(--ios-secondary-label);
 }
 
 .addTitle {
-  color: var(--mantine-color-blue-light-color);
+  color: var(--ios-tint);
 }

@@ -171,6 +171,9 @@ struct NotifyRequest {
     title: String,
     body: String,
     thread_id: Option<String>,
+    pipeline_id: Option<String>,
+    provider_id: Option<u64>,
+    run_number: Option<u64>,
 }
 
 fn normalize_token(token: &str) -> Result<String, ApiError> {
@@ -298,6 +301,9 @@ async fn notify(
             .thread_id
             .as_ref()
             .is_some_and(|thread_id| thread_id.len() > MAX_THREAD_ID_BYTES)
+        || request.pipeline_id.as_ref().is_some_and(|pipeline_id| {
+            pipeline_id.is_empty() || pipeline_id.len() > MAX_THREAD_ID_BYTES
+        })
     {
         return Err(ApiError::BadRequest("invalid notification"));
     }
@@ -314,6 +320,9 @@ async fn notify(
         title: &request.title,
         body: &request.body,
         thread_id: request.thread_id.as_deref(),
+        pipeline_id: request.pipeline_id.as_deref(),
+        provider_id: request.provider_id,
+        run_number: request.run_number,
     };
     match state.apns.send(&subscription, &notification).await {
         Outcome::Delivered => {
@@ -734,6 +743,63 @@ mod tests {
             StatusCode::NO_CONTENT
         );
         assert_eq!(push(&h, &id).await.0, StatusCode::NOT_FOUND);
+        assert!(h.production.take_requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_failure_notification_forwards_its_destination_to_apns() {
+        let h = harness().await;
+        let id = subscribe(&h, "production", &token("ab")).await;
+
+        let (status, _) = call(
+            &h.app,
+            Method::POST,
+            "/v1/notifications",
+            Some(json!({
+                "subscription_id": id,
+                "title": "build failed",
+                "body": "GitHub · main · #7",
+                "pipeline_id": "github__1__build",
+                "provider_id": 1,
+                "run_number": 7,
+            })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let requests = h.production.take_requests();
+        assert_eq!(requests[0].body["aps"]["category"], "pipedash-failure");
+        assert_eq!(
+            requests[0].body["pipedash"],
+            json!({
+                "key": "pipeline:github__1__build",
+                "pipelineId": "github__1__build",
+                "providerId": 1,
+                "runNumber": 7,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_or_oversized_pipeline_id_is_refused() {
+        let h = harness().await;
+        let id = subscribe(&h, "production", &token("ab")).await;
+
+        for pipeline_id in [String::new(), "p".repeat(MAX_THREAD_ID_BYTES + 1)] {
+            let (status, _) = call(
+                &h.app,
+                Method::POST,
+                "/v1/notifications",
+                Some(json!({
+                    "subscription_id": id,
+                    "title": "t",
+                    "body": "b",
+                    "pipeline_id": pipeline_id,
+                })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
         assert!(h.production.take_requests().is_empty());
     }
 

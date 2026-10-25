@@ -1,16 +1,17 @@
 import { Loader, Menu, UnstyledButton } from '@mantine/core'
-import { IconChevronRight, IconSelector } from '@tabler/icons-react'
+import { IconArrowDown, IconArrowUp, IconChevronRight } from '@tabler/icons-react'
 import type { DataTableSortStatus } from 'mantine-datatable'
-import type { ReactNode } from 'react'
+import { type ReactNode, useId } from 'react'
 
 import { useNow } from '../../hooks/useNow'
 import { STATUS_META } from '../../theme/status'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
-import { StatusDot } from '../atoms/StatusBadge'
+import { StatusGlyph } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup } from '../ios/IosList'
 import { type SwipeAction, SwipeActions } from '../ios/SwipeActions'
+import { useRowMenuLongPress } from '../ios/useLongPress'
 
 import classes from './IosPipelineList.module.css'
 import { type TableRow, WorkflowActionMenu, workflowSwipeActions } from './PipelineRowParts'
@@ -24,10 +25,11 @@ interface IosPipelineRowProps {
   value?: string
   nested?: boolean
   expanded?: boolean
-  ariaLabel: string
+  hint?: string
   onClick: () => void
   trailing?: ReactNode
   swipeActions?: SwipeAction[]
+  longPressMenu?: boolean
 }
 
 export function IosPipelineRow({
@@ -39,22 +41,33 @@ export function IosPipelineRow({
   value,
   nested,
   expanded,
-  ariaLabel,
+  hint,
   onClick,
   trailing,
   swipeActions,
+  longPressMenu,
 }: IosPipelineRowProps) {
-  const alert = status && status !== 'success' ? (statusText ?? STATUS_META[status].label) : undefined
+  const hintId = useId()
+  const pressRef = useRowMenuLongPress(Boolean(longPressMenu))
+  const statusLabel = status ? (statusText ?? STATUS_META[status].label) : undefined
   const body = (
     <>
-      <button type="button" className={classes.main} onClick={onClick} aria-label={ariaLabel} aria-expanded={expanded}>
-        {status ? <StatusDot status={status} label={statusText} /> : <span className={classes.dotEmpty} aria-hidden />}
+      <button
+        type="button"
+        className={classes.main}
+        onClick={onClick}
+        aria-expanded={expanded}
+        aria-describedby={hint ? hintId : undefined}
+      >
+        {status ? <StatusGlyph status={status} /> : <span className={classes.glyphEmpty} aria-hidden />}
         <span className={classes.text}>
           <span className={classes.title}>{title}</span>
           <span className={classes.subtitle}>
-            {alert && status && (
+            {statusLabel && status && (
               <>
-                <span style={{ color: `var(--status-${STATUS_META[status].tone})` }}>{alert}</span>
+                <span className={classes.status} style={{ color: `var(--status-${STATUS_META[status].tone})` }}>
+                  {statusLabel}
+                </span>
                 {subtitle && ' · '}
               </>
             )}
@@ -67,12 +80,18 @@ export function IosPipelineRow({
           <IconChevronRight size={18} />
         </span>
       </button>
+      {hint && (
+        <span id={hintId} hidden>
+          {hint}
+        </span>
+      )}
       {trailing && <div className={classes.trailing}>{trailing}</div>}
     </>
   )
 
   return (
     <div
+      ref={pressRef}
       className={classes.row}
       data-repo={expanded === undefined ? undefined : ''}
       data-nested={nested ? '' : undefined}
@@ -96,7 +115,7 @@ const compactRelative = (value: string, now: number) => {
   const diff = new Date(value).getTime() - now
   const unit = NARROW_UNITS.find(([, size]) => Math.abs(diff) >= size)
 
-  return unit ? NARROW_FORMAT.format(Math.round(diff / unit[1]), unit[0]) : 'now'
+  return unit ? NARROW_FORMAT.format(Math.round(diff / unit[1]), unit[0]) : NARROW_FORMAT.format(0, 'second')
 }
 
 export const relativeOrNever = (value: string | null | undefined, now: number) =>
@@ -108,21 +127,33 @@ interface SortMenuProps {
   groupTitle: string
 }
 
+const DEFAULT_DIRECTION: Record<string, 'asc' | 'desc'> = { lastRun: 'desc' }
+
 function SortMenu({ sortStatus, onSortStatusChange, groupTitle }: SortMenuProps) {
   const options = [
     { accessor: 'name', label: 'Name' },
-    { accessor: 'organization', label: groupTitle },
+    { accessor: 'lastRun', label: 'Last Run' },
     { accessor: 'status', label: 'Status' },
+    { accessor: 'organization', label: groupTitle },
     { accessor: 'provider', label: 'Provider' },
   ]
   const current = options.find((option) => option.accessor === sortStatus.columnAccessor) ?? options[0]
+  const ascending = sortStatus.direction === 'asc'
+  const orders = [
+    { direction: 'asc', label: current.accessor === 'lastRun' ? 'Oldest First' : 'Ascending' },
+    { direction: 'desc', label: current.accessor === 'lastRun' ? 'Newest First' : 'Descending' },
+  ] as const
+  const DirectionIcon = ascending ? IconArrowUp : IconArrowDown
 
   return (
     <Menu position="bottom">
       <Menu.Target>
-        <UnstyledButton className={classes.sort} aria-label={`Sort, currently ${current.label}`}>
+        <UnstyledButton
+          className={classes.sort}
+          aria-label={`Sort by ${current.label}, ${ascending ? 'ascending' : 'descending'}`}
+        >
           {current.label}
-          <IconSelector size={14} aria-hidden />
+          <DirectionIcon size={14} aria-hidden />
         </UnstyledButton>
       </Menu.Target>
       <Menu.Dropdown>
@@ -133,15 +164,31 @@ function SortMenu({ sortStatus, onSortStatusChange, groupTitle }: SortMenuProps)
           return (
             <Menu.Item
               key={accessor}
+              role="menuitemradio"
+              aria-checked={active}
               onClick={() =>
                 onSortStatusChange({
                   columnAccessor: accessor,
-                  direction: active && sortStatus.direction === 'asc' ? 'desc' : 'asc',
+                  direction: active ? sortStatus.direction : (DEFAULT_DIRECTION[accessor] ?? 'asc'),
                 })
               }
             >
-              {label}
-              {active && (sortStatus.direction === 'asc' ? ' ↑' : ' ↓')}
+              {active ? `${label} ✓` : label}
+            </Menu.Item>
+          )
+        })}
+        <Menu.Divider />
+        {orders.map(({ direction, label }) => {
+          const active = sortStatus.direction === direction
+
+          return (
+            <Menu.Item
+              key={direction}
+              role="menuitemradio"
+              aria-checked={active}
+              onClick={() => onSortStatusChange({ columnAccessor: current.accessor, direction })}
+            >
+              {active ? `${label} ✓` : label}
             </Menu.Item>
           )
         })}
@@ -184,11 +231,9 @@ export function IosPipelineList({
 
   return (
     <IosGroup
-      header={
-        <div className={classes.heading}>
-          <span>{header}</span>
-          <SortMenu sortStatus={sortStatus} onSortStatusChange={onSortStatusChange} groupTitle={groupTitle} />
-        </div>
+      header={header}
+      headerAction={
+        <SortMenu sortStatus={sortStatus} onSortStatusChange={onSortStatusChange} groupTitle={groupTitle} />
       }
     >
       {rows.map((row) => {
@@ -208,7 +253,6 @@ export function IosPipelineList({
               subtitle={Array.from(new Set([row.organization, row.providerLabel, count].filter(Boolean))).join(' · ')}
               value={relativeOrNever(row.lastRun, now)}
               expanded={row.expanded}
-              ariaLabel={`${row.expanded ? 'Collapse' : 'Expand'} ${row.name}`}
               onClick={() => onToggleRepo(row.id)}
               trailing={
                 <span className={classes.spacer}>
@@ -238,7 +282,8 @@ export function IosPipelineList({
             subtitle={[row.organization, pipeline.branch].filter(Boolean).join(' · ')}
             detail={message}
             value={relativeOrNever(row.lastRun, now)}
-            ariaLabel={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
+            hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
+            longPressMenu
             onClick={() => onViewHistory(pipeline)}
             swipeActions={workflowSwipeActions(
               pipeline,

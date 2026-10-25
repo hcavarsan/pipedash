@@ -136,15 +136,22 @@ pub fn classify(status: u16, reason: Option<&str>) -> Outcome {
     }
 }
 
+pub const FAILURE_CATEGORY: &str = "pipedash-failure";
+
 pub struct Notification<'a> {
     pub title: &'a str,
     pub body: &'a str,
     pub thread_id: Option<&'a str>,
+    pub pipeline_id: Option<&'a str>,
+    pub provider_id: Option<u64>,
+    pub run_number: Option<u64>,
 }
 
 #[derive(Serialize)]
 struct Payload<'a> {
     aps: Aps<'a>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pipedash: Option<Destination<'a>>,
 }
 
 #[derive(Serialize)]
@@ -153,6 +160,39 @@ struct Aps<'a> {
     sound: &'static str,
     #[serde(rename = "thread-id", skip_serializing_if = "Option::is_none")]
     thread_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    category: Option<&'static str>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Destination<'a> {
+    key: String,
+    pipeline_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_number: Option<u64>,
+}
+
+fn payload<'a>(notification: &Notification<'a>) -> Payload<'a> {
+    Payload {
+        aps: Aps {
+            alert: Alert {
+                title: notification.title,
+                body: notification.body,
+            },
+            sound: "default",
+            thread_id: notification.thread_id,
+            category: notification.pipeline_id.map(|_| FAILURE_CATEGORY),
+        },
+        pipedash: notification.pipeline_id.map(|pipeline_id| Destination {
+            key: format!("pipeline:{pipeline_id}"),
+            pipeline_id,
+            provider_id: notification.provider_id,
+            run_number: notification.run_number,
+        }),
+    }
 }
 
 #[derive(Serialize)]
@@ -202,16 +242,7 @@ impl Apns {
             tracing::error!("Couldn't sign the APNs provider token");
             return Outcome::Failed;
         };
-        let payload = Payload {
-            aps: Aps {
-                alert: Alert {
-                    title: notification.title,
-                    body: notification.body,
-                },
-                sound: "default",
-                thread_id: notification.thread_id,
-            },
-        };
+        let payload = payload(notification);
 
         let response = self
             .http
@@ -383,6 +414,9 @@ mod tests {
                     title: "build failed",
                     body: "GitHub · main · #7",
                     thread_id: Some("github__1__build"),
+                    pipeline_id: None,
+                    provider_id: None,
+                    run_number: None,
                 },
             )
             .await;
@@ -411,6 +445,55 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_failure_payload_carries_the_destination_and_the_open_run_category() {
+        let notification = Notification {
+            title: "build failed",
+            body: "GitHub · main · #7",
+            thread_id: Some("github__1__acme/app/ci.yml"),
+            pipeline_id: Some("github__1__acme/app/ci.yml"),
+            provider_id: Some(1),
+            run_number: Some(7),
+        };
+
+        assert_eq!(
+            serde_json::to_value(payload(&notification)).unwrap(),
+            serde_json::json!({
+                "aps": {
+                    "alert": { "title": "build failed", "body": "GitHub · main · #7" },
+                    "sound": "default",
+                    "thread-id": "github__1__acme/app/ci.yml",
+                    "category": "pipedash-failure",
+                },
+                "pipedash": {
+                    "key": "pipeline:github__1__acme/app/ci.yml",
+                    "pipelineId": "github__1__acme/app/ci.yml",
+                    "providerId": 1,
+                    "runNumber": 7,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn a_notification_without_a_pipeline_has_no_destination_or_category() {
+        let notification = Notification {
+            title: "t",
+            body: "b",
+            thread_id: None,
+            pipeline_id: None,
+            provider_id: Some(1),
+            run_number: Some(7),
+        };
+
+        assert_eq!(
+            serde_json::to_value(payload(&notification)).unwrap(),
+            serde_json::json!({
+                "aps": { "alert": { "title": "t", "body": "b" }, "sound": "default" }
+            })
+        );
+    }
+
     #[tokio::test]
     async fn an_unreachable_apns_is_a_failure_not_a_removal() {
         let (pem, _) = key_pem();
@@ -433,6 +516,9 @@ mod tests {
                     title: "t",
                     body: "b",
                     thread_id: None,
+                    pipeline_id: None,
+                    provider_id: None,
+                    run_number: None,
                 },
             )
             .await;

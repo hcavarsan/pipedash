@@ -18,7 +18,8 @@ import { formatErrorMessage } from '../../../types/errors'
 import { openConfirm } from '../../../utils/confirm'
 import { isMobilePlatform } from '../../../utils/platform'
 import { LoadingState } from '../../common/LoadingState'
-import { StandardModal } from '../../common/StandardModal'
+import { type ModalAction, StandardModal } from '../../common/StandardModal'
+import { StepRegion } from '../../forms/StepRegion'
 
 import { ConfirmStep } from './ConfirmStep'
 import { Onboarding, StepHeader } from './Onboarding'
@@ -26,6 +27,14 @@ import { StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
 import { TransferStep } from './TransferStep'
 import type { SetupState, SetupWizardProps, StorageBackend } from './types'
+
+type WizardStep = 'storage' | 'transfer' | 'confirm' | 'success'
+
+const STEP_META = {
+  storage: { label: 'Storage', icon: <IconDatabase size={16} /> },
+  transfer: { label: 'Transfer', icon: <IconTransfer size={16} /> },
+  confirm: { label: 'Confirm', icon: <IconListCheck size={16} /> },
+}
 
 export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) => {
   const { data: currentConfig, isLoading: loading } = useStorageConfig({ enabled: opened })
@@ -53,6 +62,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
+  const compact = mobileShell && isMobilePlatform()
 
   const saving =
     createInitialConfigMutation.isPending ||
@@ -89,29 +99,31 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
   }, [currentConfig, defaultDataDir])
 
   const [reconfiguring, setReconfiguring] = useState<boolean | null>(null)
-  const showTransferStep = reconfiguring ?? Boolean(currentConfig)
-  const isDatabaseBackendChange = showTransferStep && getCurrentBackend() !== state.backend
-  const isDataDirChange = showTransferStep && getCurrentDataDir() !== state.dataDir
+  const reconfigured = reconfiguring ?? Boolean(currentConfig)
+  const isDatabaseBackendChange = reconfigured && getCurrentBackend() !== state.backend
+  const isDataDirChange = reconfigured && getCurrentDataDir() !== state.dataDir
 
   const needsMigration = isDatabaseBackendChange || isFromKeyring || isDataDirChange
+  const showTransferStep = compact ? needsMigration : reconfigured
 
-  const wizardSteps = showTransferStep
-    ? (['storage', 'transfer', 'confirm', 'success'] as const)
-    : (['storage', 'confirm', 'success'] as const)
-  const currentStep = wizardSteps[step] ?? 'storage'
-  const isSuccessStep = currentStep === 'success'
-
-  const stepperSteps = useMemo(() => {
-    const steps = [{ label: 'Storage', icon: <IconDatabase size={16} /> }]
-
-    if (showTransferStep) {
-      steps.push({ label: 'Transfer', icon: <IconTransfer size={16} /> })
+  const wizardSteps = useMemo<WizardStep[]>(() => {
+    if (compact) {
+      return showTransferStep ? ['storage', 'transfer', 'success'] : ['storage', 'success']
     }
 
-    steps.push({ label: 'Confirm', icon: <IconListCheck size={16} /> })
+    return showTransferStep ? ['storage', 'transfer', 'confirm', 'success'] : ['storage', 'confirm', 'success']
+  }, [compact, showTransferStep])
+  const currentStep = wizardSteps[step] ?? 'storage'
+  const isSuccessStep = currentStep === 'success'
+  const goTo = useCallback((name: WizardStep) => setStep(Math.max(wizardSteps.indexOf(name), 0)), [wizardSteps])
 
-    return steps
-  }, [showTransferStep])
+  const stepperSteps = useMemo(
+    () =>
+      wizardSteps
+        .filter((name): name is Exclude<WizardStep, 'success'> => name !== 'success')
+        .map((name) => STEP_META[name]),
+    [wizardSteps]
+  )
 
   const passwordsMatch = state.vaultPassword === state.vaultPasswordConfirm
   const passwordValid = state.vaultPassword.length >= 8 && passwordsMatch
@@ -171,6 +183,23 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     return true
   }, [state.backend, state.postgresUrl, needsVaultPassword, passwordValid])
 
+  const handleComplete = useCallback(() => {
+    onComplete()
+
+    setTimeout(() => {
+      setStep(0)
+      setMigrationStats(null)
+      setState({
+        backend: 'sqlite',
+        dataDir: '',
+        postgresUrl: '',
+        vaultPassword: '',
+        vaultPasswordConfirm: '',
+        transferData: true,
+      })
+    }, 100)
+  }, [onComplete])
+
   const handleSave = useCallback(async () => {
     setError(null)
     setMigrationStats(null)
@@ -224,7 +253,11 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
           vaultPassword: needsVaultPassword ? state.vaultPassword : undefined,
         })
 
-        setStep(2)
+        if (compact) {
+          handleComplete()
+        } else {
+          goTo('success')
+        }
 
         return
       }
@@ -267,7 +300,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         await saveStorageConfigMutation.mutateAsync(newConfig)
       }
 
-      setStep(showTransferStep ? 3 : 2)
+      goTo('success')
     } catch (err) {
       setError(formatErrorMessage(err))
     }
@@ -275,7 +308,9 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     currentConfig,
     state,
     needsMigration,
-    showTransferStep,
+    compact,
+    goTo,
+    handleComplete,
     needsVaultPassword,
     createInitialConfigMutation,
     saveStorageConfigMutation,
@@ -286,22 +321,15 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     getCurrentDataDir,
   ])
 
-  const handleComplete = () => {
-    onComplete()
+  const afterTransfer = useCallback(() => {
+    setError(null)
 
-    setTimeout(() => {
-      setStep(0)
-      setMigrationStats(null)
-      setState({
-        backend: 'sqlite',
-        dataDir: '',
-        postgresUrl: '',
-        vaultPassword: '',
-        vaultPasswordConfirm: '',
-        transferData: true,
-      })
-    }, 100)
-  }
+    if (compact) {
+      void handleSave()
+    } else {
+      goTo('confirm')
+    }
+  }, [compact, handleSave, goTo])
 
   const handleClose = useCallback(() => onClose?.(), [onClose])
 
@@ -352,62 +380,24 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
           cancel: 'Go back',
         },
         confirmProps: { color: 'red' },
-        onConfirm: () => {
-          setError(null)
-          setStep(2)
-        },
+        onConfirm: afterTransfer,
       })
     } else {
-      setError(null)
-      setStep(2)
+      afterTransfer()
     }
-  }, [state.transferData, needsMigration, isDatabaseBackendChange, isFromKeyring, isDataDirChange, mobileShell])
+  }, [
+    state.transferData,
+    needsMigration,
+    isDatabaseBackendChange,
+    isFromKeyring,
+    isDataDirChange,
+    mobileShell,
+    afterTransfer,
+  ])
 
   const footer = useMemo(() => {
     if (loading || isSuccessStep) {
       return null
-    }
-
-    if (mobileShell) {
-      if (currentStep === 'storage') {
-        return (
-          <Button
-            size="lg"
-            fullWidth
-            onClick={() => {
-              setError(null)
-              setStep(1)
-            }}
-            disabled={!canProceedFromStorage}
-          >
-            Continue
-          </Button>
-        )
-      }
-
-      if (currentStep === 'transfer') {
-        return (
-          <Stack gap={4}>
-            <Button size="lg" fullWidth onClick={handleContinueFromTransfer}>
-              Continue
-            </Button>
-            <Button size="md" fullWidth variant="subtle" onClick={() => setStep(0)}>
-              Back
-            </Button>
-          </Stack>
-        )
-      }
-
-      return (
-        <Stack gap={4}>
-          <Button size="lg" fullWidth onClick={handleSave} loading={saving}>
-            {needsMigration && state.transferData ? 'Save and transfer' : 'Save'}
-          </Button>
-          <Button size="md" fullWidth variant="subtle" onClick={() => setStep(step - 1)} disabled={saving}>
-            Back
-          </Button>
-        </Stack>
-      )
     }
 
     if (currentStep === 'storage') {
@@ -474,8 +464,72 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
     handleSave,
     handleContinueFromTransfer,
     isMobile,
-    mobileShell,
   ])
+
+  const saveLabel = needsMigration && state.transferData ? 'Save and transfer' : 'Save'
+
+  const getShellAction = (): ModalAction | undefined => {
+    if (loading || isSuccessStep) {
+      return undefined
+    }
+
+    if (currentStep === 'storage') {
+      if (compact && !needsMigration) {
+        return currentConfig ? undefined : { label: 'Get started', onClick: handleSave, loading: saving }
+      }
+
+      return {
+        label: 'Continue',
+        onClick: () => {
+          setError(null)
+          setStep(1)
+        },
+        disabled: !canProceedFromStorage,
+      }
+    }
+
+    if (currentStep === 'transfer') {
+      return {
+        label: compact ? saveLabel : 'Continue',
+        onClick: handleContinueFromTransfer,
+        loading: compact && saving,
+      }
+    }
+
+    return { label: saveLabel, onClick: handleSave, loading: saving }
+  }
+
+  const shellAction = getShellAction()
+  const canGoBack = step > 0 && !loading && !isSuccessStep
+  const goBack = () => setStep((current) => Math.max(current - 1, 0))
+  const stepPosition = isSuccessStep ? 'Finished' : `Step ${step + 1} of ${stepperSteps.length}`
+  const regionProps = {
+    stepKey: currentStep,
+    position: stepPosition,
+    title: isSuccessStep ? 'Setup complete' : (stepperSteps[step]?.label ?? ''),
+  }
+
+  const shellFooter =
+    shellAction || canGoBack ? (
+      <Stack gap={4}>
+        {shellAction && (
+          <Button
+            size="lg"
+            fullWidth
+            onClick={shellAction.onClick}
+            loading={shellAction.loading}
+            disabled={shellAction.disabled}
+          >
+            {shellAction.label}
+          </Button>
+        )}
+        {canGoBack && (
+          <Button size="md" fullWidth variant="subtle" onClick={goBack} disabled={saving}>
+            Back
+          </Button>
+        )}
+      </Stack>
+    ) : null
 
   const getCurrentStepContent = () => {
     if (loading) {
@@ -522,15 +576,17 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
   if (mobileShell) {
     const body = (
-      <>
-        {!loading && !isSuccessStep && <StepHeader step={step} labels={stepperSteps.map((s) => s.label)} />}
+      <StepRegion {...regionProps}>
+        {!loading && !isSuccessStep && stepperSteps.length > 1 && (
+          <StepHeader step={step} labels={stepperSteps.map((s) => s.label)} />
+        )}
         {getCurrentStepContent()}
-      </>
+      </StepRegion>
     )
 
     if (!onClose) {
       return (
-        <Onboarding title={isSuccessStep ? undefined : 'Welcome to Pipedash'} footer={footer}>
+        <Onboarding title={isSuccessStep ? undefined : 'Welcome to Pipedash'} footer={shellFooter}>
           {body}
         </Onboarding>
       )
@@ -544,7 +600,8 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         size="lg"
         fullHeight
         loading={saving}
-        footer={footer}
+        primaryAction={shellAction}
+        backAction={canGoBack ? { label: 'Back', onClick: goBack } : undefined}
       >
         {body}
       </StandardModal>
@@ -597,7 +654,9 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <ScrollArea style={{ flex: 1 }} type="auto">
             <Box px="lg" py="lg">
-              {getCurrentStepContent()}
+              <StepRegion {...regionProps} hiddenHeading>
+                {getCurrentStepContent()}
+              </StepRegion>
             </Box>
           </ScrollArea>
         </Box>

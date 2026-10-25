@@ -1,9 +1,14 @@
 import { IconBell, IconPinned, IconPlug, IconSettings, IconStack2 } from '@tabler/icons-react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
+import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
+import { resumeRoute, useMobileNavStore } from '../../stores/mobileNavStore'
 import { useUnreadNotifications } from '../notifications/NotificationCenter'
 import classes from './MobileTabBar.module.css'
 import { type MobileTab, mobileChrome } from './mobileChrome'
+import { tabAction } from './navigation'
+import { scrollActiveToTop } from './scrollToTop'
+import { useGoBack } from './useMobileBack'
 
 const TABS: Array<{ id: MobileTab; label: string; ariaLabel: string; to: string; icon: typeof IconBell }> = [
   { id: 'pipelines', label: 'Pipelines', ariaLabel: 'Pipelines', to: '/pipelines', icon: IconStack2 },
@@ -14,12 +19,21 @@ const TABS: Array<{ id: MobileTab; label: string; ariaLabel: string; to: string;
 ]
 
 export function MobileTabBar() {
-  const { pathname, search } = useLocation()
-  const { tab: activeTab, back } = mobileChrome(pathname, search)
+  const { pathname, search, state } = useLocation()
+  const navigate = useNavigate()
+  const goBack = useGoBack()
+  const tabs = useMobileNavStore((s) => s.tabs)
+  const { tab: activeTab, back } = mobileChrome(pathname, search, state)
   const { unread, dotColor } = useUnreadNotifications()
-
+  const keyboardOpen = useKeyboardOpen()
   return (
-    <nav className={classes.bar} aria-label="Main">
+    <nav
+      className={classes.bar}
+      aria-label="Main"
+      data-hidden={keyboardOpen || undefined}
+      aria-hidden={keyboardOpen || undefined}
+      inert={keyboardOpen}
+    >
       {TABS.map(({ id, label, ariaLabel, to, icon: Icon }) => {
         const active = id === activeTab
         const unreadLabel = id === 'notifications' && unread > 0 ? `${ariaLabel}, ${unread} unread` : ariaLabel
@@ -33,9 +47,18 @@ export function MobileTabBar() {
             aria-current={active ? 'page' : undefined}
             aria-label={unreadLabel}
             onClick={(event) => {
-              if (active && !back) {
-                event.preventDefault()
-                document.querySelector('.mantine-AppShell-main')?.scrollTo({ top: 0, behavior: 'smooth' })
+              event.preventDefault()
+
+              const action = tabAction(activeTab, id, back !== null)
+
+              if (action === 'switch') {
+                const route = resumeRoute(tabs, id, to)
+
+                navigate(route.path, route.from ? { state: { from: route.from } } : undefined)
+              } else if (action === 'pop-to-root' && back) {
+                goBack(back.to)
+              } else {
+                scrollActiveToTop()
               }
             }}
           >

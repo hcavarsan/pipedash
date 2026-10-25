@@ -18,16 +18,22 @@ interface CompactMetricsCardProps {
   onExpand: () => void
 }
 
-const CardStat = ({ label, value }: { label: string; value: string }) => (
-  <Stack gap={4}>
-    <Text size="xs" c="dimmed">
-      {label}
-    </Text>
-    <Text size="lg" fw={700}>
-      {value}
-    </Text>
-  </Stack>
-)
+const CardStat = ({ label, value, shell }: { label: string; value: string; shell: boolean }) =>
+  shell ? (
+    <div>
+      <div className={classes.caption}>{label}</div>
+      <div className={classes.compactValue}>{value}</div>
+    </div>
+  ) : (
+    <Stack gap={4}>
+      <Text size="xs" c="dimmed">
+        {label}
+      </Text>
+      <Text size="lg" fw={700}>
+        {value}
+      </Text>
+    </Stack>
+  )
 
 export const CompactMetricsCard = ({ metricType, data, title, loading, onExpand }: CompactMetricsCardProps) => {
   const mobileShell = useMobileShell()
@@ -42,21 +48,37 @@ export const CompactMetricsCard = ({ metricType, data, title, loading, onExpand 
     }
 
     const stats = getMetricStats(data)
+    const latest = <CardStat label="Latest" value={formatMetricValue(stats.latest, metricType)} shell={mobileShell} />
+    const average = (
+      <CardStat label="Average" value={formatMetricValue(stats.average, metricType)} shell={mobileShell} />
+    )
 
     return (
       <>
-        <SimpleGrid cols={2} spacing="xs">
-          <CardStat label="Latest" value={formatMetricValue(stats.latest, metricType)} />
-          <CardStat label="Average" value={formatMetricValue(stats.average, metricType)} />
-        </SimpleGrid>
+        {mobileShell ? (
+          <div className={classes.compactStats}>
+            {latest}
+            {average}
+          </div>
+        ) : (
+          <SimpleGrid cols={2} spacing="xs">
+            {latest}
+            {average}
+          </SimpleGrid>
+        )}
         <MetricsChart data={data} chartTitle={title} compact />
       </>
     )
   }
 
   if (mobileShell) {
+    const stats = data && data.metrics.length > 0 ? getMetricStats(data) : null
+    const expandLabel = stats
+      ? `Expand ${title}. Latest ${formatMetricValue(stats.latest, metricType)}, average ${formatMetricValue(stats.average, metricType)}`
+      : `Expand ${title}`
+
     return (
-      <UnstyledButton className={classes.tile} aria-label={`Expand ${title}`} onClick={onExpand}>
+      <UnstyledButton className={classes.tile} aria-label={expandLabel} onClick={onExpand}>
         <Stack gap="sm">
           <div className={classes.tileHead}>
             <span className={classes.tileTitle}>{title}</span>

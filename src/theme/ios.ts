@@ -2,137 +2,140 @@ import {
   ActionIcon,
   Button,
   Checkbox,
-  Combobox,
+  type CSSVariablesResolver,
   createTheme,
   Input,
   InputWrapper,
-  Menu,
-  Modal,
-  MultiSelect,
+  type MantineColorsTuple,
   mergeThemeOverrides,
-  Notification,
   SegmentedControl,
-  Select,
   Stepper,
   Switch,
   Tabs,
+  v8CssVariablesResolver,
 } from '@mantine/core'
 
 import { theme } from './index'
 import classes from './ios.module.css'
+import { iosOverlayClasses, iosOverlayComponents } from './iosOverlays'
 
 const SYSTEM_FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif'
-const SPRING = 'cubic-bezier(0.32, 0.72, 0, 1)'
-const OVERLAY_Z = 499
-const FLOATING_Z = 500
 
-const overlayProps = { fixed: true, color: '#000', backgroundOpacity: 0.4, zIndex: OVERLAY_Z } as const
-const slideUp = { transition: 'slide-up', duration: 280, timingFunction: SPRING } as const
+export const iosToastClassNames = { root: iosOverlayClasses.toastRoot }
+export const iosClasses = { ...classes, ...iosOverlayClasses }
 
-const bottomSheet = {
-  position: 'fixed',
-  top: 'auto',
-  right: 0,
-  bottom: 'var(--keyboard-inset, 0px)',
-  left: 0,
-  width: '100%',
-} as const
+const blue: MantineColorsTuple = [
+  '#E6F1FF',
+  '#CCE3FF',
+  '#99C8FF',
+  '#66ACFF',
+  '#3391FF',
+  '#0A84FF',
+  '#007AFF',
+  '#0062CC',
+  '#004A99',
+  '#0040DD',
+]
 
-const actionSheet = {
-  position: 'fixed',
-  top: 'auto',
-  right: 8,
-  bottom: 'calc(var(--safe-bottom) + 8px)',
-  left: 8,
-  width: 'auto',
-} as const
+const red: MantineColorsTuple = [
+  '#FFEBEA',
+  '#FFD6D3',
+  '#FFAEA8',
+  '#FF857D',
+  '#FF5E55',
+  '#FF453A',
+  '#FF3B30',
+  '#D70015',
+  '#B3000F',
+  '#8C000C',
+]
 
-const pickerProps = {
-  classNames: { dropdown: classes.pickerDropdown, option: classes.pickerOption },
-  styles: { dropdown: bottomSheet },
+const green: MantineColorsTuple = [
+  '#E8F9ED',
+  '#CFF3DA',
+  '#9FE7B5',
+  '#6FDB90',
+  '#4AD16F',
+  '#30D158',
+  '#34C759',
+  '#248A3D',
+  '#1D7131',
+  '#165826',
+]
+
+const tinted = (name: string, token: string) => ({
+  [`--mantine-color-${name}-text`]: `var(${token})`,
+  [`--mantine-color-${name}-filled`]: `var(${token})`,
+  [`--mantine-color-${name}-filled-hover`]: `color-mix(in srgb, var(${token}) 85%, var(--ios-label))`,
+  [`--mantine-color-${name}-light`]: `color-mix(in srgb, var(${token}) 15%, transparent)`,
+  [`--mantine-color-${name}-light-hover`]: `color-mix(in srgb, var(${token}) 22%, transparent)`,
+  [`--mantine-color-${name}-light-color`]: `var(${token})`,
+  [`--mantine-color-${name}-outline`]: `var(${token})`,
+  [`--mantine-color-${name}-outline-hover`]: `color-mix(in srgb, var(${token}) 5%, transparent)`,
+})
+
+const IOS_ROLES = {
+  '--mantine-color-body': 'var(--ios-grouped-bg)',
+  '--mantine-color-text': 'var(--ios-label)',
+  '--mantine-color-bright': 'var(--ios-label)',
+  '--mantine-color-dimmed': 'var(--ios-secondary-label)',
+  '--mantine-color-placeholder': 'var(--ios-tertiary-label)',
+  '--mantine-color-default': 'var(--ios-cell)',
+  '--mantine-color-default-color': 'var(--ios-label)',
+  '--mantine-color-default-hover': 'var(--ios-fill-tertiary)',
+  '--mantine-color-default-border': 'var(--ios-separator)',
+  '--mantine-color-anchor': 'var(--ios-tint)',
+  '--mantine-color-error': 'var(--ios-red)',
+  '--mantine-color-success': 'var(--ios-green)',
+  ...tinted('blue', '--ios-tint'),
+  ...tinted('red', '--ios-red'),
+  ...tinted('green', '--ios-green'),
 }
 
-export const iosToastClassNames = { root: classes.toastRoot }
-export { classes as iosClasses }
+export const iosCssVariablesResolver: CSSVariablesResolver = (mantineTheme) => {
+  const base = v8CssVariablesResolver(mantineTheme)
+
+  return {
+    variables: base.variables,
+    light: { ...base.light, ...IOS_ROLES },
+    dark: { ...base.dark, ...IOS_ROLES },
+  }
+}
 
 const iosOverrides = createTheme({
   fontFamily: SYSTEM_FONT,
+  colors: { blue, red, green },
+  breakpoints: { xs: '36em', sm: '60em', md: '62em', lg: '75em', xl: '88em' },
   headings: {
     fontFamily: SYSTEM_FONT,
-    fontWeight: '700',
+    fontWeight: '400',
     sizes: {
-      h1: { fontSize: '34px', lineHeight: '1.15' },
-      h2: { fontSize: '28px', lineHeight: '1.2' },
-      h3: { fontSize: '22px', lineHeight: '1.25' },
-      h4: { fontSize: '20px', lineHeight: '1.3' },
-      h5: { fontSize: '17px', lineHeight: '1.35' },
-      h6: { fontSize: '15px', lineHeight: '1.35' },
+      h1: { fontSize: 'var(--ios-fs-large-title)', lineHeight: 'var(--ios-lh-large-title)', fontWeight: '700' },
+      h2: { fontSize: 'var(--ios-fs-title1)', lineHeight: 'var(--ios-lh-title1)' },
+      h3: { fontSize: 'var(--ios-fs-title2)', lineHeight: 'var(--ios-lh-title2)' },
+      h4: { fontSize: 'var(--ios-fs-title3)', lineHeight: 'var(--ios-lh-title3)' },
+      h5: { fontSize: 'var(--ios-fs-headline)', lineHeight: 'var(--ios-lh-headline)', fontWeight: '600' },
+      h6: { fontSize: 'var(--ios-fs-subheadline)', lineHeight: 'var(--ios-lh-subheadline)', fontWeight: '600' },
     },
   },
-  fontSizes: { xs: '13px', sm: '15px', md: '17px', lg: '20px', xl: '22px' },
+  fontSizes: {
+    xs: 'var(--ios-fs-footnote)',
+    sm: 'var(--ios-fs-subheadline)',
+    md: 'var(--ios-fs-body)',
+    lg: 'var(--ios-fs-title3)',
+    xl: 'var(--ios-fs-title2)',
+  },
+  lineHeights: {
+    xs: 'var(--ios-lh-footnote)',
+    sm: 'var(--ios-lh-subheadline)',
+    md: 'var(--ios-lh-body)',
+    lg: 'var(--ios-lh-title3)',
+    xl: 'var(--ios-lh-title2)',
+  },
   radius: { xs: '6px', sm: '10px', md: '12px', lg: '16px', xl: '24px' },
   defaultRadius: 'sm',
   components: {
-    Modal: Modal.extend({
-      defaultProps: {
-        radius: 0,
-        transitionProps: slideUp,
-        overlayProps: { color: '#000', backgroundOpacity: 0.45 },
-        closeButtonProps: { children: 'Done', 'aria-label': 'Close' },
-      },
-      classNames: {
-        inner: classes.sheetInner,
-        content: classes.sheetContent,
-        header: classes.sheetHeader,
-        title: classes.sheetTitle,
-        close: classes.sheetClose,
-        body: classes.sheetBody,
-      },
-    }),
-    Notification: Notification.extend({
-      classNames: {
-        root: classes.toast,
-        title: classes.toastTitle,
-        description: classes.toastDescription,
-        closeButton: classes.toastClose,
-      },
-    }),
-    Menu: Menu.extend({
-      defaultProps: {
-        withOverlay: true,
-        overlayProps,
-        transitionProps: slideUp,
-        zIndex: FLOATING_Z,
-        withinPortal: true,
-      },
-      classNames: {
-        dropdown: classes.menuDropdown,
-        item: classes.menuItem,
-        itemLabel: classes.menuItemLabel,
-        itemSection: classes.menuItemSection,
-        label: classes.menuLabel,
-        divider: classes.menuDivider,
-      },
-      styles: { dropdown: actionSheet },
-    }),
-    Combobox: Combobox.extend({
-      defaultProps: {
-        width: '100%',
-        withOverlay: true,
-        overlayProps,
-        transitionProps: slideUp,
-        zIndex: FLOATING_Z,
-        withinPortal: true,
-      },
-    }),
-    Select: Select.extend({
-      defaultProps: { checkIconPosition: 'right', maxDropdownHeight: 320 },
-      ...pickerProps,
-    }),
-    MultiSelect: MultiSelect.extend({
-      defaultProps: { checkIconPosition: 'right', maxDropdownHeight: 320 },
-      ...pickerProps,
-    }),
+    ...iosOverlayComponents,
     Tabs: Tabs.extend({
       classNames: { list: classes.tabsList, tab: classes.tab, panel: classes.tabPanel },
     }),

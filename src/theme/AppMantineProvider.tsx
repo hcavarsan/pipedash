@@ -1,14 +1,30 @@
-import { MantineProvider, v8CssVariablesResolver } from '@mantine/core'
-import { Notifications } from '@mantine/notifications'
-import { type ReactNode, useLayoutEffect } from 'react'
+import { MantineProvider, useMantineColorScheme, v8CssVariablesResolver } from '@mantine/core'
+import { type ReactNode, useEffect, useLayoutEffect } from 'react'
 
+import { useAccessibilityPrefs } from '../hooks/useAccessibilityPrefs'
 import { useMobileShell } from '../hooks/useIsMobile'
 import { useKeyboardInset } from '../hooks/useKeyboardInset'
 import { useNativeChrome } from '../hooks/useNativeChrome'
 import { useSheetDrag } from '../hooks/useSheetDrag'
+import { mobileService } from '../services/mobile'
+import { isMobilePlatform } from '../utils/platform'
 
 import { theme } from './index'
-import { iosTheme, iosToastClassNames } from './ios'
+import { iosCssVariablesResolver, iosTheme } from './ios'
+
+function NativeAppearanceSync() {
+  const { colorScheme } = useMantineColorScheme()
+
+  useEffect(() => {
+    if (!isMobilePlatform()) {
+      return
+    }
+
+    mobileService.setAppearance(colorScheme === 'auto' ? 'system' : colorScheme).catch(() => undefined)
+  }, [colorScheme])
+
+  return null
+}
 
 export function AppMantineProvider({ children }: { children: ReactNode }) {
   const mobileShell = useMobileShell()
@@ -16,28 +32,21 @@ export function AppMantineProvider({ children }: { children: ReactNode }) {
   useNativeChrome(mobileShell)
   useSheetDrag(mobileShell)
   useKeyboardInset(mobileShell)
+  useAccessibilityPrefs(mobileShell)
 
   useLayoutEffect(() => {
     document.documentElement.toggleAttribute('data-ios', mobileShell)
+    document.documentElement.style.removeProperty('background-color')
   }, [mobileShell])
 
   return (
     <MantineProvider
       theme={mobileShell ? iosTheme : theme}
       defaultColorScheme="dark"
-      cssVariablesResolver={v8CssVariablesResolver}
+      cssVariablesResolver={mobileShell ? iosCssVariablesResolver : v8CssVariablesResolver}
     >
+      <NativeAppearanceSync />
       {children}
     </MantineProvider>
   )
-}
-
-export function ToastHost() {
-  const mobileShell = useMobileShell()
-
-  if (mobileShell) {
-    return <Notifications position="top-center" limit={3} zIndex={600} classNames={iosToastClassNames} />
-  }
-
-  return <Notifications position="bottom-right" pauseResetOnHover="notification" />
 }

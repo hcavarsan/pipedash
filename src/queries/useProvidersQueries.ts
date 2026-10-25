@@ -6,7 +6,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { ProviderConfig, ProviderImportResult, ProviderSummary } from '../types'
-import { describeSave, saveFile } from '../utils/saveFile'
+import { saveFile } from '../utils/saveFile'
 import { invalidateProviderPipelines } from './usePipelinesQueries'
 
 export function useProviders(options?: { enabled?: boolean }) {
@@ -178,7 +178,7 @@ export function useExportProviders() {
       if (saved) {
         notifications.show({
           title: 'Providers exported',
-          message: describeSave('Tokens are not in the file. Set each token variable on the other machine.', saved),
+          message: 'Tokens are not in the file. Set each token variable on the other machine.',
           color: 'green',
         })
       }

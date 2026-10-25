@@ -28,9 +28,9 @@
 
 .title {
   margin: 0;
-  font-size: 28px;
+  font-size: var(--ios-fs-title1, 1.75rem);
   font-weight: 700;
-  line-height: 1.2;
+  line-height: var(--ios-lh-title1, 1.2);
 }
 
 .footer {
@@ -65,16 +65,16 @@
 }
 
 .stepCount {
-  font-size: 13px;
+  font-size: var(--ios-fs-footnote, 0.8125rem);
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--mantine-color-dimmed);
 }
 
 .stepTitle {
   margin: 2px 0 0;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: var(--ios-fs-title2, 1.375rem);
+  font-weight: 600;
+  line-height: var(--ios-lh-title2, 1.25);
 }

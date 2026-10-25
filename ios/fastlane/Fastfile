@@ -1,6 +1,7 @@
 require "fileutils"
 require "json"
 require "tmpdir"
+require_relative "app_icon_appearances"
 require_relative "required_reason_apis"
 
 default_platform(:ios)
@@ -55,6 +56,7 @@ platform :ios do
     Dir.mktmpdir("icons", TAURI_DIR) do |icons_out|
       tauri("icon", APP_ICON, "--output", icons_out)
     end
+    AppIconAppearances.write(File.join(APPLE_DIR, "Assets.xcassets/AppIcon.appiconset"), source_file: APP_ICON)
 
     FileUtils.cp(File.join(XCODE_FILES, "PrivacyInfo.xcprivacy"), TARGET_DIR)
     sh("xcodegen", "generate", "--spec", File.join(APPLE_DIR, "project.yml"))

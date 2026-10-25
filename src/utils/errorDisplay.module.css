@@ -1,12 +1,12 @@
-.title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.description {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
+.retry {
+  display: block;
+  min-height: 44px;
+  margin-top: 0.25em;
+  padding: 0 1em 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--ios-tint, var(--mantine-color-blue-filled));
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }

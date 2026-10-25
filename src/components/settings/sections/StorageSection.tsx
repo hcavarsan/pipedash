@@ -305,9 +305,11 @@ export const StorageSection = () => {
 
   return (
     <Box>
-      <Title order={2} size="lg" fw={600} mb="lg">
-        Storage
-      </Title>
+      {!mobileShell && (
+        <Title order={2} size="lg" fw={600} mb="lg">
+          Storage
+        </Title>
+      )}
 
       {renderContent()}
 

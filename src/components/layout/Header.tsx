@@ -166,8 +166,13 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
               <ActionIcon
                 variant="subtle"
                 size="lg"
-                onClick={() => refreshAll.mutate()}
-                loading={refreshAll.isPending}
+                onClick={() => {
+                  if (!refreshAll.isPending) {
+                    refreshAll.mutate()
+                  }
+                }}
+                data-refreshing={refreshAll.isPending || undefined}
+                aria-busy={refreshAll.isPending}
                 color="gray"
                 aria-label="Refresh all"
               >
