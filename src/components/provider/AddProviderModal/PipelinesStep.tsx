@@ -270,6 +270,11 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
                 )
               }
               disabled={!selectedOrganization}
+              type="search"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="search"
             />
           </div>
         )}
@@ -308,6 +313,11 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
                   )
                 }
                 disabled={!selectedOrganization}
+                type="search"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="search"
                 style={{ flex: 1 }}
               />
             </Group>
@@ -462,6 +472,7 @@ function ShellPipelineList({ pipelines, selectedPipelines, onToggle, onSelectAll
     <IosGroup>
       <IosRow
         title={allSelected ? 'Deselect all' : 'Select all'}
+        value={selectedPipelines.size > 0 ? `${selectedPipelines.size} selected` : undefined}
         accessory={<CheckCircle checked={allSelected} />}
         onClick={onSelectAll}
       />

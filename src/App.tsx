@@ -11,6 +11,8 @@ import { LoadingState } from './components/common/LoadingState'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { StatusScreen } from './components/ErrorBoundary/StatusScreen'
 import { AppLayout } from './components/layout/AppLayout'
+import { fromOf } from './components/layout/mobileChrome'
+import { useGoBack, useRecordHistory } from './components/layout/useMobileBack'
 import { NotificationsPage } from './components/notifications/NotificationCenter'
 import { TriggerWorkflowModal } from './components/pipeline/TriggerWorkflowModal'
 import { WorkflowLogsModal } from './components/pipeline/WorkflowLogsModal'
@@ -46,6 +48,8 @@ function AppContent() {
   const mobileShell = useMobileShell()
 
   useEventSync()
+  useRecordHistory()
+  const goBack = useGoBack()
   useFailureNotifications()
   useProviderHealthAlerts()
 
@@ -146,17 +150,11 @@ function AppContent() {
     [navigate, listLocation]
   )
 
-  const backTarget =
-    typeof location.state === 'object' &&
-    location.state !== null &&
-    'from' in location.state &&
-    typeof location.state.from === 'string'
-      ? location.state.from
-      : '/pipelines'
+  const backTarget = fromOf(location.state) ?? '/pipelines'
 
   const handleBackFromHistory = useCallback(() => {
-    navigate(backTarget)
-  }, [navigate, backTarget])
+    goBack(backTarget)
+  }, [goBack, backTarget])
 
   const handleOpenSettings = useCallback(() => {
     const isOnSettings = location.pathname.startsWith('/settings')

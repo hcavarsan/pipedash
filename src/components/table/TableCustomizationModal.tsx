@@ -25,6 +25,7 @@ import {
 import type { DataTableColumn } from 'mantine-datatable'
 import { useEffect, useState } from 'react'
 
+import { useDiscardGuard } from '../../hooks/useDiscardGuard'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { PipelineRun } from '../../types'
@@ -53,6 +54,8 @@ interface ColumnItem {
   moveable: boolean
 }
 
+const signature = (items: ColumnItem[]): string => items.map((item) => `${item.id}:${item.visible ? 1 : 0}`).join(',')
+
 export function TableCustomizationModal({
   opened,
   onClose,
@@ -64,6 +67,7 @@ export function TableCustomizationModal({
 }: TableCustomizationModalProps) {
   const mobileShell = useMobileShell()
   const [columnItems, setColumnItems] = useState<ColumnItem[]>([])
+  const [initialSignature, setInitialSignature] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
@@ -104,8 +108,10 @@ export function TableCustomizationModal({
 
       orderedItems.push(...itemMap.values())
       setColumnItems(orderedItems)
+      setInitialSignature(signature(orderedItems))
     } else {
       setColumnItems(items)
+      setInitialSignature(signature(items))
     }
   }, [opened, visibleColumns, columns, currentOrder, currentVisibility])
 
@@ -180,6 +186,8 @@ export function TableCustomizationModal({
   const totalCount = columnItems.length
   const allVisible = columnItems.every((item) => item.visible || item.locked)
   const someVisible = columnItems.some((item) => item.visible && !item.locked)
+  const dirty = columnItems.length > 0 && signature(columnItems) !== initialSignature
+  const requestClose = useDiscardGuard(dirty, onClose)
 
   const modalTitle = (
     <Group gap="xs">
@@ -199,7 +207,7 @@ export function TableCustomizationModal({
       </Button>
 
       <Group gap="sm" wrap="nowrap">
-        <Button variant="default" size="sm" onClick={onClose}>
+        <Button variant="default" size="sm" onClick={requestClose}>
           Cancel
         </Button>
         <Button size="sm" onClick={handleApply}>
@@ -217,16 +225,8 @@ export function TableCustomizationModal({
         title="Customize columns"
         size="md"
         fullHeight
-        footer={
-          <Group gap="sm" wrap="nowrap">
-            <Button variant="default" onClick={handleReset}>
-              Reset
-            </Button>
-            <Button flex={1} onClick={handleApply}>
-              Apply
-            </Button>
-          </Group>
-        }
+        dirty={dirty}
+        primaryAction={{ label: 'Apply', onClick: handleApply }}
       >
         <Stack gap="lg">
           <TextInput
@@ -248,6 +248,7 @@ export function TableCustomizationModal({
                 setColumnItems((prev) => prev.map((item) => (item.locked ? item : { ...item, visible: false })))
               }
             />
+            <IosRow title="Reset to defaults" onClick={handleReset} />
           </IosGroup>
 
           {filteredItems.length === 0 ? (
@@ -336,6 +337,7 @@ export function TableCustomizationModal({
       onClose={onClose}
       title={modalTitle}
       footer={modalFooter}
+      dirty={dirty}
       size="lg"
       disableScrollArea
       contentPadding={false}

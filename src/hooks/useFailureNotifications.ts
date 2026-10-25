@@ -24,7 +24,7 @@ const notify = (pipeline: Pipeline, tone: CenterNotificationTone, title: string,
   })
 
   if (system) {
-    showSystemNotification(title, body, key)
+    showSystemNotification(title, body, { key, pipelineId: pipeline.id, providerId: pipeline.provider_id })
   }
 }
 

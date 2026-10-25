@@ -1,0 +1,62 @@
+.reveal {
+  --reveal-gap: var(--stack-gap, var(--mantine-spacing-md));
+  height: 0;
+  margin-bottom: calc(var(--reveal-gap) * -1);
+  overflow: hidden;
+}
+
+.reveal[data-open],
+.reveal[data-pinned],
+.reveal:focus-within {
+  height: auto;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding-bottom: var(--reveal-gap);
+  font-size: var(--ios-fs-body);
+}
+
+.filter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ios-fill-tertiary);
+  color: var(--ios-label);
+  font-family: inherit;
+}
+
+.filter:active {
+  opacity: 0.5;
+}
+
+.filter[data-active] {
+  color: var(--ios-tint);
+}
+
+.badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  padding-inline: 4px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--ios-tint);
+  color: #fff;
+  font-size: var(--ios-fs-caption2);
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

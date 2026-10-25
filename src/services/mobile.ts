@@ -3,10 +3,14 @@ import { invoke } from '@tauri-apps/api/core'
 import {
   type AppLockStatus,
   type ExportFileResult,
+  type NativeIntent,
   type PushStatus,
   toPipedashError,
   type UnlockVaultResponse,
 } from '../types'
+
+export const NATIVE_INTENT_EVENT = 'native-intent'
+export const STATUS_BAR_TAP_EVENT = 'native-status-bar-tap'
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   try {
@@ -14,6 +18,15 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   } catch (error) {
     throw toPipedashError(error)
   }
+}
+
+export type HapticKind = 'selection' | 'light' | 'medium' | 'heavy' | 'soft' | 'rigid' | 'success' | 'warning' | 'error'
+
+export type NativeAppearance = 'light' | 'dark' | 'system'
+
+export interface NativeAccessibility {
+  reduceTransparency: boolean
+  increaseContrast: boolean
 }
 
 export const mobileService = {
@@ -33,4 +46,18 @@ export const mobileService = {
   pushUnpairServer: (id: string): Promise<PushStatus> => call('push_unpair_server', { id }),
 
   pushSendTest: (id: string): Promise<void> => call('push_send_test', { id }),
+
+  haptic: (kind: HapticKind): Promise<void> => call('native_haptic', { kind }),
+
+  setAppearance: (scheme: NativeAppearance): Promise<void> => call('native_set_appearance', { scheme }),
+
+  accessibility: (): Promise<NativeAccessibility> => call('native_accessibility'),
+
+  openAppSettings: (): Promise<void> => call('native_open_settings'),
+
+  setBadge: (count: number): Promise<void> => call('native_set_badge', { count }),
+
+  releasePrivacyCover: (): Promise<void> => call('native_release_privacy_cover'),
+
+  takePendingIntent: (): Promise<NativeIntent | null> => call('native_take_pending_intent'),
 }

@@ -19,6 +19,13 @@
     "core:window:allow-outer-size",
     "core:window:allow-scale-factor",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://*", "app": "inAppBrowser" },
+        { "url": "http://*", "app": "inAppBrowser" }
+      ]
+    },
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
     "notification:allow-notify",

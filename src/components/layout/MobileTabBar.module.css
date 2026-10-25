@@ -10,11 +10,24 @@
   margin-inline: auto;
   max-width: 480px;
   border-radius: 32px;
-  border: 1px solid color-mix(in srgb, var(--mantine-color-text) 14%, transparent);
-  background: color-mix(in srgb, var(--mantine-color-body) 68%, transparent);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 0.28);
+  border: 1px solid color-mix(in srgb, var(--ios-label) 14%, transparent);
+  background: var(--ios-material-bar);
+  -webkit-backdrop-filter: var(--ios-material-filter);
+  backdrop-filter: var(--ios-material-filter);
+  box-shadow:
+    0 8px 28px rgb(0 0 0 / 0.28),
+    inset 0 0 0 1px var(--ios-material-edge);
+  transition:
+    transform 240ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 160ms ease,
+    visibility 0s linear 240ms;
+}
+
+.bar[data-hidden] {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(100% + var(--safe-bottom) + 12px));
 }
 
 .tab {
@@ -28,7 +41,7 @@
   justify-content: center;
   gap: 2px;
   border-radius: 26px;
-  color: var(--mantine-color-dimmed);
+  color: var(--ios-secondary-label);
   text-decoration: none;
   transition:
     background-color 160ms ease,
@@ -41,17 +54,18 @@
 }
 
 .tab[data-active] {
-  color: var(--mantine-color-blue-light-color);
-  background: var(--mantine-color-blue-light);
+  color: var(--ios-tint);
+  background: color-mix(in srgb, var(--ios-tint) 14%, transparent);
 }
 
 .label {
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.01em;
   max-width: 100%;
+  max-height: 2em;
   overflow: hidden;
+  font-size: calc(10px * var(--ios-chrome-scale, 1));
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: calc(12px * var(--ios-chrome-scale, 1));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -61,19 +75,25 @@
   top: 3px;
   left: calc(50% + 2px);
   box-sizing: border-box;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
+  min-width: 1.6em;
+  min-height: 1.6em;
+  padding: 0 0.45em;
+  border-radius: 1em;
   color: #fff;
-  font-size: 11px;
+  font-size: calc(11px * var(--ios-chrome-scale, 1));
   font-weight: 600;
-  line-height: 18px;
+  line-height: 1.6;
   text-align: center;
 }
 
+:global(html[data-increase-contrast]) .bar {
+  border-color: var(--ios-separator);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .tab {
+  .bar,
+  .tab,
+  .label {
     transition: none;
   }
 

@@ -2,6 +2,7 @@ import { Button, Card, Group, NumberInput, Select, Skeleton, Stack, Switch, Text
 import { IconTrash } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
+import { useDiscardGuard } from '../../hooks/useDiscardGuard'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import {
@@ -19,6 +20,7 @@ import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
+import { SwitchRow } from '../settings/mobileParts'
 
 import { MetricsPickerRow } from './MetricsPickerRow'
 import classes from './metrics.module.css'
@@ -73,17 +75,16 @@ export const MetricsConfigModal = ({
 
   const configQuery = pipelineId ? pipelineConfig : globalConfig
   const config = configQuery.data
+  const configRetention = config && ('retention_days' in config ? config.retention_days : config.default_retention_days)
 
   useEffect(() => {
-    if (config) {
-      const retention = 'retention_days' in config ? config.retention_days : config.default_retention_days
-
+    if (config && configRetention !== undefined) {
       setEnabled(config.enabled)
       setInitialEnabled(config.enabled)
-      setRetentionDays(retention)
-      setRetentionMode(RETENTION_PRESETS.includes(retention) ? 'preset' : 'custom')
+      setRetentionDays(configRetention)
+      setRetentionMode(RETENTION_PRESETS.includes(configRetention) ? 'preset' : 'custom')
     }
-  }, [config])
+  }, [config, configRetention])
 
   const handleFlush = () => {
     openConfirm({
@@ -145,17 +146,17 @@ export const MetricsConfigModal = ({
   const pipelineStats = pipelineId ? stats.data?.by_pipeline.find((p) => p.pipeline_id === pipelineId) : undefined
   const isSaving = updateGlobal.isPending || updatePipeline.isPending
   const isBusy = isSaving || flushMutation.isPending
+  const dirty = !!config && (enabled !== config.enabled || retentionDays !== configRetention)
+  const requestClose = useDiscardGuard(dirty, onClose)
 
-  const footer = mobileShell ? (
-    <Button fullWidth onClick={handleSave} loading={isSaving} disabled={!config || flushMutation.isPending}>
-      Save
-    </Button>
-  ) : (
+  const saveDisabled = !config || flushMutation.isPending
+
+  const footer = (
     <Group justify="flex-end" gap="sm">
-      <Button variant="default" size="sm" onClick={onClose} disabled={isBusy}>
+      <Button variant="default" size="sm" onClick={requestClose} disabled={isBusy}>
         Cancel
       </Button>
-      <Button size="sm" onClick={handleSave} loading={isSaving} disabled={!config || flushMutation.isPending}>
+      <Button size="sm" onClick={handleSave} loading={isSaving} disabled={saveDisabled}>
         Save
       </Button>
     </Group>
@@ -224,16 +225,11 @@ export const MetricsConfigModal = ({
                 : 'Enable metrics collection by default for new pipelines.'
             }
           >
-            <IosRow
+            <SwitchRow
               title="Enable metrics"
-              accessory={
-                <Switch
-                  aria-label="Enable metrics"
-                  checked={enabled}
-                  onChange={(e) => setEnabled(e.currentTarget.checked)}
-                  disabled={isBusy}
-                />
-              }
+              checked={enabled}
+              onChange={(e) => setEnabled(e.currentTarget.checked)}
+              disabled={isBusy}
             />
           </IosGroup>
 
@@ -383,7 +379,8 @@ export const MetricsConfigModal = ({
       opened={opened}
       onClose={onClose}
       size="md"
-      loading={mobileShell && isBusy}
+      loading={isBusy}
+      dirty={dirty}
       title={
         mobileShell
           ? 'Configure metrics'
@@ -392,6 +389,7 @@ export const MetricsConfigModal = ({
             : 'Global metrics configuration'
       }
       footer={footer}
+      primaryAction={{ label: 'Save', onClick: handleSave, loading: isSaving, disabled: saveDisabled }}
     >
       <Stack gap={mobileShell ? 'lg' : 'sm'}>{renderContent()}</Stack>
     </StandardModal>

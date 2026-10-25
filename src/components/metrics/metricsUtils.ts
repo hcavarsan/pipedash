@@ -88,6 +88,16 @@ export const useMetricsWindow = (range: DateRange) =>
 export const hasObservation = (metric: AggregatedMetric, metricType: MetricType): boolean =>
   metricType === 'run_frequency' || metric.count > 0
 
+const COUNT_FORMAT = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
+const PERCENT_FORMAT = new Intl.NumberFormat(undefined, {
+  style: 'unit',
+  unit: 'percent',
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+})
+
+export const formatNumber = (value: number): string => COUNT_FORMAT.format(value)
+
 export const formatMetricValue = (value: number | null, metricType: MetricType): string => {
   if (value === null) {
     return '—'
@@ -97,9 +107,9 @@ export const formatMetricValue = (value: number | null, metricType: MetricType):
     case 'run_duration':
       return value > 0 ? formatDuration(value) : '—'
     case 'success_rate':
-      return `${value.toFixed(1)}%`
+      return PERCENT_FORMAT.format(value)
     case 'run_frequency':
-      return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)
+      return COUNT_FORMAT.format(value)
   }
 }
 

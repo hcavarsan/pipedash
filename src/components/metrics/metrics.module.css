@@ -1,13 +1,15 @@
 .tile {
   display: block;
   width: 100%;
-  padding: 14px 16px;
+  padding: 0.85em 1em;
   box-sizing: border-box;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--ios-radius-grouped);
   background: var(--ios-cell);
   color: inherit;
   font: inherit;
+  font-size: var(--ios-fs-body);
+  line-height: var(--ios-lh-body);
   text-align: left;
 }
 
@@ -19,58 +21,98 @@ button.tile:active {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 0.5em;
 }
 
 .tileTitle {
-  font-size: 15px;
+  font-size: var(--ios-fs-subheadline);
   font-weight: 600;
-  line-height: 1.3;
+  line-height: var(--ios-lh-subheadline);
 }
 
 .chevron {
   flex-shrink: 0;
-  margin-top: 1px;
+  margin-top: 0.1em;
   color: var(--ios-chevron);
 }
 
 .caption {
-  font-size: 13px;
-  line-height: 1.35;
-  color: var(--mantine-color-dimmed);
+  margin: 0;
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
+  color: var(--ios-secondary-label);
 }
 
 .readout {
-  min-height: 18px;
-  margin-top: 8px;
-  font-size: 13px;
+  min-height: var(--ios-lh-footnote);
+  margin-top: 0.5em;
+  font-size: var(--ios-fs-footnote);
   font-weight: 600;
-  line-height: 1.35;
-  color: var(--mantine-color-dimmed);
+  line-height: var(--ios-lh-footnote);
+  color: var(--ios-secondary-label);
+}
+
+.plot.plot {
+  touch-action: pan-y;
+}
+
+.point:focus {
+  outline: none;
+}
+
+.ring {
+  stroke: var(--ios-tint);
+  stroke-width: 2.5;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.point:focus-visible .ring {
+  opacity: 1;
 }
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-radius: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 6.5em), 1fr));
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--ios-radius-grouped);
   background: var(--ios-cell);
+  font-size: var(--ios-fs-body);
 }
 
 .stat {
-  padding: 12px 14px;
   min-width: 0;
-}
-
-.stat + .stat {
-  border-left: 0.5px solid var(--ios-separator);
+  padding: 0.7em 0.85em;
+  box-shadow:
+    -0.5px 0 0 var(--ios-separator),
+    0 -0.5px 0 var(--ios-separator);
 }
 
 .statValue {
-  overflow: hidden;
-  font-size: 17px;
+  margin: 0;
+  font-size: var(--ios-fs-headline);
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: var(--ios-lh-headline);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.compactStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 6em), 1fr));
+  gap: 0.5em 1em;
+}
+
+.compactValue {
+  font-size: var(--ios-fs-title3);
+  font-weight: 700;
+  line-height: var(--ios-lh-title3);
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.num {
   font-variant-numeric: tabular-nums;
 }
 
@@ -78,12 +120,13 @@ button.tile:active {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 0.75em;
   width: 100%;
   min-height: 44px;
-  padding: 8px 16px;
+  padding: 0.5em 1em;
   box-sizing: border-box;
-  font-size: 17px;
+  font-size: var(--ios-fs-body);
+  line-height: var(--ios-lh-body);
   text-align: left;
 }
 
@@ -97,24 +140,22 @@ button.tile:active {
 
 .menuRowAction {
   justify-content: flex-start;
-  color: var(--mantine-color-anchor);
+  color: var(--ios-tint);
 }
 
 .menuRowValue {
-  color: var(--mantine-color-dimmed);
-}
-
-.tile :global(.recharts-wrapper) *:focus {
-  outline: none;
+  color: var(--ios-secondary-label);
+  font-variant-numeric: tabular-nums;
 }
 
 .pickerInput.pickerInput {
   height: 100%;
-  padding-right: 40px;
-  padding-left: 16px;
+  min-height: 44px;
+  padding-right: 2.4em;
+  padding-left: 1em;
   background: transparent;
-  color: var(--mantine-color-dimmed);
-  font-size: 17px;
+  color: var(--ios-secondary-label);
+  font-size: var(--ios-fs-body);
   text-align: right;
 }
 
@@ -128,17 +169,17 @@ button.tile:active {
 }
 
 .pickerSection {
-  right: 16px;
+  right: 1em;
 }
 
 .numberRoot {
-  width: 110px;
+  width: 7em;
 }
 
 .numberInput.numberInput {
   padding: 0;
   background: transparent;
-  color: var(--mantine-color-dimmed);
-  font-size: 17px;
+  color: var(--ios-secondary-label);
+  font-size: var(--ios-fs-body);
   text-align: right;
 }

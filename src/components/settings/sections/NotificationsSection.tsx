@@ -1,9 +1,10 @@
 import { Card, Divider, Stack, Switch, Title } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
+import { useState } from 'react'
 
 import { useMobileShell } from '@/hooks/useIsMobile'
 import { isTauri } from '@/services'
 import { useNotificationStore } from '@/stores/notificationStore'
+import { displayWarningNotification } from '@/utils/errorDisplay'
 import { isMobilePlatform } from '@/utils/platform'
 import {
   notificationProblem,
@@ -11,8 +12,10 @@ import {
   systemNotificationsSupported,
 } from '@/utils/systemNotifications'
 
-import { IosGroup, IosRow } from '../../ios/IosList'
+import { IosGroup } from '../../ios/IosList'
 import { MobileDevicesCard } from '../MobileDevicesCard'
+import { SwitchRow } from '../mobileParts'
+import { NotificationsBlockedRows } from '../NotificationsBlockedRows'
 import { PushNotificationsCard } from '../PushNotificationsCard'
 
 export function NotificationsSection() {
@@ -22,6 +25,7 @@ export function NotificationsSection() {
   const providerAlertsEnabled = useNotificationStore((s) => s.providerAlertsEnabled)
   const setProviderAlertsEnabled = useNotificationStore((s) => s.setProviderAlertsEnabled)
   const notificationsSupported = systemNotificationsSupported()
+  const [blocked, setBlocked] = useState(() => 'Notification' in window && Notification.permission === 'denied')
 
   const handleNotificationToggle = async (enabled: boolean, setEnabled: (enabled: boolean) => void) => {
     if (!enabled) {
@@ -31,15 +35,13 @@ export function NotificationsSection() {
     }
 
     if (!(await requestSystemNotificationPermission())) {
-      notifications.show({
-        title: 'Notifications blocked',
-        message: notificationProblem('blocked'),
-        color: 'orange',
-      })
+      setBlocked(true)
+      displayWarningNotification(notificationProblem('blocked'), 'Notifications blocked')
 
       return
     }
 
+    setBlocked(false)
     setEnabled(true)
   }
 
@@ -47,31 +49,27 @@ export function NotificationsSection() {
     return (
       <Stack gap="lg" pb="md">
         <IosGroup footer={notificationsSupported ? undefined : notificationProblem('unsupported')}>
-          <IosRow
+          <SwitchRow
             title="Notify when a pipeline fails"
             subtitle="Show a system notification when a refresh finds a pipeline that just failed."
-            accessory={
-              <Switch
-                aria-label="Notify when a pipeline fails"
-                checked={notificationsSupported && failureNotificationsEnabled}
-                onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setFailureNotificationsEnabled)}
-                disabled={!notificationsSupported}
-              />
-            }
+            checked={notificationsSupported && failureNotificationsEnabled}
+            onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setFailureNotificationsEnabled)}
+            disabled={!notificationsSupported}
           />
-          <IosRow
+          <SwitchRow
             title="Notify me about provider outages"
             subtitle="Show a system notification when a provider reports an outage or recovers."
-            accessory={
-              <Switch
-                aria-label="Notify me about provider outages"
-                checked={notificationsSupported && providerAlertsEnabled}
-                onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setProviderAlertsEnabled)}
-                disabled={!notificationsSupported}
-              />
-            }
+            checked={notificationsSupported && providerAlertsEnabled}
+            onChange={(e) => handleNotificationToggle(e.currentTarget.checked, setProviderAlertsEnabled)}
+            disabled={!notificationsSupported}
           />
         </IosGroup>
+
+        {blocked && notificationsSupported && (
+          <IosGroup>
+            <NotificationsBlockedRows />
+          </IosGroup>
+        )}
 
         {isMobilePlatform() && <PushNotificationsCard />}
         {!isTauri() && <MobileDevicesCard />}

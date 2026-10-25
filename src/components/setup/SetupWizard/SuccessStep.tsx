@@ -60,7 +60,7 @@ export function SuccessStep({
       <Stack gap="xl" style={{ flex: 1 }}>
         <Stack align="center" gap="xs" pt="xl">
           <IconCircleCheckFilled size={80} color="var(--ios-green)" aria-hidden />
-          <Title order={2} ta="center">
+          <Title order={2} ta="center" tabIndex={-1} data-step-heading>
             Setup complete
           </Title>
           <Text size="sm" c="dimmed" ta="center">

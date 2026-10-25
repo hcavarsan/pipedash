@@ -1,15 +1,20 @@
 import { Button, Group, NumberInput, Select, Stack, Switch, Text, TextInput } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
+import { useDiscardGuard } from '../../hooks/useDiscardGuard'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTriggerWorkflow, useWorkflowParameters } from '../../queries/useWorkflowQueries'
 import type { Pipeline, WorkflowParameter } from '../../types'
+import { displayWarningNotification } from '../../utils/errorDisplay'
+import { errorId, fieldA11y, fieldAttributes, helpId, withoutType } from '../../utils/formFields'
+import { handleFormEnter, useFocusFirstInvalid } from '../../utils/formFocus'
 import { getPipelineLabels, getReconcileBlockReason } from '../../utils/pipelinePresentation'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
+import { LiveStatus, useErrorAnnouncement } from '../forms/LiveStatus'
 import { IosGroup, IosRow } from '../ios/IosList'
+import shell from '../provider/AddProviderModal/ShellForm.module.css'
 
 interface TriggerWorkflowModalProps {
   opened: boolean
@@ -44,6 +49,14 @@ const buildInitialParamValues = (params: WorkflowParameter[], inputs?: Record<st
   return initialValues
 }
 
+const comparable = (value: unknown): string => (value === undefined || value === null ? '' : String(value))
+
+const paramError = (param: WorkflowParameter, value: unknown): string | null => {
+  const missing = value === undefined || value === null || (typeof value === 'string' && value.trim() === '')
+
+  return param.required && missing ? `${param.label || param.name} is required` : null
+}
+
 export const TriggerWorkflowModal = ({
   opened,
   onClose,
@@ -53,7 +66,13 @@ export const TriggerWorkflowModal = ({
 }: TriggerWorkflowModalProps) => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
+  const formId = useId()
+  const formRef = useRef<HTMLFormElement>(null)
+  const focusFirstInvalid = useFocusFirstInvalid(formRef)
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({})
+  const [baseline, setBaseline] = useState<Record<string, unknown>>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const announcement = useErrorAnnouncement(errors)
   const isSubmittingRef = useRef(false)
   const labels = getPipelineLabels(pipeline.provider_type)
   const isFlux = pipeline.provider_type === 'fluxcd'
@@ -71,39 +90,68 @@ export const TriggerWorkflowModal = ({
   useEffect(() => {
     if (!opened) {
       setParamValues({})
+      setBaseline({})
+      setErrors({})
 
       return
     }
 
     if (parameters.length > 0) {
-      setParamValues(buildInitialParamValues(parameters, initialInputs))
+      const initial = buildInitialParamValues(parameters, initialInputs)
+
+      setParamValues(initial)
+      setBaseline(initial)
     }
   }, [opened, parameters, initialInputs])
+
+  const dirty = parameters.some((param) => comparable(paramValues[param.name]) !== comparable(baseline[param.name]))
+  const requestClose = useDiscardGuard(dirty, onClose)
+  const lastTextName = [...parameters]
+    .reverse()
+    .find((param) => param.type === 'string' || param.type === 'number')?.name
+
+  const updateErrors = (param: WorkflowParameter, value: unknown) => {
+    const error = paramError(param, value)
+
+    setErrors((prev) => {
+      const { [param.name]: _removed, ...rest } = prev
+
+      return error ? { ...rest, [param.name]: error } : rest
+    })
+  }
+
+  const setValue = (param: WorkflowParameter, value: unknown) => {
+    setParamValues({ ...paramValues, [param.name]: value })
+
+    if (errors[param.name]) {
+      updateErrors(param, value)
+    }
+  }
 
   const handleTrigger = () => {
     if (isSubmittingRef.current || triggerMutation.isPending) {
       return
     }
-    isSubmittingRef.current = true
 
-    const missing = parameters.find((param) => {
-      const value = paramValues[param.name]
+    const nextErrors: Record<string, string> = {}
 
-      return (
-        param.required && (value === undefined || value === null || (typeof value === 'string' && value.trim() === ''))
-      )
-    })
+    for (const param of parameters) {
+      const error = paramError(param, paramValues[param.name])
 
-    if (missing) {
-      notifications.show({
-        title: 'Required parameter is empty',
-        message: `Enter a value for "${missing.label || missing.name}" to trigger the workflow.`,
-        color: 'red',
-      })
-      isSubmittingRef.current = false
+      if (error) {
+        nextErrors[param.name] = error
+      }
+    }
+
+    setErrors(nextErrors)
+
+    if (Object.keys(nextErrors).length > 0) {
+      focusFirstInvalid()
 
       return
     }
+
+    isSubmittingRef.current = true
 
     triggerMutation.mutate(
       {
@@ -128,12 +176,10 @@ export const TriggerWorkflowModal = ({
           if (runNumber > 0) {
             onSuccess?.(pipeline.id, runNumber)
           } else if (!isFlux) {
-            notifications.show({
-              title: 'Run number not available yet',
-              message: 'The workflow was triggered. Check the pipeline list for the new run.',
-              color: 'orange',
-              autoClose: 5000,
-            })
+            displayWarningNotification(
+              'The workflow was triggered. Check the pipeline list for the new run.',
+              'Run number not available yet'
+            )
           }
         },
         onError: () => {
@@ -143,26 +189,51 @@ export const TriggerWorkflowModal = ({
     )
   }
 
+  const attributesFor = (param: WorkflowParameter) =>
+    fieldAttributes({
+      name: param.name,
+      label: param.label,
+      kind: param.type === 'number' ? 'number' : 'text',
+      defaultValue: param.default,
+      last: param.name === lastTextName,
+    })
+
   const renderShellRow = (param: WorkflowParameter) => {
     const label = param.label || param.name
     const value = paramValues[param.name]
     const isDisabled = triggerMutation.isPending
+    const id = `${formId}-${param.name}`
+    const error = errors[param.name]
+    const a11y = fieldA11y(id, { required: param.required, error, description: param.description })
     const title = (
       <>
         {label}
         {param.required && (
-          <Text component="span" inherit c="red">
+          <Text component="span" inherit c="red" aria-hidden>
             {' *'}
           </Text>
         )}
       </>
     )
-    const subtitle = param.description || undefined
+    const subtitle =
+      error || param.description ? (
+        <>
+          {error && (
+            <span id={errorId(id)} className={`${shell.line} ${shell.error}`}>
+              {error}
+            </span>
+          )}
+          {param.description && (
+            <span id={helpId(id)} className={shell.line}>
+              {param.description}
+            </span>
+          )}
+        </>
+      ) : undefined
     const placeholder = param.required ? 'Required' : 'Optional'
     const rightAligned = {
       input: {
-        height: 32,
-        minHeight: 32,
+        minHeight: '2em',
         paddingInline: 0,
         background: 'transparent',
         textAlign: 'right' as const,
@@ -180,7 +251,7 @@ export const TriggerWorkflowModal = ({
               <Switch
                 aria-label={label}
                 checked={Boolean(value)}
-                onChange={(e) => setParamValues({ ...paramValues, [param.name]: e.currentTarget.checked })}
+                onChange={(e) => setValue(param, e.currentTarget.checked)}
                 disabled={isDisabled}
               />
             }
@@ -199,14 +270,16 @@ export const TriggerWorkflowModal = ({
             accessory={
               <Select
                 aria-label={label}
+                {...a11y}
                 variant="unstyled"
                 placeholder="Select"
                 data={options}
                 value={validValue}
-                onChange={(val) => setParamValues({ ...paramValues, [param.name]: val })}
+                onChange={(val) => setValue(param, val)}
+                onBlur={() => updateErrors(param, paramValues[param.name])}
                 clearable={!param.required}
                 disabled={isDisabled}
-                w={160}
+                w="10rem"
                 rightSection={<span />}
                 rightSectionPointerEvents="none"
                 styles={rightAligned}
@@ -225,13 +298,16 @@ export const TriggerWorkflowModal = ({
             accessory={
               <NumberInput
                 aria-label={label}
+                {...a11y}
+                {...withoutType(attributesFor(param))}
                 variant="unstyled"
                 hideControls
                 placeholder={placeholder}
                 value={typeof value === 'number' || typeof value === 'string' ? value : ''}
-                onChange={(val) => setParamValues({ ...paramValues, [param.name]: val })}
+                onChange={(val) => setValue(param, val)}
+                onBlur={() => updateErrors(param, paramValues[param.name])}
                 disabled={isDisabled}
-                w={140}
+                w="9rem"
                 styles={rightAligned}
               />
             }
@@ -247,12 +323,15 @@ export const TriggerWorkflowModal = ({
             accessory={
               <TextInput
                 aria-label={label}
+                {...a11y}
+                {...attributesFor(param)}
                 variant="unstyled"
                 placeholder={placeholder}
                 value={value ? String(value) : ''}
-                onChange={(e) => setParamValues({ ...paramValues, [param.name]: e.currentTarget.value })}
+                onChange={(e) => setValue(param, e.currentTarget.value)}
+                onBlur={() => updateErrors(param, paramValues[param.name])}
                 disabled={isDisabled}
-                w={160}
+                w="10rem"
                 styles={rightAligned}
               />
             }
@@ -265,6 +344,7 @@ export const TriggerWorkflowModal = ({
     const label = param.label || param.name
     const value = paramValues[param.name]
     const isDisabled = triggerMutation.isPending
+    const error = errors[param.name]
 
     switch (param.type) {
       case 'boolean':
@@ -274,7 +354,7 @@ export const TriggerWorkflowModal = ({
             label={label}
             description={param.description || undefined}
             checked={Boolean(value)}
-            onChange={(e) => setParamValues({ ...paramValues, [param.name]: e.currentTarget.checked })}
+            onChange={(e) => setValue(param, e.currentTarget.checked)}
             disabled={isDisabled}
           />
         )
@@ -291,7 +371,9 @@ export const TriggerWorkflowModal = ({
             placeholder="Select an option"
             data={options}
             value={validValue}
-            onChange={(val) => setParamValues({ ...paramValues, [param.name]: val })}
+            onChange={(val) => setValue(param, val)}
+            onBlur={() => updateErrors(param, paramValues[param.name])}
+            error={error}
             required={param.required}
             clearable={!param.required}
             disabled={isDisabled}
@@ -303,11 +385,14 @@ export const TriggerWorkflowModal = ({
         return (
           <NumberInput
             key={param.name}
+            {...withoutType(attributesFor(param))}
             label={label}
             description={param.description || undefined}
             placeholder="Enter a number"
             value={typeof value === 'number' || typeof value === 'string' ? value : ''}
-            onChange={(val) => setParamValues({ ...paramValues, [param.name]: val })}
+            onChange={(val) => setValue(param, val)}
+            onBlur={() => updateErrors(param, paramValues[param.name])}
+            error={error}
             required={param.required}
             disabled={isDisabled}
           />
@@ -317,11 +402,14 @@ export const TriggerWorkflowModal = ({
         return (
           <TextInput
             key={param.name}
+            {...attributesFor(param)}
             label={label}
             description={param.description || undefined}
             placeholder={`Enter ${label.toLowerCase()}`}
             value={value ? String(value) : ''}
-            onChange={(e) => setParamValues({ ...paramValues, [param.name]: e.currentTarget.value })}
+            onChange={(e) => setValue(param, e.currentTarget.value)}
+            onBlur={() => updateErrors(param, paramValues[param.name])}
+            error={error}
             required={param.required}
             disabled={isDisabled}
           />
@@ -330,20 +418,14 @@ export const TriggerWorkflowModal = ({
   }
 
   const isRerun = initialInputs !== undefined
+  const triggerDisabled = fetchingParams || !!fetchError || !!blockedReason
 
   const footer = (
     <Group justify="flex-end" gap="sm" grow={isMobile}>
-      {!mobileShell && (
-        <Button variant="default" size="sm" onClick={onClose} disabled={triggerMutation.isPending}>
-          Cancel
-        </Button>
-      )}
-      <Button
-        size="sm"
-        onClick={handleTrigger}
-        loading={triggerMutation.isPending}
-        disabled={fetchingParams || !!fetchError || !!blockedReason}
-      >
+      <Button variant="default" size="sm" onClick={requestClose} disabled={triggerMutation.isPending}>
+        Cancel
+      </Button>
+      <Button size="sm" onClick={handleTrigger} loading={triggerMutation.isPending} disabled={triggerDisabled}>
         {isFlux ? labels.trigger : isRerun ? 'Rerun workflow' : 'Trigger workflow'}
       </Button>
     </Group>
@@ -402,9 +484,27 @@ export const TriggerWorkflowModal = ({
       size="md"
       title={isFlux ? `Reconcile: ${pipeline.name}` : isRerun ? `Rerun: ${pipeline.name}` : `Trigger: ${pipeline.name}`}
       loading={triggerMutation.isPending}
+      dirty={dirty}
       footer={footer}
+      primaryAction={{
+        label: isFlux ? labels.trigger : isRerun ? 'Rerun' : 'Trigger',
+        onClick: handleTrigger,
+        loading: triggerMutation.isPending,
+        disabled: triggerDisabled,
+      }}
     >
-      {renderContent()}
+      <form
+        ref={formRef}
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault()
+          handleTrigger()
+        }}
+        onKeyDown={handleFormEnter}
+      >
+        {renderContent()}
+        <LiveStatus message={announcement} />
+      </form>
     </StandardModal>
   )
 }

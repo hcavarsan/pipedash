@@ -79,10 +79,21 @@ const compareStatus = (a: PipelineStatus | null | undefined, b: PipelineStatus |
   return mostSevereStatus([a, b]) === a ? -1 : 1
 }
 
+const lastRunAt = (row: TableRow) => (row.lastRun ? Date.parse(row.lastRun) : null)
+
 const compareRows = (a: TableRow, b: TableRow, sort: DataTableSortStatus<TableRow>) => {
   let primary = 0
 
-  if (sort.columnAccessor === 'status') {
+  if (sort.columnAccessor === 'lastRun') {
+    const left = lastRunAt(a)
+    const right = lastRunAt(b)
+
+    if (left === null || right === null) {
+      return left === right ? collator.compare(a.name, b.name) : left === null ? 1 : -1
+    }
+
+    primary = left - right
+  } else if (sort.columnAccessor === 'status') {
     primary = compareStatus(a.status, b.status)
   } else if (sort.columnAccessor === 'organization') {
     primary = collator.compare(a.organization ?? '', b.organization ?? '')
@@ -559,7 +570,7 @@ export const UnifiedPipelinesView = ({
           search: {
             value: search,
             onChange: (value) => setFilter('search', value),
-            placeholder: isFluxView ? 'Search resources, namespaces, sources...' : 'Search repositories, workflows...',
+            placeholder: isFluxView ? 'Search resources, namespaces, sources…' : 'Search repositories, workflows…',
           },
           status: {
             value: statusFilter,
@@ -595,7 +606,11 @@ export const UnifiedPipelinesView = ({
           <EmptyState
             icon={<IconPin size={24} />}
             title={isFluxView ? 'No pinned resources' : 'No pinned workflows'}
-            description={`Use the pin icon on a ${labels.item} to keep it here.`}
+            description={
+              mobileShell
+                ? `Swipe a ${labels.item} left or open its Actions menu and choose Pin to keep it here.`
+                : `Use the pin icon on a ${labels.item} to keep it here.`
+            }
             action={
               <Button component={Link} to="/pipelines" variant="default" size="sm">
                 Browse {labels.items}

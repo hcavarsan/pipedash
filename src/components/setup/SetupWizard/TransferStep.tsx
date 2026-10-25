@@ -47,7 +47,7 @@ export function TransferStep({ state, setState, error }: TransferStepProps) {
         </IosGroup>
 
         {error && (
-          <Text size="sm" c="red" px="md">
+          <Text size="sm" c="red" px="md" role="alert">
             {error}
           </Text>
         )}

@@ -1,4 +1,4 @@
-import { Button, Group, Menu, SegmentedControl, Select, Stack, Text, UnstyledButton } from '@mantine/core'
+import { Button, Group, Menu, SegmentedControl, Select, Stack, UnstyledButton } from '@mantine/core'
 import { IconDownload, IconFileTypeCsv, IconPhoto } from '@tabler/icons-react'
 import { toPng } from 'html-to-image'
 import { useEffect, useRef, useState } from 'react'
@@ -9,7 +9,7 @@ import type { AggregationPeriod, AggregationType, MetricType } from '../../types
 import { type DateRange, isDateRange } from '../../utils/dateRange'
 import { displayErrorNotification, displaySuccessNotification } from '../../utils/errorDisplay'
 import { isMobilePlatform } from '../../utils/platform'
-import { describeSave, saveFile } from '../../utils/saveFile'
+import { saveFile } from '../../utils/saveFile'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
@@ -123,7 +123,7 @@ export const MetricsDetailPage = ({
       })
 
       if (saved) {
-        displaySuccessNotification(describeSave('Chart exported as PNG', saved))
+        displaySuccessNotification('Chart exported as PNG')
       }
     } catch (error) {
       displayErrorNotification(error, "Couldn't export PNG")
@@ -156,7 +156,7 @@ export const MetricsDetailPage = ({
       })
 
       if (saved) {
-        displaySuccessNotification(describeSave('Data exported as CSV', saved))
+        displaySuccessNotification('Data exported as CSV')
       }
     } catch (error) {
       displayErrorNotification(error, "Couldn't export CSV")
@@ -232,9 +232,9 @@ export const MetricsDetailPage = ({
     return (
       <Stack gap="lg" pt="xs" pb="md">
         {repository && (
-          <Text size="xs" c="dimmed">
+          <div className={classes.caption}>
             {repository} / {pipelineName}
-          </Text>
+          </div>
         )}
 
         <Stack gap="sm">

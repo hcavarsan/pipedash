@@ -68,6 +68,15 @@ impl GitHubPlugin {
             .as_ref()
             .ok_or_else(|| PluginError::Internal("Plugin not initialized".to_string()))
     }
+
+    fn matches_trigger(
+        run: &crate::types::Run, previous_run_number: i64, ref_value: &str,
+        trigger_time: chrono::DateTime<chrono::Utc>,
+    ) -> bool {
+        run.run_number > previous_run_number
+            && run.head_branch == ref_value
+            && run.created_at.timestamp() >= trigger_time.timestamp()
+    }
 }
 
 #[async_trait]
@@ -330,30 +339,29 @@ impl Plugin for GitHubPlugin {
         let owner = parts[2];
         let repo = parts[3];
         let workflow_id = parts[4];
-
-        let body = workflow_dispatch::dispatch_body(params.inputs);
-        let ref_value = body["ref"].as_str().unwrap_or("main").to_string();
-
-        let client = self.client()?;
-        let url = format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches");
-
-        let response: Result<serde_json::Value, octocrab::Error> =
-            client.octocrab.post(url, Some(&body)).await;
-
-        if let Err(e) = response {
-            return Err(client::map_octocrab_error("Failed to trigger workflow", e));
-        }
-
         let workflow_id_u64: u64 = workflow_id.parse().map_err(|_| {
             PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id}"))
         })?;
 
-        let trigger_time = chrono::Utc::now();
+        let mut body = workflow_dispatch::dispatch_body(params.inputs);
+        let ref_value = body["ref"].as_str().unwrap_or("main").to_string();
+        let client = self.client()?;
+        let actions = client.octocrab.actions();
+        let mut dispatch = actions.create_workflow_dispatch(owner, repo, workflow_id, &ref_value);
+        if let Some(inputs) = body.get_mut("inputs") {
+            dispatch = dispatch.inputs(inputs.take());
+        }
 
         let previous_runs = client
             .fetch_run_history(owner, repo, workflow_id_u64, 5)
             .await?;
         let previous_latest_run_number = previous_runs.first().map(|r| r.run_number).unwrap_or(0);
+        let trigger_time = chrono::Utc::now();
+
+        dispatch
+            .send()
+            .await
+            .map_err(|e| client::map_octocrab_error("Failed to trigger workflow", e))?;
 
         let mut new_run = None;
         for attempt in 1..=10 {
@@ -364,9 +372,7 @@ impl Plugin for GitHubPlugin {
                 .await?;
 
             for run in runs {
-                if run.run_number > previous_latest_run_number
-                    && run.head_branch == ref_value
-                    && run.created_at.with_timezone(&chrono::Utc) >= trigger_time
+                if Self::matches_trigger(&run, previous_latest_run_number, &ref_value, trigger_time)
                 {
                     tracing::debug!(
                         run_number = run.run_number,
@@ -643,11 +649,15 @@ mod tests {
                     .iter()
                     .map(|(name, value)| format!("{name}: {value}\r\n"))
                     .collect();
-                let response = format!(
-                    "HTTP/1.1 {} Stub\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    reply.status,
-                    body.len()
-                );
+                let response = if reply.status == 204 {
+                    "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_string()
+                } else {
+                    format!(
+                        "HTTP/1.1 {} Stub\r\nContent-Type: application/json\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        reply.status,
+                        body.len()
+                    )
+                };
                 stream.write_all(response.as_bytes()).await.unwrap();
             }
         });
@@ -689,6 +699,135 @@ mod tests {
             .filter(|(method, _, _)| method == "POST")
             .map(|(_, _, body)| serde_json::from_str(body).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn trigger_run_matching_uses_second_precision() {
+        let trigger_time = "2026-10-20T10:00:00.500Z".parse().unwrap();
+        let cases = [
+            ("2026-10-20T10:00:00Z", 8, "main", true),
+            ("2026-10-20T09:59:59Z", 8, "main", false),
+            ("2026-10-20T10:00:01Z", 8, "main", true),
+            ("2026-10-20T10:00:00Z", 7, "main", false),
+            ("2026-10-20T10:00:00Z", 8, "other", false),
+        ];
+        for (created_at, run_number, head_branch, expected) in cases {
+            let mut run: crate::types::Run = serde_json::from_value(waiting_run()).unwrap();
+            run.created_at = created_at.parse().unwrap();
+            run.run_number = run_number;
+            run.head_branch = head_branch.to_string();
+
+            assert_eq!(
+                GitHubPlugin::matches_trigger(&run, 7, "main", trigger_time),
+                expected,
+                "created_at={created_at}, run_number={run_number}, head_branch={head_branch}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn trigger_accepts_204_no_content_from_dispatch() {
+        use std::sync::atomic::{
+            AtomicUsize,
+            Ordering,
+        };
+
+        let dispatched_at = std::sync::Mutex::new(None);
+        let history_reads = AtomicUsize::new(0);
+        let (plugin, recorded, server) = serve(&[], move |method, path| match (method, path) {
+            ("POST", "/api/v3/repos/acme/app/actions/workflows/42/dispatches") => {
+                *dispatched_at.lock().unwrap() =
+                    Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+                Reply {
+                    status: 204,
+                    headers: Vec::new(),
+                    body: serde_json::Value::Null,
+                }
+            }
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => {
+                let mut run = waiting_run();
+                if let Some(created_at) = dispatched_at.lock().unwrap().as_ref() {
+                    let first_read = history_reads.fetch_add(1, Ordering::SeqCst) == 0;
+                    run["run_number"] = serde_json::json!(if first_read { 8 } else { 9 });
+                    run["head_branch"] =
+                        serde_json::json!(if first_read { "main" } else { "other" });
+                    run["created_at"] = serde_json::json!(created_at);
+                }
+                ok(serde_json::json!({"total_count": 1, "workflow_runs": [run]}))
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let result = plugin
+            .trigger_pipeline(TriggerParams {
+                workflow_id: PIPELINE_ID.to_string(),
+                inputs: Some(serde_json::json!({"ref": "main", "environment": "production"})),
+            })
+            .await;
+        server.abort();
+
+        let response: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(response["run_number"], 8);
+        assert_eq!(response["logs_url"], "http://stub.invalid/acme/app");
+        assert_eq!(
+            posts(&recorded).await,
+            [serde_json::json!({"ref": "main", "inputs": {"environment": "production"}})]
+        );
+    }
+
+    #[tokio::test]
+    async fn trigger_preserves_dispatch_errors_without_retrying() {
+        for status in [401, 403, 429, 503] {
+            let (plugin, recorded, server) = serve(&[], move |method, path| match (method, path) {
+                ("GET", "/api/v3/repos/acme/app/actions/workflows/42/runs") => {
+                    ok(serde_json::json!({"total_count": 0, "workflow_runs": []}))
+                }
+                ("POST", "/api/v3/repos/acme/app/actions/workflows/42/dispatches") => {
+                    failure(status, "Dispatch refused", &[])
+                }
+                (method, path) => panic!("Unexpected stub request: {method} {path}"),
+            })
+            .await;
+
+            let error = plugin
+                .trigger_pipeline(TriggerParams {
+                    workflow_id: PIPELINE_ID.to_string(),
+                    inputs: None,
+                })
+                .await
+                .unwrap_err();
+            server.abort();
+
+            assert!(
+                matches!(
+                    (status, &error),
+                    (401, PluginError::AuthenticationFailed(_))
+                        | (403, PluginError::PermissionDenied(_))
+                        | (429, PluginError::RateLimited { .. })
+                        | (503, PluginError::ServiceUnavailable { .. })
+                ),
+                "{status}: {error}"
+            );
+            assert_eq!(posts(&recorded).await, [serde_json::json!({"ref": "main"})]);
+        }
+    }
+
+    #[tokio::test]
+    async fn trigger_rejects_invalid_workflow_ids_before_dispatching() {
+        let (plugin, recorded, server) = serve(&[], |_, _| ok(serde_json::json!({}))).await;
+
+        let error = plugin
+            .trigger_pipeline(TriggerParams {
+                workflow_id: "github__1__acme__app__invalid".to_string(),
+                inputs: None,
+            })
+            .await
+            .unwrap_err();
+        server.abort();
+
+        assert!(matches!(error, PluginError::InvalidConfig(_)), "{error}");
+        assert!(recorded.lock().await.is_empty());
     }
 
     #[tokio::test]

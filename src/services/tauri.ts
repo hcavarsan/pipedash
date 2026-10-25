@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
+import { platform } from '@tauri-apps/plugin-os'
 import { REFRESH_TIMEOUT_MS } from '../constants/timeouts'
 import { logger } from '../lib/logger'
 import {
@@ -19,6 +20,7 @@ import {
   type MigrationOptions,
   type MigrationPlan,
   type MigrationResult,
+  type NotificationTarget,
   type Organization,
   type PaginatedAvailablePipelines,
   type PaginatedRunHistory,
@@ -305,7 +307,7 @@ export const tauriService = {
     return invoke<void>('set_refresh_mode', { mode })
   },
 
-  showSystemNotification: async (title: string, body: string, target: string): Promise<void> => {
+  showSystemNotification: async (title: string, body: string, target: NotificationTarget): Promise<void> => {
     return invoke<void>('show_system_notification', { title, body, target })
   },
 
@@ -339,7 +341,7 @@ export const tauriService = {
   },
 
   openUrl: async (url: string): Promise<void> => {
-    await openUrl(url)
+    await openUrl(url, ['ios', 'android'].includes(platform()) ? 'inAppBrowser' : undefined)
   },
 
   getAvailablePlugins: async (): Promise<PluginMetadata[]> => {

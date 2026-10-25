@@ -1,0 +1,17 @@
+[package]
+name = "tauri-plugin-pipedash-native"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+publish = false
+links = "tauri-plugin-pipedash-native"
+description = "UIKit integration for the Pipedash iOS app: haptics, appearance, privacy cover, share sheet, notification actions and status-bar taps."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tauri = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

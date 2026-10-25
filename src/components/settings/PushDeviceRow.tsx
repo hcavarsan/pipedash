@@ -33,12 +33,14 @@ export const PushDeviceRow = ({
       <IosRow
         title={title}
         subtitle={subtitle}
+        longPressMenu
         accessory={
           <Menu position="bottom-end">
             <Menu.Target>
               <ActionIcon
                 variant="subtle"
                 color="gray"
+                data-row-menu
                 aria-label={`Actions for ${title}`}
                 loading={testing || removing}
               >

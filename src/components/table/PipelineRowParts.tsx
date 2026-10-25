@@ -155,7 +155,7 @@ export function WorkflowActionMenu({
   return (
     <Menu position="bottom">
       <Menu.Target>
-        <ActionIcon variant="subtle" color="gray" aria-label={`Actions for ${pipeline.name}`}>
+        <ActionIcon variant="subtle" color="gray" data-row-menu aria-label={`Actions for ${pipeline.name}`}>
           <IconDots size={22} />
         </ActionIcon>
       </Menu.Target>

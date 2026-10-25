@@ -4,8 +4,13 @@ import { isMobilePlatform } from '../utils/platform'
 
 export const MOBILE_BREAKPOINT = 768
 
+const NARROW_QUERY = `(max-width: ${MOBILE_BREAKPOINT}px)`
+
+export const isPhone = (): boolean => /iPhone|iPod/.test(navigator.userAgent)
+
 export const useIsMobile = () => {
-  const isMobile = useMediaQuery(`(max-width: ${MOBILE_BREAKPOINT}px)`, undefined, { getInitialValueInEffect: false })
+  const narrow = useMediaQuery(NARROW_QUERY, undefined, { getInitialValueInEffect: false })
+  const isMobile = isPhone() || narrow
 
   return { isMobile, isDesktop: !isMobile }
 }
@@ -13,8 +18,7 @@ export const useIsMobile = () => {
 export const useMobileShell = (): boolean => {
   const { isMobile } = useIsMobile()
 
-  return isMobilePlatform() && isMobile
+  return isPhone() || (isMobilePlatform() && isMobile)
 }
 
-export const isMobileShell = (): boolean =>
-  isMobilePlatform() && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches
+export const isMobileShell = (): boolean => isPhone() || (isMobilePlatform() && window.matchMedia(NARROW_QUERY).matches)

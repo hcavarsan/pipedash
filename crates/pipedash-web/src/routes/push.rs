@@ -169,6 +169,9 @@ async fn test_subscription(
         title: "Pipedash test notification".to_string(),
         body: "Push notifications from this server are working.".to_string(),
         thread_id: None,
+        pipeline_id: None,
+        provider_id: None,
+        run_number: None,
     };
 
     match services.deliver(&relay_url, &subscription, &alert).await {
@@ -719,12 +722,18 @@ mod tests {
                     "title": "build failed",
                     "body": "jenkins · #2",
                     "thread_id": pipeline.id,
+                    "pipeline_id": pipeline.id,
+                    "provider_id": pipeline.provider_id,
+                    "run_number": 2,
                 }),
                 json!({
                     "subscription_id": "relay-secret_2",
                     "title": "build failed",
                     "body": "jenkins · #2",
                     "thread_id": pipeline.id,
+                    "pipeline_id": pipeline.id,
+                    "provider_id": pipeline.provider_id,
+                    "run_number": 2,
                 }),
             ]
         );

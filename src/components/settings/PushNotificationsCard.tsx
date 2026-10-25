@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Divider, PasswordInput, Stack, Text, TextInput } from '@mantine/core'
 import { IconInfoCircle } from '@tabler/icons-react'
-import { useState } from 'react'
+import { type KeyboardEvent, useRef, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
@@ -11,8 +11,16 @@ import { notificationProblem } from '../../utils/systemNotifications'
 import { ErrorState } from '../common/ErrorState'
 import { IosGroup, IosRow } from '../ios/IosList'
 
-import { AccentText, RowTextInput } from './mobileParts'
+import { AccentText, FieldRow, RowTextInput } from './mobileParts'
+import { NotificationsBlockedRows } from './NotificationsBlockedRows'
 import { PushDeviceRow } from './PushDeviceRow'
+
+const submitOnReturn = (event: KeyboardEvent, action: () => void) => {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    action()
+  }
+}
 
 export function PushNotificationsCard() {
   const { data: status, error, refetch, isRefetching } = usePushStatus()
@@ -24,6 +32,8 @@ export function PushNotificationsCard() {
   const [serverUrl, setServerUrl] = useState('')
   const [apiToken, setApiToken] = useState('')
   const [label, setLabel] = useState('')
+  const tokenRef = useRef<HTMLInputElement>(null)
+  const labelRef = useRef<HTMLInputElement>(null)
 
   if (error) {
     return (
@@ -71,48 +81,60 @@ export function PushNotificationsCard() {
               subtitle="This build has no push relay configured, so push notifications are unavailable."
             />
           )}
-          {status.relay_configured && denied && (
-            <IosRow title="Notifications blocked" subtitle={notificationProblem('blocked')} />
-          )}
+          {status.relay_configured && denied && <NotificationsBlockedRows />}
           {canPair && (
             <>
-              <IosRow
-                title="Server URL"
-                accessory={
+              <FieldRow title="Server URL">
+                {(id) => (
                   <RowTextInput
-                    aria-label="Server URL"
+                    id={id}
                     placeholder="https://pipedash.example.com"
                     type="url"
                     inputMode="url"
+                    autoComplete="off"
+                    enterKeyHint="next"
                     value={serverUrl}
                     onChange={(e) => setServerUrl(e.currentTarget.value)}
+                    onKeyDown={(e) => submitOnReturn(e, () => tokenRef.current?.focus())}
                   />
-                }
-              />
-              <IosRow
-                title="API token"
-                accessory={
+                )}
+              </FieldRow>
+              <FieldRow title="API token">
+                {(id) => (
                   <RowTextInput
-                    aria-label="API token of that server"
+                    id={id}
+                    ref={tokenRef}
                     placeholder="Required"
                     type="password"
+                    autoComplete="off"
+                    enterKeyHint="next"
                     value={apiToken}
                     onChange={(e) => setApiToken(e.currentTarget.value)}
+                    onKeyDown={(e) => submitOnReturn(e, () => labelRef.current?.focus())}
                   />
-                }
-              />
-              <IosRow
-                title="Label"
-                accessory={
+                )}
+              </FieldRow>
+              <FieldRow title="Label">
+                {(id) => (
                   <RowTextInput
-                    aria-label="Label"
+                    id={id}
+                    ref={labelRef}
                     placeholder="Optional"
                     autoCapitalize="words"
+                    autoComplete="off"
+                    enterKeyHint="go"
                     value={label}
                     onChange={(e) => setLabel(e.currentTarget.value)}
+                    onKeyDown={(e) =>
+                      submitOnReturn(e, () => {
+                        if (canSubmit && !pair.isPending) {
+                          handlePair()
+                        }
+                      })
+                    }
                   />
-                }
-              />
+                )}
+              </FieldRow>
             </>
           )}
         </IosGroup>

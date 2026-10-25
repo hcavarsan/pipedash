@@ -1,9 +1,12 @@
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef } from 'react'
 
-import { decideRowSwipe, rowPosition } from '../../lib/gestures'
+import { AXIS_SLOP, decideRowSwipe, rowPosition } from '../../lib/gestures'
+import { haptic } from '../../lib/haptics'
+import { animateSpring, type SpringAnimation } from '../../lib/spring'
 import { trackTouches } from '../../lib/touchTracker'
 
 import classes from './SwipeActions.module.css'
+import { nextArmed, settleDecision } from './swipeArmed'
 
 export interface SwipeAction {
   key: string
@@ -18,46 +21,88 @@ interface SwipeActionsProps {
   children: ReactNode
 }
 
+interface Grab {
+  start: number
+  rowWidth: number
+}
+
 const ACTION_WIDTH = 80
-const SNAP_MS = 260
 
 let closeOpenRow: (() => void) | null = null
 
 export function SwipeActions({ actions, children }: SwipeActionsProps) {
   const slideRef = useRef<HTMLDivElement>(null)
-  const underlayRef = useRef<HTMLDivElement>(null)
+  const primaryRef = useRef<HTMLButtonElement>(null)
   const open = useRef(false)
+  const armed = useRef(false)
+  const position = useRef(0)
+  const progress = useRef(0)
+  const motion = useRef<SpringAnimation | null>(null)
+  const armMotion = useRef<SpringAnimation | null>(null)
   const actionsRef = useRef(actions)
   const maxWidth = actions.length * ACTION_WIDTH
+  const primary = actions.find((action) => action.primary)
+  const rest = actions.filter((action) => !action.primary)
 
   actionsRef.current = actions
 
-  const place = useCallback((position: number, revealed: boolean) => {
+  const draw = useCallback(() => {
     const slide = slideRef.current
 
     if (!slide) {
       return
     }
 
-    slide.style.transform = position === 0 ? '' : `translateX(${-position}px)`
-    underlayRef.current?.style.setProperty('--pos', `${position}px`)
-    slide.toggleAttribute('data-revealed', revealed)
+    const shown = Math.max(0, position.current)
+    const visible = ACTION_WIDTH + Math.max(0, shown - ACTION_WIDTH) * progress.current
+
+    slide.style.transform = shown === 0 ? '' : `translateX(${-shown}px)`
+    slide.toggleAttribute('data-revealed', shown > 0)
+    primaryRef.current?.style.setProperty('transform', `translateX(calc(100% - ${visible}px))`)
   }, [])
 
-  const snapTo = useCallback(
-    (from: number, to: number, onDone?: () => void) => {
-      const animation = slideRef.current?.animate(
-        [{ transform: `translateX(${-from}px)` }, { transform: `translateX(${-to}px)` }],
-        { duration: SNAP_MS, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' }
-      )
+  const settle = useCallback(
+    (to: number, velocity: number) => {
+      motion.current?.stop()
 
-      place(to, to > 0)
+      const animation = animateSpring({
+        from: position.current,
+        to,
+        velocity,
+        onUpdate: (value) => {
+          position.current = value
+          draw()
+        },
+      })
 
-      if (animation) {
-        animation.onfinish = () => onDone?.()
-      }
+      motion.current = animation
+
+      return animation.finished
     },
-    [place]
+    [draw]
+  )
+
+  const setArmed = useCallback(
+    (next: boolean) => {
+      if (armed.current === next) {
+        return
+      }
+
+      armed.current = next
+      armMotion.current?.stop()
+      if (next) {
+        haptic('medium')
+      }
+      armMotion.current = animateSpring({
+        from: progress.current,
+        to: next ? 1 : 0,
+        onUpdate: (value) => {
+          progress.current = value
+          draw()
+        },
+      })
+    },
+    [draw]
   )
 
   const close = useCallback(() => {
@@ -69,8 +114,22 @@ export function SwipeActions({ actions, children }: SwipeActionsProps) {
     if (closeOpenRow === close) {
       closeOpenRow = null
     }
-    snapTo(actionsRef.current.length * ACTION_WIDTH, 0)
-  }, [snapTo])
+    setArmed(false)
+    void settle(0, 0)
+  }, [settle, setArmed])
+
+  const reveal = useCallback(() => {
+    if (open.current) {
+      return
+    }
+
+    if (closeOpenRow && closeOpenRow !== close) {
+      closeOpenRow()
+    }
+    open.current = true
+    closeOpenRow = close
+    void settle(maxWidth, 0)
+  }, [close, settle, maxWidth])
 
   useEffect(() => {
     const slide = slideRef.current
@@ -79,13 +138,61 @@ export function SwipeActions({ actions, children }: SwipeActionsProps) {
       return
     }
 
+    let grab: Grab = { start: 0, rowWidth: 0 }
+    let pan: { x: number; y: number } | null = null
+
     const onOutsideTouch = (event: Event) => {
       if (open.current && event.target instanceof Node && !slide.parentElement?.contains(event.target)) {
         close()
       }
     }
 
+    const onScroll = (event: Event) => {
+      const target = event.target
+
+      if (open.current && (target === document || (target instanceof Node && target.contains(slide)))) {
+        close()
+      }
+    }
+
+    const onPanStart = (event: TouchEvent) => {
+      const touch = event.touches[0]
+
+      pan = touch ? { x: touch.clientX, y: touch.clientY } : null
+    }
+
+    const onPanMove = (event: TouchEvent) => {
+      const touch = event.touches[0]
+
+      if (!open.current || !pan || !touch) {
+        return
+      }
+
+      const dy = Math.abs(touch.clientY - pan.y)
+
+      if (dy > AXIS_SLOP && dy > Math.abs(touch.clientX - pan.x)) {
+        pan = null
+        close()
+      }
+    }
+
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select')) {
+        return
+      }
+
+      if (event.key === 'ArrowLeft') {
+        reveal()
+      } else if (event.key === 'ArrowRight' || event.key === 'Escape') {
+        close()
+      }
+    }
+
     document.addEventListener('touchstart', onOutsideTouch, { capture: true, passive: true })
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    slide.addEventListener('touchstart', onPanStart, { passive: true })
+    slide.addEventListener('touchmove', onPanMove, { passive: true })
+    slide.addEventListener('keydown', onKeyDown)
 
     const stop = trackTouches(slide, {
       axis: 'x',
@@ -93,48 +200,103 @@ export function SwipeActions({ actions, children }: SwipeActionsProps) {
         if (closeOpenRow && closeOpenRow !== close) {
           closeOpenRow()
         }
+        grab = { start: position.current, rowWidth: slide.offsetWidth }
 
-        return { start: open.current ? maxWidth : 0, rowWidth: slide.offsetWidth }
+        return grab
       },
-      accept: (dx) => open.current || dx < 0,
-      move: ({ start, rowWidth }, { dx }) => place(rowPosition(start - dx, maxWidth, rowWidth), true),
-      end: ({ start, rowWidth }, { dx }, { vx }) => {
-        const position = rowPosition(start - dx, maxWidth, rowWidth)
-        const primary = actionsRef.current.find((action) => action.primary)
-        const decision = decideRowSwipe(position, -vx, maxWidth, rowWidth)
+      accept: (dx) => {
+        if (position.current <= 0 && dx >= 0) {
+          return false
+        }
 
-        if (decision === 'full' && primary) {
+        motion.current?.stop()
+        grab.start = position.current
+
+        return true
+      },
+      move: (context, { dx }) => {
+        position.current = rowPosition(context.start - dx, maxWidth, context.rowWidth)
+        if (actionsRef.current.some((action) => action.primary)) {
+          setArmed(nextArmed(armed.current, position.current, context.rowWidth))
+        }
+        draw()
+      },
+      end: (context, _drag, { vx }) => {
+        const leftward = -vx
+        const target = actionsRef.current.find((action) => action.primary)
+        const decision = settleDecision(
+          decideRowSwipe(position.current, leftward, maxWidth, context.rowWidth),
+          armed.current
+        )
+
+        if (decision === 'full' && target) {
           open.current = false
-          snapTo(position, rowWidth, () => {
-            primary.onSelect()
-            snapTo(rowWidth, 0)
+          if (closeOpenRow === close) {
+            closeOpenRow = null
+          }
+          void settle(context.rowWidth, leftward).then((settled) => {
+            if (!settled) {
+              return
+            }
+
+            target.onSelect()
+            setArmed(false)
+            void settle(0, 0)
           })
 
           return
         }
 
+        setArmed(false)
         if (decision === 'closed') {
           open.current = false
-          snapTo(position, 0)
+          if (closeOpenRow === close) {
+            closeOpenRow = null
+          }
+          void settle(0, leftward)
 
           return
         }
 
         open.current = true
         closeOpenRow = close
-        snapTo(position, maxWidth)
+        void settle(maxWidth, leftward)
       },
-      cancel: () => place(open.current ? maxWidth : 0, open.current),
+      cancel: () => {
+        setArmed(false)
+        void settle(open.current ? maxWidth : 0, 0)
+      },
     })
 
     return () => {
       stop()
+      motion.current?.stop()
+      armMotion.current?.stop()
       document.removeEventListener('touchstart', onOutsideTouch, { capture: true })
+      document.removeEventListener('scroll', onScroll, { capture: true })
+      slide.removeEventListener('touchstart', onPanStart)
+      slide.removeEventListener('touchmove', onPanMove)
+      slide.removeEventListener('keydown', onKeyDown)
       if (closeOpenRow === close) {
         closeOpenRow = null
       }
     }
-  }, [actions.length, maxWidth, close, place, snapTo])
+  }, [actions.length, maxWidth, close, reveal, draw, settle, setArmed])
+
+  const renderAction = (action: SwipeAction) => (
+    <button
+      key={action.key}
+      type="button"
+      className={classes.action}
+      data-tone={action.tone}
+      onClick={() => {
+        close()
+        action.onSelect()
+      }}
+    >
+      {action.label}
+    </button>
+  )
 
   return (
     <>
@@ -151,28 +313,24 @@ export function SwipeActions({ actions, children }: SwipeActionsProps) {
       >
         {children}
       </div>
-      <div
-        ref={underlayRef}
-        className={classes.underlay}
-        style={{ '--actions': `${maxWidth}px` } as CSSProperties}
-        aria-hidden
-      >
-        {actions.map((action) => (
+      <div className={classes.underlay} data-tone={(rest[0] ?? primary)?.tone}>
+        <div className={classes.rest} style={{ right: primary ? ACTION_WIDTH : 0 }}>
+          {rest.map(renderAction)}
+        </div>
+        {primary && (
           <button
-            key={action.key}
+            ref={primaryRef}
             type="button"
-            className={classes.action}
-            data-tone={action.tone}
-            data-primary={action.primary ? '' : undefined}
-            tabIndex={-1}
+            className={classes.primary}
+            data-tone={primary.tone}
             onClick={() => {
               close()
-              action.onSelect()
+              primary.onSelect()
             }}
           >
-            {action.label}
+            <span className={classes.label}>{primary.label}</span>
           </button>
-        ))}
+        )}
       </div>
     </>
   )

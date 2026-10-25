@@ -57,6 +57,9 @@ pub struct Alert {
     pub title: String,
     pub body: String,
     pub thread_id: Option<String>,
+    pub pipeline_id: Option<String>,
+    pub provider_id: Option<u64>,
+    pub run_number: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -66,6 +69,12 @@ struct RelayNotification<'a> {
     body: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pipeline_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    run_number: Option<u64>,
 }
 
 fn truncate(text: &str, max_chars: usize) -> String {
@@ -100,6 +109,9 @@ fn failure_alert(pipeline: &Pipeline, provider: &str, run: Option<&PipelineRun>)
         ),
         body: truncate(&details, MAX_BODY_CHARS),
         thread_id: Some(pipeline.id.clone()),
+        pipeline_id: Some(pipeline.id.clone()),
+        provider_id: u64::try_from(pipeline.provider_id).ok(),
+        run_number: run.and_then(|run| u64::try_from(run.run_number).ok()),
     }
 }
 
@@ -176,6 +188,9 @@ impl PushServices {
                 title: &alert.title,
                 body: &alert.body,
                 thread_id: alert.thread_id.as_deref(),
+                pipeline_id: alert.pipeline_id.as_deref(),
+                provider_id: alert.provider_id,
+                run_number: alert.run_number,
             })
             .send()
             .await;
@@ -321,6 +336,12 @@ mod tests {
             alert.thread_id.as_deref(),
             Some("github__1__acme/app/ci.yml")
         );
+        assert_eq!(
+            alert.pipeline_id.as_deref(),
+            Some("github__1__acme/app/ci.yml")
+        );
+        assert_eq!(alert.provider_id, Some(1));
+        assert_eq!(alert.run_number, Some(42));
     }
 
     #[test]

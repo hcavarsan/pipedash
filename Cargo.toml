@@ -15,6 +15,7 @@ members = [
   "crates/pipedash-plugin-tekton",
   "crates/pipedash-push-relay",
   "crates/pipedash-web",
+  "crates/tauri-plugin-pipedash-native",
   "crates/tauri-plugin-pipedash-push",
 ]
 
@@ -96,6 +97,7 @@ tauri-plugin-fs = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-os = "2"
+tauri-plugin-pipedash-native = { path = "crates/tauri-plugin-pipedash-native" }
 tauri-plugin-pipedash-push = { path = "crates/tauri-plugin-pipedash-push" }
 tempfile = "3.27"
 thiserror = "2.0"

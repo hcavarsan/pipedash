@@ -1,24 +1,42 @@
 .field {
-  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-block: min(0px, calc((var(--ios-lh-body) - 44px) / 2));
 }
 
 .fieldInput.fieldInput {
-  height: 28px;
-  min-height: 28px;
+  height: auto;
+  min-height: 44px;
   padding-block: 0;
   padding-inline-start: 0;
   border: 0;
+  border-radius: 6px;
   background: transparent;
-  color: var(--mantine-color-text);
-  font-size: 17px;
+  color: var(--ios-label);
+  font-size: var(--ios-fs-body);
+  line-height: var(--ios-lh-body);
   text-align: right;
   text-overflow: ellipsis;
 }
 
 .fieldInput.fieldInput::placeholder {
-  color: var(--mantine-color-dimmed);
+  color: var(--ios-tertiary-label);
+}
+
+.fieldInput.fieldInput:focus-visible {
+  outline: 2px solid var(--ios-tint);
+  outline-offset: 2px;
 }
 
 .fieldSelect.fieldSelect {
-  padding-inline-end: 24px;
+  padding-inline-end: 1.4em;
+}
+
+.rowLabel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
 }

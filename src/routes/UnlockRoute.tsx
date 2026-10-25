@@ -8,6 +8,7 @@ import { useMobileShell } from '../hooks/useIsMobile'
 import { useVaultStatus } from '../queries/useVaultQueries'
 import { wsClient } from '../services'
 import { useAuthStore } from '../stores/authStore'
+import { useMobileNavStore } from '../stores/mobileNavStore'
 
 import classes from './UnlockRoute.module.css'
 
@@ -16,6 +17,7 @@ export function UnlockRoute() {
   const [searchParams] = useSearchParams()
   const consumeReturnPath = useAuthStore((s) => s.consumeReturnPath)
   const requiresPassword = useVaultStatus().data?.requires_password ?? true
+  const takeHeld = useMobileNavStore((s) => s.takeHeld)
   const mobileShell = useMobileShell()
 
   const handleSuccess = useCallback(() => {
@@ -26,9 +28,10 @@ export function UnlockRoute() {
     const storePath = consumeReturnPath()
     const queryPath = searchParams.get('return')
     const returnTo = storePath || queryPath || '/pipelines'
+    const from = takeHeld(returnTo)
 
-    navigate(returnTo, { replace: true })
-  }, [consumeReturnPath, navigate, searchParams])
+    navigate(returnTo, { replace: true, state: from ? { from } : undefined })
+  }, [consumeReturnPath, navigate, searchParams, takeHeld])
 
   if (mobileShell) {
     return (

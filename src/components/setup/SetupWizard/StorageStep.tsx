@@ -63,14 +63,14 @@ export function StorageStep({ state, setState, currentConfig, vaultStatus, error
         <Stack gap="md">
           <IosGroup
             header="On-device storage"
-            footer="Pipedash keeps its data in a SQLite database in the app's own storage. Provider tokens stay in the device Keychain, so there is no vault password to set."
+            footer="Your data stays in a private database on this device. Provider tokens are kept in the Keychain, so there is no vault password to set."
           >
             <IosRow title="Database" value={STORAGE_BACKEND_LABELS.sqlite} />
             <IosRow title="Provider tokens" value="Device Keychain" />
           </IosGroup>
 
           {error && (
-            <Text size="sm" c="red" px="md">
+            <Text size="sm" c="red" px="md" role="alert">
               {error}
             </Text>
           )}

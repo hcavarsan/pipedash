@@ -598,8 +598,19 @@ export interface UnlockVaultResponse {
 
 export interface ExportFileResult {
   path: string
-  location: 'documents'
+  shared: boolean
 }
+
+export interface NotificationTarget {
+  key: string
+  pipelineId?: string
+  providerId?: number
+  runNumber?: number
+}
+
+export type NativeIntent =
+  | ({ type: 'notification'; action: string } & Partial<NotificationTarget>)
+  | { type: 'link'; path: string; runNumber?: number }
 
 export interface PushServer {
   id: string

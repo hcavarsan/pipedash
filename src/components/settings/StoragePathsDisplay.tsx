@@ -1,9 +1,11 @@
-import { ActionIcon, Card, Group, Stack, Text, Tooltip } from '@mantine/core'
+import { ActionIcon, Card, Group, Stack, Text, Tooltip, VisuallyHidden } from '@mantine/core'
 import { useClipboard } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { IconCheck, IconCopy, IconEdit, IconFolderOpen } from '@tabler/icons-react'
+import { useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
+import { haptic } from '../../lib/haptics'
 import { logger } from '../../lib/logger'
 import { service } from '../../services'
 import type { PipedashConfig, StoragePathsResponse } from '../../types'
@@ -89,36 +91,61 @@ const PathRow = ({ label, path, kind, canOpen, onEdit }: PathRowProps) => {
   )
 }
 
-const CopyPathRow = ({ label, path }: { label: string; path: string }) => {
-  const { copy, copied } = useClipboard({ timeout: 2000 })
-
-  return (
-    <IosRow
-      title={label}
-      subtitle={path}
-      ariaLabel={`Copy ${label.toLowerCase()} path`}
-      onClick={() => copy(path)}
-      accessory={copied ? <IconCheck size={18} color="var(--ios-green)" /> : <IconCopy size={18} aria-hidden />}
-    />
-  )
+interface CopyPathRowProps {
+  label: string
+  path: string
+  copied: boolean
+  onCopy: (label: string, path: string) => void
 }
+
+const CopyPathRow = ({ label, path, copied, onCopy }: CopyPathRowProps) => (
+  <IosRow
+    title={label}
+    subtitle={path}
+    onClick={() => onCopy(label, path)}
+    accessory={
+      copied ? <IconCheck size={18} color="var(--ios-green)" aria-hidden /> : <IconCopy size={18} aria-hidden />
+    }
+  />
+)
 
 export const StoragePathsDisplay = ({ paths, config, onEditConfig }: StoragePathsDisplayProps) => {
   const canOpen = isDesktopTauri()
   const mobileShell = useMobileShell()
   const isPostgres = config?.storage?.backend === 'postgres'
+  const { copy, copied } = useClipboard({ timeout: 2000 })
+  const [copiedLabel, setCopiedLabel] = useState<string | null>(null)
+
+  const copyPath = (label: string, path: string) => {
+    copy(path)
+    setCopiedLabel(label)
+    haptic('success')
+  }
+  const row = (label: string, path: string) => (
+    <CopyPathRow label={label} path={path} copied={copied && copiedLabel === label} onCopy={copyPath} />
+  )
 
   if (mobileShell) {
     return (
       <>
-        <IosGroup header="Storage paths" footer="Tap a path to copy it.">
-          <CopyPathRow label="Configuration" path={paths.config_file} />
+        <IosGroup
+          header="Storage paths"
+          footer={
+            <>
+              Tap a path to copy it.
+              <VisuallyHidden role="status">
+                {copied && copiedLabel ? `Copied ${copiedLabel.toLowerCase()} path` : ''}
+              </VisuallyHidden>
+            </>
+          }
+        >
+          {row('Configuration', paths.config_file)}
           {!isPostgres && (
             <>
-              <CopyPathRow label="Database" path={paths.pipedash_db} />
-              <CopyPathRow label="Metrics DB" path={paths.metrics_db} />
-              <CopyPathRow label="Data directory" path={paths.data_dir} />
-              <CopyPathRow label="Cache directory" path={paths.cache_dir} />
+              {row('Database', paths.pipedash_db)}
+              {row('Metrics DB', paths.metrics_db)}
+              {row('Data directory', paths.data_dir)}
+              {row('Cache directory', paths.cache_dir)}
             </>
           )}
         </IosGroup>

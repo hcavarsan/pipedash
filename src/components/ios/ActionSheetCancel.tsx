@@ -1,7 +1,7 @@
 import { Menu } from '@mantine/core'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
-import { iosClasses } from '../../theme/ios'
+import { iosOverlayClasses } from '../../theme/iosOverlays'
 
 export function ActionSheetCancel() {
   const mobileShell = useMobileShell()
@@ -10,5 +10,5 @@ export function ActionSheetCancel() {
     return null
   }
 
-  return <Menu.Item className={iosClasses.menuCancel}>Cancel</Menu.Item>
+  return <Menu.Item className={`${iosOverlayClasses.menuItem} ${iosOverlayClasses.menuCancel}`}>Cancel</Menu.Item>
 }

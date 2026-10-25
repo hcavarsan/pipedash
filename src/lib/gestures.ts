@@ -1,3 +1,5 @@
+import { project, rubberband } from './spring'
+
 export type Axis = 'x' | 'y'
 
 export interface Sample {
@@ -6,14 +8,14 @@ export interface Sample {
   y: number
 }
 
-export const AXIS_SLOP = 8
+export const AXIS_SLOP = 10
 export const EDGE_ZONE = 24
-export const PULL_THRESHOLD = 50
-export const PULL_HOLD = 50
-export const PULL_LIMIT = 120
+export const PULL_THRESHOLD = 64
+export const PULL_HOLD = 56
 
-const VELOCITY_WINDOW_MS = 100
-const FLICK = 0.5
+export const VELOCITY_WINDOW_MS = 100
+const REVERSE_SPEED = 150
+const FULL_SWIPE_RATIO = 0.6
 
 export function lockAxis(dx: number, dy: number, slop = AXIS_SLOP): Axis | null {
   if (Math.max(Math.abs(dx), Math.abs(dy)) < slop) {
@@ -23,45 +25,49 @@ export function lockAxis(dx: number, dy: number, slop = AXIS_SLOP): Axis | null 
   return Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'
 }
 
-export function releaseVelocity(samples: Sample[]): { vx: number; vy: number } {
-  const last = samples[samples.length - 1]
+export function releaseVelocity(samples: Sample[], releaseTime: number): { vx: number; vy: number } {
+  const recent = samples.filter((sample) => releaseTime - sample.t <= VELOCITY_WINDOW_MS)
+  const first = recent[0]
+  const last = recent[recent.length - 1]
 
-  if (!last) {
+  if (!first || !last || last.t <= first.t) {
     return { vx: 0, vy: 0 }
   }
 
-  const first = samples.find((sample) => last.t - sample.t <= VELOCITY_WINDOW_MS) ?? last
-  const dt = last.t - first.t
+  const seconds = (last.t - first.t) / 1000
 
-  if (dt <= 0) {
-    return { vx: 0, vy: 0 }
-  }
-
-  return { vx: (last.x - first.x) / dt, vy: (last.y - first.y) / dt }
+  return { vx: (last.x - first.x) / seconds, vy: (last.y - first.y) / seconds }
 }
 
-export function rubberBand(distance: number, limit: number, stiffness = 1): number {
-  if (distance <= 0) {
-    return 0
-  }
-
-  return (1 - 1 / ((distance * stiffness) / limit + 1)) * limit
+export function resist(distance: number, dimension: number): number {
+  return distance <= 0 ? 0 : rubberband(distance, dimension)
 }
 
 export function decideSwipeBack(dx: number, vx: number, width: number): 'complete' | 'cancel' {
-  if (vx < -FLICK / 2) {
+  if (vx < -REVERSE_SPEED) {
     return 'cancel'
   }
 
-  return dx > width * 0.4 || (vx > FLICK && dx > 16) ? 'complete' : 'cancel'
+  return project(dx, vx) > width / 2 ? 'complete' : 'cancel'
 }
 
 export function decideSheetDismiss(dy: number, vy: number, height: number): 'dismiss' | 'cancel' {
-  if (vy < -FLICK / 2) {
+  if (vy < -REVERSE_SPEED) {
     return 'cancel'
   }
 
-  return dy > height * 0.35 || (vy > FLICK && dy > 24) ? 'dismiss' : 'cancel'
+  return project(dy, vy) > height / 2 ? 'dismiss' : 'cancel'
+}
+
+export function nearestStop(position: number, velocity: number, stops: number[]): number {
+  const projected = project(position, velocity)
+  const ahead =
+    Math.abs(velocity) > REVERSE_SPEED
+      ? stops.filter((stop) => (velocity > 0 ? stop >= position : stop <= position))
+      : stops
+  const candidates = ahead.length > 0 ? ahead : stops
+
+  return candidates.reduce((best, stop) => (Math.abs(stop - projected) < Math.abs(best - projected) ? stop : best))
 }
 
 export function decidePull(pull: number, threshold = PULL_THRESHOLD): 'refresh' | 'cancel' {
@@ -70,26 +76,29 @@ export function decidePull(pull: number, threshold = PULL_THRESHOLD): 'refresh' 
 
 export type RowSwipeResult = 'closed' | 'open' | 'full'
 
-export function decideRowSwipe(position: number, leftwardVelocity: number, actionsWidth: number, rowWidth: number) {
-  if (position > rowWidth * 0.6 || (leftwardVelocity > FLICK * 2 && position > actionsWidth * 1.15)) {
-    return 'full' satisfies RowSwipeResult
+export const fullSwipeArmed = (position: number, rowWidth: number): boolean => position >= rowWidth * FULL_SWIPE_RATIO
+
+export function decideRowSwipe(
+  position: number,
+  leftwardVelocity: number,
+  actionsWidth: number,
+  rowWidth: number
+): RowSwipeResult {
+  if (leftwardVelocity < -REVERSE_SPEED) {
+    return 'closed'
   }
 
-  if (leftwardVelocity > FLICK / 2) {
-    return 'open' satisfies RowSwipeResult
+  if (fullSwipeArmed(position, rowWidth)) {
+    return 'full'
   }
 
-  if (leftwardVelocity < -FLICK / 2) {
-    return 'closed' satisfies RowSwipeResult
-  }
-
-  return (position > actionsWidth / 2 ? 'open' : 'closed') satisfies RowSwipeResult
+  return project(position, leftwardVelocity) > actionsWidth / 2 ? 'open' : 'closed'
 }
 
 export function rowPosition(raw: number, actionsWidth: number, rowWidth: number): number {
   if (raw < 0) {
-    return -rubberBand(-raw, actionsWidth)
+    return rubberband(raw, actionsWidth)
   }
 
-  return Math.min(raw, rowWidth)
+  return raw > rowWidth ? rowWidth + rubberband(raw - rowWidth, rowWidth) : raw
 }

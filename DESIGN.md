@@ -59,3 +59,17 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Every icon button has an `aria-label` that matches its tooltip.
 - Clickable things are buttons or links. Interactive elements are never nested.
 - Every input has a label. Use a visible label, or an `aria-label` when space is tight.
+
+## iPhone
+
+- The phone shell sets `data-ios` on the root. Desktop and iPad styles never read these tokens.
+- Text uses the `--ios-fs-*` and `--ios-lh-*` tokens: large title, title1 to title3, headline, body, callout, subheadline, footnote, caption1 and caption2. The Mantine sizes map to them: `xs` footnote, `sm` subheadline, `md` body, `lg` title3, `xl` title2. Headline is 600, the navigation large title is 700, everything else is 400. Letter spacing stays `normal` because the system font tracks itself.
+- Dynamic Type: when WebKit supports `font: -apple-system-body`, a hidden probe measures the body size and sets `--ios-text-scale` on the root. It updates live. Paddings next to text use `em` and containers use minimum heights, so rows grow with the text. Zoom stays enabled.
+- `TYPOGRAPHY` roles (`headline`, `body`, `callout`, `subheadline`, `caption`) resolve to the same small Mantine sizes on desktop and to the iOS styles on the phone shell.
+- Colors follow the iOS roles: `--ios-label`, `--ios-secondary-label`, `--ios-bg`, `--ios-grouped-bg`, `--ios-cell`, `--ios-tint`, `--ios-red` and `--ios-green`, each defined for light and dark. Root pages sit on the grouped background so white cells show in light mode. Inside sheets and popovers in dark mode, cells are `#2c2c2e` and the background is `#1c1c1e`. Run status colors keep their own scale.
+- Bars, sheets and alerts use the `--ios-material-*` tokens with `--ios-material-filter`. Never stack a translucent surface on another.
+- Reduce Transparency (system setting or the native bridge) sets `data-reduce-transparency`: materials become opaque and the blur is removed. Increase Contrast sets `data-increase-contrast`: the tint, red, green and secondary label switch to the accessible values, separators turn opaque, and materials get a visible edge through `--ios-material-edge`.
+- Controls keep a 44pt touch area even when the visual is smaller. Keyboard focus shows a 2px tint ring. Touch shows none.
+- Motion on gestures uses springs from `src/lib/spring.ts`: damping 1 by default, a little bounce only after a flick. Reduce Motion replaces movement with a short fade.
+- Haptics fire in the same frame as the visual change and only for meaningful moments: a pull to refresh arming, a full swipe arming, a long-press menu opening, and success, warning and error outcomes.
+- Chrome and controls are not selectable. Content text such as errors, IDs, URLs and SHAs is.
