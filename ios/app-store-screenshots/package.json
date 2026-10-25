@@ -1,0 +1,60 @@
+{
+  "name": "app-store-screenshots",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "export:fastlane": "node scripts/export-fastlane.mjs",
+    "test:export-fastlane": "node --test scripts/export-fastlane.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "E2E_TELEMETRY_DISABLED=1 e2e run",
+    "test:e2e:list": "E2E_TELEMETRY_DISABLED=1 e2e list",
+    "test:regression": "node tests/harness/run.cjs"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.1.0",
+    "@dnd-kit/sortable": "^8.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@radix-ui/react-dialog": "^1.1.2",
+    "@radix-ui/react-dropdown-menu": "^2.1.2",
+    "@radix-ui/react-label": "^2.1.0",
+    "@radix-ui/react-popover": "^1.1.2",
+    "@radix-ui/react-select": "^2.1.2",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-tabs": "^1.1.1",
+    "@radix-ui/react-tooltip": "^1.1.4",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "html-to-image": "^1.11.11",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.460.0",
+    "next": "16.3.8",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-rnd": "^10.5.3",
+    "sharp": "0.35.4",
+    "sonner": "^1.7.0",
+    "tailwind-merge": "^2.5.4",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^3.4.15",
+    "typescript": "^5.6.3",
+    "e2e": "0.16.0",
+    "@e2e-dev/web": "0.11.2",
+    "playwright": "1.63.0"
+  },
+  "overrides": {
+    "nanoid": "^3.3.18"
+  }
+}

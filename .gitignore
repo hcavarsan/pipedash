@@ -43,10 +43,30 @@ CLI.md
 
 tsconfig.tsbuildinfo
 .env
+.env.*
+!.env.example
+!.env.*.example
 cert.sh
 cert_gen.sh
 certificate-base64.txt
 DeveloperID_*
+*.p8
+*.p12
+*.mobileprovision
 
 # OpenQodex local review config
 .openqodex/
+
+# Generated App Store screenshots
+/ios/fastlane/screenshots/
+/ios/fastlane/report.xml
+/ios/fastlane/README.md
+/ios/.bundle/
+/ios/vendor/bundle/
+/ios/screenshots/
+/ios/*.ipa
+/ios/*.dSYM
+/ios/*.dSYM.zip
+/ios/*.xcarchive/
+/ios/*.xcresult/
+/ios/**/Preview.html

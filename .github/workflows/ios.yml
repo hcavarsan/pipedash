@@ -6,11 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       lane:
-        description: "beta uploads to TestFlight, release also submits for App Store review"
+        description: "beta: TestFlight; release: App Store review; upload_screenshots: images only"
         type: choice
         options:
           - beta
           - release
+          - upload_screenshots
         default: beta
 
 permissions: {}
@@ -38,6 +39,7 @@ jobs:
           rust-targets: aarch64-apple-ios
 
       - name: Configure match deploy key
+        if: ${{ (inputs.lane || 'beta') != 'upload_screenshots' }}
         env:
           MATCH_DEPLOY_KEY: ${{ secrets.MATCH_DEPLOY_KEY }}
         run: |
@@ -45,7 +47,7 @@ jobs:
           printf '%s\n' "$MATCH_DEPLOY_KEY" > "$RUNNER_TEMP/match_key"
           echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$RUNNER_TEMP/known_hosts"
 
-      - name: Build and upload
+      - name: Run Fastlane
         env:
           LANE: ${{ inputs.lane || 'beta' }}
           APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
@@ -60,3 +62,14 @@ jobs:
           PIPEDASH_PUSH_RELAY_URL: ${{ vars.PIPEDASH_PUSH_RELAY_URL }}
         working-directory: ios
         run: bundle exec fastlane ios "$LANE"
+
+      - name: Upload App Store screenshots
+        if: ${{ always() && (inputs.lane == 'release' || inputs.lane == 'upload_screenshots') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-app-store-screenshots
+          path: |
+            ios/fastlane/screenshots
+            ios/app-store-screenshots/exports
+          if-no-files-found: warn
+          retention-days: 14

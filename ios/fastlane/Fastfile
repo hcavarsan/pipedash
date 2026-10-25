@@ -146,6 +146,41 @@ platform :ios do
     UI.user_error!("#{APP_ID} stopped within 20s on #{not_running.map { |d| d["name"] }.join(", ")}") unless not_running.empty?
   end
 
+  desc "Export the approved iPhone and iPad compositions for App Store Connect"
+  lane :prepare_screenshots do
+    Dir.chdir(File.join(ROOT, "ios/app-store-screenshots")) do
+      sh("bun", "install", "--frozen-lockfile")
+      sh("bun", "x", "--no-install", "playwright", "install", "chromium") if ENV["CHROMIUM_PATH"].to_s.empty?
+      sh("bun", "run", "build")
+      sh("bun", "run", "export:fastlane")
+    end
+    screenshots_path = File.join(ROOT, "ios/fastlane/screenshots")
+    unexpected = Dir.children(screenshots_path) - ["en-US"]
+    UI.user_error!("Screenshot upload must contain only en-US; found #{unexpected.join(', ')}") unless unexpected.empty?
+    screenshots_path
+  end
+
+  desc "Replace en-US screenshots on the existing editable App Store version without submitting it"
+  lane :upload_screenshots do
+    screenshots_path = prepare_screenshots
+    upload_to_app_store(
+      api_key: asc_api_key,
+      app_identifier: APP_ID,
+      screenshots_path: screenshots_path,
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_app_version_update: true,
+      skip_screenshots: false,
+      overwrite_screenshots: true,
+      sync_screenshots: false,
+      edit_live: false,
+      use_live_version: false,
+      submit_for_review: false,
+      force: true,
+      run_precheck_before_submit: false,
+    )
+  end
+
   private_lane :asc_api_key do
     app_store_connect_api_key(
       key_id: ENV.fetch("ASC_KEY_ID"),
@@ -185,6 +220,7 @@ platform :ios do
 
   desc "Build, upload and submit for App Store review"
   lane :release do
+    screenshots_path = prepare_screenshots
     demo = {
       demo_token: ENV["APP_REVIEW_DEMO_TOKEN"].to_s,
       demo_repository: ENV["APP_REVIEW_DEMO_REPOSITORY"].to_s,
@@ -201,7 +237,10 @@ platform :ios do
       ipa: ipa,
       app_identifier: APP_ID,
       metadata_path: File.join(__dir__, "metadata"),
-      skip_screenshots: true,
+      screenshots_path: screenshots_path,
+      skip_screenshots: false,
+      overwrite_screenshots: true,
+      sync_screenshots: false,
       app_review_information: { notes: notes },
       submit_for_review: true,
       automatic_release: false,

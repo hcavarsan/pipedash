@@ -37,6 +37,10 @@ jobs:
         with:
           rust-targets: aarch64-apple-ios
 
+      - name: Test iOS release helpers and publishing guards
+        working-directory: ios
+        run: bundle exec ruby -e 'Dir["fastlane/*_test.rb"].sort.each { |file| require_relative file }'
+
       - name: Build and check
         working-directory: ios
         run: bundle exec fastlane ios check

@@ -1,0 +1,635 @@
+{
+  "schemaVersion": 3,
+  "appName": "Pipedash",
+  "themeId": "midnight-glow-pro",
+  "fontId": "system-sans",
+  "connectedCanvas": true,
+  "locales": [
+    "en"
+  ],
+  "locale": "en",
+  "device": "iphone",
+  "orientation": "portrait",
+  "appIcon": "/app-icon.png",
+  "slidesByDevice": {
+    "iphone": [
+      {
+        "id": "iphone-01",
+        "layout": "hero",
+        "label": {
+          "en": "PIPEDASH / CI & CD"
+        },
+        "headline": {
+          "en": "Every pipeline,\n*one place.*"
+        },
+        "screenshot": "/screenshots/apple/iphone/{locale}/01.png",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 150,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 170,
+            "y": 780,
+            "width": 980,
+            "height": 2000,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "iphone-02",
+        "layout": "device-bottom",
+        "label": {
+          "en": "01 / RUN WORKFLOWS"
+        },
+        "headline": {
+          "en": "Run workflows.\n*From anywhere.*"
+        },
+        "screenshot": "/screenshots/apple/iphone/{locale}/02.png",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 150,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 215,
+            "y": 770,
+            "width": 1040,
+            "height": 2122.4489795918366,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "iphone-03",
+        "layout": "device-top",
+        "label": {
+          "en": "02 / RUN HISTORY"
+        },
+        "headline": {
+          "en": "Find the failure.\n*See the details.*"
+        },
+        "screenshot": "/screenshots/apple/iphone/{locale}/03.png",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 2240,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 170,
+            "y": 70,
+            "width": 980,
+            "height": 2000,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "iphone-04",
+        "layout": "hero",
+        "label": {
+          "en": "03 / STATUS PAGES"
+        },
+        "headline": {
+          "en": "Provider status.\n*In context.*"
+        },
+        "screenshot": "/screenshots/apple/iphone/{locale}/04.png",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 150,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 170,
+            "y": 780,
+            "width": 980,
+            "height": 2000,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "iphone-05",
+        "layout": "device-bottom",
+        "label": {
+          "en": "04 / NOTIFICATIONS"
+        },
+        "headline": {
+          "en": "Outage alerts.\n*In one inbox.*"
+        },
+        "screenshot": "/screenshots/apple/iphone/{locale}/05.png",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 150,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 80,
+            "y": 770,
+            "width": 1040,
+            "height": 2122.4489795918366,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "iphone-06",
+        "layout": "no-device",
+        "label": {
+          "en": "PIPEDASH / BUILT FOR YOUR WORK"
+        },
+        "headline": {
+          "en": "Your pipelines.\n*Under control.*"
+        },
+        "screenshot": "",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 150,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          }
+        },
+        "textElements": [
+          {
+            "id": "feature-0",
+            "text": {
+              "en": "All your providers"
+            },
+            "transform": {
+              "x": 130,
+              "y": 780,
+              "width": 1060,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 5
+            },
+            "fontSize": 58,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-1",
+            "text": {
+              "en": "Workflow inputs"
+            },
+            "transform": {
+              "x": 130,
+              "y": 1030,
+              "width": 1060,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 6
+            },
+            "fontSize": 58,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-2",
+            "text": {
+              "en": "Run history"
+            },
+            "transform": {
+              "x": 130,
+              "y": 1280,
+              "width": 1060,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 7
+            },
+            "fontSize": 58,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-3",
+            "text": {
+              "en": "Status pages"
+            },
+            "transform": {
+              "x": 130,
+              "y": 1530,
+              "width": 1060,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 8
+            },
+            "fontSize": 58,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-4",
+            "text": {
+              "en": "Outage notifications"
+            },
+            "transform": {
+              "x": 130,
+              "y": 1780,
+              "width": 1060,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 9
+            },
+            "fontSize": 58,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "wordmark",
+            "text": {
+              "en": "Pipedash"
+            },
+            "transform": {
+              "x": 570,
+              "y": 2320,
+              "width": 550,
+              "height": 170,
+              "rotation": 0,
+              "zIndex": 12
+            },
+            "fontSize": 80,
+            "fontWeight": 600,
+            "align": "left"
+          }
+        ],
+        "imageElements": [
+          {
+            "id": "app-icon",
+            "src": "/app-icon.png",
+            "transform": {
+              "x": 365,
+              "y": 2320,
+              "width": 170,
+              "height": 170,
+              "rotation": 0,
+              "zIndex": 11
+            },
+            "fit": "contain"
+          }
+        ]
+      }
+    ],
+    "android": [],
+    "ipad": [
+      {
+        "id": "ipad-01",
+        "layout": "hero",
+        "label": {
+          "en": "PIPEDASH / CI & CD"
+        },
+        "headline": {
+          "en": "Every pipeline,\n*one place.*"
+        },
+        "screenshot": "/screenshots/apple/ipad/{locale}/01.png",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 150,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 292,
+            "y": 739,
+            "width": 1480,
+            "height": 1930.4347826086955,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "ipad-02",
+        "layout": "device-bottom",
+        "label": {
+          "en": "01 / RUN WORKFLOWS"
+        },
+        "headline": {
+          "en": "Run workflows.\n*From anywhere.*"
+        },
+        "screenshot": "/screenshots/apple/ipad/{locale}/02.png",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 150,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 292,
+            "y": 739,
+            "width": 1480,
+            "height": 1930.4347826086955,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "ipad-03",
+        "layout": "device-top",
+        "label": {
+          "en": "02 / RUN HISTORY"
+        },
+        "headline": {
+          "en": "Find the failure.\n*See the details.*"
+        },
+        "screenshot": "/screenshots/apple/ipad/{locale}/03.png",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 2210,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 292,
+            "y": 70,
+            "width": 1480,
+            "height": 1930.4347826086955,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "ipad-04",
+        "layout": "hero",
+        "label": {
+          "en": "03 / STATUS PAGES"
+        },
+        "headline": {
+          "en": "Provider status.\n*In context.*"
+        },
+        "screenshot": "/screenshots/apple/ipad/{locale}/04.png",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 150,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 292,
+            "y": 739,
+            "width": 1480,
+            "height": 1930.4347826086955,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "ipad-05",
+        "layout": "device-bottom",
+        "label": {
+          "en": "04 / NOTIFICATIONS"
+        },
+        "headline": {
+          "en": "Outage alerts.\n*In one inbox.*"
+        },
+        "screenshot": "/screenshots/apple/ipad/{locale}/05.png",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 150,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 292,
+            "y": 739,
+            "width": 1480,
+            "height": 1930.4347826086955,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "ipad-06",
+        "layout": "no-device",
+        "label": {
+          "en": "PIPEDASH / BUILT FOR YOUR WORK"
+        },
+        "headline": {
+          "en": "Your pipelines.\n*Under control.*"
+        },
+        "screenshot": "",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 150,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          }
+        },
+        "textElements": [
+          {
+            "id": "feature-0",
+            "text": {
+              "en": "All your providers"
+            },
+            "transform": {
+              "x": 350,
+              "y": 760,
+              "width": 1364,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 5
+            },
+            "fontSize": 70,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-1",
+            "text": {
+              "en": "Workflow inputs"
+            },
+            "transform": {
+              "x": 350,
+              "y": 1010,
+              "width": 1364,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 6
+            },
+            "fontSize": 70,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-2",
+            "text": {
+              "en": "Run history"
+            },
+            "transform": {
+              "x": 350,
+              "y": 1260,
+              "width": 1364,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 7
+            },
+            "fontSize": 70,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-3",
+            "text": {
+              "en": "Status pages"
+            },
+            "transform": {
+              "x": 350,
+              "y": 1510,
+              "width": 1364,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 8
+            },
+            "fontSize": 70,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-4",
+            "text": {
+              "en": "Outage notifications"
+            },
+            "transform": {
+              "x": 350,
+              "y": 1760,
+              "width": 1364,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 9
+            },
+            "fontSize": 70,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "wordmark",
+            "text": {
+              "en": "Pipedash"
+            },
+            "transform": {
+              "x": 900,
+              "y": 2280,
+              "width": 700,
+              "height": 170,
+              "rotation": 0,
+              "zIndex": 12
+            },
+            "fontSize": 96,
+            "fontWeight": 600,
+            "align": "left"
+          }
+        ],
+        "imageElements": [
+          {
+            "id": "app-icon",
+            "src": "/app-icon.png",
+            "transform": {
+              "x": 680,
+              "y": 2280,
+              "width": 170,
+              "height": 170,
+              "rotation": 0,
+              "zIndex": 11
+            },
+            "fit": "contain"
+          }
+        ]
+      }
+    ],
+    "tvos": [],
+    "watchos": [],
+    "carplay": [],
+    "mac": [],
+    "android-7": [],
+    "android-10": [],
+    "feature-graphic": [],
+    "duo-outer": [],
+    "duo-outer-landscape": [],
+    "duo-inner": [],
+    "duo-inner-landscape": [],
+    "creative-universal": [],
+    "creative-header": [],
+    "creative-search": []
+  },
+  "scene": {
+    "backdrop": "solid",
+    "span": true,
+    "decoration": "none",
+    "shadow": 0,
+    "glow": 0,
+    "tilt": 0,
+    "headlineWeight": 600,
+    "headlineScale": 1,
+    "headlineCase": "as-typed",
+    "captionAlign": "auto"
+  }
+}
