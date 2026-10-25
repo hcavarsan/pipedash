@@ -49,6 +49,15 @@ pub struct NotificationResponse {
     pub run_number: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

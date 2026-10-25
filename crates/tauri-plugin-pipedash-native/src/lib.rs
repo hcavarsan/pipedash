@@ -26,6 +26,7 @@ pub use model::{
     HapticKind,
     NotificationResponse,
     PrivacyCover,
+    ShareRect,
 };
 #[cfg(not(target_os = "ios"))]
 pub use unsupported::PipedashNative;

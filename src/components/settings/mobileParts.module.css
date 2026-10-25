@@ -26,7 +26,11 @@
   color: var(--ios-tertiary-label);
 }
 
-.fieldInput.fieldInput:focus-visible {
+.fieldInput.fieldInput:focus {
+  outline: 0;
+}
+
+:global(html[data-keyboard-focus]) .fieldInput.fieldInput:focus-visible {
   outline: 2px solid var(--ios-tint);
   outline-offset: 2px;
 }

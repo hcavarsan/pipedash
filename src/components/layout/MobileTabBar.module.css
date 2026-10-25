@@ -23,7 +23,8 @@
     visibility 0s linear 240ms;
 }
 
-.bar[data-hidden] {
+.bar[data-hidden],
+.bar[data-editing] {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;

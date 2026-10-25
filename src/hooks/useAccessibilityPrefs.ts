@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 
 import { mobileService, type NativeAccessibility } from '../services/mobile'
 import { isMobilePlatform } from '../utils/platform'
+import { isMobileShell } from './useIsMobile'
 
 const REDUCE_TRANSPARENCY = '(prefers-reduced-transparency: reduce)'
 const MORE_CONTRAST = '(prefers-contrast: more)'
@@ -13,12 +14,8 @@ const NAVIGATION_KEYS: Record<string, true> = {
   ArrowRight: true,
 }
 
-export function useAccessibilityPrefs(active: boolean): void {
+export function useAccessibilityPrefs(): void {
   useEffect(() => {
-    if (!active) {
-      return
-    }
-
     const root = document.documentElement
     const transparency = window.matchMedia(REDUCE_TRANSPARENCY)
     const contrast = window.matchMedia(MORE_CONTRAST)
@@ -30,7 +27,7 @@ export function useAccessibilityPrefs(active: boolean): void {
       root.toggleAttribute('data-increase-contrast', contrast.matches || native.increaseContrast)
     }
     const refreshNative = () => {
-      if (!isMobilePlatform()) {
+      if (!isMobileShell() || !isMobilePlatform()) {
         return
       }
 
@@ -77,5 +74,5 @@ export function useAccessibilityPrefs(active: boolean): void {
       root.removeAttribute('data-increase-contrast')
       root.removeAttribute('data-keyboard-focus')
     }
-  }, [active])
+  }, [])
 }

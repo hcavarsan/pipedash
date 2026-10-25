@@ -15,7 +15,6 @@ import {
 } from '@mantine/core'
 import { IconAlertTriangle, IconEdit, IconPinFilled, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-
 import { useProviders } from '../../queries/useProvidersQueries'
 import { useProviderStore } from '../../stores/providerStore'
 import type { ProviderSummary } from '../../types'
@@ -26,6 +25,7 @@ import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { useConfirmRemoveProvider } from '../provider/ProviderModals'
+import { fromOf } from './mobileChrome'
 
 interface NavbarProps {
   compact?: boolean
@@ -70,10 +70,13 @@ export const ProviderStatusLine = ({ provider }: { provider: ProviderSummary }) 
 }
 
 export const Navbar = ({ compact = false }: NavbarProps) => {
-  const { pathname } = useLocation()
+  const { pathname, state } = useLocation()
   const [searchParams] = useSearchParams()
-  const pinnedActive = pathname === '/pipelines' && searchParams.get('view') === 'pinned'
-  const providerParam = pathname === '/pipelines' && !pinnedActive ? searchParams.get('provider') : null
+  const parent = pathname.startsWith('/pipelines/') ? (fromOf(state) ?? '/pipelines') : null
+  const parentParams = parent ? new URLSearchParams(parent.split('?')[1] ?? '') : searchParams
+  const inPipelines = pathname === '/pipelines' || parent !== null
+  const pinnedActive = inPipelines && parentParams.get('view') === 'pinned'
+  const providerParam = inPipelines && !pinnedActive ? parentParams.get('provider') : null
 
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const requestEditProvider = useProviderStore((s) => s.requestEditProvider)
@@ -89,7 +92,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
   const confirmRemove = useConfirmRemoveProvider()
 
   const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
-  const allActive = pathname === '/pipelines' && providerParam === null && !pinnedActive
+  const allActive = inPipelines && providerParam === null && !pinnedActive
 
   const railItem = (label: string, to: string, active: boolean, icon: React.ReactNode) => (
     <Tooltip label={label} position="right" key={to}>
@@ -97,7 +100,8 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
         component={Link}
         to={to}
         size={44}
-        radius="md"
+        radius="sm"
+        className="interactive-surface"
         variant={active ? 'light' : 'subtle'}
         color={active ? 'blue' : 'gray'}
         aria-label={label}
@@ -110,7 +114,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
 
   const content = compact ? (
     <ScrollArea flex={1} py="sm" scrollbarSize={4}>
-      <Stack gap={6} align="center">
+      <Stack gap="2xs" align="center">
         {railItem(
           `All providers · ${formatCount(totalPipelines, 'pipeline')}`,
           '/pipelines',
@@ -123,16 +127,16 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
           pinnedActive,
           <NavTile icon={IconPinFilled} size={ICON_TILE.rail} />
         )}
-        <Divider w={32} my={4} />
+        <Divider w={32} my="3xs" />
         {loading ? (
           <Center h={44}>
             <Loader size="sm" />
           </Center>
         ) : providersError ? (
-          <Tooltip label="Couldn't load providers. Click to retry." position="right">
+          <Tooltip label="Couldn't load providers. Retry" position="right">
             <ActionIcon
               size={44}
-              radius="md"
+              radius="sm"
               variant="light"
               color="red"
               aria-label="Couldn't load providers. Retry"
@@ -156,12 +160,14 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
     </ScrollArea>
   ) : (
     <ScrollArea flex={1} px="sm" py="sm">
-      <Stack gap={2}>
+      <Stack gap="4xs">
         <NavLink
           leftSection={<NavTile icon={IconStack2} size={ICON_TILE.list} />}
           label="All providers"
           description={loading || providersError ? undefined : `${formatCount(totalPipelines, 'pipeline')} total`}
           active={allActive}
+          aria-current={allActive ? 'page' : undefined}
+          className="interactive-surface"
           component={Link}
           to="/pipelines"
           variant="light"
@@ -170,12 +176,14 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
           leftSection={<NavTile icon={IconPinFilled} size={ICON_TILE.list} />}
           label="Pinned"
           active={pinnedActive}
+          aria-current={pinnedActive ? 'page' : undefined}
+          className="interactive-surface"
           component={Link}
           to="/pipelines?view=pinned"
           variant="light"
         />
 
-        <Divider my={6} />
+        <Divider my="2xs" />
 
         {loading ? (
           <LoadingState message="Loading providers" />
@@ -201,7 +209,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
               <NavLink
                 flex={1}
                 miw={0}
-                className="nav-item-link"
+                className="nav-item-link interactive-surface"
                 leftSection={<ProviderAvatar provider={provider} size={ICON_TILE.list} />}
                 label={
                   <Text size="sm" truncate>
@@ -210,11 +218,12 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
                 }
                 description={<ProviderStatusLine provider={provider} />}
                 active={providerParam === String(provider.id)}
+                aria-current={providerParam === String(provider.id) ? 'page' : undefined}
                 component={Link}
                 to={`/pipelines?provider=${provider.id}`}
                 variant="light"
               />
-              <Group gap={2} wrap="nowrap" className="nav-item-actions">
+              <Group gap="4xs" wrap="nowrap" className="nav-item-actions">
                 <Tooltip label={`Edit ${provider.name}`}>
                   <ActionIcon
                     size="sm"
@@ -256,7 +265,7 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
             <Tooltip label="Add provider" position="right">
               <ActionIcon
                 size={44}
-                radius="md"
+                radius="sm"
                 variant="default"
                 aria-label="Add provider"
                 onClick={openAddProviderModal}

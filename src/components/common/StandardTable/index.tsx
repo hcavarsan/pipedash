@@ -10,6 +10,8 @@ export function StandardTable<T>(props: DataTableProps<T>) {
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
+        flex: 1,
+        position: 'relative',
       }}
     >
       <DataTable<T>

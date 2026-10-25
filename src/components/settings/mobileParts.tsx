@@ -1,8 +1,8 @@
 import {
+  NativeSelect,
+  type NativeSelectProps,
   NumberInput,
   type NumberInputProps,
-  Select,
-  type SelectProps,
   Switch,
   type SwitchProps,
   Text,
@@ -20,14 +20,17 @@ export const AccentText = ({ children }: { children: ReactNode }) => (
   </Text>
 )
 
-export const RowSelect = ({ w = '9em', ...props }: SelectProps) => (
-  <Select
+export const RowSelect = ({
+  w = '9em',
+  onChange,
+  ...props
+}: Omit<NativeSelectProps, 'onChange'> & { onChange?: (value: string | null) => void }) => (
+  <NativeSelect
     variant="unstyled"
-    allowDeselect={false}
     w={w}
     rightSectionWidth={20}
-    comboboxProps={{ width: '100%' }}
     classNames={{ root: classes.field, input: `${classes.fieldInput} ${classes.fieldSelect}` }}
+    onChange={(event) => onChange?.(event.currentTarget.value)}
     {...props}
   />
 )

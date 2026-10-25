@@ -18,10 +18,6 @@ export async function saveFile(
   fileType: SaveFileType
 ): Promise<boolean> {
   if (isMobilePlatform()) {
-    if (typeof content !== 'string') {
-      throw new Error("This device can't export binary files")
-    }
-
     return (await mobileService.saveExportFile(fileName, content)).shared
   }
 

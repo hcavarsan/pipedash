@@ -15,15 +15,19 @@ export function createSearchReveal(root: () => HTMLElement | null) {
   let reveal: Reveal | null = null
 
   const closed = (): Reveal | null => {
-    const element = root()?.querySelector<HTMLElement>('[data-search-reveal]')
+    const element = Array.from(root()?.querySelectorAll<HTMLElement>('[data-search-reveal]') ?? []).find(
+      (candidate) => (candidate.firstElementChild as HTMLElement | null)?.offsetHeight
+    )
     const bar = element?.firstElementChild
 
     if (!element || !(bar instanceof HTMLElement) || isOpen(element)) {
       return null
     }
 
-    if (reveal?.element !== element) {
-      const full = bar.offsetHeight
+    const full = bar.offsetHeight
+
+    if (reveal?.element !== element || reveal.full !== full) {
+      reveal?.spring.grab()
 
       reveal = {
         element,

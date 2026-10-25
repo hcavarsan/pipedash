@@ -27,7 +27,7 @@ export const isSettingsSection = (value: string | undefined): value is SettingsS
 
 export const SettingsSidebar = ({ activeSection }: { activeSection: SettingsSection }) => (
   <ScrollArea w={280} px="md" py="md" style={{ flexShrink: 0 }}>
-    <Stack gap="xs">
+    <Stack component="nav" aria-label="Settings" gap="xs">
       {SETTINGS_SECTIONS.map((section) => (
         <NavLink
           key={section.id}
@@ -35,6 +35,7 @@ export const SettingsSidebar = ({ activeSection }: { activeSection: SettingsSect
           to={`/settings/${section.id}`}
           replace
           active={activeSection === section.id}
+          aria-current={activeSection === section.id ? 'page' : undefined}
           label={section.label}
           leftSection={section.icon}
           variant="light"

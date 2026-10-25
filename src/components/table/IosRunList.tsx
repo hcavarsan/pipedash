@@ -1,7 +1,9 @@
-import { Button, Checkbox, Portal } from '@mantine/core'
-import { IconChevronRight } from '@tabler/icons-react'
-import { type ReactNode, useId } from 'react'
+import { Button, Portal } from '@mantine/core'
+import { IconCheck, IconChevronRight } from '@tabler/icons-react'
+import { type ReactNode, useEffect, useId, useState } from 'react'
 
+import { prefersReducedMotion } from '../../lib/motion'
+import { animateSpring } from '../../lib/spring'
 import { STATUS_META } from '../../theme/status'
 import type { PipelineRun } from '../../types'
 import { formatDuration } from '../../utils/formatDuration'
@@ -65,8 +67,13 @@ const IosRunRow = ({
         onClick={selecting ? onToggle : onOpen}
       >
         {selecting && (
-          <span className={classes.check} aria-hidden>
-            {selectable && <Checkbox checked={selected} readOnly tabIndex={-1} />}
+          <span
+            className={classes.check}
+            data-selected={selected || undefined}
+            data-disabled={!selectable || undefined}
+            aria-hidden
+          >
+            {selected && <IconCheck size={16} stroke={3} />}
           </span>
         )}
         <StatusGlyph status={run.status} />
@@ -189,20 +196,55 @@ interface IosRunToolbarProps {
   onCancelRuns: () => void
 }
 
-export const IosRunToolbar = ({ count, cancelling, onDone, onCancelRuns }: IosRunToolbarProps) => (
-  <Portal>
-    <div className={classes.toolbar} role="toolbar" aria-label="Selected runs">
-      <Button variant="subtle" onClick={onDone}>
-        Done
-      </Button>
-      <span className={classes.count} role="status">
-        {count === 0 ? 'Select runs' : `${count} selected`}
-      </span>
-      {count > 0 && (
-        <Button variant="subtle" color="red" loading={cancelling} onClick={onCancelRuns}>
-          {count > 1 ? `Cancel ${count} runs` : 'Cancel run'}
+export const IosRunToolbar = ({ count, cancelling, onDone, onCancelRuns }: IosRunToolbarProps) => {
+  const [toolbar, ref] = useState<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!toolbar) {
+      return
+    }
+    const tabBar = document.querySelector<HTMLElement>('nav[aria-label="Main"]')
+
+    tabBar?.setAttribute('data-editing', '')
+    if (tabBar) {
+      tabBar.inert = true
+      tabBar.setAttribute('aria-hidden', 'true')
+    }
+
+    const animation = animateSpring({
+      from: 0,
+      to: 1,
+      onUpdate: (value) => {
+        toolbar.style.opacity = String(value)
+        toolbar.style.transform = prefersReducedMotion() ? '' : `translateY(${(1 - value) * 24}px)`
+      },
+    })
+
+    return () => {
+      animation.stop()
+      tabBar?.removeAttribute('data-editing')
+      if (tabBar && !tabBar.hasAttribute('data-hidden')) {
+        tabBar.inert = false
+        tabBar.removeAttribute('aria-hidden')
+      }
+    }
+  }, [toolbar])
+
+  return (
+    <Portal>
+      <div ref={ref} className={classes.toolbar} role="toolbar" aria-label="Selected runs">
+        <Button variant="subtle" onClick={onDone}>
+          Done
         </Button>
-      )}
-    </div>
-  </Portal>
-)
+        <span className={classes.count} role="status">
+          {count === 0 ? 'Select runs' : `${count} selected`}
+        </span>
+        {count > 0 && (
+          <Button variant="subtle" color="red" loading={cancelling} onClick={onCancelRuns}>
+            {count > 1 ? `Cancel ${count} runs` : 'Cancel run'}
+          </Button>
+        )}
+      </div>
+    </Portal>
+  )
+}

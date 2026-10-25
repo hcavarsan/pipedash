@@ -5,6 +5,7 @@ import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { TriggerParams } from '../types'
+import { errorMessage } from '../utils/errorDisplay'
 
 export function useWorkflowParameters(providerId: number, pipelineId: string) {
   return useQuery({
@@ -42,7 +43,7 @@ export function useTriggerWorkflow() {
         title: variables.workflow_id.startsWith('fluxcd__')
           ? "Couldn't request reconciliation"
           : "Couldn't trigger workflow",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Check your provider connection and try again.'),
         color: 'red',
       })
     },

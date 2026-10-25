@@ -1,21 +1,23 @@
-import { Select, type SelectProps } from '@mantine/core'
+import { NativeSelect, type NativeSelectProps } from '@mantine/core'
 
 import { IosRow } from '../ios/IosList'
 
 import classes from './metrics.module.css'
 
-type MetricsPickerRowProps = Omit<SelectProps, 'label' | 'variant'> & { label: string }
+type MetricsPickerRowProps = Omit<NativeSelectProps, 'label' | 'variant' | 'onChange'> & {
+  label: string
+  onChange: (value: string) => void
+}
 
-export const MetricsPickerRow = ({ label, ...selectProps }: MetricsPickerRowProps) => (
+export const MetricsPickerRow = ({ label, onChange, ...selectProps }: MetricsPickerRowProps) => (
   <IosRow
     title={label}
     accessory={
-      <Select
+      <NativeSelect
         variant="unstyled"
         aria-label={label}
-        allowDeselect={false}
         rightSectionWidth={24}
-        comboboxProps={{ width: '100%' }}
+        onChange={(event) => onChange(event.currentTarget.value)}
         classNames={{
           root: classes.pickerRoot,
           wrapper: classes.pickerWrapper,

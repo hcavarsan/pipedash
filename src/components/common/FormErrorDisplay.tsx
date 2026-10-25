@@ -5,11 +5,12 @@ import { useEffect, useRef } from 'react'
 import { scrollBehavior } from '../../lib/motion'
 
 interface FormErrorDisplayProps {
+  title: string
   globalError?: string | null
   onDismiss?: () => void
 }
 
-export function FormErrorDisplay({ globalError, onDismiss }: FormErrorDisplayProps) {
+export function FormErrorDisplay({ title, globalError, onDismiss }: FormErrorDisplayProps) {
   const errorRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export function FormErrorDisplay({ globalError, onDismiss }: FormErrorDisplayPro
     <Alert
       ref={errorRef}
       icon={<IconAlertCircle size={16} />}
-      title="Couldn't save"
+      title={title}
       color="red"
       variant="light"
       withCloseButton={!!onDismiss}

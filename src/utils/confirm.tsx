@@ -1,6 +1,7 @@
 import { modals } from '@mantine/modals'
 
 import { isMobileShell } from '../hooks/useIsMobile'
+import { MODAL_TRANSITION } from '../lib/motion'
 import { iosClasses } from '../theme/ios'
 
 import { watchActions } from './alertFit'
@@ -17,7 +18,13 @@ const fitActions = (anchor: HTMLElement | null) => {
 
 export function openConfirm(options: ConfirmOptions): string {
   if (!isMobileShell()) {
-    return modals.openConfirmModal({ zIndex: ALERT_Z_INDEX, ...options })
+    return modals.openConfirmModal({
+      zIndex: ALERT_Z_INDEX,
+      centered: true,
+      transitionProps: MODAL_TRANSITION,
+      ...options,
+      closeButtonProps: { ...options.closeButtonProps, 'aria-label': 'Close dialog' },
+    })
   }
 
   const { cancelProps, children, confirmProps, groupProps, labels } = options
@@ -67,7 +74,9 @@ export function confirmDiscard(): Promise<boolean> {
   openConfirm({
     title: 'Discard changes?',
     children: 'Your changes will be lost.',
-    labels: { confirm: 'Discard Changes', cancel: 'Keep Editing' },
+    labels: isMobileShell()
+      ? { confirm: 'Discard Changes', cancel: 'Keep Editing' }
+      : { confirm: 'Discard changes', cancel: 'Keep editing' },
     confirmProps: { color: 'red' },
     onConfirm: () => resolve(true),
     onCancel: () => resolve(false),

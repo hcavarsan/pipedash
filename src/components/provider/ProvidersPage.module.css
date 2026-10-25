@@ -8,6 +8,8 @@
   align-items: center;
   overflow: hidden;
   font-size: var(--ios-fs-body);
+  background: var(--ios-cell);
+  background-image: linear-gradient(var(--row-press, transparent), var(--row-press, transparent));
 }
 
 .shell a {
@@ -20,15 +22,25 @@
   content: "";
   position: absolute;
   top: 0;
+  z-index: 2;
+  pointer-events: none;
   right: 0;
   left: var(--inset);
   height: 0.5px;
   background: var(--ios-separator);
 }
 
+.shell:has(a:active),
+.shell:has([data-row-menu]:active),
+.shell[data-pressing],
+.shell:has([data-row-menu][aria-expanded="true"]) {
+  --row-press: var(--ios-fill);
+}
+
+.shell a[data-tappable]:active,
 .shell[data-pressing] a,
 .shell:has([data-row-menu][aria-expanded="true"]) a {
-  background: var(--ios-fill);
+  background: transparent;
 }
 
 .actions {

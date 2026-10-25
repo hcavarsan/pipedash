@@ -5,10 +5,12 @@ import { type KeyboardEvent, useRef, useState } from 'react'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
 import { usePairPushServer, usePushSendTest, usePushStatus, useUnpairPushServer } from '../../queries/usePushQueries'
+import { errorMessage } from '../../utils/errorDisplay'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { isHttpUrl } from '../../utils/openExternal'
 import { notificationProblem } from '../../utils/systemNotifications'
 import { ErrorState } from '../common/ErrorState'
+import { FormErrorDisplay } from '../common/FormErrorDisplay'
 import { IosGroup, IosRow } from '../ios/IosList'
 
 import { AccentText, FieldRow, RowTextInput } from './mobileParts'
@@ -32,6 +34,7 @@ export function PushNotificationsCard() {
   const [serverUrl, setServerUrl] = useState('')
   const [apiToken, setApiToken] = useState('')
   const [label, setLabel] = useState('')
+  const [blurred, setBlurred] = useState({ serverUrl: false, apiToken: false })
   const tokenRef = useRef<HTMLInputElement>(null)
   const labelRef = useRef<HTMLInputElement>(null)
 
@@ -57,6 +60,7 @@ export function PushNotificationsCard() {
           setServerUrl('')
           setApiToken('')
           setLabel('')
+          setBlurred({ serverUrl: false, apiToken: false })
         },
       }
     )
@@ -205,33 +209,66 @@ export function PushNotificationsCard() {
         )}
 
         {canPair && (
-          <Stack gap="sm">
-            <TextInput
-              label="Server URL"
-              placeholder="https://pipedash.example.com"
-              type="url"
-              inputMode="url"
-              autoCapitalize="none"
-              autoCorrect="off"
-              value={serverUrl}
-              onChange={(e) => setServerUrl(e.currentTarget.value)}
-            />
-            <PasswordInput
-              label="API token"
-              description="The API token of that server."
-              value={apiToken}
-              onChange={(e) => setApiToken(e.currentTarget.value)}
-            />
-            <TextInput
-              label="Label"
-              placeholder="Optional, for example Work"
-              value={label}
-              onChange={(e) => setLabel(e.currentTarget.value)}
-            />
-            <Button onClick={handlePair} loading={pair.isPending} disabled={!canSubmit}>
-              Pair server
-            </Button>
-          </Stack>
+          <form
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault()
+              setBlurred({ serverUrl: true, apiToken: true })
+              if (canSubmit && !pair.isPending) {
+                handlePair()
+              }
+            }}
+          >
+            <Stack gap="sm">
+              <TextInput
+                label="Server URL"
+                placeholder="https://pipedash.example.com"
+                type="url"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                value={serverUrl}
+                onChange={(e) => {
+                  setServerUrl(e.currentTarget.value)
+                  pair.reset()
+                }}
+                onBlur={() => setBlurred((value) => ({ ...value, serverUrl: true }))}
+                error={
+                  blurred.serverUrl && !isHttpUrl(serverUrl.trim())
+                    ? 'Enter a valid HTTP or HTTPS server URL'
+                    : undefined
+                }
+                required
+              />
+              <PasswordInput
+                label="API token"
+                description="The API token of that server."
+                value={apiToken}
+                onChange={(e) => {
+                  setApiToken(e.currentTarget.value)
+                  pair.reset()
+                }}
+                onBlur={() => setBlurred((value) => ({ ...value, apiToken: true }))}
+                error={blurred.apiToken && !apiToken ? 'API token is required' : undefined}
+                required
+              />
+              <TextInput
+                label="Label"
+                placeholder="Optional, for example Work"
+                value={label}
+                onChange={(e) => setLabel(e.currentTarget.value)}
+              />
+              <FormErrorDisplay
+                title="Couldn't pair server"
+                globalError={
+                  pair.error ? errorMessage(pair.error, 'Check the server URL and token, then try again.') : null
+                }
+              />
+              <Button type="submit" loading={pair.isPending}>
+                Pair server
+              </Button>
+            </Stack>
+          </form>
         )}
 
         {status.servers.length > 0 && (

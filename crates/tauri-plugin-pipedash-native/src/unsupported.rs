@@ -18,6 +18,7 @@ use crate::{
     NotificationResponse,
     PrivacyCover,
     Result,
+    ShareRect,
 };
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
@@ -58,6 +59,10 @@ impl<R: Runtime> PipedashNative<R> {
     }
 
     pub async fn share_file(&self, _path: &Path) -> Result<bool> {
+        Err(Error::Unsupported)
+    }
+
+    pub async fn share_link(&self, _url: &str, _source_rect: ShareRect) -> Result<bool> {
         Err(Error::Unsupported)
     }
 

@@ -15,7 +15,7 @@ import {
   v8CssVariablesResolver,
 } from '@mantine/core'
 
-import { theme } from './index'
+import { baseTheme as theme } from './index'
 import classes from './ios.module.css'
 import { iosOverlayClasses, iosOverlayComponents } from './iosOverlays'
 
@@ -140,10 +140,19 @@ const iosOverrides = createTheme({
       classNames: { list: classes.tabsList, tab: classes.tab, panel: classes.tabPanel },
     }),
     SegmentedControl: SegmentedControl.extend({
+      defaultProps: { withItemsBorders: false },
       classNames: { root: classes.segmentRoot, indicator: classes.segmentIndicator, label: classes.segmentLabel },
     }),
     Switch: Switch.extend({
       defaultProps: { withThumbIndicator: false },
+      vars: () => ({
+        root: {
+          '--switch-height': '31px',
+          '--switch-width': '51px',
+          '--switch-thumb-size': '27px',
+          '--switch-track-label-padding': '2px',
+        },
+      }),
       classNames: { track: classes.switchTrack, thumb: classes.switchThumb, label: classes.switchLabel },
     }),
     Input: Input.extend({ classNames: { input: classes.input } }),

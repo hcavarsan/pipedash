@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { Navigate, useParams } from 'react-router-dom'
 import { SettingsMenu } from '../components/settings/SettingsMenu'
 import { SettingsPage } from '../components/settings/SettingsPage'
 import { isSettingsSection } from '../components/settings/SettingsSidebar'
@@ -16,5 +16,9 @@ export function SettingsRoute({ onRefresh }: SettingsRouteProps) {
     return <SettingsMenu />
   }
 
-  return <SettingsPage activeSection={isSettingsSection(section) ? section : 'general'} onRefresh={onRefresh} />
+  if (!isSettingsSection(section)) {
+    return <Navigate to="/settings/general" replace />
+  }
+
+  return <SettingsPage activeSection={section} onRefresh={onRefresh} />
 }

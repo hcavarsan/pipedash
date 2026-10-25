@@ -1,6 +1,6 @@
 import { AppShell, Box } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
-import { type CSSProperties, type ReactNode, useState } from 'react'
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
@@ -8,7 +8,7 @@ import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
 
 import { NotificationHost } from '../notifications/NotificationCenter'
 import { ProviderModals } from '../provider/ProviderModals'
-
+import classes from './AppLayout.module.css'
 import { Header } from './Header'
 import { MobileHeader } from './MobileHeader'
 import { MobilePage } from './MobilePage'
@@ -34,6 +34,69 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
   const compact = !isMobile && sidebar.compact
   const opened = isMobile ? mobileOpened : !sidebar.compact
   const toggle = isMobile ? toggleMobile : sidebar.toggle
+  const mainRef = useRef<HTMLElement>(null)
+  const headerRef = useRef<HTMLElement>(null)
+  const listPositions = useRef(new Map<string, { main: number; viewports: number[] }>())
+
+  useEffect(() => {
+    if (mobileShell) {
+      return
+    }
+    const main = mainRef.current
+    if (!main) {
+      return
+    }
+    const route = `${location.pathname}${location.search}`
+    const saved = location.pathname === '/pipelines' ? listPositions.current.get(route) : undefined
+    const position = { main: saved?.main ?? 0, viewports: [...(saved?.viewports ?? [])] }
+    const restored = new WeakSet<HTMLElement>()
+    let focused = false
+    const updateEdge = (event?: Event) => {
+      if (!event || event.target === main) {
+        position.main = main.scrollTop
+        headerRef.current?.toggleAttribute('data-scrolled', position.main > 0)
+      } else {
+        main.querySelectorAll<HTMLElement>('[data-scrollarea-viewport]').forEach((viewport, index) => {
+          if (event.target === viewport) {
+            position.viewports[index] = viewport.scrollTop
+          }
+        })
+      }
+    }
+    const focusHeading = () => {
+      main.querySelectorAll<HTMLElement>('[data-scrollarea-viewport]').forEach((viewport, index) => {
+        if (!restored.has(viewport) && viewport.scrollHeight > viewport.clientHeight) {
+          viewport.scrollTop = saved?.viewports[index] ?? 0
+          restored.add(viewport)
+        }
+      })
+      if (focused) {
+        return
+      }
+      const heading = main.querySelector<HTMLElement>('[data-page-heading]')
+      if (heading) {
+        heading.focus({ preventScroll: true })
+        focused = true
+      }
+    }
+    const frame = requestAnimationFrame(() => {
+      main.scrollTop = position.main
+      updateEdge()
+      focusHeading()
+    })
+    const observer = new MutationObserver(focusHeading)
+    observer.observe(main, { childList: true, subtree: true })
+    main.addEventListener('scroll', updateEdge, { passive: true, capture: true })
+
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      main.removeEventListener('scroll', updateEdge, true)
+      if (location.pathname === '/pipelines') {
+        listPositions.current.set(route, position)
+      }
+    }
+  }, [mobileShell, location.pathname, location.search])
 
   if (locationKey !== location.key) {
     setLocationKey(location.key)
@@ -43,69 +106,86 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
   const tabBarReserve = keyboardOpen ? '0px' : 'calc(82px + var(--safe-bottom))'
 
   return (
-    <AppShell
-      header={{ height: mobileShell ? 'calc(44px + var(--safe-top))' : 'calc(70px + var(--safe-top))' }}
-      navbar={
-        mobileShell
-          ? undefined
-          : {
-              width: { base: 280, sm: sidebar.navbarWidth },
-              breakpoint: 'sm',
-              collapsed: { mobile: !mobileOpened, desktop: isSettingsPage },
-            }
-      }
-      mod={{
-        'sidebar-resizing': sidebar.resizing,
-        'sidebar-instant': sidebar.instant,
-        'mobile-shell': mobileShell,
-      }}
-      padding={{ base: 'xs', sm: 'md' }}
-      style={mobileShell ? ({ '--tab-bar-reserve': tabBarReserve } as CSSProperties) : undefined}
-      styles={{
-        header: mobileShell
-          ? {
-              background: 'transparent',
-              borderBottom: 0,
-              backdropFilter: 'none',
-              WebkitBackdropFilter: 'none',
-              transition: 'none',
-            }
-          : undefined,
-        main: {
-          minHeight: 'unset',
-          background: 'var(--mantine-color-body)',
-          ...(mobileShell
-            ? {
-                paddingBottom: 'calc(var(--app-shell-padding) + var(--tab-bar-reserve) + var(--keyboard-inset, 0px))',
-              }
-            : undefined),
-        },
-      }}
-    >
-      <AppShell.Header>
-        {mobileShell ? (
-          <MobileHeader />
-        ) : (
-          <Header
-            onToggleNavbar={isMobile || !isSettingsPage ? toggle : undefined}
-            navbarOpened={opened}
-            onOpenSettings={onOpenSettings}
-          />
-        )}
-      </AppShell.Header>
-
+    <>
       {!mobileShell && (
-        <AppShell.Navbar>
-          <Navbar compact={compact} />
-          {resizable && <Box className="sidebar-resize-handle" {...sidebar.handleProps} />}
-        </AppShell.Navbar>
+        <button
+          type="button"
+          className={classes.skipLink}
+          onClick={() => mainRef.current?.focus({ preventScroll: true })}
+        >
+          Skip to content
+        </button>
       )}
+      <AppShell
+        header={{ height: mobileShell ? 'calc(44px + var(--safe-top))' : 'calc(70px + var(--safe-top))' }}
+        navbar={
+          mobileShell
+            ? undefined
+            : {
+                width: { base: 280, sm: sidebar.navbarWidth },
+                breakpoint: 'sm',
+                collapsed: { mobile: !mobileOpened, desktop: isSettingsPage },
+              }
+        }
+        mod={{
+          'sidebar-resizing': sidebar.resizing,
+          'sidebar-instant': sidebar.instant,
+          'mobile-shell': mobileShell,
+        }}
+        padding={{ base: 'xs', sm: 'md' }}
+        style={mobileShell ? ({ '--tab-bar-reserve': tabBarReserve } as CSSProperties) : undefined}
+        styles={{
+          header: mobileShell
+            ? {
+                background: 'transparent',
+                borderBottom: 0,
+                backdropFilter: 'none',
+                WebkitBackdropFilter: 'none',
+                transition: 'none',
+              }
+            : undefined,
+          main: {
+            minHeight: 'unset',
+            background: 'var(--mantine-color-body)',
+            ...(mobileShell
+              ? {
+                  paddingBottom: 'calc(var(--app-shell-padding) + var(--tab-bar-reserve) + var(--keyboard-inset, 0px))',
+                }
+              : undefined),
+          },
+        }}
+      >
+        <AppShell.Header ref={headerRef} className={mobileShell ? undefined : classes.header}>
+          {mobileShell ? (
+            <MobileHeader />
+          ) : (
+            <Header
+              onToggleNavbar={isMobile || !isSettingsPage ? toggle : undefined}
+              navbarOpened={opened}
+              onOpenSettings={onOpenSettings}
+            />
+          )}
+        </AppShell.Header>
 
-      <AppShell.Main>{mobileShell ? <MobilePage>{children}</MobilePage> : children}</AppShell.Main>
+        {!mobileShell && (
+          <AppShell.Navbar>
+            <Navbar compact={compact} />
+            {resizable && <Box className="sidebar-resize-handle" {...sidebar.handleProps} />}
+          </AppShell.Navbar>
+        )}
 
-      {mobileShell && <MobileTabBar />}
-      <ProviderModals />
-      <NotificationHost />
-    </AppShell>
+        <AppShell.Main
+          ref={mainRef}
+          id={mobileShell ? undefined : 'main-content'}
+          tabIndex={mobileShell ? undefined : -1}
+        >
+          {mobileShell ? <MobilePage>{children}</MobilePage> : children}
+        </AppShell.Main>
+
+        {mobileShell && <MobileTabBar />}
+        <ProviderModals />
+        <NotificationHost />
+      </AppShell>
+    </>
   )
 }

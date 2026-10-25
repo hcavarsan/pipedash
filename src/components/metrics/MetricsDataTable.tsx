@@ -1,10 +1,11 @@
-import { Group, Menu, Paper, Stack, Table, Text, UnstyledButton } from '@mantine/core'
+import { Group, Menu, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconCheck, IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react'
 import { useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import type { AggregatedMetric, AggregatedMetrics } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
+import { StandardTable } from '../common/StandardTable'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup, IosRow } from '../ios/IosList'
 
@@ -19,8 +20,6 @@ interface MetricsDataTableProps {
 
 type SortField = 'timestamp' | 'value' | 'count' | 'min' | 'max'
 type SortDirection = 'asc' | 'desc'
-
-const SORT_ARIA: Record<SortDirection, 'ascending' | 'descending'> = { asc: 'ascending', desc: 'descending' }
 
 export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDataTableProps) => {
   const mobileShell = useMobileShell()
@@ -73,18 +72,6 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
 
       return sort.direction === 'asc' ? aValue - bValue : bValue - aValue
     })
-  }
-
-  const getSortIcon = (field: SortField) => {
-    if (sort?.field !== field) {
-      return <IconSelector size={14} aria-hidden />
-    }
-
-    return sort.direction === 'asc' ? (
-      <IconChevronUp size={14} aria-hidden />
-    ) : (
-      <IconChevronDown size={14} aria-hidden />
-    )
   }
 
   if (mobileShell) {
@@ -157,57 +144,70 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
       <Text size="sm" fw={600} p="md" pb="xs">
         Data points ({data.metrics.length} periods)
       </Text>
-      <Table.ScrollContainer minWidth={520}>
-        <Table striped highlightOnHover style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <Table.Thead>
-            <Table.Tr>
-              {columns.map(({ field, label, numeric }) => (
-                <Table.Th
-                  key={field}
-                  ta={numeric ? 'right' : 'left'}
-                  aria-sort={sort?.field === field ? SORT_ARIA[sort.direction] : 'none'}
-                >
-                  <UnstyledButton onClick={() => handleSort(field)} fz="sm" fw={600}>
-                    <Group gap={4} wrap="nowrap">
-                      {numeric && getSortIcon(field)}
-                      {label}
-                      {!numeric && getSortIcon(field)}
-                    </Group>
-                  </UnstyledButton>
-                </Table.Th>
-              ))}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {sortedMetrics.map((metric) => {
+      <StandardTable
+        records={sortedMetrics}
+        idAccessor="timestamp"
+        minHeight={120}
+        height="auto"
+        styles={{ table: { minWidth: 520 } }}
+        striped
+        rowStyle={(metric) => ({
+          background: selectedIndex === data.metrics.indexOf(metric) ? 'var(--mantine-color-blue-light)' : undefined,
+        })}
+        columns={columns.map(({ field, label, numeric }) => ({
+          accessor: field,
+          title: (
+            <UnstyledButton
+              className="interactive-surface"
+              onClick={() => handleSort(field)}
+              aria-label={`Sort by ${label}${sort?.field === field ? `, ${sort.direction === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+              fz="sm"
+              fw={600}
+            >
+              <Group gap="3xs" wrap="nowrap" justify={numeric ? 'flex-end' : 'flex-start'}>
+                {label}
+                {sort?.field === field ? (
+                  sort.direction === 'asc' ? (
+                    <IconChevronUp size={14} aria-hidden />
+                  ) : (
+                    <IconChevronDown size={14} aria-hidden />
+                  )
+                ) : (
+                  <IconSelector size={14} aria-hidden />
+                )}
+              </Group>
+            </UnstyledButton>
+          ),
+          textAlign: numeric ? 'right' : 'left',
+          render: (metric: AggregatedMetric) => {
+            if (field === 'timestamp') {
               const originalIndex = data.metrics.indexOf(metric)
               const isSelected = selectedIndex === originalIndex
-              const date = formatDateTime(metric.timestamp)
 
               return (
-                <Table.Tr key={metric.timestamp} bg={isSelected ? 'var(--mantine-color-blue-light)' : undefined}>
-                  <Table.Td>
-                    <UnstyledButton
-                      fz="sm"
-                      fw={isSelected ? 600 : undefined}
-                      aria-pressed={isSelected}
-                      onClick={() => onRowClick(isSelected ? null : originalIndex)}
-                    >
-                      {date}
-                    </UnstyledButton>
-                  </Table.Td>
-                  <Table.Td ta="right">
-                    {formatMetricValue(hasObservation(metric, metricType) ? metric.value : null, metricType)}
-                  </Table.Td>
-                  <Table.Td ta="right">{metric.count}</Table.Td>
-                  <Table.Td ta="right">{formatMetricValue(metric.min, metricType)}</Table.Td>
-                  <Table.Td ta="right">{formatMetricValue(metric.max, metricType)}</Table.Td>
-                </Table.Tr>
+                <UnstyledButton
+                  className="interactive-surface"
+                  fz="sm"
+                  fw={isSelected ? 600 : undefined}
+                  aria-pressed={isSelected}
+                  onClick={() => onRowClick(isSelected ? null : originalIndex)}
+                >
+                  {formatDateTime(metric.timestamp)}
+                </UnstyledButton>
               )
-            })}
-          </Table.Tbody>
-        </Table>
-      </Table.ScrollContainer>
+            }
+
+            if (field === 'count') {
+              return metric.count
+            }
+
+            return formatMetricValue(
+              field === 'value' ? (hasObservation(metric, metricType) ? metric.value : null) : metric[field],
+              metricType
+            )
+          },
+        }))}
+      />
     </Paper>
   )
 }

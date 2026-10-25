@@ -1,11 +1,7 @@
 import { Code, Group, Text } from '@mantine/core'
 
 import { CopyButton } from '../components/atoms/CopyButton'
-import { StatusBadge } from '../components/atoms/StatusBadge'
 import { TruncatedText } from '../components/atoms/TruncatedText'
-import type { PipelineStatus } from '../types'
-
-import { formatDateTime } from './formatDateTime'
 
 export const TABLE_CELL_STYLES = {
   text: {
@@ -21,7 +17,7 @@ export const TABLE_CELL_STYLES = {
     },
   },
   spacing: {
-    gap: 8,
+    gap: 'xs',
   },
   code: {
     size: 'sm' as const,
@@ -36,24 +32,8 @@ export const TableCells = {
     </Text>
   ),
 
-  textBold: (value: string | number) => (
-    <Text size={TABLE_CELL_STYLES.text.size} fw={TABLE_CELL_STYLES.text.weight.semibold}>
-      {value}
-    </Text>
-  ),
-
   textDimmed: (value: string | number) => (
     <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>
-      {value}
-    </Text>
-  ),
-
-  textDimmedMedium: (value: string | number) => (
-    <Text
-      size={TABLE_CELL_STYLES.text.size}
-      c={TABLE_CELL_STYLES.text.color.dimmed}
-      fw={TABLE_CELL_STYLES.text.weight.medium}
-    >
       {value}
     </Text>
   ),
@@ -74,8 +54,6 @@ export const TableCells = {
     </TruncatedText>
   ),
 
-  status: (status: PipelineStatus) => <StatusBadge status={status} />,
-
   commit: (sha: string | null | undefined) =>
     sha ? (
       <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
@@ -89,24 +67,4 @@ export const TableCells = {
         —
       </Text>
     ),
-
-  timestamp: (date: string | null) =>
-    date ? (
-      <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>
-        {formatDateTime(date)}
-      </Text>
-    ) : (
-      <Text size={TABLE_CELL_STYLES.text.size} c={TABLE_CELL_STYLES.text.color.dimmed}>
-        Never
-      </Text>
-    ),
-
-  iconText: (icon: React.ReactNode, text: string) => (
-    <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
-      {icon}
-      <TruncatedText size={TABLE_CELL_STYLES.text.size} fw={TABLE_CELL_STYLES.text.weight.medium}>
-        {text}
-      </TruncatedText>
-    </Group>
-  ),
 }

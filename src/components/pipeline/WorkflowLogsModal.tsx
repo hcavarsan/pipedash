@@ -1,13 +1,15 @@
 import { Alert, Box, Button, Code, Divider, Group, Loader, Paper, Stack, Text, VisuallyHidden } from '@mantine/core'
 import { useClipboard } from '@mantine/hooks'
-import { IconCopy, IconExternalLink, IconPlayerPlay, IconRefresh, IconShare, IconSquare } from '@tabler/icons-react'
+import { IconCopy, IconExternalLink, IconPlayerPlay, IconRefresh, IconShare2, IconSquare } from '@tabler/icons-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { useRerunWorkflow, useRunDetails } from '../../queries/useRunDetailsQuery'
+import { useCancelRun } from '../../queries/useRunHistoryQueries'
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { service } from '../../services'
+import { mobileService } from '../../services/mobile'
 import { STATUS_META } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { CellRenderer, PipelineStatus } from '../../types'
@@ -17,6 +19,7 @@ import { displayErrorNotification } from '../../utils/errorDisplay'
 import { getValueByPath } from '../../utils/objectPath'
 import { isHttpUrl, openExternal } from '../../utils/openExternal'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
+import { isMobilePlatform } from '../../utils/platform'
 import { CopyButton } from '../atoms/CopyButton'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { ErrorState } from '../common/ErrorState'
@@ -73,6 +76,8 @@ export const WorkflowLogsModal = ({
   onCancelSuccess,
 }: WorkflowLogsModalProps) => {
   const [cancelling, setCancelling] = useState(false)
+  const [cancellationRequestedFor, setCancellationRequestedFor] = useState<string | null>(null)
+  const cancelRun = useCancelRun()
   const clipboard = useClipboard({ timeout: 2000 })
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
@@ -135,6 +140,23 @@ export const WorkflowLogsModal = ({
       return
     }
 
+    if (!mobileShell) {
+      setCancelling(true)
+      try {
+        const requested = await cancelRun.mutateAsync({ pipelineId, runNumber })
+        if (requested) {
+          setCancellationRequestedFor(`${pipelineId}:${runNumber}`)
+          await refetch()
+          onCancelSuccess?.()
+        }
+      } catch {
+        return
+      } finally {
+        setCancelling(false)
+      }
+      return
+    }
+
     setCancelling(true)
 
     try {
@@ -191,7 +213,17 @@ export const WorkflowLogsModal = ({
     }
   }
 
-  const handleShare = async (url: string) => {
+  const handleShare = async (url: string, source: HTMLElement) => {
+    if (isMobilePlatform()) {
+      try {
+        await mobileService.shareLink(url, source.getBoundingClientRect())
+      } catch (error) {
+        displayErrorNotification(error, "Couldn't share link")
+      }
+
+      return
+    }
+
     if (typeof navigator.share !== 'function') {
       clipboard.copy(url)
 
@@ -279,7 +311,7 @@ export const WorkflowLogsModal = ({
             leftSection={<IconSquare size={16} />}
             onClick={handleCancel}
             loading={cancelling}
-            disabled={isPending}
+            disabled={isPending || (!mobileShell && cancellationRequestedFor === `${pipelineId}:${runNumber}`)}
           >
             {isMobile ? 'Stop' : 'Stop workflow'}
           </Button>
@@ -332,15 +364,24 @@ export const WorkflowLogsModal = ({
             is cleared.
           </Alert>
         )}
-        {isRunning && (
-          <Alert
-            color="blue"
-            icon={<IconRefresh size={16} />}
-            title={isFlux ? 'Reconciliation in progress' : 'Run in progress'}
-          >
-            <Text size={TYPOGRAPHY.HELPER_TEXT.size}>Details refresh automatically every 10 seconds.</Text>
-          </Alert>
-        )}
+        {isRunning &&
+          (mobileShell ? (
+            <Alert
+              color="blue"
+              icon={<IconRefresh size={16} />}
+              title={isFlux ? 'Reconciliation in progress' : 'Run in progress'}
+            >
+              <Text size={TYPOGRAPHY.HELPER_TEXT.size}>Details refresh automatically every 10 seconds.</Text>
+            </Alert>
+          ) : (
+            <Alert color="gray" title={<StatusBadge status={runDetails.status} />}>
+              <Text size={TYPOGRAPHY.HELPER_TEXT.size} role="status">
+                {cancellationRequestedFor === `${pipelineId}:${runNumber}`
+                  ? 'Cancellation requested. Waiting for the provider to confirm the final status.'
+                  : 'Details refresh automatically every 10 seconds.'}
+              </Text>
+            </Alert>
+          ))}
       </>
     )
 
@@ -389,8 +430,8 @@ export const WorkflowLogsModal = ({
               />
               <IosRow
                 title="Share link"
-                accessory={<IconShare size={18} />}
-                onClick={() => handleShare(runDetails.logs_url)}
+                accessory={<IconShare2 size={20} aria-hidden />}
+                onClick={(event) => handleShare(runDetails.logs_url, event.currentTarget)}
               />
             </IosGroup>
           )}

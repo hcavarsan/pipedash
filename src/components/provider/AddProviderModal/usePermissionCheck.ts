@@ -69,21 +69,21 @@ export function usePermissionCheck({
         }))
 
         if (data.permission_status?.all_granted) {
-          displaySuccessNotification('Required permissions granted')
+          displaySuccessNotification('Required permissions granted', 'Permissions verified')
         }
       }
     } catch (err: unknown) {
       const error = toPipedashError(err)
-      let errorMessage = 'Failed to check permissions'
+      let errorMessage = "Couldn't check permissions"
 
       if (isAuthError(error)) {
-        errorMessage = 'Authentication failed. Please check your credentials.'
+        errorMessage = "Couldn't verify credentials. Check your token or connection settings."
       } else if (isPermissionError(error)) {
-        errorMessage = 'Insufficient permissions. Please grant the required permissions.'
+        errorMessage = "Couldn't verify permissions. Grant the required permissions."
       } else if (isNetworkError(error)) {
-        errorMessage = 'Network error. Please check your connection.'
+        errorMessage = "Couldn't reach the provider. Check your connection."
       } else {
-        errorMessage = error.message
+        errorMessage = error.message || errorMessage
       }
 
       setState((prev) => ({

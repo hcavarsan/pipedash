@@ -117,9 +117,9 @@ body,
   transition-duration: 0ms;
 }
 
-input,
-textarea,
-select {
+[data-ios] input,
+[data-ios] textarea,
+[data-ios] select {
   font-size: 16px;
 }
 
@@ -144,6 +144,59 @@ select {
 
 .interactive-surface:hover {
   background-color: var(--mantine-color-default-hover);
+}
+
+:root:not([data-ios]) .interactive-surface:active:not([aria-disabled="true"]) {
+  background-color: color-mix(in srgb, var(--mantine-color-text) 12%, var(--mantine-color-default));
+  transition-duration: 0ms;
+}
+
+:root:not([data-ios]) .interactive-surface[aria-disabled="true"] {
+  color: var(--mantine-color-dimmed);
+  cursor: not-allowed;
+  opacity: 0.6;
+  background-color: transparent;
+}
+
+:root:not([data-ios]) :focus-visible {
+  outline: none;
+}
+
+:root[data-keyboard-focus]:not([data-ios]) :focus-visible:not([tabindex="-1"]) {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+
+:root:not([data-ios]) .desktop-heading[data-order="1"] {
+  letter-spacing: -0.02em;
+}
+:root:not([data-ios]) .desktop-heading[data-order="2"] {
+  letter-spacing: -0.018em;
+}
+:root:not([data-ios]) .desktop-heading[data-order="3"] {
+  letter-spacing: -0.015em;
+}
+:root:not([data-ios]) .desktop-heading[data-order="4"] {
+  letter-spacing: -0.01em;
+}
+:root:not([data-ios]) .desktop-heading:is([data-order="5"], [data-order="6"]) {
+  letter-spacing: 0;
+}
+
+[data-increase-contrast]:not([data-ios]) {
+  --mantine-color-default-border: color-mix(in srgb, var(--mantine-color-text) 55%, var(--mantine-color-body));
+  --mantine-color-dimmed: color-mix(in srgb, var(--mantine-color-text) 85%, var(--mantine-color-body));
+}
+
+:root:not([data-ios]) .desktop-toast {
+  transform: none !important;
+  transition-timing-function: var(--desktop-present-easing) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-ios]) :is(.mantine-Modal-content, .mantine-Drawer-content) {
+    transform: none !important;
+  }
 }
 
 .nav-item {

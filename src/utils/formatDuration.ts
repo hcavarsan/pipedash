@@ -1,10 +1,6 @@
-export const formatDuration = (seconds: number | null): string => {
-  if (!seconds || seconds === 0) {
-    return '-'
-  }
-
-  if (seconds < 0) {
-    return '-'
+export const formatDuration = (seconds: number | null | undefined): string => {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
+    return '—'
   }
 
   if (seconds < 60) {

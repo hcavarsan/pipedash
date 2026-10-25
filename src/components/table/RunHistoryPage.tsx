@@ -11,6 +11,7 @@ import {
   Stack,
   Tabs,
   Text,
+  Tooltip,
   UnstyledButton,
 } from '@mantine/core'
 import { useDisclosure, useIntersection } from '@mantine/hooks'
@@ -31,7 +32,7 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import type { DataTableSortStatus } from 'mantine-datatable'
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PAGE_SIZES } from '../../constants/pagination'
 import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
@@ -51,7 +52,6 @@ import { usePullToRefresh } from '../../stores/pullRefreshStore'
 import { STATUS_META } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../types'
-import { openConfirm } from '../../utils/confirm'
 import { getDateRangeStart } from '../../utils/dateRange'
 import { formatCount } from '../../utils/formatCount'
 import { formatDateTime } from '../../utils/formatDateTime'
@@ -59,6 +59,7 @@ import { formatDuration } from '../../utils/formatDuration'
 import { getPipelineLabels, getStatusLabel, getStatusOptions } from '../../utils/pipelinePresentation'
 import { TableCells } from '../../utils/tableCells'
 import { StatusBadge } from '../atoms/StatusBadge'
+import { useContextMenu } from '../common/ContextMenu'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
 import { FilterBar } from '../common/FilterBar'
@@ -81,7 +82,7 @@ interface RunHistoryPageProps {
   onBack: () => void
   onViewRun: (pipelineId: string, runNumber: number) => void
   onRerun?: (pipeline: Pipeline, run: PipelineRun) => void
-  onCancel?: (pipeline: Pipeline, run: PipelineRun) => void
+  onCancel?: (pipeline: Pipeline, run: PipelineRun) => Promise<void>
   onReview?: (pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => Promise<void>
   onRerunFailedJobs?: (pipeline: Pipeline, run: PipelineRun) => Promise<void>
   refreshTrigger?: number
@@ -262,23 +263,13 @@ export const RunHistoryPage = ({
   }
 
   const handleCancelRun = useCallback(
-    (pipeline: Pipeline, run: PipelineRun) => {
-      openConfirm({
-        title: 'Cancel run',
-        children: <Text size="sm">This cancels run #{run.run_number}. You can't undo this.</Text>,
-        labels: { confirm: 'Cancel run', cancel: 'Keep running' },
-        confirmProps: { color: 'red' },
-        onConfirm: async () => {
-          setCancellingRunNumber(run.run_number)
-          try {
-            if (onCancel) {
-              await onCancel(pipeline, run)
-            }
-          } finally {
-            setCancellingRunNumber(null)
-          }
-        },
-      })
+    async (pipeline: Pipeline, run: PipelineRun) => {
+      setCancellingRunNumber(run.run_number)
+      try {
+        await onCancel?.(pipeline, run)
+      } finally {
+        setCancellingRunNumber(null)
+      }
     },
     [onCancel]
   )
@@ -313,154 +304,139 @@ export const RunHistoryPage = ({
 
   const rerunLoading = useModalStore((s) => s.rerunLoading)
 
-  const renderRunActions = useCallback(
+  const getRunActions = useCallback(
     (run: PipelineRun, withDetails: boolean) => {
       if (!pipeline) {
-        return null
+        return []
       }
-
-      const isActive = run.status === 'running' || run.status === 'pending'
-      const isPending = run.status === 'pending'
-      const isCancelling = cancellingRunNumber === run.run_number
-      const isRerunning = rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number
-      const cancelLabel = isPending
-        ? `Cancel unavailable for pending run #${run.run_number}`
-        : `Cancel run #${run.run_number}`
-      const rerunLabel = isFlux ? `Reconcile ${pipeline.name}` : `Rerun run #${run.run_number}`
-      const detailsLabel = `View details for ${labels.run} #${run.run_number}`
-      const isAwaitingReview = run.metadata?.awaiting_review === true
-      const isReviewBusy = reviewingRunNumber !== null
-      const isReviewing = reviewingRunNumber === run.run_number
-      const approveLabel = `Approve deployment review for run #${run.run_number}`
-      const rejectLabel = `Reject deployment review for run #${run.run_number}`
-      const canRerunFailedJobs = run.metadata?.can_rerun_failed_jobs === true
-      const isRerunFailedBusy = rerunningFailedRunNumber !== null
-      const isRerunningFailed = rerunningFailedRunNumber === run.run_number
-      const rerunFailedLabel = `Re-run failed jobs of run #${run.run_number}`
-
-      return (
-        <Group gap="xs" wrap="nowrap" justify="flex-end">
-          {isAwaitingReview && onReview && (
-            <>
-              <ActionIcon
-                variant="subtle"
-                color="green"
-                size="md"
-                title={approveLabel}
-                aria-label={approveLabel}
-                loading={isReviewing}
-                disabled={isReviewBusy}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleReviewRun(pipeline, run, 'approve')
-                }}
-              >
-                <IconCheck size={16} />
-              </ActionIcon>
-              <ActionIcon
-                variant="subtle"
-                color="red"
-                size="md"
-                title={rejectLabel}
-                aria-label={rejectLabel}
-                disabled={isReviewBusy}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleReviewRun(pipeline, run, 'reject')
-                }}
-              >
-                <IconX size={16} />
-              </ActionIcon>
-            </>
-          )}
-          {isActive
-            ? onCancel &&
-              !isAwaitingReview && (
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  size="md"
-                  title={cancelLabel}
-                  aria-label={cancelLabel}
-                  loading={isCancelling}
-                  disabled={isCancelling || isPending}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleCancelRun(pipeline, run)
-                  }}
-                >
-                  <IconSquare size={16} />
-                </ActionIcon>
-              )
-            : onRerun && (
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  size="md"
-                  title={rerunLabel}
-                  aria-label={rerunLabel}
-                  loading={isRerunning}
-                  disabled={isRerunning}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onRerun(pipeline, run)
-                  }}
-                >
-                  <IconRefresh size={16} />
-                </ActionIcon>
-              )}
-          {!isActive && canRerunFailedJobs && onRerunFailedJobs && (
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="md"
-              title={rerunFailedLabel}
-              aria-label={rerunFailedLabel}
-              loading={isRerunningFailed}
-              disabled={isRerunFailedBusy}
-              onClick={(e) => {
-                e.stopPropagation()
-                handleRerunFailedJobs(pipeline, run)
-              }}
-            >
-              <IconRefreshAlert size={16} />
-            </ActionIcon>
-          )}
-          {withDetails && (
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="md"
-              title={detailsLabel}
-              aria-label={detailsLabel}
-              onClick={(e) => {
-                e.stopPropagation()
-                onViewRun(pipeline.id, run.run_number)
-              }}
-            >
-              <IconFileText size={16} />
-            </ActionIcon>
-          )}
-        </Group>
-      )
+      const active = run.status === 'running' || run.status === 'pending'
+      const awaitingReview = run.metadata?.awaiting_review === true
+      const actions: {
+        label: string
+        icon: ReactNode
+        onClick: () => void
+        color?: 'red' | 'green'
+        disabled?: boolean
+        loading?: boolean
+      }[] = []
+      if (awaitingReview && onReview) {
+        actions.push(
+          {
+            label: `Approve deployment review for run #${run.run_number}`,
+            icon: <IconCheck size={16} />,
+            color: 'green',
+            disabled: reviewingRunNumber !== null,
+            loading: reviewingRunNumber === run.run_number,
+            onClick: () => {
+              void handleReviewRun(pipeline, run, 'approve')
+            },
+          },
+          {
+            label: `Reject deployment review for run #${run.run_number}`,
+            icon: <IconX size={16} />,
+            color: 'red',
+            disabled: reviewingRunNumber !== null,
+            onClick: () => {
+              void handleReviewRun(pipeline, run, 'reject')
+            },
+          }
+        )
+      }
+      if (active && onCancel && !awaitingReview) {
+        actions.push({
+          label:
+            run.status === 'pending'
+              ? `Cancel unavailable for pending run #${run.run_number}`
+              : `Cancel run #${run.run_number}`,
+          icon: <IconSquare size={16} />,
+          color: 'red',
+          disabled: cancellingRunNumber === run.run_number || run.status === 'pending',
+          loading: cancellingRunNumber === run.run_number,
+          onClick: () => {
+            void handleCancelRun(pipeline, run)
+          },
+        })
+      } else if (!active && onRerun) {
+        const busy = rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number
+        actions.push({
+          label: isFlux ? `Reconcile ${pipeline.name}` : `Rerun run #${run.run_number}`,
+          icon: <IconRefresh size={16} />,
+          disabled: busy,
+          loading: busy,
+          onClick: () => onRerun(pipeline, run),
+        })
+      }
+      if (!active && run.metadata?.can_rerun_failed_jobs === true && onRerunFailedJobs) {
+        actions.push({
+          label: `Re-run failed jobs of run #${run.run_number}`,
+          icon: <IconRefreshAlert size={16} />,
+          disabled: rerunningFailedRunNumber !== null,
+          loading: rerunningFailedRunNumber === run.run_number,
+          onClick: () => {
+            void handleRerunFailedJobs(pipeline, run)
+          },
+        })
+      }
+      if (withDetails) {
+        actions.push({
+          label: `View details for ${labels.run} #${run.run_number}`,
+          icon: <IconFileText size={16} />,
+          onClick: () => onViewRun(pipeline.id, run.run_number),
+        })
+      }
+      return actions
     },
     [
+      pipeline,
+      onReview,
+      reviewingRunNumber,
+      handleReviewRun,
+      onCancel,
       cancellingRunNumber,
       handleCancelRun,
-      handleReviewRun,
-      handleRerunFailedJobs,
-      onCancel,
       onRerun,
-      onRerunFailedJobs,
-      onReview,
-      onViewRun,
-      pipeline,
       rerunLoading,
-      reviewingRunNumber,
-      rerunningFailedRunNumber,
       isFlux,
+      onRerunFailedJobs,
+      rerunningFailedRunNumber,
+      handleRerunFailedJobs,
       labels.run,
+      onViewRun,
     ]
+  )
+
+  const contextMenu = useContextMenu()
+  const runMenu = (run: PipelineRun) =>
+    contextMenu(() =>
+      getRunActions(run, true).map(({ color, ...action }) => ({
+        ...action,
+        color: color === 'red' ? ('red' as const) : undefined,
+      }))
+    )
+
+  const renderRunActions = useCallback(
+    (run: PipelineRun, withDetails: boolean) => (
+      <Group gap="xs" wrap="nowrap" justify="flex-end">
+        {getRunActions(run, withDetails).map(({ label, icon, onClick, ...props }) => (
+          <Tooltip key={label} label={label}>
+            <ActionIcon
+              variant="subtle"
+              size="md"
+              color="gray"
+              {...props}
+              aria-label={label}
+              onClick={(event) => {
+                event.stopPropagation()
+                onClick()
+              }}
+            >
+              {icon}
+            </ActionIcon>
+          </Tooltip>
+        ))}
+      </Group>
+    ),
+    [getRunActions]
   )
 
   const getRunSwipeActions = (run: PipelineRun): SwipeAction[] => {
@@ -993,11 +969,27 @@ export const RunHistoryPage = ({
     }
 
     return (
-      <Box style={{ flex: 1, minHeight: 360, position: 'relative' }}>
+      <>
         <StandardTable<PipelineRun>
           records={sortedRuns}
           onRowClick={({ record }) => onViewRun(currentPipeline.id, record.run_number)}
           rowStyle={() => ({ cursor: 'pointer' })}
+          customRowAttributes={(record) => {
+            const menu = runMenu(record)
+
+            return {
+              tabIndex: 0,
+              'aria-label': `Open ${labels.run} #${record.run_number}`,
+              onContextMenu: menu.onContextMenu,
+              onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+                menu.onKeyDown(event)
+                if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault()
+                  onViewRun(currentPipeline.id, record.run_number)
+                }
+              },
+            }
+          }}
           columns={columns}
           {...(onCancel && {
             selectedRecords: selectedRuns,
@@ -1019,7 +1011,7 @@ export const RunHistoryPage = ({
                 : `Showing ${from}-${to} ${labels.runs}`
           }
         />
-      </Box>
+      </>
     )
   }
 

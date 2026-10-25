@@ -101,7 +101,7 @@ export function ConfirmStep({
                 <Text size="sm" c="dimmed" miw={LABEL_WIDTH} style={{ flexShrink: 0 }}>
                   Connection
                 </Text>
-                <Text size="xs" ff="monospace" truncate>
+                <Text size="xs" ff={summarizeConnection(state.postgresUrl) ? 'monospace' : undefined} truncate>
                   {summarizeConnection(state.postgresUrl) ?? 'Unavailable'}
                 </Text>
               </Group>
@@ -112,9 +112,9 @@ export function ConfirmStep({
                 <Text size="sm" c="dimmed" miw={LABEL_WIDTH} style={{ flexShrink: 0 }}>
                   Data directory
                 </Text>
-                <Group gap={4} wrap="nowrap" miw={0}>
+                <Group gap="3xs" wrap="nowrap" miw={0}>
                   <Tooltip label={state.dataDir} multiline maw={300}>
-                    <Text size="xs" ff="monospace" truncate maw={isMobile ? 140 : 180}>
+                    <Text size="xs" ff={state.dataDir ? 'monospace' : undefined} truncate maw={isMobile ? 140 : 180}>
                       {truncatePath(state.dataDir) || 'Default'}
                     </Text>
                   </Tooltip>
@@ -137,7 +137,7 @@ export function ConfirmStep({
                 <Text size="sm" c="dimmed" miw={LABEL_WIDTH} style={{ flexShrink: 0 }}>
                   Vault password
                 </Text>
-                <Group gap={4} wrap="nowrap">
+                <Group gap="3xs" wrap="nowrap">
                   <IconCheck size={14} color="var(--mantine-color-green-light-color)" />
                   <Text size="sm" c="green">
                     Set
@@ -187,7 +187,7 @@ export function ConfirmStep({
       )}
 
       {error && (
-        <Alert icon={<IconAlertCircle size={16} />} color="red">
+        <Alert icon={<IconAlertCircle size={16} />} color="red" title="Couldn't save storage settings">
           {error}
         </Alert>
       )}

@@ -1,25 +1,25 @@
-import {
-  Alert,
-  Card,
-  Code,
-  Group,
-  Loader,
-  PasswordInput,
-  SegmentedControl,
-  Stack,
-  Text,
-  TextInput,
-} from '@mantine/core'
+import { Alert, Card, Code, PasswordInput, SegmentedControl, Stack, Text, TextInput } from '@mantine/core'
 import { IconAlertCircle, IconAlertTriangle, IconInfoCircle, IconKey } from '@tabler/icons-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { isTauri } from '../../../services'
 import { isMobilePlatform } from '../../../utils/platform'
+import { LoadingState } from '../../common/LoadingState'
 import { IosGroup, IosRow } from '../../ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../settings/storageLabels'
 
 import type { StorageBackend, StorageStepProps } from './types'
+
+export function isPostgresUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim())
+
+    return (url.protocol === 'postgres:' || url.protocol === 'postgresql:') && Boolean(url.hostname)
+  } catch {
+    return false
+  }
+}
 
 function analyzePasswordStrength(password: string): string[] {
   const warnings: string[] = []
@@ -42,6 +42,7 @@ function analyzePasswordStrength(password: string): string[] {
 
 export function StorageStep({ state, setState, currentConfig, vaultStatus, error, checkingVault }: StorageStepProps) {
   const mobileShell = useMobileShell()
+  const [blurred, setBlurred] = useState({ postgresUrl: false, password: false, confirmation: false })
   const passwordsMatch = state.vaultPassword === state.vaultPasswordConfirm
   const vaultPasswordFromEnv = vaultStatus?.is_set === true
 
@@ -132,8 +133,15 @@ export function StorageStep({ state, setState, currentConfig, vaultStatus, error
             <TextInput
               label="PostgreSQL connection URL"
               placeholder="postgresql://user:password@localhost:5432/pipedash"
+              description="Use postgres:// or postgresql:// followed by your database connection details."
               value={state.postgresUrl}
               onChange={(e) => setState({ ...state, postgresUrl: e.target.value })}
+              onBlur={() => setBlurred((value) => ({ ...value, postgresUrl: true }))}
+              error={
+                blurred.postgresUrl && !isPostgresUrl(state.postgresUrl)
+                  ? 'Enter a valid PostgreSQL connection URL'
+                  : undefined
+              }
               required
             />
           )}
@@ -165,19 +173,17 @@ export function StorageStep({ state, setState, currentConfig, vaultStatus, error
               Encrypts your provider tokens. Set <Code>PIPEDASH_VAULT_PASSWORD</Code> env var for auto-unlock.
             </Text>
             {checkingVault ? (
-              <Group gap="xs">
-                <Loader size="xs" />
-                <Text size="sm" c="dimmed">
-                  Checking vault...
-                </Text>
-              </Group>
+              <LoadingState message="Checking vault…" />
             ) : (
               <>
                 <PasswordInput
                   label="Password"
                   placeholder="Min. 8 characters"
+                  description="Use at least 8 characters."
                   value={state.vaultPassword}
                   onChange={(e) => setState({ ...state, vaultPassword: e.target.value })}
+                  onBlur={() => setBlurred((value) => ({ ...value, password: true }))}
+                  error={blurred.password && state.vaultPassword.length < 8 ? 'Use at least 8 characters' : undefined}
                   required
                 />
                 <PasswordInput
@@ -185,7 +191,8 @@ export function StorageStep({ state, setState, currentConfig, vaultStatus, error
                   placeholder="Re-enter password"
                   value={state.vaultPasswordConfirm}
                   onChange={(e) => setState({ ...state, vaultPasswordConfirm: e.target.value })}
-                  error={state.vaultPasswordConfirm && !passwordsMatch ? 'Passwords do not match' : undefined}
+                  onBlur={() => setBlurred((value) => ({ ...value, confirmation: true }))}
+                  error={blurred.confirmation && !passwordsMatch ? 'Passwords do not match' : undefined}
                   required
                 />
                 {passwordWarnings.length > 0 && (
@@ -208,7 +215,7 @@ export function StorageStep({ state, setState, currentConfig, vaultStatus, error
       )}
 
       {error && (
-        <Alert icon={<IconAlertCircle size={16} />} color="red">
+        <Alert icon={<IconAlertCircle size={16} />} color="red" title="Couldn't save storage settings">
           {error}
         </Alert>
       )}

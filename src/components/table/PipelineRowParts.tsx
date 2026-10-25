@@ -1,6 +1,14 @@
-import { ActionIcon, Group, Loader, Menu, Text, Tooltip } from '@mantine/core'
-import { IconChartLine, IconDots, IconPin, IconPinFilled, IconPlayerPlayFilled, IconRefresh } from '@tabler/icons-react'
-import type { ReactNode } from 'react'
+import { ActionIcon, Group, Loader, Menu, Text, Tooltip, VisuallyHidden } from '@mantine/core'
+import {
+  IconChartLine,
+  IconDots,
+  IconHistory,
+  IconPin,
+  IconPinFilled,
+  IconPlayerPlayFilled,
+  IconRefresh,
+} from '@tabler/icons-react'
+import { type ReactNode, useId } from 'react'
 
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
@@ -8,6 +16,7 @@ import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getReconcileBlockReason, getStatusLabel } from '../../utils/pipelinePresentation'
 import { providerAttention } from '../../utils/providerAttention'
 import { StatusBadge } from '../atoms/StatusBadge'
+import type { ContextMenuItem } from '../common/ContextMenu'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import type { SwipeAction } from '../ios/SwipeActions'
 
@@ -94,11 +103,55 @@ interface WorkflowActionsProps {
   onViewMetrics?: (pipeline: Pipeline) => void
 }
 
+type WorkflowMenuItem = Extract<ContextMenuItem, { label: string }>
+
+const triggerIcon = (pipeline: Pipeline) =>
+  pipeline.provider_type === 'fluxcd' ? <IconRefresh size={16} /> : <IconPlayerPlayFilled size={16} />
+
+export function workflowMenuItems({
+  pipeline,
+  isPinned,
+  onTogglePin,
+  onTrigger,
+  onViewMetrics,
+  onViewHistory,
+}: WorkflowActionsProps & { onViewHistory: (pipeline: Pipeline) => void }): WorkflowMenuItem[] {
+  const labels = getPipelineLabels(pipeline.provider_type)
+  const history: WorkflowMenuItem = {
+    label: labels.history,
+    icon: <IconHistory size={16} />,
+    onClick: () => onViewHistory(pipeline),
+  }
+  const trigger: WorkflowMenuItem = {
+    label: labels.trigger,
+    icon: triggerIcon(pipeline),
+    disabled: Boolean(getReconcileBlockReason(pipeline)),
+    onClick: () => onTrigger(pipeline),
+  }
+  const pin: WorkflowMenuItem = {
+    label: isPinned ? 'Unpin' : 'Pin',
+    icon: isPinned ? <IconPinFilled size={16} /> : <IconPin size={16} />,
+    onClick: onTogglePin,
+  }
+
+  if (!onViewMetrics) {
+    return [history, trigger, pin]
+  }
+
+  return [
+    history,
+    { label: 'View metrics', icon: <IconChartLine size={16} />, onClick: () => onViewMetrics(pipeline) },
+    trigger,
+    pin,
+  ]
+}
+
 export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, onViewMetrics }: WorkflowActionsProps) {
   const pinLabel = `${isPinned ? 'Unpin' : 'Pin'} ${pipeline.name}`
   const metricsLabel = `View metrics for ${pipeline.name}`
   const triggerLabel = `${getPipelineLabels(pipeline.provider_type).trigger} ${pipeline.name}`
   const blockedReason = getReconcileBlockReason(pipeline)
+  const reasonId = useId()
 
   return (
     <Group gap="xs" wrap="nowrap">
@@ -114,21 +167,24 @@ export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, on
           </ActionIcon>
         </Tooltip>
       )}
-      <Tooltip label={blockedReason ?? triggerLabel}>
+      <Tooltip label={triggerLabel}>
         <ActionIcon
           variant="subtle"
           color="gray"
           aria-label={triggerLabel}
-          aria-disabled={!!blockedReason}
+          aria-disabled={blockedReason ? true : undefined}
+          aria-describedby={blockedReason ? reasonId : undefined}
+          data-disabled={blockedReason ? true : undefined}
           onClick={() => {
             if (!blockedReason) {
               onTrigger(pipeline)
             }
           }}
         >
-          {pipeline.provider_type === 'fluxcd' ? <IconRefresh size={16} /> : <IconPlayerPlayFilled size={16} />}
+          {triggerIcon(pipeline)}
         </ActionIcon>
       </Tooltip>
+      {blockedReason && <VisuallyHidden id={reasonId}>{blockedReason}</VisuallyHidden>}
     </Group>
   )
 }
@@ -148,7 +204,7 @@ export function WorkflowActionMenu({
   onViewHistory,
 }: WorkflowActionMenuProps) {
   const openNotifications = useNotificationCenterStore((state) => state.open)
-  const labels = getPipelineLabels(pipeline.provider_type)
+  const actions = workflowMenuItems({ pipeline, isPinned, onTogglePin, onTrigger, onViewMetrics, onViewHistory })
   const blockedReason = getReconcileBlockReason(pipeline)
   const headline = provider ? providerAttention(provider).headline : null
 
@@ -162,12 +218,11 @@ export function WorkflowActionMenu({
       <Menu.Dropdown>
         <Menu.Label>{pipeline.name}</Menu.Label>
         {blockedReason && <Menu.Label>{blockedReason}</Menu.Label>}
-        <Menu.Item onClick={() => onViewHistory(pipeline)}>{labels.history}</Menu.Item>
-        {onViewMetrics && <Menu.Item onClick={() => onViewMetrics(pipeline)}>View metrics</Menu.Item>}
-        <Menu.Item disabled={!!blockedReason} onClick={() => onTrigger(pipeline)}>
-          {labels.trigger}
-        </Menu.Item>
-        <Menu.Item onClick={onTogglePin}>{isPinned ? 'Unpin' : 'Pin'}</Menu.Item>
+        {actions.map((action) => (
+          <Menu.Item key={action.label} disabled={action.disabled} onClick={action.onClick}>
+            {action.label}
+          </Menu.Item>
+        ))}
         {provider && (
           <Menu.Item onClick={() => openNotifications({ type: 'provider', providerId: provider.id })}>
             {provider.name} service status{headline ? ` · ${headline}` : ''}

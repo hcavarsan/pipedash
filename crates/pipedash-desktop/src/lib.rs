@@ -23,6 +23,59 @@ use pipedash_core::infrastructure::config::{
 use pipedash_core::CoreContext;
 use tauri::Manager;
 
+#[cfg(target_os = "macos")]
+fn install_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{
+        Menu,
+        MenuItem,
+        MenuItemKind,
+        Submenu,
+    };
+    use tauri::Emitter;
+
+    let menu = Menu::default(app)?;
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+        app_menu.insert(
+            &MenuItem::with_id(app, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?,
+            2,
+        )?;
+        app_menu.insert(
+            &MenuItem::with_id(app, "lock", "Lock", true, Some("CmdOrCtrl+L"))?,
+            3,
+        )?;
+    }
+    let pipelines = Submenu::with_items(
+        app,
+        "Pipelines",
+        true,
+        &[
+            &MenuItem::with_id(app, "refresh-all", "Refresh All", true, Some("CmdOrCtrl+R"))?,
+            &MenuItem::with_id(
+                app,
+                "toggle-sidebar",
+                "Toggle Sidebar",
+                true,
+                Some("CmdOrCtrl+\\"),
+            )?,
+            &MenuItem::with_id(app, "find", "Find", true, Some("CmdOrCtrl+F"))?,
+        ],
+    )?;
+    menu.insert(&pipelines, 3)?;
+    app.set_menu(menu)?;
+    app.on_menu_event(|app, event| {
+        let command = event.id().as_ref();
+        if matches!(
+            command,
+            "refresh-all" | "toggle-sidebar" | "settings" | "lock" | "find"
+        ) {
+            if let Err(error) = app.emit("menu-command", command) {
+                tracing::error!("Could not dispatch menu command: {}", error);
+            }
+        }
+    });
+    Ok(())
+}
+
 fn ensure_desktop_config(app_data_dir: &Path, config_path: &Path) -> Result<bool, String> {
     if config_path.exists() {
         return Ok(false);
@@ -247,6 +300,11 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            install_app_menu(app.handle())?;
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            app.remove_menu()?;
+
             let app_data_dir = match app.path().app_data_dir() {
                 Ok(dir) => dir,
                 Err(e) => {
@@ -414,6 +472,7 @@ pub fn run() {
             native::native_set_appearance,
             native::native_accessibility,
             native::native_open_settings,
+            native::native_share_link,
             native::native_set_badge,
             native::native_release_privacy_cover,
             native::native_take_pending_intent,

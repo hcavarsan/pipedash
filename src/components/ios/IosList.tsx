@@ -1,5 +1,5 @@
 import { IconChevronRight } from '@tabler/icons-react'
-import { type ReactNode, useId } from 'react'
+import { type MouseEventHandler, type ReactNode, useId } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import classes from './IosList.module.css'
@@ -52,7 +52,7 @@ interface IosRowProps {
   value?: ReactNode
   accessory?: ReactNode
   to?: string
-  onClick?: () => void
+  onClick?: MouseEventHandler<HTMLButtonElement>
   chevron?: boolean
   destructive?: boolean
   disabled?: boolean

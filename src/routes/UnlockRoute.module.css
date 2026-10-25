@@ -7,7 +7,7 @@
   overflow-y: auto;
   padding: calc(var(--safe-top) + max(48px, 14dvh)) calc(var(--safe-right) + 24px) calc(var(--safe-bottom) + 32px)
     calc(var(--safe-left) + 24px);
-  background: var(--mantine-color-body);
+  background: var(--ios-grouped-bg);
 }
 
 .hero {
@@ -21,15 +21,16 @@
 
 .title {
   margin: 0;
-  font-size: 28px;
+  font-size: var(--ios-fs-title1);
   font-weight: 700;
-  line-height: 1.2;
+  line-height: var(--ios-lh-title1);
 }
 
 .subtitle {
   margin: 0;
-  font-size: 15px;
-  color: var(--mantine-color-dimmed);
+  font-size: var(--ios-fs-subheadline);
+  line-height: var(--ios-lh-subheadline);
+  color: var(--ios-secondary-label);
 }
 
 .form {

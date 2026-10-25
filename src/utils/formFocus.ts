@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type RefObject, useCallback, useEffect, useState } from 'react'
 
+import { isMobileShell } from '../hooks/useIsMobile'
 import { scrollBehavior } from '../lib/motion'
 
 const TEXT_FIELDS =
@@ -9,6 +10,7 @@ export function handleFormEnter(event: KeyboardEvent<HTMLFormElement>) {
   const { target, currentTarget } = event
 
   if (
+    !isMobileShell() ||
     event.key !== 'Enter' ||
     event.defaultPrevented ||
     event.nativeEvent.isComposing ||

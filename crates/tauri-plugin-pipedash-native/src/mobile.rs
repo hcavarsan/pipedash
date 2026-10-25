@@ -26,6 +26,7 @@ use crate::{
     NotificationResponse,
     PrivacyCover,
     Result,
+    ShareRect,
 };
 
 tauri::ios_plugin_binding!(init_plugin_pipedash_native);
@@ -59,6 +60,13 @@ struct BadgeArgs {
 #[derive(Serialize)]
 struct ShareArgs<'a> {
     path: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShareLinkArgs<'a> {
+    url: &'a str,
+    source_rect: ShareRect,
 }
 
 #[derive(Deserialize)]
@@ -133,6 +141,13 @@ impl<R: Runtime> PipedashNative<R> {
             .to_str()
             .ok_or_else(|| Error::Native("The file path isn't valid UTF-8".to_string()))?;
         let result: ShareResult = self.call("shareFile", ShareArgs { path }).await?;
+        Ok(result.completed)
+    }
+
+    pub async fn share_link(&self, url: &str, source_rect: ShareRect) -> Result<bool> {
+        let result: ShareResult = self
+            .call("shareLink", ShareLinkArgs { url, source_rect })
+            .await?;
         Ok(result.completed)
     }
 

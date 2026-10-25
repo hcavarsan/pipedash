@@ -1,4 +1,4 @@
-import { Box, Button, Group, Stack, UnstyledButton } from '@mantine/core'
+import { Button, Group, Stack, UnstyledButton } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
   IconChevronDown,
@@ -25,6 +25,7 @@ import { getDateRangeStart } from '../../utils/dateRange'
 import { getPipelineLabels, getStatusLabel, getStatusOptions } from '../../utils/pipelinePresentation'
 import { fetchHint, providerAttention } from '../../utils/providerAttention'
 import { TableCells } from '../../utils/tableCells'
+import { useContextMenu } from '../common/ContextMenu'
 import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
 import { FilterBar } from '../common/FilterBar'
@@ -38,7 +39,14 @@ import { ProviderStatusButton } from '../provider/ProviderStatusButton'
 import { IosPipelineList } from './IosPipelineList'
 import { MobilePipelineCards } from './MobilePipelineCards'
 import { PinnedWorkflows } from './PinnedWorkflows'
-import { RepositoryFetchIndicator, RowStatus, SectionHeading, type TableRow, WorkflowActions } from './PipelineRowParts'
+import {
+  RepositoryFetchIndicator,
+  RowStatus,
+  SectionHeading,
+  type TableRow,
+  WorkflowActions,
+  workflowMenuItems,
+} from './PipelineRowParts'
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
@@ -206,6 +214,23 @@ export const UnifiedPipelinesView = ({
   const pinnedKeys = usePinnedStore((s) => s.pinnedKeys)
   const togglePin = usePinnedStore((s) => s.togglePin)
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
+  const contextMenu = useContextMenu()
+  const rowMenu = ({ pipeline, pinKey }: TableRow) => {
+    if (!pipeline || !pinKey) {
+      return {}
+    }
+
+    return contextMenu(() =>
+      workflowMenuItems({
+        pipeline,
+        isPinned: pinnedKeys.includes(pinKey),
+        onTogglePin: () => togglePin(pinKey),
+        onTrigger,
+        onViewMetrics,
+        onViewHistory,
+      })
+    )
+  }
 
   const [expansionOverrides, setExpansionOverrides] = useState<Record<string, boolean>>({})
   const [sortStatus, setSortStatus] = useState<DataTableSortStatus<TableRow>>({
@@ -663,6 +688,18 @@ export const UnifiedPipelinesView = ({
                       ? 'Check the configured namespaces and resource selection in Settings → Providers.'
                       : 'Workflows appear here after they run on your configured providers.'
                   }
+                  action={
+                    !mobileShell &&
+                    (onRetry ? (
+                      <Button variant="default" size="sm" onClick={onRetry}>
+                        Refresh
+                      </Button>
+                    ) : (
+                      <Button component={Link} to="/settings/providers" variant="default" size="sm">
+                        Provider settings
+                      </Button>
+                    ))
+                  }
                 />
               )
             ) : mobileShell ? (
@@ -692,122 +729,127 @@ export const UnifiedPipelinesView = ({
                 onViewMetrics={onViewMetrics}
               />
             ) : (
-              <Box style={{ flex: 1, minHeight: 360, position: 'relative' }}>
-                <StandardTable<TableRow>
-                  records={rows}
-                  columns={[
-                    {
-                      accessor: 'name',
-                      title: 'Name',
-                      sortable: true,
-                      width: '35%',
-                      textAlign: 'left' as const,
-                      render: (row) => {
-                        if (row.type === 'repository') {
-                          return (
-                            <UnstyledButton w="100%" onClick={() => toggleRepo(row.id)} aria-expanded={row.expanded}>
-                              <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
-                                {row.expanded ? (
-                                  <IconChevronDown size={16} style={{ flexShrink: 0 }} />
-                                ) : (
-                                  <IconChevronRight size={16} style={{ flexShrink: 0 }} />
-                                )}
-                                <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
-                                {TableCells.truncated(row.name)}
-                              </Group>
-                            </UnstyledButton>
-                          )
-                        }
-
-                        const { pipeline } = row
-
-                        if (!pipeline) {
-                          return null
-                        }
-
+              <StandardTable<TableRow>
+                records={rows}
+                customRowAttributes={rowMenu}
+                columns={[
+                  {
+                    accessor: 'name',
+                    title: 'Name',
+                    sortable: true,
+                    width: '35%',
+                    textAlign: 'left' as const,
+                    render: (row) => {
+                      if (row.type === 'repository') {
                         return (
                           <UnstyledButton
+                            className="interactive-surface"
                             w="100%"
-                            pl="xl"
-                            onClick={() => onViewHistory(pipeline)}
-                            aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
+                            onClick={() => toggleRepo(row.id)}
+                            aria-expanded={row.expanded}
                           >
                             <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
-                              <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                              {row.expanded ? (
+                                <IconChevronDown size={16} style={{ flexShrink: 0 }} />
+                              ) : (
+                                <IconChevronRight size={16} style={{ flexShrink: 0 }} />
+                              )}
+                              <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
                               {TableCells.truncated(row.name)}
                             </Group>
                           </UnstyledButton>
                         )
-                      },
-                    },
-                    {
-                      accessor: 'organization',
-                      title: labels.groupTitle,
-                      sortable: true,
-                      width: 160,
-                      textAlign: 'left' as const,
-                      render: (row) => TableCells.truncatedDimmed(row.organization),
-                    },
-                    {
-                      accessor: 'status',
-                      title: 'Status',
-                      sortable: true,
-                      width: 110,
-                      textAlign: 'left' as const,
-                      render: (row) => <RowStatus row={row} />,
-                    },
-                    {
-                      accessor: 'provider',
-                      title: 'Provider',
-                      sortable: true,
-                      width: 200,
-                      textAlign: 'left' as const,
-                      render: (row) => (
-                        <Stack gap={4} align="flex-start">
-                          {Array.from(row.providerIds ?? []).map((providerId) => (
-                            <ProviderStatusButton key={providerId} provider={getProvider(providerId)} />
-                          ))}
-                        </Stack>
-                      ),
-                    },
-                    {
-                      accessor: 'actions',
-                      title: 'Actions',
-                      width: onViewMetrics ? 160 : 140,
-                      textAlign: 'right' as const,
-                      render: (row) => {
-                        if (row.type === 'repository') {
-                          return (
-                            <Group justify="flex-end">
-                              <RepositoryFetchIndicator row={row} />
-                            </Group>
-                          )
-                        }
+                      }
 
-                        const { pipeline, pinKey: rowPinKey } = row
+                      const { pipeline } = row
 
-                        if (row.type === 'workflow' && pipeline && rowPinKey) {
-                          return (
-                            <Group justify="flex-end">
-                              <WorkflowActions
-                                pipeline={pipeline}
-                                isPinned={pinnedKeys.includes(rowPinKey)}
-                                onTogglePin={() => togglePin(rowPinKey)}
-                                onTrigger={onTrigger}
-                                onViewMetrics={onViewMetrics}
-                              />
-                            </Group>
-                          )
-                        }
-
+                      if (!pipeline) {
                         return null
-                      },
+                      }
+
+                      return (
+                        <UnstyledButton
+                          className="interactive-surface"
+                          w="100%"
+                          pl="xl"
+                          onClick={() => onViewHistory(pipeline)}
+                          aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
+                        >
+                          <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
+                            <IconGitBranch size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                            {TableCells.truncated(row.name)}
+                          </Group>
+                        </UnstyledButton>
+                      )
                     },
-                  ]}
-                  sortStatus={sortStatus}
-                  onSortStatusChange={setSortStatus}
-                />
-              </Box>
+                  },
+                  {
+                    accessor: 'organization',
+                    title: labels.groupTitle,
+                    sortable: true,
+                    width: 160,
+                    textAlign: 'left' as const,
+                    render: (row) => TableCells.truncatedDimmed(row.organization),
+                  },
+                  {
+                    accessor: 'status',
+                    title: 'Status',
+                    sortable: true,
+                    width: 110,
+                    textAlign: 'left' as const,
+                    render: (row) => <RowStatus row={row} />,
+                  },
+                  {
+                    accessor: 'provider',
+                    title: 'Provider',
+                    sortable: true,
+                    width: 200,
+                    textAlign: 'left' as const,
+                    render: (row) => (
+                      <Stack gap="3xs" align="flex-start">
+                        {Array.from(row.providerIds ?? []).map((providerId) => (
+                          <ProviderStatusButton key={providerId} provider={getProvider(providerId)} />
+                        ))}
+                      </Stack>
+                    ),
+                  },
+                  {
+                    accessor: 'actions',
+                    title: 'Actions',
+                    width: onViewMetrics ? 160 : 140,
+                    textAlign: 'right' as const,
+                    render: (row) => {
+                      if (row.type === 'repository') {
+                        return (
+                          <Group justify="flex-end">
+                            <RepositoryFetchIndicator row={row} />
+                          </Group>
+                        )
+                      }
+
+                      const { pipeline, pinKey: rowPinKey } = row
+
+                      if (row.type === 'workflow' && pipeline && rowPinKey) {
+                        return (
+                          <Group justify="flex-end">
+                            <WorkflowActions
+                              pipeline={pipeline}
+                              isPinned={pinnedKeys.includes(rowPinKey)}
+                              onTogglePin={() => togglePin(rowPinKey)}
+                              onTrigger={onTrigger}
+                              onViewMetrics={onViewMetrics}
+                            />
+                          </Group>
+                        )
+                      }
+
+                      return null
+                    },
+                  },
+                ]}
+                sortStatus={sortStatus}
+                onSortStatusChange={setSortStatus}
+              />
             )}
           </Stack>
         </>

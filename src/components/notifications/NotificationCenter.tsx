@@ -12,7 +12,7 @@ import {
   UnstyledButton,
   VisuallyHidden,
 } from '@mantine/core'
-import { IconBell, IconBellCheck } from '@tabler/icons-react'
+import { IconAlertTriangle, IconBell, IconBellCheck, IconCheck, IconExclamationCircle } from '@tabler/icons-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
@@ -29,6 +29,7 @@ import { openConfirm } from '../../utils/confirm'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { providerAttention } from '../../utils/providerAttention'
 import { ProviderIcon } from '../atoms/ProviderIcon'
+import { EmptyState } from '../common/EmptyState'
 import { IosGroup, IosRow } from '../ios/IosList'
 
 import { notificationIcon, notificationLabel, TONE_COLORS } from './labels'
@@ -38,7 +39,7 @@ import { ProviderStatusModal } from './ProviderStatusModal'
 const DOT_COLORS: Array<[CenterNotificationTone, string]> = [
   ['danger', 'red'],
   ['warning', 'orange'],
-  ['success', 'blue'],
+  ['success', 'green'],
 ]
 
 function unreadDotColor(items: CenterNotification[]): string | null {
@@ -60,12 +61,12 @@ function Row({ leading, title, subtitle, unread = false, onClick }: RowProps) {
     <UnstyledButton
       className="interactive-surface"
       px="sm"
-      py={8}
+      py="xs"
       onClick={onClick}
       style={{ borderRadius: 'var(--mantine-radius-sm)' }}
     >
       <Group gap="sm" wrap="nowrap" align="flex-start">
-        <Box c="dimmed" pt={2} style={{ display: 'flex' }}>
+        <Box c="dimmed" pt="4xs" style={{ display: 'flex' }}>
           {leading}
         </Box>
         <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
@@ -77,7 +78,7 @@ function Row({ leading, title, subtitle, unread = false, onClick }: RowProps) {
           </Text>
         </Stack>
         {unread && (
-          <Box w={6} h={6} mt={7} bg="blue" style={{ borderRadius: '50%', flexShrink: 0 }}>
+          <Box w={6} h={6} mt="2xs" bg="blue" style={{ borderRadius: '50%', flexShrink: 0 }}>
             <VisuallyHidden>Unread</VisuallyHidden>
           </Box>
         )}
@@ -171,7 +172,7 @@ function NotificationList({ title, onSelect }: NotificationListProps) {
             {title}
           </Text>
         )}
-        <Group gap={4}>
+        <Group gap="3xs">
           {unread > 0 && (
             <Button size="compact-xs" variant="subtle" color="gray" onClick={markAllRead}>
               Mark all read
@@ -186,20 +187,14 @@ function NotificationList({ title, onSelect }: NotificationListProps) {
       </Group>
 
       {items.length === 0 && affected.length === 0 ? (
-        <Stack align="center" gap={4} px="md" pb="lg" pt="xs">
-          <Box c="dimmed">
-            <IconBellCheck size={24} aria-hidden />
-          </Box>
-          <Text size="sm" fw={500}>
-            You're all caught up
-          </Text>
-          <Text size="xs" c="dimmed" ta="center">
-            Provider outages and pipeline failures show up here.
-          </Text>
-        </Stack>
+        <EmptyState
+          icon={<IconBellCheck size={24} aria-hidden />}
+          title="You're all caught up"
+          description="Provider outages and pipeline failures show up here."
+        />
       ) : (
         <ScrollArea.Autosize mah={title ? 440 : undefined} type="auto">
-          <Stack gap={2} px={6} pb={6}>
+          <Stack gap="4xs" px="2xs" pb="2xs">
             {affected.length > 0 && <SectionLabel>Affecting pipelines now</SectionLabel>}
             {affected.map(({ provider, headline }) => (
               <Row
@@ -406,13 +401,23 @@ export function NotificationCenter() {
     setOpened(next)
   }
 
-  const label = unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'
+  const severity = dotColor === 'red' ? 'danger' : dotColor === 'orange' ? 'warning' : dotColor ? 'success' : null
+  const SeverityIcon =
+    severity === 'danger' ? IconExclamationCircle : severity === 'warning' ? IconAlertTriangle : IconCheck
+  const label = unread > 0 ? `Notifications, ${unread} unread${severity ? `, ${severity}` : ''}` : 'Notifications'
 
   return (
-    <Indicator color={dotColor ?? 'gray'} disabled={!dotColor} size={8} offset={7} withBorder>
+    <Indicator
+      color={dotColor ?? 'gray'}
+      disabled={!dotColor}
+      size={16}
+      offset={4}
+      withBorder
+      label={<SeverityIcon size={12} aria-hidden />}
+    >
       <Popover opened={opened} onChange={toggle} position="bottom-end" width={380} shadow="md" trapFocus returnFocus>
         <Popover.Target>
-          <Tooltip label="Notifications" position="bottom" disabled={opened}>
+          <Tooltip label={label} position="bottom" disabled={opened}>
             <ActionIcon variant="subtle" size="lg" color="gray" aria-label={label} onClick={() => toggle(!opened)}>
               <IconBell size={20} />
             </ActionIcon>

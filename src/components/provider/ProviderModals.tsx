@@ -7,7 +7,10 @@ import { useAddProvider, useProviders, useRemoveProvider, useUpdateProvider } fr
 import { useProviderStore } from '../../stores/providerStore'
 import type { ProviderConfig } from '../../types'
 import { openConfirm } from '../../utils/confirm'
-import { displayErrorNotification } from '../../utils/errorDisplay'
+
+import { ErrorState } from '../common/ErrorState'
+import { LoadingState } from '../common/LoadingState'
+import { StandardModal } from '../common/StandardModal'
 
 import { AddProviderModal } from './AddProviderModal'
 
@@ -30,7 +33,6 @@ export function useConfirmRemoveProvider() {
             await removeProvider(id)
           } catch (err) {
             logger.error('ProviderModals', 'Failed to remove provider', err)
-            displayErrorNotification(err, "Couldn't remove provider")
           }
         },
       })
@@ -50,7 +52,13 @@ export function ProviderModals() {
   const { refetch: refetchProviders } = useProviders()
   const { mutateAsync: addProvider } = useAddProvider()
   const { mutateAsync: updateProvider } = useUpdateProvider()
-  const { data: providerDetails } = useProviderDetails(editRequestId)
+  const {
+    data: providerDetails,
+    error: providerDetailsError,
+    isError: providerDetailsFailed,
+    isFetching: fetchingProviderDetails,
+    refetch: refetchProviderDetails,
+  } = useProviderDetails(editRequestId)
 
   useEffect(() => {
     if (providerDetails && editRequestId !== null) {
@@ -74,6 +82,19 @@ export function ProviderModals() {
   return (
     <>
       <AddProviderModal opened={addProviderModal.open} onClose={handleCloseAdd} onAdd={handleAdd} />
+
+      <StandardModal opened={editRequestId !== null} onClose={closeEditProviderModal} title="Edit provider" size="md">
+        {providerDetailsFailed ? (
+          <ErrorState
+            title="Couldn't load provider"
+            error={providerDetailsError}
+            onRetry={() => refetchProviderDetails()}
+            retrying={fetchingProviderDetails}
+          />
+        ) : (
+          <LoadingState variant="section" message="Loading provider..." />
+        )}
+      </StandardModal>
 
       {editProviderModal.provider && (
         <AddProviderModal

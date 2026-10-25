@@ -4,16 +4,17 @@ import {
   Group,
   Loader,
   Checkbox as MantineCheckbox,
+  NativeSelect,
   Paper,
   ScrollArea,
   Select,
   Stack,
-  Table,
   Text,
   TextInput,
   Tooltip,
 } from '@mantine/core'
 import { IconBuildingSkyscraper, IconSearch, IconStack2 } from '@tabler/icons-react'
+import type { DataTableColumn } from 'mantine-datatable'
 import { type Dispatch, useEffect, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
@@ -26,6 +27,8 @@ import { getPipelineLabels, type PipelineLabels } from '../../../utils/pipelineP
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
+import { SearchInput } from '../../common/SearchInput'
+import { StandardTable } from '../../common/StandardTable'
 import { IosGroup, IosRow } from '../../ios/IosList'
 
 import { CheckCircle, ShellField, StepHeading } from './ShellForm'
@@ -133,7 +136,11 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
         <EmptyState
           icon={<IconBuildingSkyscraper size={24} />}
           title={`No ${labels.groups} found`}
-          description={`No accessible ${labels.items} were found. Check the cluster, namespace scope and credentials.`}
+          description={
+            mobileShell
+              ? `No accessible ${labels.items} were found. Check the cluster, namespace scope and credentials.`
+              : `Go back to Credentials to check the connection scope and access to your ${labels.groups}.`
+          }
         />
       )
     }
@@ -180,7 +187,11 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
           <EmptyState
             icon={<IconStack2 size={24} />}
             title={`No ${labels.items} found`}
-            description={`This ${labels.group} has no accessible ${labels.items}.`}
+            description={
+              mobileShell
+                ? `This ${labels.group} has no accessible ${labels.items}.`
+                : `This ${labels.group} has no accessible ${labels.items}. Go back to Credentials to check scope and permissions.`
+            }
           />
         )
       ) : mobileShell ? (
@@ -190,37 +201,35 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
           onToggle={handlePipelineToggle}
           onSelectAll={handleSelectAll}
         />
-      ) : (
+      ) : isMobile ? (
         <ScrollArea style={{ flex: 1, minHeight: 0 }} type="auto">
-          {isMobile ? (
-            <Stack gap="xs">
-              {availablePipelines.map((pipeline) => (
-                <MobilePipelineCard
-                  key={pipeline.id}
-                  labels={labels}
-                  pipeline={pipeline}
-                  isSelected={selectedPipelines.has(pipeline.id)}
-                  onToggle={() => handlePipelineToggle(pipeline.id)}
-                />
-              ))}
-            </Stack>
-          ) : (
-            <PipelinesTable
-              pipelines={availablePipelines}
-              labels={labels}
-              selectedPipelines={selectedPipelines}
-              onToggle={handlePipelineToggle}
-              onSelectAll={handleSelectAll}
-            />
-          )}
+          <Stack gap="xs">
+            {availablePipelines.map((pipeline) => (
+              <MobilePipelineCard
+                key={pipeline.id}
+                labels={labels}
+                pipeline={pipeline}
+                isSelected={selectedPipelines.has(pipeline.id)}
+                onToggle={() => handlePipelineToggle(pipeline.id)}
+              />
+            ))}
+          </Stack>
         </ScrollArea>
+      ) : (
+        <PipelinesTable
+          pipelines={availablePipelines}
+          labels={labels}
+          selectedPipelines={selectedPipelines}
+          onToggle={handlePipelineToggle}
+          onSelectAll={handleSelectAll}
+        />
       )
 
     return (
       <>
         {results}
         {allPipelines?.has_more && (
-          <Group justify="center" pt={4}>
+          <Group justify="center" pt={mobileShell ? 4 : '3xs'}>
             <Button
               size={mobileShell ? 'md' : 'sm'}
               variant="default"
@@ -245,13 +254,15 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
         <StepHeading title={`Select ${labels.items}`} subtitle={`Choose ${labels.items} to monitor`} />
         {ready && availableOrganizations.length > 1 && (
           <ShellField label={labels.groupTitle}>
-            <Select
+            <NativeSelect
               variant="unstyled"
               aria-label={labels.groupTitle}
-              placeholder={`Select ${labels.group}`}
-              value={selectedOrganization}
-              onChange={handleOrganizationSelect}
-              data={availableOrganizations.map((org) => ({ value: org.id, label: org.name }))}
+              value={selectedOrganization ?? ''}
+              onChange={(event) => handleOrganizationSelect(event.currentTarget.value)}
+              data={[
+                { value: '', label: `Select ${labels.group}` },
+                ...availableOrganizations.map((org) => ({ value: org.id, label: org.name })),
+              ]}
             />
           </ShellField>
         )}
@@ -300,24 +311,16 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
                   style={{ flex: 1 }}
                 />
               )}
-              <TextInput
+              <SearchInput
                 aria-label={`Search ${labels.items}`}
                 placeholder={`Search ${labels.items}...`}
                 value={repositorySearch}
-                onChange={(e) => handleSearchChange(e.currentTarget.value)}
-                leftSection={
-                  searchingPipelines && !loadingPipelines && !loadingMore ? (
-                    <Loader size={16} />
-                  ) : (
-                    <IconSearch size={16} />
-                  )
+                onChange={handleSearchChange}
+                loading={
+                  !loadingPipelines && !loadingMore && (searchingPipelines || repositorySearch !== debouncedSearch)
                 }
+                loadingLabel="Searching…"
                 disabled={!selectedOrganization}
-                type="search"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                enterKeyHint="search"
                 style={{ flex: 1 }}
               />
             </Group>
@@ -340,7 +343,7 @@ interface MobilePipelineCardProps {
 function MobilePipelineCard({ pipeline, isSelected, onToggle, labels }: MobilePipelineCardProps) {
   return (
     <MantineCheckbox.Card checked={isSelected} onClick={onToggle} p="xs" aria-label={pipeline.name}>
-      <Stack gap={4}>
+      <Stack gap="3xs">
         <Group gap="xs" wrap="nowrap">
           <MantineCheckbox.Indicator />
           <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
@@ -387,75 +390,53 @@ interface PipelinesTableProps {
 
 function PipelinesTable({ pipelines, selectedPipelines, onToggle, onSelectAll, labels }: PipelinesTableProps) {
   const selectedCount = pipelines.filter((pipeline) => selectedPipelines.has(pipeline.id)).length
-  return (
-    <Table
-      highlightOnHover
-      verticalSpacing="xs"
-      styles={{
-        tr: {
-          height: 44,
-        },
-      }}
-    >
-      <Table.Thead>
-        <Table.Tr>
-          <Table.Th style={{ width: 50 }}>
-            <MantineCheckbox
-              aria-label={`Select all displayed ${labels.items}`}
-              checked={pipelines.length > 0 && selectedCount === pipelines.length}
-              indeterminate={selectedCount > 0 && selectedCount < pipelines.length}
-              onChange={onSelectAll}
-            />
-          </Table.Th>
-          <Table.Th style={{ width: '35%' }}>Name</Table.Th>
-          <Table.Th style={{ width: '20%' }}>{labels.groupTitle}</Table.Th>
-          <Table.Th style={{ width: '20%' }}>{labels.sourceTitle}</Table.Th>
-          <Table.Th style={{ width: '25%' }}>Description</Table.Th>
-        </Table.Tr>
-      </Table.Thead>
-      <Table.Tbody>
-        {pipelines.map((pipeline) => (
-          <Table.Tr key={pipeline.id}>
-            <Table.Td>
-              <MantineCheckbox
-                aria-label={pipeline.name}
-                checked={selectedPipelines.has(pipeline.id)}
-                onChange={() => onToggle(pipeline.id)}
-              />
-            </Table.Td>
-            <Table.Td style={{ maxWidth: 0 }}>
-              <Tooltip label={pipeline.name} openDelay={500}>
-                <Text size="sm" fw={500} truncate="end">
-                  {pipeline.name}
-                </Text>
-              </Tooltip>
-            </Table.Td>
-            <Table.Td style={{ maxWidth: 0 }}>
-              <Tooltip label={pipeline.organization || '—'} openDelay={500}>
-                <Text size="sm" truncate="end">
-                  {pipeline.organization || '—'}
-                </Text>
-              </Tooltip>
-            </Table.Td>
-            <Table.Td style={{ maxWidth: 0 }}>
-              <Tooltip label={pipeline.repository || '—'} openDelay={500}>
-                <Text size="sm" truncate="end">
-                  {pipeline.repository || '—'}
-                </Text>
-              </Tooltip>
-            </Table.Td>
-            <Table.Td style={{ maxWidth: 0 }}>
-              <Tooltip label={pipeline.description || '—'} openDelay={500}>
-                <Text size="sm" c="dimmed" truncate="end">
-                  {pipeline.description || '—'}
-                </Text>
-              </Tooltip>
-            </Table.Td>
-          </Table.Tr>
-        ))}
-      </Table.Tbody>
-    </Table>
-  )
+  const columns: DataTableColumn<AvailablePipeline>[] = [
+    {
+      accessor: 'selection',
+      width: 50,
+      title: (
+        <MantineCheckbox
+          aria-label={`Select all displayed ${labels.items}`}
+          checked={pipelines.length > 0 && selectedCount === pipelines.length}
+          indeterminate={selectedCount > 0 && selectedCount < pipelines.length}
+          onChange={onSelectAll}
+        />
+      ),
+      render: (pipeline) => (
+        <MantineCheckbox
+          aria-label={pipeline.name}
+          checked={selectedPipelines.has(pipeline.id)}
+          onChange={() => onToggle(pipeline.id)}
+        />
+      ),
+    },
+    ...(['name', 'organization', 'repository', 'description'] as const).map((key) => ({
+      accessor: key,
+      title:
+        key === 'name'
+          ? 'Name'
+          : key === 'organization'
+            ? labels.groupTitle
+            : key === 'repository'
+              ? labels.sourceTitle
+              : 'Description',
+      width: key === 'name' ? '35%' : key === 'description' ? '25%' : '20%',
+      render: (pipeline: AvailablePipeline) => (
+        <Tooltip label={pipeline[key] || '—'} openDelay={500}>
+          <Text
+            size="sm"
+            fw={key === 'name' ? 500 : undefined}
+            c={key === 'description' ? 'dimmed' : undefined}
+            truncate="end"
+          >
+            {pipeline[key] || '—'}
+          </Text>
+        </Tooltip>
+      ),
+    })),
+  ]
+
+  return <StandardTable records={pipelines} columns={columns} styles={{ table: { tableLayout: 'fixed' } }} />
 }
 
 interface ShellPipelineListProps {

@@ -3,11 +3,14 @@ import { notifications } from '@mantine/notifications'
 import { IconAlertCircle } from '@tabler/icons-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
-import { Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useMatch, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { RequireAuth } from './components/auth'
+import { EmptyState } from './components/common/EmptyState'
 import { ErrorState } from './components/common/ErrorState'
 import { LoadingState } from './components/common/LoadingState'
+import { PageContainer } from './components/common/PageContainer'
+import { PageHeader } from './components/common/PageHeader'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { StatusScreen } from './components/ErrorBoundary/StatusScreen'
 import { AppLayout } from './components/layout/AppLayout'
@@ -20,6 +23,7 @@ import { ProvidersPage } from './components/provider/ProvidersPage'
 import { SetupWizard } from './components/setup/SetupWizard'
 import { UnifiedPipelinesView } from './components/table/UnifiedPipelinesView'
 import { usePlugins } from './contexts/PluginContext'
+import { useDocumentTitle } from './hooks/useDocumentTitle'
 import { useFailureNotifications } from './hooks/useFailureNotifications'
 import { useMobileShell } from './hooks/useIsMobile'
 import { useProviderHealthAlerts } from './hooks/useProviderHealthAlerts'
@@ -88,8 +92,26 @@ function AppContent() {
     enabled: shouldEnableQueries && providersSuccess,
     providers,
   })
+  const detailMatch = useMatch('/pipelines/:pipelineId')
+  const detailPipeline = pipelines.find((pipeline) => pipeline.id === detailMatch?.params.pipelineId)
+  const providerName = providers.find((provider) => provider.id === selectedProviderId)?.name
+  const section = location.pathname.split('/')[2] ?? 'general'
+  const sectionTitle = section.charAt(0).toUpperCase() + section.slice(1)
+  useDocumentTitle(
+    location.pathname.startsWith('/settings')
+      ? `${sectionTitle} Settings`
+      : detailMatch
+        ? (detailPipeline?.name ?? 'Pipeline unavailable')
+        : location.pathname === '/pipelines'
+          ? searchParams.get('view') === 'pinned'
+            ? 'Pinned Pipelines'
+            : providerName
+              ? `${providerName} Pipelines`
+              : 'Pipelines'
+          : 'Page not found'
+  )
 
-  const { mutate: cancelRun } = useCancelRun()
+  const { mutateAsync: cancelRun } = useCancelRun()
   const { mutate: refreshProvider } = useRefreshProvider()
   const { mutateAsync: reviewRun } = useReviewRun()
   const { mutateAsync: rerunFailedJobs } = useRerunFailedJobs()
@@ -200,11 +222,10 @@ function AppContent() {
   )
 
   const handleCancel = useCallback(
-    (pipeline: Pipeline, run: PipelineRun) => {
-      cancelRun(
-        { pipelineId: run.pipeline_id, runNumber: run.run_number },
-        { onSuccess: () => refreshProvider(pipeline.provider_id) }
-      )
+    async (pipeline: Pipeline, run: PipelineRun) => {
+      if (await cancelRun({ pipelineId: run.pipeline_id, runNumber: run.run_number }).catch(() => false)) {
+        refreshProvider(pipeline.provider_id)
+      }
     },
     [cancelRun, refreshProvider]
   )
@@ -319,7 +340,27 @@ function AppContent() {
           }
         />
 
-        <Route path="*" element={<Navigate to="/pipelines" replace />} />
+        <Route
+          path="*"
+          element={
+            mobileShell ? (
+              <Navigate to="/pipelines" replace />
+            ) : (
+              <PageContainer>
+                <PageHeader title="Page not found" />
+                <EmptyState
+                  title="This page doesn't exist"
+                  description="Check the address or return to your pipelines."
+                  action={
+                    <Button variant="default" onClick={() => navigate('/pipelines')}>
+                      Pipelines
+                    </Button>
+                  }
+                />
+              </PageContainer>
+            )
+          }
+        />
       </Routes>
 
       {triggerPipeline && (

@@ -2,6 +2,7 @@ import { Notifications } from '@mantine/notifications'
 
 import { useBannerSwipe } from '../hooks/useBannerSwipe'
 import { useMobileShell } from '../hooks/useIsMobile'
+import { PRESENT_EASING } from '../lib/motion'
 import { iosToastClassNames } from './ios'
 
 export function ToastHost() {
@@ -22,5 +23,15 @@ export function ToastHost() {
     )
   }
 
-  return <Notifications position="bottom-right" pauseResetOnHover="notification" />
+  return (
+    <Notifications
+      position="bottom-right"
+      pauseResetOnHover="notification"
+      allowDragDismiss={false}
+      allowScrollDismiss={false}
+      transitionDuration={160}
+      classNames={{ notification: 'desktop-toast' }}
+      style={{ '--desktop-present-easing': PRESENT_EASING }}
+    />
+  )
 }

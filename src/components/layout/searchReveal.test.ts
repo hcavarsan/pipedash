@@ -38,3 +38,27 @@ test('a row hidden after opening reveals again from zero', async () => {
 
   assert.equal(reveals.closed()?.spring.value, 0)
 })
+
+test('a hidden tab does not intercept the visible search bar', () => {
+  const { root, element } = mount()
+  const hidden = document.createElement('div')
+  const bar = document.createElement('div')
+
+  hidden.setAttribute('data-search-reveal', '')
+  hidden.append(bar)
+  root.prepend(hidden)
+
+  assert.equal(createSearchReveal(() => root).closed()?.element, element)
+})
+
+test('search height is measured again after its layout changes', () => {
+  const { root, element } = mount()
+  const bar = document.createElement('div')
+  const reveals = createSearchReveal(() => root)
+
+  assert.equal(reveals.closed()?.full, 60)
+  Object.defineProperty(bar, 'offsetHeight', { value: 80 })
+  element.replaceChildren(bar)
+
+  assert.equal(reveals.closed()?.full, 80)
+})

@@ -6,6 +6,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { ProviderConfig, ProviderImportResult, ProviderSummary } from '../types'
+import { errorMessage } from '../utils/errorDisplay'
 import { saveFile } from '../utils/saveFile'
 import { invalidateProviderPipelines } from './usePipelinesQueries'
 
@@ -75,7 +76,7 @@ export function useAddProvider() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't add provider",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Check the provider credentials and try again.'),
         color: 'red',
       })
     },
@@ -107,7 +108,7 @@ export function useUpdateProvider() {
 
       notifications.show({
         title: "Couldn't update provider",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Check the provider settings and try again.'),
         color: 'red',
       })
     },
@@ -158,7 +159,7 @@ export function useRemoveProvider() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't remove provider",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try removing the provider again.'),
         color: 'red',
       })
     },
@@ -187,7 +188,7 @@ export function useExportProviders() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't export providers",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try exporting the providers again.'),
         color: 'red',
       })
     },
@@ -228,14 +229,14 @@ export function useImportProviders() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't import providers",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Check the providers file and try again.'),
         color: 'red',
       })
     },
   })
 }
 
-export function useUpdateProviderRefreshInterval() {
+export function useUpdateProviderRefreshInterval(notify = true) {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -259,9 +260,12 @@ export function useUpdateProviderRefreshInterval() {
         queryClient.setQueryData(queryKeys.providers.list(), context.previousProviders)
       }
 
+      if (!notify) {
+        return
+      }
       notifications.show({
         title: "Couldn't update refresh interval",
-        message: error.message || 'Unknown error',
+        message: errorMessage(error, 'Try saving the refresh interval again.'),
         color: 'red',
       })
     },
@@ -269,6 +273,9 @@ export function useUpdateProviderRefreshInterval() {
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.refreshInterval(id) })
+      if (!notify) {
+        return
+      }
 
       notifications.show({
         title: 'Refresh interval updated',

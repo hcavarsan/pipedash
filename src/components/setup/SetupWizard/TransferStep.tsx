@@ -66,7 +66,7 @@ export function TransferStep({ state, setState, error }: TransferStepProps) {
           <Radio.Card value="transfer" p="md" radius="md">
             <Group gap="md" wrap="nowrap" align="flex-start">
               <Radio.Indicator />
-              <Stack gap={4} style={{ flex: 1 }}>
+              <Stack gap="3xs" style={{ flex: 1 }}>
                 <Group gap="xs" wrap="nowrap">
                   <IconDatabase size={16} />
                   <Text size="sm" fw={500}>
@@ -86,7 +86,7 @@ export function TransferStep({ state, setState, error }: TransferStepProps) {
           <Radio.Card value="fresh" p="md" radius="md">
             <Group gap="md" wrap="nowrap" align="flex-start">
               <Radio.Indicator />
-              <Stack gap={4} style={{ flex: 1 }}>
+              <Stack gap="3xs" style={{ flex: 1 }}>
                 <Group gap="xs" wrap="nowrap">
                   <IconDatabaseOff size={16} />
                   <Text size="sm" fw={500}>
@@ -102,8 +102,15 @@ export function TransferStep({ state, setState, error }: TransferStepProps) {
         </Stack>
       </Radio.Group>
 
+      {!state.transferData && (
+        <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Switching without transferring data">
+          Existing providers, saved credentials, and pipeline history will stay in the previous location and will not be
+          available after switching. You will need to configure your providers again.
+        </Alert>
+      )}
+
       {error && (
-        <Alert icon={<IconAlertCircle size={16} />} color="red">
+        <Alert icon={<IconAlertCircle size={16} />} color="red" title="Couldn't transfer data">
           {error}
         </Alert>
       )}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { createLongPress, LONG_PRESS_MS } from './longPress'
+import { createLongPress, guardLongPressClick, LONG_PRESS_MS } from './longPress'
 
 const harness = () => {
   let pending: { callback: () => void; ms: number } | null = null
@@ -95,5 +95,40 @@ describe('createLongPress', () => {
     h.press.start(5, 5)
     assert.equal(h.press.end(), false)
     assert.equal(h.fires(), 1)
+  })
+})
+
+describe('guardLongPressClick', () => {
+  it('blocks the releasing pointer even when its click targets the menu overlay', () => {
+    const overlay = new EventTarget()
+    const remove = guardLongPressClick(overlay, 2)
+    const release = Object.assign(new Event('click', { cancelable: true }), { pointerId: 2 })
+    const mouseDown = new Event('mousedown', { cancelable: true })
+
+    overlay.dispatchEvent(mouseDown)
+
+    assert.equal(mouseDown.defaultPrevented, true)
+
+    overlay.dispatchEvent(release)
+
+    assert.equal(release.defaultPrevented, true)
+    remove()
+  })
+
+  it('allows a new pointer to select a menu item immediately', () => {
+    const menu = new EventTarget()
+    const remove = guardLongPressClick(menu, 2)
+    const nextTap = Object.assign(new Event('click', { cancelable: true }), { pointerId: 3 })
+    const pointerDown = Object.assign(new Event('pointerdown'), { pointerId: 3 })
+    const mouseDown = new Event('mousedown', { cancelable: true })
+
+    menu.dispatchEvent(pointerDown)
+    menu.dispatchEvent(mouseDown)
+
+    menu.dispatchEvent(nextTap)
+
+    assert.equal(nextTap.defaultPrevented, false)
+    assert.equal(mouseDown.defaultPrevented, false)
+    remove()
   })
 })

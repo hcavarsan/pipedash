@@ -17,6 +17,7 @@ import {
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { haptic } from '../../lib/haptics'
 import { trackTouches } from '../../lib/touchTracker'
+import { SPACING_PX } from '../../theme'
 import type { AggregatedMetrics, AggregationPeriod, MetricType } from '../../types'
 import { formatCount } from '../../utils/formatCount'
 
@@ -121,7 +122,7 @@ const getSelectProps = (onSelect: (() => void) | undefined, label: string, isSel
     tabIndex: 0,
     'aria-label': label,
     'aria-pressed': isSelected,
-    className: shell ? classes.point : undefined,
+    className: shell ? classes.point : classes.desktopPoint,
     onClick: handleSelect,
     onKeyDown: (event: KeyboardEvent) => {
       if (event.key === 'Enter' || event.key === ' ') {
@@ -142,7 +143,7 @@ const CustomDot = ({ cx, cy, payload, color, onSelect, small = false, shell = fa
 
   return (
     <g {...getSelectProps(onSelect && (() => onSelect(index)), label, isSelected, shell)}>
-      {shell && onSelect && <circle className={classes.ring} cx={cx} cy={cy} r={15} fill="none" />}
+      {onSelect && <circle className={shell ? classes.ring : classes.desktopRing} cx={cx} cy={cy} r={15} fill="none" />}
       {isSelected && <circle cx={cx} cy={cy} r={10} fill={color} fillOpacity={0.2} stroke="none" />}
       <circle
         cx={cx}
@@ -165,7 +166,7 @@ const CustomTooltip = ({ label, payload, metricType }: CustomTooltipProps) => {
 
   return (
     <Paper p="xs" withBorder shadow="md" miw={150}>
-      <Stack gap={4}>
+      <Stack gap="3xs">
         <Text size="xs" fw={600}>
           {String(label)}
         </Text>
@@ -179,7 +180,7 @@ const CustomTooltip = ({ label, payload, metricType }: CustomTooltipProps) => {
 
 const StatCard = ({ label, value, metricType }: { label: string; value: number | null; metricType: MetricType }) => (
   <Card p={{ base: 'xs', sm: 'sm' }}>
-    <Stack gap={4}>
+    <Stack gap="3xs">
       <Text size="xs" c="dimmed" fw={600} truncate>
         {label}
       </Text>
@@ -202,8 +203,12 @@ export const MetricsChart = ({
   const mobileShell = useMobileShell()
   const metricType = data.metric_type
   const { color } = METRIC_CONFIG[metricType]
-  const seriesColor = `var(--mantine-color-${color}-filled)`
-  const chartHeight = compact ? (mobileShell ? 120 : 150) : isMobile ? 300 : 450
+  const seriesColor = mobileShell
+    ? metricType === 'success_rate'
+      ? 'var(--status-success)'
+      : 'var(--ios-tint)'
+    : `var(--mantine-color-${color}-filled)`
+  const chartHeight = compact ? (mobileShell ? 100 : 150) : mobileShell ? 240 : isMobile ? 300 : 450
   const dateFormatter = new Intl.DateTimeFormat(
     undefined,
     (mobileShell ? SHELL_DATE_FORMATS : DATE_FORMATS)[data.aggregation_period]
@@ -305,7 +310,7 @@ export const MetricsChart = ({
       ? compact
         ? { top: 8, right: 8, left: 8, bottom: 4 }
         : SHELL_MARGIN
-      : { top: 5, right: 5, left: 5, bottom: 5 },
+      : { top: SPACING_PX['3xs'], right: SPACING_PX['3xs'], left: SPACING_PX['3xs'], bottom: SPACING_PX['3xs'] },
     accessibilityLayer: !compact,
   }
   const axisStyle = mobileShell ? SHELL_AXIS_STYLE : AXIS_STYLE
@@ -408,9 +413,9 @@ export const MetricsChart = ({
                     mobileShell
                   )}
                 >
-                  {mobileShell && onSelect && (
+                  {onSelect && (
                     <rect
-                      className={classes.ring}
+                      className={mobileShell ? classes.ring : classes.desktopRing}
                       x={(x ?? 0) - 3}
                       y={(y ?? 0) - 3}
                       width={(width ?? 0) + 6}
@@ -471,11 +476,11 @@ export const MetricsChart = ({
     ]
 
     return (
-      <Stack gap="md">
+      <Stack gap="lg">
         <dl className={classes.stats}>
           {shellStats.map(({ label, value }) => (
             <div key={label} className={classes.stat}>
-              <dt className={classes.caption}>{label}</dt>
+              <dt>{label}</dt>
               <dd className={classes.statValue}>{formatMetricValue(value, metricType)}</dd>
             </div>
           ))}

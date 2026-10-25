@@ -7,6 +7,7 @@ import { useNow } from '../../hooks/useNow'
 import { useProviders } from '../../queries/useProvidersQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
+import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
 
 import { notificationIcon, notificationLabel, TONE_COLORS } from './labels'
@@ -93,7 +94,7 @@ export function NotificationDetailsModal() {
   }
 
   return (
-    <Modal
+    <StandardModal
       opened={Boolean(notification)}
       onClose={close}
       size="md"
@@ -158,6 +159,6 @@ export function NotificationDetailsModal() {
           </Group>
         </Stack>
       )}
-    </Modal>
+    </StandardModal>
   )
 }

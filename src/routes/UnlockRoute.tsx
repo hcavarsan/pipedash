@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { AppLogo } from '../components/atoms/AppLogo'
 import { UnlockForm } from '../components/vault/UnlockForm'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useMobileShell } from '../hooks/useIsMobile'
 import { useVaultStatus } from '../queries/useVaultQueries'
 import { wsClient } from '../services'
@@ -19,6 +20,7 @@ export function UnlockRoute() {
   const requiresPassword = useVaultStatus().data?.requires_password ?? true
   const takeHeld = useMobileNavStore((s) => s.takeHeld)
   const mobileShell = useMobileShell()
+  useDocumentTitle('Unlock')
 
   const handleSuccess = useCallback(() => {
     // Reconnect WebSocket after unlock
@@ -51,7 +53,7 @@ export function UnlockRoute() {
   }
 
   return (
-    <Box h="100vh" className="safe-area">
+    <Box component="main" h="100vh" className="safe-area">
       <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
         <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={{ base: '100%', xs: 420 }} withBorder>
           <Stack gap="xl">

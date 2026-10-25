@@ -1,5 +1,6 @@
 .reveal {
   --reveal-gap: var(--stack-gap, var(--mantine-spacing-md));
+  flex-shrink: 0;
   height: 0;
   margin-bottom: calc(var(--reveal-gap) * -1);
   overflow: hidden;
@@ -41,22 +42,4 @@
 
 .filter[data-active] {
   color: var(--ios-tint);
-}
-
-.badge {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  min-width: 18px;
-  height: 18px;
-  padding-inline: 4px;
-  box-sizing: border-box;
-  border-radius: 999px;
-  background: var(--ios-tint);
-  color: #fff;
-  font-size: var(--ios-fs-caption2);
-  font-weight: 600;
-  line-height: 18px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
 }

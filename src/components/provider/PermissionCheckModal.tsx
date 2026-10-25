@@ -156,12 +156,12 @@ export const PermissionCheckModal = ({
 
                   {featuresForPermission.length > 0 && (
                     <Box>
-                      <Text size="xs" fw={500} mb={4} c="dimmed">
+                      <Text size="xs" fw={500} mb="3xs" c="dimmed">
                         {check.granted ? 'With this you can:' : "Missing this means you can't:"}
                       </Text>
-                      <Stack gap={4}>
+                      <Stack gap="3xs">
                         {featuresForPermission.map((f) => (
-                          <Group key={f.feature.id} gap={6} wrap="nowrap">
+                          <Group key={f.feature.id} gap="2xs" wrap="nowrap">
                             <Text size="xs" c="dimmed">
                               •
                             </Text>

@@ -74,7 +74,7 @@ export const PushDeviceRow = ({
         </Text>
       </Stack>
 
-      <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+      <Group gap="3xs" wrap="nowrap" style={{ flexShrink: 0 }}>
         <Tooltip label={testLabel}>
           <ActionIcon variant="subtle" color="gray" size="lg" aria-label={testLabel} loading={testing} onClick={onTest}>
             <IconSend size={16} />

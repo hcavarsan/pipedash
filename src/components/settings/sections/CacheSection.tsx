@@ -1,4 +1,4 @@
-import { Box, Button, Card, Divider, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core'
+import { Box, Button, Card, Divider, Loader, SimpleGrid, Stack, Text } from '@mantine/core'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { haptic } from '../../../lib/haptics'
@@ -9,7 +9,6 @@ import {
   useClearRunHistoryCache,
   useClearWorkflowParamsCache,
 } from '../../../queries/useCacheQueries'
-import { openConfirm } from '../../../utils/confirm'
 import { formatCount } from '../../../utils/formatCount'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
@@ -49,28 +48,6 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
       },
       onError: () => haptic('error'),
     })
-
-  const handleClearCache = (type: CacheType) => {
-    if (mobileShell) {
-      clearNow(type)
-
-      return
-    }
-
-    openConfirm({
-      title: `Clear ${CACHE_NAMES[type]}?`,
-      children: <Text size="sm">Cached data will be deleted and re-fetched when needed.</Text>,
-      labels: { confirm: `Clear ${CACHE_NAMES[type]}`, cancel: 'Cancel' },
-      confirmProps: { color: 'red' },
-      onConfirm: async () => {
-        clearMutations[type].mutate()
-
-        if (onRefresh) {
-          await onRefresh()
-        }
-      },
-    })
-  }
 
   const renderContent = () => {
     if (isLoading) {
@@ -115,7 +92,7 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
                 title={<AccentText>{`Clear ${item.label.toLowerCase()}`}</AccentText>}
                 ariaLabel={`Clear ${CACHE_NAMES[item.key]}`}
                 disabled={isClearing}
-                onClick={() => handleClearCache(item.key)}
+                onClick={() => clearNow(item.key)}
                 accessory={clearMutations[item.key].isPending ? clearing : undefined}
               />
             ))}
@@ -125,7 +102,7 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
             <IosRow
               title={<AccentText>Clear all caches</AccentText>}
               disabled={isClearing}
-              onClick={() => handleClearCache('all')}
+              onClick={() => clearNow('all')}
               accessory={clearMutations.all.isPending ? clearing : undefined}
             />
           </IosGroup>
@@ -140,20 +117,21 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
             <Box key={item.key}>
               {index > 0 && <Divider mb="md" />}
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
-                <Stack gap={4}>
+                <Stack gap="3xs">
                   <Text size="xs" c="dimmed">
                     {item.label}
                   </Text>
                   <Text size="sm">{item.count} items</Text>
                 </Stack>
-                <Stack gap={4} align="flex-end">
+                <Stack gap="3xs" align="flex-end">
                   <Button
                     size="compact-xs"
                     variant="subtle"
                     color="gray"
                     aria-label={`Clear ${CACHE_NAMES[item.key]}`}
-                    onClick={() => handleClearCache(item.key)}
+                    onClick={() => clearNow(item.key)}
                     disabled={isClearing}
+                    loading={clearMutations[item.key].isPending}
                   >
                     Clear
                   </Button>
@@ -166,7 +144,7 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
             <>
               <Divider />
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
-                <Stack gap={4}>
+                <Stack gap="3xs">
                   <Text size="xs" c="dimmed">
                     Metrics
                   </Text>
@@ -181,8 +159,9 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
             fullWidth
             variant="light"
             color="gray"
-            onClick={() => handleClearCache('all')}
+            onClick={() => clearNow('all')}
             loading={clearMutations.all.isPending}
+            disabled={isClearing}
           >
             Clear all caches
           </Button>
@@ -191,15 +170,5 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
     )
   }
 
-  return (
-    <Box>
-      {!mobileShell && (
-        <Title order={2} size="lg" fw={600} mb="lg">
-          Cache
-        </Title>
-      )}
-
-      {renderContent()}
-    </Box>
-  )
+  return <Box>{renderContent()}</Box>
 }

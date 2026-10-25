@@ -1,5 +1,5 @@
-import { ActionIcon, Box, Button, Group, Select, Stack, TextInput } from '@mantine/core'
-import { IconAdjustmentsHorizontal, IconFilter, IconSearch, IconX } from '@tabler/icons-react'
+import { ActionIcon, Box, Button, Group, Select, Stack, Tooltip } from '@mantine/core'
+import { IconAdjustmentsHorizontal, IconFilter, IconFilterFilled, IconX } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../constants/intervals'
@@ -12,6 +12,7 @@ import { IosGroup, IosRow } from '../ios/IosList'
 import classes from './FilterBar.module.css'
 
 import { PhoneSearchField } from './PhoneSearchField'
+import { SearchInput } from './SearchInput'
 import { StandardModal } from './StandardModal'
 
 type FilterOption = string | { value: string; label: string }
@@ -68,18 +69,45 @@ interface FilterSelectProps {
   onChange: (value: string | null) => void
   searchable?: boolean
   leftSection?: React.ReactNode
+  clearable?: boolean
 }
 
-const FilterSelect = ({ label, data, value, onChange, searchable, leftSection }: FilterSelectProps) => (
+export const FilterSelect = ({
+  label,
+  data,
+  value,
+  onChange,
+  searchable,
+  leftSection,
+  clearable = true,
+}: FilterSelectProps) => (
   <Select
     aria-label={label}
     placeholder={label}
     data={data}
     value={value}
     onChange={onChange}
-    clearable
     searchable={searchable}
-    clearButtonProps={{ 'aria-label': `Clear ${label.toLowerCase()} filter` }}
+    rightSection={
+      value && clearable ? (
+        <Tooltip label={`Clear ${label.toLowerCase()} filter`}>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="xs"
+            aria-label={`Clear ${label.toLowerCase()} filter`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation()
+              onChange(null)
+            }}
+          >
+            <IconX size={14} />
+          </ActionIcon>
+        </Tooltip>
+      ) : undefined
+    }
+    rightSectionPointerEvents={value && clearable ? 'all' : undefined}
     leftSection={leftSection}
     miw={130}
     flex={1}
@@ -228,30 +256,15 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
 
   const searchInput = () =>
     filters.search && (
-      <TextInput
-        aria-label={filters.search.placeholder || 'Search'}
-        placeholder={filters.search.placeholder || 'Search'}
-        leftSection={<IconSearch size={14} />}
-        rightSection={
-          localSearchValue && (
-            <ActionIcon
-              size="xs"
-              variant="subtle"
-              color="gray"
-              aria-label="Clear search"
-              onClick={() => setLocalSearchValue('')}
-            >
-              <IconX size={14} />
-            </ActionIcon>
-          )
-        }
-        value={localSearchValue}
-        onChange={(e) => setLocalSearchValue(e.currentTarget.value)}
-        miw={200}
-        flex={1}
-        maw="100%"
-        size="xs"
-      />
+      <Box miw={200} flex={1} maw="100%">
+        <SearchInput
+          aria-label={filters.search.placeholder || 'Search'}
+          placeholder={filters.search.placeholder || 'Search'}
+          value={localSearchValue}
+          onChange={setLocalSearchValue}
+          size="xs"
+        />
+      </Box>
     )
 
   if (mobileShell) {
@@ -284,11 +297,10 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
                 aria-label={activeSelects > 0 ? `Filters, ${activeSelects} active` : 'Filters'}
                 onClick={() => setSheetOpen(true)}
               >
-                <IconAdjustmentsHorizontal size={22} aria-hidden />
-                {activeSelects > 0 && (
-                  <span className={classes.badge} aria-hidden>
-                    {activeSelects}
-                  </span>
+                {activeSelects > 0 ? (
+                  <IconFilterFilled size={22} aria-hidden />
+                ) : (
+                  <IconAdjustmentsHorizontal size={22} aria-hidden />
                 )}
               </button>
             )}

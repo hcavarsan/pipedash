@@ -2,7 +2,7 @@ import { Button, Card, Group, NumberInput, Select, Skeleton, Stack, Switch, Text
 import { IconTrash } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 
-import { useDiscardGuard } from '../../hooks/useDiscardGuard'
+import { RETENTION_PRESETS, validateRetentionDays } from '../../constants/metricsRetention'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import {
@@ -24,17 +24,6 @@ import { SwitchRow } from '../settings/mobileParts'
 
 import { MetricsPickerRow } from './MetricsPickerRow'
 import classes from './metrics.module.css'
-
-const RETENTION_PRESETS = [7, 14, 30, 60, 90]
-
-const RETENTION_OPTIONS = [
-  { value: '7', label: '7 days (1 week)' },
-  { value: '14', label: '14 days (2 weeks)' },
-  { value: '30', label: '30 days (1 month)' },
-  { value: '60', label: '60 days (2 months)' },
-  { value: '90', label: '90 days (3 months)' },
-  { value: 'custom', label: 'Custom' },
-]
 
 interface MetricsConfigModalProps {
   opened: boolean
@@ -72,6 +61,7 @@ export const MetricsConfigModal = ({
   const [initialEnabled, setInitialEnabled] = useState(false)
   const [retentionDays, setRetentionDays] = useState(7)
   const [retentionMode, setRetentionMode] = useState<'preset' | 'custom'>('preset')
+  const [retentionDraft, setRetentionDraft] = useState<string | number>(7)
 
   const configQuery = pipelineId ? pipelineConfig : globalConfig
   const config = configQuery.data
@@ -82,7 +72,10 @@ export const MetricsConfigModal = ({
       setEnabled(config.enabled)
       setInitialEnabled(config.enabled)
       setRetentionDays(configRetention)
-      setRetentionMode(RETENTION_PRESETS.includes(configRetention) ? 'preset' : 'custom')
+      setRetentionDraft(configRetention)
+      setRetentionMode(
+        RETENTION_PRESETS.some((option) => option.value === String(configRetention)) ? 'preset' : 'custom'
+      )
     }
   }, [config, configRetention])
 
@@ -109,9 +102,13 @@ export const MetricsConfigModal = ({
       }
 
       if (pipelineId) {
-        await updatePipeline.mutateAsync({ pipelineId, enabled, retentionDays })
+        await updatePipeline.mutateAsync({
+          pipelineId,
+          enabled,
+          retentionDays: mobileShell ? retentionDays : Number(retentionDraft),
+        })
       } else {
-        await updateGlobal.mutateAsync({ enabled, retentionDays })
+        await updateGlobal.mutateAsync({ enabled, retentionDays: mobileShell ? retentionDays : Number(retentionDraft) })
       }
 
       onConfigChange?.()
@@ -122,6 +119,9 @@ export const MetricsConfigModal = ({
   }
 
   const handleSave = () => {
+    if (!mobileShell && validateRetentionDays(retentionDraft)) {
+      return
+    }
     if (!(initialEnabled && !enabled)) {
       void performSave(false)
 
@@ -146,12 +146,14 @@ export const MetricsConfigModal = ({
   const pipelineStats = pipelineId ? stats.data?.by_pipeline.find((p) => p.pipeline_id === pipelineId) : undefined
   const isSaving = updateGlobal.isPending || updatePipeline.isPending
   const isBusy = isSaving || flushMutation.isPending
-  const dirty = !!config && (enabled !== config.enabled || retentionDays !== configRetention)
-  const requestClose = useDiscardGuard(dirty, onClose)
+  const dirty =
+    !!config &&
+    (enabled !== config.enabled || (mobileShell ? retentionDays : Number(retentionDraft)) !== configRetention)
+  const retentionError = mobileShell ? null : validateRetentionDays(retentionDraft)
 
-  const saveDisabled = !config || flushMutation.isPending
+  const saveDisabled = !config || flushMutation.isPending || !!retentionError
 
-  const footer = (
+  const footer = (requestClose: () => void) => (
     <Group justify="flex-end" gap="sm">
       <Button variant="default" size="sm" onClick={requestClose} disabled={isBusy}>
         Cancel
@@ -175,13 +177,16 @@ export const MetricsConfigModal = ({
     }
 
     if (!stats.data) {
-      return <Skeleton height={64} />
+      return mobileShell ? <Skeleton height={64} /> : <LoadingState message="Loading metrics storage usage…" />
     }
 
     return (
       <Stack gap="xs">
         {pipelineId && (
-          <StatRow label="This pipeline" value={formatCount(pipelineStats?.metrics_count ?? 0, 'metric')} />
+          <StatRow
+            label="This pipeline"
+            value={pipelineStats ? formatCount(pipelineStats.metrics_count, 'metric') : '—'}
+          />
         )}
         <StatRow
           label="All pipelines"
@@ -245,7 +250,7 @@ export const MetricsConfigModal = ({
                   setRetentionDays(Number(val) || 7)
                 }
               }}
-              data={RETENTION_OPTIONS}
+              data={RETENTION_PRESETS}
               disabled={busyOrOff}
             />
             {retentionMode === 'custom' && (
@@ -321,16 +326,16 @@ export const MetricsConfigModal = ({
             <Select
               label="Retention period"
               description="How long to keep metrics data"
-              value={retentionMode === 'preset' ? retentionDays.toString() : 'custom'}
+              value={retentionMode === 'preset' ? retentionDraft.toString() : 'custom'}
               onChange={(val) => {
                 if (val === 'custom') {
                   setRetentionMode('custom')
                 } else {
                   setRetentionMode('preset')
-                  setRetentionDays(Number(val) || 7)
+                  setRetentionDraft(val ?? '')
                 }
               }}
-              data={RETENTION_OPTIONS}
+              data={RETENTION_PRESETS}
               allowDeselect={false}
               disabled={!enabled || isBusy}
             />
@@ -339,8 +344,10 @@ export const MetricsConfigModal = ({
               <NumberInput
                 label="Custom retention (days)"
                 description="Enter 1 to 90 days"
-                value={retentionDays}
-                onChange={(val) => setRetentionDays(Number(val) || 7)}
+                value={retentionDraft}
+                onChange={setRetentionDraft}
+                error={retentionError}
+                clampBehavior="none"
                 min={1}
                 max={90}
                 disabled={!enabled || isBusy}
@@ -391,7 +398,9 @@ export const MetricsConfigModal = ({
       footer={footer}
       primaryAction={{ label: 'Save', onClick: handleSave, loading: isSaving, disabled: saveDisabled }}
     >
-      <Stack gap={mobileShell ? 'lg' : 'sm'}>{renderContent()}</Stack>
+      <Stack gap={mobileShell ? 'lg' : 'sm'} className={mobileShell ? classes.num : undefined}>
+        {renderContent()}
+      </Stack>
     </StandardModal>
   )
 }

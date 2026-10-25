@@ -1,6 +1,7 @@
 import { MantineProvider, useMantineColorScheme, v8CssVariablesResolver } from '@mantine/core'
 import { type ReactNode, useEffect, useLayoutEffect } from 'react'
 
+import { ContextMenuHost } from '../components/common/ContextMenu'
 import { useAccessibilityPrefs } from '../hooks/useAccessibilityPrefs'
 import { useMobileShell } from '../hooks/useIsMobile'
 import { useKeyboardInset } from '../hooks/useKeyboardInset'
@@ -32,7 +33,7 @@ export function AppMantineProvider({ children }: { children: ReactNode }) {
   useNativeChrome(mobileShell)
   useSheetDrag(mobileShell)
   useKeyboardInset(mobileShell)
-  useAccessibilityPrefs(mobileShell)
+  useAccessibilityPrefs()
 
   useLayoutEffect(() => {
     document.documentElement.toggleAttribute('data-ios', mobileShell)
@@ -47,6 +48,7 @@ export function AppMantineProvider({ children }: { children: ReactNode }) {
     >
       <NativeAppearanceSync />
       {children}
+      {!mobileShell && <ContextMenuHost />}
     </MantineProvider>
   )
 }

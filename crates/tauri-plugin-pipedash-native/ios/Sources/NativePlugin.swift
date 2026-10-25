@@ -23,6 +23,18 @@ struct ShareArgs: Decodable {
   let path: String
 }
 
+struct ShareRect: Decodable {
+  let x: Double
+  let y: Double
+  let width: Double
+  let height: Double
+}
+
+struct ShareLinkArgs: Decodable {
+  let url: String
+  let sourceRect: ShareRect
+}
+
 struct PrivacyCoverArgs: Decodable {
   let armed: Bool
   let holdForFrontend: Bool
@@ -164,11 +176,6 @@ final class PrivacyCoverController {
     guard !started else { return }
     started = true
     let center = NotificationCenter.default
-    for name in [UIApplication.willResignActiveNotification, UIScene.willDeactivateNotification] {
-      center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
-        self?.show()
-      }
-    }
     for name in [UIApplication.didEnterBackgroundNotification, UIScene.didEnterBackgroundNotification] {
       center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
         self?.didEnterBackground()
@@ -203,15 +210,6 @@ final class PrivacyCoverController {
     return windows.first(where: { $0.isKeyWindow }) ?? windows.first
   }
 
-  private static func appIcon() -> UIImage? {
-    guard
-      let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any],
-      let primary = icons["CFBundlePrimaryIcon"] as? [String: Any],
-      let files = primary["CFBundleIconFiles"] as? [String],
-      let name = files.last
-    else { return nil }
-    return UIImage(named: name)
-  }
 
   private func show() {
     guard armed, cover == nil, let window = hostWindow() else { return }
@@ -220,22 +218,9 @@ final class PrivacyCoverController {
 
     let view = UIView(frame: window.bounds)
     view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    view.backgroundColor = .systemBackground
+    view.backgroundColor = .systemGroupedBackground
     view.accessibilityViewIsModal = true
 
-    if let icon = PrivacyCoverController.appIcon() {
-      let side: CGFloat = 96
-      let imageView = UIImageView(image: icon)
-      imageView.frame = CGRect(
-        x: view.bounds.midX - side / 2, y: view.bounds.midY - side / 2, width: side, height: side)
-      imageView.autoresizingMask = [
-        .flexibleLeftMargin, .flexibleRightMargin, .flexibleTopMargin, .flexibleBottomMargin,
-      ]
-      imageView.layer.cornerRadius = side * 0.2237
-      imageView.layer.masksToBounds = true
-      imageView.isAccessibilityElement = false
-      view.addSubview(imageView)
-    }
 
     window.addSubview(view)
     cover = view
@@ -254,6 +239,7 @@ final class PrivacyCoverController {
   }
 
   private func didEnterBackground() {
+    show()
     if armed && holdForFrontend && cover != nil {
       awaitingFrontend = true
     }
@@ -261,14 +247,13 @@ final class PrivacyCoverController {
 
   private func didBecomeActive() {
     guard cover != nil else { return }
-    guard awaitingFrontend else {
-      hide()
-      return
-    }
     safetyRelease?.cancel()
     let work = DispatchWorkItem { [weak self] in self?.hide() }
     safetyRelease = work
     DispatchQueue.main.asyncAfter(deadline: .now() + PrivacyCoverController.safetyTimeout, execute: work)
+    if !awaitingFrontend {
+      hide()
+    }
   }
 }
 
@@ -379,8 +364,37 @@ final class StatusBarTapProxy: NSObject, UIScrollViewDelegate {
   }
 }
 
+final class ExportPickerDelegate: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
+  private var completion: ((Bool) -> Void)?
+
+  init(completion: @escaping (Bool) -> Void) {
+    self.completion = completion
+    super.init()
+  }
+
+  private func finish(_ completed: Bool) {
+    let callback = completion
+    completion = nil
+    callback?(completed)
+  }
+
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    finish(!urls.isEmpty)
+  }
+
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    finish(false)
+  }
+
+  func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+    finish(false)
+  }
+}
+
 class NativePlugin: Plugin {
   private var statusBarProxy: StatusBarTapProxy?
+  private var exportPickerDelegate: ExportPickerDelegate?
+  private weak var shareWebView: WKWebView?
 
   override init() {
     super.init()
@@ -390,6 +404,10 @@ class NativePlugin: Plugin {
   }
 
   public override func load(webview: WKWebView) {
+    shareWebView = webview
+    webview.isOpaque = false
+    webview.backgroundColor = .systemGroupedBackground
+    webview.scrollView.backgroundColor = .systemGroupedBackground
     let scrollView = webview.scrollView
     scrollView.bounces = false
     scrollView.alwaysBounceVertical = false
@@ -500,13 +518,49 @@ class NativePlugin: Plugin {
         return
       }
 
-      let controller = UIActivityViewController(
-        activityItems: [URL(fileURLWithPath: args.path)], applicationActivities: nil)
+      guard self.exportPickerDelegate == nil else {
+        invoke.reject("An export picker is already open")
+        return
+      }
+      let controller = UIDocumentPickerViewController(
+        forExporting: [URL(fileURLWithPath: args.path)], asCopy: true)
+      let delegate = ExportPickerDelegate { [weak self] completed in
+        self?.exportPickerDelegate = nil
+        invoke.resolve(ShareResult(completed: completed))
+      }
+      self.exportPickerDelegate = delegate
+      controller.delegate = delegate
+      controller.presentationController?.delegate = delegate
+      presenter.present(controller, animated: true)
+    }
+  }
+
+  @objc func shareLink(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ShareLinkArgs.self)
+    DispatchQueue.main.async {
+      guard let url = URL(string: args.url),
+        let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme)
+      else {
+        invoke.reject("The link must be an HTTP or HTTPS URL")
+        return
+      }
+      guard let presenter = self.topViewController() else {
+        invoke.reject("Nothing is available to present the share sheet")
+        return
+      }
+      let rect = args.sourceRect
+      guard rect.x.isFinite, rect.y.isFinite, rect.width.isFinite, rect.height.isFinite,
+        rect.width > 0, rect.height > 0
+      else {
+        invoke.reject("The share button position isn't valid")
+        return
+      }
+      let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
       if let popover = controller.popoverPresentationController {
-        popover.sourceView = presenter.view
-        popover.sourceRect = CGRect(
-          x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
-        popover.permittedArrowDirections = []
+        let source: UIView = self.shareWebView ?? presenter.view
+        popover.sourceView = source
+        popover.sourceRect = CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+          .intersection(source.bounds)
       }
       controller.completionWithItemsHandler = { _, completed, _, error in
         if let error = error {

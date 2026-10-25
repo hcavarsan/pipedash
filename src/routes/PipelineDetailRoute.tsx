@@ -1,9 +1,14 @@
+import { Button } from '@mantine/core'
 import { useCallback, useEffect } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
+import { EmptyState } from '../components/common/EmptyState'
+import { PageContainer } from '../components/common/PageContainer'
+import { PageHeader } from '../components/common/PageHeader'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { type DetailTab, RunHistoryPage } from '../components/table/RunHistoryPage'
 import { usePlugins } from '../contexts/PluginContext'
+import { useMobileShell } from '../hooks/useIsMobile'
 import type { Pipeline, PipelineComponentProps } from '../types'
 import { getReconcileBlockReason } from '../utils/pipelinePresentation'
 
@@ -26,6 +31,7 @@ export function PipelineDetailRoute({
   const { state } = useLocation()
   const navigate = useNavigate()
   const { getPluginByType } = usePlugins()
+  const mobileShell = useMobileShell()
 
   const rawTab = searchParams.get('tab')
   const tab: DetailTab = rawTab === 'metrics' ? 'metrics' : 'history'
@@ -78,16 +84,33 @@ export function PipelineDetailRoute({
   }
 
   useEffect(() => {
-    if (!loading && !actualPipeline) {
+    if (mobileShell && !loading && !actualPipeline) {
       navigate('/pipelines', { replace: true })
     }
-  }, [loading, actualPipeline, navigate])
+  }, [mobileShell, loading, actualPipeline, navigate])
 
   useEffect(() => {
     if (rawTab !== null && rawTab !== 'metrics') {
       setTab('history')
     }
   }, [rawTab, setTab])
+
+  if (!mobileShell && !loading && !actualPipeline) {
+    return (
+      <PageContainer>
+        <PageHeader title="Pipeline unavailable" />
+        <EmptyState
+          title="Couldn't find this pipeline"
+          description="It may have been removed or excluded from its provider. Return to Pipelines to choose another."
+          action={
+            <Button variant="default" onClick={handleBack}>
+              Back to Pipelines
+            </Button>
+          }
+        />
+      </PageContainer>
+    )
+  }
 
   return (
     <ErrorBoundary name="Pipeline history">

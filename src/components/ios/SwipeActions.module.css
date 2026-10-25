@@ -6,6 +6,7 @@
   align-items: center;
   min-width: 0;
   background: var(--ios-cell);
+  background-image: linear-gradient(var(--row-press, transparent), var(--row-press, transparent));
   will-change: transform;
 }
 

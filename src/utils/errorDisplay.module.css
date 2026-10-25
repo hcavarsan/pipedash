@@ -1,12 +1,17 @@
 .retry {
   display: block;
   min-height: 44px;
-  margin-top: 0.25em;
-  padding: 0 1em 0 0;
+  margin-top: var(--mantine-spacing-3xs);
+  padding: 0 var(--mantine-spacing-md) 0 0;
   border: 0;
   background: transparent;
   color: var(--ios-tint, var(--mantine-color-blue-filled));
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+}
+
+[data-ios] .retry {
+  margin-top: 0.25em;
+  padding: 0 1em 0 0;
 }

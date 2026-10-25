@@ -6,6 +6,7 @@ import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { AggregatedMetrics, AggregationPeriod, AggregationType, MetricType } from '../types'
+import { errorMessage } from '../utils/errorDisplay'
 
 const advancePeriod = (date: Date, period: AggregationPeriod): Date => {
   const next = new Date(date)
@@ -153,7 +154,7 @@ export function useUpdateGlobalMetricsConfig() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't save global metrics settings",
-        message: error.message || 'Unknown error occurred',
+        message: errorMessage(error, 'Try saving the global metrics settings again.'),
         color: 'red',
       })
     },
@@ -191,7 +192,7 @@ export function useUpdatePipelineMetricsConfig() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't save pipeline metrics settings",
-        message: error.message || 'Unknown error occurred',
+        message: errorMessage(error, 'Try saving the pipeline metrics settings again.'),
         color: 'red',
       })
     },
@@ -238,7 +239,7 @@ export function useFlushMetrics() {
     onError: (error: Error) => {
       notifications.show({
         title: "Couldn't delete metrics",
-        message: error.message || 'Unknown error occurred',
+        message: errorMessage(error, 'Try deleting the stored metrics again.'),
         color: 'red',
       })
     },

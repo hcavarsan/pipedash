@@ -25,7 +25,6 @@ import {
 import type { DataTableColumn } from 'mantine-datatable'
 import { useEffect, useState } from 'react'
 
-import { useDiscardGuard } from '../../hooks/useDiscardGuard'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { PipelineRun } from '../../types'
@@ -187,7 +186,6 @@ export function TableCustomizationModal({
   const allVisible = columnItems.every((item) => item.visible || item.locked)
   const someVisible = columnItems.some((item) => item.visible && !item.locked)
   const dirty = columnItems.length > 0 && signature(columnItems) !== initialSignature
-  const requestClose = useDiscardGuard(dirty, onClose)
 
   const modalTitle = (
     <Group gap="xs">
@@ -200,14 +198,14 @@ export function TableCustomizationModal({
     </Group>
   )
 
-  const modalFooter = (
+  const modalFooter = (close: () => void) => (
     <Group justify="space-between" gap="sm" wrap="nowrap">
       <Button variant="subtle" color="gray" size="sm" leftSection={<IconRefresh size={16} />} onClick={handleReset}>
         Reset
       </Button>
 
       <Group gap="sm" wrap="nowrap">
-        <Button variant="default" size="sm" onClick={requestClose}>
+        <Button variant="default" size="sm" onClick={close}>
           Cancel
         </Button>
         <Button size="sm" onClick={handleApply}>
@@ -349,15 +347,17 @@ export function TableCustomizationModal({
           leftSection={<IconSearch size={16} />}
           rightSection={
             searchQuery && (
-              <ActionIcon
-                size="sm"
-                variant="subtle"
-                color="gray"
-                aria-label="Clear search"
-                onClick={() => setSearchQuery('')}
-              >
-                <IconX size={14} />
-              </ActionIcon>
+              <Tooltip label="Clear search">
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="gray"
+                  aria-label="Clear search"
+                  onClick={() => setSearchQuery('')}
+                >
+                  <IconX size={14} />
+                </ActionIcon>
+              </Tooltip>
             )
           }
           value={searchQuery}
@@ -445,27 +445,31 @@ export function TableCustomizationModal({
                     backgroundColor: item.visible ? 'var(--mantine-color-blue-light)' : undefined,
                   }}
                 >
-                  <Group gap={2} wrap="nowrap" style={{ visibility: item.moveable ? 'visible' : 'hidden' }}>
-                    <ActionIcon
-                      size="xs"
-                      variant="subtle"
-                      color="gray"
-                      aria-label={`Move ${item.title} up`}
-                      onClick={() => handleMoveUp(actualIndex)}
-                      disabled={!item.moveable || actualIndex === 0}
-                    >
-                      <IconChevronUp size={14} />
-                    </ActionIcon>
-                    <ActionIcon
-                      size="xs"
-                      variant="subtle"
-                      color="gray"
-                      aria-label={`Move ${item.title} down`}
-                      onClick={() => handleMoveDown(actualIndex)}
-                      disabled={!item.moveable || actualIndex === columnItems.length - 1}
-                    >
-                      <IconChevronDown size={14} />
-                    </ActionIcon>
+                  <Group gap="4xs" wrap="nowrap" style={{ visibility: item.moveable ? 'visible' : 'hidden' }}>
+                    <Tooltip label={`Move ${item.title} up`}>
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color="gray"
+                        aria-label={`Move ${item.title} up`}
+                        onClick={() => handleMoveUp(actualIndex)}
+                        disabled={!item.moveable || actualIndex === 0}
+                      >
+                        <IconChevronUp size={14} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={`Move ${item.title} down`}>
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color="gray"
+                        aria-label={`Move ${item.title} down`}
+                        onClick={() => handleMoveDown(actualIndex)}
+                        disabled={!item.moveable || actualIndex === columnItems.length - 1}
+                      >
+                        <IconChevronDown size={14} />
+                      </ActionIcon>
+                    </Tooltip>
                   </Group>
 
                   <Checkbox
