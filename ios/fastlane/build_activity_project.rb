@@ -1,4 +1,6 @@
 require "fileutils"
+require "json"
+require "open3"
 require "pathname"
 require "yaml"
 
@@ -74,6 +76,14 @@ module BuildActivityProject
     spec = YAML.safe_load_file(path, aliases: true)
     configure(spec, root: root, project_dir: File.dirname(path), version: version, build_number: build_number)
     File.write(path, YAML.dump(spec))
+  end
+
+  def self.cargo_metadata(root:)
+    stdout, stderr, status = Open3.capture3("cargo", "metadata", "--locked", "--format-version", "1",
+                                          "--filter-platform", "aarch64-apple-ios", chdir: root)
+    raise "Cargo metadata failed: #{stderr.strip}" unless status.success?
+
+    JSON.parse(stdout)
   end
 
   def self.stage_tauri_api(metadata, root:)

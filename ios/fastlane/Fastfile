@@ -85,8 +85,7 @@ platform :ios do
     launch_screens.each { |path| FileUtils.cp(File.join(XCODE_FILES, "LaunchScreen.storyboard"), path) }
 
     FileUtils.cp(File.join(XCODE_FILES, "PrivacyInfo.xcprivacy"), TARGET_DIR)
-    metadata = Dir.chdir(ROOT) { JSON.parse(sh("cargo", "metadata", "--locked", "--format-version", "1",
-                                             "--filter-platform", "aarch64-apple-ios", log: false)) }
+    metadata = BuildActivityProject.cargo_metadata(root: ROOT)
     BuildActivityProject.stage_tauri_api(metadata, root: ROOT)
     BuildActivityProject.write(File.join(APPLE_DIR, "project.yml"), root: ROOT,
                                version: ios_version, build_number: options.fetch(:build_number, 1))

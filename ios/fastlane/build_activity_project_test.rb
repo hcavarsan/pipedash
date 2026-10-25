@@ -1,4 +1,5 @@
 require "minitest/autorun"
+require "rbconfig"
 require "tmpdir"
 require_relative "build_activity_project"
 
@@ -92,6 +93,37 @@ class BuildActivityProjectTest < Minitest::Test
 
   def test_missing_tauri_metadata_is_rejected
     assert_raises(ArgumentError) { BuildActivityProject.stage_tauri_api({ "packages" => [] }, root: "/repo") }
+  end
+
+  def capture_metadata(stdout:, stderr:, exit_code: 0)
+    Dir.mktmpdir do |root|
+      cargo = File.join(root, "cargo")
+      File.write(cargo, "#!#{RbConfig.ruby}\n$stdout.write(#{stdout.dump})\n$stderr.write(#{stderr.dump})\nexit #{exit_code}\n")
+      FileUtils.chmod(0o755, cargo)
+      Open3.capture3({ "PATH" => "#{root}:#{ENV.fetch('PATH')}" }, RbConfig.ruby,
+                    "-r", File.expand_path("build_activity_project", __dir__),
+                    "-e", "puts JSON.generate(BuildActivityProject.cargo_metadata(root: ARGV.fetch(0)))", root)
+    end
+  end
+
+  def test_cargo_progress_on_stderr_does_not_corrupt_metadata
+    stdout, stderr, status = capture_metadata(stdout: '{"packages":[{"name":"tauri"}]}',
+                                             stderr: "    Updating crates.io index\n Downloading crates ...\n")
+    assert status.success?, stderr
+    assert_equal "tauri", JSON.parse(stdout).fetch("packages").first.fetch("name")
+  end
+
+  def test_failed_cargo_command_is_rejected_even_with_valid_json_on_stdout
+    stdout, stderr, status = capture_metadata(stdout: '{"packages":[]}', stderr: "registry unavailable\n", exit_code: 42)
+    refute status.success?
+    assert_empty stdout
+    assert_match "Cargo metadata failed: registry unavailable", stderr
+  end
+
+  def test_invalid_metadata_is_not_recovered_by_stripping_diagnostics
+    _stdout, stderr, status = capture_metadata(stdout: 'Updating {"packages":[]}', stderr: "diagnostic\n")
+    refute status.success?
+    assert_match "JSON::ParserError", stderr
   end
 
   def test_export_options_include_a_separate_manual_profile_for_every_bundle

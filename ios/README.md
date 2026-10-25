@@ -115,6 +115,7 @@ The extension targets iOS 16.2 and links only `PipedashActivityModels` from the 
 The native plugin links the same shared product.
 The helper reuses an existing package entry for that path and stages Tauri's complete iOS API package before Xcode resolves dependencies.
 Swift Package Manager also needs network access for Tauri's remote `SwiftRs` dependency.
+Cargo metadata parsing uses stdout only. Registry updates and download diagnostics on stderr do not enter the JSON parser.
 
 The app declares `NSSupportsLiveActivities`, the background task identifier
 `com.henrique.pipedash.build-watch` and the `processing` background mode.
