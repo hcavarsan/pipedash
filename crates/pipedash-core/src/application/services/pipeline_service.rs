@@ -1,3 +1,5 @@
+mod run_watch;
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{
@@ -16,6 +18,10 @@ use futures::future::{
     BoxFuture,
     FutureExt,
     Shared,
+};
+pub use run_watch::{
+    RunWatch,
+    WatchedRun,
 };
 use tokio::sync::{
     watch,
@@ -68,6 +74,7 @@ use crate::domain::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    Provider,
     RefreshResult,
     RefreshState,
     TriggerParams,
@@ -918,6 +925,14 @@ impl PipelineService {
             .provider_service
             .get_provider(pipeline.provider_id)
             .await?;
+        self.fetch_run_details_from(provider.as_ref(), pipeline, run_number)
+            .await
+    }
+
+    async fn fetch_run_details_from(
+        &self, provider: &dyn Provider, pipeline: &Pipeline, run_number: i64,
+    ) -> DomainResult<PipelineRun> {
+        let pipeline_id = pipeline.id.as_str();
         match provider.fetch_run_details(pipeline_id, run_number).await {
             Err(error @ DomainError::PipelineNotFound(_)) if pipeline.provider_type == "fluxcd" => {
                 let cached = self

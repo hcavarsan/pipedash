@@ -484,7 +484,7 @@ class NativePlugin: Plugin {
     if #available(iOS 26.0, *), !ProcessInfo.processInfo.isiOSAppOnMac {
       DispatchQueue.main.async { [weak self] in
         BuildWatchController.shared.onChange = { [weak self] in
-          try? self?.trigger("build-watch-changed", data: EmptyPayload())
+          try? self?.trigger("build-watch-changed", data: BuildWatchController.shared.status())
         }
       }
     }

@@ -102,7 +102,7 @@ impl<R: Runtime> PipedashNative<R> {
         Ok(())
     }
 
-    pub fn on_build_watch_changed<F: Fn() + Send + Sync + 'static>(
+    pub fn on_build_watch_changed<F: Fn(BuildWatchStatus) + Send + Sync + 'static>(
         &self, _handler: F,
     ) -> Result<()> {
         Ok(())

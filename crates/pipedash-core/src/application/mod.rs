@@ -29,7 +29,11 @@ pub use services::health_service::{
     ProviderHealthState,
 };
 pub use services::metrics_service::MetricsService;
-pub use services::pipeline_service::PipelineService;
+pub use services::pipeline_service::{
+    PipelineService,
+    RunWatch,
+    WatchedRun,
+};
 pub use services::provider_service::{
     ProviderLease,
     ProviderService,

@@ -118,7 +118,8 @@ public struct BuildWatchSnapshot: Codable, Hashable {
   }
 
   public var elapsedSeconds: Int64 {
-    max(0, (concludedAt ?? updatedAt) - startedAt)
+    let end = status.isTerminal ? (concludedAt ?? updatedAt) : updatedAt
+    return max(0, end - startedAt)
   }
 
   public var elapsedLabel: String {

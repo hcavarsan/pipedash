@@ -201,10 +201,14 @@ impl<R: Runtime> PipedashNative<R> {
         })
     }
 
-    pub fn on_build_watch_changed<F: Fn() + Send + Sync + 'static>(
+    pub fn on_build_watch_changed<F: Fn(BuildWatchStatus) + Send + Sync + 'static>(
         &self, handler: F,
     ) -> Result<()> {
-        self.listen("build-watch-changed", move |_| handler())
+        self.listen("build-watch-changed", move |payload| {
+            if let Ok(status) = serde_json::from_str::<BuildWatchStatus>(&payload) {
+                handler(status);
+            }
+        })
     }
 
     pub fn on_status_bar_tap<F: Fn() + Send + Sync + 'static>(&self, handler: F) -> Result<()> {

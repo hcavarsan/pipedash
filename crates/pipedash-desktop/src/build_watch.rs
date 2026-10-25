@@ -11,12 +11,11 @@ use std::{
 };
 
 use pipedash_core::{
-    domain::{
-        Pipeline,
-        PipelineRun,
-        PipelineStatus,
-        ProviderConfig,
+    application::{
+        RunWatch,
+        WatchedRun,
     },
+    domain::PipelineStatus,
     CoreContext,
 };
 use tauri::{
@@ -42,8 +41,6 @@ use crate::{
     MaybeCoreContext,
 };
 
-const POLL_INTERVAL: Duration = Duration::from_secs(10);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
 const NATIVE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
@@ -108,6 +105,14 @@ impl BuildWatchState {
         let _ = session.cancel.send(true);
         Some(session.id)
     }
+
+    fn native_changed(&self, status: &BuildWatchStatus) {
+        if let Some(watch) = &status.watch {
+            if !is_watching(status, &watch.session_id) {
+                self.cancel(Some(&watch.session_id));
+            }
+        }
+    }
 }
 
 impl SessionGuard {
@@ -145,9 +150,7 @@ impl SessionGuard {
         tokio::select! {
             biased;
             _ = cancelled.changed() => Err(error("Build watching was interrupted")),
-            result = tokio::time::timeout(REQUEST_TIMEOUT, future) => {
-                result.map_err(|_| error("The build watch request timed out"))?
-            }
+            result = future => result,
         }
     }
 }
@@ -178,7 +181,9 @@ fn is_watching(status: &BuildWatchStatus, session_id: &str) -> bool {
     status.supported
         && status.available
         && status.watch.as_ref().is_some_and(|watch| {
-            watch.session_id == session_id && watch.monitoring == BuildWatchMonitoring::Watching
+            watch.session_id == session_id
+                && watch.monitoring == BuildWatchMonitoring::Watching
+                && !watch.status.is_terminal()
         })
 }
 
@@ -196,13 +201,15 @@ fn validate_selection(pipeline_id: &str, run_number: i64) -> Result<(), ErrorRes
 }
 
 fn snapshot(
-    session_id: &str, pipeline: &Pipeline, provider: &ProviderConfig, run: PipelineRun,
-    run_number: i64, updated_at: i64,
+    session_id: &str, pipeline_id: &str, run_number: i64, watched: WatchedRun,
 ) -> Result<BuildWatchSnapshot, ErrorResponse> {
-    if run.pipeline_id != pipeline.id
-        || run.run_number != run_number
-        || provider.id != Some(pipeline.provider_id)
-        || provider.provider_type != pipeline.provider_type
+    let WatchedRun {
+        pipeline,
+        provider_name,
+        run,
+        observed_at,
+    } = watched;
+    if pipeline.id != pipeline_id || run.pipeline_id != pipeline.id || run.run_number != run_number
     {
         return Err(error(
             "The provider returned a different pipeline or build run",
@@ -216,35 +223,30 @@ fn snapshot(
         PipelineStatus::Cancelled => BuildWatchRunStatus::Cancelled,
         PipelineStatus::Skipped => BuildWatchRunStatus::Skipped,
     };
+    let url = BuildWatchSnapshot::run_url(&pipeline.id, run_number);
     let watch = BuildWatchSnapshot {
         session_id: session_id.to_string(),
-        pipeline_id: pipeline.id.clone(),
-        pipeline_name: pipeline.name.clone(),
-        provider_name: provider.display_name().to_string(),
-        provider_type: provider.provider_type.clone(),
+        pipeline_id: pipeline.id,
+        pipeline_name: pipeline.name,
+        provider_name,
+        provider_type: pipeline.provider_type,
         run_number,
         branch: run.branch,
         status,
         started_at: run.started_at.timestamp(),
         concluded_at: run.concluded_at.map(|time| time.timestamp()),
-        updated_at,
+        updated_at: observed_at.timestamp(),
         monitoring: if status.is_terminal() {
             BuildWatchMonitoring::Completed
         } else {
             BuildWatchMonitoring::Watching
         },
-        url: BuildWatchSnapshot::run_url(&pipeline.id, run_number),
+        url,
     };
     watch
         .validate()
         .map_err(|failure| error(&failure.to_string()))?;
     Ok(watch)
-}
-
-struct LoadedRun {
-    watch: BuildWatchSnapshot,
-    provider_id: i64,
-    core: Weak<CoreContext>,
 }
 
 async fn available_core(app: &AppHandle) -> Result<Arc<CoreContext>, ErrorResponse> {
@@ -257,50 +259,26 @@ async fn available_core(app: &AppHandle) -> Result<Arc<CoreContext>, ErrorRespon
         .map_err(|message| error(&message))
 }
 
-async fn load_run(
-    app: &AppHandle, session: &SessionGuard, pipeline_id: &str, run_number: i64,
-    previous: Option<&LoadedRun>,
-) -> Result<LoadedRun, ErrorResponse> {
-    let core = available_core(app).await?;
-    if previous.is_some_and(|previous| !Weak::ptr_eq(&previous.core, &Arc::downgrade(&core))) {
+async fn ensure_core(app: &AppHandle, generation: &Weak<CoreContext>) -> Result<(), ErrorResponse> {
+    if !Weak::ptr_eq(generation, &Arc::downgrade(&available_core(app).await?)) {
         return Err(error(
             "The application session changed; start watching again",
         ));
     }
-    let pipelines = core.pipeline_service.get_cached_pipelines(None).await?;
-    let pipeline = pipelines
-        .into_iter()
-        .find(|pipeline| pipeline.id == pipeline_id)
-        .ok_or_else(|| error("The watched pipeline is no longer available"))?;
-    if previous.is_some_and(|previous| previous.provider_id != pipeline.provider_id) {
-        return Err(error("The watched provider changed"));
-    }
-    session.bind_provider(pipeline.provider_id)?;
-    let run = core
-        .pipeline_service
-        .fetch_run_details(pipeline_id, run_number)
-        .await?;
-    let provider = core
-        .provider_service
-        .get_provider_config(pipeline.provider_id)
-        .await?;
-    if !Arc::ptr_eq(&core, &available_core(app).await?) {
-        return Err(error(
-            "The application session changed; start watching again",
-        ));
-    }
-    Ok(LoadedRun {
-        watch: snapshot(
-            &session.id,
-            &pipeline,
-            &provider,
-            run,
-            run_number,
-            chrono::Utc::now().timestamp(),
-        )?,
-        provider_id: pipeline.provider_id,
-        core: Arc::downgrade(&core),
-    })
+    Ok(())
+}
+
+async fn next_run(
+    app: &AppHandle, session: &SessionGuard, core: &Weak<CoreContext>, watch: &mut RunWatch,
+) -> Result<Option<WatchedRun>, ErrorResponse> {
+    session
+        .run(async {
+            ensure_core(app, core).await?;
+            let run = watch.next().await.transpose()?;
+            ensure_core(app, core).await?;
+            Ok(run)
+        })
+        .await
 }
 
 async fn stop_native<R: Runtime>(
@@ -369,8 +347,9 @@ fn spawn_interruption<R: Runtime>(app: &AppHandle<R>, session_id: Option<String>
 pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let handle = app.clone();
     app.pipedash_native()
-        .on_build_watch_changed(move || {
-            if let Err(error) = handle.emit("build-watch-changed", ()) {
+        .on_build_watch_changed(move |status| {
+            handle.state::<BuildWatchState>().native_changed(&status);
+            if let Err(error) = handle.emit("build-watch-changed", status) {
                 tracing::warn!(%error, "Could not publish the native build watch status change");
             }
         })
@@ -434,15 +413,27 @@ pub async fn start_build_watch(
             "Stop the current build watch before starting another",
         ));
     }
-    let selected = session
-        .run(load_run(&app, &session, &pipeline_id, run_number, None))
+    let (mut watch, core) = session
+        .run(async {
+            let core = available_core(&app).await?;
+            let watch = core
+                .pipeline_service
+                .watch_run(pipeline_id.clone(), run_number)
+                .await?;
+            session.bind_provider(watch.provider_id())?;
+            Ok((watch, Arc::downgrade(&core)))
+        })
         .await?;
-    if selected.watch.status.is_terminal() {
+    let selected = next_run(&app, &session, &core, &mut watch)
+        .await?
+        .ok_or_else(|| error("The selected build is no longer available"))?;
+    let selected = snapshot(&session.id, &pipeline_id, run_number, selected)?;
+    if selected.status.is_terminal() {
         return Err(error("This build has already finished"));
     }
     let started = session
         .run(native_request(
-            app.pipedash_native().start_build_watch(&selected.watch),
+            app.pipedash_native().start_build_watch(&selected),
         ))
         .await;
     let status = match started {
@@ -455,7 +446,7 @@ pub async fn start_build_watch(
             };
         }
     };
-    tauri::async_runtime::spawn(poll(app, session, selected));
+    tauri::async_runtime::spawn(monitor(app, session, core, watch, selected));
     Ok(status)
 }
 
@@ -464,73 +455,48 @@ pub async fn stop_build_watch(app: AppHandle) -> Result<BuildWatchStatus, ErrorR
     stop_current(&app, BuildWatchStopReason::Stopped).await
 }
 
-async fn poll(app: AppHandle, session: SessionGuard, selected: LoadedRun) {
-    let result = poll_selected(&app, &session, &selected).await;
+async fn monitor(
+    app: AppHandle, session: SessionGuard, core: Weak<CoreContext>, mut watch: RunWatch,
+    selected: BuildWatchSnapshot,
+) {
+    let result = forward_updates(&app, &session, &core, &mut watch, &selected).await;
     if result.is_err() && session.is_current() {
         let _ = stop_native(&app, &session.id, BuildWatchStopReason::Interrupted).await;
         tracing::warn!("Build watching was interrupted before a terminal result");
     }
 }
 
-async fn poll_selected(
-    app: &AppHandle, session: &SessionGuard, selected: &LoadedRun,
+async fn forward_updates(
+    app: &AppHandle, session: &SessionGuard, core: &Weak<CoreContext>, watch: &mut RunWatch,
+    selected: &BuildWatchSnapshot,
 ) -> Result<(), ErrorResponse> {
-    loop {
-        session
-            .run(async {
-                tokio::time::sleep(POLL_INTERVAL).await;
-                Ok(())
-            })
-            .await?;
+    while let Some(run) = next_run(app, session, core, watch).await? {
+        let mut snapshot = snapshot(&session.id, &selected.pipeline_id, selected.run_number, run)?;
         let status = session
             .run(native_request(app.pipedash_native().build_watch_status()))
             .await?;
-        if !status.available {
-            return Err(error("Build watching is unavailable"));
-        }
         if !is_watching(&status, &session.id) {
             return Ok(());
         }
-        let mut loaded = session
-            .run(load_run(
-                app,
-                session,
-                &selected.watch.pipeline_id,
-                selected.watch.run_number,
-                Some(selected),
-            ))
-            .await?;
-        let status = session
-            .run(native_request(app.pipedash_native().build_watch_status()))
-            .await?;
-        if !status.available {
-            return Err(error("Build watching is unavailable"));
-        }
-        if !is_watching(&status, &session.id) {
-            return Ok(());
-        }
-        if !Weak::ptr_eq(&loaded.core, &Arc::downgrade(&available_core(app).await?)) {
-            return Err(error(
-                "The application session changed; start watching again",
-            ));
-        }
+        ensure_core(app, core).await?;
         if let Some(current) = &status.watch {
-            loaded.watch.updated_at = loaded.watch.updated_at.max(current.updated_at);
+            snapshot.updated_at = snapshot.updated_at.max(current.updated_at);
         }
         let status = session
             .run(native_request(
-                app.pipedash_native().update_build_watch(&loaded.watch),
+                app.pipedash_native().update_build_watch(&snapshot),
             ))
             .await?;
         if !is_watching(&status, &session.id) {
             return Ok(());
         }
-        if loaded.watch.status.is_terminal() {
+        if snapshot.status.is_terminal() {
             return Err(error(
                 "The native activity did not accept the completed build result",
             ));
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -542,6 +508,10 @@ mod tests {
     };
 
     use chrono::DateTime;
+    use pipedash_core::domain::{
+        Pipeline,
+        PipelineRun,
+    };
 
     use super::*;
 
@@ -564,7 +534,7 @@ mod tests {
         }
     }
 
-    fn trusted_snapshot(run: PipelineRun) -> Result<BuildWatchSnapshot, ErrorResponse> {
+    fn watched_run(run: PipelineRun) -> WatchedRun {
         let pipeline = Pipeline {
             id: "github__1__owner/repo/build.yml".to_string(),
             provider_id: 1,
@@ -579,16 +549,21 @@ mod tests {
             metadata: HashMap::new(),
             overdue_run: None,
         };
-        let provider = ProviderConfig {
-            id: Some(1),
-            name: "My GitHub".to_string(),
-            provider_type: "github".to_string(),
-            token: "secret".to_string(),
-            config: HashMap::new(),
-            refresh_interval: 30,
-            version: None,
-        };
-        snapshot("session", &pipeline, &provider, run, 7, 110)
+        WatchedRun {
+            pipeline,
+            provider_name: "My GitHub".to_string(),
+            run,
+            observed_at: DateTime::from_timestamp(110, 0).unwrap(),
+        }
+    }
+
+    fn trusted_snapshot(run: PipelineRun) -> Result<BuildWatchSnapshot, ErrorResponse> {
+        snapshot(
+            "session",
+            "github__1__owner/repo/build.yml",
+            7,
+            watched_run(run),
+        )
     }
 
     #[test]
@@ -713,6 +688,16 @@ mod tests {
         let mut wrong_run = run(PipelineStatus::Running);
         wrong_run.run_number = 8;
         assert!(trusted_snapshot(wrong_run).is_err());
+        let mut wrong_selection = watched_run(run(PipelineStatus::Running));
+        wrong_selection.pipeline.id = "another-pipeline".to_string();
+        wrong_selection.run.pipeline_id = wrong_selection.pipeline.id.clone();
+        assert!(snapshot(
+            "session",
+            "github__1__owner/repo/build.yml",
+            7,
+            wrong_selection
+        )
+        .is_err());
     }
 
     #[test]
@@ -723,6 +708,7 @@ mod tests {
         assert_eq!(snapshot.provider_name, "My GitHub");
         assert_eq!(snapshot.status, BuildWatchRunStatus::Running);
         assert_eq!(snapshot.branch.as_deref(), Some("main"));
+        assert_eq!(snapshot.updated_at, 110);
         assert!(!json.contains("secret"));
         assert!(!json.contains("logs"));
     }
@@ -749,21 +735,70 @@ mod tests {
         assert_eq!(snapshot.concluded_at, Some(105));
     }
 
+    #[tokio::test]
+    async fn matching_native_end_notifications_cancel_a_blocked_core_operation() {
+        for monitoring in [
+            BuildWatchMonitoring::Interrupted,
+            BuildWatchMonitoring::Stopped,
+            BuildWatchMonitoring::Completed,
+            BuildWatchMonitoring::Watching,
+        ] {
+            let state = BuildWatchState::default();
+            let session = state.reserve().unwrap();
+            let mut snapshot = trusted_snapshot(run(PipelineStatus::Running)).unwrap();
+            snapshot.session_id = session.id.clone();
+            snapshot.monitoring = monitoring;
+            if monitoring == BuildWatchMonitoring::Completed {
+                snapshot.status = BuildWatchRunStatus::Success;
+            }
+            let status = BuildWatchStatus {
+                supported: true,
+                available: monitoring != BuildWatchMonitoring::Watching,
+                reason: None,
+                watch: Some(snapshot),
+            };
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let task = tokio::spawn(async move {
+                session
+                    .run(async {
+                        let _ = started_tx.send(());
+                        std::future::pending::<Result<(), ErrorResponse>>().await
+                    })
+                    .await
+            });
+            started_rx.await.unwrap();
+            state.native_changed(&status);
+            assert!(tokio::time::timeout(Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err());
+        }
+    }
+
     #[test]
-    fn native_expiration_and_a_different_session_stop_polling() {
-        let snapshot = trusted_snapshot(run(PipelineStatus::Running)).unwrap();
+    fn native_end_notifications_cannot_cancel_a_replacement_session() {
+        let state = BuildWatchState::default();
+        let old = state.reserve().unwrap();
+        let mut snapshot = trusted_snapshot(run(PipelineStatus::Running)).unwrap();
+        snapshot.session_id = old.id.clone();
+        snapshot.monitoring = BuildWatchMonitoring::Interrupted;
+        state.cancel(None);
+        let current = state.reserve().unwrap();
         let mut status = BuildWatchStatus {
             supported: true,
             available: true,
             reason: None,
             watch: Some(snapshot),
         };
-        assert!(is_watching(&status, "session"));
-        assert!(!is_watching(&status, "other-session"));
-        status.watch.as_mut().unwrap().monitoring = BuildWatchMonitoring::Interrupted;
-        assert!(!is_watching(&status, "session"));
+        state.native_changed(&status);
+        assert!(current.is_current());
+        status.watch.as_mut().unwrap().session_id = current.id.clone();
         status.watch.as_mut().unwrap().monitoring = BuildWatchMonitoring::Watching;
-        status.available = false;
-        assert!(!is_watching(&status, "session"));
+        state.native_changed(&status);
+        assert!(current.is_current());
+        status.watch = None;
+        state.native_changed(&status);
+        assert!(current.is_current());
     }
 }

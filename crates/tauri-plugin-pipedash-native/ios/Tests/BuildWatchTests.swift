@@ -139,6 +139,23 @@ final class BuildWatchTests: XCTestCase {
     XCTAssertThrowsError(try BuildWatchSession(defaults: defaults).begin(result))
   }
 
+  func testActiveRunIgnoresProviderUpdateAsConclusion() {
+    var running = snapshot()
+    running.concludedAt = 110
+    running.updatedAt = 180
+    XCTAssertEqual(running.elapsedSeconds, 80)
+  }
+
+  func testInterruptedActiveRunFreezesAtObservationTime() throws {
+    let session = BuildWatchSession(defaults: defaults)
+    var running = snapshot()
+    running.concludedAt = 110
+    try session.begin(running)
+    XCTAssertTrue(session.finish(sessionId: "session-1", monitoring: .interrupted, reason: nil, now: 200))
+    XCTAssertEqual(session.watch?.status, .running)
+    XCTAssertEqual(session.watch?.elapsedSeconds, 100)
+  }
+
   func testSnapshotRejectsExternalLinksUnsafeRunNumbersAndOversizedActivityContent() throws {
     var invalid = snapshot()
     invalid.url = "https://example.com/runs/42?token=secret"

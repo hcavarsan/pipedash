@@ -139,6 +139,26 @@ impl Entry {
         }
     }
 
+    fn forced_delay(&self, policy: &BackoffPolicy, now: Instant) -> Duration {
+        let mut resume = self
+            .quota
+            .as_ref()
+            .map_or(now, |quota| quota.resume.max(now));
+        if matches!(
+            self.last_outcome,
+            Some(Outcome::Failed {
+                kind: FailureKind::RateLimited,
+                ..
+            })
+        ) {
+            resume = resume.max(self.next_attempt);
+        }
+        if let Some(last) = self.last_attempt {
+            resume = resume.max(after(last, policy.forced_min_gap));
+        }
+        resume.saturating_duration_since(now)
+    }
+
     fn start_attempt(&mut self, now: Instant) -> (AttemptSender, Option<Instant>) {
         let (sender, receiver) = watch::channel(None);
         self.attempt = Some(receiver);
@@ -312,17 +332,7 @@ impl FetchScheduler {
                 retry_after: Some(resume.saturating_duration_since(now)),
             });
         }
-        let rate_limited = matches!(
-            entry.last_outcome,
-            Some(Outcome::Failed {
-                kind: FailureKind::RateLimited,
-                ..
-            })
-        ) && now < entry.next_attempt;
-        let too_soon = entry
-            .last_attempt
-            .is_some_and(|last| now < after(last, self.policy.forced_min_gap));
-        if rate_limited || too_soon {
+        if !entry.forced_delay(&self.policy, now).is_zero() {
             return ForcedClaim::Recent(entry.last_outcome.clone().unwrap_or(Outcome::Cancelled));
         }
 
@@ -335,6 +345,15 @@ impl FetchScheduler {
             previous_attempt,
             done: false,
         })
+    }
+
+    pub(crate) fn forced_retry_in(
+        &self, id: i64, generation: Generation, now: Instant,
+    ) -> Option<Duration> {
+        self.entries()
+            .get(&id)
+            .filter(|entry| entry.generation == generation)
+            .map(|entry| entry.forced_delay(&self.policy, now))
     }
 
     pub fn view(&self, id: i64, now: Instant) -> Option<ScheduleView> {
