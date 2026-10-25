@@ -119,7 +119,7 @@ export function PreviewStage({
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full overflow-hidden bg-[radial-gradient(70%_70%_at_50%_35%,_hsl(var(--background))_0%,_hsl(var(--muted))_100%)]"
+      className="relative h-full w-full overflow-hidden bg-[radial-gradient(70%_70%_at_50%_35%,hsl(var(--background))_0%,hsl(var(--muted))_100%)]"
     >
       <div ref={scrollerRef} className="h-full w-full overflow-auto p-12">
         <div
@@ -174,7 +174,7 @@ export function PreviewStage({
         </div>
       </div>
 
-      <div className="pointer-events-none absolute left-4 top-4 flex items-center gap-1.5 rounded-md bg-background/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+      <div className="pointer-events-none absolute left-4 top-4 flex items-center gap-1.5 rounded-md bg-background/80 px-2 py-1 text-[11px] text-muted-foreground shadow-xs backdrop-blur-sm">
         <span className="font-medium text-foreground">{DEVICE_LABEL[device]}</span>
         {activeSlide && (
           <>
@@ -214,7 +214,7 @@ export function PreviewStage({
         />
       )}
 
-      <div className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-md bg-background/85 px-1.5 py-1 text-[10px] tabular-nums text-muted-foreground shadow-sm backdrop-blur">
+      <div className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-md bg-background/85 px-1.5 py-1 text-[10px] tabular-nums text-muted-foreground shadow-xs backdrop-blur-sm">
         <span className="px-1">{slides.length}× {cW}×{cH}</span>
         <span aria-hidden className="text-border">|</span>
         <Button
@@ -293,7 +293,7 @@ function PlacementPreviews({
   return (
     <div
       aria-label="Placement previews"
-      className="pointer-events-none absolute bottom-4 left-4 hidden items-end gap-3 rounded-md bg-background/85 p-2 shadow-sm backdrop-blur md:flex"
+      className="pointer-events-none absolute bottom-4 left-4 hidden items-end gap-3 rounded-md bg-background/85 p-2 shadow-xs backdrop-blur-sm md:flex"
     >
       {crops.map((crop) => {
         const r = centredCrop(cW, cH, crop.aspect);

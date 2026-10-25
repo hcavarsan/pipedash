@@ -1,7 +1,7 @@
 import { test } from '@e2e-dev/web';
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import sharp from 'sharp';
 
@@ -33,15 +33,6 @@ async function eventually(check: () => unknown | Promise<unknown>, timeout = 10_
   }
 }
 
-// Downloads in the same minute share a name across tests; take the newest.
-async function zipFrom(path: string) {
-  const matches = (await readdir('.e2e/artifacts', { recursive: true })).filter(file => file.endsWith(path));
-  await expect(matches.length).toBeGreaterThan(0);
-  const dated = await Promise.all(matches.map(async file => ({ file, at: (await stat(`.e2e/artifacts/${file}`)).mtimeMs })));
-  dated.sort((a, b) => b.at - a.at);
-  return JSZip.loadAsync(await readFile(`.e2e/artifacts/${dated[0].file}`));
-}
-
 const EXACT: Record<string, [number, number][]> = {
   'duo-outer': [[1398, 2034]],
   'duo-outer-landscape': [[2034, 1398]],
@@ -58,7 +49,7 @@ for (const [device, sizes] of Object.entries(EXACT)) {
     await app.open('/');
     await expect(screen.getByRole('textbox', 'Headline')).toHaveValue('One');
     const download = await browser.waitForDownload(() => screen.getByRole('button', 'Export bundle', { exact: true }).tap(), { timeout: 200_000 });
-    const zip = await zipFrom(download.path);
+    const zip = await JSZip.loadAsync(await readFile(download.absolutePath));
     const pngs = Object.values(zip.files).filter(file => file.name.endsWith('.png'));
     await expect(pngs).toHaveLength(sizes.length * 2);
     for (const file of pngs) {
@@ -162,7 +153,7 @@ test('cleared copy exports empty while the canvas keeps its editing hints', { ti
   await expect(hint).toEqual(['"LABEL"', '"Headline goes here"']);
 
   const download = await browser.waitForDownload(() => screen.getByRole('button', 'Export bundle', { exact: true }).tap(), { timeout: 200_000 });
-  const zip = await zipFrom(download.path);
+  const zip = await JSZip.loadAsync(await readFile(download.absolutePath));
   const raw = async (name: string) => sharp(await zip.file(name)!.async('nodebuffer')).raw().toBuffer();
   const cleared = await raw('ios/watchos/422x514/en/01-no-device.png');
   const blank = await raw('ios/watchos/422x514/en/02-no-device.png');

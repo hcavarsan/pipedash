@@ -424,8 +424,7 @@ const fixture = (extra = {}) => ({schemaVersion:2,appName:'Bug bash',themeId:'cl
  });
  await check('newest font import wins when responses arrive out of order',async()=>{
    const {page,latest}=await open();
-   const fontURL=await page.locator('link[as=font]').first().getAttribute('href');
-   const fontBytes=await (await page.request.get(baseURL+fontURL)).body();
+   const fontBytes=await fs.readFile(require.resolve('next/dist/next-devtools/server/font/geist-latin.woff2'));
    let count=0;
    await page.route('**/api/upload-font',async route=>{const n=++count;await pause(n===1?1200:100);await route.fulfill({json:{ok:true,font:{src:`/fonts/imported/${n}.woff2`,format:'woff2'}}})});
    await page.locator('input[type=file]').first().setInputFiles({name:'Older.woff2',mimeType:'font/woff2',buffer:fontBytes});await pause(200);
@@ -444,8 +443,7 @@ const fixture = (extra = {}) => ({schemaVersion:2,appName:'Bug bash',themeId:'cl
      const uploaded=page.waitForResponse(r=>r.url().endsWith('/api/upload')&&r.request().method()==='POST');
      await page.locator('input[type=file]').last().setInputFiles({name:'real.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});
      assert.equal((await uploaded).status(),200);
-     const fontURL=await page.locator('link[as=font]').first().getAttribute('href');
-     const fontBytes=await (await page.request.get(baseURL+fontURL)).body();
+     const fontBytes=await fs.readFile(require.resolve('next/dist/next-devtools/server/font/geist-latin.woff2'));
      await page.locator('input[type=file]').first().setInputFiles({name:'Runtimefont.woff2',mimeType:'font/woff2',buffer:fontBytes});
      await page.getByText('Imported Runtimefont',{exact:true}).waitFor();await pause(1000);
      const disk=(await (await fetch(baseURL+'/api/project')).json()).state;

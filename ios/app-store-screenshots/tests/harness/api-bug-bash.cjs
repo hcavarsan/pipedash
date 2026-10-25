@@ -90,10 +90,7 @@ async function check(name, run) { await run(); console.log('PASS', name); passed
       }
     });
     await check('valid WOFF2 uploads persist and truncated copies are rejected', async () => {
-      const html = await (await fetch(base)).text();
-      const fontPath = html.match(/\/_next\/static\/media\/[^"\s<>]+\.woff2/)?.[0];
-      assert.ok(fontPath,'Expected bundled Next font');
-      const bytes = Buffer.from(await (await fetch(base+fontPath)).arrayBuffer());
+      const bytes = await fs.readFile(require.resolve('next/dist/next-devtools/server/font/geist-latin.woff2'));
       // WOFF2's header version is metadata, independent of the glyph stream.
       randomBytes(4).copy(bytes,24);
       const response = await post('/api/upload-font',{data:bytes.toString('base64')});

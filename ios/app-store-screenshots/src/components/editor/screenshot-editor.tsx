@@ -379,7 +379,7 @@ export function ScreenshotEditor() {
 
       if (e.key === "Escape") {
         setSelectedElement(null);
-        if (target && "blur" in target && typeof target.blur === "function") target.blur();
+        if (target && "blur-sm" in target && typeof target.blur === "function") target.blur();
         return;
       }
 
@@ -773,7 +773,7 @@ export function ScreenshotEditor() {
           />
         </aside>
 
-        <main className="flex h-[26rem] shrink-0 items-stretch overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1">
+        <main className="flex h-104 shrink-0 items-stretch overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1">
           {activeSlide && currentSlides.length > 0 ? (
             <PreviewStage
               slides={currentSlides}

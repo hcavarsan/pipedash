@@ -69,7 +69,7 @@ export function ScenePlayground({
           Scene
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="max-h-[min(80vh,640px)] w-[22rem] overflow-y-auto" aria-label="Scene">
+      <PopoverContent className="max-h-[min(80vh,640px)] w-88 overflow-y-auto" aria-label="Scene">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold">Scene</h2>
@@ -223,7 +223,7 @@ function Tile({
       aria-label={name}
       onClick={onSelect}
       className={cn(
-        "group flex flex-col items-center gap-1 rounded-md p-1 text-[10px] outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring",
+        "group flex flex-col items-center gap-1 rounded-md p-1 text-[10px] outline-hidden transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring",
         checked && "bg-accent",
       )}
     >
@@ -328,8 +328,8 @@ function Segmented<T extends string>({
             aria-checked={value === o.id}
             onClick={() => onChange(o.id)}
             className={cn(
-              "flex-1 rounded px-1.5 py-1 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              value === o.id ? "bg-secondary font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              "flex-1 rounded px-1.5 py-1 text-[11px] outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              value === o.id ? "bg-secondary font-medium text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {o.name}

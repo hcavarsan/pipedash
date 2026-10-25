@@ -81,7 +81,7 @@ export function SlideThumb({
     >
       <button
         type="button"
-        className="flex w-3 cursor-grab items-center justify-center text-muted-foreground/60 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring active:cursor-grabbing"
+        className="flex w-3 cursor-grab items-center justify-center text-muted-foreground/60 hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring active:cursor-grabbing"
         {...attributes}
         {...listeners}
         aria-label={`Reorder screen ${index + 1} (press space, then arrow keys)`}

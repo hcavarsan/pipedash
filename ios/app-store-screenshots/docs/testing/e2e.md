@@ -4,7 +4,7 @@ The product under test is this Next.js editor template. `promo/` demo applicatio
 
 ## Run it
 
-Requires Node.js >=22.12, Bun 1.3.9 and installed Google Chrome. App runtime itself supports Node >=20.9. Tester Army is pinned to `e2e@0.16.0`, `@e2e-dev/web@0.11.2`, `playwright@1.63.0`. No `agent.*` steps or model credentials are used in this deterministic suite.
+Requires Node.js `^22.22.3 || >=24.8.0`, Bun and installed Google Chrome. Tester Army uses `e2e@0.21.3`, `@e2e-dev/web@0.15.3` and `playwright@1.64.1`. The suite uses no `agent.*` steps or model credentials.
 
 ```bash
 bun install --frozen-lockfile
@@ -32,7 +32,7 @@ BUG_BASH_FILTER='connected overlays' node tests/harness/bug-bash.cjs http://loca
 
 These manual commands write the supplied server's disk project and uploads; the normal Tester Army command creates that disposable server automatically.
 
-To exercise cold dev compilation after API-only traffic, start `node e2e-army/server.cjs 4312` from this template in one terminal, then run `node scripts/api-bug-bash.cjs http://localhost:4312` from the repository root in another. The server makes a disposable copy; stop it with Ctrl-C afterward. The equivalent standalone-scaffold command is `node tests/harness/api-bug-bash.cjs http://localhost:4312`. Run this before a browser requests the page so it covers the native ESM Tailwind config-loading regression.
+To exercise cold dev compilation after API-only traffic, start `node e2e-army/server.cjs 4312` in one terminal. Run `node tests/harness/api-bug-bash.cjs http://localhost:4312` in another before a browser requests the page. The server makes a disposable copy. Stop it with Ctrl-C afterward.
 
 ## Isolation and artifacts
 
@@ -44,11 +44,12 @@ The default `.e2e/` output contains:
 
 - `report.json`: selected tests, status, steps, errors, counts and artifact links.
 - `summary.md` and `junit.xml`: readable and CI summaries.
-- `artifacts/`: real exported ZIP downloads, failure screenshots and retained failure traces.
+- `results/`: per-test downloads, failure screenshots and retained traces.
+- `artifacts/`: regression-script artifacts.
 - `logs/app.log`, `logs/{api-bug-bash,ui-bug-bash,bug-bash}.log`: application and individual regression group output.
 - `evidence/red/report.json`: the initial failing native run proving the undo regression. Only its report and summary were retained; its original screenshots/traces were superseded by later runs.
 
-Use the default output directory for this suite's ZIP-content checks; the published download fixture returns an attempt-relative path, so the ZIP helper finds that path beneath `.e2e/artifacts` without assuming runner-generated test IDs. CI uploads the output directory on success and failure and runs dev and production with Chrome. Dependencies install with the frozen Bun lockfile.
+ZIP-content checks read the download fixture's `absolutePath` directly. They do not depend on runner-generated test IDs or artifact directory names. Font-upload tests use the font bundled with Next.js instead of requiring a page preload. CI uploads the output directory on success and failure and runs dev and production with Chrome. Dependencies install with the frozen Bun lockfile.
 
 ## Flow matrix
 

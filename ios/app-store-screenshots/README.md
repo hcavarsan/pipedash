@@ -2,6 +2,8 @@
 
 Edit the English iPhone and iPad decks without changing the production app.
 
+Use Node.js `^22.22.3 || >=24.8.0` and Bun. The E2E runner sets the Node.js minimum.
+
 From this directory:
 
 ```sh
@@ -60,6 +62,29 @@ Reload the editor after recapturing so it reads the updated images. The source s
 TypeScript and the production build pass with `bun run typecheck` and `bun run build`. Export checks cover exact dimensions, opaque RGB pixels and solid corner pixels. All 12 headlines fit their canvas widths. At the solid background, headline contrast is 15.46:1, blue emphasis is 8.01:1 and eyebrow text is 6.70:1. Visual review used 160px-wide thumbnails for both decks.
 
 Before submitting, check the final files in App Store Connect and compare the browser captures with the shipped native app. Native system bars, WebKit rendering and device-specific behavior remain unverified. This setup did not upload or submit anything.
+
+## Dependency maintenance
+
+The 2026-10-25 update upgrades all direct dependencies to their latest stable releases and refreshes `bun.lock`. Next.js is `16.4.3`, sharp is `0.35.5` and React is `19.3.1`.
+
+Tailwind CSS 4 uses `@tailwindcss/postcss` and the theme in `src/app/globals.css`. The migration removes `tailwind.config.ts` and Autoprefixer, updates utility names and keeps the animation plugin. The editor requires Safari 16.4+, Chrome 111+ or Firefox 128+.
+
+The `zod` override selects `^4.6.7` because `e2e@0.21.3` pins vulnerable `4.6.1`. Remove the override when the runner uses a patched version. PostCSS now selects patched Nano ID without an override.
+
+```sh
+bun update --latest
+bun outdated
+bun audit
+bun run typecheck
+bun run test:export-fastlane
+bun run build
+```
+
+Validation on 2026-10-25 found no outdated direct dependencies and no audit findings across 277 packages. TypeScript, the production build and all 5 export-validation tests passed. A disposable production editor exported both saved decks, producing 12 validated opaque RGB screenshots without changing the canonical project.
+
+All 58 production browser tests passed, including 56 regression groups. Development-mode device switching also passed a browser smoke check. Download tests use the runner's `absolutePath`, and font-upload tests read Next.js's bundled font without depending on page preloads.
+
+`allowedDevOrigins` explicitly permits `127.0.0.1` for the documented development command. The loopback smoke check confirmed a `200` font response and a `101` HMR WebSocket handshake.
 
 ## Fastlane publishing
 

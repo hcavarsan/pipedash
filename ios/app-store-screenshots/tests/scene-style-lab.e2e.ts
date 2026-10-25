@@ -1,7 +1,7 @@
 import { test } from '@e2e-dev/web';
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import sharp from 'sharp';
 
@@ -31,15 +31,6 @@ async function eventually(check: () => unknown | Promise<unknown>, timeout = 10_
       await new Promise(resolve => setTimeout(resolve, 200));
     }
   }
-}
-
-// Downloads in the same minute share a name across tests; take the newest.
-async function zipFrom(path: string) {
-  const matches = (await readdir('.e2e/artifacts', { recursive: true })).filter(file => file.endsWith(path));
-  await expect(matches.length).toBeGreaterThan(0);
-  const dated = await Promise.all(matches.map(async file => ({ file, at: (await stat(`.e2e/artifacts/${file}`)).mtimeMs })));
-  dated.sort((a, b) => b.at - a.at);
-  return readFile(`.e2e/artifacts/${dated[0].file}`);
 }
 
 test('scene playground restyles every screen, persists and undoes', async ({ app, browser, screen: ui }) => {
@@ -140,8 +131,8 @@ test('style lab exports a comparison image of every look', async ({ app, browser
   await mock(browser); await app.open('/');
   await ui.getByRole('button', 'Style Lab', { exact: true }).tap();
   const download = await browser.waitForDownload(() => ui.getByRole('button', 'Export comparison', { exact: true }).tap(), { timeout: 120_000 });
-  await expect(download.path.endsWith('scene-army-style-lab.png')).toBe(true);
-  const bytes = await zipFrom(download.path);
+  await expect(download.suggestedFilename).toBe('scene-army-style-lab.png');
+  const bytes = await readFile(download.absolutePath);
   const meta = await sharp(bytes).metadata();
   await expect(meta.format).toBe('png');
   await expect(meta.width!).toBeGreaterThan(900);
@@ -175,7 +166,7 @@ test('scene and magnifier export into the ZIP at exact sizes', async ({ app, bro
   const slides = [{ ...screen('One', 'hero'), callout: { focusX: 0.5, focusY: 0.3, zoom: 2, shape: 'circle' } }, screen('Two')];
   await mock(browser, deck({ scene, slidesByDevice: { iphone: slides } })); await app.open('/');
   const download = await browser.waitForDownload(() => ui.getByRole('button', 'Export bundle', { exact: true }).tap(), { timeout: 120_000 });
-  const zip = await JSZip.loadAsync(await zipFrom(download.path));
+  const zip = await JSZip.loadAsync(await readFile(download.absolutePath));
   const pngs = Object.values(zip.files).filter(file => file.name.endsWith('.png'));
   await expect(pngs).toHaveLength(8);
   const hero = pngs.find(file => file.name.includes('/1320x2868/en/01-hero.png'))!;
@@ -212,7 +203,7 @@ test('flowing spotlight lights every screen the same', async ({ app, browser, sc
   const slides = ['A', 'B', 'C'].map(id => ({ ...screen(id, 'no-device'), headline: { en: '' }, label: { en: '' } }));
   await mock(browser, deck({ scene, slidesByDevice: { iphone: slides } })); await app.open('/');
   const download = await browser.waitForDownload(() => ui.getByRole('button', 'Export bundle', { exact: true }).tap(), { timeout: 120_000 });
-  const zip = await JSZip.loadAsync(await zipFrom(download.path));
+  const zip = await JSZip.loadAsync(await readFile(download.absolutePath));
   const means: number[] = [];
   for (const n of ['01', '02', '03']) {
     const file = Object.values(zip.files).find(f => f.name.endsWith(`/1320x2868/en/${n}-no-device.png`))!;

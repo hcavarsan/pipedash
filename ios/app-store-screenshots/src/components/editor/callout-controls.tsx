@@ -186,8 +186,8 @@ function FocusPicker({
         aria-valuenow={Math.round(y * 100)}
         aria-valuetext={`${Math.round(x * 100)}% across, ${Math.round(y * 100)}% down`}
         className={cn(
-          "relative mx-auto w-24 cursor-crosshair touch-none select-none overflow-hidden rounded-md border bg-neutral-900 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          !src && "aspect-[9/19.5]",
+          "relative mx-auto w-24 cursor-crosshair touch-none select-none overflow-hidden rounded-md border bg-neutral-900 outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+          !src && "aspect-9/19.5",
         )}
         onPointerDown={(e) => {
           e.currentTarget.setPointerCapture(e.pointerId);

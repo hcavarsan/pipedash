@@ -361,7 +361,7 @@ function LookRow({
   return (
     <section
       aria-label={title}
-      className={cn("rounded-lg border bg-card p-3 shadow-sm", current && "border-dashed bg-card/60")}
+      className={cn("rounded-lg border bg-card p-3 shadow-xs", current && "border-dashed bg-card/60")}
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">

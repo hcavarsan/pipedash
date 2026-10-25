@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
+  allowedDevOrigins: ["127.0.0.1"],
   turbopack: { root: fileURLToPath(new URL(".", import.meta.url)) },
   outputFileTracingRoot: fileURLToPath(new URL(".", import.meta.url)),
   // Next 16.3+ otherwise writes AGENTS.md / CLAUDE.md into every scaffolded

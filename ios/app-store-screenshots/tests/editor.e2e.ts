@@ -1,7 +1,7 @@
 import { test } from '@e2e-dev/web';
 import type { Browser } from '@e2e-dev/web';
 import { expect } from 'e2e';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import sharp from 'sharp';
 
@@ -115,9 +115,7 @@ test('missing referenced images prevent downloads and unlock controls', async ({
 test('real ZIP exports exact RGB dimensions locale filenames and composition', async ({ app, browser, screen }) => {
   await mock(browser, fixture('watchos', { locales: ['en', 'de'] })); await app.open('/');
   const download = await browser.waitForDownload(() => screen.getByRole('button', 'Export bundle', { exact: true }).tap(), { timeout: 120_000 });
-  const matches = (await readdir('.e2e/artifacts', { recursive: true })).filter(file => file.endsWith(download.path));
-  await expect(matches).toHaveLength(1);
-  const zip = await JSZip.loadAsync(await readFile(`.e2e/artifacts/${matches[0]}`));
+  const zip = await JSZip.loadAsync(await readFile(download.absolutePath));
   const pngs = Object.values(zip.files).filter(file => file.name.endsWith('.png'));
   await expect(pngs).toHaveLength(24);
   for (const file of pngs) {
