@@ -83,7 +83,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
         setError(result.message || 'Failed to unlock vault')
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to unlock vault')
+      setError(formatErrorMessage(err))
     }
   }
 

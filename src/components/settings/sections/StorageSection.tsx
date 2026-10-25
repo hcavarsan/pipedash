@@ -12,6 +12,7 @@ import {
 } from '../../../queries/useStorageQueries'
 import { useLockVault, useVaultStatus } from '../../../queries/useVaultQueries'
 import { isTauri } from '../../../services'
+import { formatErrorMessage } from '../../../types/errors'
 import { lockMeansSomething } from '../../../utils/appLock'
 import { isMobilePlatform } from '../../../utils/platform'
 import { EmptyState } from '../../common/EmptyState'
@@ -77,7 +78,7 @@ export const StorageSection = () => {
       logger.error('StorageSection', 'Failed to load config content', error)
       notifications.show({
         title: "Couldn't open config file",
-        message: error instanceof Error ? error.message : 'Failed to load the config file',
+        message: formatErrorMessage(error),
         color: 'red',
       })
     }

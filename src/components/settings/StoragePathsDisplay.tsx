@@ -5,6 +5,7 @@ import { IconEdit, IconFolderOpen } from '@tabler/icons-react'
 import { logger } from '../../lib/logger'
 import { service } from '../../services'
 import type { PipedashConfig, StoragePathsResponse } from '../../types'
+import { formatErrorMessage } from '../../types/errors'
 import { isDesktopTauri } from '../../utils/platform'
 import { CopyButton } from '../atoms/CopyButton'
 
@@ -32,7 +33,7 @@ const PathRow = ({ label, path, kind, canOpen, onEdit }: PathRowProps) => {
       logger.error('StoragePathsDisplay', 'Failed to open folder', err)
       notifications.show({
         title: "Couldn't open folder",
-        message: err instanceof Error ? err.message : `Failed to open ${folderPath}`,
+        message: formatErrorMessage(err),
         color: 'red',
       })
     }

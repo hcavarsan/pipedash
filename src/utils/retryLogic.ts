@@ -1,4 +1,5 @@
 import { RETRY_INTERVALS } from '../constants/intervals'
+import { formatErrorMessage } from '../types/errors'
 import type { RetryConfig } from '../types/utils'
 
 export const DEFAULT_RETRY_CONFIG: RetryConfig = {
@@ -34,17 +35,18 @@ export function getRetryDelay(attempt: number, config: RetryConfig = DEFAULT_RET
 }
 
 export async function withRetry<T>(fn: () => Promise<T>, config: RetryConfig = DEFAULT_RETRY_CONFIG): Promise<T> {
-  let lastError: Error | null = null
+  let lastError: unknown = null
   let attempt = 1
 
   while (attempt <= config.maxAttempts) {
     try {
       return await fn()
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error))
+      lastError = error
+      const asError = error instanceof Error ? error : new Error(formatErrorMessage(error))
 
-      if (!shouldRetry(lastError, attempt, config)) {
-        throw lastError
+      if (!shouldRetry(asError, attempt, config)) {
+        throw error
       }
 
       if (attempt < config.maxAttempts) {
@@ -57,7 +59,7 @@ export async function withRetry<T>(fn: () => Promise<T>, config: RetryConfig = D
     }
   }
 
-  throw lastError || new Error('All retry attempts failed')
+  throw lastError ?? new Error('All retry attempts failed')
 }
 
 export function sleep(ms: number): Promise<void> {

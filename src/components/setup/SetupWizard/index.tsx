@@ -15,6 +15,7 @@ import {
 import { useUnlockVault, useVaultPasswordStatus } from '../../../queries/useVaultQueries'
 import { isTauri } from '../../../services'
 import type { MigrationResult, PipedashConfig } from '../../../types'
+import { formatErrorMessage } from '../../../types/errors'
 import { isMobilePlatform } from '../../../utils/platform'
 import { LoadingState } from '../../common/LoadingState'
 import { StandardModal } from '../../common/StandardModal'
@@ -266,7 +267,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
       setStep(showTransferStep ? 3 : 2)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save configuration')
+      setError(formatErrorMessage(err))
     }
   }, [
     currentConfig,

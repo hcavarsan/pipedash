@@ -1,18 +1,20 @@
 import { Alert, Badge, Button, Group, Loader, Stack, Text, useComputedColorScheme } from '@mantine/core'
 import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
-import Editor from '@monaco-editor/react'
 import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { parse } from 'smol-toml'
 
 import { logger } from '../../lib/logger'
 import { service } from '../../services'
 import type { ConfigAnalysisResponse, MigrationOptions } from '../../types'
+import { formatErrorMessage } from '../../types/errors'
 import { formatCount } from '../../utils/formatCount'
 import { StandardModal } from '../common/StandardModal'
 
 import { MigrationConfirmModal } from './MigrationConfirmModal'
+
+const TomlEditor = lazy(() => import('./TomlEditor'))
 
 interface ConfigEditorModalProps {
   opened: boolean
@@ -173,7 +175,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
       onSaved?.()
       onClose()
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to save configuration'
+      const errorMessage = formatErrorMessage(err)
 
       notifications.show({
         title: "Couldn't save configuration",
@@ -212,7 +214,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
     } catch (err) {
       notifications.show({
         title: 'Migration failed',
-        message: err instanceof Error ? err.message : 'Unknown error',
+        message: formatErrorMessage(err),
         color: 'red',
       })
     } finally {
@@ -342,28 +344,29 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
           </Alert>
         )}
 
-        <Editor
-          height="100%"
-          language="ini"
-          theme={colorScheme === 'dark' ? 'vs-dark' : 'light'}
-          value={content}
-          onChange={handleEditorChange}
-          options={{
-            fontSize: 14,
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            wordWrap: 'on',
-            automaticLayout: true,
-            tabSize: 2,
-            insertSpaces: true,
-            lineNumbers: 'on',
-            glyphMargin: false,
-            folding: true,
-            lineDecorationsWidth: 0,
-            lineNumbersMinChars: 3,
-            padding: { top: 12, bottom: 12 },
-          }}
-        />
+        <Suspense fallback={<Loader size="sm" m="lg" />}>
+          <TomlEditor
+            height="100%"
+            theme={colorScheme === 'dark' ? 'vs-dark' : 'light'}
+            value={content}
+            onChange={handleEditorChange}
+            options={{
+              fontSize: 14,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              wordWrap: 'on',
+              automaticLayout: true,
+              tabSize: 2,
+              insertSpaces: true,
+              lineNumbers: 'on',
+              glyphMargin: false,
+              folding: true,
+              lineDecorationsWidth: 0,
+              lineNumbersMinChars: 3,
+              padding: { top: 12, bottom: 12 },
+            }}
+          />
+        </Suspense>
       </Stack>
 
       {analysis?.migration_plan && (

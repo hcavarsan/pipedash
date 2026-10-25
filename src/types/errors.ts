@@ -44,6 +44,10 @@ export function formatErrorMessage(error: unknown): string {
     return error
   }
 
+  if (isCommandError(error)) {
+    return error.error
+  }
+
   return 'An unknown error occurred'
 }
 
@@ -76,7 +80,15 @@ export function toPipedashError(error: unknown): PipedashError {
     return createError('unknown', error)
   }
 
+  if (isCommandError(error)) {
+    return createError('unknown', error.error, { cause: error })
+  }
+
   return createError('unknown', 'An unknown error occurred', { cause: error })
+}
+
+function isCommandError(error: unknown): error is { error: string } {
+  return typeof error === 'object' && error !== null && 'error' in error && typeof error.error === 'string'
 }
 
 export function isNetworkError(error: PipedashError): error is Extract<PipedashError, { type: 'network' }> {
