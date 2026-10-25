@@ -295,6 +295,7 @@ impl ConfigLoader {
                 i64::from(general.default_refresh_interval).into(),
             ),
             ("status_pages_enabled", general.status_pages_enabled.into()),
+            ("proxy_url", general.proxy_url.as_str().into()),
         ] {
             match table.get_mut(key) {
                 Some(existing) => *existing = Item::Value(value),

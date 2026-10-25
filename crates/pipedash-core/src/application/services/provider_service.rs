@@ -63,6 +63,7 @@ use crate::infrastructure::config::token_ref::TokenReference;
 use crate::infrastructure::config::{
     ConfigLoader,
     ConfigState,
+    GeneralSettingsUpdate,
     ProviderFileConfig,
 };
 use crate::infrastructure::database::{
@@ -680,6 +681,18 @@ impl ProviderService {
         config_state.remember_providers(file).await;
 
         Ok(result)
+    }
+
+    pub async fn update_general_settings(
+        &self, config_state: &ConfigState, update: GeneralSettingsUpdate,
+    ) -> DomainResult<()> {
+        let proxy_url = update.proxy_url.clone();
+        config_state.update_general_settings(update).await?;
+        if self.http_client_manager.set_proxy(&proxy_url)? {
+            self.load_all_providers().await?;
+        }
+
+        Ok(())
     }
 
     async fn apply_config_provider(

@@ -740,8 +740,8 @@ pub async fn update_general_settings(
         error: e,
         details: None,
     })?;
-    core.config_state
-        .update_general_settings(update)
+    core.provider_service
+        .update_general_settings(&core.config_state, update)
         .await
         .map_err(Into::into)
 }

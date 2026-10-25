@@ -17,10 +17,11 @@ pub fn router() -> Router<AppState> {
 async fn update_general_settings(
     State(state): State<AppState>, Json(update): Json<GeneralSettingsUpdate>,
 ) -> ApiResult<StatusCode> {
+    let config_state = state.config_state().await?;
     state
-        .config_state()
+        .provider_service()
         .await?
-        .update_general_settings(update)
+        .update_general_settings(&config_state, update)
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -86,18 +87,23 @@ mod tests {
 
         let too_fast = put_general(
             &app,
-            r#"{"metrics_enabled":true,"default_refresh_interval":4,"status_pages_enabled":true}"#,
+            r#"{"metrics_enabled":true,"default_refresh_interval":4,"status_pages_enabled":true,"proxy_url":""}"#,
         )
         .await;
         let too_slow = put_general(
             &app,
-            r#"{"metrics_enabled":true,"default_refresh_interval":301,"status_pages_enabled":true}"#,
+            r#"{"metrics_enabled":true,"default_refresh_interval":301,"status_pages_enabled":true,"proxy_url":""}"#,
+        )
+        .await;
+        let bad_proxy = put_general(
+            &app,
+            r#"{"metrics_enabled":true,"default_refresh_interval":30,"status_pages_enabled":true,"proxy_url":"socks5://proxy.corp:1080"}"#,
         )
         .await;
         let unchanged = ConfigLoader::load(&config_path).unwrap();
         let saved = put_general(
             &app,
-            r#"{"metrics_enabled":false,"default_refresh_interval":45,"status_pages_enabled":false}"#,
+            r#"{"metrics_enabled":false,"default_refresh_interval":45,"status_pages_enabled":false,"proxy_url":"http://proxy.corp:3128"}"#,
         )
         .await;
         let reloaded = ConfigLoader::load(&config_path).unwrap();
@@ -105,10 +111,13 @@ mod tests {
 
         assert_eq!(too_fast, StatusCode::BAD_REQUEST);
         assert_eq!(too_slow, StatusCode::BAD_REQUEST);
+        assert_eq!(bad_proxy, StatusCode::BAD_REQUEST);
         assert!(unchanged.general.status_pages_enabled);
+        assert_eq!(unchanged.general.proxy_url, "");
         assert_eq!(saved, StatusCode::NO_CONTENT);
         assert!(!reloaded.general.status_pages_enabled);
         assert!(!reloaded.general.metrics_enabled);
         assert_eq!(reloaded.general.default_refresh_interval, 45);
+        assert_eq!(reloaded.general.proxy_url, "http://proxy.corp:3128");
     }
 }

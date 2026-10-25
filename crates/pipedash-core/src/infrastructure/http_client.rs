@@ -6,6 +6,8 @@ use std::net::{
 use std::sync::{
     Arc,
     OnceLock,
+    PoisonError,
+    RwLock,
 };
 use std::time::Duration;
 
@@ -15,6 +17,8 @@ use reqwest::{
     redirect,
     Client,
     ClientBuilder,
+    NoProxy,
+    Proxy,
     Url,
 };
 
@@ -30,58 +34,97 @@ const STATUS_MAX_REDIRECTS: usize = 3;
 type ClientKey = (Option<String>, bool);
 
 pub struct HttpClientManager {
+    clients: RwLock<Arc<Clients>>,
+}
+
+struct Clients {
+    proxy: Option<Url>,
     default_client: Arc<Client>,
-    clients: DashMap<ClientKey, Arc<Client>>,
+    by_origin: DashMap<ClientKey, Arc<Client>>,
     status_client: OnceLock<Arc<Client>>,
+}
+
+impl Clients {
+    fn new(proxy: Option<Url>) -> DomainResult<Self> {
+        let default_client = HttpClientManager::build_client(false, proxy.as_ref())?;
+        Ok(Self {
+            proxy,
+            default_client: Arc::new(default_client),
+            by_origin: DashMap::new(),
+            status_client: OnceLock::new(),
+        })
+    }
 }
 
 impl HttpClientManager {
     pub fn new() -> DomainResult<Self> {
-        let default_client = Self::build_client(false)?;
         Ok(Self {
-            default_client: Arc::new(default_client),
-            clients: DashMap::new(),
-            status_client: OnceLock::new(),
+            clients: RwLock::new(Arc::new(Clients::new(None)?)),
         })
     }
 
+    pub fn set_proxy(&self, proxy_url: &str) -> DomainResult<bool> {
+        let proxy = parse_proxy_url(proxy_url)?;
+        if self.current().proxy == proxy {
+            return Ok(false);
+        }
+
+        let clients = Arc::new(Clients::new(proxy)?);
+        *self.clients.write().unwrap_or_else(PoisonError::into_inner) = clients;
+        Ok(true)
+    }
+
+    fn current(&self) -> Arc<Clients> {
+        Arc::clone(&self.clients.read().unwrap_or_else(PoisonError::into_inner))
+    }
+
     pub fn client_for(&self, options: &ClientOptions) -> DomainResult<Arc<Client>> {
+        let clients = self.current();
         if *options == ClientOptions::default() {
-            return Ok(Arc::clone(&self.default_client));
+            return Ok(Arc::clone(&clients.default_client));
         }
 
         let key = (
             options.origin.as_ref().map(normalize_origin),
             options.accept_invalid_certs,
         );
-        let entry = self.clients.entry(key).or_try_insert_with(|| {
-            Self::build_client(options.accept_invalid_certs).map(Arc::new)
+        let entry = clients.by_origin.entry(key).or_try_insert_with(|| {
+            Self::build_client(options.accept_invalid_certs, clients.proxy.as_ref()).map(Arc::new)
         })?;
         Ok(Arc::clone(entry.value()))
     }
 
     pub fn status_client(&self) -> DomainResult<Arc<Client>> {
-        if let Some(client) = self.status_client.get() {
+        let clients = self.current();
+        if let Some(client) = clients.status_client.get() {
             return Ok(Arc::clone(client));
         }
-        let client = Arc::new(Self::build_status_client()?);
-        Ok(Arc::clone(self.status_client.get_or_init(|| client)))
+        let client = Arc::new(Self::build_status_client(clients.proxy.as_ref())?);
+        Ok(Arc::clone(clients.status_client.get_or_init(|| client)))
     }
 
-    fn base_builder() -> ClientBuilder {
+    fn base_builder(proxy: Option<&Url>) -> DomainResult<ClientBuilder> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        Client::builder()
+        let builder = Client::builder()
             .tls_backend_rustls()
-            .user_agent(USER_AGENT)
+            .user_agent(USER_AGENT);
+        let Some(proxy) = proxy else {
+            return Ok(builder);
+        };
+
+        let proxy = Proxy::all(proxy.clone())
+            .map_err(|e| DomainError::InvalidConfig(format!("Failed to use the proxy URL: {e}")))?
+            .no_proxy(NoProxy::from_env());
+        Ok(builder.proxy(proxy))
     }
 
-    fn build_client(accept_invalid_certs: bool) -> DomainResult<Client> {
+    fn build_client(accept_invalid_certs: bool, proxy: Option<&Url>) -> DomainResult<Client> {
         let pool_size = std::env::var("PIPEDASH_HTTP_POOL_SIZE")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
-        Self::base_builder()
+        Self::base_builder(proxy)?
             .tls_danger_accept_invalid_certs(accept_invalid_certs)
             .pool_max_idle_per_host(pool_size)
             .pool_idle_timeout(Duration::from_secs(90))
@@ -92,7 +135,7 @@ impl HttpClientManager {
             .map_err(|e| DomainError::InternalError(format!("Failed to create HTTP client: {}", e)))
     }
 
-    fn build_status_client() -> DomainResult<Client> {
+    fn build_status_client(proxy: Option<&Url>) -> DomainResult<Client> {
         let policy = redirect::Policy::custom(|attempt| {
             if attempt.previous().len() > STATUS_MAX_REDIRECTS {
                 attempt.error("too many redirects")
@@ -103,7 +146,7 @@ impl HttpClientManager {
             }
         });
 
-        Self::base_builder()
+        Self::base_builder(proxy)?
             .redirect(policy)
             .timeout(STATUS_TIMEOUT)
             .connect_timeout(STATUS_TIMEOUT)
@@ -112,6 +155,31 @@ impl HttpClientManager {
                 DomainError::InternalError(format!("Failed to create status HTTP client: {}", e))
             })
     }
+}
+
+pub fn parse_proxy_url(value: &str) -> DomainResult<Option<Url>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    let url = Url::parse(value)
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+        .ok_or_else(|| {
+            DomainError::InvalidConfig(
+                "Proxy URL must look like http://proxy.example.com:3128 or https://...".to_string(),
+            )
+        })?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(DomainError::InvalidConfig(
+            "Proxy URL can't contain a username or password. Pipedash supports proxies without \
+             authentication only."
+                .to_string(),
+        ));
+    }
+
+    Ok(Some(url))
 }
 
 fn normalize_origin(url: &Url) -> String {
@@ -184,7 +252,7 @@ mod tests {
             .client_for(&options("https://H:443/", false))
             .unwrap();
         assert!(Arc::ptr_eq(&a, &b));
-        assert!(!Arc::ptr_eq(&a, &manager.default_client));
+        assert!(!Arc::ptr_eq(&a, &manager.current().default_client));
     }
 
     #[test]
@@ -221,7 +289,7 @@ mod tests {
             .client_for(&options("https://a.example", true))
             .unwrap();
         assert!(!Arc::ptr_eq(&a, &insecure));
-        assert!(!Arc::ptr_eq(&a, &manager.default_client));
+        assert!(!Arc::ptr_eq(&a, &manager.current().default_client));
     }
 
     #[test]
@@ -252,6 +320,108 @@ mod tests {
                 !is_safe_redirect_target(&Url::parse(refused).unwrap()),
                 "{refused}"
             );
+        }
+    }
+
+    async fn proxy_stub() -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        use tokio::io::{
+            AsyncReadExt,
+            AsyncWriteExt,
+        };
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0; 4096];
+                let n = stream.read(&mut buf).await.unwrap();
+                let head = String::from_utf8_lossy(&buf[..n]);
+                let line = head.lines().next().unwrap_or_default().to_string();
+                log.lock().unwrap().push(line);
+                let _ = stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                    )
+                    .await;
+            }
+        });
+        (url, seen)
+    }
+
+    #[tokio::test]
+    async fn every_client_goes_through_the_proxy_until_it_is_cleared() {
+        let (proxy, seen) = proxy_stub().await;
+        let manager = HttpClientManager::new().unwrap();
+
+        assert!(manager.set_proxy(&format!(" {proxy} ")).unwrap());
+        assert!(!manager.set_proxy(&proxy).unwrap());
+        let clients = [
+            manager.client_for(&ClientOptions::default()).unwrap(),
+            manager
+                .client_for(&options("http://argo.pipedash.test", true))
+                .unwrap(),
+            manager.status_client().unwrap(),
+        ];
+        for (i, client) in clients.iter().enumerate() {
+            let body = client
+                .get(format!("http://host{i}.pipedash.test/api"))
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap();
+            assert_eq!(body, "ok");
+        }
+
+        assert!(manager.set_proxy("").unwrap());
+        let direct = manager
+            .client_for(&ClientOptions::default())
+            .unwrap()
+            .get("http://127.0.0.1:9/never-proxied")
+            .send()
+            .await;
+
+        assert!(direct.is_err());
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [
+                "GET http://host0.pipedash.test/api HTTP/1.1",
+                "GET http://host1.pipedash.test/api HTTP/1.1",
+                "GET http://host2.pipedash.test/api HTTP/1.1",
+            ]
+        );
+    }
+
+    #[test]
+    fn proxy_url_accepts_http_and_https_without_credentials() {
+        assert_eq!(parse_proxy_url("  ").unwrap(), None);
+        assert_eq!(
+            parse_proxy_url(" http://proxy.corp:3128 ")
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "http://proxy.corp:3128/"
+        );
+        assert!(parse_proxy_url("https://proxy.corp").unwrap().is_some());
+
+        for refused in [
+            "proxy.corp:3128",
+            "socks5://proxy.corp:1080",
+            "http://",
+            "not a url",
+            "http://alice@proxy.corp:3128",
+            "http://alice:secret@proxy.corp:3128",
+        ] {
+            let error = parse_proxy_url(refused).unwrap_err().to_string();
+            assert!(!error.contains("secret"), "{error}");
+            assert!(matches!(
+                parse_proxy_url(refused),
+                Err(DomainError::InvalidConfig(_))
+            ));
         }
     }
 }

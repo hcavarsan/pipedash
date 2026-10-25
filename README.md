@@ -357,6 +357,7 @@ You can also configure Pipedash via TOML. Set `PIPEDASH_CONFIG_PATH` to specify 
 metrics_enabled = true
 default_refresh_interval = 30
 status_pages_enabled = true
+proxy_url = ""  # e.g. "http://proxy.example.com:3128"
 
 [server]
 bind_addr = "0.0.0.0:8080"
@@ -397,6 +398,8 @@ Pipedash applies changes to the `[providers]` blocks without a restart. A save i
 The `[server]` values are read when the API server starts. Until a config file exists (setup mode), the server uses the defaults `127.0.0.1:8080` and `cors_allow_all = false`, so restart the server after setup to apply them. `PIPEDASH_BIND_ADDR`, `PIPEDASH_CORS_ALLOW_ALL` and `PIPEDASH_BASE_PATH` take precedence over the file.
 
 To serve the web UI under a path such as `https://tools.example.com/pipedash/`, set `base_path = "/pipedash"`. The reverse proxy must strip that path before it forwards requests, including the `/api/v1/ws` websocket. The desktop app ignores this setting.
+
+To reach your providers through a company proxy, set the proxy URL in Settings → General or `proxy_url` under `[general]`. GitHub, GitLab, Bitbucket, Buildkite, Gitea, Jenkins and ArgoCD requests and the status page checks go through it, and hosts in `NO_PROXY` connect directly. A save in Settings applies it at once, and a change in the file applies at the next start. Tekton and Flux use your kubeconfig instead, and proxies that need a password aren't supported. When `proxy_url` is empty, Pipedash uses `HTTPS_PROXY` and `HTTP_PROXY` if they're set.
 
 **Cargo features**
 

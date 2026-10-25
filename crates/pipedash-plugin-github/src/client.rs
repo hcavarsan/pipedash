@@ -49,7 +49,9 @@ pub(crate) fn map_octocrab_error(context: &str, error: octocrab::Error) -> Plugi
                 http::from_status(status, message, retry_after)
             }
         }
-        octocrab::Error::Hyper { .. } | octocrab::Error::Service { .. } => {
+        octocrab::Error::Hyper { .. }
+        | octocrab::Error::Reqwest { .. }
+        | octocrab::Error::Service { .. } => {
             PluginError::NetworkError(format!("{context}: {error}"))
         }
         _ => PluginError::ApiError(format!("{context}: {error}")),
@@ -63,9 +65,12 @@ pub(crate) struct GitHubClient {
 }
 
 impl GitHubClient {
-    pub fn new(octocrab: Octocrab, token: String, api_url: &str) -> PluginResult<Self> {
+    pub fn new(
+        octocrab: Octocrab, http_client: reqwest::Client, token: String, api_url: &str,
+    ) -> PluginResult<Self> {
         let token_secret = token.into();
-        let permission_checker = PermissionChecker::new(octocrab.clone(), token_secret, api_url)?;
+        let permission_checker =
+            PermissionChecker::new(octocrab.clone(), http_client, token_secret, api_url)?;
 
         Ok(Self {
             octocrab,

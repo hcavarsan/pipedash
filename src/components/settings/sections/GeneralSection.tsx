@@ -2,6 +2,7 @@ import {
   Button,
   Card,
   Divider,
+  Group,
   Input,
   Loader,
   type MantineColorScheme,
@@ -10,6 +11,7 @@ import {
   Stack,
   Switch,
   Text,
+  TextInput,
   useMantineColorScheme,
 } from '@mantine/core'
 import { IconTrash } from '@tabler/icons-react'
@@ -21,13 +23,15 @@ import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { useStorageConfig } from '@/queries/useStorageQueries'
 import { service } from '@/services'
+import type { GeneralConfig } from '@/types'
 import { displayErrorNotification } from '@/utils/errorDisplay'
+import { isHttpUrl } from '@/utils/openExternal'
 import { getPlatformOverride, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
 
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
 import { IosGroup, IosRow } from '../../ios/IosList'
-import { FieldRow, RowSelect, SwitchRow } from '../mobileParts'
+import { AccentText, FieldRow, RowSelect, RowTextInput, SwitchRow } from '../mobileParts'
 import { useFactoryResetConfirm } from '../useFactoryResetConfirm'
 
 interface GeneralSectionProps {
@@ -39,6 +43,9 @@ const THEME_OPTIONS = [
   { value: 'light', label: 'Light' },
   { value: 'auto', label: 'System' },
 ]
+
+const PROXY_DESCRIPTION =
+  "Sends provider requests through this HTTP proxy, except Tekton and Flux. Leave it empty to connect directly or through HTTPS_PROXY. Proxies that need a password aren't supported."
 
 export function GeneralSection({ onRefresh }: GeneralSectionProps) {
   const mobileShell = useMobileShell()
@@ -53,26 +60,24 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
   const queryClient = useQueryClient()
   const storageConfig = useStorageConfig()
   const general = storageConfig.data?.config.general
-  const statusPagesMutation = useMutation({
-    mutationFn: (enabled: boolean) => {
-      if (!general) {
-        throw new Error('Settings are not loaded yet')
-      }
-
-      return service.updateGeneralSettings({
-        metrics_enabled: general.metrics_enabled,
-        default_refresh_interval: general.default_refresh_interval,
-        status_pages_enabled: enabled,
-      })
-    },
+  const [proxyDraft, setProxyDraft] = useState<string | null>(null)
+  const generalMutation = useMutation({
+    mutationFn: (update: GeneralConfig) => service.updateGeneralSettings(update),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.storage.config() }),
     onError: (error) => {
-      logger.error('GeneralSection', 'Failed to update status page setting', error)
-      displayErrorNotification(error, "Couldn't update status page setting")
+      logger.error('GeneralSection', 'Failed to update general settings', error)
+      displayErrorNotification(error, "Couldn't save general settings")
     },
   })
-  const statusPagesChecked = statusPagesMutation.isPending
-    ? statusPagesMutation.variables
+  const saveGeneral = (change: Partial<GeneralConfig>, onSuccess?: () => void) => {
+    if (!general) {
+      return
+    }
+
+    generalMutation.mutate({ ...general, ...change }, { onSuccess })
+  }
+  const statusPagesChecked = generalMutation.isPending
+    ? generalMutation.variables.status_pages_enabled
     : (general?.status_pages_enabled ?? false)
   const statusPagesControl = storageConfig.isLoading ? (
     <LoadingState variant="compact" message="Loading provider status page setting…" />
@@ -87,18 +92,30 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
     <SwitchRow
       title="Check provider status pages"
       checked={statusPagesChecked}
-      onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
-      disabled={statusPagesMutation.isPending}
+      onChange={(e) => saveGeneral({ status_pages_enabled: e.currentTarget.checked })}
+      disabled={generalMutation.isPending}
     />
   ) : (
     <Switch
       label="Check provider status pages"
       description="Reads the public status page of each provider, or the one you configured. No credentials are sent."
       checked={statusPagesChecked}
-      onChange={(e) => statusPagesMutation.mutate(e.currentTarget.checked)}
-      disabled={statusPagesMutation.isPending}
+      onChange={(e) => saveGeneral({ status_pages_enabled: e.currentTarget.checked })}
+      disabled={generalMutation.isPending}
     />
   )
+
+  const savedProxy = general?.proxy_url ?? ''
+  const proxyValue = proxyDraft ?? savedProxy
+  const proxyTrimmed = proxyValue.trim()
+  const proxyError =
+    proxyTrimmed && !isHttpUrl(proxyTrimmed) ? 'Enter a URL that starts with http:// or https://' : undefined
+  const canSaveProxy = !!general && !generalMutation.isPending && !proxyError && proxyTrimmed !== savedProxy
+  const saveProxy = () => {
+    if (canSaveProxy) {
+      saveGeneral({ proxy_url: proxyTrimmed }, () => setProxyDraft(null))
+    }
+  }
 
   useEffect(() => {
     const loadPlatform = async () => {
@@ -137,6 +154,41 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
         <IosGroup footer="Reads the public status page of each provider, or the one you configured. No credentials are sent.">
           {statusPagesControl}
         </IosGroup>
+
+        {general && (
+          <>
+            <IosGroup footer={proxyError ?? PROXY_DESCRIPTION}>
+              <FieldRow title="Proxy URL">
+                {(id) => (
+                  <RowTextInput
+                    id={id}
+                    placeholder="None"
+                    type="url"
+                    inputMode="url"
+                    autoComplete="off"
+                    enterKeyHint="done"
+                    value={proxyValue}
+                    onChange={(e) => setProxyDraft(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        saveProxy()
+                      }
+                    }}
+                  />
+                )}
+              </FieldRow>
+            </IosGroup>
+
+            <IosGroup>
+              <IosRow
+                title={<AccentText>{generalMutation.isPending ? 'Saving...' : 'Save proxy'}</AccentText>}
+                disabled={!canSaveProxy}
+                onClick={saveProxy}
+              />
+            </IosGroup>
+          </>
+        )}
 
         <IosGroup footer="Permanently delete all application data">
           <IosRow
@@ -189,6 +241,42 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
           )}
 
           {statusPagesControl}
+
+          {general && (
+            <>
+              <Divider />
+
+              <form
+                noValidate
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  saveProxy()
+                }}
+              >
+                <Stack gap="xs">
+                  <TextInput
+                    label="Proxy URL"
+                    description={PROXY_DESCRIPTION}
+                    placeholder="http://proxy.example.com:3128"
+                    type="url"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={proxyValue}
+                    onChange={(e) => setProxyDraft(e.currentTarget.value)}
+                    error={proxyError}
+                    disabled={generalMutation.isPending}
+                  />
+                  <Group justify="flex-end">
+                    <Button type="submit" size="xs" disabled={!canSaveProxy} loading={generalMutation.isPending}>
+                      Save proxy
+                    </Button>
+                  </Group>
+                </Stack>
+              </form>
+            </>
+          )}
         </Stack>
       </Card>
 

@@ -27,7 +27,7 @@ after(async () => {
 test('phone settings can recover a failed load and block overlapping saves', async (context) => {
   const config: StorageConfigResponse = {
     config: {
-      general: { metrics_enabled: true, default_refresh_interval: 30, status_pages_enabled: false },
+      general: { metrics_enabled: true, default_refresh_interval: 30, status_pages_enabled: false, proxy_url: '' },
       server: { bind_addr: '127.0.0.1:8080', cors_allow_all: false },
       storage: { data_dir: '/tmp/pipedash-test', backend: 'sqlite' },
     },
@@ -79,6 +79,7 @@ test('phone settings can recover a failed load and block overlapping saves', asy
       metrics_enabled: true,
       default_refresh_interval: 30,
       status_pages_enabled: true,
+      proxy_url: '',
     })
   })
 })

@@ -27,7 +27,7 @@ type ScopeSet = HashSet<String>;
 pub(crate) struct PermissionChecker {
     octocrab: Octocrab,
     token: SecretString,
-    http_client: reqwest::Client, // Reuse across all permission checks
+    http_client: reqwest::Client,
     user_url: Url,
 }
 
@@ -64,8 +64,9 @@ impl PermissionChecker {
         ("workflow", &["workflow"]),
     ];
 
-    pub fn new(octocrab: Octocrab, token: SecretString, api_url: &str) -> PluginResult<Self> {
-        let http_client = Self::build_http_client()?;
+    pub fn new(
+        octocrab: Octocrab, http_client: reqwest::Client, token: SecretString, api_url: &str,
+    ) -> PluginResult<Self> {
         let user_url = Url::parse(&format!("{}/user", api_url.trim_end_matches('/')))
             .map_err(|e| PluginError::InvalidConfig(format!("Invalid API URL '{api_url}': {e}")))?;
         Ok(Self {
@@ -78,14 +79,6 @@ impl PermissionChecker {
 
     fn api_timeout() -> Duration {
         Duration::from_secs(Self::API_TIMEOUT_SECS)
-    }
-
-    fn build_http_client() -> PluginResult<reqwest::Client> {
-        reqwest::Client::builder()
-            .timeout(Self::api_timeout())
-            .user_agent("pipedash")
-            .build()
-            .map_err(|e| PluginError::Internal(format!("Failed to build HTTP client: {e}")))
     }
 
     fn get_classic_pat_permissions() -> Vec<Permission> {
@@ -246,6 +239,7 @@ impl PermissionChecker {
                 "Authorization",
                 format!("token {}", self.token.expose_secret()),
             )
+            .timeout(Self::api_timeout())
             .send()
             .await
             .map_err(|e| map_send_error(e, &self.user_url))?;
