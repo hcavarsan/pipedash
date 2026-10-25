@@ -465,6 +465,7 @@ export interface GeneralConfig {
   metrics_enabled: boolean
   default_refresh_interval: number
   status_pages_enabled: boolean
+  proxy_url: string
 }
 
 export interface ServerConfig {

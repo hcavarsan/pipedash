@@ -217,6 +217,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
           metrics_enabled: true,
           default_refresh_interval: 30,
           status_pages_enabled: true,
+          proxy_url: '',
         },
         server: currentConfig?.config.server || {
           bind_addr: '127.0.0.1:8080',

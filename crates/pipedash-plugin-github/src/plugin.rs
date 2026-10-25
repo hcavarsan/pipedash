@@ -99,7 +99,7 @@ impl Plugin for GitHubPlugin {
 
     fn initialize(
         &mut self, provider_id: i64, config: HashMap<String, String>,
-        _http_client: Option<std::sync::Arc<reqwest::Client>>,
+        http_client: Option<std::sync::Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
         let token = config
             .get("token")
@@ -120,17 +120,29 @@ impl Plugin for GitHubPlugin {
 
         tracing::debug!(api_url = %api_url, "Using GitHub API URL");
 
+        let http_client = match http_client {
+            Some(client) => (*client).clone(),
+            None => reqwest::Client::builder()
+                .use_rustls_tls()
+                .user_agent("pipedash")
+                .timeout(std::time::Duration::from_secs(30))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| PluginError::Internal(format!("Failed to build HTTP client: {e}")))?,
+        };
+
         let octocrab = Octocrab::builder()
             .add_retry_config(RetryConfig::None)
             .personal_token(token.clone())
             .base_uri(&api_url)
             .map_err(|e| PluginError::InvalidConfig(format!("Failed to set base URI: {e}")))?
-            .build()
+            .build_with_reqwest(http_client.clone())
             .map_err(|e| {
                 PluginError::InvalidConfig(format!("Failed to build GitHub client: {e}"))
             })?;
 
-        let github_client = client::GitHubClient::new(octocrab, token.clone(), &api_url)?;
+        let github_client =
+            client::GitHubClient::new(octocrab, http_client, token.clone(), &api_url)?;
         self.client = Some(github_client);
         self.provider_id = Some(provider_id);
         self.config = config;
@@ -1497,5 +1509,63 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, PluginError::InvalidConfig(_)), "{error}");
+    }
+
+    #[tokio::test]
+    async fn github_requests_use_the_proxy_of_the_given_client() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy = format!("http://{}", listener.local_addr().unwrap());
+        let recorded: Recorded = Arc::default();
+        let log = recorded.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let request = read_request(&mut stream).await;
+                log.lock().await.push(request);
+                let body = r#"{"message":"Bad credentials"}"#;
+                let response = format!(
+                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        let client = reqwest::Client::builder()
+            .use_rustls_tls()
+            .user_agent("pipedash")
+            .proxy(reqwest::Proxy::all(&proxy).unwrap())
+            .build()
+            .unwrap();
+        let mut plugin = GitHubPlugin::new();
+        plugin
+            .initialize(
+                1,
+                config_with(&[("base_url", "http://ghe.pipedash.test")]),
+                Some(Arc::new(client)),
+            )
+            .unwrap();
+
+        let validated = plugin.validate_credentials().await;
+        let _ = plugin.check_permissions().await;
+
+        assert!(
+            matches!(validated, Err(PluginError::AuthenticationFailed(_))),
+            "{validated:?}"
+        );
+        let targets: Vec<String> = recorded
+            .lock()
+            .await
+            .iter()
+            .map(|(method, target, _)| format!("{method} {target}"))
+            .collect();
+        assert_eq!(
+            targets[..2],
+            [
+                "GET http://ghe.pipedash.test/api/v3/user",
+                "GET http://ghe.pipedash.test/api/v3/user",
+            ],
+            "{targets:?}"
+        );
     }
 }

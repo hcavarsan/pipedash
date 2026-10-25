@@ -135,6 +135,9 @@ pub struct GeneralConfig {
 
     #[serde(default = "default_true")]
     pub status_pages_enabled: bool,
+
+    #[serde(default)]
+    pub proxy_url: String,
 }
 
 impl Default for GeneralConfig {
@@ -143,15 +146,17 @@ impl Default for GeneralConfig {
             metrics_enabled: default_metrics_enabled(),
             default_refresh_interval: default_refresh_interval(),
             status_pages_enabled: default_true(),
+            proxy_url: String::new(),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GeneralSettingsUpdate {
     pub metrics_enabled: bool,
     pub default_refresh_interval: u32,
     pub status_pages_enabled: bool,
+    pub proxy_url: String,
 }
 
 fn default_metrics_enabled() -> bool {

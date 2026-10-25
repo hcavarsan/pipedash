@@ -35,6 +35,7 @@ use crate::domain::{
     DomainError,
     DomainResult,
 };
+use crate::infrastructure::http_client::parse_proxy_url;
 use crate::infrastructure::{
     ConfigBackend,
     TokenStore,
@@ -311,6 +312,9 @@ impl ConfigState {
                  {MAX_REFRESH_INTERVAL_SECS} seconds"
             )));
         }
+        let proxy_url = parse_proxy_url(&update.proxy_url)?
+            .map(|_| update.proxy_url.trim().to_string())
+            .unwrap_or_default();
 
         let current_config = self.config.read().await;
         let mut config = (**current_config).clone();
@@ -319,6 +323,7 @@ impl ConfigState {
         config.general.metrics_enabled = update.metrics_enabled;
         config.general.default_refresh_interval = update.default_refresh_interval;
         config.general.status_pages_enabled = update.status_pages_enabled;
+        config.general.proxy_url = proxy_url;
 
         self.persist_general(&config).await?;
 
@@ -733,7 +738,41 @@ mod tests {
             metrics_enabled: true,
             default_refresh_interval,
             status_pages_enabled,
+            proxy_url: String::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn test_update_general_settings_saves_a_proxy_and_refuses_an_invalid_one() {
+        let temp_dir = TempDir::new().unwrap();
+        let state = create_test_state(&temp_dir, Arc::new(MemoryTokenStore::new()));
+        let path = temp_dir.path().join("config.toml");
+        let with_proxy = |proxy_url: &str| GeneralSettingsUpdate {
+            proxy_url: proxy_url.to_string(),
+            ..update(30, true)
+        };
+
+        state
+            .update_general_settings(with_proxy(" http://proxy.corp:3128 "))
+            .await
+            .unwrap();
+        let refused = state
+            .update_general_settings(with_proxy("http://alice:secret@proxy.corp:3128"))
+            .await;
+
+        assert!(matches!(refused, Err(DomainError::InvalidConfig(_))));
+        assert_eq!(
+            ConfigLoader::load(&path).unwrap().general.proxy_url,
+            "http://proxy.corp:3128"
+        );
+        assert_eq!(
+            state.get().await.general.proxy_url,
+            "http://proxy.corp:3128"
+        );
+
+        state.update_general_settings(with_proxy("")).await.unwrap();
+
+        assert_eq!(ConfigLoader::load(&path).unwrap().general.proxy_url, "");
     }
 
     #[tokio::test]

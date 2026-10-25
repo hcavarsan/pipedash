@@ -141,7 +141,7 @@ impl CoreContext {
             token_store.clone(),
         ));
 
-        let http_client_manager = Arc::new(infrastructure::HttpClientManager::new()?);
+        let http_client_manager = http_client_manager(&config.general.proxy_url)?;
 
         let services = application::Services::new(
             repository,
@@ -195,9 +195,8 @@ impl CoreContext {
             token_store.clone(),
         ));
 
-        let http_client_manager = Arc::new(infrastructure::HttpClientManager::new()?);
-
         let config = config_state.get().await;
+        let http_client_manager = http_client_manager(&config.general.proxy_url)?;
         let metrics_service = config.general.metrics_enabled.then(|| {
             let metrics_repository = Arc::new(
                 infrastructure::database::MetricsRepository::new_from_pool(cache_pool),
@@ -267,4 +266,13 @@ impl CoreContext {
         tracing::info!("Token store warmed up successfully - providers can now access tokens");
         Ok(())
     }
+}
+
+fn http_client_manager(proxy_url: &str) -> DomainResult<Arc<infrastructure::HttpClientManager>> {
+    let manager = infrastructure::HttpClientManager::new()?;
+    if let Err(e) = manager.set_proxy(proxy_url) {
+        tracing::error!(error = %e, "Ignoring general.proxy_url from config.toml");
+    }
+
+    Ok(Arc::new(manager))
 }
