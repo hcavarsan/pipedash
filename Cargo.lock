@@ -4250,6 +4250,7 @@ dependencies = [
  "futures",
  "pipedash-plugin-api",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",
