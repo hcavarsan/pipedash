@@ -437,29 +437,30 @@ impl PipelineService {
                     return RefreshResult::failed(id, error.failure_kind(), error.to_string())
                 }
             };
-            let handle = match self
-                .scheduler
-                .claim_forced(id, lease.generation, Instant::now())
-            {
-                ForcedClaim::Claimed(claim) => {
-                    let handle = claim.handle();
-                    self.dispatcher.fetch_now(vec![claim]);
-                    handle
-                }
-                ForcedClaim::Joined(handle) => handle,
-                ForcedClaim::Recent(outcome) => {
-                    return RefreshResult {
-                        provider_id: id,
-                        state: RefreshState::Recent,
-                        kind: match outcome {
-                            Outcome::Failed { kind, .. } => Some(kind),
-                            Outcome::Success | Outcome::Cancelled => None,
-                        },
-                        message: None,
-                    };
-                }
-                ForcedClaim::Refused => return not_found(id),
-            };
+            let (handle, joined) =
+                match self
+                    .scheduler
+                    .claim_forced(id, lease.generation, Instant::now())
+                {
+                    ForcedClaim::Claimed(claim) => {
+                        let handle = claim.handle();
+                        self.dispatcher.fetch_now(vec![claim]);
+                        (handle, false)
+                    }
+                    ForcedClaim::Joined(handle) => (handle, true),
+                    ForcedClaim::Recent(outcome) => {
+                        return RefreshResult {
+                            provider_id: id,
+                            state: RefreshState::Recent,
+                            kind: match outcome {
+                                Outcome::Failed { kind, .. } => Some(kind),
+                                Outcome::Success | Outcome::Cancelled => None,
+                            },
+                            message: None,
+                        };
+                    }
+                    ForcedClaim::Refused => return not_found(id),
+                };
 
             match handle.wait().await {
                 FetchResult::Committed(Ok(_)) => return RefreshResult::new(id, RefreshState::Ok),
@@ -475,6 +476,7 @@ impl PipelineService {
                         message: None,
                     };
                 }
+                FetchResult::Cancelled if joined => continue,
                 FetchResult::Superseded | FetchResult::Cancelled => {
                     return RefreshResult::new(id, RefreshState::Pending)
                 }

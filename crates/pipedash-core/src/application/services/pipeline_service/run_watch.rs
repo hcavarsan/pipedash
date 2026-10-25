@@ -558,23 +558,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_run_detail_success_never_completes_a_joined_provider_refresh() {
-        let h = Harness::new().await;
-        let gate = Gate::new();
-        let (id, stub, mut watch) = selected(&h, Some(&gate)).await;
-        let pending = tokio::spawn(async move { watch.next().await });
-        gate.arrived().await;
-        let mut refresh = Box::pin(h.pipeline_service.refresh_provider(id));
-        assert!(poll!(&mut refresh).is_pending());
-        gate.open();
-
-        assert!(pending.await.unwrap().unwrap().is_ok());
-        assert_eq!(refresh.await.state, RefreshState::Pending);
-        assert_eq!(stub.fetch_count(), 0);
-        assert_eq!(run_calls(&stub), 1);
-    }
-
-    #[tokio::test]
     async fn replaced_credentials_are_not_used_after_waiting_for_a_fetch_permit() {
         let h = Harness::new().await;
         let (id, old, mut watch) = selected(&h, None).await;

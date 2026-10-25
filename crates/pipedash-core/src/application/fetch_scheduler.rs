@@ -471,17 +471,18 @@ impl FetchClaim {
         mut self, now: Instant, outcome: Outcome, result: FetchResult,
     ) -> Option<ScheduleView> {
         self.done = true;
+        let view = self
+            .scheduler
+            .finish(self.id, self.generation, now, outcome);
         self.result.send_replace(Some(result));
-
-        self.scheduler
-            .finish(self.id, self.generation, now, outcome)
+        view
     }
 
     pub fn release(mut self) {
         self.done = true;
-        self.result.send_replace(Some(FetchResult::Cancelled));
         self.scheduler
             .release(self.id, self.generation, self.previous_attempt);
+        self.result.send_replace(Some(FetchResult::Cancelled));
     }
 }
 
@@ -514,6 +515,93 @@ impl AttemptHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::test_support::{
+        pipeline,
+        Harness,
+        StubProvider,
+    };
+    use crate::application::RefreshMode;
+    use crate::domain::{
+        PipelineStatus,
+        RefreshState,
+    };
+
+    async fn wait_for_joiners(claim: &FetchClaim, receivers: usize) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while claim.result.receiver_count() < receivers {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("refresh did not join the scheduler claim");
+    }
+
+    #[tokio::test]
+    async fn joined_refreshes_fetch_real_pipeline_data_after_a_run_claim_is_released() {
+        let h = Harness::new().await;
+        let (id, stub) = h.add_stub(StubProvider::new).await;
+        *stub.pipelines.lock().unwrap() = Ok(vec![pipeline(id, "fresh", PipelineStatus::Success)]);
+        h.repository
+            .update_pipelines_cache(id, &[pipeline(id, "stale", PipelineStatus::Running)])
+            .await
+            .unwrap();
+        let lease = h.provider_service.acquire(id).await.unwrap();
+        let ForcedClaim::Claimed(claim) =
+            h.scheduler
+                .claim_forced(id, lease.generation, Instant::now())
+        else {
+            panic!("expected a run-detail claim");
+        };
+        let receivers = claim.result.receiver_count();
+        h.refresh_manager.set_mode(RefreshMode::Idle);
+        h.start().await;
+        let service = Arc::clone(&h.pipeline_service);
+        let first = tokio::spawn(async move { service.refresh_provider(id).await });
+        let service = Arc::clone(&h.pipeline_service);
+        let second = tokio::spawn(async move { service.refresh_provider(id).await });
+        wait_for_joiners(&claim, receivers + 2).await;
+        claim.release();
+
+        let states = [first.await.unwrap().state, second.await.unwrap().state];
+        assert!(states.contains(&RefreshState::Ok));
+        assert!(states
+            .iter()
+            .all(|state| matches!(state, RefreshState::Ok | RefreshState::Recent)));
+        assert_eq!(stub.fetch_count(), 1);
+        assert_eq!(h.cached_names(id).await, ["fresh"]);
+    }
+
+    #[tokio::test]
+    async fn joined_refresh_does_not_retry_through_a_new_quota_pause() {
+        let h = Harness::new().await;
+        let (id, stub) = h.add_stub(StubProvider::new).await;
+        let lease = h.provider_service.acquire(id).await.unwrap();
+        let ForcedClaim::Claimed(claim) =
+            h.scheduler
+                .claim_forced(id, lease.generation, Instant::now())
+        else {
+            panic!("expected a run-detail claim");
+        };
+        let receivers = claim.result.receiver_count();
+        h.refresh_manager.set_mode(RefreshMode::Idle);
+        h.start().await;
+        let service = Arc::clone(&h.pipeline_service);
+        let refresh = tokio::spawn(async move { service.refresh_provider(id).await });
+        wait_for_joiners(&claim, receivers + 1).await;
+        h.scheduler.set_quota_pause(
+            id,
+            lease.generation,
+            Some(Utc::now() + chrono::Duration::minutes(10)),
+            Instant::now(),
+            Utc::now(),
+        );
+        claim.release();
+
+        let result = refresh.await.unwrap();
+        assert_eq!(result.state, RefreshState::Recent);
+        assert_eq!(result.kind, Some(FailureKind::RateLimited));
+        assert_eq!(stub.fetch_count(), 0);
+    }
 
     fn secs(seconds: u64) -> Duration {
         Duration::from_secs(seconds)

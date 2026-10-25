@@ -129,6 +129,7 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 
 - Watch follows one exact pipeline and run number. Its status panel opens that run and separates monitoring state from the provider's build result.
 - Core owns watch scheduling and applies provider quota, rate-limit and concurrency controls. Desktop forwards observations to the native activity and cancels on lifecycle changes.
+- A refresh waiting on a run-detail request retries through core policy after that request releases its claim. Run details never count as refreshed pipelines.
 - The native ActivityKit extension shows pipeline, provider, branch, status and elapsed time. Compact and minimal presentations fit the Dynamic Island. Expanded and Lock Screen presentations link to the run in Pipedash.
 - The background task's system progress UI is separate from the custom Live Activity. Its one unit completes only when the provider reports a terminal result. Polling never invents build progress.
 - iOS may interrupt monitoring. Locking Pipedash, removing the watched provider or resetting the app also interrupts it. Returning after a force quit never restarts a watch automatically.
