@@ -58,7 +58,12 @@ import { getDateRangeStart } from '../../utils/dateRange'
 import { formatCount } from '../../utils/formatCount'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { formatDuration } from '../../utils/formatDuration'
-import { getPipelineLabels, getStatusLabel, getStatusOptions } from '../../utils/pipelinePresentation'
+import {
+  getPipelineLabels,
+  getStatusLabel,
+  getStatusOptions,
+  getTriggerBlockReason,
+} from '../../utils/pipelinePresentation'
 import { TableCells } from '../../utils/tableCells'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { useContextMenu } from '../common/ContextMenu'
@@ -75,6 +80,7 @@ import type { SwipeAction } from '../ios/SwipeActions'
 import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
 
 import { IosRunList, IosRunToolbar } from './IosRunList'
+import { triggerIcon } from './PipelineRowParts'
 import { TableCustomizationModal } from './TableCustomizationModal'
 
 export type DetailTab = 'history' | 'metrics'
@@ -132,6 +138,12 @@ export const RunHistoryPage = ({
     buildWatch.busy || buildWatch.isFetching || buildWatch.isError || !buildWatch.data?.available || watching
   const labels = getPipelineLabels(pipeline?.provider_type)
   const isFlux = pipeline?.provider_type === 'fluxcd'
+  const triggerBlockedReason = pipeline ? getTriggerBlockReason(pipeline) : undefined
+  const openTrigger = useCallback(() => {
+    if (pipeline && !getTriggerBlockReason(pipeline)) {
+      useModalStore.getState().openTriggerModal(pipeline.id)
+    }
+  }, [pipeline])
 
   const { filters, setFilter, clearFilters } = useRunHistoryFilters()
   const { search, status: statusFilter, branch: branchFilter, actor: actorFilter, dateRange, page } = filters
@@ -605,9 +617,8 @@ export const RunHistoryPage = ({
 
   const headerActions = useMemo(() => {
     const shouldShow = !isMobile && tab === 'history'
-    const isLoading = isLoadingPipeline || !pipeline
 
-    if (isLoading && shouldShow) {
+    if (isLoadingPipeline || !pipeline) {
       return (
         <Box style={{ minWidth: 'fit-content' }}>
           <Skeleton height="2.25rem" width="10rem" />
@@ -616,25 +627,44 @@ export const RunHistoryPage = ({
     }
 
     return (
-      <Box
-        style={{
-          visibility: shouldShow ? 'visible' : 'hidden',
-          minWidth: 'fit-content',
-        }}
-      >
-        <Button
-          variant="default"
-          size="sm"
-          leftSection={<IconAdjustments size={16} />}
-          onClick={openCustomizeModal}
-          disabled={!shouldShow || schemaLoading || !!schemaError}
-          tabIndex={shouldShow ? 0 : -1}
-        >
-          Customize columns
-        </Button>
-      </Box>
+      <Group gap="sm" wrap="nowrap" style={{ minWidth: 'fit-content' }}>
+        <Box style={{ visibility: shouldShow ? 'visible' : 'hidden' }}>
+          <Button
+            variant="default"
+            size="sm"
+            leftSection={<IconAdjustments size={16} />}
+            onClick={openCustomizeModal}
+            disabled={!shouldShow || schemaLoading || !!schemaError}
+            tabIndex={shouldShow ? 0 : -1}
+          >
+            Customize columns
+          </Button>
+        </Box>
+        <Tooltip label={triggerBlockedReason} disabled={!triggerBlockedReason} multiline w={280}>
+          <Button
+            size="sm"
+            leftSection={triggerIcon(pipeline)}
+            onClick={openTrigger}
+            aria-disabled={triggerBlockedReason ? true : undefined}
+            data-disabled={triggerBlockedReason ? true : undefined}
+          >
+            {labels.trigger}
+          </Button>
+        </Tooltip>
+      </Group>
     )
-  }, [isMobile, tab, openCustomizeModal, isLoadingPipeline, pipeline, schemaLoading, schemaError])
+  }, [
+    isMobile,
+    tab,
+    openCustomizeModal,
+    isLoadingPipeline,
+    pipeline,
+    schemaLoading,
+    schemaError,
+    triggerBlockedReason,
+    openTrigger,
+    labels.trigger,
+  ])
 
   const sourceRuns = isMobile && accumulatedRuns.length > 0 ? accumulatedRuns : runs
 
@@ -1075,6 +1105,19 @@ export const RunHistoryPage = ({
             {String(pipeline.metadata?.message ?? '')}
           </Text>
         </Group>
+      )}
+      {pipeline && mobileShell && (
+        <IosGroup footer={triggerBlockedReason}>
+          <IosRow
+            title={
+              <Text component="span" inherit c={triggerBlockedReason ? 'dimmed' : 'blue'}>
+                {labels.trigger}
+              </Text>
+            }
+            disabled={!!triggerBlockedReason}
+            onClick={openTrigger}
+          />
+        </IosGroup>
       )}
       {pipeline?.metadata?.history_scope === 'bounded_reconciliation' && (
         <Text
