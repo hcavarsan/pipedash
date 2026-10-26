@@ -198,6 +198,37 @@ impl Plugin for GitLabPlugin {
         client.list_groups().await
     }
 
+    async fn ids_with_ci(&self, ids: Vec<String>) -> PluginResult<Vec<String>> {
+        let client = self.client()?;
+        let projects: HashMap<String, types::Project> = self
+            .fetch_all_projects()
+            .await?
+            .into_iter()
+            .map(|project| (project.name_with_namespace.replace(' ', ""), project))
+            .collect();
+        Ok(retain_with_ci(ids, |id| {
+            let project = projects.get(&id).cloned();
+            async move {
+                let Some(project) = project else {
+                    return Ok(true);
+                };
+                if project
+                    .ci_config_path
+                    .as_deref()
+                    .is_some_and(|path| !path.is_empty())
+                    || !client
+                        .get_project_pipelines(project.id, 1)
+                        .await?
+                        .is_empty()
+                {
+                    return Ok(true);
+                }
+                client.has_ci_file(project.id).await
+            }
+        })
+        .await)
+    }
+
     async fn fetch_available_pipelines_filtered(
         &self, org: Option<String>, search: Option<String>, params: Option<PaginationParams>,
     ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
@@ -398,11 +429,26 @@ mod tests {
                 let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
                 let mut total = 0;
                 let mut next_page = String::new();
+                let mut status = "200 OK";
                 let body = match url.path() {
                     "/api/v4/user" => serde_json::json!({
                         "id": 7, "username": "alice", "name": "Alice"
                     }),
-                    "/api/v4/projects/102/pipelines" => serde_json::json!([]),
+                    "/api/v4/projects/102/pipelines" => serde_json::json!([{
+                        "id": 9, "status": "success", "ref": "main", "sha": "abc",
+                        "web_url": format!("http://{addr}/team/backend/api/-/pipelines/9"),
+                        "created_at": "2026-10-26T12:00:00Z", "updated_at": "2026-10-26T12:05:00Z"
+                    }]),
+                    "/api/v4/projects/103/pipelines" | "/api/v4/projects/104/pipelines" => {
+                        serde_json::json!([])
+                    }
+                    "/api/v4/projects/104/repository/files/.gitlab-ci.yml" => {
+                        serde_json::json!({"file_name": ".gitlab-ci.yml"})
+                    }
+                    "/api/v4/projects/103/repository/files/.gitlab-ci.yml" => {
+                        status = "404 Not Found";
+                        serde_json::json!({"message": "404 File Not Found"})
+                    }
                     "/api/v4/groups/42/projects"
                     | "/api/v4/projects"
                     | "/api/v4/users/7/projects" => {
@@ -475,7 +521,7 @@ mod tests {
                 }
                 .to_string();
                 let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Total: {total}\r\nX-Next-Page: {next_page}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Total: {total}\r\nX-Next-Page: {next_page}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 stream.write_all(response.as_bytes()).await.unwrap();
@@ -578,6 +624,30 @@ mod tests {
         );
         assert_eq!(pipelines[0].repository, "team/backend/api");
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn only_projects_without_runs_and_ci_file_are_dropped_from_a_selection() {
+        let (mut plugin, server) = stub_gitlab().await;
+        let selection = "team/backend/api,team/frontend/api,team/backend/nested/worker,gone/repo";
+        plugin
+            .config
+            .insert("selected_items".to_string(), selection.to_string());
+
+        let kept = plugin
+            .ids_with_ci(selection.split(',').map(String::from).collect())
+            .await
+            .unwrap();
+        server.abort();
+
+        assert_eq!(
+            kept,
+            [
+                "team/backend/api",
+                "team/backend/nested/worker",
+                "gone/repo"
+            ]
+        );
     }
 
     #[tokio::test]

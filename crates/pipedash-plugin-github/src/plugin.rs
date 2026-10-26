@@ -224,6 +224,16 @@ impl Plugin for GitHubPlugin {
             .await
     }
 
+    async fn ids_with_ci(&self, ids: Vec<String>) -> PluginResult<Vec<String>> {
+        let client = self.client()?;
+        Ok(retain_with_ci(ids, |id| async move {
+            let (owner, repo) = config::parse_repo(&id)
+                .ok_or_else(|| PluginError::InvalidConfig(format!("Invalid repository: {id}")))?;
+            client.has_workflows(&owner, &repo).await
+        })
+        .await)
+    }
+
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
         let provider_id = self
             .provider_id
@@ -1398,6 +1408,54 @@ mod tests {
 
         assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
         assert!(error.to_string().contains("Contents (Read)"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn repositories_without_workflows_are_dropped_from_a_selection() {
+        let (plugin, _recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows") => {
+                ok(serde_json::json!({"total_count": 1, "workflows": [workflow(42)]}))
+            }
+            ("GET", "/api/v3/repos/acme/empty/actions/workflows") => {
+                ok(serde_json::json!({"total_count": 0, "workflows": []}))
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let kept = plugin
+            .ids_with_ci(["acme/app", "acme/empty"].map(String::from).to_vec())
+            .await
+            .unwrap();
+        server.abort();
+
+        assert_eq!(kept, ["acme/app"]);
+    }
+
+    #[tokio::test]
+    async fn workflow_parameters_explain_a_workflow_file_missing_from_the_default_branch() {
+        let (plugin, _recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42") => ok(workflow(42)),
+            ("GET", "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml") => {
+                failure(404, "Not Found", &[])
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let error = plugin
+            .fetch_workflow_parameters(PIPELINE_ID)
+            .await
+            .unwrap_err();
+        server.abort();
+
+        assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains(".github/workflows/ci.yml isn't on the default branch"),
+            "{error}"
+        );
     }
 
     #[tokio::test]

@@ -142,6 +142,31 @@ impl BitbucketClient {
         Ok(pipelines)
     }
 
+    pub async fn has_pipelines_file(&self, workspace: &str, repo_slug: &str) -> PluginResult<bool> {
+        let url = Self::parse_url(&format!(
+            "{}/repositories/{}/{}/src/HEAD/bitbucket-pipelines.yml",
+            self.api_url, workspace, repo_slug
+        ))?;
+        let found = self
+            .retry_policy
+            .retry(|| async {
+                let response = self
+                    .http_client
+                    .get(url.clone())
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                    .send()
+                    .await
+                    .map_err(|e| map_send_error(e, &url))?;
+                check_response(response).await
+            })
+            .await;
+        match found {
+            Ok(_) => Ok(true),
+            Err(PluginError::PipelineNotFound(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn find_pipeline_by_build_number(
         &self, workspace: &str, repo_slug: &str, build_number: i64,
     ) -> PluginResult<Pipeline> {

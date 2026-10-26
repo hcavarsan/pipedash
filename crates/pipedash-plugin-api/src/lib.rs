@@ -67,7 +67,10 @@ pub use types::{
     WorkflowParameter,
     WorkflowParameterType,
 };
-pub use utils::RetryPolicy;
+pub use utils::{
+    retain_with_ci,
+    RetryPolicy,
+};
 
 #[macro_export]
 macro_rules! register_plugin {

@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::time::Duration;
 
+use futures::StreamExt;
 use reqwest::Url;
 
 use crate::http::map_send_error;
@@ -87,6 +88,22 @@ impl RetryPolicy {
             delay
         }
     }
+}
+
+pub async fn retain_with_ci<F, Fut>(ids: Vec<String>, has_ci: F) -> Vec<String>
+where
+    F: Fn(String) -> Fut,
+    Fut: Future<Output = PluginResult<bool>>,
+{
+    futures::stream::iter(ids)
+        .map(|id| {
+            let check = has_ci(id.clone());
+            async move { check.await.unwrap_or(true).then_some(id) }
+        })
+        .buffered(8)
+        .filter_map(std::future::ready)
+        .collect()
+        .await
 }
 
 #[cfg(test)]
@@ -251,5 +268,23 @@ mod tests {
         assert!(matches!(result, Err(PluginError::NetworkError(_))));
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(received.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn ids_without_ci_are_dropped_and_unchecked_ones_kept_in_order() {
+        let ids = ["empty", "ci", "unreachable", "ci-too"]
+            .map(String::from)
+            .to_vec();
+
+        let kept = retain_with_ci(ids, |id| async move {
+            match id.as_str() {
+                "empty" => Ok(false),
+                "unreachable" => Err(PluginError::NetworkError("reset".into())),
+                _ => Ok(true),
+            }
+        })
+        .await;
+
+        assert_eq!(kept, ["ci", "unreachable", "ci-too"]);
     }
 }

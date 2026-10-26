@@ -83,6 +83,10 @@ pub trait Plugin: Send + Sync {
         Ok(Vec::new())
     }
 
+    async fn ids_with_ci(&self, ids: Vec<String>) -> PluginResult<Vec<String>> {
+        Ok(ids)
+    }
+
     async fn fetch_available_pipelines_filtered(
         &self, org: Option<String>, search: Option<String>,
         params: Option<crate::types::PaginationParams>,

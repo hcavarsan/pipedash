@@ -529,6 +529,22 @@ impl GitHubClient {
             .await
     }
 
+    pub async fn has_workflows(&self, owner: &str, repo: &str) -> PluginResult<bool> {
+        self.retry_policy
+            .retry(|| async {
+                let page = self
+                    .octocrab
+                    .workflows(owner, repo)
+                    .list()
+                    .per_page(1)
+                    .send()
+                    .await
+                    .map_err(|e| map_octocrab_error("Failed to list workflows", e))?;
+                Ok(!page.items.is_empty())
+            })
+            .await
+    }
+
     pub async fn fetch_workflow_source(
         &self, owner: &str, repo: &str, workflow_id: u64,
     ) -> PluginResult<String> {
@@ -546,11 +562,20 @@ impl GitHubClient {
                     .octocrab
                     .repos(owner, repo)
                     .get_content()
-                    .path(workflow.path)
+                    .path(&workflow.path)
                     .raw()
                     .send()
                     .await
-                    .map_err(|e| map_octocrab_error("Failed to fetch workflow file. Fine-grained tokens need Contents (Read) on the repository", e))?;
+                    .map_err(|e| match map_octocrab_error("Failed to fetch workflow file", e) {
+                        PluginError::PipelineNotFound(_) => PluginError::PipelineNotFound(format!(
+                            "{} isn't on the default branch, so this workflow can't be triggered. GitHub keeps listing a workflow after its file is deleted or when it only ran from another branch. On a private repository, a fine-grained token without Contents (Read) gets the same response.",
+                            workflow.path
+                        )),
+                        PluginError::PermissionDenied(message) => PluginError::PermissionDenied(
+                            format!("{message}. Fine-grained tokens need Contents (Read) on the repository"),
+                        ),
+                        other => other,
+                    })?;
 
                 self.octocrab
                     .body_to_string(response)

@@ -14,6 +14,7 @@ export function useWorkflowParameters(providerId: number, pipelineId: string) {
     staleTime: STALE_TIMES.SLOW_CHANGING,
     gcTime: GC_TIMES.MEDIUM,
     enabled: !!providerId && !!pipelineId,
+    retry: false,
   })
 }
 
