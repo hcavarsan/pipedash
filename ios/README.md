@@ -191,7 +191,7 @@ The vault and app lock stay locked: background checks read only that copy. Provi
 The current pipeline and provider state is saved as a silent baseline, so turning notifications on never reports failures or outages that already exist.
 
 A `BGAppRefreshTask` asks iOS for a run every 15 minutes. iOS decides when it actually runs, may skip it in Low Power Mode or with Background App Refresh off, and never runs it after a force quit until the app opens again.
-Each run has about 23 seconds: status pages go first, then each provider's controller check and pipelines, then at most 25 overdue-run checks across all providers, rotated so later runs cover the rest.
+Each run has about 23 seconds: status pages and controller checks go first as separate jobs, then provider pipelines, then at most 25 overdue-run checks across all providers, rotated so later runs cover the rest. A hanging pipeline request cannot hold back a controller result.
 The run cannot use the foreground fetch scheduler, because no core context exists while the vault is locked. It reuses core's provider construction, fetch timeouts, quota pause and controller checks, and it never writes the pipeline cache.
 Background and foreground share one delivery record, so a failure, overdue run, outage or recovery is notified once whichever side sees it first. A foreground resume cancels a running background check.
 

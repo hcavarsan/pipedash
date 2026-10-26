@@ -660,6 +660,22 @@ async fn a_controller_outage_is_reported_when_pipeline_access_fails() {
 }
 
 #[tokio::test]
+async fn a_controller_outage_survives_a_pipeline_fetch_that_outlasts_the_scan() {
+    let gate = Gate::new();
+    gate.open();
+    let mut rig = Rig::new();
+    rig.controller = true;
+    let stub = rig.stub(1, |stub| stub.gated(&gate));
+    rig.scan(&[1]).await;
+
+    gate.close();
+    stub.set_health(Ok(vec![broken()]));
+    let found = rig.scan_within(&[1], Duration::from_millis(300)).await;
+
+    assert_eq!(titles(&found), ["flux: scaled to zero"]);
+}
+
+#[tokio::test]
 async fn a_provider_close_to_its_quota_is_skipped_until_the_reset() {
     let mut rig = Rig::new();
     let stub = rig.stub(1, |stub| stub);

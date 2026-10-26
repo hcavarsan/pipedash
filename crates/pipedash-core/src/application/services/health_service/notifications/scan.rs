@@ -92,20 +92,13 @@ const OVERDUE_BUDGET: Duration = Duration::from_secs(20);
 
 enum Polled {
     Paused(DateTime<Utc>),
-    Fetched {
-        pipelines: Vec<Pipeline>,
-        health: Option<CheckOutcome>,
-    },
-    Failed {
-        error: DomainError,
-        health: Option<CheckOutcome>,
-    },
+    Fetched(Vec<Pipeline>),
+    Failed(DomainError),
 }
 
 struct Target {
     id: i64,
     provider: Arc<dyn Provider>,
-    controller: bool,
 }
 
 struct Overdue {
@@ -116,6 +109,7 @@ struct Overdue {
 
 enum Job {
     Feed(FeedKey),
+    Health(Target),
     Poll(Target),
     Overdue(Overdue),
 }
@@ -124,6 +118,10 @@ enum Done {
     Feed {
         key: FeedKey,
         feed: Option<Box<ParsedFeed>>,
+    },
+    Health {
+        id: i64,
+        outcome: CheckOutcome,
     },
     Poll {
         target: Target,
@@ -184,6 +182,7 @@ pub(super) async fn scan(
 
     let mut found = Vec::new();
     let mut targets = Vec::new();
+    let mut checks = Vec::new();
     let mut feeds: HashMap<FeedKey, Vec<(i64, StatusSource)>> = HashMap::new();
     for (id, config) in configs {
         state.enroll(id, config.display_name(), Some(config.version.unwrap_or(1)));
@@ -191,11 +190,7 @@ pub(super) async fn scan(
             Ok(provider) => provider,
             Err(error) => {
                 state.stamp(id, wall);
-                let polled = Polled::Failed {
-                    error,
-                    health: None,
-                };
-                found.extend(state.settle(id, polled, Instant::now(), wall));
+                found.extend(state.settle(id, Polled::Failed(error), Instant::now(), wall));
                 continue;
             }
         };
@@ -210,11 +205,13 @@ pub(super) async fn scan(
                 .push((id, source));
         }
         if !state.paused(id, wall) {
-            targets.push(Target {
-                id,
-                controller: controller(&config.provider_type),
-                provider,
-            });
+            if controller(&config.provider_type) {
+                checks.push(Target {
+                    id,
+                    provider: Arc::clone(&provider),
+                });
+            }
+            targets.push(Target { id, provider });
         }
     }
 
@@ -229,6 +226,7 @@ pub(super) async fn scan(
     let jobs: Vec<Job> = feed_keys
         .into_iter()
         .map(Job::Feed)
+        .chain(checks.into_iter().map(Job::Health))
         .chain(targets.into_iter().map(Job::Poll))
         .collect();
 
@@ -254,7 +252,7 @@ pub(super) async fn scan(
                 Done::Poll { target, polled } if entitled.remove(&target.id) => {
                     let share = overdue_left.div_ceil(entitled.len() + 1);
                     match polled {
-                        Polled::Fetched { pipelines, .. } => {
+                        Polled::Fetched(pipelines) => {
                             state.serve_overdue(target.id, wall);
                             state.overdue_job(target, pipelines, share)
                         }
@@ -281,8 +279,15 @@ async fn execute(job: Job, client: Option<&Client>) -> Done {
             let feed = read_feed(client, &key).await;
             Done::Feed { key, feed }
         }
+        Job::Health(target) => {
+            let outcome = check_instance(&*target.provider, target.id).await;
+            Done::Health {
+                id: target.id,
+                outcome,
+            }
+        }
         Job::Poll(target) => {
-            let polled = poll(&*target.provider, target.id, target.controller).await;
+            let polled = poll(&*target.provider).await;
             Done::Poll { target, polled }
         }
         Job::Overdue(job) => check_overdue(job).await,
@@ -296,7 +301,7 @@ async fn read_feed(client: Option<&Client>, key: &FeedKey) -> Option<Box<ParsedF
     }
 }
 
-async fn poll(provider: &dyn Provider, id: i64, controller: bool) -> Polled {
+async fn poll(provider: &dyn Provider) -> Polled {
     let paused = match timeout(RATE_LIMIT_TIMEOUT, provider.fetch_rate_limit()).await {
         Ok(Ok(Some(rate_limit))) => quota_pause(&rate_limit, Utc::now()),
         _ => None,
@@ -304,19 +309,10 @@ async fn poll(provider: &dyn Provider, id: i64, controller: bool) -> Polled {
     if let Some(until) = paused {
         return Polled::Paused(until);
     }
-    let health = if controller {
-        Some(check_instance(provider, id).await)
-    } else {
-        None
-    };
-    let fetched = match timeout(FETCH_TIMEOUT, provider.fetch_pipelines()).await {
-        Ok(fetched) => fetched,
-        Err(_) => Err(DomainError::Timeout(FETCH_TIMEOUT_MESSAGE.to_string())),
-    };
-
-    match fetched {
-        Ok(pipelines) => Polled::Fetched { pipelines, health },
-        Err(error) => Polled::Failed { error, health },
+    match timeout(FETCH_TIMEOUT, provider.fetch_pipelines()).await {
+        Ok(Ok(pipelines)) => Polled::Fetched(pipelines),
+        Ok(Err(error)) => Polled::Failed(error),
+        Err(_) => Polled::Failed(DomainError::Timeout(FETCH_TIMEOUT_MESSAGE.to_string())),
     }
 }
 
@@ -477,6 +473,10 @@ impl NotificationState {
     ) -> Vec<LocalNotification> {
         match done {
             Done::Poll { target, polled } => self.settle(target.id, polled, now, wall),
+            Done::Health { id, outcome } => {
+                let name = self.provider_name(id);
+                self.observe_instance(id, &name, Some(outcome), now)
+            }
             Done::Overdue { id, checked } => self.settle_overdue(id, checked, wall),
             Done::Feed { key, feed } => match (feed, feeds.get(&key)) {
                 (Some(feed), Some(users)) => self.observe_feed(&key, &feed, users, now, wall),
@@ -488,38 +488,34 @@ impl NotificationState {
         }
     }
 
+    fn provider_name(&self, id: i64) -> String {
+        self.providers
+            .get(&id)
+            .map(|mark| mark.name.clone())
+            .unwrap_or_default()
+    }
+
     fn settle(
         &mut self, id: i64, polled: Polled, now: Instant, wall: DateTime<Utc>,
     ) -> Vec<LocalNotification> {
-        let name = self
-            .providers
-            .get(&id)
-            .map(|mark| mark.name.clone())
-            .unwrap_or_default();
+        let name = self.provider_name(id);
         self.pause(id, None);
         match polled {
             Polled::Paused(until) => {
                 self.pause(id, Some(until));
-                self.alerts.gap(&instance_subject(id));
                 Vec::new()
             }
-            Polled::Failed { error, health } => {
+            Polled::Failed(error) => {
                 let until = error
                     .retry_after()
                     .and_then(|wait| chrono::Duration::from_std(wait.min(MAX_PAUSE)).ok())
                     .map(|wait| wall + wait);
                 self.pause(id, until);
-                if health.is_none() {
-                    self.alerts.gap(&instance_subject(id));
-                }
-                let mut found = self.observe_connection(id, &name, Some(error.failure_kind()), now);
-                found.extend(self.observe_instance(id, &name, health, now));
-                found
+                self.observe_connection(id, &name, Some(error.failure_kind()), now)
             }
-            Polled::Fetched { pipelines, health } => {
+            Polled::Fetched(pipelines) => {
                 let mut found = self.observe_connection(id, &name, None, now);
                 found.extend(self.observe_pipelines(id, &pipelines));
-                found.extend(self.observe_instance(id, &name, health, now));
                 found
             }
         }
