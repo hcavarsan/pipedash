@@ -16,5 +16,5 @@ Other features:
 
 The app connects to the providers the user adds and public status-page hosts: www.githubstatus.com, api.status.io, bitbucket.status.atlassian.com and www.buildkitestatus.com. Users can configure other status pages, a proxy or advanced storage destinations.
 Native iOS features: Keychain token storage, Face ID unlock, Background App Refresh with local notifications, the Files picker and the share sheet.
-Support: https://github.com/hcavarsan/pipedash/blob/main/SUPPORT.md (email hcavarsan@yahoo.com.br)
-Privacy policy: https://github.com/hcavarsan/pipedash/blob/main/PRIVACY.md
+Support: https://pipedash.app/support (email hcavarsan@yahoo.com.br)
+Privacy policy: https://pipedash.app/privacy
