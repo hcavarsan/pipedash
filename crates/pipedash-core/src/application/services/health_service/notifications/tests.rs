@@ -782,6 +782,30 @@ async fn the_overdue_check_cap_applies_to_the_whole_scan() {
 }
 
 #[tokio::test]
+async fn providers_beyond_the_overdue_cap_get_checks_on_the_next_scan() {
+    let mut rig = Rig::new();
+    let ids: Vec<i64> = (1..=30).collect();
+    for &id in &ids {
+        rig.stub(id, |stub| {
+            stub.returning(vec![run(id, "api", PipelineStatus::Running, 1)])
+        });
+    }
+    let checked = |rig: &Rig| {
+        rig.state
+            .pipelines
+            .values()
+            .flat_map(|marks| marks.values())
+            .filter(|mark| mark.checked_at.is_some())
+            .count()
+    };
+
+    rig.scan(&ids).await;
+    assert_eq!(checked(&rig), 25);
+    rig.scan(&ids).await;
+    assert_eq!(checked(&rig), 30);
+}
+
+#[tokio::test]
 async fn a_pipeline_already_overdue_at_the_first_scan_stays_silent() {
     let mut rig = Rig::new();
     rig.stub(1, |stub| {

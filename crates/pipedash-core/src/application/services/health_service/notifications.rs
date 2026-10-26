@@ -74,6 +74,7 @@ struct ProviderMark {
     failures: u32,
     paused_until: Option<DateTime<Utc>>,
     attempted_at: Option<DateTime<Utc>>,
+    overdue_at: Option<DateTime<Utc>>,
     feed: Option<String>,
     feed_seed: Option<Vec<String>>,
 }

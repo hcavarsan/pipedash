@@ -223,7 +223,9 @@ pub(super) async fn scan(
     for users in feeds.values_mut() {
         users.sort_by_key(|(id, _)| *id);
     }
-    let mut polls_left = targets.len();
+    let mut ranked: Vec<i64> = targets.iter().map(|target| target.id).collect();
+    ranked.sort_by_key(|id| (state.overdue_at(*id), *id));
+    let mut entitled: HashSet<i64> = ranked.into_iter().take(MAX_OVERDUE_CHECKS).collect();
     let jobs: Vec<Job> = feed_keys
         .into_iter()
         .map(Job::Feed)
@@ -249,11 +251,11 @@ pub(super) async fn scan(
                 break;
             };
             let follow = match &done {
-                Done::Poll { target, polled } => {
-                    let share = overdue_left.div_ceil(polls_left.max(1));
-                    polls_left = polls_left.saturating_sub(1);
+                Done::Poll { target, polled } if entitled.remove(&target.id) => {
+                    let share = overdue_left.div_ceil(entitled.len() + 1);
                     match polled {
                         Polled::Fetched { pipelines, .. } => {
+                            state.serve_overdue(target.id, wall);
                             state.overdue_job(target, pipelines, share)
                         }
                         _ => None,
@@ -359,6 +361,16 @@ async fn check_overdue(job: Overdue) -> Done {
 impl NotificationState {
     fn attempted_at(&self, id: i64) -> Option<DateTime<Utc>> {
         self.providers.get(&id).and_then(|mark| mark.attempted_at)
+    }
+
+    fn overdue_at(&self, id: i64) -> Option<DateTime<Utc>> {
+        self.providers.get(&id).and_then(|mark| mark.overdue_at)
+    }
+
+    fn serve_overdue(&mut self, id: i64, wall: DateTime<Utc>) {
+        if let Some(mark) = self.providers.get_mut(&id) {
+            mark.overdue_at = Some(wall);
+        }
     }
 
     fn paused(&self, id: i64, wall: DateTime<Utc>) -> bool {
