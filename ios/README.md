@@ -122,6 +122,8 @@ iOS can expire monitoring, stop it through the system interface, or end it after
 The app preserves the last observed provider result, reports interruption and does not restart
 monitoring automatically. Stopping monitoring does not cancel the provider's build.
 The simulator cannot validate the continued-processing scheduler or its system presentation.
+The simulator also excludes `BuildWatchController` from compilation. Use the unsigned device build (`bundle exec fastlane ios check` on macOS) to check this controller.
+Linux model tests and Swift syntax parsing do not type-check its iOS-only code.
 On upgrade, the native plugin immediately dismisses custom activities left by older versions;
 it retains their original attribute type only for this cleanup and never creates or updates them.
 

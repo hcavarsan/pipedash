@@ -163,7 +163,7 @@ final class BuildWatchController {
 
   private func reconcile() {
     guard let snapshot = session.watch, snapshot.monitoring == .watching else { return }
-    guard UIApplication.shared.backgroundRefreshStatus == .available else {
+    if UIApplication.shared.backgroundRefreshStatus != .available {
       interrupt(snapshot.sessionId, reason: "Background execution is no longer available.")
     }
   }
