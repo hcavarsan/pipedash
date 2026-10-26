@@ -647,6 +647,20 @@ pub async fn rerun_failed_jobs(
 }
 
 #[tauri::command]
+pub async fn rerun_pipeline_run(
+    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
+) -> Result<(), ErrorResponse> {
+    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
+        error: e,
+        details: None,
+    })?;
+    core.pipeline_service
+        .rerun_run(&pipeline_id, run_number)
+        .await?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_workflow_parameters(
     maybe_core: State<'_, crate::MaybeCoreContext>, workflow_id: String,
 ) -> Result<Vec<pipedash_plugin_api::WorkflowParameter>, ErrorResponse> {

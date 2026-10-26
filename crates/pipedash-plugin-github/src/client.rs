@@ -672,18 +672,23 @@ impl GitHubClient {
         Ok(())
     }
 
-    pub async fn rerun_failed_jobs(
-        &self, owner: &str, repo: &str, run_id: u64,
+    pub async fn rerun(
+        &self, owner: &str, repo: &str, run_id: u64, failed_only: bool,
     ) -> PluginResult<()> {
-        debug!("Re-running failed jobs of run {run_id} for {owner}/{repo}");
+        let (endpoint, action) = if failed_only {
+            ("rerun-failed-jobs", "Failed to re-run failed jobs")
+        } else {
+            ("rerun", "Failed to re-run run")
+        };
+        debug!("POST {endpoint} for run {run_id} of {owner}/{repo}");
 
-        let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs");
+        let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/{endpoint}");
 
         let _: serde_json::Value = self
             .octocrab
             .post(url, None::<&()>)
             .await
-            .map_err(|e| map_octocrab_error("Failed to re-run failed jobs", e))?;
+            .map_err(|e| map_octocrab_error(action, e))?;
 
         Ok(())
     }

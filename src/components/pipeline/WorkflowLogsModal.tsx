@@ -6,7 +6,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { useRerunWorkflow, useRunDetails } from '../../queries/useRunDetailsQuery'
-import { useCancelRun } from '../../queries/useRunHistoryQueries'
+import { useCancelRun, useRerunRun } from '../../queries/useRunHistoryQueries'
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { service } from '../../services'
 import { mobileService } from '../../services/mobile'
@@ -40,6 +40,7 @@ interface WorkflowLogsModalProps {
   canTrigger: boolean
   triggerBlockedReason?: string
   canCancel: boolean
+  rerunInPlace?: boolean
   onRerunSuccess?: (pipelineId: string, newRunNumber: number) => void
   onCancelSuccess?: () => void
 }
@@ -73,6 +74,7 @@ export const WorkflowLogsModal = ({
   canTrigger,
   triggerBlockedReason,
   canCancel,
+  rerunInPlace,
   onRerunSuccess,
   onCancelSuccess,
 }: WorkflowLogsModalProps) => {
@@ -103,6 +105,8 @@ export const WorkflowLogsModal = ({
   } = useRunDetails(pipelineId, runNumber, opened)
 
   const rerunMutation = useRerunWorkflow()
+  const rerunRunMutation = useRerunRun()
+  const rerunPending = rerunMutation.isPending || rerunRunMutation.isPending
 
   const { data: tableSchema } = useTableDefinition(providerId ?? 0, 'pipeline_runs')
 
@@ -121,6 +125,14 @@ export const WorkflowLogsModal = ({
     }
 
     try {
+      if (rerunInPlace) {
+        await rerunRunMutation.mutateAsync({ pipelineId, runNumber })
+        onClose()
+        onRerunSuccess?.(pipelineId, runNumber)
+
+        return
+      }
+
       const result = await rerunMutation.mutateAsync({
         pipelineId,
         inputs: runDetails.inputs,
@@ -318,12 +330,7 @@ export const WorkflowLogsModal = ({
           </Button>
         )}
         {!isRunning && canTrigger && (
-          <Button
-            size="sm"
-            leftSection={<IconPlayerPlay size={16} />}
-            onClick={handleRerun}
-            loading={rerunMutation.isPending}
-          >
+          <Button size="sm" leftSection={<IconPlayerPlay size={16} />} onClick={handleRerun} loading={rerunPending}>
             {isFlux ? labels.trigger : isMobile ? 'Rerun' : 'Rerun workflow'}
           </Button>
         )}
@@ -446,8 +453,8 @@ export const WorkflowLogsModal = ({
                     {isFlux ? labels.trigger : 'Rerun workflow'}
                   </Text>
                 }
-                accessory={rerunMutation.isPending ? <Loader size="sm" /> : undefined}
-                disabled={rerunMutation.isPending}
+                accessory={rerunPending ? <Loader size="sm" /> : undefined}
+                disabled={rerunPending}
                 onClick={handleRerun}
               />
             </IosGroup>

@@ -340,6 +340,13 @@ export const tauriService = {
     })
   },
 
+  rerunRun: async (pipelineId: string, runNumber: number): Promise<void> => {
+    return invoke<void>('rerun_pipeline_run', {
+      pipelineId,
+      runNumber,
+    })
+  },
+
   openUrl: async (url: string): Promise<void> => {
     await openUrl(url, ['ios', 'android'].includes(platform()) ? 'inAppBrowser' : undefined)
   },

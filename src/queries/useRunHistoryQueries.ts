@@ -256,6 +256,38 @@ export function useRerunFailedJobs() {
   })
 }
 
+export function useRerunRun() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
+      service.rerunRun(pipelineId, runNumber),
+
+    onSuccess: (_data, { pipelineId, runNumber }) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.runs.detail(pipelineId, runNumber),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.runs.list(pipelineId),
+      })
+
+      notifications.show({
+        title: 'Rerun started',
+        message: `Run #${runNumber} is running again`,
+        color: 'gray',
+      })
+    },
+
+    onError: (error: Error) => {
+      notifications.show({
+        title: "Couldn't rerun workflow",
+        message: errorMessage(error, 'Check the run in your provider and try rerunning it again.'),
+        color: 'red',
+      })
+    },
+  })
+}
+
 export function useCancelRuns() {
   const queryClient = useQueryClient()
 

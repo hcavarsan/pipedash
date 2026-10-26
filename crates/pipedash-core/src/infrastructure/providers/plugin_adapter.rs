@@ -197,6 +197,13 @@ impl Provider for PluginAdapter {
             .map_err(Self::map_error)
     }
 
+    async fn rerun_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
+        self.plugin
+            .rerun_run(pipeline_id, run_number)
+            .await
+            .map_err(Self::map_error)
+    }
+
     async fn get_workflow_parameters(
         &self, workflow_id: &str,
     ) -> DomainResult<Vec<pipedash_plugin_api::WorkflowParameter>> {

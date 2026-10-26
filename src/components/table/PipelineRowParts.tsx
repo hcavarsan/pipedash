@@ -13,7 +13,7 @@ import { type ReactNode, useId } from 'react'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
-import { getPipelineLabels, getReconcileBlockReason, getStatusLabel } from '../../utils/pipelinePresentation'
+import { getPipelineLabels, getStatusLabel, getTriggerBlockReason } from '../../utils/pipelinePresentation'
 import { providerAttention } from '../../utils/providerAttention'
 import { StatusBadge } from '../atoms/StatusBadge'
 import type { ContextMenuItem } from '../common/ContextMenu'
@@ -105,7 +105,7 @@ interface WorkflowActionsProps {
 
 type WorkflowMenuItem = Extract<ContextMenuItem, { label: string }>
 
-const triggerIcon = (pipeline: Pipeline) =>
+export const triggerIcon = (pipeline: Pipeline) =>
   pipeline.provider_type === 'fluxcd' ? <IconRefresh size={16} /> : <IconPlayerPlayFilled size={16} />
 
 export function workflowMenuItems({
@@ -125,7 +125,7 @@ export function workflowMenuItems({
   const trigger: WorkflowMenuItem = {
     label: labels.trigger,
     icon: triggerIcon(pipeline),
-    disabled: Boolean(getReconcileBlockReason(pipeline)),
+    disabled: Boolean(getTriggerBlockReason(pipeline)),
     onClick: () => onTrigger(pipeline),
   }
   const pin: WorkflowMenuItem = {
@@ -150,7 +150,7 @@ export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, on
   const pinLabel = `${isPinned ? 'Unpin' : 'Pin'} ${pipeline.name}`
   const metricsLabel = `View metrics for ${pipeline.name}`
   const triggerLabel = `${getPipelineLabels(pipeline.provider_type).trigger} ${pipeline.name}`
-  const blockedReason = getReconcileBlockReason(pipeline)
+  const blockedReason = getTriggerBlockReason(pipeline)
   const reasonId = useId()
 
   return (
@@ -205,7 +205,7 @@ export function WorkflowActionMenu({
 }: WorkflowActionMenuProps) {
   const openNotifications = useNotificationCenterStore((state) => state.open)
   const actions = workflowMenuItems({ pipeline, isPinned, onTogglePin, onTrigger, onViewMetrics, onViewHistory })
-  const blockedReason = getReconcileBlockReason(pipeline)
+  const blockedReason = getTriggerBlockReason(pipeline)
   const headline = provider ? providerAttention(provider).headline : null
 
   return (
@@ -242,7 +242,7 @@ export function workflowSwipeActions(
 ): SwipeAction[] {
   const pin: SwipeAction = { key: 'pin', label: isPinned ? 'Unpin' : 'Pin', tone: 'orange', onSelect: onTogglePin }
 
-  if (getReconcileBlockReason(pipeline)) {
+  if (getTriggerBlockReason(pipeline)) {
     return [pin]
   }
 

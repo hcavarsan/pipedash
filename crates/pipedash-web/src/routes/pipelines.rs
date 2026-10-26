@@ -83,6 +83,7 @@ pub fn router() -> Router<AppState> {
             "/{id}/runs/{run_number}/rerun-failed-jobs",
             post(rerun_failed_jobs),
         )
+        .route("/{id}/runs/{run_number}/rerun", post(rerun_run))
         .route("/{id}/workflow-params", get(get_workflow_parameters))
 }
 
@@ -165,6 +166,14 @@ async fn rerun_failed_jobs(
     pipeline_service
         .rerun_failed_jobs(&pipeline_id, run_number)
         .await?;
+    Ok(())
+}
+
+async fn rerun_run(
+    State(state): State<AppState>, Path((pipeline_id, run_number)): Path<(String, i64)>,
+) -> ApiResult<()> {
+    let pipeline_service = state.pipeline_service().await?;
+    pipeline_service.rerun_run(&pipeline_id, run_number).await?;
     Ok(())
 }
 

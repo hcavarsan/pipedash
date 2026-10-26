@@ -105,8 +105,8 @@ fn create_features() -> Vec<Feature> {
         },
         Feature {
             id: "rerun_failed_jobs".to_string(),
-            name: "Re-run failed jobs".to_string(),
-            description: "POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs - Re-run the failed jobs of a run and the jobs that depend on them".to_string(),
+            name: "Re-run runs".to_string(),
+            description: "POST /repos/{owner}/{repo}/actions/runs/{id}/rerun and /rerun-failed-jobs - Re-run a whole run, or only its failed jobs and the jobs that depend on them".to_string(),
             required_permissions: vec!["repo".to_string()],
         },
         Feature {

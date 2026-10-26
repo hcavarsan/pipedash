@@ -89,6 +89,33 @@ impl GitHubPlugin {
             && run.head_branch == ref_value
             && run.created_at.timestamp() >= trigger_time.timestamp()
     }
+
+    async fn rerun(
+        &self, pipeline_id: &str, run_number: i64, failed_only: bool,
+    ) -> PluginResult<()> {
+        let parts: Vec<&str> = pipeline_id.split("__").collect();
+        if parts.len() != 5 {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid pipeline ID format: {} (expected 5 parts, got {})",
+                pipeline_id,
+                parts.len()
+            )));
+        }
+
+        let owner = parts[2];
+        let repo = parts[3];
+        let workflow_id_str = parts[4];
+        let workflow_id: u64 = workflow_id_str.parse().map_err(|_| {
+            PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id_str}"))
+        })?;
+
+        let client = self.client()?;
+        let run = client
+            .fetch_run_by_number(owner, repo, workflow_id, run_number)
+            .await?;
+
+        client.rerun(owner, repo, run.id.0, failed_only).await
+    }
 }
 
 #[async_trait]
@@ -497,28 +524,11 @@ impl Plugin for GitHubPlugin {
     }
 
     async fn rerun_failed_jobs(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
-        let parts: Vec<&str> = pipeline_id.split("__").collect();
-        if parts.len() != 5 {
-            return Err(PluginError::InvalidConfig(format!(
-                "Invalid pipeline ID format: {} (expected 5 parts, got {})",
-                pipeline_id,
-                parts.len()
-            )));
-        }
+        self.rerun(pipeline_id, run_number, true).await
+    }
 
-        let owner = parts[2];
-        let repo = parts[3];
-        let workflow_id_str = parts[4];
-        let workflow_id: u64 = workflow_id_str.parse().map_err(|_| {
-            PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id_str}"))
-        })?;
-
-        let client = self.client()?;
-        let run = client
-            .fetch_run_by_number(owner, repo, workflow_id, run_number)
-            .await?;
-
-        client.rerun_failed_jobs(owner, repo, run.id.0).await
+    async fn rerun_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
+        self.rerun(pipeline_id, run_number, false).await
     }
 
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
@@ -979,14 +989,15 @@ mod tests {
                     finished_run(9001, 7, "completed", Some("failure")),
                 ]
             })),
-            ("POST", "/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs") => rerun_reply(),
+            ("POST", "/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs")
+            | ("POST", "/api/v3/repos/acme/app/actions/runs/9001/rerun") => rerun_reply(),
             (method, path) => panic!("Unexpected stub request: {method} {path}"),
         })
         .await
     }
 
     #[tokio::test]
-    async fn rerun_failed_jobs_posts_for_the_run_with_that_number() {
+    async fn reruns_post_the_matching_endpoint_for_the_run_with_that_number() {
         let (plugin, recorded, server) = stub_failed_runs(|| Reply {
             status: 201,
             headers: Vec::new(),
@@ -995,6 +1006,7 @@ mod tests {
         .await;
 
         plugin.rerun_failed_jobs(PIPELINE_ID, 7).await.unwrap();
+        plugin.rerun_run(PIPELINE_ID, 7).await.unwrap();
 
         let posted: Vec<String> = recorded
             .lock()
@@ -1005,7 +1017,10 @@ mod tests {
             .collect();
         assert_eq!(
             posted,
-            ["/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs"]
+            [
+                "/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs",
+                "/api/v3/repos/acme/app/actions/runs/9001/rerun"
+            ]
         );
         server.abort();
     }
