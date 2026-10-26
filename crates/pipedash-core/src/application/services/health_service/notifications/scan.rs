@@ -181,8 +181,8 @@ pub(super) async fn scan(
     configs.sort_by_key(|(id, _)| (state.attempted_at(*id), *id));
 
     let mut found = Vec::new();
-    let mut targets = Vec::new();
-    let mut checks = Vec::new();
+    let mut polled = Vec::new();
+    let mut provider_jobs = Vec::new();
     let mut feeds: HashMap<FeedKey, Vec<(i64, StatusSource)>> = HashMap::new();
     for (id, config) in configs {
         state.enroll(id, config.display_name(), Some(config.version.unwrap_or(1)));
@@ -206,12 +206,13 @@ pub(super) async fn scan(
         }
         if !state.paused(id, wall) {
             if controller(&config.provider_type) {
-                checks.push(Target {
+                provider_jobs.push(Job::Health(Target {
                     id,
                     provider: Arc::clone(&provider),
-                });
+                }));
             }
-            targets.push(Target { id, provider });
+            provider_jobs.push(Job::Poll(Target { id, provider }));
+            polled.push(id);
         }
     }
 
@@ -220,14 +221,12 @@ pub(super) async fn scan(
     for users in feeds.values_mut() {
         users.sort_by_key(|(id, _)| *id);
     }
-    let mut ranked: Vec<i64> = targets.iter().map(|target| target.id).collect();
-    ranked.sort_by_key(|id| (state.overdue_at(*id), *id));
-    let mut entitled: HashSet<i64> = ranked.into_iter().take(MAX_OVERDUE_CHECKS).collect();
+    polled.sort_by_key(|id| (state.overdue_at(*id), *id));
+    let mut entitled: HashSet<i64> = polled.into_iter().take(MAX_OVERDUE_CHECKS).collect();
     let jobs: Vec<Job> = feed_keys
         .into_iter()
         .map(Job::Feed)
-        .chain(checks.into_iter().map(Job::Health))
-        .chain(targets.into_iter().map(Job::Poll))
+        .chain(provider_jobs)
         .collect();
 
     let client = http.status_client().ok();

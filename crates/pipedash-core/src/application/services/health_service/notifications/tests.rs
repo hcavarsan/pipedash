@@ -676,6 +676,23 @@ async fn a_controller_outage_survives_a_pipeline_fetch_that_outlasts_the_scan() 
 }
 
 #[tokio::test]
+async fn hanging_controller_checks_cannot_starve_pipeline_fetches() {
+    let gate = Gate::new();
+    let mut rig = Rig::new();
+    rig.controller = true;
+    for id in 1..=4 {
+        rig.stub(id, |stub| stub.health_gated(&gate));
+    }
+    let last = rig.stub(5, |stub| stub);
+    let ids = [1, 2, 3, 4, 5];
+
+    rig.scan_within(&ids, Duration::from_millis(300)).await;
+    rig.scan_within(&ids, Duration::from_millis(300)).await;
+
+    assert_eq!(last.fetch_count(), 1);
+}
+
+#[tokio::test]
 async fn a_provider_close_to_its_quota_is_skipped_until_the_reset() {
     let mut rig = Rig::new();
     let stub = rig.stub(1, |stub| stub);
