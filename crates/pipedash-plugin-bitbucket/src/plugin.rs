@@ -258,10 +258,23 @@ impl Plugin for BitbucketPlugin {
                 .list_pipelines(&repo.workspace.slug, &repo.slug, 1)
                 .await?;
             let latest = pipelines.first();
-            Ok(mapper::map_pipeline(repo, latest, provider_id))
+            if latest.is_none()
+                && !client
+                    .has_pipelines_file(&repo.workspace.slug, &repo.slug)
+                    .await
+                    .unwrap_or(true)
+            {
+                return Ok(None);
+            }
+            Ok(Some(mapper::map_pipeline(repo, latest, provider_id)))
         });
 
-        collect_partial(join_all(pipeline_futures).await, "repository")
+        Ok(
+            collect_partial(join_all(pipeline_futures).await, "repository")?
+                .into_iter()
+                .flatten()
+                .collect(),
+        )
     }
 
     async fn fetch_run_history(
@@ -615,6 +628,24 @@ mod tests {
         assert!(requests
             .try_iter()
             .any(|line| line.contains("/ws/empty/src/HEAD/bitbucket-pipelines.yml")));
+    }
+
+    #[tokio::test]
+    async fn tracking_every_repository_lists_those_with_runs_or_a_pipelines_file() {
+        let (plugin, _requests) = serve_runs(3).await;
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+        assert_eq!(
+            pipelines
+                .iter()
+                .map(|pipeline| (pipeline.id.as_str(), pipeline.status))
+                .collect::<Vec<_>>(),
+            [
+                ("bitbucket__1__ws__repo", PipelineStatus::Success),
+                ("bitbucket__1__ws__configured", PipelineStatus::Pending)
+            ]
+        );
     }
 
     #[tokio::test]

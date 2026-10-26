@@ -212,18 +212,14 @@ impl Plugin for GitLabPlugin {
                 let Some(project) = project else {
                     return Ok(true);
                 };
-                if project
-                    .ci_config_path
-                    .as_deref()
-                    .is_some_and(|path| !path.is_empty())
-                    || !client
-                        .get_project_pipelines(project.id, 1)
-                        .await?
-                        .is_empty()
+                if !client
+                    .get_project_pipelines(project.id, 1)
+                    .await?
+                    .is_empty()
                 {
                     return Ok(true);
                 }
-                client.has_ci_file(project.id).await
+                client.has_ci_config(&project).await
             }
         })
         .await)
@@ -261,10 +257,22 @@ impl Plugin for GitLabPlugin {
         let pipeline_futures = projects.iter().map(|project| async move {
             let pipelines = client.get_project_pipelines(project.id, 1).await?;
             let latest_pipeline = pipelines.first();
-            Ok(mapper::map_pipeline(project, latest_pipeline, provider_id))
+            if latest_pipeline.is_none() && !client.has_ci_config(project).await.unwrap_or(true) {
+                return Ok(None);
+            }
+            Ok(Some(mapper::map_pipeline(
+                project,
+                latest_pipeline,
+                provider_id,
+            )))
         });
 
-        collect_partial(join_all(pipeline_futures).await, "project")
+        Ok(
+            collect_partial(join_all(pipeline_futures).await, "project")?
+                .into_iter()
+                .flatten()
+                .collect(),
+        )
     }
 
     async fn fetch_run_history(
@@ -439,13 +447,16 @@ mod tests {
                         "web_url": format!("http://{addr}/team/backend/api/-/pipelines/9"),
                         "created_at": "2026-10-26T12:00:00Z", "updated_at": "2026-10-26T12:05:00Z"
                     }]),
-                    "/api/v4/projects/103/pipelines" | "/api/v4/projects/104/pipelines" => {
+                    "/api/v4/projects/101/pipelines"
+                    | "/api/v4/projects/103/pipelines"
+                    | "/api/v4/projects/104/pipelines" => {
                         serde_json::json!([])
                     }
                     "/api/v4/projects/104/repository/files/.gitlab-ci.yml" => {
                         serde_json::json!({"file_name": ".gitlab-ci.yml"})
                     }
-                    "/api/v4/projects/103/repository/files/.gitlab-ci.yml" => {
+                    "/api/v4/projects/101/repository/files/.gitlab-ci.yml"
+                    | "/api/v4/projects/103/repository/files/.gitlab-ci.yml" => {
                         status = "404 Not Found";
                         serde_json::json!({"message": "404 File Not Found"})
                     }
@@ -646,6 +657,25 @@ mod tests {
                 "team/backend/api",
                 "team/backend/nested/worker",
                 "gone/repo"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn tracking_every_project_lists_those_with_runs_or_a_ci_file() {
+        let (plugin, server) = stub_gitlab().await;
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+        server.abort();
+
+        assert_eq!(
+            pipelines
+                .iter()
+                .map(|pipeline| (pipeline.id.as_str(), pipeline.status))
+                .collect::<Vec<_>>(),
+            [
+                ("gitlab__1__102", PipelineStatus::Success),
+                ("gitlab__1__104", PipelineStatus::Pending)
             ]
         );
     }

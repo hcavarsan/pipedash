@@ -199,10 +199,17 @@ impl GitLabClient {
             .await
     }
 
-    pub async fn has_ci_file(&self, project_id: i64) -> PluginResult<bool> {
+    pub async fn has_ci_config(&self, project: &Project) -> PluginResult<bool> {
+        if project
+            .ci_config_path
+            .as_deref()
+            .is_some_and(|path| !path.is_empty())
+        {
+            return Ok(true);
+        }
         let url = format!(
             "{}/projects/{}/repository/files/.gitlab-ci.yml?ref=HEAD",
-            self.api_url, project_id
+            self.api_url, project.id
         );
         match self.retry_policy.retry(|| self.get(&url)).await {
             Ok(_) => Ok(true),
