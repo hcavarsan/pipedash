@@ -480,6 +480,10 @@ class NativePlugin: Plugin {
     NotificationRouter.shared.install(plugin: self)
     AppearanceController.shared.start()
     PrivacyCoverController.shared.start()
+    NotificationRefreshController.shared.deliver = { [weak self] event in
+      try? self?.trigger("notification-refresh", data: event)
+    }
+    NotificationRefreshController.shared.start()
     #if compiler(>=6.2) && !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
     if #available(iOS 26.0, *), !ProcessInfo.processInfo.isiOSAppOnMac {
       DispatchQueue.main.async { [weak self] in
@@ -625,6 +629,40 @@ class NativePlugin: Plugin {
         AccessibilityState(
           reduceTransparency: UIAccessibility.isReduceTransparencyEnabled,
           increaseContrast: UIAccessibility.isDarkerSystemColorsEnabled))
+    }
+  }
+
+  @objc func localNotificationSettings(_ invoke: Invoke) {
+    DispatchQueue.main.async {
+      NotificationRefreshController.shared.settings { invoke.resolve($0) }
+    }
+  }
+
+  @objc func configureLocalNotifications(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ConfigureNotificationsArgs.self)
+    DispatchQueue.main.async {
+      NotificationRefreshController.shared.configure(enabled: args.enabled) { result in
+        switch result {
+        case .success(let settings):
+          invoke.resolve(settings)
+        case .failure(let error):
+          invoke.reject(error.localizedDescription)
+        }
+      }
+    }
+  }
+
+  @objc func notificationRefreshReady(_ invoke: Invoke) {
+    invoke.resolve()
+    DispatchQueue.main.async { NotificationRefreshController.shared.listenerReady() }
+  }
+
+  @objc func finishNotificationRefresh(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(FinishNotificationRefreshArgs.self)
+    try args.validate()
+    invoke.resolve()
+    DispatchQueue.main.async {
+      NotificationRefreshController.shared.finish(args.id, success: args.success)
     }
   }
 

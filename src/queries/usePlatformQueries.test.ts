@@ -44,7 +44,7 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
     response = { ...complete }
     failure = null
     localStorage.setItem('retained-settings', 'keep-until-complete')
-    useNotificationStore.getState().setFailureNotificationsEnabled(true)
+    useNotificationStore.getState().setNotificationsEnabled(true)
     usePinnedStore.setState({ pinnedKeys: ['ci:build'] })
   })
   afterEach(async () => {
@@ -69,7 +69,7 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
       })
 
       assert.equal(localStorage.getItem('retained-settings'), 'keep-until-complete')
-      assert.equal(useNotificationStore.getState().failureNotificationsEnabled, true)
+      assert.equal(useNotificationStore.getState().notificationsEnabled, true)
       assert.deepEqual(usePinnedStore.getState().pinnedKeys, ['ci:build'])
       assert.equal(completed.mock.callCount(), 0)
       assert.equal(notices.mock.callCount(), 1)
@@ -103,7 +103,7 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
     })
 
     assert.equal(localStorage.getItem('retained-settings'), null)
-    assert.equal(useNotificationStore.getState().failureNotificationsEnabled, false)
+    assert.equal(useNotificationStore.getState().notificationsEnabled, false)
     assert.deepEqual(usePinnedStore.getState().pinnedKeys, [])
     assert.equal(completed.mock.callCount(), 1)
     assert.equal(notices.mock.calls.at(0)?.arguments[0]?.color, 'green')

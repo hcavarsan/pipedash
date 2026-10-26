@@ -185,6 +185,21 @@ pub struct BuildWatchStatus {
     pub watch: Option<BuildWatchSnapshot>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalNotificationSettings {
+    pub enabled: bool,
+    pub available: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationRefresh {
+    pub id: String,
+    pub expired: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -324,5 +339,30 @@ mod tests {
         assert_eq!(response.run_number.as_deref(), Some("7"));
         assert_eq!(response.key, None);
         assert_eq!(response.provider_id, None);
+    }
+
+    #[test]
+    fn local_notification_settings_use_camel_case_and_tolerate_a_missing_reason() {
+        let settings: LocalNotificationSettings =
+            serde_json::from_value(json!({ "enabled": true, "available": false })).unwrap();
+        assert_eq!(settings.reason, None);
+        assert_eq!(
+            serde_json::to_value(&settings).unwrap(),
+            json!({ "enabled": true, "available": false, "reason": null })
+        );
+    }
+
+    #[test]
+    fn notification_refresh_events_match_the_swift_payload() {
+        let refresh: NotificationRefresh =
+            serde_json::from_value(json!({ "id": "task-1", "expired": true })).unwrap();
+        assert_eq!(
+            refresh,
+            NotificationRefresh {
+                id: "task-1".to_string(),
+                expired: true,
+            }
+        );
+        assert!(serde_json::from_value::<NotificationRefresh>(json!({ "id": "task-1" })).is_err());
     }
 }

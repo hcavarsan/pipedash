@@ -179,6 +179,7 @@ pub async fn boot_core(
     }
 
     tracing::info!("Pipedash initialized with CoreContext ({:?})", kind);
+    crate::local_notifications::schedule_sync(app);
     Ok(core)
 }
 

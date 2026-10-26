@@ -2,20 +2,27 @@ import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 
 interface NotificationStoreState {
-  failureNotificationsEnabled: boolean
-  providerAlertsEnabled: boolean
+  notificationsEnabled: boolean
 }
 
 interface NotificationStoreActions {
-  setFailureNotificationsEnabled: (enabled: boolean) => void
-  setProviderAlertsEnabled: (enabled: boolean) => void
+  setNotificationsEnabled: (enabled: boolean) => void
 }
 
 type NotificationStore = NotificationStoreState & NotificationStoreActions
 
 const initialState: NotificationStoreState = {
-  failureNotificationsEnabled: false,
-  providerAlertsEnabled: false,
+  notificationsEnabled: false,
+}
+
+export function migrateNotificationSettings(persisted: unknown, version: number): NotificationStoreState {
+  const saved = (persisted ?? {}) as Record<string, unknown>
+
+  if (version >= 1) {
+    return { notificationsEnabled: saved.notificationsEnabled === true }
+  }
+
+  return { notificationsEnabled: saved.failureNotificationsEnabled === true || saved.providerAlertsEnabled === true }
 }
 
 export const useNotificationStore = create<NotificationStore>()(
@@ -24,15 +31,13 @@ export const useNotificationStore = create<NotificationStore>()(
       (set) => ({
         ...initialState,
 
-        setFailureNotificationsEnabled: (enabled) => set({ failureNotificationsEnabled: enabled }),
-        setProviderAlertsEnabled: (enabled) => set({ providerAlertsEnabled: enabled }),
+        setNotificationsEnabled: (enabled) => set({ notificationsEnabled: enabled }),
       }),
       {
         name: 'pipedash-notifications',
-        partialize: (state) => ({
-          failureNotificationsEnabled: state.failureNotificationsEnabled,
-          providerAlertsEnabled: state.providerAlertsEnabled,
-        }),
+        version: 1,
+        migrate: migrateNotificationSettings,
+        partialize: (state) => ({ notificationsEnabled: state.notificationsEnabled }),
       }
     ),
     { name: 'NotificationStore' }

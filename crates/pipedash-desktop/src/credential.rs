@@ -33,3 +33,10 @@ pub fn device_only_entry(service: &str, user: &str) -> Result<Entry> {
 pub fn device_only_entry(service: &str, user: &str) -> Result<Entry> {
     Entry::new(service, user)
 }
+
+#[cfg(target_os = "ios")]
+pub fn background_entry(service: &str, user: &str) -> Result<Entry> {
+    let modifiers =
+        std::collections::HashMap::from([("access-policy", "AfterFirstUnlockThisDeviceOnly")]);
+    Entry::new_with_modifiers(service, user, &modifiers)
+}

@@ -23,6 +23,12 @@ export interface BuildWatchStatus {
   watch: BuildWatchSnapshot | null
 }
 
+export interface LocalNotificationSettings {
+  enabled: boolean
+  available: boolean
+  reason: string | null
+}
+
 export type ReviewDecision = 'approve' | 'reject'
 
 export interface AvailablePipeline {

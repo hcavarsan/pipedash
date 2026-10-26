@@ -31,6 +31,7 @@ import { useEventSync } from './lib/eventSync'
 import { logger } from './lib/logger'
 import { queryKeys } from './lib/queryKeys'
 import { useBuildWatchLifecycle } from './queries/useBuildWatchQueries'
+import { useLocalNotificationsLifecycle } from './queries/useLocalNotificationQueries'
 import { usePipelines } from './queries/usePipelinesQueries'
 import { useProviders } from './queries/useProvidersQueries'
 import { useRefreshProvider } from './queries/useRefreshQueries'
@@ -54,6 +55,7 @@ function AppContent() {
 
   useEventSync()
   useBuildWatchLifecycle()
+  useLocalNotificationsLifecycle()
   useRecordHistory()
   const goBack = useGoBack()
   useFailureNotifications()

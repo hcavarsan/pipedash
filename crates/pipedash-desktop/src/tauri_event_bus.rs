@@ -27,6 +27,7 @@ unsafe impl<R: Runtime> Sync for TauriEventBus<R> {}
 #[async_trait]
 impl<R: Runtime + 'static> EventBus for TauriEventBus<R> {
     async fn emit(&self, event: CoreEvent) {
+        crate::local_notifications::on_event(&self.app_handle, &event).await;
         if let CoreEvent::ProviderRemoved { provider, .. } = &event {
             crate::build_watch::interrupt_provider(&self.app_handle, provider.id);
         }

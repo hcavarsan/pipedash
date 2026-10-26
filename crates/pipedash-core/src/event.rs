@@ -78,6 +78,8 @@ pub enum CoreEvent {
 
     ProviderHealthAlert {
         alert_id: String,
+        #[serde(default)]
+        alert_key: String,
         notification_key: String,
         provider_ids: Vec<i64>,
         level: HealthLevel,
@@ -197,6 +199,7 @@ impl CoreEvent {
                 body,
                 link,
                 recovered,
+                ..
             } => serde_json::json!({
                 "alert_id": alert_id,
                 "notification_key": notification_key,
@@ -324,6 +327,7 @@ mod tests {
     fn test_provider_health_alert_wire_format() {
         let alert = |link| CoreEvent::ProviderHealthAlert {
             alert_id: "alert-7".to_string(),
+            alert_key: "incident:7".to_string(),
             notification_key: "status-page:feed".to_string(),
             provider_ids: vec![1, 2],
             level: HealthLevel::MajorOutage,

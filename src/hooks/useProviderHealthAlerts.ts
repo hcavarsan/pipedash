@@ -3,9 +3,8 @@ import { useEffect } from 'react'
 import { logger } from '../lib/logger'
 import { events, isTauri } from '../services'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
-import { useNotificationStore } from '../stores/notificationStore'
 import type { EventPayloadMap } from '../types/events'
-import { showSystemNotification } from '../utils/systemNotifications'
+import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
 type HealthAlert = EventPayloadMap['provider-health-alert']
 
@@ -32,7 +31,7 @@ export function useProviderHealthAlerts() {
           link: alert.link,
         })
 
-        if (!useNotificationStore.getState().providerAlertsEnabled) {
+        if (!systemDeliveryEnabled()) {
           return
         }
 

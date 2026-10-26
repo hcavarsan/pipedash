@@ -20,10 +20,13 @@ pub use fetch_scheduler::{
     ScheduleView,
 };
 pub use services::health_service::{
+    refresh_notifications,
     HealthHandle,
     HealthInput,
     HealthReceivers,
     HealthSnapshot,
+    LocalNotification,
+    NotificationState,
     ProviderHealthInput,
     ProviderHealthService,
     ProviderHealthState,

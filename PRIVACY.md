@@ -41,9 +41,13 @@ To turn this off, open Settings → General and switch off "Check provider statu
 
 To stop optional status-page requests, turn off "Check provider status pages" in Settings > General. Remove a provider to stop requests to its CI/CD service. Provider-side records, including workflows you started, follow that provider's retention and deletion controls.
 
+## iOS Background Notifications
+
+Notifications are off by default. When you turn them on in the iOS app, Pipedash keeps a copy of your provider configurations and tokens in a separate Keychain item that stays on this device and is readable after the first unlock since restart. iOS background refresh uses it to contact your CI/CD providers and status pages while the app is closed or locked, at times iOS chooses. Notification text is created on the device and is not sent to Pipedash's developer. Turning notifications off or a factory reset deletes the copy, and removing a provider deletes its entry. Revoking notification permission in iOS Settings stops delivery but keeps the copy until you turn notifications off.
+
 ## Previous iOS Push Pairings
 
-Remote push notifications and Live Activities are disabled in the current iOS build. It does not offer pairing or register for remote notifications. Optional local notifications report changes detected while the app runs and refreshes.
+Remote push notifications and Live Activities are disabled in the current iOS build. It does not offer pairing or register for remote notifications.
 
 If you paired an earlier build, disabling these features does not erase an existing server or relay record. The following describes those records and their retention. The push relay sits between your self-hosted Pipedash server and Apple's push service (APNs). Its source is in `crates/pipedash-push-relay`. Deployment details are in `docs/push-relay.md`.
 

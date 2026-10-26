@@ -8,20 +8,34 @@ use std::sync::atomic::{
 };
 use std::time::Duration;
 
+use chrono::{
+    DateTime,
+    Utc,
+};
 use pipedash_plugin_api::{
     ComponentHealth,
     StatusSource,
+};
+use serde::{
+    Deserialize,
+    Serialize,
 };
 use tokio::time::Instant;
 
 use super::signals::{
     component_title,
+    connection,
     https_url,
     level_label,
     source_title,
     Connection,
 };
-use crate::domain::HealthLevel;
+use crate::domain::{
+    FailureKind,
+    HealthLevel,
+    HealthSignal,
+    SignalKind,
+};
 use crate::event::{
     AlertLink,
     AlertLinkKind,
@@ -32,6 +46,8 @@ use crate::infrastructure::status_feeds::FeedSignal;
 pub(super) const ALERT_COOLDOWN: Duration = Duration::from_secs(15 * 60);
 pub(super) const CALM_CHECKS: u8 = 2;
 pub(super) const CALM_FETCHES: u8 = 1;
+pub(super) const CONNECTION_KEY: &str = "connection";
+const SOURCE_KEY: &str = "source";
 
 static NEXT_ALERT: AtomicU64 = AtomicU64::new(1);
 
@@ -61,6 +77,7 @@ pub(super) struct Observation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Alert {
     pub alert_id: String,
+    pub alert_key: String,
     pub notification_key: String,
     pub provider_ids: Vec<i64>,
     pub level: HealthLevel,
@@ -71,9 +88,12 @@ pub(super) struct Alert {
 }
 
 impl Alert {
-    fn new(subject: &str, draft: Draft, provider_ids: Vec<i64>, recovered: bool) -> Self {
+    fn new(
+        subject: &str, key: String, draft: Draft, provider_ids: Vec<i64>, recovered: bool,
+    ) -> Self {
         Self {
             alert_id: format!("alert-{}", NEXT_ALERT.fetch_add(1, Ordering::Relaxed)),
+            alert_key: key,
             notification_key: subject.to_owned(),
             provider_ids,
             level: draft.level,
@@ -87,6 +107,7 @@ impl Alert {
     pub(super) fn into_event(self, provider_ids: Vec<i64>) -> CoreEvent {
         CoreEvent::ProviderHealthAlert {
             alert_id: self.alert_id,
+            alert_key: self.alert_key,
             notification_key: self.notification_key,
             provider_ids,
             level: self.level,
@@ -98,24 +119,85 @@ impl Alert {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum KeyState {
     Silent,
     Pending,
     Alerted,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Track {
     keys: HashMap<String, KeyState>,
     recoverable: bool,
     streak: u8,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(from = "StoredTracker", into = "StoredTracker")]
 pub(super) struct AlertTracker {
     tracks: HashMap<String, Track>,
     last_alert: HashMap<(String, String), Instant>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredAlert {
+    subject: String,
+    key: String,
+    at: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredTracker {
+    tracks: HashMap<String, Track>,
+    #[serde(default)]
+    alerted: Vec<StoredAlert>,
+}
+
+impl From<AlertTracker> for StoredTracker {
+    fn from(tracker: AlertTracker) -> Self {
+        let now = Instant::now();
+        let wall = Utc::now();
+        let alerted = tracker
+            .last_alert
+            .into_iter()
+            .filter_map(|((subject, key), at)| {
+                let age = now.saturating_duration_since(at);
+                let elapsed = chrono::Duration::from_std(age).ok()?;
+                (age < ALERT_COOLDOWN).then(|| StoredAlert {
+                    subject,
+                    key,
+                    at: wall - elapsed,
+                })
+            })
+            .collect();
+
+        Self {
+            tracks: tracker.tracks,
+            alerted,
+        }
+    }
+}
+
+impl From<StoredTracker> for AlertTracker {
+    fn from(stored: StoredTracker) -> Self {
+        let now = Instant::now();
+        let wall = Utc::now();
+        let last_alert = stored
+            .alerted
+            .into_iter()
+            .filter_map(|alert| {
+                let age = (wall - alert.at).to_std().unwrap_or_default();
+                let at = now.checked_sub(age).filter(|_| age < ALERT_COOLDOWN)?;
+                Some(((alert.subject, alert.key), at))
+            })
+            .collect();
+
+        Self {
+            tracks: stored.tracks,
+            last_alert,
+        }
+    }
 }
 
 impl AlertTracker {
@@ -125,6 +207,35 @@ impl AlertTracker {
 
     pub(super) fn close(&mut self, subject: &str) {
         self.tracks.remove(subject);
+    }
+
+    pub(super) fn has(&self, subject: &str) -> bool {
+        self.tracks.contains_key(subject)
+    }
+
+    pub(super) fn baseline(&mut self, subject: &str, keys: Vec<String>) {
+        let keys = keys
+            .into_iter()
+            .map(|key| (key, KeyState::Silent))
+            .collect();
+        self.tracks.insert(
+            subject.to_owned(),
+            Track {
+                keys,
+                ..Track::default()
+            },
+        );
+    }
+
+    pub(super) fn arm(&mut self, subject: &str) {
+        let track = self.tracks.entry(subject.to_owned()).or_default();
+        track.recoverable = true;
+        track.streak = 0;
+    }
+
+    pub(super) fn retain(&mut self, keep: impl Fn(&str) -> bool) {
+        self.tracks.retain(|subject, _| keep(subject));
+        self.last_alert.retain(|(subject, _), _| keep(subject));
     }
 
     pub(super) fn gap(&mut self, subject: &str) {
@@ -168,7 +279,7 @@ impl AlertTracker {
                 .keys
                 .entry(candidate.key.clone())
                 .or_insert(KeyState::Pending);
-            let cooldown_key = (subject.to_owned(), candidate.key);
+            let cooldown_key = (subject.to_owned(), candidate.key.clone());
             if *state != KeyState::Pending || self.last_alert.contains_key(&cooldown_key) {
                 continue;
             }
@@ -177,6 +288,7 @@ impl AlertTracker {
             self.last_alert.insert(cooldown_key, now);
             alerts.push(Alert::new(
                 subject,
+                candidate.key,
                 candidate.draft,
                 candidate.provider_ids,
                 false,
@@ -192,6 +304,7 @@ impl AlertTracker {
                 track.streak = 0;
                 alerts.push(Alert::new(
                     subject,
+                    String::new(),
                     observation.recovery,
                     observation.provider_ids,
                     true,
@@ -243,7 +356,7 @@ pub(super) fn feed_candidates(
 
     if candidates.is_empty() && eval.level >= HealthLevel::PartialOutage {
         candidates.push(Candidate {
-            key: "source".to_owned(),
+            key: SOURCE_KEY.to_owned(),
             draft: Draft {
                 level: eval.level,
                 title: source_title(source, eval.level),
@@ -263,6 +376,31 @@ pub(super) fn feed_candidates(
     }
 
     candidates
+}
+
+pub(super) fn seeded_keys(signal: &HealthSignal) -> Vec<String> {
+    match signal.kind {
+        SignalKind::StatusPage => {
+            let mut keys: Vec<String> = signal
+                .incidents
+                .iter()
+                .filter(|incident| incident.level >= HealthLevel::PartialOutage)
+                .map(|incident| format!("incident:{}", incident.id))
+                .collect();
+            if keys.is_empty() && signal.level >= HealthLevel::PartialOutage {
+                keys.push(SOURCE_KEY.to_owned());
+            }
+            keys
+        }
+        SignalKind::Instance => signal
+            .components
+            .iter()
+            .filter(|component| component.level == HealthLevel::MajorOutage)
+            .map(|component| format!("component:{}", component.name))
+            .collect(),
+        SignalKind::Connection => vec![CONNECTION_KEY.to_owned()],
+        SignalKind::RateLimit => Vec::new(),
+    }
 }
 
 pub(super) fn feed_recovery(source: &StatusSource) -> Draft {
@@ -304,7 +442,7 @@ pub(super) fn instance_recovery(display_name: &str) -> Draft {
 
 pub(super) fn connection_candidate(connection: &Connection, provider_id: i64) -> Candidate {
     Candidate {
-        key: "connection".to_owned(),
+        key: CONNECTION_KEY.to_owned(),
         draft: Draft {
             level: connection.level,
             title: connection.title.clone(),
@@ -324,6 +462,27 @@ pub(super) fn connection_recovery(display_name: &str) -> Draft {
         title: format!("{display_name} is reachable again"),
         body: "Pipedash's connection to it works again.".to_owned(),
         link: None,
+    }
+}
+
+pub(super) enum Connectivity {
+    Reset,
+    Ignore,
+    Observe(Vec<Candidate>),
+}
+
+pub(super) fn connectivity(
+    display_name: &str, kind: Option<FailureKind>, failures: u32, provider_id: i64,
+) -> Connectivity {
+    match kind {
+        None => Connectivity::Observe(Vec::new()),
+        Some(kind) if !kind.is_transient() => Connectivity::Reset,
+        Some(kind) => match connection(display_name, kind, failures) {
+            Some(current) if current.kind == SignalKind::Connection => {
+                Connectivity::Observe(vec![connection_candidate(&current, provider_id)])
+            }
+            _ => Connectivity::Ignore,
+        },
     }
 }
 
@@ -577,6 +736,52 @@ mod tests {
         let again = tracker.observe(SUBJECT, start + minutes(20), outage(&["a"], &[1]));
 
         assert_eq!(again.len(), 1);
+    }
+
+    fn reloaded(tracker: &AlertTracker) -> AlertTracker {
+        serde_json::from_value(serde_json::to_value(tracker).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn the_cooldown_survives_a_reload() {
+        let mut tracker = AlertTracker::default();
+        let start = Instant::now();
+        tracker.observe(SUBJECT, start, healthy());
+        assert_eq!(
+            tracker.observe(SUBJECT, start, outage(&["a"], &[1])).len(),
+            1
+        );
+        tracker.observe(SUBJECT, start, healthy());
+        assert_eq!(tracker.observe(SUBJECT, start, healthy()).len(), 1);
+
+        let mut tracker = reloaded(&tracker);
+        let now = Instant::now();
+        let early = tracker.observe(SUBJECT, now + minutes(2), outage(&["a"], &[1]));
+        let after = tracker.observe(SUBJECT, now + minutes(16), outage(&["a"], &[1]));
+
+        assert!(early.is_empty());
+        assert_eq!(after.len(), 1);
+        assert!(!after[0].recovered);
+    }
+
+    #[test]
+    fn an_expired_cooldown_is_not_stored() {
+        let mut tracker = AlertTracker::default();
+        let start = Instant::now();
+        tracker.observe(SUBJECT, start, healthy());
+        tracker.observe(SUBJECT, start, outage(&["a"], &[1]));
+        tracker.observe(SUBJECT, start + minutes(20), healthy());
+
+        let stored = serde_json::to_value(&tracker).unwrap();
+        let mut tracker = reloaded(&tracker);
+
+        assert_eq!(stored["alerted"], json!([]));
+        assert_eq!(
+            tracker
+                .observe(SUBJECT, Instant::now(), outage(&["a"], &[1]))
+                .len(),
+            1
+        );
     }
 
     #[test]

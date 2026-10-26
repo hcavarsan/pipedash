@@ -16,6 +16,14 @@
     <true/>
     <key>PipedashBuildWatchEnabled</key>
     <false/>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.henrique.pipedash.notifications-refresh</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+    </array>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

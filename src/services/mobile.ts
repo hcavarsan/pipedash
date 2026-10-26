@@ -4,6 +4,7 @@ import {
   type AppLockStatus,
   type BuildWatchStatus,
   type ExportFileResult,
+  type LocalNotificationSettings,
   type NativeIntent,
   type PushStatus,
   toPipedashError,
@@ -57,6 +58,11 @@ export const mobileService = {
     call('start_build_watch', { pipelineId, runNumber }),
 
   stopBuildWatch: (): Promise<BuildWatchStatus> => call('stop_build_watch'),
+
+  getLocalNotificationSettings: (): Promise<LocalNotificationSettings> => call('get_local_notification_settings'),
+
+  setLocalNotificationsEnabled: (enabled: boolean): Promise<LocalNotificationSettings> =>
+    call('set_local_notifications_enabled', { enabled }),
 
   pushPairServer: (serverUrl: string, apiToken: string, label?: string): Promise<PushStatus> =>
     call('push_pair_server', { serverUrl, apiToken, label }),

@@ -12,9 +12,9 @@ PIPELINES AND RUNS
 STATUS AND NOTIFICATIONS
 - Refresh pipeline status manually or at each provider's configured interval while the app runs.
 - See provider outage and recovery alerts in the notification inbox.
-- Turn on optional local notifications for changes detected during refreshes.
+- Turn on optional local notifications for failed pipelines, long-running runs and provider outages.
 
-Remote push notifications, background build watching and Live Activities are disabled in this release. Pipedash does not promise monitoring while the app is closed.
+With notifications on, Pipedash also checks in the background when iOS allows it, so alerts can be delayed. Remote push notifications, background build watching and Live Activities are disabled in this release.
 
 YOUR PROVIDERS AND DATA
 Use your existing provider accounts and API credentials. Available actions depend on the provider and token permissions. Self-hosted services must be reachable from your device.
