@@ -515,10 +515,8 @@ pub async fn set_app_lock(
         lock_on_background,
     };
     if disabling {
-        delete_saved_vault_password()
-            .map_err(|e| error(&format!("Couldn't delete the saved vault password: {e}")))?;
-    }
-    if let Err(e) = lock.save_settings(requested) {
+        disable_app_lock(&lock, current, requested, delete_saved_vault_password)?;
+    } else if let Err(e) = lock.save_settings(requested) {
         if vault_password.is_some() {
             if let Err(cleanup) = delete_saved_vault_password() {
                 tracing::warn!(%cleanup, "Couldn't delete the saved vault password after settings failure");
@@ -531,6 +529,22 @@ pub async fn set_app_lock(
     crate::native::sync_privacy_cover(&app, requested);
 
     Ok(status(&app).await)
+}
+
+fn disable_app_lock<E: std::fmt::Display>(
+    lock: &AppLockState, current: AppLockSettings, requested: AppLockSettings,
+    delete_password: impl FnOnce() -> Result<(), E>,
+) -> Result<(), ErrorResponse> {
+    lock.save_settings(requested).map_err(|e| {
+        tracing::error!("Couldn't save app lock settings: {}", e);
+        error("Couldn't save the app lock settings")
+    })?;
+    delete_password().map_err(|e| {
+        if let Err(restore) = lock.save_settings(current) {
+            tracing::error!(%restore, "Couldn't restore app lock settings after the vault password deletion failed");
+        }
+        error(&format!("Couldn't delete the saved vault password: {e}"))
+    })
 }
 
 #[cfg(test)]
@@ -618,6 +632,46 @@ mod tests {
         state.clear_settings().unwrap();
         state.clear_settings().unwrap();
         assert_eq!(state.settings(), AppLockSettings::default());
+    }
+
+    #[test]
+    fn a_failed_password_deletion_keeps_app_lock_enabled_for_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppLockState::load(dir.path(), true, true);
+        state.save_settings(ON).unwrap();
+        let off = AppLockSettings::default();
+
+        assert!(disable_app_lock(&state, ON, off, || Err("keychain locked")).is_err());
+        assert_eq!(AppLockState::load(dir.path(), true, true).settings(), ON);
+
+        let mut deleted = false;
+        disable_app_lock(&state, ON, off, || {
+            deleted = true;
+            Ok::<(), &str>(())
+        })
+        .unwrap();
+        assert!(deleted);
+        assert_eq!(AppLockState::load(dir.path(), true, true).settings(), off);
+    }
+
+    #[test]
+    fn a_failed_settings_write_keeps_the_saved_password() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppLockState::load(dir.path(), true, true);
+        state.save_settings(ON).unwrap();
+        std::fs::remove_file(&state.path).unwrap();
+        std::fs::create_dir(&state.path).unwrap();
+
+        let mut deleted = false;
+        assert!(
+            disable_app_lock(&state, ON, AppLockSettings::default(), || {
+                deleted = true;
+                Ok::<(), &str>(())
+            })
+            .is_err()
+        );
+        assert!(!deleted);
+        assert_eq!(state.settings(), ON);
     }
 
     #[test]

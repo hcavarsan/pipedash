@@ -789,7 +789,21 @@ impl ProviderService {
         Ok(summaries)
     }
 
-    pub async fn update_provider(&self, id: i64, config: ProviderConfig) -> DomainResult<()> {
+    pub async fn update_provider(&self, id: i64, mut config: ProviderConfig) -> DomainResult<()> {
+        let saved_name = self.repository.get_provider(id).await?.name;
+        if config.name != saved_name
+            && self
+                .config_state
+                .get()
+                .await
+                .providers
+                .contains_key(&saved_name)
+        {
+            let display_name = std::mem::replace(&mut config.name, saved_name);
+            config
+                .config
+                .insert("display_name".to_string(), display_name);
+        }
         let mut plugin_config = config.config.clone();
         plugin_config.insert("token".to_string(), config.token.clone());
 
@@ -2277,6 +2291,37 @@ type = "travis"
         h.provider_service.remove_provider(id).await.unwrap();
         assert!(h.repository.get_provider(id).await.is_err());
         assert!(h.config_state.load_providers().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn renaming_a_toml_provider_keeps_the_file_key_for_removal() {
+        let h = Harness::new().await;
+        config_file(&h, &[("ci-a", "CI A", 30)]);
+        h.provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+        let id = provider_id(&h, "ci-a").await.unwrap();
+        let mut renamed = h.repository.get_provider(id).await.unwrap();
+        renamed.name = "Renamed CI".to_string();
+
+        h.provider_service
+            .update_provider(id, renamed)
+            .await
+            .unwrap();
+        let saved = h.repository.get_provider(id).await.unwrap();
+        assert_eq!(
+            (saved.name.as_str(), saved.display_name()),
+            ("ci-a", "Renamed CI")
+        );
+
+        h.provider_service.remove_provider(id).await.unwrap();
+        h.config_state.reload().await.unwrap();
+        h.config_state
+            .sync_providers_from_toml(h.repository.config_backend().as_ref(), false)
+            .await
+            .unwrap();
+        assert!(h.repository.list_providers().await.unwrap().is_empty());
     }
 
     #[tokio::test]
