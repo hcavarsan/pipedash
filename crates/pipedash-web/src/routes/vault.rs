@@ -154,6 +154,7 @@ async fn unlock_vault(
                         inner.core.replace(new_core)
                     };
                     if let Some(old_core) = old_core {
+                        state.download_tickets.clear();
                         old_core.shutdown().await;
                     }
                     std::env::set_var("PIPEDASH_VAULT_PASSWORD", &req.password);

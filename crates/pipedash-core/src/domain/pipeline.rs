@@ -25,7 +25,6 @@ pub enum PipelineStatus {
 }
 
 impl PipelineStatus {
-    #[allow(dead_code)]
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,

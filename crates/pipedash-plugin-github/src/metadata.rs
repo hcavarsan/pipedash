@@ -48,6 +48,7 @@ fn create_capabilities() -> PluginCapabilities {
         queues: false,
         custom_tables: false,
         retains_run_history: false,
+        logs: true,
     }
 }
 
@@ -83,6 +84,12 @@ fn create_features() -> Vec<Feature> {
             id: "view_run_history".to_string(),
             name: "View run history & logs".to_string(),
             description: "GET /repos/{owner}/{repo}/actions/workflows/{id}/runs - See run status, logs, commit info".to_string(),
+            required_permissions: vec!["repo".to_string()],
+        },
+        Feature {
+            id: "view_run_logs".to_string(),
+            name: "Read job logs in Pipedash".to_string(),
+            description: "GET /repos/{owner}/{repo}/actions/runs/{id}/jobs and /actions/jobs/{id}/logs - Read and search job logs without leaving Pipedash".to_string(),
             required_permissions: vec!["repo".to_string()],
         },
         Feature {

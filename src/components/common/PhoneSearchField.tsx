@@ -8,9 +8,16 @@ interface PhoneSearchFieldProps {
   placeholder?: string
   onChange: (value: string) => void
   onClear: () => void
+  onSubmit?: () => void
 }
 
-export function PhoneSearchField({ value, placeholder = 'Search', onChange, onClear }: PhoneSearchFieldProps) {
+export function PhoneSearchField({
+  value,
+  placeholder = 'Search',
+  onChange,
+  onClear,
+  onSubmit,
+}: PhoneSearchFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [active, setActive] = useState(false)
 
@@ -26,6 +33,13 @@ export function PhoneSearchField({ value, placeholder = 'Search', onChange, onCl
         className={classes.form}
         onSubmit={(event) => {
           event.preventDefault()
+
+          if (onSubmit) {
+            onSubmit()
+
+            return
+          }
+
           inputRef.current?.blur()
         }}
       >

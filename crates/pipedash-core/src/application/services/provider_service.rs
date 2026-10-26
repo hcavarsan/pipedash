@@ -73,6 +73,7 @@ use crate::infrastructure::database::{
     FETCH_STATUS_SUCCESS,
 };
 use crate::infrastructure::providers::PluginAdapter;
+use crate::infrastructure::run_logs::LogStore;
 use crate::infrastructure::{
     HttpClientManager,
     TokenStore,
@@ -143,13 +144,15 @@ pub struct ProviderService {
     provider_factory: ProviderFactory,
     published_in_flight: DashSet<i64>,
     config_apply: Mutex<()>,
+    log_store: Arc<LogStore>,
 }
 
 impl ProviderService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         repository: Arc<Repository>, http_client_manager: Arc<HttpClientManager>,
         event_bus: Arc<dyn EventBus>, scheduler: Arc<FetchScheduler>, health: HealthHandle,
-        dispatcher: RefreshDispatcher, config_state: Arc<ConfigState>,
+        dispatcher: RefreshDispatcher, config_state: Arc<ConfigState>, log_store: Arc<LogStore>,
     ) -> Self {
         let plugin_registry = Arc::new(plugins::create_plugin_registry());
         let provider_factory: ProviderFactory = {
@@ -173,6 +176,7 @@ impl ProviderService {
             provider_factory,
             published_in_flight: DashSet::new(),
             config_apply: Mutex::new(()),
+            log_store,
         }
     }
 
@@ -244,6 +248,12 @@ impl ProviderService {
 
     pub(crate) fn commit_lock(&self, id: i64) -> Arc<Mutex<()>> {
         Arc::clone(self.commit_locks.entry(id).or_default().value())
+    }
+
+    async fn purge_run_logs(&self, id: i64) {
+        if let Err(e) = self.log_store.purge_provider(id).await {
+            tracing::warn!(provider_id = id, error = %e, "Failed to purge cached run logs");
+        }
     }
 
     async fn current(&self, id: i64) -> Option<ProviderLease> {
@@ -756,6 +766,7 @@ impl ProviderService {
             tracing::warn!(provider_id = id, error = %e, "Failed to reset fetch status");
         }
         let lease = self.replace(id, instance, config.refresh_interval).await;
+        self.purge_run_logs(id).await;
         self.health.send(HealthInput::ProvidersChanged {
             changed: vec![self.health_input(&config, &lease)],
         });
@@ -836,6 +847,7 @@ impl ProviderService {
         let lease = self
             .replace(id, new_provider, config.refresh_interval)
             .await;
+        self.purge_run_logs(id).await;
         self.health.send(HealthInput::ProvidersChanged {
             changed: vec![self.health_input(&config_with_id, &lease)],
         });
@@ -902,6 +914,7 @@ impl ProviderService {
             .remove_provider(id, &self.config_state)
             .await?;
         self.providers.write().await.remove(&id);
+        self.purge_run_logs(id).await;
         self.scheduler.remove(id);
         self.published_in_flight.remove(&id);
         self.health.send(HealthInput::ProvidersChanged {

@@ -2,6 +2,7 @@ pub mod defaults;
 pub mod error;
 pub mod health;
 pub mod http;
+pub mod logs;
 pub mod plugin;
 pub mod registry;
 pub mod schema;
@@ -32,6 +33,18 @@ pub use http::{
     redact_url,
     retry_after,
     truncate_chars,
+};
+pub use logs::{
+    LineMarker,
+    LogAvailability,
+    LogDialect,
+    LogNode,
+    LogNodeKind,
+    LogSink,
+    ParsedLine,
+    PlainDialect,
+    RunRef,
+    LOG_CHUNK_STALL_TIMEOUT,
 };
 pub use plugin::{
     Plugin,

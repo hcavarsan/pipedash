@@ -1,3 +1,5 @@
+import type { LogSearchQuery } from '../types/logs'
+
 export const queryKeys = {
   providers: {
     all: ['providers'] as const,
@@ -61,6 +63,15 @@ export const queryKeys = {
   cache: {
     all: ['cache'] as const,
     stats: () => [...queryKeys.cache.all, 'stats'] as const,
+  },
+
+  runLogs: {
+    all: ['runLogs'] as const,
+    tree: (pipelineId: string, runNumber: number) => [...queryKeys.runLogs.all, 'tree', pipelineId, runNumber] as const,
+    doc: (pipelineId: string, runNumber: number, nodeId: string) =>
+      [...queryKeys.runLogs.all, 'doc', pipelineId, runNumber, nodeId] as const,
+    search: (pipelineId: string, runNumber: number, nodeId: string, revision: number, query: LogSearchQuery) =>
+      [...queryKeys.runLogs.all, 'search', pipelineId, runNumber, nodeId, revision, query] as const,
   },
 
   workflows: {

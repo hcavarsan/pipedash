@@ -1,10 +1,11 @@
 import { notifications } from '@mantine/notifications'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { logLineCache } from '../components/logs/lineCache'
 import { REFRESH_INTERVALS } from '../constants/intervals'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
+import type { RunLogDocument } from '../types/logs'
 import { errorMessage } from '../utils/errorDisplay'
 
 export function useCacheStats() {
@@ -18,13 +19,29 @@ export function useCacheStats() {
   })
 }
 
+async function resetRunLogs(queryClient: QueryClient) {
+  await queryClient.cancelQueries({ queryKey: queryKeys.runLogs.all })
+  queryClient.setQueriesData({ queryKey: ['runLogs', 'doc'] }, {
+    state: 'loading',
+    received_bytes: 0,
+  } satisfies RunLogDocument)
+  queryClient.removeQueries({ queryKey: ['runLogs', 'search'] })
+  logLineCache.clear()
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['runLogs', 'tree'] }),
+    queryClient.invalidateQueries({ queryKey: ['runLogs', 'doc'] }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.cache.all }),
+  ])
+}
+
 export function useClearCache() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: () => service.clearAllCaches(),
 
-    onSuccess: () => {
+    onSuccess: async () => {
+      await resetRunLogs(queryClient)
       queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
@@ -120,6 +137,33 @@ export function useClearWorkflowParamsCache() {
       notifications.show({
         title: "Couldn't clear workflow parameters cache",
         message: errorMessage(error, 'Try clearing the workflow parameters cache again.'),
+        color: 'red',
+      })
+    },
+  })
+}
+
+export function useClearRunLogsCache() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () => service.clearRunLogsCache(),
+    retry: false,
+
+    onSuccess: async () => {
+      await resetRunLogs(queryClient)
+
+      notifications.show({
+        title: 'Run logs cache cleared',
+        message: 'Run logs cache cleared successfully',
+        color: 'green',
+      })
+    },
+
+    onError: (error: Error) => {
+      notifications.show({
+        title: "Couldn't clear run logs cache",
+        message: errorMessage(error, 'Try clearing the run logs cache again.'),
         color: 'red',
       })
     },

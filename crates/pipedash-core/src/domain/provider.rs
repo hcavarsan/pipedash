@@ -7,6 +7,7 @@ use serde::{
 };
 
 use super::error::{
+    DomainError,
     DomainResult,
     FailureKind,
 };
@@ -15,6 +16,12 @@ use super::pipeline::{
     Pipeline,
     PipelineRun,
     TriggerParams,
+};
+use super::run_logs::{
+    LogDialect,
+    LogNode,
+    LogSink,
+    PlainDialect,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,4 +151,22 @@ pub trait Provider: Send + Sync {
     fn status_source(&self) -> Option<&pipedash_plugin_api::StatusSource>;
 
     async fn check_health(&self) -> DomainResult<Vec<pipedash_plugin_api::ComponentHealth>>;
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &PlainDialect
+    }
+
+    async fn fetch_log_nodes(&self, _run: &PipelineRun) -> DomainResult<Vec<LogNode>> {
+        Err(DomainError::NotSupported(
+            "Run logs are not supported by this provider".into(),
+        ))
+    }
+
+    async fn read_log(
+        &self, _run: &PipelineRun, _node_id: &str, _sink: &mut LogSink,
+    ) -> DomainResult<()> {
+        Err(DomainError::NotSupported(
+            "Run logs are not supported by this provider".into(),
+        ))
+    }
 }

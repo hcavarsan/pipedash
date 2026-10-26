@@ -42,4 +42,7 @@ export type EventPayloadMap = {
   'pipeline-cache-invalidated': CacheInvalidatedPayload
   'pipeline-status-changed': PipelineStatusChangedPayload
   'refresh-status': RefreshStatusPayload
+  'run-log-progress': { pipelineId: string; runNumber: number; nodeId: string; receivedBytes: number }
+  'run-log-ready': { pipelineId: string; runNumber: number; nodeId: string; revision: number }
+  'run-log-failed': { pipelineId: string; runNumber: number; nodeId: string; message: string }
 }

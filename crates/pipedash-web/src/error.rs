@@ -88,6 +88,7 @@ impl From<DomainError> for AppError {
         match &err {
             DomainError::ProviderNotFound(_) => AppError::not_found(err.to_string()),
             DomainError::PipelineNotFound(_) => AppError::not_found(err.to_string()),
+            DomainError::NotFound(_) => AppError::not_found(err.to_string()),
             DomainError::InvalidConfig(_) => AppError::bad_request(err.to_string()),
             DomainError::AuthenticationFailed(_) => AppError::unauthorized(err.to_string()),
             DomainError::ProviderAuthenticationFailed(_) => AppError::new(

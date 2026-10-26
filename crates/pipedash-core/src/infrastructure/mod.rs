@@ -5,6 +5,7 @@ pub mod deduplication;
 pub mod http_client;
 pub mod migration;
 pub mod providers;
+pub mod run_logs;
 pub mod secrets;
 pub mod status_feeds;
 pub mod storage;

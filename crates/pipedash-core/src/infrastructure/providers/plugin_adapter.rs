@@ -1,11 +1,17 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pipedash_plugin_api::Plugin as PluginTrait;
+use pipedash_plugin_api::{
+    Plugin as PluginTrait,
+    RunRef,
+};
 
 use crate::domain::{
     DomainError,
     DomainResult,
+    LogDialect,
+    LogNode,
+    LogSink,
     Pipeline,
     PipelineRun,
     Provider,
@@ -119,6 +125,15 @@ impl PluginAdapter {
             actor: plugin_run.actor,
             inputs: plugin_run.inputs,
             metadata: plugin_run.metadata,
+        }
+    }
+
+    fn run_ref(run: &PipelineRun) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: &run.pipeline_id,
+            run_number: run.run_number,
+            run_id: &run.id,
+            metadata: &run.metadata,
         }
     }
 }
@@ -241,5 +256,40 @@ impl Provider for PluginAdapter {
 
     async fn check_health(&self) -> DomainResult<Vec<pipedash_plugin_api::ComponentHealth>> {
         self.plugin.check_health().await.map_err(Self::map_error)
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        self.plugin.log_dialect()
+    }
+
+    async fn fetch_log_nodes(&self, run: &PipelineRun) -> DomainResult<Vec<LogNode>> {
+        let nodes = self
+            .plugin
+            .fetch_log_nodes(Self::run_ref(run))
+            .await
+            .map_err(Self::map_error)?;
+        Ok(nodes
+            .into_iter()
+            .map(|n| LogNode {
+                id: n.id,
+                parent_id: n.parent_id,
+                kind: n.kind,
+                name: n.name,
+                status: Self::convert_status(n.status),
+                started_at: n.started_at,
+                finished_at: n.finished_at,
+                log: n.log,
+                web_url: n.web_url,
+            })
+            .collect())
+    }
+
+    async fn read_log(
+        &self, run: &PipelineRun, node_id: &str, sink: &mut LogSink,
+    ) -> DomainResult<()> {
+        self.plugin
+            .read_log(Self::run_ref(run), node_id, sink)
+            .await
+            .map_err(Self::map_error)
     }
 }

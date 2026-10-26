@@ -128,6 +128,27 @@ pub enum CoreEvent {
     VaultUnlocked,
 
     VaultLocked,
+
+    RunLogProgress {
+        pipeline_id: String,
+        run_number: i64,
+        node_id: String,
+        received_bytes: u64,
+    },
+
+    RunLogReady {
+        pipeline_id: String,
+        run_number: i64,
+        node_id: String,
+        revision: i64,
+    },
+
+    RunLogFailed {
+        pipeline_id: String,
+        run_number: i64,
+        node_id: String,
+        message: String,
+    },
 }
 
 impl CoreEvent {
@@ -154,6 +175,9 @@ impl CoreEvent {
             CoreEvent::RunHistoryCacheInvalidated { .. } => "run-history-cache-invalidated",
             CoreEvent::VaultUnlocked => "vault-unlocked",
             CoreEvent::VaultLocked => "vault-locked",
+            CoreEvent::RunLogProgress { .. } => "run-log-progress",
+            CoreEvent::RunLogReady { .. } => "run-log-ready",
+            CoreEvent::RunLogFailed { .. } => "run-log-failed",
         }
     }
 
@@ -270,6 +294,39 @@ impl CoreEvent {
             }
             CoreEvent::VaultUnlocked => serde_json::json!({}),
             CoreEvent::VaultLocked => serde_json::json!({}),
+            CoreEvent::RunLogProgress {
+                pipeline_id,
+                run_number,
+                node_id,
+                received_bytes,
+            } => serde_json::json!({
+                "pipelineId": pipeline_id,
+                "runNumber": run_number,
+                "nodeId": node_id,
+                "receivedBytes": received_bytes,
+            }),
+            CoreEvent::RunLogReady {
+                pipeline_id,
+                run_number,
+                node_id,
+                revision,
+            } => serde_json::json!({
+                "pipelineId": pipeline_id,
+                "runNumber": run_number,
+                "nodeId": node_id,
+                "revision": revision,
+            }),
+            CoreEvent::RunLogFailed {
+                pipeline_id,
+                run_number,
+                node_id,
+                message,
+            } => serde_json::json!({
+                "pipelineId": pipeline_id,
+                "runNumber": run_number,
+                "nodeId": node_id,
+                "message": message,
+            }),
         }
     }
 }

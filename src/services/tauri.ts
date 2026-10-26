@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { save } from '@tauri-apps/plugin-dialog'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { platform } from '@tauri-apps/plugin-os'
 import { REFRESH_TIMEOUT_MS } from '../constants/timeouts'
@@ -10,6 +11,7 @@ import {
   type ConfigAnalysisResponse,
   type ConfigContentResponse,
   createError,
+  type ExportFileResult,
   type FeatureAvailability,
   type GeneralConfig,
   type GlobalMetricsConfig,
@@ -46,7 +48,11 @@ import {
   type VaultStatusResponse,
   type WorkflowParameter,
 } from '../types'
+import type { LogLinesPage, LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
+import { isMobilePlatform } from '../utils/platform'
 import { DEFAULT_RETRY_CONFIG, shouldRetry, withRetry } from '../utils/retryLogic'
+
+const RUN_LOG_SEARCH_TIMEOUT_MS = 60000
 
 const TAURI_COMMAND_TIMEOUTS: Record<string, number> = {
   factory_reset: 120000,
@@ -433,6 +439,7 @@ export const tauriService = {
     run_history_count: number
     workflow_params_count: number
     metrics_count: number
+    run_logs_bytes: number
   }> => {
     return invoke('get_cache_stats')
   },
@@ -451,6 +458,84 @@ export const tauriService = {
 
   clearAllCaches: async (): Promise<void> => {
     return invoke<void>('clear_all_caches')
+  },
+
+  getRunLogTree: async (pipelineId: string, runNumber: number): Promise<RunLogTree> => {
+    return invoke<RunLogTree>('get_run_log_tree', { pipelineId, runNumber })
+  },
+
+  openRunLog: async (
+    pipelineId: string,
+    runNumber: number,
+    nodeId: string,
+    retry: boolean
+  ): Promise<RunLogDocument> => {
+    return invoke<RunLogDocument>('open_run_log', { pipelineId, runNumber, nodeId, retry })
+  },
+
+  readRunLogLines: async (
+    pipelineId: string,
+    runNumber: number,
+    nodeId: string,
+    revision: number,
+    start: number,
+    count: number,
+    maxLineUnits: number
+  ): Promise<LogLinesPage> => {
+    return invoke<LogLinesPage>('read_run_log_lines', {
+      pipelineId,
+      runNumber,
+      nodeId,
+      revision,
+      start,
+      count,
+      maxLineUnits,
+    })
+  },
+
+  searchRunLog: async (
+    pipelineId: string,
+    runNumber: number,
+    nodeId: string,
+    revision: number,
+    sessionId: string,
+    query: LogSearchQuery,
+    signal?: AbortSignal
+  ): Promise<LogSearchResult> => {
+    signal?.throwIfAborted()
+
+    return invokeWithTimeout<LogSearchResult>(
+      'search_run_log',
+      { pipelineId, runNumber, nodeId, revision, sessionId, query },
+      RUN_LOG_SEARCH_TIMEOUT_MS,
+      false
+    )
+  },
+
+  clearRunLogsCache: async (): Promise<void> => {
+    return invoke<void>('clear_run_logs_cache')
+  },
+
+  exportRunLog: async (
+    pipelineId: string,
+    runNumber: number,
+    nodeId: string,
+    revision: number,
+    fileName: string
+  ): Promise<boolean> => {
+    const args = { pipelineId, runNumber, nodeId, revision, fileName }
+
+    if (isMobilePlatform()) {
+      return (await invoke<ExportFileResult>('export_run_log', { ...args, destination: null })).shared
+    }
+
+    const destination = await save({ defaultPath: fileName, filters: [{ name: 'Log', extensions: ['log'] }] })
+
+    if (!destination) {
+      return false
+    }
+
+    return (await invoke<ExportFileResult>('export_run_log', { ...args, destination })).shared
   },
 
   getTablePreferences: async (providerId: number, tableId: string): Promise<string | null> => {

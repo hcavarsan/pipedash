@@ -242,6 +242,7 @@ interface PluginCapabilities {
   queues: boolean
   custom_tables: boolean
   retains_run_history: boolean
+  logs: boolean
 }
 
 type ConfigFieldType = 'Text' | 'Password' | 'TextArea' | 'Boolean' | 'Select' | 'MultiSelect' | 'Number'

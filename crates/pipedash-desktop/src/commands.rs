@@ -80,6 +80,7 @@ pub struct CacheStats {
     pub run_history_count: i64,
     pub workflow_params_count: i64,
     pub metrics_count: i64,
+    pub run_logs_bytes: u64,
 }
 
 #[tauri::command]
@@ -815,6 +816,7 @@ pub async fn get_cache_stats(
         run_history_count,
         workflow_params_count,
         metrics_count,
+        run_logs_bytes: core.log_service.stats().await.bytes,
     })
 }
 
@@ -866,10 +868,9 @@ pub async fn clear_all_caches(
         error: e,
         details: None,
     })?;
-    core.pipeline_service
-        .clear_all_caches_atomic()
-        .await
-        .map_err(Into::into)
+    core.pipeline_service.clear_all_caches_atomic().await?;
+    core.log_service.clear().await?;
+    Ok(())
 }
 
 #[tauri::command]

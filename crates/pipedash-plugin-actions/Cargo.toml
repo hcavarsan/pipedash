@@ -8,6 +8,7 @@ repository = "https://github.com/hcavarsan/pipedash"
 license = "GPL-3.0"
 
 [dependencies]
+chrono.workspace = true
 pipedash-plugin-api.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true

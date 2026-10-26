@@ -12,7 +12,7 @@ import { TYPOGRAPHY } from '../../theme/typography'
 import type { ModalBaseProps } from '../../types'
 import { confirmDiscard } from '../../utils/confirm'
 
-type ModalSize = 'md' | 'lg' | 'xl'
+type ModalSize = 'md' | 'lg' | 'xl' | 'full'
 
 export interface ModalAction {
   label: string
@@ -38,10 +38,11 @@ interface StandardModalProps extends ModalBaseProps {
   detents?: SheetDetent[]
 }
 
-const DESKTOP_LAYOUT: Record<ModalSize, { width: string; height?: string }> = {
+const DESKTOP_LAYOUT: Record<ModalSize, { width: string; height?: string; xOffset?: string }> = {
   md: { width: 'min(560px, 92vw)' },
   lg: { width: 'min(880px, 92vw)' },
   xl: { width: 'min(1400px, 95vw)', height: 'min(90vh, 1000px)' },
+  full: { width: '96vw', height: '94vh', xOffset: '2vw' },
 }
 
 const CLOSE_WAIT_MS = 600
@@ -84,7 +85,7 @@ export const StandardModal = ({
   size = 'lg',
   contentPadding = true,
   disableScrollArea = false,
-  fullHeight = size === 'xl',
+  fullHeight = size === 'xl' || size === 'full',
   primaryAction,
   backAction,
   dirty = false,
@@ -317,6 +318,7 @@ export const StandardModal = ({
       {...sharedProps}
       centered
       size={layout.width}
+      xOffset={layout.xOffset}
       styles={{
         ...sharedStyles,
         header: { ...sharedStyles.header, flexShrink: 0 },
