@@ -55,7 +55,7 @@ def ios_build(build_number:, sign:)
       project: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
       scheme: TARGET,
       archive_path: archive,
-      export_method: "app-store-connect",
+      export_method: "app-store",
       export_options: BuildActivityProject.export_options(profiles, team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM")),
       skip_profile_detection: true,
       output_directory: File.join(APPLE_DIR, "build/arm64"),

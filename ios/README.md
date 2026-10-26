@@ -154,6 +154,8 @@ If the extension profile is absent or expired, the signed lane fails instead of 
 Tauri archives the app with per-target manual signing settings.
 Fastlane exports that archive with an explicit provisioning-profile mapping for both bundle IDs.
 This avoids Tauri's single-app export mapping dropping the extension profile.
+Fastlane's `build_app` requires `export_method: "app-store"`; keep `app-store-connect` for the Tauri CLI
+and the Xcode `export_options[:method]` value.
 `verify_ipa` checks the embedded extension, matching versions and the signed extension's application identifier.
 
 Run the focused Ruby checks without building or publishing:
