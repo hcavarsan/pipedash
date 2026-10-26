@@ -7,7 +7,6 @@ import { events, isTauri } from '../services'
 import { type CenterNotificationTone, useNotificationCenterStore } from '../stores/notificationCenterStore'
 import type { Pipeline, ProviderSummary } from '../types'
 import type { EventPayloadMap } from '../types/events'
-import { isOutageLevel, providerAttention } from '../utils/providerAttention'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
 const notify = (
@@ -17,9 +16,7 @@ const notify = (
   provider: ProviderSummary | undefined,
   system: boolean
 ) => {
-  const providerName = provider?.name ?? pipeline.provider_type
-  const outage = provider && isOutageLevel(provider.health.level) ? providerAttention(provider).headline : null
-  const body = [[pipeline.repository, providerName].filter(Boolean).join(' · '), outage].filter(Boolean).join(' · ')
+  const body = [pipeline.repository, provider?.name || pipeline.provider_type].filter(Boolean).join(' · ')
   const key = `pipeline:${pipeline.id}`
 
   useNotificationCenterStore.getState().push({
