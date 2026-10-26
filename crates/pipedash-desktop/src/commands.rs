@@ -1922,6 +1922,7 @@ pub async fn factory_reset(
         details: None,
     })?;
     crate::build_watch::interrupt(&app);
+    crate::local_notifications::reset(&app).await?;
 
     let providers_removed = core.factory_reset().await?;
 

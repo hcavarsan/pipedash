@@ -12,7 +12,7 @@ Other features:
 - Face ID: Settings > Storage > "Require Face ID". The app asks for Face ID or the device passcode before loading saved tokens.
 - Local network: a self-hosted provider on a local address may require Local Network permission. The GitHub demo does not need a local server.
 - Provider export: Settings > Providers > "Export providers" opens the native Files picker so you can choose a destination.
-- Local notifications are optional. Remote push, background build watching and Live Activities are disabled in this build.
+- Notifications: Settings > Notifications > "Notifications" (off by default). After a confirmation and the iOS permission prompt, the app uses Background App Refresh (BGAppRefreshTask, "fetch" mode) to check the user's providers and status pages and post local notifications for failed pipelines, long-running runs and outages. Remote push, background build watching and Live Activities are disabled in this build.
 
 The app connects to the providers the user adds and public status-page hosts: www.githubstatus.com, api.status.io, bitbucket.status.atlassian.com and www.buildkitestatus.com. Users can configure other status pages, a proxy or advanced storage destinations.
 Privacy policy: https://github.com/hcavarsan/pipedash/blob/main/PRIVACY.md

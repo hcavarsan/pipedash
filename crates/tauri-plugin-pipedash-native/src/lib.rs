@@ -29,6 +29,8 @@ pub use model::{
     BuildWatchStatus,
     BuildWatchStopReason,
     HapticKind,
+    LocalNotificationSettings,
+    NotificationRefresh,
     NotificationResponse,
     PrivacyCover,
     ShareRect,

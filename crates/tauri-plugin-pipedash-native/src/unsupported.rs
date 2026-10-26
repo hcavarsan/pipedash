@@ -18,6 +18,8 @@ use crate::{
     BuildWatchStopReason,
     Error,
     HapticKind,
+    LocalNotificationSettings,
+    NotificationRefresh,
     NotificationResponse,
     PrivacyCover,
     Result,
@@ -102,6 +104,37 @@ impl<R: Runtime> PipedashNative<R> {
         Ok(())
     }
 
+    pub async fn local_notification_settings(&self) -> Result<LocalNotificationSettings> {
+        Ok(LocalNotificationSettings {
+            enabled: false,
+            available: false,
+            reason: Some("Background notifications require the Pipedash iOS app".to_string()),
+        })
+    }
+
+    pub async fn configure_local_notifications(
+        &self, enabled: bool,
+    ) -> Result<LocalNotificationSettings> {
+        if enabled {
+            return Err(Error::Unsupported);
+        }
+        self.local_notification_settings().await
+    }
+
+    pub async fn notification_refresh_ready(&self) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn finish_notification_refresh(&self, _id: &str, _success: bool) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn on_notification_refresh<F: Fn(NotificationRefresh) + Send + Sync + 'static>(
+        &self, _handler: F,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     pub fn on_build_watch_changed<F: Fn(BuildWatchStatus) + Send + Sync + 'static>(
         &self, _handler: F,
     ) -> Result<()> {
@@ -110,5 +143,50 @@ impl<R: Runtime> PipedashNative<R> {
 
     pub fn on_status_bar_tap<F: Fn() + Send + Sync + 'static>(&self, _handler: F) -> Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn native() -> PipedashNative<tauri::Wry> {
+        PipedashNative(PhantomData)
+    }
+
+    #[test]
+    fn unsupported_platforms_report_notifications_off_and_unavailable() {
+        let settings =
+            tauri::async_runtime::block_on(native().local_notification_settings()).unwrap();
+        assert!(!settings.enabled);
+        assert!(!settings.available);
+        assert!(settings.reason.is_some());
+    }
+
+    #[test]
+    fn unsupported_platforms_reject_enabling_but_allow_idempotent_disabling() {
+        let native = native();
+        assert!(matches!(
+            tauri::async_runtime::block_on(native.configure_local_notifications(true)),
+            Err(Error::Unsupported)
+        ));
+        for _ in 0..2 {
+            let settings =
+                tauri::async_runtime::block_on(native.configure_local_notifications(false))
+                    .unwrap();
+            assert!(!settings.enabled);
+            assert!(!settings.available);
+        }
+    }
+
+    #[test]
+    fn unsupported_platforms_accept_readiness_and_completion_without_a_task() {
+        let native = native();
+        assert!(tauri::async_runtime::block_on(native.notification_refresh_ready()).is_ok());
+        assert!(
+            tauri::async_runtime::block_on(native.finish_notification_refresh("late", false))
+                .is_ok()
+        );
+        assert!(native.on_notification_refresh(|_| {}).is_ok());
     }
 }

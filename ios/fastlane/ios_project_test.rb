@@ -82,13 +82,29 @@ class IosProjectTest < Minitest::Test
     assert_raises(ArgumentError) { IosProject.export_options(nil, team_id: "TEAM") }
   end
 
-  def test_packaging_accepts_disabled_features_without_background_declarations
-    IosProject.verify_metadata!("PipedashBuildWatchEnabled" => false)
+  def packaged_app
+    {
+      "PipedashBuildWatchEnabled" => false,
+      "BGTaskSchedulerPermittedIdentifiers" => [IosProject::NOTIFICATION_TASK_ID],
+      "UIBackgroundModes" => ["fetch"],
+    }
+  end
+
+  def test_packaging_accepts_disabled_watch_with_notification_refresh
+    IosProject.verify_metadata!(packaged_app)
   end
 
   def test_packaging_rejects_missing_or_reactivated_feature_flag
     [nil, true, "false", 0].each do |value|
-      assert_raises(ArgumentError) { IosProject.verify_metadata!("PipedashBuildWatchEnabled" => value) }
+      assert_raises(ArgumentError) { IosProject.verify_metadata!(packaged_app.merge("PipedashBuildWatchEnabled" => value)) }
+    end
+  end
+
+  def test_packaging_requires_each_notification_refresh_declaration
+    %w[BGTaskSchedulerPermittedIdentifiers UIBackgroundModes].each do |key|
+      invalid = packaged_app
+      invalid.delete(key)
+      assert_raises(ArgumentError) { IosProject.verify_metadata!(invalid) }
     end
   end
 
@@ -96,12 +112,11 @@ class IosProjectTest < Minitest::Test
     [
       { "NSSupportsLiveActivities" => true },
       { "NSSupportsLiveActivitiesFrequentUpdates" => true },
-      { "BGTaskSchedulerPermittedIdentifiers" => ["com.henrique.pipedash.build-watch"] },
-      { "UIBackgroundModes" => ["processing"] },
-      { "UIBackgroundModes" => ["remote-notification"] },
+      { "BGTaskSchedulerPermittedIdentifiers" => [IosProject::NOTIFICATION_TASK_ID, "com.henrique.pipedash.build-watch"] },
+      { "UIBackgroundModes" => %w[fetch processing] },
+      { "UIBackgroundModes" => %w[fetch remote-notification] },
     ].each do |capability|
-      app = { "PipedashBuildWatchEnabled" => false }.merge(capability)
-      assert_raises(ArgumentError) { IosProject.verify_metadata!(app) }
+      assert_raises(ArgumentError) { IosProject.verify_metadata!(packaged_app.merge(capability)) }
     end
   end
 

@@ -1,5 +1,6 @@
 mod alerts;
 mod feed;
+mod notifications;
 mod signals;
 #[cfg(test)]
 mod tests;
@@ -45,8 +46,8 @@ use tokio::time::{
 use tokio_util::sync::CancellationToken;
 
 use self::alerts::{
-    connection_candidate,
     connection_recovery,
+    connectivity,
     feed_candidates,
     feed_recovery,
     instance_candidates,
@@ -54,6 +55,7 @@ use self::alerts::{
     merge,
     Alert,
     AlertTracker,
+    Connectivity,
     Observation,
     CALM_CHECKS,
     CALM_FETCHES,
@@ -63,6 +65,11 @@ use self::feed::{
     FeedOutcome,
     FEED_INVALID,
     FEED_UNREACHABLE,
+};
+pub use self::notifications::{
+    refresh_notifications,
+    LocalNotification,
+    NotificationState,
 };
 use self::signals::{
     next_evidence_change,
@@ -83,6 +90,7 @@ use crate::domain::{
     FailureKind,
     HealthLevel,
     HealthSignal,
+    Provider,
     SignalKind,
     StatusPageRef,
 };
@@ -105,6 +113,7 @@ const FEED_BACKOFF_MAX: Duration = Duration::from_secs(30 * 60);
 const INSTANCE_INTERVAL: Duration = Duration::from_secs(120);
 const INSTANCE_TIMEOUT: Duration = Duration::from_secs(10);
 const INSTANCE_CONCURRENCY: usize = 4;
+const FEED_SUBJECT_PREFIX: &str = "status-page:";
 
 static NEXT_EPISODE: AtomicU64 = AtomicU64::new(1);
 
@@ -200,7 +209,7 @@ fn feed_key(source: &StatusSource) -> FeedKey {
 }
 
 fn feed_subject(key: &FeedKey) -> String {
-    format!("status-page:{:?}:{}", key.1, key.0)
+    format!("{FEED_SUBJECT_PREFIX}{:?}:{}", key.1, key.0)
 }
 
 fn instance_subject(id: i64) -> String {
@@ -377,8 +386,11 @@ async fn run_check(
             return CheckOutcome::Failed;
         }
     };
+    check_instance(&*lease.provider, id).await
+}
 
-    match timeout(INSTANCE_TIMEOUT, lease.provider.check_health()).await {
+async fn check_instance(provider: &dyn Provider, id: i64) -> CheckOutcome {
+    match timeout(INSTANCE_TIMEOUT, provider.check_health()).await {
         Ok(Ok(components)) => CheckOutcome::Components(components),
         Ok(Err(DomainError::PermissionDenied(_))) => CheckOutcome::Denied,
         Ok(Err(DomainError::PipelineNotFound(_) | DomainError::NotFound(_))) => {
@@ -713,18 +725,13 @@ impl Actor {
         });
 
         let subject = connection_subject(id);
-        let candidates = match kind {
-            None => Vec::new(),
-            Some(kind) if !kind.is_transient() => {
+        let candidates = match connectivity(&entry.display_name, kind, view.failures, id) {
+            Connectivity::Reset => {
                 self.alerts.reset(&subject);
                 return;
             }
-            Some(kind) => match signals::connection(&entry.display_name, kind, view.failures) {
-                Some(connection) if connection.kind == SignalKind::Connection => {
-                    vec![connection_candidate(&connection, id)]
-                }
-                _ => return,
-            },
+            Connectivity::Ignore => return,
+            Connectivity::Observe(candidates) => candidates,
         };
         let alerts = self.alerts.observe(
             &subject,

@@ -1,14 +1,25 @@
 import { matchQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 
+import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
+import { events, isTauri } from '../services'
 import { type CenterNotificationTone, useNotificationCenterStore } from '../stores/notificationCenterStore'
-import { useNotificationStore } from '../stores/notificationStore'
-import type { Pipeline, PipelineStatus, ProviderSummary } from '../types'
+import type { Pipeline, ProviderSummary } from '../types'
+import type { EventPayloadMap } from '../types/events'
 import { isOutageLevel, providerAttention } from '../utils/providerAttention'
-import { showSystemNotification } from '../utils/systemNotifications'
+import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
-const notify = (pipeline: Pipeline, tone: CenterNotificationTone, title: string, body: string, system: boolean) => {
+const notify = (
+  pipeline: Pipeline,
+  tone: CenterNotificationTone,
+  title: string,
+  provider: ProviderSummary | undefined,
+  system: boolean
+) => {
+  const providerName = provider?.name ?? pipeline.provider_type
+  const outage = provider && isOutageLevel(provider.health.level) ? providerAttention(provider).headline : null
+  const body = [[pipeline.repository, providerName].filter(Boolean).join(' · '), outage].filter(Boolean).join(' · ')
   const key = `pipeline:${pipeline.id}`
 
   useNotificationCenterStore.getState().push({
@@ -34,10 +45,39 @@ export function useFailureNotifications() {
   const queryClient = useQueryClient()
 
   useEffect(() => {
-    const lastStatuses = new Map<string, PipelineStatus>()
+    const native = isTauri()
+    const lastPipelines = new Map<string, Pipeline>()
     const notifiedOverdueRuns = new Map<string, string>()
+    let active = true
+    let unlisten: (() => void) | undefined
 
-    return queryClient.getQueryCache().subscribe((event) => {
+    if (native) {
+      events
+        .listen<EventPayloadMap['pipelines-failed']>('pipelines-failed', ({ pipelines }) => {
+          if (!active) {
+            return
+          }
+          const enabled = systemDeliveryEnabled()
+          const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
+
+          for (const pipeline of pipelines) {
+            const provider = providers?.find((item) => item.id === pipeline.provider_id)
+            notify(pipeline, 'danger', `${pipeline.name} failed`, provider, enabled)
+          }
+        })
+        .then((fn) => {
+          if (active) {
+            unlisten = fn
+          } else {
+            fn()
+          }
+        })
+        .catch((error: unknown) =>
+          logger.warn('useFailureNotifications', "Couldn't listen for pipeline failures", error)
+        )
+    }
+
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
       if (event.type !== 'updated' || event.action.type !== 'success') {
         return
       }
@@ -52,41 +92,43 @@ export function useFailureNotifications() {
         return
       }
 
-      const enabled = useNotificationStore.getState().failureNotificationsEnabled
+      const enabled = systemDeliveryEnabled()
       const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
 
       for (const pipeline of pipelines) {
-        const previous = lastStatuses.get(pipeline.id)
+        const previous = lastPipelines.get(pipeline.id)
         const overdueRun = pipeline.overdue_run
         const newOverdueRun =
           previous !== undefined && !!overdueRun && notifiedOverdueRuns.get(pipeline.id) !== overdueRun
+        const failed =
+          !native &&
+          previous !== undefined &&
+          pipeline.status === 'failed' &&
+          (previous.status !== 'failed' || previous.last_run !== pipeline.last_run)
 
-        lastStatuses.set(pipeline.id, pipeline.status)
+        lastPipelines.set(pipeline.id, pipeline)
         if (overdueRun) {
           notifiedOverdueRuns.set(pipeline.id, overdueRun)
         }
-
-        const failed = previous !== undefined && previous !== 'failed' && pipeline.status === 'failed'
 
         if (!failed && !newOverdueRun) {
           continue
         }
 
         const provider = providers?.find((p) => p.id === pipeline.provider_id)
-        const providerName = provider?.name ?? pipeline.provider_type
-        const outage = provider && isOutageLevel(provider.health.level) ? providerAttention(provider).headline : null
-        const details = [[pipeline.repository, providerName].filter(Boolean).join(' · '), outage]
-          .filter(Boolean)
-          .join(' · ')
-
         if (failed) {
-          notify(pipeline, 'danger', `${pipeline.name} failed`, details, enabled)
+          notify(pipeline, 'danger', `${pipeline.name} failed`, provider, enabled)
         }
-
         if (newOverdueRun) {
-          notify(pipeline, 'warning', `${pipeline.name} is running longer than usual`, details, enabled)
+          notify(pipeline, 'warning', `${pipeline.name} is running longer than usual`, provider, enabled)
         }
       }
     })
+
+    return () => {
+      active = false
+      unlisten?.()
+      unsubscribe()
+    }
   }, [queryClient])
 }

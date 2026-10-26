@@ -37,13 +37,13 @@ use tokio::time::{
 };
 
 const MAX_CONCURRENT_PROVIDER_FETCHES: usize = 10;
-const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
-const FETCH_TIMEOUT_MESSAGE: &str = "Connection timeout - provider did not respond";
+pub(crate) const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const FETCH_TIMEOUT_MESSAGE: &str = "Connection timeout - provider did not respond";
 const FORCE_FEEDS_MIN_AGE: Duration = Duration::from_secs(15);
 const OVERDUE_FACTOR: i64 = 3;
 const OVERDUE_MIN_SUCCESSFUL_RUNS: usize = 3;
-const OVERDUE_RECENT_RUNS: usize = 20;
-const OVERDUE_CONCURRENT_CHECKS: usize = 4;
+pub(crate) const OVERDUE_RECENT_RUNS: usize = 20;
+pub(crate) const OVERDUE_CONCURRENT_CHECKS: usize = 4;
 
 use super::health_service::{
     HealthHandle,
@@ -565,7 +565,7 @@ impl PipelineService {
         let permits = Semaphore::new(OVERDUE_CONCURRENT_CHECKS);
         let checks = pipelines
             .iter()
-            .filter(|p| p.status == PipelineStatus::Running && p.provider_type != "fluxcd")
+            .filter(|p| tracks_overdue(p))
             .map(|pipeline| {
                 let permits = &permits;
                 async move {
@@ -1110,7 +1110,11 @@ fn newly_failed(old: &HashMap<&str, &Pipeline>, new: &[Pipeline]) -> Vec<Pipelin
         .collect()
 }
 
-fn overdue_run(runs: &[PipelineRun], now: DateTime<Utc>) -> Option<String> {
+pub(crate) fn tracks_overdue(pipeline: &Pipeline) -> bool {
+    pipeline.status == PipelineStatus::Running && pipeline.provider_type != "fluxcd"
+}
+
+pub(crate) fn overdue_run(runs: &[PipelineRun], now: DateTime<Utc>) -> Option<String> {
     let running = runs
         .iter()
         .find(|run| run.status == PipelineStatus::Running)?;

@@ -193,6 +193,8 @@ class ScreenshotLanesTest < Minitest::Test
       "ITSAppUsesNonExemptEncryption" => false,
       "CFBundleIcons" => {},
       "PipedashBuildWatchEnabled" => false,
+      "BGTaskSchedulerPermittedIdentifiers" => ["com.henrique.pipedash.notifications-refresh"],
+      "UIBackgroundModes" => ["fetch"],
     }
     @file.define_singleton_method(:plist_to_hash) { |_path| info }
     @file.define_singleton_method(:sh) do |*command|

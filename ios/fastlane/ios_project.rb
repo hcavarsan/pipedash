@@ -3,6 +3,7 @@ require "yaml"
 module IosProject
   APP_ID = "com.henrique.pipedash"
   APP_TARGET = "pipedash-desktop_iOS"
+  NOTIFICATION_TASK_ID = "#{APP_ID}.notifications-refresh"
 
   def self.configure(spec, version:, build_number:)
     raise ArgumentError, "Expected a three-part iOS version" unless version.match?(/\A\d+\.\d+\.\d+\z/)
@@ -40,10 +41,12 @@ module IosProject
     if app["NSSupportsLiveActivities"] || app["NSSupportsLiveActivitiesFrequentUpdates"]
       raise ArgumentError, "Live Activities must remain disabled for release"
     end
-    unless Array(app["BGTaskSchedulerPermittedIdentifiers"]).empty?
-      raise ArgumentError, "Disabled build watching must not declare background tasks"
+    unless Array(app["BGTaskSchedulerPermittedIdentifiers"]) == [NOTIFICATION_TASK_ID]
+      raise ArgumentError, "App must declare only the notifications background refresh task"
     end
-    unless (Array(app["UIBackgroundModes"]) & %w[processing remote-notification]).empty?
+    modes = Array(app["UIBackgroundModes"])
+    raise ArgumentError, "App is missing background fetch mode" unless modes.include?("fetch")
+    unless (modes & %w[processing remote-notification]).empty?
       raise ArgumentError, "Disabled build watching and push must not declare background modes"
     end
   end

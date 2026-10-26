@@ -490,15 +490,7 @@ impl ProviderService {
             generation: Some(lease.generation),
             display_name: config.display_name().to_string(),
             source: lease.provider.status_source().cloned(),
-            has_instance_checks: self.plugin_registry.get(&config.provider_type).is_some_and(
-                |plugin| {
-                    plugin
-                        .metadata()
-                        .features
-                        .iter()
-                        .any(|feature| feature.id == CONTROLLER_HEALTH_FEATURE)
-                },
-            ),
+            has_instance_checks: controller_health(&self.plugin_registry, &config.provider_type),
         }
     }
 
@@ -1125,7 +1117,17 @@ fn init_plugin(
     Ok(plugin)
 }
 
-fn plugin_provider(
+pub(crate) fn controller_health(registry: &PluginRegistry, provider_type: &str) -> bool {
+    registry.get(provider_type).is_some_and(|plugin| {
+        plugin
+            .metadata()
+            .features
+            .iter()
+            .any(|feature| feature.id == CONTROLLER_HEALTH_FEATURE)
+    })
+}
+
+pub(crate) fn plugin_provider(
     registry: &PluginRegistry, http: &HttpClientManager, config: &ProviderConfig,
 ) -> DomainResult<Arc<dyn Provider>> {
     if !registry.is_registered(&config.provider_type) {
@@ -1193,7 +1195,7 @@ fn configured_repositories(config: &ProviderConfig) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn quota_pause(rate_limit: &RateLimit, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+pub(crate) fn quota_pause(rate_limit: &RateLimit, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
     let low = rate_limit.remaining * 100 < rate_limit.limit * QUOTA_PAUSE_PERCENT;
 
     (low && rate_limit.reset_at > now).then_some(rate_limit.reset_at)

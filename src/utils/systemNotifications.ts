@@ -1,15 +1,20 @@
-import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification'
+import { invoke } from '@tauri-apps/api/core'
+import { requestPermission } from '@tauri-apps/plugin-notification'
 
 import { logger } from '../lib/logger'
 import { isTauri, tauriService } from '../services'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
+import { useNotificationStore } from '../stores/notificationStore'
 import type { NotificationTarget } from '../types'
 
-import { isMobilePlatform } from './platform'
+import { isIosPlatform, isMobilePlatform } from './platform'
 
 export const openNotificationDetails = (key: string): void => {
   useNotificationCenterStore.getState().open({ type: 'notification', key })
 }
+
+export const systemDeliveryEnabled = (): boolean =>
+  !isIosPlatform() && useNotificationStore.getState().notificationsEnabled
 
 export const systemNotificationsSupported = (): boolean =>
   isTauri() || ('Notification' in window && window.isSecureContext)
@@ -26,8 +31,10 @@ export function notificationProblem(kind: 'unsupported' | 'blocked'): string {
     : 'Allow notifications for Pipedash in your browser or system settings, then turn this on again.'
 }
 
-const permissionGranted = (): Promise<boolean> =>
-  isTauri() ? isPermissionGranted() : Promise.resolve(Notification.permission === 'granted')
+const permissionGranted = async (): Promise<boolean> =>
+  isTauri()
+    ? (await invoke<boolean | null>('plugin:notification|is_permission_granted')) === true
+    : Notification.permission === 'granted'
 
 export async function requestSystemNotificationPermission(): Promise<boolean> {
   if (!systemNotificationsSupported()) {

@@ -87,6 +87,11 @@ export const queryKeys = {
     status: () => [...queryKeys.buildWatch.all, 'status'] as const,
   },
 
+  localNotifications: {
+    all: ['localNotifications'] as const,
+    settings: () => [...queryKeys.localNotifications.all, 'settings'] as const,
+  },
+
   tablePreferences: {
     all: ['tablePreferences'] as const,
     detail: (providerId: number, tableId: string) => [...queryKeys.tablePreferences.all, providerId, tableId] as const,

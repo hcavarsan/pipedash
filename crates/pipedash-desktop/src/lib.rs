@@ -6,6 +6,7 @@ mod credential;
 mod export_file;
 pub mod fallback_store;
 pub mod keyring_store;
+mod local_notifications;
 mod native;
 mod push;
 mod system_notifications;
@@ -299,7 +300,8 @@ pub fn run() {
         .plugin(tauri_plugin_pipedash_push::init())
         .plugin(tauri_plugin_pipedash_native::init())
         .manage(native::PendingIntent::default())
-        .manage(BuildWatchState::default());
+        .manage(BuildWatchState::default())
+        .manage(local_notifications::LocalNotificationsState::default());
 
     #[cfg(mobile)]
     let builder = builder
@@ -370,6 +372,7 @@ pub fn run() {
             app.manage(MaybeCoreContext::default());
             app.manage(app_lock);
             native::sync_privacy_cover(app.handle(), lock_settings);
+            local_notifications::register(app.handle())?;
 
             if !setup_complete {
                 tracing::info!("No configuration found - starting in setup mode");
@@ -479,6 +482,8 @@ pub fn run() {
             push_pair_server,
             push_unpair_server,
             push_send_test,
+            local_notifications::get_local_notification_settings,
+            local_notifications::set_local_notifications_enabled,
             system_notifications::show_system_notification,
             native::native_haptic,
             native::native_set_appearance,

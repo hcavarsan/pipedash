@@ -44,6 +44,8 @@ function tauriPlatform(): Platform {
 
 export const isMobilePlatform = (): boolean => isTauri() && isMobileOs(tauriPlatform())
 
+export const isIosPlatform = (): boolean => isTauri() && tauriPlatform() === 'ios'
+
 export const isDesktopTauri = (): boolean => isTauri() && !isMobilePlatform()
 
 function modernPlatformDetection(): Platform {

@@ -27,6 +27,8 @@ use crate::{
     BuildWatchStopReason,
     Error,
     HapticKind,
+    LocalNotificationSettings,
+    NotificationRefresh,
     NotificationResponse,
     PrivacyCover,
     Result,
@@ -78,6 +80,17 @@ struct ShareLinkArgs<'a> {
 struct StopBuildWatchArgs<'a> {
     session_id: &'a str,
     reason: BuildWatchStopReason,
+}
+
+#[derive(Serialize)]
+struct ConfigureNotificationsArgs {
+    enabled: bool,
+}
+
+#[derive(Serialize)]
+struct FinishNotificationRefreshArgs<'a> {
+    id: &'a str,
+    success: bool,
 }
 
 #[derive(Deserialize)]
@@ -197,6 +210,45 @@ impl<R: Runtime> PipedashNative<R> {
         self.listen("notificationAction", move |payload| {
             if let Ok(response) = serde_json::from_str::<NotificationResponse>(&payload) {
                 handler(response);
+            }
+        })
+    }
+
+    pub async fn local_notification_settings(&self) -> Result<LocalNotificationSettings> {
+        self.call("localNotificationSettings", ()).await
+    }
+
+    pub async fn configure_local_notifications(
+        &self, enabled: bool,
+    ) -> Result<LocalNotificationSettings> {
+        self.call(
+            "configureLocalNotifications",
+            ConfigureNotificationsArgs { enabled },
+        )
+        .await
+    }
+
+    pub async fn notification_refresh_ready(&self) -> Result<()> {
+        self.call("notificationRefreshReady", ()).await
+    }
+
+    pub async fn finish_notification_refresh(&self, id: &str, success: bool) -> Result<()> {
+        if id.trim().is_empty() || id.len() > 128 {
+            return Err(Error::Native("Invalid notification refresh".to_string()));
+        }
+        self.call(
+            "finishNotificationRefresh",
+            FinishNotificationRefreshArgs { id, success },
+        )
+        .await
+    }
+
+    pub fn on_notification_refresh<F: Fn(NotificationRefresh) + Send + Sync + 'static>(
+        &self, handler: F,
+    ) -> Result<()> {
+        self.listen("notification-refresh", move |payload| {
+            if let Ok(refresh) = serde_json::from_str::<NotificationRefresh>(&payload) {
+                handler(refresh);
             }
         })
     }

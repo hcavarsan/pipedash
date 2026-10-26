@@ -146,6 +146,7 @@ The native plugin rejects watch starts, skips background task registration and r
 The frontend hides Watch and remote push controls. Existing snapshots remain stored and do not restart automatically.
 
 The app declares no build-watch background task identifiers or `processing`/`remote-notification` background modes.
+It declares only the `com.henrique.pipedash.notifications-refresh` task with the `fetch` mode; `verify_ipa` requires exactly that.
 It bundles no WidgetKit extension or Live Activity support. `verify_ipa` rejects these capabilities and any enabled build-watch flag before upload.
 A relay URL in the environment cannot activate either feature. Changing the flag alone is not a supported release configuration.
 
@@ -171,6 +172,27 @@ Tauri archives the app with manual signing settings. Fastlane exports the archiv
 provisioning-profile mapping. Fastlane's `build_app` requires `export_method: "app-store"`; keep
 `app-store-connect` for the Tauri CLI and the Xcode `export_options[:method]` value.
 `verify_ipa` checks the disabled-feature metadata and rejects bundled app extensions as part of its App Store checks.
+
+## Notifications
+
+Local failure, overdue-run and outage notifications work independently of the Watch and remote push flag.
+One Notifications switch under Settings > Notifications controls all of them. On desktop and web, older separate failure and outage switches migrate to it: either one on turns it on. On iOS it starts off, because background access needs consent.
+The app checks current native permission before delivery, including after permission changes in iOS Settings.
+
+The Tauri frontend uses core's `pipelines-failed` events for new failures, including consecutive failed runs.
+The web frontend compares cached pipeline status and run timestamps, including snapshots fetched after WebSocket reconnection.
+Neither platform replays existing failures on first load.
+Provider outages use `provider-health-alert` events. The in-app notification list does not require system notification permission and resets when the app restarts.
+
+### Background checks on iOS
+
+Turning notifications on asks for consent, then copies the provider configurations and tokens, the proxy URL and the status-page setting into a separate Keychain item available after first unlock on this device only.
+The vault and app lock stay locked: background checks read only that copy. Provider changes while unlocked update it, removing a provider drops it, and turning notifications off, losing permission or a factory reset deletes it.
+The current pipeline and provider state is saved as a silent baseline, so turning notifications on never reports failures or outages that already exist.
+
+A `BGAppRefreshTask` asks iOS for a run every 15 minutes. iOS decides when it actually runs, may skip it in Low Power Mode or with Background App Refresh off, and never runs it after a force quit until the app opens again.
+Each run has about 23 seconds: status pages and controller checks go first, then provider pipelines, then at most 25 overdue-run checks, rotated so later runs cover the rest.
+Background and foreground share one delivery record, so a failure, overdue run, outage or recovery is notified once whichever side sees it first. A foreground resume cancels a running background check.
 
 ## Push notifications
 
