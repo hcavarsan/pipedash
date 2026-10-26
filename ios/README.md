@@ -107,6 +107,21 @@ and TestFlight isolation. The delivery checks exercise Fastlane's runner without
 
 ## Local build watching
 
+Pipedash disables build watching by default through `PipedashBuildWatchEnabled` in
+`crates/pipedash-desktop/Info.ios.plist`. A missing flag also means `false`.
+While off, the native plugin rejects watch starts, skips background task registration and reports Watch as unsupported.
+The frontend hides the Watch controls. Existing snapshots remain stored and do not restart automatically.
+
+To restore Watch, set the flag to the plist boolean `true`, rebuild the iOS app and install the new build:
+
+```xml
+<key>PipedashBuildWatchEnabled</key>
+<true/>
+```
+
+This flag ships in the app bundle. It is not an environment variable or an in-app setting.
+Restoring it uses the existing local monitoring implementation and its system-controlled presentation.
+
 `prepare_project` regenerates Tauri's app project before applying the version and build number.
 Build watching uses `BGContinuedProcessingTask` on a physical iPhone or iPad running iOS 26 or later.
 The app declares the background task identifier `com.henrique.pipedash.build-watch` and the

@@ -32,25 +32,30 @@ final class BuildWatchController {
   var onChange: (() -> Void)?
 
   private init() {
-    registered = BGTaskScheduler.shared.register(
-      forTaskWithIdentifier: Self.taskIdentifier, using: .main
-    ) { [weak self] task in
-      guard let continued = task as? BGContinuedProcessingTask else {
-        task.setTaskCompleted(success: false)
-        return
-      }
-      MainActor.assumeIsolated {
-        guard let self = self else {
-          continued.setTaskCompleted(success: false)
+    if session.enabled {
+      registered = BGTaskScheduler.shared.register(
+        forTaskWithIdentifier: Self.taskIdentifier, using: .main
+      ) { [weak self] task in
+        guard let continued = task as? BGContinuedProcessingTask else {
+          task.setTaskCompleted(success: false)
           return
         }
-        self.accept(continued)
+        MainActor.assumeIsolated {
+          guard let self = self else {
+            continued.setTaskCompleted(success: false)
+            return
+          }
+          self.accept(continued)
+        }
       }
+    } else {
+      BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.taskIdentifier)
     }
     // End custom activities left by older app versions; new watches use only the system task.
     for orphan in Activity<PipedashBuildActivityAttributes>.activities {
       Task { await orphan.end(nil, dismissalPolicy: .immediate) }
     }
+    guard session.enabled else { return }
     foregroundObserver = NotificationCenter.default.addObserver(
       forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
     ) { [weak self] _ in
@@ -62,6 +67,11 @@ final class BuildWatchController {
   }
 
   func status() -> BuildWatchStatus {
+    guard session.enabled else {
+      return BuildWatchStatus(
+        supported: false, available: false,
+        reason: "Build watching is disabled in this build", watch: nil)
+    }
     reconcile()
     let unavailable: String?
     if !registered {

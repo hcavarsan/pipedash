@@ -30,8 +30,30 @@ final class BuildWatchTests: XCTestCase {
       url: "pipedash://pipelines/provider%3Aapp%2Fmain/runs/42")
   }
 
+  func testDisabledWatchRejectsStartsAndUpdates() throws {
+    let session = BuildWatchSession(defaults: defaults, enabled: false)
+    XCTAssertThrowsError(try session.begin(snapshot()))
+    XCTAssertFalse(try session.update(snapshot()))
+    XCTAssertNil(session.watch)
+  }
+
+  func testDisablingWatchInterruptsPersistedSessionAndReenablingAllowsANewWatch() throws {
+    let enabled = BuildWatchSession(defaults: defaults, enabled: true)
+    try enabled.begin(snapshot())
+    let disabled = BuildWatchSession(defaults: defaults, enabled: false)
+    XCTAssertEqual(disabled.watch?.monitoring, .interrupted)
+    XCTAssertEqual(disabled.watch?.status, .running)
+    XCTAssertThrowsError(try disabled.begin(snapshot("session-2")))
+    XCTAssertFalse(try disabled.update(snapshot()))
+    let reenabled = BuildWatchSession(defaults: defaults, enabled: true)
+    XCTAssertEqual(reenabled.watch?.monitoring, .interrupted)
+    try reenabled.begin(snapshot("session-2"))
+    XCTAssertEqual(reenabled.watch?.sessionId, "session-2")
+    XCTAssertEqual(reenabled.watch?.monitoring, .watching)
+  }
+
   func testOnlyOneSessionCanWatchAtATime() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     try session.begin(snapshot())
     XCTAssertThrowsError(try session.begin(snapshot("session-2")))
     XCTAssertEqual(session.watch?.sessionId, "session-1")
@@ -39,7 +61,7 @@ final class BuildWatchTests: XCTestCase {
   }
 
   func testOldSessionOlderTimestampAndChangedRunCannotReplaceTheWatch() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     try session.begin(snapshot())
     XCTAssertFalse(try session.update(snapshot("old-session")))
     var old = snapshot()
@@ -53,7 +75,7 @@ final class BuildWatchTests: XCTestCase {
   }
 
   func testUpdatedProviderLabelsAndBranchAreAccepted() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     try session.begin(snapshot())
     var update = snapshot()
     update.pipelineName = "Release app"
@@ -65,7 +87,7 @@ final class BuildWatchTests: XCTestCase {
   }
 
   func testStopBeforeStartTombstonesOnlyThatSession() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     XCTAssertFalse(session.finish(sessionId: "session-1", monitoring: .stopped, reason: nil, now: 131))
     XCTAssertThrowsError(try session.begin(snapshot()))
     try session.begin(snapshot("session-2"))
@@ -74,14 +96,14 @@ final class BuildWatchTests: XCTestCase {
   }
 
   func testExpirationOrSchedulerFailurePersistsInterruptionAndRejectsLateUpdates() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     try session.begin(snapshot())
     XCTAssertTrue(session.finish(
       sessionId: "session-1", monitoring: .interrupted, reason: "iOS ended monitoring", now: 160))
     var late = snapshot()
     late.updatedAt = 170
     XCTAssertFalse(try session.update(late))
-    let restored = BuildWatchSession(defaults: defaults)
+    let restored = BuildWatchSession(defaults: defaults, enabled: true)
     XCTAssertEqual(restored.watch?.monitoring, .interrupted)
     XCTAssertEqual(restored.watch?.status, .running)
     XCTAssertEqual(restored.watch?.elapsedSeconds, 60)
@@ -89,7 +111,7 @@ final class BuildWatchTests: XCTestCase {
   }
 
   func testStopWatchingDoesNotChangeTheProviderStatus() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     try session.begin(snapshot())
     XCTAssertTrue(session.finish(sessionId: "session-1", monitoring: .stopped, reason: nil, now: 150))
     XCTAssertEqual(session.watch?.monitoring, .stopped)
@@ -101,20 +123,20 @@ final class BuildWatchTests: XCTestCase {
   }
 
   func testForceQuitRecoveryNeverRestartsWatching() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     try session.begin(snapshot())
-    let restored = BuildWatchSession(defaults: defaults)
+    let restored = BuildWatchSession(defaults: defaults, enabled: true)
     XCTAssertEqual(restored.watch?.monitoring, .interrupted)
     XCTAssertEqual(restored.watch?.updatedAt, 130)
     XCTAssertEqual(restored.watch?.elapsedSeconds, 30)
     XCTAssertEqual(restored.watch?.status, .running)
     XCTAssertNotNil(restored.reason)
     XCTAssertFalse(try restored.update(snapshot()))
-    XCTAssertEqual(BuildWatchSession(defaults: defaults).watch?.updatedAt, 130)
+    XCTAssertEqual(BuildWatchSession(defaults: defaults, enabled: true).watch?.updatedAt, 130)
   }
 
   func testTerminalResultFreezesAtProviderConclusionAndCannotBeOverwritten() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     try session.begin(snapshot())
     var result = snapshot()
     result.status = .failed
@@ -125,7 +147,7 @@ final class BuildWatchTests: XCTestCase {
     XCTAssertEqual(session.watch?.elapsedSeconds, 80)
     XCTAssertFalse(session.finish(sessionId: "session-1", monitoring: .interrupted, reason: nil, now: 300))
     XCTAssertFalse(try session.update(snapshot()))
-    XCTAssertEqual(BuildWatchSession(defaults: defaults).watch, result)
+    XCTAssertEqual(BuildWatchSession(defaults: defaults, enabled: true).watch, result)
     XCTAssertThrowsError(try session.begin(snapshot()))
   }
 
@@ -136,7 +158,7 @@ final class BuildWatchTests: XCTestCase {
     result.updatedAt = 200
     XCTAssertNoThrow(try result.validate())
     XCTAssertEqual(result.elapsedLabel, "1:40")
-    XCTAssertThrowsError(try BuildWatchSession(defaults: defaults).begin(result))
+    XCTAssertThrowsError(try BuildWatchSession(defaults: defaults, enabled: true).begin(result))
   }
 
   func testActiveRunIgnoresProviderUpdateAsConclusion() {
@@ -147,7 +169,7 @@ final class BuildWatchTests: XCTestCase {
   }
 
   func testInterruptedActiveRunFreezesAtObservationTime() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     var running = snapshot()
     running.concludedAt = 110
     try session.begin(running)
@@ -192,7 +214,7 @@ final class BuildWatchTests: XCTestCase {
   }
 
   func testStopBeforeLaunchBlocksReplacementUntilTheOldHandlerArrives() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     var launch = BuildWatchLaunchState()
     try session.begin(snapshot())
     try launch.submit("session-1")
@@ -225,7 +247,7 @@ final class BuildWatchTests: XCTestCase {
   }
 
   func testTerminalResultBeforeLaunchKeepsTheRealResultForTheHandler() throws {
-    let session = BuildWatchSession(defaults: defaults)
+    let session = BuildWatchSession(defaults: defaults, enabled: true)
     var launch = BuildWatchLaunchState()
     try session.begin(snapshot())
     try launch.submit("session-1")

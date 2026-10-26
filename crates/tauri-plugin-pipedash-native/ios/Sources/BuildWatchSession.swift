@@ -56,13 +56,18 @@ struct BuildWatchTaskPresentation: Equatable {
 final class BuildWatchSession {
   private static let snapshotKey = "pipedash.native.build-watch.snapshot"
   private static let reasonKey = "pipedash.native.build-watch.reason"
+  let enabled: Bool
 
   private let defaults: UserDefaults
   private var cancelledSessions: [String] = []
   private(set) var watch: BuildWatchSnapshot?
   private(set) var reason: String?
 
-  init(defaults: UserDefaults = .standard) {
+  init(
+    defaults: UserDefaults = .standard,
+    enabled: Bool = Bundle.main.object(forInfoDictionaryKey: "PipedashBuildWatchEnabled") as? Bool ?? false
+  ) {
+    self.enabled = enabled
     self.defaults = defaults
     if let data = defaults.data(forKey: Self.snapshotKey),
       let snapshot = try? JSONDecoder().decode(BuildWatchSnapshot.self, from: data),
@@ -82,6 +87,9 @@ final class BuildWatchSession {
   }
 
   func begin(_ snapshot: BuildWatchSnapshot) throws {
+    guard enabled else {
+      throw BuildWatchValidationError.invalid("Build watching is disabled in this build")
+    }
     try snapshot.validate()
     guard snapshot.monitoring == .watching, !snapshot.status.isTerminal else {
       throw BuildWatchValidationError.invalid("Only a queued or running build can be watched")
@@ -103,7 +111,7 @@ final class BuildWatchSession {
   @discardableResult
   func update(_ snapshot: BuildWatchSnapshot) throws -> Bool {
     try snapshot.validate()
-    guard let current = watch, current.monitoring == .watching,
+    guard enabled, let current = watch, current.monitoring == .watching,
       current.sessionId == snapshot.sessionId,
       current.pipelineId == snapshot.pipelineId, current.runNumber == snapshot.runNumber,
       current.providerType == snapshot.providerType, current.url == snapshot.url,

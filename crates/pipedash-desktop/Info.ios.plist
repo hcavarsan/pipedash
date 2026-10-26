@@ -14,6 +14,8 @@
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>
     <true/>
+    <key>PipedashBuildWatchEnabled</key>
+    <false/>
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
         <string>com.henrique.pipedash.build-watch</string>
