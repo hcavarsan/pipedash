@@ -36,13 +36,10 @@ pub(crate) fn map_status(conditions: &[types::Condition]) -> PipelineStatus {
     if let Some(succeeded_condition) = conditions.iter().find(|c| c.type_ == "Succeeded") {
         match succeeded_condition.status.as_str() {
             "True" => PipelineStatus::Success,
-            "False" => {
-                if succeeded_condition.reason == "PipelineRunCancelled" {
-                    PipelineStatus::Cancelled
-                } else {
-                    PipelineStatus::Failed
-                }
-            }
+            "False" => match succeeded_condition.reason.as_str() {
+                "Cancelled" | "PipelineRunCancelled" => PipelineStatus::Cancelled,
+                _ => PipelineStatus::Failed,
+            },
             "Unknown" => PipelineStatus::Running,
             _ => PipelineStatus::Pending,
         }
@@ -413,4 +410,60 @@ pub(crate) fn map_workflow_parameters(pipeline: &TektonPipeline) -> Vec<Workflow
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn succeeded(status: &str, reason: &str) -> Vec<types::Condition> {
+        let json = format!(r#"[{{"type":"Succeeded","status":"{status}","reason":"{reason}"}}]"#);
+
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn maps_each_succeeded_condition_to_a_status() {
+        let cases = [
+            ("Unknown", "Started", PipelineStatus::Running),
+            ("Unknown", "Running", PipelineStatus::Running),
+            ("Unknown", "PipelineRunStopping", PipelineStatus::Running),
+            (
+                "Unknown",
+                "CancelledRunningFinally",
+                PipelineStatus::Running,
+            ),
+            ("Unknown", "StoppedRunningFinally", PipelineStatus::Running),
+            (
+                "Unknown",
+                "PipelineRunTimeoutRunningFinally",
+                PipelineStatus::Running,
+            ),
+            ("True", "Succeeded", PipelineStatus::Success),
+            ("True", "Completed", PipelineStatus::Success),
+            ("False", "Failed", PipelineStatus::Failed),
+            ("False", "PipelineRunTimeout", PipelineStatus::Failed),
+            ("False", "PipelineValidationFailed", PipelineStatus::Failed),
+            ("False", "CouldntGetPipeline", PipelineStatus::Failed),
+            ("False", "Cancelled", PipelineStatus::Cancelled),
+            ("False", "PipelineRunCancelled", PipelineStatus::Cancelled),
+        ];
+
+        for (status, reason, expected) in cases {
+            assert_eq!(
+                map_status(&succeeded(status, reason)),
+                expected,
+                "{status} {reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn maps_a_run_without_a_succeeded_condition_to_pending() {
+        let conditions: Vec<types::Condition> =
+            serde_json::from_str(r#"[{"type":"Ready","status":"True"}]"#).unwrap();
+
+        assert_eq!(map_status(&conditions), PipelineStatus::Pending);
+        assert_eq!(map_status(&[]), PipelineStatus::Pending);
+    }
 }
