@@ -11,8 +11,7 @@ build (`crates/pipedash-desktop/gen` is gitignored), so everything iOS needs liv
 | `xcode/pipedash.entitlements` | App entitlements (`aps-environment` for push) |
 | `fastlane/metadata/en-US/release_notes.txt` | "What's New" sent with `release` |
 | `fastlane/review_notes.txt` | App Review notes; `%{demo_token}` and `%{demo_repository}` are filled at release time |
-| `BuildActivity/` | WidgetKit and Dynamic Island presentation, embedded as `PipedashBuildActivity.appex` |
-| `fastlane/build_activity_project.rb` | Generated target, shared Swift package, version and export profile setup |
+| `fastlane/ios_project.rb` | App version, background-task metadata and export profile setup |
 | `../crates/pipedash-desktop/icons/ios/app-icon-1024.png` | Full-bleed App Store icon without alpha |
 | `app-store-screenshots/` | Screenshot editor, saved decks, mock captures and export scripts |
 | `fastlane/screenshots/en-US/` | Generated iPhone and iPad images for upload, gitignored |
@@ -22,14 +21,13 @@ build (`crates/pipedash-desktop/gen` is gitignored), so everything iOS needs liv
 - App version: the release version with the major bumped, because the App Store already shipped `1.0`.
   Release `v0.4.0` ships as `1.4.0`. `mise run bump:*` keeps working; the Fastfile derives the iOS version.
 - Build number: the latest build in App Store Connect plus one.
-- The app and build activity extension use the same marketing version and build number.
 
 ## Workflows
 
 - `ios-check.yml` runs on pull requests that touch the app and supports manual runs on a feature branch.
-  It runs the Ruby helper tests and publishing guards, builds an unsigned IPA and checks the embedded extension,
-  matching versions, background declarations, Info.plist keys, export compliance, app icon and required-reason APIs.
-  A second job builds the same extension for the simulator, launches the app on iPhone and iPad
+  It runs the Ruby helper tests and publishing guards, builds an unsigned IPA and checks the
+  background declarations, Info.plist keys, export compliance, app icon and required-reason APIs.
+  A second job builds for the simulator, launches the app on iPhone and iPad
   and uploads screenshots as the `ios-simulator-screenshots` artifact.
 - `ios.yml` runs on every `v*` tag with the `beta` lane (TestFlight). Manual runs also offer `release`
   (App Review submission with screenshots) and `upload_screenshots` (screenshots only, no submission).
@@ -107,56 +105,46 @@ The `ios-check.yml` workflow runs this suite before the build. Screenshot tests 
 replace external Apple actions. They check export failure gates, locale isolation, screenshot-only delivery
 and TestFlight isolation. The delivery checks exercise Fastlane's runner without authenticating or uploading.
 
-## Build activity extension
+## Local build watching
 
-`prepare_project` adds `PipedashBuildActivity` to Tauri's generated `project.yml` before running XcodeGen.
-The app embeds the extension with bundle ID `com.henrique.pipedash.BuildActivity`.
-The extension targets iOS 16.2 and links only `PipedashActivityModels` from the native plugin's local Swift package.
-The native plugin links the same shared product.
-The helper reuses an existing package entry for that path and stages Tauri's complete iOS API package before Xcode resolves dependencies.
-Swift Package Manager also needs network access for Tauri's remote `SwiftRs` dependency.
-Cargo metadata parsing uses stdout only. Registry updates and download diagnostics on stderr do not enter the JSON parser.
+`prepare_project` regenerates Tauri's app project before applying the version and build number.
+Build watching uses `BGContinuedProcessingTask` on a physical iPhone or iPad running iOS 26 or later.
+The app declares the background task identifier `com.henrique.pipedash.build-watch` and the
+`processing` background mode. No WidgetKit extension or separate provisioning profile is needed.
 
-The app declares `NSSupportsLiveActivities`, the background task identifier
-`com.henrique.pipedash.build-watch` and the `processing` background mode.
-Build watching requires a physical device on iOS 26 or later with Live Activities and background execution available.
-The simulator can check compilation and presentation, but cannot validate the continued-processing scheduler.
-iOS can expire monitoring or stop it after a force quit.
-The app reports interruption and does not restart monitoring automatically.
-Stopping monitoring does not cancel the provider's build.
+iOS supplies the task's Live Activity and cancellation controls. The system decides when to expand,
+collapse or re-present this interface; Pipedash cannot guarantee a compact-only presentation.
+Pipedash changes the task title and subtitle only when their visible content changes, not on every
+provider refresh. ActivityKit authorization is not used to gate the system task. Registration,
+background execution availability and scheduler submission errors determine whether watching can start.
+
+iOS can expire monitoring, stop it through the system interface, or end it after a force quit.
+The app preserves the last observed provider result, reports interruption and does not restart
+monitoring automatically. Stopping monitoring does not cancel the provider's build.
+The simulator cannot validate the continued-processing scheduler or its system presentation.
+On upgrade, the native plugin immediately dismisses custom activities left by older versions;
+it retains their original attribute type only for this cleanup and never creates or updates them.
 
 ### Signing prerequisites
 
-The signed lanes use `match` with `readonly: true` for both bundle IDs:
-
-- `com.henrique.pipedash`
-- `com.henrique.pipedash.BuildActivity`
-
-Before the first signed build, an Apple Developer team administrator must register the extension's explicit App ID.
-Keep the app's existing Push Notifications capability and provisioning entitlements.
-Create an App Store distribution profile for the extension using an available Apple Distribution certificate.
-Store that profile in `pipedash-certificates-v2` alongside the app's profile and certificate private key.
-An extension does not need a separate App Store Connect app record.
-This local ActivityKit flow does not require an App Group or a push-to-start entitlement.
-
-An authorized maintainer can create or renew both profiles from macOS with writable access to the certificate repository:
+The signed lanes use read-only `match` for `com.henrique.pipedash` only. Keep the app's existing Push
+Notifications capability and provisioning entitlements. The certificate repository must contain its
+App Store distribution profile and certificate private key. An authorized maintainer can renew the
+app profile from macOS with writable access to the certificate repository:
 
 ```bash
 cd ios
-bundle exec fastlane match appstore --app_identifier com.henrique.pipedash,com.henrique.pipedash.BuildActivity --readonly false
+bundle exec fastlane match appstore --app_identifier com.henrique.pipedash --readonly false
 ```
 
 Use the certificate repository's existing authentication and `MATCH_PASSWORD`.
 The Apple account or API key must have permission to manage identifiers and distribution profiles.
 The CI deploy key and read-only `match` step do not create missing profiles.
-If the extension profile is absent or expired, the signed lane fails instead of switching signing modes.
 
-Tauri archives the app with per-target manual signing settings.
-Fastlane exports that archive with an explicit provisioning-profile mapping for both bundle IDs.
-This avoids Tauri's single-app export mapping dropping the extension profile.
-Fastlane's `build_app` requires `export_method: "app-store"`; keep `app-store-connect` for the Tauri CLI
-and the Xcode `export_options[:method]` value.
-`verify_ipa` checks the embedded extension, matching versions and the signed extension's application identifier.
+Tauri archives the app with manual signing settings. Fastlane exports the archive with the app's
+provisioning-profile mapping. Fastlane's `build_app` requires `export_method: "app-store"`; keep
+`app-store-connect` for the Tauri CLI and the Xcode `export_options[:method]` value.
+`verify_ipa` checks the app's background declarations as part of its existing App Store checks.
 
 Run the focused Ruby checks without building or publishing:
 

@@ -14,8 +14,6 @@
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>
     <true/>
-    <key>NSSupportsLiveActivities</key>
-    <true/>
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
         <string>com.henrique.pipedash.build-watch</string>

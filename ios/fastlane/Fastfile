@@ -3,15 +3,15 @@ require "json"
 require "tmpdir"
 require_relative "app_icon_appearances"
 require_relative "required_reason_apis"
-require_relative "build_activity_project"
+require_relative "ios_project"
 
 default_platform(:ios)
 
-APP_ID = BuildActivityProject::APP_ID
+APP_ID = IosProject::APP_ID
 ROOT = File.expand_path("../..", __dir__)
 TAURI_DIR = File.join(ROOT, "crates/pipedash-desktop")
 APPLE_DIR = File.join(TAURI_DIR, "gen/apple")
-TARGET = BuildActivityProject::APP_TARGET
+TARGET = IosProject::APP_TARGET
 TARGET_DIR = File.join(APPLE_DIR, TARGET)
 XCODE_FILES = File.join(ROOT, "ios/xcode")
 APP_ICON = File.join(TAURI_DIR, "icons/ios/app-icon-1024.png")
@@ -47,16 +47,14 @@ def ios_build(build_number:, sign:)
   if sign
     archive = Dir[File.join(APPLE_DIR, "**", "#{TARGET}.xcarchive")].max_by { |path| File.mtime(path) } ||
       UI.user_error!("No archive found in #{APPLE_DIR}")
-    profiles = BuildActivityProject::SIGNING_TARGETS.values.to_h do |bundle_id|
-      [bundle_id, ENV.fetch("sigh_#{bundle_id}_appstore_profile-name")]
-    end
+    profile = ENV.fetch("sigh_#{APP_ID}_appstore_profile-name")
     return build_app(
       skip_build_archive: true,
       project: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
       scheme: TARGET,
       archive_path: archive,
       export_method: "app-store",
-      export_options: BuildActivityProject.export_options(profiles, team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM")),
+      export_options: IosProject.export_options(profile, team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM")),
       skip_profile_detection: true,
       output_directory: File.join(APPLE_DIR, "build/arm64"),
       output_name: "pipedash.ipa",
@@ -71,9 +69,9 @@ def plist_to_hash(path)
 end
 
 platform :ios do
-  desc "Generate the app and build activity extension with privacy, entitlements and app icons"
+  desc "Generate the app with privacy, entitlements and app icons"
   lane :prepare_project do |options|
-    tauri("ios", "init", "--ci") unless File.directory?(File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"))
+    tauri("ios", "init", "--ci")
 
     Dir.mktmpdir("icons", TAURI_DIR) do |icons_out|
       tauri("icon", APP_ICON, "--output", icons_out)
@@ -85,10 +83,8 @@ platform :ios do
     launch_screens.each { |path| FileUtils.cp(File.join(XCODE_FILES, "LaunchScreen.storyboard"), path) }
 
     FileUtils.cp(File.join(XCODE_FILES, "PrivacyInfo.xcprivacy"), TARGET_DIR)
-    metadata = BuildActivityProject.cargo_metadata(root: ROOT)
-    BuildActivityProject.stage_tauri_api(metadata, root: ROOT)
-    BuildActivityProject.write(File.join(APPLE_DIR, "project.yml"), root: ROOT,
-                               version: ios_version, build_number: options.fetch(:build_number, 1))
+    IosProject.write(File.join(APPLE_DIR, "project.yml"),
+                     version: ios_version, build_number: options.fetch(:build_number, 1))
     sh("xcodegen", "generate", "--spec", File.join(APPLE_DIR, "project.yml"))
     FileUtils.cp(File.join(XCODE_FILES, "pipedash.entitlements"), File.join(TARGET_DIR, "#{TARGET}.entitlements"))
   end
@@ -109,12 +105,7 @@ platform :ios do
         UI.user_error!("CFBundleShortVersionString is #{info["CFBundleShortVersionString"]}, expected #{options[:version]}")
       end
 
-      extension = File.join(app, "PlugIns", "#{BuildActivityProject::TARGET}.appex")
-      UI.user_error!("Build activity extension is not embedded in the app") unless File.directory?(extension)
-      extension_info = plist_to_hash(File.join(extension, "Info.plist"))
-      BuildActivityProject.verify_metadata!(info, extension_info)
-      extension_binary = File.join(extension, extension_info.fetch("CFBundleExecutable"))
-      UI.user_error!("Build activity extension executable is missing") unless File.file?(extension_binary)
+      IosProject.verify_metadata!(info)
 
       manifest_path = File.join(app, "PrivacyInfo.xcprivacy")
       UI.user_error!("PrivacyInfo.xcprivacy is not bundled in the app") unless File.exist?(manifest_path)
@@ -133,10 +124,6 @@ platform :ios do
         entitlements = sh("codesign", "-d", "--entitlements", "-", "--xml", app, log: false)
         UI.user_error!("Signed app has no aps-environment entitlement") unless entitlements.include?("aps-environment")
         sh("codesign", "--verify", "--deep", "--strict", app)
-        extension_entitlements = sh("codesign", "-d", "--entitlements", "-", "--xml", extension, log: false)
-        unless extension_entitlements.include?("#{ENV.fetch('APPLE_DEVELOPMENT_TEAM')}.#{BuildActivityProject::BUNDLE_ID}")
-          UI.user_error!("Signed build activity extension has the wrong application identifier")
-        end
       end
       UI.success("#{File.basename(ipa)} passed the App Store checks")
     end
@@ -229,23 +216,21 @@ platform :ios do
 
   private_lane :build_signed_ipa do |options|
     setup_ci
-    match(type: "appstore", app_identifier: BuildActivityProject::SIGNING_TARGETS.values, readonly: true)
+    match(type: "appstore", app_identifier: APP_ID, readonly: true)
     build_number = latest_testflight_build_number(
       api_key: options.fetch(:api_key),
       app_identifier: APP_ID,
       initial_build_number: 0,
     ).to_i + 1
     prepare_project(build_number: build_number)
-    BuildActivityProject::SIGNING_TARGETS.each do |target, bundle_id|
-      update_code_signing_settings(
-        path: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
-        targets: [target],
-        use_automatic_signing: false,
-        team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM"),
-        code_sign_identity: ENV.fetch("sigh_#{bundle_id}_appstore_certificate-name"),
-        profile_name: ENV.fetch("sigh_#{bundle_id}_appstore_profile-name"),
-      )
-    end
+    update_code_signing_settings(
+      path: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
+      targets: [TARGET],
+      use_automatic_signing: false,
+      team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM"),
+      code_sign_identity: ENV.fetch("sigh_#{APP_ID}_appstore_certificate-name"),
+      profile_name: ENV.fetch("sigh_#{APP_ID}_appstore_profile-name"),
+    )
     ENV["IOS_MOBILE_PROVISION"] = [File.binread(ENV.fetch("sigh_#{APP_ID}_appstore_profile-path"))].pack("m0")
     ipa = ios_build(build_number: build_number, sign: true)
     verify_ipa(ipa: ipa, version: ios_version, signed: true)

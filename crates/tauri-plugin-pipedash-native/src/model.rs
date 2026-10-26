@@ -169,7 +169,7 @@ impl BuildWatchSnapshot {
             > 3500
         {
             return Err(crate::Error::Native(
-                "The build details exceed the Live Activity size limit".to_string(),
+                "The build details exceed the watch size limit".to_string(),
             ));
         }
         Ok(())

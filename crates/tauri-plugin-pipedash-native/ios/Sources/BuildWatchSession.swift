@@ -34,6 +34,25 @@ struct BuildWatchLaunchState {
   }
 }
 
+struct BuildWatchTaskPresentation: Equatable {
+  let title: String
+  let subtitle: String
+
+  init(_ snapshot: BuildWatchSnapshot) {
+    title = "Pipedash · \(snapshot.pipelineName) #\(snapshot.runNumber)"
+    switch snapshot.monitoring {
+    case .watching:
+      subtitle = "Watching · \(snapshot.status.title) · \(snapshot.providerName)"
+    case .completed:
+      subtitle = "Build \(snapshot.status.title.lowercased())"
+    case .interrupted:
+      subtitle = "Monitoring interrupted · build may still be running"
+    case .stopped:
+      subtitle = "Monitoring stopped · build may still be running"
+    }
+  }
+}
+
 final class BuildWatchSession {
   private static let snapshotKey = "pipedash.native.build-watch.snapshot"
   private static let reasonKey = "pipedash.native.build-watch.reason"

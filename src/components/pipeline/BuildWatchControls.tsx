@@ -1,10 +1,17 @@
-import { Alert, Button, Group, Stack, Text } from '@mantine/core'
+import { ActionIcon, Alert, Button, Card, Group, Menu, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
+import { IconDots, IconEye } from '@tabler/icons-react'
 
+import { useMobileShell } from '../../hooks/useIsMobile'
 import { useBuildWatch } from '../../queries/useBuildWatchQueries'
 import { mobileService } from '../../services/mobile'
 import { STATUS_META } from '../../theme/status'
 import type { PipelineStatus } from '../../types'
 import { displayErrorNotification, errorMessage } from '../../utils/errorDisplay'
+import { StatusIcon } from '../atoms/StatusBadge'
+import { ActionSheetCancel } from '../ios/ActionSheetCancel'
+import { IosGroup } from '../ios/IosList'
+import { IosPipelineRow } from '../table/IosPipelineList'
+import { SectionHeading } from '../table/PipelineRowParts'
 
 interface BuildWatchControlsProps {
   pipelineId: string
@@ -26,6 +33,7 @@ export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatch
       <Button
         variant="default"
         size="sm"
+        mih={44}
         loading={watch.busy}
         disabled={!sameRun && (!watch.data.available || watching || watch.isError || watch.isFetching)}
         onClick={() => (sameRun ? watch.stop() : watch.start(pipelineId, runNumber))}
@@ -36,13 +44,14 @@ export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatch
         {watching && !sameRun
           ? 'Stop the current watch before watching another run.'
           : !watch.data.available
-            ? (watch.data.reason ?? 'Allow Live Activities and background execution in iOS Settings to watch runs.')
+            ? (watch.data.reason ?? 'Background monitoring is unavailable on this device.')
             : 'Watch on this device without a server. iOS may interrupt monitoring. Stopping a watch does not cancel the run.'}
       </Text>
       {!watch.data.available && (
         <Button
           variant="subtle"
           size="xs"
+          mih={44}
           onClick={() => {
             mobileService
               .openAppSettings()
@@ -56,86 +65,130 @@ export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatch
   )
 }
 
-interface BuildWatchPanelProps {
+interface BuildWatchSectionProps {
   onViewRun: (pipelineId: string, runNumber: number) => void
 }
 
-export function BuildWatchPanel({ onViewRun }: BuildWatchPanelProps) {
+export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps) {
   const watch = useBuildWatch()
+  const mobileShell = useMobileShell()
   if (!watch.enabled || (watch.data && !watch.data.supported)) {
     return null
   }
-  if (watch.isError) {
-    return (
-      <Alert color="gray" title="Couldn't refresh Watch" m="xs">
-        <Text size="sm">{errorMessage(watch.error, 'Try refreshing the current watch.')}</Text>
-        <Button variant="subtle" size="xs" loading={watch.isFetching} onClick={() => void watch.refetch()}>
-          Refresh Watch
-        </Button>
-        {watch.data?.watch?.monitoring === 'watching' && (
-          <Button variant="subtle" size="xs" loading={watch.busy} onClick={watch.stop}>
-            Stop watching
-          </Button>
-        )}
-      </Alert>
-    )
-  }
   const current = watch.data?.watch
-  if (!current) {
+  if (!current && !watch.isError) {
     return null
   }
-  const monitoring = current.monitoring
-  const title = {
-    watching: 'Watching run',
-    interrupted: 'Watch interrupted',
-    completed: 'Watch completed',
-    stopped: 'Watch stopped',
-  }[current.monitoring]
-
-  return (
-    <Alert color="gray" title={title} m="xs">
-      <Stack gap="xs">
-        <Text size="sm" role="status">
-          {current.pipelineName} #{current.runNumber} · {STATUS_META[current.status].label}
-        </Text>
-        <Text size="xs" c="dimmed">
-          {monitoring === 'interrupted'
-            ? 'Monitoring stopped before a final result. Open the run to refresh its status and start a new watch.'
-            : monitoring === 'watching'
-              ? 'iOS may interrupt monitoring. Stopping this watch does not cancel the provider run.'
-              : monitoring === 'stopped'
-                ? 'Monitoring stopped. The provider run was not cancelled.'
-                : 'The provider reported a final result.'}
-        </Text>
-        {watch.data && !watch.data.available && watch.data.reason && (
-          <Text size="xs" c="dimmed">
-            {watch.data.reason}
-          </Text>
+  const state = current
+    ? {
+        watching: null,
+        interrupted: 'Watch interrupted',
+        completed: 'Watch completed',
+        stopped: 'Watch stopped',
+      }[current.monitoring]
+    : null
+  const actions = current && (
+    <Menu position="bottom">
+      <Menu.Target>
+        <ActionIcon variant="subtle" color="gray" size={44} data-row-menu aria-label="Watched run actions">
+          <IconDots size={22} />
+        </ActionIcon>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Item onClick={() => onViewRun(current.pipelineId, current.runNumber)}>
+          View run #{current.runNumber}
+        </Menu.Item>
+        {current.monitoring === 'watching' && (
+          <Menu.Item disabled={watch.busy} onClick={watch.stop}>
+            Stop watching
+          </Menu.Item>
         )}
-        <Group gap="xs">
-          <Button variant="subtle" size="xs" onClick={() => onViewRun(current.pipelineId, current.runNumber)}>
-            View run #{current.runNumber}
-          </Button>
-          {monitoring === 'watching' && (
-            <Button variant="subtle" size="xs" loading={watch.busy} onClick={watch.stop}>
-              Stop watching
-            </Button>
-          )}
-          {watch.data && !watch.data.available && (
-            <Button
-              variant="subtle"
-              size="xs"
-              onClick={() => {
-                mobileService
-                  .openAppSettings()
-                  .catch((error: unknown) => displayErrorNotification(error, "Couldn't open Settings"))
-              }}
+        {watch.data && !watch.data.available && (
+          <Menu.Item
+            onClick={() => {
+              mobileService
+                .openAppSettings()
+                .catch((error: unknown) => displayErrorNotification(error, "Couldn't open Settings"))
+            }}
+          >
+            Open Settings
+          </Menu.Item>
+        )}
+        <ActionSheetCancel />
+      </Menu.Dropdown>
+    </Menu>
+  )
+  const row =
+    current &&
+    (mobileShell ? (
+      <IosPipelineRow
+        status={current.status}
+        title={`${current.pipelineName} #${current.runNumber}`}
+        subtitle={[current.providerName, current.branch].filter(Boolean).join(' · ')}
+        detail={state ?? undefined}
+        hint={`View run #${current.runNumber}`}
+        onClick={() => onViewRun(current.pipelineId, current.runNumber)}
+        trailing={actions}
+      />
+    ) : (
+      <Card padding="sm">
+        <Stack gap="xs" h="100%" justify="space-between">
+          <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
+            <UnstyledButton
+              className="interactive-surface"
+              miw={0}
+              mih={44}
+              flex={1}
+              aria-label={`View run #${current.runNumber}`}
+              onClick={() => onViewRun(current.pipelineId, current.runNumber)}
             >
-              Open Settings
-            </Button>
-          )}
-        </Group>
-      </Stack>
+              <Text size="sm" fw={600} truncate>
+                {current.pipelineName} #{current.runNumber}
+              </Text>
+              <Text size="xs" c="dimmed" truncate>
+                {STATUS_META[current.status].label}
+                {state && ` · ${state}`}
+              </Text>
+            </UnstyledButton>
+            <StatusIcon status={current.status} />
+          </Group>
+          <Group justify="space-between" wrap="nowrap" gap="sm">
+            <Text size="xs" c="dimmed" truncate>
+              {[current.providerName, current.branch].filter(Boolean).join(' · ')}
+            </Text>
+            {actions}
+          </Group>
+        </Stack>
+      </Card>
+    ))
+  const recovery = watch.isError && (
+    <Alert color="gray" title="Couldn't refresh Watch">
+      <Text size="sm">{errorMessage(watch.error, 'Try refreshing the current watch.')}</Text>
+      <Button variant="subtle" size="xs" mih={44} loading={watch.isFetching} onClick={() => void watch.refetch()}>
+        Refresh Watch
+      </Button>
     </Alert>
+  )
+
+  return mobileShell ? (
+    <IosGroup header="Watching">
+      {row}
+      {recovery}
+    </IosGroup>
+  ) : (
+    <Stack gap="sm" component="section" aria-labelledby="watching-run-title">
+      <SectionHeading
+        id="watching-run-title"
+        icon={<IconEye size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
+        label="Watching"
+        count={current ? 1 : 0}
+      />
+      {row && (
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3, xl: 4 }} spacing="sm">
+          {row}
+        </SimpleGrid>
+      )}
+      {recovery}
+    </Stack>
   )
 }

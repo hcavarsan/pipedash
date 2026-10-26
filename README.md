@@ -50,7 +50,7 @@ Pipedash polls your providers and shows pipelines organized by repo and workflow
 What you can do:
 - See pipeline status across all your providers
 - Browse run history with commit info and execution times
-- Watch one queued or running build on a physical iPhone or iPad with iOS 26 or later. Choose Watch run in run history or run details to show its status and elapsed time in a native Live Activity. Tracking runs on the device without a remote relay, but iOS can interrupt it. Stopping a watch does not cancel the build
+- Watch one queued or running build on a physical iPhone or iPad with iOS 26 or later. Choose Watch run in run history or run details. The Watching section sits above Pinned on the main pipelines page. A single system Live Activity tracks the background task. iOS controls its presentation and can interrupt monitoring. Tracking runs on the device without a remote relay. Stopping a watch does not cancel the build
 - Trigger workflows with parameters (Pipedash loads them from each provider)
 - Export your providers to a TOML file for another machine, with tokens left out as `${VAR}` references. On the other machine, Import under Settings > Providers adds each provider from the file that isn't set up there yet. It never reads tokens, so you add each one in the provider's edit dialog
 - Rerun previous executions with the same parameters

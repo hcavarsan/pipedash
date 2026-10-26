@@ -88,7 +88,7 @@ final class BuildWatchTests: XCTestCase {
     XCTAssertEqual(restored.reason, "iOS ended monitoring")
   }
 
-  func testDismissalStopsWatchingWithoutChangingTheProviderStatus() throws {
+  func testStopWatchingDoesNotChangeTheProviderStatus() throws {
     let session = BuildWatchSession(defaults: defaults)
     try session.begin(snapshot())
     XCTAssertTrue(session.finish(sessionId: "session-1", monitoring: .stopped, reason: nil, now: 150))
@@ -156,7 +156,7 @@ final class BuildWatchTests: XCTestCase {
     XCTAssertEqual(session.watch?.elapsedSeconds, 100)
   }
 
-  func testSnapshotRejectsExternalLinksUnsafeRunNumbersAndOversizedActivityContent() throws {
+  func testSnapshotRejectsExternalLinksUnsafeRunNumbersAndOversizedContent() throws {
     var invalid = snapshot()
     invalid.url = "https://example.com/runs/42?token=secret"
     XCTAssertThrowsError(try invalid.validate())
@@ -238,6 +238,38 @@ final class BuildWatchTests: XCTestCase {
     XCTAssertEqual(session.watch?.monitoring, .completed)
     XCTAssertEqual(session.watch?.status, .success)
     XCTAssertEqual(session.watch?.elapsedSeconds, 50)
+  }
+
+  func testTaskPresentationDoesNotChangeForTimestampOrNonDisplayedMetadata() {
+    let original = BuildWatchTaskPresentation(snapshot())
+    var refreshed = snapshot()
+    refreshed.updatedAt = 160
+    refreshed.branch = "release/2.0"
+    refreshed.startedAt = 110
+    XCTAssertEqual(BuildWatchTaskPresentation(refreshed), original)
+    XCTAssertEqual(original.title, "Pipedash · Ship app #42")
+    XCTAssertEqual(original.subtitle, "Watching · Running · Work CI")
+  }
+
+  func testTaskPresentationChangesForVisibleLabelsAndLifecycle() {
+    let original = BuildWatchTaskPresentation(snapshot())
+    var changed = snapshot()
+    changed.pipelineName = "Release app"
+    XCTAssertNotEqual(BuildWatchTaskPresentation(changed), original)
+    changed = snapshot()
+    changed.providerName = "Renamed CI"
+    XCTAssertNotEqual(BuildWatchTaskPresentation(changed), original)
+    changed = snapshot()
+    changed.status = .pending
+    XCTAssertNotEqual(BuildWatchTaskPresentation(changed), original)
+    changed = snapshot()
+    changed.status = .failed
+    changed.monitoring = .completed
+    XCTAssertEqual(BuildWatchTaskPresentation(changed).subtitle, "Build failed")
+    changed.monitoring = .interrupted
+    XCTAssertEqual(BuildWatchTaskPresentation(changed).subtitle, "Monitoring interrupted · build may still be running")
+    changed.monitoring = .stopped
+    XCTAssertEqual(BuildWatchTaskPresentation(changed).subtitle, "Monitoring stopped · build may still be running")
   }
 
   func testStopRejectsUnexpectedReasons() {

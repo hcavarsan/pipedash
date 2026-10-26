@@ -33,6 +33,7 @@ import { LoadingState } from '../common/LoadingState'
 import { PageContainer } from '../common/PageContainer'
 import { PageHeader } from '../common/PageHeader'
 import { StandardTable } from '../common/StandardTable'
+import { BuildWatchSection } from '../pipeline/BuildWatchControls'
 import { ProviderRecoveryActions } from '../provider/ProviderRecoveryActions'
 import { ProviderStatusButton } from '../provider/ProviderStatusButton'
 
@@ -174,6 +175,7 @@ interface UnifiedPipelinesViewProps {
   error?: unknown
   onRetry: () => void
   onViewHistory: (pipeline: Pipeline) => void
+  onViewRun: (pipelineId: string, runNumber: number) => void
   onTrigger: (pipeline: Pipeline) => void
   onViewMetrics?: (pipeline: Pipeline) => void
 }
@@ -185,6 +187,7 @@ export const UnifiedPipelinesView = ({
   error,
   onRetry,
   onViewHistory,
+  onViewRun,
   onTrigger,
   onViewMetrics,
 }: UnifiedPipelinesViewProps) => {
@@ -510,11 +513,13 @@ export const UnifiedPipelinesView = ({
   const firstIssue = emptyTableIssues[0]
 
   const pageHeading = mobileShell && !isFluxView ? null : <PageHeader title={title} />
+  const watchSection = !pinnedView && providerFilter === null ? <BuildWatchSection onViewRun={onViewRun} /> : null
 
   if (error) {
     return (
       <PageContainer>
         {pageHeading}
+        {watchSection}
         <ErrorState title="Couldn't load pipelines" error={error} onRetry={onRetry} retrying={loading} />
       </PageContainer>
     )
@@ -524,6 +529,7 @@ export const UnifiedPipelinesView = ({
     return (
       <PageContainer>
         {pageHeading}
+        {watchSection}
         <EmptyState
           icon={<IconPlugConnected size={24} />}
           title="No providers configured"
@@ -542,6 +548,7 @@ export const UnifiedPipelinesView = ({
     return (
       <PageContainer>
         {pageHeading}
+        {watchSection}
         <LoadingState variant="page" message="Loading pipelines…" />
       </PageContainer>
     )
@@ -621,6 +628,8 @@ export const UnifiedPipelinesView = ({
         }}
         onClearAll={clearFilters}
       />
+
+      {watchSection}
 
       {pinnedView ? (
         pinnedPipelines.length > 0 ? (

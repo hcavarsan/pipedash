@@ -12,8 +12,7 @@ let package = Package(
     .library(
       name: "tauri-plugin-pipedash-native",
       type: .static,
-      targets: ["tauri-plugin-pipedash-native"]),
-    .library(name: "PipedashActivityModels", targets: ["PipedashActivityModels"])
+      targets: ["tauri-plugin-pipedash-native"])
   ],
   dependencies: [
     .package(name: "Tauri", path: "../.tauri/tauri-api")

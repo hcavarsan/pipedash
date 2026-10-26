@@ -17,7 +17,6 @@ import { AppLayout } from './components/layout/AppLayout'
 import { fromOf } from './components/layout/mobileChrome'
 import { useGoBack, useRecordHistory } from './components/layout/useMobileBack'
 import { NotificationsPage } from './components/notifications/NotificationCenter'
-import { BuildWatchPanel } from './components/pipeline/BuildWatchControls'
 import { TriggerWorkflowModal } from './components/pipeline/TriggerWorkflowModal'
 import { WorkflowLogsModal } from './components/pipeline/WorkflowLogsModal'
 import { ProvidersPage } from './components/provider/ProvidersPage'
@@ -256,7 +255,6 @@ function AppContent() {
 
   return (
     <AppLayout onOpenSettings={handleOpenSettings}>
-      <BuildWatchPanel onViewRun={handleViewRun} />
       <Routes>
         <Route path="/" element={<Navigate to="/pipelines" replace />} />
 
@@ -271,6 +269,7 @@ function AppContent() {
                 error={providersError ?? pipelinesError}
                 onRetry={invalidateAll}
                 onViewHistory={handleViewHistory}
+                onViewRun={handleViewRun}
                 onTrigger={(p) => useModalStore.getState().openTriggerModal(p.id)}
                 onViewMetrics={handleViewMetrics}
               />

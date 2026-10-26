@@ -20,17 +20,6 @@ public enum BuildWatchRunStatus: String, Codable, Hashable {
     case .skipped: return "Skipped"
     }
   }
-
-  public var symbol: String {
-    switch self {
-    case .pending: return "clock"
-    case .running: return "gearshape.2"
-    case .success: return "checkmark.circle.fill"
-    case .failed: return "xmark.circle.fill"
-    case .cancelled: return "stop.circle"
-    case .skipped: return "forward.end.circle"
-    }
-  }
 }
 
 public enum BuildWatchMonitoring: String, Codable, Hashable {
@@ -106,7 +95,7 @@ public struct BuildWatchSnapshot: Codable, Hashable {
       URL(string: url) != nil
     else { throw BuildWatchValidationError.invalid("The build watch run link is invalid") }
     guard try JSONEncoder().encode(self).count <= 3500 else {
-      throw BuildWatchValidationError.invalid("The build watch is too large for a Live Activity")
+      throw BuildWatchValidationError.invalid("The build details exceed the watch size limit")
     }
   }
 
