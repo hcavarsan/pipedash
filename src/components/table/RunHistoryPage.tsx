@@ -628,18 +628,17 @@ export const RunHistoryPage = ({
 
     return (
       <Group gap="sm" wrap="nowrap" style={{ minWidth: 'fit-content' }}>
-        <Box style={{ visibility: shouldShow ? 'visible' : 'hidden' }}>
+        {shouldShow && (
           <Button
             variant="default"
             size="sm"
             leftSection={<IconAdjustments size={16} />}
             onClick={openCustomizeModal}
-            disabled={!shouldShow || schemaLoading || !!schemaError}
-            tabIndex={shouldShow ? 0 : -1}
+            disabled={schemaLoading || !!schemaError}
           >
             Customize columns
           </Button>
-        </Box>
+        )}
         <Tooltip label={triggerBlockedReason} disabled={!triggerBlockedReason} multiline w={280}>
           <Button
             size="sm"
