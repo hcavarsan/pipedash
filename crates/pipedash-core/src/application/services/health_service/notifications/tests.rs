@@ -71,9 +71,10 @@ fn failed_event(pipelines: Vec<Pipeline>) -> CoreEvent {
     CoreEvent::PipelinesFailed { pipelines }
 }
 
-fn alert_event(key: &str, title: &str, recovered: bool) -> CoreEvent {
+fn alert_event(key: &str, alert_key: &str, title: &str, recovered: bool) -> CoreEvent {
     CoreEvent::ProviderHealthAlert {
         alert_id: "alert".to_owned(),
+        alert_key: alert_key.to_owned(),
         notification_key: key.to_owned(),
         provider_ids: vec![1],
         level: HealthLevel::MajorOutage,
@@ -537,7 +538,7 @@ async fn a_status_page_outage_alerts_once_and_recovers_only_after_calm_checks() 
     assert!(rig.scan(&[1]).await.is_empty());
     assert!(rig
         .state
-        .observe_event(&alert_event(&key, "Incident inc1", false))
+        .observe_event(&alert_event(&key, "incident:inc1", "Incident inc1", false))
         .is_empty());
 
     feed.respond_json(operational());
@@ -551,6 +552,22 @@ async fn a_status_page_outage_alerts_once_and_recovers_only_after_calm_checks() 
     assert!(rig.scan(&[1]).await.is_empty());
 }
 
+#[test]
+fn distinct_incidents_with_the_same_title_each_notify_once() {
+    let mut state = NotificationState::default();
+    let event = |id: &str| alert_event("status-page:feed", id, "Actions outage", false);
+
+    assert_eq!(
+        titles(&state.observe_event(&event("incident:a"))),
+        ["Actions outage"]
+    );
+    assert!(state.observe_event(&event("incident:a")).is_empty());
+    assert_eq!(
+        titles(&state.observe_event(&event("incident:b"))),
+        ["Actions outage"]
+    );
+}
+
 #[tokio::test]
 async fn a_status_page_outage_seen_first_by_an_event_is_not_repeated_by_the_scan() {
     let feed = FeedStub::start().await;
@@ -560,9 +577,9 @@ async fn a_status_page_outage_seen_first_by_an_event_is_not_repeated_by_the_scan
     feed.respond_json(operational());
     rig.scan(&[1]).await;
 
-    let event = rig
-        .state
-        .observe_event(&alert_event(&key, "Incident inc1", false));
+    let event =
+        rig.state
+            .observe_event(&alert_event(&key, "incident:inc1", "Incident inc1", false));
     assert_eq!(titles(&event), ["Incident inc1"]);
     feed.respond_json(outage());
     assert!(rig.scan(&[1]).await.is_empty());
@@ -573,7 +590,7 @@ async fn a_status_page_outage_seen_first_by_an_event_is_not_repeated_by_the_scan
     assert_eq!(titles(&rig.scan(&[1]).await), ["Example is back to normal"]);
     assert!(rig
         .state
-        .observe_event(&alert_event(&key, "Example is back to normal", true))
+        .observe_event(&alert_event(&key, "", "Example is back to normal", true))
         .is_empty());
 }
 
@@ -624,6 +641,22 @@ async fn controller_health_alerts_and_recovers_without_trusting_failed_checks() 
         titles(&rig.scan(&[1]).await),
         ["Provider 1 controllers recovered"]
     );
+}
+
+#[tokio::test]
+async fn a_controller_outage_is_reported_when_pipeline_access_fails() {
+    let mut rig = Rig::new();
+    rig.controller = true;
+    let stub = rig.stub(1, |stub| {
+        stub.failing(DomainError::PermissionDenied("pipelines".to_owned()))
+    });
+    stub.set_health(Ok(Vec::new()));
+    rig.scan(&[1]).await;
+
+    stub.set_health(Ok(vec![broken()]));
+    let found = rig.scan(&[1]).await;
+
+    assert!(titles(&found).contains(&"flux: scaled to zero"));
 }
 
 #[tokio::test]
@@ -725,6 +758,30 @@ async fn running_pipelines_beyond_the_per_scan_cap_are_covered_by_later_scans() 
 }
 
 #[tokio::test]
+async fn the_overdue_check_cap_applies_to_the_whole_scan() {
+    let mut rig = Rig::new();
+    for id in 1..=2 {
+        let running: Vec<Pipeline> = (0..20)
+            .map(|n| run(id, &format!("p{n:02}"), PipelineStatus::Running, 1))
+            .collect();
+        rig.stub(id, |stub| stub.returning(running));
+    }
+    let checked = |rig: &Rig| {
+        rig.state
+            .pipelines
+            .values()
+            .flat_map(|marks| marks.values())
+            .filter(|mark| mark.checked_at.is_some())
+            .count()
+    };
+
+    rig.scan(&[1, 2]).await;
+    assert_eq!(checked(&rig), 25);
+    rig.scan(&[1, 2]).await;
+    assert_eq!(checked(&rig), 40);
+}
+
+#[tokio::test]
 async fn a_pipeline_already_overdue_at_the_first_scan_stays_silent() {
     let mut rig = Rig::new();
     rig.stub(1, |stub| {
@@ -765,7 +822,7 @@ async fn disabling_status_pages_drops_event_created_feed_state() {
     feed.respond_json(operational());
     rig.scan(&[1]).await;
     rig.state
-        .observe_event(&alert_event(&key, "Incident inc1", false));
+        .observe_event(&alert_event(&key, "incident:inc1", "Incident inc1", false));
     assert!(rig.state.alerts.has(&key));
 
     rig.status_pages = false;

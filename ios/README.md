@@ -187,11 +187,12 @@ Provider outages use `provider-health-alert` events. The in-app notification lis
 ### Background checks on iOS
 
 Turning notifications on asks for consent, then copies the provider configurations and tokens, the proxy URL and the status-page setting into a separate Keychain item available after first unlock on this device only.
-The vault and app lock stay locked: background checks read only that copy. Provider changes while unlocked update it, removing a provider drops it, and turning notifications off, losing permission or a factory reset deletes it.
+The vault and app lock stay locked: background checks read only that copy. Provider and general-setting changes while unlocked update it, and removing a provider drops its entry. Turning notifications off or a factory reset deletes it; revoking permission in iOS Settings only stops delivery.
 The current pipeline and provider state is saved as a silent baseline, so turning notifications on never reports failures or outages that already exist.
 
 A `BGAppRefreshTask` asks iOS for a run every 15 minutes. iOS decides when it actually runs, may skip it in Low Power Mode or with Background App Refresh off, and never runs it after a force quit until the app opens again.
-Each run has about 23 seconds: status pages and controller checks go first, then provider pipelines, then at most 25 overdue-run checks, rotated so later runs cover the rest.
+Each run has about 23 seconds: status pages go first, then each provider's controller check and pipelines, then at most 25 overdue-run checks across all providers, rotated so later runs cover the rest.
+The run cannot use the foreground fetch scheduler, because no core context exists while the vault is locked. It reuses core's provider construction, fetch timeouts, quota pause and controller checks, and it never writes the pipeline cache.
 Background and foreground share one delivery record, so a failure, overdue run, outage or recovery is notified once whichever side sees it first. A foreground resume cancels a running background check.
 
 ## Push notifications

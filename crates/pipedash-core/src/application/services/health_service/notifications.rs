@@ -34,7 +34,7 @@ use crate::domain::{
 };
 use crate::event::CoreEvent;
 
-const TITLES_LIMIT: usize = 16;
+const KEYS_LIMIT: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalNotification {
@@ -81,7 +81,7 @@ struct ProviderMark {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 struct Delivered {
-    titles: Vec<String>,
+    keys: Vec<String>,
     recovered: bool,
     providers: Vec<i64>,
 }
@@ -118,6 +118,7 @@ impl NotificationState {
             } => self.observe_pipelines(*provider_id, pipelines),
             CoreEvent::PipelinesFailed { pipelines } => self.observe_failed(pipelines),
             CoreEvent::ProviderHealthAlert {
+                alert_key,
                 notification_key,
                 provider_ids,
                 title,
@@ -130,9 +131,16 @@ impl NotificationState {
                 } else {
                     self.alerts.arm(notification_key);
                 }
-                self.deliver(notification_key, title, body, provider_ids, *recovered)
-                    .into_iter()
-                    .collect()
+                self.deliver(
+                    notification_key,
+                    alert_key,
+                    title,
+                    body,
+                    provider_ids,
+                    *recovered,
+                )
+                .into_iter()
+                .collect()
             }
             CoreEvent::ProviderAdded { provider, .. }
             | CoreEvent::ProviderUpdated { provider, .. }
@@ -309,25 +317,26 @@ impl NotificationState {
     }
 
     fn deliver(
-        &mut self, key: &str, title: &str, body: &str, provider_ids: &[i64], recovered: bool,
+        &mut self, key: &str, alert_key: &str, title: &str, body: &str, provider_ids: &[i64],
+        recovered: bool,
     ) -> Option<LocalNotification> {
         let memo = self.delivered.entry(key.to_owned()).or_default();
         memo.providers = provider_ids.to_vec();
         let duplicate = if recovered {
             memo.recovered
         } else {
-            memo.titles.iter().any(|known| known == title)
+            memo.keys.iter().any(|known| known == alert_key)
         };
         if duplicate {
             return None;
         }
         if recovered {
-            memo.titles.clear();
+            memo.keys.clear();
         } else {
-            if memo.titles.len() == TITLES_LIMIT {
-                memo.titles.remove(0);
+            if memo.keys.len() == KEYS_LIMIT {
+                memo.keys.remove(0);
             }
-            memo.titles.push(title.to_owned());
+            memo.keys.push(alert_key.to_owned());
         }
         memo.recovered = recovered;
 
@@ -346,6 +355,7 @@ impl NotificationState {
             .filter_map(|alert| {
                 self.deliver(
                     &alert.notification_key,
+                    &alert.alert_key,
                     &alert.title,
                     &alert.body,
                     &alert.provider_ids,

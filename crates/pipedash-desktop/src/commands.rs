@@ -734,7 +734,8 @@ pub async fn get_refresh_mode(
 
 #[tauri::command]
 pub async fn update_general_settings(
-    maybe_core: State<'_, crate::MaybeCoreContext>, update: GeneralSettingsUpdate,
+    app: tauri::AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
+    update: GeneralSettingsUpdate,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -742,8 +743,9 @@ pub async fn update_general_settings(
     })?;
     core.provider_service
         .update_general_settings(&core.config_state, update)
-        .await
-        .map_err(Into::into)
+        .await?;
+    crate::local_notifications::schedule_sync(&app);
+    Ok(())
 }
 
 #[tauri::command]

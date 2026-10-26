@@ -77,6 +77,7 @@ pub(super) struct Observation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Alert {
     pub alert_id: String,
+    pub alert_key: String,
     pub notification_key: String,
     pub provider_ids: Vec<i64>,
     pub level: HealthLevel,
@@ -87,9 +88,12 @@ pub(super) struct Alert {
 }
 
 impl Alert {
-    fn new(subject: &str, draft: Draft, provider_ids: Vec<i64>, recovered: bool) -> Self {
+    fn new(
+        subject: &str, key: String, draft: Draft, provider_ids: Vec<i64>, recovered: bool,
+    ) -> Self {
         Self {
             alert_id: format!("alert-{}", NEXT_ALERT.fetch_add(1, Ordering::Relaxed)),
+            alert_key: key,
             notification_key: subject.to_owned(),
             provider_ids,
             level: draft.level,
@@ -103,6 +107,7 @@ impl Alert {
     pub(super) fn into_event(self, provider_ids: Vec<i64>) -> CoreEvent {
         CoreEvent::ProviderHealthAlert {
             alert_id: self.alert_id,
+            alert_key: self.alert_key,
             notification_key: self.notification_key,
             provider_ids,
             level: self.level,
@@ -274,7 +279,7 @@ impl AlertTracker {
                 .keys
                 .entry(candidate.key.clone())
                 .or_insert(KeyState::Pending);
-            let cooldown_key = (subject.to_owned(), candidate.key);
+            let cooldown_key = (subject.to_owned(), candidate.key.clone());
             if *state != KeyState::Pending || self.last_alert.contains_key(&cooldown_key) {
                 continue;
             }
@@ -283,6 +288,7 @@ impl AlertTracker {
             self.last_alert.insert(cooldown_key, now);
             alerts.push(Alert::new(
                 subject,
+                candidate.key,
                 candidate.draft,
                 candidate.provider_ids,
                 false,
@@ -298,6 +304,7 @@ impl AlertTracker {
                 track.streak = 0;
                 alerts.push(Alert::new(
                     subject,
+                    String::new(),
                     observation.recovery,
                     observation.provider_ids,
                     true,

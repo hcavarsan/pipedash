@@ -96,7 +96,10 @@ enum Polled {
         pipelines: Vec<Pipeline>,
         health: Option<CheckOutcome>,
     },
-    Failed(DomainError),
+    Failed {
+        error: DomainError,
+        health: Option<CheckOutcome>,
+    },
 }
 
 struct Target {
@@ -188,7 +191,11 @@ pub(super) async fn scan(
             Ok(provider) => provider,
             Err(error) => {
                 state.stamp(id, wall);
-                found.extend(state.settle(id, Polled::Failed(error), Instant::now(), wall));
+                let polled = Polled::Failed {
+                    error,
+                    health: None,
+                };
+                found.extend(state.settle(id, polled, Instant::now(), wall));
                 continue;
             }
         };
@@ -216,6 +223,7 @@ pub(super) async fn scan(
     for users in feeds.values_mut() {
         users.sort_by_key(|(id, _)| *id);
     }
+    let mut polls_left = targets.len();
     let jobs: Vec<Job> = feed_keys
         .into_iter()
         .map(Job::Feed)
@@ -224,6 +232,7 @@ pub(super) async fn scan(
 
     let client = http.status_client().ok();
     let mut queue: VecDeque<Job> = jobs.into();
+    let mut overdue_left = MAX_OVERDUE_CHECKS;
     let run = async {
         let mut running = FuturesUnordered::new();
         loop {
@@ -240,12 +249,21 @@ pub(super) async fn scan(
                 break;
             };
             let follow = match &done {
-                Done::Poll {
-                    target,
-                    polled: Polled::Fetched { pipelines, .. },
-                } => state.overdue_job(target, pipelines),
+                Done::Poll { target, polled } => {
+                    let share = overdue_left.div_ceil(polls_left.max(1));
+                    polls_left = polls_left.saturating_sub(1);
+                    match polled {
+                        Polled::Fetched { pipelines, .. } => {
+                            state.overdue_job(target, pipelines, share)
+                        }
+                        _ => None,
+                    }
+                }
                 _ => None,
             };
+            if let Some(job) = &follow {
+                overdue_left -= job.selected.len();
+            }
             found.extend(state.apply(done, &feeds, Instant::now(), wall));
             queue.extend(follow.map(Job::Overdue));
         }
@@ -284,22 +302,20 @@ async fn poll(provider: &dyn Provider, id: i64, controller: bool) -> Polled {
     if let Some(until) = paused {
         return Polled::Paused(until);
     }
-
-    let fetched = match timeout(FETCH_TIMEOUT, provider.fetch_pipelines()).await {
-        Ok(fetched) => fetched,
-        Err(_) => Err(DomainError::Timeout(FETCH_TIMEOUT_MESSAGE.to_string())),
-    };
-    let pipelines = match fetched {
-        Ok(pipelines) => pipelines,
-        Err(error) => return Polled::Failed(error),
-    };
     let health = if controller {
         Some(check_instance(provider, id).await)
     } else {
         None
     };
+    let fetched = match timeout(FETCH_TIMEOUT, provider.fetch_pipelines()).await {
+        Ok(fetched) => fetched,
+        Err(_) => Err(DomainError::Timeout(FETCH_TIMEOUT_MESSAGE.to_string())),
+    };
 
-    Polled::Fetched { pipelines, health }
+    match fetched {
+        Ok(pipelines) => Polled::Fetched { pipelines, health },
+        Err(error) => Polled::Failed { error, health },
+    }
 }
 
 async fn check_overdue(job: Overdue) -> Done {
@@ -381,7 +397,9 @@ impl NotificationState {
             .retain(|subject, _| !subject.starts_with(FEED_SUBJECT_PREFIX));
     }
 
-    fn overdue_job(&self, target: &Target, pipelines: &[Pipeline]) -> Option<Overdue> {
+    fn overdue_job(
+        &self, target: &Target, pipelines: &[Pipeline], limit: usize,
+    ) -> Option<Overdue> {
         let marks = self.pipelines.get(&target.id);
         let mark_of = |pipeline: &Pipeline| marks.and_then(|marks| marks.get(&pipeline.id));
         let stamp = |pipeline: &Pipeline| mark_of(pipeline).and_then(|mark| mark.checked_at);
@@ -390,7 +408,7 @@ impl NotificationState {
             .filter(|pipeline| tracks_overdue(pipeline))
             .collect();
         eligible.sort_by(|a, b| stamp(a).cmp(&stamp(b)).then_with(|| a.id.cmp(&b.id)));
-        eligible.truncate(MAX_OVERDUE_CHECKS);
+        eligible.truncate(limit);
         if eligible.is_empty() {
             return None;
         }
@@ -473,14 +491,18 @@ impl NotificationState {
                 self.alerts.gap(&instance_subject(id));
                 Vec::new()
             }
-            Polled::Failed(error) => {
+            Polled::Failed { error, health } => {
                 let until = error
                     .retry_after()
                     .and_then(|wait| chrono::Duration::from_std(wait.min(MAX_PAUSE)).ok())
                     .map(|wait| wall + wait);
                 self.pause(id, until);
-                self.alerts.gap(&instance_subject(id));
-                self.observe_connection(id, &name, Some(error.failure_kind()), now)
+                if health.is_none() {
+                    self.alerts.gap(&instance_subject(id));
+                }
+                let mut found = self.observe_connection(id, &name, Some(error.failure_kind()), now);
+                found.extend(self.observe_instance(id, &name, health, now));
+                found
             }
             Polled::Fetched { pipelines, health } => {
                 let mut found = self.observe_connection(id, &name, None, now);
