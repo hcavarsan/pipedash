@@ -142,6 +142,35 @@ impl BitbucketClient {
         Ok(pipelines)
     }
 
+    pub async fn find_pipeline_by_build_number(
+        &self, workspace: &str, repo_slug: &str, build_number: i64,
+    ) -> PluginResult<Pipeline> {
+        let mut next_url = Some(format!(
+            "{}/repositories/{}/{}/pipelines?pagelen=100&sort=-created_on",
+            self.api_url, workspace, repo_slug
+        ));
+
+        while let Some(url) = next_url.take() {
+            let paginated: BitbucketPaginatedResponse<Pipeline> = self
+                .retry_policy
+                .retry(|| async { self.get_json(&url).await })
+                .await?;
+
+            if let Some(pipeline) = paginated
+                .values
+                .into_iter()
+                .find(|pipeline| pipeline.build_number == build_number)
+            {
+                return Ok(pipeline);
+            }
+            next_url = paginated.next;
+        }
+
+        Err(PluginError::PipelineNotFound(format!(
+            "Pipeline run #{build_number} not found for {workspace}/{repo_slug}"
+        )))
+    }
+
     pub async fn list_steps(
         &self, workspace: &str, repo_slug: &str, pipeline_uuid: &str,
     ) -> PluginResult<Vec<PipelineStep>> {

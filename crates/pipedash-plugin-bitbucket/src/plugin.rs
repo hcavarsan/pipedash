@@ -79,23 +79,6 @@ impl BitbucketPlugin {
             Ok(all_repos)
         }
     }
-
-    async fn find_pipeline_by_build_number(
-        &self, workspace: &str, repo_slug: &str, build_number: i64,
-    ) -> PluginResult<types::Pipeline> {
-        let client = self.client()?;
-        let pipelines = client.list_pipelines(workspace, repo_slug, 100).await?;
-
-        pipelines
-            .into_iter()
-            .find(|p| p.build_number == build_number)
-            .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!(
-                    "Pipeline run #{} not found in recent 100 runs for {}/{}",
-                    build_number, workspace, repo_slug
-                ))
-            })
-    }
 }
 
 fn collect_partial<T>(results: Vec<PluginResult<T>>, item: &str) -> PluginResult<Vec<T>> {
@@ -274,6 +257,7 @@ impl Plugin for BitbucketPlugin {
         let (provider_id, workspace, repo_slug) = config::parse_pipeline_id(pipeline_id)?;
 
         let pipeline = self
+            .client()?
             .find_pipeline_by_build_number(&workspace, &repo_slug, run_number)
             .await?;
 
@@ -357,7 +341,7 @@ impl Plugin for BitbucketPlugin {
         let (_, workspace, repo_slug) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
 
-        let pipeline = self
+        let pipeline = client
             .find_pipeline_by_build_number(&workspace, &repo_slug, run_number)
             .await?;
 
@@ -440,5 +424,155 @@ impl Plugin for BitbucketPlugin {
 
     fn get_migrations(&self) -> Vec<String> {
         vec![]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        mpsc,
+        Arc,
+    };
+
+    use tokio::io::{
+        AsyncReadExt,
+        AsyncWriteExt,
+    };
+
+    use super::*;
+
+    async fn serve_runs(total: i64) -> (BitbucketPlugin, mpsc::Receiver<String>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (recorded, requests) = mpsc::channel();
+
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buffer = [0; 4096];
+                let count = stream.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..count]);
+                let line = request.lines().next().unwrap().to_string();
+                let target = line.split_whitespace().nth(1).unwrap();
+                let url = reqwest::Url::parse(&format!("http://{address}{target}")).unwrap();
+                let (status, body) = match (line.starts_with("GET "), url.path()) {
+                    (true, "/repositories/ws/repo/pipelines") => {
+                        let page = url
+                            .query_pairs()
+                            .find(|(key, _)| key == "page")
+                            .map(|(_, value)| value.parse::<i64>().unwrap())
+                            .unwrap_or(1);
+                        let high = total - (page - 1) * 100;
+                        let low = (high - 99).max(1);
+                        let values: Vec<_> = (low..=high)
+                            .rev()
+                            .map(|number| {
+                                serde_json::json!({
+                                    "uuid": format!("{{{number}}}"),
+                                    "build_number": number,
+                                    "state": if number == 1 {
+                                        serde_json::json!({"name": "IN_PROGRESS"})
+                                    } else {
+                                        serde_json::json!({
+                                            "name": "COMPLETED",
+                                            "result": {"name": "SUCCESSFUL"}
+                                        })
+                                    },
+                                    "target": {"type": "pipeline_ref_target", "ref_name": "main"},
+                                    "created_on": "2026-10-01T00:00:00Z",
+                                    "links": {}
+                                })
+                            })
+                            .collect();
+                        let next = (low > 1).then(|| format!(
+                            "http://{address}/repositories/ws/repo/pipelines?pagelen=100&sort=-created_on&page={}",
+                            page + 1
+                        ));
+                        (
+                            "200 OK",
+                            serde_json::json!({
+                                "values": values, "next": next, "pagelen": 100
+                            })
+                            .to_string(),
+                        )
+                    }
+                    (true, "/repositories/ws/repo/pipelines/%7B1%7D/steps") => (
+                        "200 OK",
+                        serde_json::json!({"values": [], "pagelen": 100}).to_string(),
+                    ),
+                    (false, "/repositories/ws/repo/pipelines/%7B1%7D/stopPipeline") => {
+                        ("204 No Content", String::new())
+                    }
+                    _ => ("404 Not Found", "{}".to_string()),
+                };
+                recorded.send(line).unwrap();
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut plugin = BitbucketPlugin::new();
+        plugin.client = Some(client::BitbucketClient::new(
+            Arc::new(reqwest::Client::builder().no_proxy().build().unwrap()),
+            format!("http://{address}"),
+            "Basic stub".to_string(),
+        ));
+        plugin.provider_id = Some(1);
+        (plugin, requests)
+    }
+
+    #[tokio::test]
+    async fn run_details_finds_old_builds_without_a_page_cap() {
+        let (plugin, requests) = serve_runs(1150).await;
+
+        let run = plugin
+            .fetch_run_details("bitbucket__1__ws__repo", 1)
+            .await
+            .unwrap();
+        assert_eq!(run.run_number, 1);
+        assert_eq!(run.status, PipelineStatus::Running);
+        assert_eq!(requests.try_iter().count(), 12);
+
+        let latest = plugin
+            .fetch_run_details("bitbucket__1__ws__repo", 1150)
+            .await
+            .unwrap();
+        assert_eq!(latest.run_number, 1150);
+        assert_eq!(latest.status, PipelineStatus::Success);
+        assert_eq!(requests.try_iter().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn run_details_rejects_missing_builds_after_the_last_page() {
+        for total in [0, 150] {
+            let (plugin, requests) = serve_runs(total).await;
+
+            let error = plugin
+                .fetch_run_details("bitbucket__1__ws__repo", 9999)
+                .await
+                .unwrap_err();
+            assert!(matches!(error, PluginError::PipelineNotFound(_)));
+            assert_eq!(requests.try_iter().count(), if total == 0 { 1 } else { 2 });
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_run_stops_an_old_running_build_by_its_uuid() {
+        let (plugin, requests) = serve_runs(150).await;
+
+        plugin
+            .cancel_run("bitbucket__1__ws__repo", 1)
+            .await
+            .unwrap();
+
+        let requests: Vec<_> = requests.try_iter().collect();
+        assert_eq!(requests.len(), 4);
+        assert_eq!(
+            requests.last().unwrap(),
+            "POST /repositories/ws/repo/pipelines/%7B1%7D/stopPipeline HTTP/1.1"
+        );
     }
 }
