@@ -8,5 +8,10 @@
         "width": 1700
       }
     ]
+  },
+  "bundle": {
+    "iOS": {
+      "minimumSystemVersion": "15.0"
+    }
   }
 }

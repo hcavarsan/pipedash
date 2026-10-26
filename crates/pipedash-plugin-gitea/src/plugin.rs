@@ -86,19 +86,20 @@ impl Plugin for GiteaPlugin {
         &mut self, provider_id: i64, config: HashMap<String, String>,
         http_client: Option<Arc<reqwest::Client>>,
     ) -> PluginResult<()> {
+        let base_url = config::get_base_url(&config)?;
         let token = config
             .get("token")
             .map(|token| token.trim())
             .filter(|token| !token.is_empty())
             .ok_or_else(|| PluginError::InvalidConfig("Missing Gitea access token".to_string()))?
             .to_string();
-        let base_url = config::get_base_url(&config)?;
         let status_source = custom_status_source(&config)?;
 
         let http_client = http_client.unwrap_or_else(|| {
             Arc::new(
                 reqwest::Client::builder()
                     .use_rustls_tls()
+                    .https_only(cfg!(target_os = "ios"))
                     .pool_max_idle_per_host(10)
                     .timeout(Duration::from_secs(30))
                     .connect_timeout(Duration::from_secs(10))
@@ -258,7 +259,7 @@ impl Plugin for GiteaPlugin {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "ios")))]
 mod tests {
     use tokio::io::{
         AsyncReadExt,

@@ -10,7 +10,15 @@ export function useFactoryReset() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: () => service.factoryReset(),
+    mutationFn: async () => {
+      const result = await service.factoryReset()
+
+      if (!result.caches_cleared || !result.tokens_cleared || !result.metrics_cleared) {
+        throw new Error('Some credentials, cached data or metrics could not be deleted')
+      }
+
+      return result
+    },
 
     onSuccess: (result) => {
       queryClient.clear()
@@ -20,15 +28,16 @@ export function useFactoryReset() {
 
       notifications.show({
         title: 'Factory reset complete',
-        message: `Removed ${formatCount(result.providers_removed, 'provider')} and cleared all local settings.`,
+        message: `Removed ${formatCount(result.providers_removed, 'provider')} and cleared app preferences. Storage configuration, backups and exports were kept.`,
         color: 'green',
       })
     },
 
     onError: (error: Error) => {
+      void queryClient.invalidateQueries()
       notifications.show({
-        title: "Couldn't reset the application",
-        message: error.message || 'Failed to perform factory reset',
+        title: 'Factory reset incomplete',
+        message: `${error.message || 'Failed to perform factory reset'}. Some data may already be deleted. Fix the error and retry.`,
         color: 'red',
       })
     },

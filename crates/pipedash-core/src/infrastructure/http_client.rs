@@ -107,6 +107,7 @@ impl HttpClientManager {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let builder = Client::builder()
             .tls_backend_rustls()
+            .https_only(cfg!(target_os = "ios"))
             .user_agent(USER_AGENT);
         let Some(proxy) = proxy else {
             return Ok(builder);
@@ -236,6 +237,179 @@ mod tests {
         }
     }
 
+    fn https_only_client() -> Client {
+        HttpClientManager::base_builder(None)
+            .unwrap()
+            .https_only(true)
+            .no_proxy()
+            .add_root_certificate(
+                reqwest::Certificate::from_der(include_bytes!(
+                    "../../tests/fixtures/https_server_cert.der"
+                ))
+                .unwrap(),
+            )
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap()
+    }
+
+    async fn tls_stub(response: String) -> (String, tokio::task::JoinHandle<String>) {
+        use std::io::{
+            Read,
+            Write,
+        };
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let cert = rustls::pki_types::CertificateDer::from(
+            include_bytes!("../../tests/fixtures/https_server_cert.der").to_vec(),
+        );
+        let key = rustls::pki_types::PrivateKeyDer::Pkcs8(
+            include_bytes!("../../tests/fixtures/self_signed_key.der")
+                .to_vec()
+                .into(),
+        );
+        let config = Arc::new(
+            rustls::ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(vec![cert], key)
+                .unwrap(),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!(
+            "https://127.0.0.1:{}",
+            listener.local_addr().unwrap().port()
+        );
+        let server = tokio::spawn(async move {
+            let (stream, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+            let stream = stream.into_std().unwrap();
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            tokio::task::spawn_blocking(move || {
+                let connection = rustls::ServerConnection::new(config).unwrap();
+                let mut stream = rustls::StreamOwned::new(connection, stream);
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let count = stream.read(&mut buffer).unwrap();
+                    assert!(count > 0 && request.len() + count <= 8192);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.flush().unwrap();
+                String::from_utf8(request).unwrap()
+            })
+            .await
+            .unwrap()
+        });
+        (url, server)
+    }
+
+    #[tokio::test]
+    async fn https_only_rejects_http_before_sending_credentials() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let error = https_only_client()
+            .get(format!("http://{}", listener.local_addr().unwrap()))
+            .header("Authorization", "token fixture")
+            .send()
+            .await
+            .unwrap_err();
+
+        assert!(error.is_builder(), "{error}");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn https_only_allows_https_with_credentials() {
+        let (url, server) = tls_stub(
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".to_string(),
+        )
+        .await;
+        let response = https_only_client()
+            .get(url)
+            .header("Authorization", "token fixture")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.text().await.unwrap(), "ok");
+        assert!(server
+            .await
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("authorization: token fixture"));
+    }
+
+    #[tokio::test]
+    async fn https_only_rejects_http_downgrade_redirect_before_traffic() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (url, server) = tls_stub(format!(
+            "HTTP/1.1 302 Found\r\nLocation: http://{}/token\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            listener.local_addr().unwrap()
+        ))
+        .await;
+        let error = https_only_client()
+            .get(url)
+            .header("Authorization", "token fixture")
+            .send()
+            .await
+            .unwrap_err();
+
+        assert!(error.is_redirect(), "{error}");
+        assert!(server
+            .await
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("authorization: token fixture"));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+
+    #[cfg(target_os = "ios")]
+    #[tokio::test]
+    async fn ios_shared_clients_reject_http_in_every_cache_and_proxy_configuration() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let manager = HttpClientManager::new().unwrap();
+        for proxy in ["", url.as_str()] {
+            manager.set_proxy(proxy).unwrap();
+            let clients = [
+                manager.client_for(&ClientOptions::default()).unwrap(),
+                manager.client_for(&options(&url, false)).unwrap(),
+                manager.client_for(&options(&url, true)).unwrap(),
+                manager.status_client().unwrap(),
+            ];
+            for client in clients {
+                let error = client
+                    .get(&url)
+                    .header("Authorization", "token fixture")
+                    .send()
+                    .await
+                    .unwrap_err();
+                assert!(error.is_builder(), "{error}");
+            }
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+
     #[test]
     fn default_options_share_the_default_client() {
         let manager = HttpClientManager::new().unwrap();
@@ -323,6 +497,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "ios"))]
     async fn proxy_stub() -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
         use tokio::io::{
             AsyncReadExt,
@@ -351,6 +526,7 @@ mod tests {
         (url, seen)
     }
 
+    #[cfg(not(target_os = "ios"))]
     #[tokio::test]
     async fn every_client_goes_through_the_proxy_until_it_is_cleared() {
         let (proxy, seen) = proxy_stub().await;

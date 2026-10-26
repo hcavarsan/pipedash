@@ -1923,89 +1923,18 @@ pub async fn factory_reset(
     })?;
     crate::build_watch::interrupt(&app);
 
-    let providers = core.provider_service.list_providers().await?;
-    let providers_removed = providers.len();
+    let providers_removed = core.factory_reset().await?;
 
-    for provider in &providers {
-        if let Err(e) = core.provider_service.remove_provider(provider.id).await {
-            tracing::warn!(
-                "[factory_reset] Failed to remove provider {}: {}",
-                provider.id,
-                e
-            );
-        }
-    }
+    crate::push::reset(&app_data_dir.0).await?;
+    app_lock::reset(&app, &lock)?;
 
-    if let Err(e) = core.pipeline_service.clear_all_caches_atomic().await {
-        tracing::warn!("[factory_reset] Failed to clear caches: {}", e);
-    }
-
-    let metrics_cleared = if let Some(ref metrics_service) = core.metrics_service {
-        match metrics_service.flush_metrics(None, true).await {
-            Ok(_) => true,
-            Err(e) => {
-                tracing::warn!("[factory_reset] Failed to clear metrics: {}", e);
-                false
-            }
-        }
-    } else {
-        false
-    };
-
-    let tokens_cleared = match core.token_store.get_all_tokens().await {
-        Ok(tokens) => {
-            let mut success = true;
-            for (provider_id, _) in tokens {
-                if let Err(e) = core.token_store.delete_token(provider_id).await {
-                    tracing::warn!(
-                        "[factory_reset] Failed to delete token for provider {}: {}",
-                        provider_id,
-                        e
-                    );
-                    success = false;
-                }
-            }
-            success
-        }
-        Err(e) => {
-            tracing::warn!("[factory_reset] Failed to get tokens for cleanup: {}", e);
-            false
-        }
-    };
-
-    let mut legacy_cleaned = 0;
-    for provider in &providers {
-        use crate::credential::Entry;
-        if let Ok(old_entry) = Entry::new("pipedash", &format!("provider_{}", provider.id)) {
-            if old_entry.delete_credential().is_ok() {
-                legacy_cleaned += 1;
-                tracing::debug!(
-                    "[factory_reset] Cleaned up legacy keyring entry for provider_{}",
-                    provider.id
-                );
-            }
-        }
-    }
-    if legacy_cleaned > 0 {
-        tracing::info!(
-            "[factory_reset] Cleaned up {} legacy keyring entries",
-            legacy_cleaned
-        );
-    }
-
-    crate::push::reset(&app_data_dir.0).await;
-    app_lock::reset(&app, &lock);
-
-    tracing::info!(
-        "[factory_reset] Complete - removed {} providers, caches cleared, tokens_cleared: {}, metrics_cleared: {}, legacy_entries_cleaned: {}",
-        providers_removed, tokens_cleared, metrics_cleared, legacy_cleaned
-    );
+    tracing::info!(providers_removed, "[factory_reset] Complete");
 
     Ok(FactoryResetResult {
         providers_removed,
         caches_cleared: true,
-        tokens_cleared,
-        metrics_cleared,
+        tokens_cleared: true,
+        metrics_cleared: true,
     })
 }
 

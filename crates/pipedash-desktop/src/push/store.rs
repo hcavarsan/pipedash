@@ -142,6 +142,7 @@ mod vault {
     };
 
     static SECRETS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+    static DELETE_FAILURES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
     fn with<T>(change: impl FnOnce(&mut HashMap<String, String>) -> T) -> T {
         let mut guard = SECRETS.lock().unwrap_or_else(PoisonError::into_inner);
@@ -157,7 +158,16 @@ mod vault {
         Ok(with(|secrets| secrets.get(user).cloned()))
     }
 
+    pub fn fail_next_delete(user: &str) {
+        DELETE_FAILURES.lock().unwrap().push(user.into());
+    }
+
     pub fn delete(user: &str) -> Result<(), String> {
+        let mut failures = DELETE_FAILURES.lock().unwrap();
+        if let Some(index) = failures.iter().position(|key| key == user) {
+            failures.remove(index);
+            return Err("keychain deletion unavailable".into());
+        }
         with(|secrets| secrets.remove(user));
         Ok(())
     }
@@ -171,12 +181,16 @@ pub fn get_secret(kind: Secret, id: &str) -> Result<Option<String>> {
     vault::get(&kind.user(id)).map_err(keychain)
 }
 
-pub fn forget(id: &str) {
+pub fn forget(id: &str) -> Result<()> {
     for kind in [Secret::ApiToken, Secret::RelaySubscription] {
-        if let Err(error) = vault::delete(&kind.user(id)) {
-            tracing::warn!(%error, "push keychain cleanup failed");
-        }
+        vault::delete(&kind.user(id)).map_err(keychain)?;
     }
+    Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn fail_next_delete(kind: Secret, id: &str) {
+    vault::fail_next_delete(&kind.user(id));
 }
 
 #[cfg(test)]

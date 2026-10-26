@@ -1,13 +1,13 @@
 # Pipedash push relay
 
-The push relay lets a self-hosted `pipedash-web` server send an iOS push notification when a pipeline run fails, even when the Pipedash app is closed. Apple only accepts pushes from a holder of the app's APNs key, so the relay is the one small service that holds that key. Servers never see it.
+Remote push notifications are disabled in the current iOS release. The relay remains available for earlier paired builds and separately maintained deployments. It forwards failed-pipeline alerts from a self-hosted `pipedash-web` server to Apple's APNs service. Servers do not receive the APNs signing key.
 
 ```
 iOS app ── registers device token ──────────────▶ relay ──▶ Apple (APNs) ──▶ iPhone
 pipedash-web ── "pipeline X failed" + relay id ──▶ relay
 ```
 
-The project owner runs one relay for the App Store build. You only need this page if you publish your own build of the app (your own bundle id and APNs key), or if you want to run the relay yourself.
+This page documents relay operation and retained subscriptions. Deploying a relay does not activate push in the current App Store build.
 
 ## What you need
 
@@ -87,7 +87,7 @@ The environment variable wins. Without a relay URL the server refuses to registe
 
 The iOS app is built with the same URL: set `PIPEDASH_PUSH_RELAY_URL` when you build it. That is the relay the app registers its device with. A server and an app must point at the same relay.
 
-The iOS app keeps remote push and build watching off by default. Set `PipedashBuildWatchEnabled` to the plist boolean `true` in `crates/pipedash-desktop/Info.ios.plist` and rebuild to restore both features. See [the iOS flag instructions](../ios/README.md#local-build-watching).
+The current iOS release keeps remote push and build watching disabled and omits their entitlements and background declarations. Release validation rejects reactivation, so changing `PipedashBuildWatchEnabled` alone is not a supported release configuration. See [the iOS release restrictions](../ios/README.md#local-build-watching).
 
 Pairing happens in the iOS app. For each server you pair, it creates a separate relay subscription, then gives the server the resulting subscription id. Unpairing deletes that relay subscription. The server lists its devices at `GET /api/v1/push/subscriptions`, sends a test push with `POST /api/v1/push/subscriptions/{id}/test`, and forgets a device with `DELETE /api/v1/push/subscriptions/{id}`. All of these need the server's API token. The `id` in these paths is derived from the relay subscription id; the server never returns the relay subscription id itself.
 

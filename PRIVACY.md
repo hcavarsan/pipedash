@@ -1,25 +1,24 @@
 # Privacy Policy for Pipedash
 
-**Last updated:** October 24, 2026
+**Last updated:** October 26, 2026
 
 ## Overview
 
-Pipedash is a CI/CD pipeline monitoring dashboard. We are committed to protecting your privacy.
+Pipedash monitors CI/CD pipelines using the provider credentials and storage destinations you configure. It does not require a Pipedash account.
 
 ## Data Collection
 
-**Pipedash does not collect or store personal data on external servers, and never sends your credentials to anyone other than the CI/CD providers you configure.** When status-page checks are on, each request to a status-page host discloses ordinary HTTP metadata to that host: the IP address of the machine running Pipedash, a User-Agent with the Pipedash version, and the request times while the app is active.
+Pipedash does not send analytics or telemetry to its developer. Provider requests send your credentials to the CI/CD service you select. Those services receive the request contents, your connection's IP address and ordinary HTTP metadata under their own privacy policies.
 
-All data, including:
-- CI/CD provider credentials (API tokens, access keys)
-- Pipeline configurations
-- User preferences
+The iOS app uses a private SQLite database on the device and the iOS Keychain for provider tokens by default. Stored data includes provider addresses, repository selections, cached run details, metrics and preferences. Run details can contain names, commit messages, branch names and other information returned by your provider.
 
-...is stored **locally on your device only**. The one exception is the optional iOS push notifications described under Push Notifications (iOS) below, which store an APNs device token on a push relay.
+Local storage is the default, not a restriction on advanced configuration. If you configure PostgreSQL, Pipedash sends the selected database contents to that server. Password-encrypted token storage keeps credential values encrypted in SQLite or PostgreSQL. The database administrator controls that server's access, retention and backups. Storage migration copies data to the selected destination and can leave the source database behind.
+
+Exports and files you share can leave the device through the destination or app you choose. Provider TOML exports replace provider tokens with variable references, but still contain provider configuration. Review exported files for sensitive addresses, repository names and other configuration before sharing them.
 
 ## Third-Party Services
 
-Pipedash connects to CI/CD providers (GitHub, GitLab, Jenkins, etc.) using credentials you provide. These connections are made directly from your device to those services. We do not proxy, intercept, or store any data from these connections.
+Provider connections go directly from the app or your self-hosted Pipedash server to the CI/CD service unless you configure an HTTP proxy. The proxy operator can observe connection metadata. An unencrypted HTTP connection also exposes request contents to intermediaries. Pipedash's developer does not operate a provider-data proxy.
 
 To tell you when a provider has an outage, Pipedash also reads public status pages. These requests carry no credentials or cookies:
 - `www.githubstatus.com` (GitHub, hosted by Atlassian Statuspage)
@@ -28,11 +27,25 @@ To tell you when a provider has an outage, Pipedash also reads public status pag
 - `www.buildkitestatus.com` (Buildkite, hosted by Atlassian Statuspage)
 - Any status page URL you configure on a provider
 
+Each status-page host receives your connection's IP address, a User-Agent containing the Pipedash version and request times while checks run. These hosts control their own request logs and retention.
+
 To turn this off, open Settings → General and switch off "Check provider status pages", or set `status_pages_enabled = false` in the `[general]` section of `config.toml`.
 
-## Push Notifications (iOS)
+## Retention and Deletion
 
-Push notifications are optional and off until you pair the iOS app with a Pipedash server you run. Apple only lets the app's publisher send pushes, so a **push relay** run by the Pipedash project sits between your server and Apple's push service (APNs). The relay is open source (`crates/pipedash-push-relay`) and you can run your own (see `docs/push-relay.md`).
+- Provider settings and credentials remain in the configured storage until you remove the provider or complete a factory reset. In Settings > Providers, remove the provider to stop its refreshes and delete its saved credential. To invalidate a token everywhere, revoke it with the CI/CD provider too.
+- Cached pipeline data stays in the configured cache until replacement, expiration or deletion. Settings > Cache lets you clear pipelines, run history, workflow parameters or all caches. Data can return on the next refresh while the provider remains configured.
+- Metrics use the retention period in Settings > Metrics and any per-pipeline override. Cleanup runs while Pipedash runs, so expired records can remain while the app is closed. Disabling new metrics collection does not itself delete existing records.
+- Factory reset removes providers and their TOML definitions, saved provider credentials, cached pipeline data and metrics from the active storage. It also clears app preferences and local app-lock settings. It keeps non-provider storage configuration and an encrypted vault's password, and does not revoke provider tokens remotely or erase separate databases and backups. Reset is not transactional: completed deletions remain after a later failure. Retry a failed reset before treating deletion as complete.
+- Saved exports, shared copies, device backups and database backups have separate lifetimes. Delete exports through Files or their selected destination. Manage backups through your device or database administrator. Uninstalling the app does not revoke provider tokens or guarantee deletion of Keychain items. Pipedash does not promise forensic erasure of storage or backups.
+
+To stop optional status-page requests, turn off "Check provider status pages" in Settings > General. Remove a provider to stop requests to its CI/CD service. Provider-side records, including workflows you started, follow that provider's retention and deletion controls.
+
+## Previous iOS Push Pairings
+
+Remote push notifications and Live Activities are disabled in the current iOS build. It does not offer pairing or register for remote notifications. Optional local notifications report changes detected while the app runs and refreshes.
+
+If you paired an earlier build, disabling these features does not erase an existing server or relay record. The following describes those records and their retention. The push relay sits between your self-hosted Pipedash server and Apple's push service (APNs). Its source is in `crates/pipedash-push-relay`. Deployment details are in `docs/push-relay.md`.
 
 When you pair a server, this is what the relay receives and stores:
 
@@ -49,7 +62,7 @@ What your server stores for each paired device is kept in your own database: the
 
 Notification text passes through the relay and Apple's APNs in the clear over TLS. It is not end-to-end encrypted, so do not put anything in a pipeline name or branch name that you would not want Apple and the relay operator to be able to see. Apple's handling of push data is governed by Apple's own privacy policy.
 
-To stop all of it, unpair the server in the app, or remove `PIPEDASH_PUSH_RELAY_URL` (or the `[push]` section of `config.toml`) from your server. Unpairing deletes the relay's record.
+To stop a previously paired server from sending alerts, remove its device subscription or remove `PIPEDASH_PUSH_RELAY_URL` (or the `[push]` section) from that server's configuration. Builds with pairing controls can unpair the server and request relay-record deletion. A factory reset attempts remote cleanup, but network or service failures can prevent it. Existing relay records otherwise follow the retention periods above. Contact the relay operator if you need deletion before expiry. Do not post device tokens, subscription identifiers or provider credentials in a public support issue.
 
 ## Analytics
 
@@ -57,7 +70,7 @@ Pipedash does not include any analytics, tracking, or telemetry software.
 
 ## Data Security
 
-Your credentials and data are stored securely on your device using platform-native secure storage mechanisms.
+The default iOS setup stores provider tokens in the Keychain. Optional device authentication protects access through Pipedash. Password-encrypted credential storage uses AES-256-GCM with an Argon2id-derived key. This encrypts credential values, not the entire database or every configuration field. Protect your device, storage server, configuration files and exported copies accordingly.
 
 ## Changes to This Policy
 

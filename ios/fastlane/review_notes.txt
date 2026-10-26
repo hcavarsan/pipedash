@@ -1,18 +1,18 @@
-Pipedash is a dashboard for CI/CD pipelines. It shows pipeline runs from the providers a user adds, and lets the user start a workflow or cancel a running one. It has no user account, no in-app purchases and no tracking. Provider tokens are stored in the iOS Keychain on the device.
+Pipedash is a dashboard for CI/CD pipelines. It shows runs from providers the user adds and can start or stop workflows. It has no Pipedash account, in-app purchases or tracking. On-device storage uses SQLite and the iOS Keychain for provider tokens.
 
 How to review the main features:
-1. Launch the app. The dashboard is empty until a provider is added.
-2. Tap "Add provider", choose GitHub, and paste this token:
+1. Launch the app. If storage setup appears, keep the on-device SQLite and Device Keychain defaults and tap "Get started". The dashboard is empty until you add a provider.
+2. Tap "Add provider" > "GitHub Actions". Enter a "Provider name" such as "Review demo" and paste this "API Token":
    %{demo_token}
-   It only has access to the demo repository %{demo_repository}, which contains a harmless workflow that prints a message.
-3. Select the workflow and save. The dashboard shows its runs. Tap a run to see its jobs and logs.
-4. Optional actions: start a new run of the workflow, or cancel a running run. Both only affect the demo repository.
+3. Tap "Next", choose the repository %{demo_repository} and tap "Add".
+4. On the dashboard, open "%{demo_workflow}" under the demo repository. Open an existing run to view its status and metadata. "View logs" opens GitHub in the external browser. GitHub may require sign-in to read logs.
+5. To start a run, choose "Run workflow", keep the default branch and tap "Trigger". Open the running workflow and choose "Stop workflow" to cancel it. Use only the demo repository for these actions.
 
 Other features:
-- Face ID: Settings > Storage > "Require Face ID". The app then asks for Face ID (or the device passcode) before it loads the saved tokens. NSFaceIDUsageDescription explains this.
-- Local network: iOS asks for Local Network access only when the user adds a CI server with a local network address (for example a self-hosted Jenkins).
-- Push notifications: Settings > Notifications > "Push notifications" pairs the app with the user's own self-hosted Pipedash server, which sends a notification when a pipeline fails. Reviewing it needs a running Pipedash server, so it is optional for this review; the rest of the app works without it.
-- Exports (Settings > Providers > Export) are saved to Files > On My iPhone > Pipedash.
+- Face ID: Settings > Storage > "Require Face ID". The app asks for Face ID or the device passcode before loading saved tokens.
+- Local network: a self-hosted provider on a local address may require Local Network permission. The GitHub demo does not need a local server.
+- Provider export: Settings > Providers > "Export providers" opens the native Files picker so you can choose a destination.
+- Local notifications are optional. Remote push, background build watching and Live Activities are disabled in this build.
 
-The app connects only to the CI/CD providers the user adds, to public status pages (githubstatus.com, status.gitlab.com, bitbucket.status.atlassian.com, buildkitestatus.com) and, when push is paired, to the Pipedash push relay.
+The app connects to the providers the user adds and public status-page hosts: www.githubstatus.com, api.status.io, bitbucket.status.atlassian.com and www.buildkitestatus.com. Users can configure other status pages, a proxy or advanced storage destinations.
 Privacy policy: https://github.com/hcavarsan/pipedash/blob/main/PRIVACY.md

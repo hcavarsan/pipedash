@@ -28,25 +28,16 @@ pub fn router() -> Router<AppState> {
 async fn factory_reset(State(state): State<AppState>) -> ApiResult<Json<FactoryResetResponse>> {
     let inner = state.inner.read().await;
     let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    let providers = core.provider_service.list_providers().await?;
-    let providers_count = providers.len() as i64;
-
-    for provider in providers {
-        core.provider_service.remove_provider(provider.id).await?;
-    }
+    let providers_removed = core.factory_reset().await?;
 
     PushRepository::new(core.provider_service.repository().cache_pool().clone())
         .delete_all()
         .await?;
 
-    if let Some(metrics_service) = &core.metrics_service {
-        metrics_service.flush_metrics(None, true).await?;
-    }
-
     Ok(Json(FactoryResetResponse {
-        providers_removed: providers_count,
+        providers_removed: providers_removed as i64,
         caches_cleared: true,
         tokens_cleared: true,
-        metrics_cleared: core.metrics_service.is_some(),
+        metrics_cleared: true,
     }))
 }

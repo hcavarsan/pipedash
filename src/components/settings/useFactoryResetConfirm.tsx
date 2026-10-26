@@ -24,20 +24,23 @@ export const useFactoryResetConfirm = (onReset?: () => Promise<void> | void) => 
       ),
       children: mobileShell ? (
         <Text size="sm" ta="center">
-          This permanently deletes all providers and tokens, cached data and metrics, and your theme and platform
-          preferences. This action cannot be undone.
+          This deletes providers and their saved tokens, cached data, metrics and app preferences. Storage
+          configuration, external secrets, backups and exports are kept. This action cannot be undone.
         </Text>
       ) : (
         <Stack gap="xs">
-          <Text size="sm">This permanently deletes all data and local settings:</Text>
+          <Text size="sm">This permanently deletes:</Text>
           <Text size="sm" c="dimmed">
-            • All providers and tokens
+            • Providers and their saved tokens
           </Text>
           <Text size="sm" c="dimmed">
             • All cached data and metrics
           </Text>
           <Text size="sm" c="dimmed">
             • Theme and platform preferences
+          </Text>
+          <Text size="sm" c="dimmed">
+            Storage configuration, external secrets, backups and exports are kept.
           </Text>
           <Text size="sm" c="red" fw={500}>
             This action cannot be undone.

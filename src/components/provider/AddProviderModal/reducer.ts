@@ -146,7 +146,7 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       return {
         ...state,
         selectedPlugin: action.plugin,
-        providerName: action.provider.name,
+        providerName: action.provider.config.display_name || action.provider.name,
         configValues: initialConfig,
         selectedPipelines: new Set(
           (initialConfig.selected_items ?? '')

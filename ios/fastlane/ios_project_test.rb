@@ -82,16 +82,33 @@ class IosProjectTest < Minitest::Test
     assert_raises(ArgumentError) { IosProject.export_options(nil, team_id: "TEAM") }
   end
 
-  def test_packaging_requires_background_task_configuration_without_custom_activity_support
-    app = {
-      "BGTaskSchedulerPermittedIdentifiers" => [IosProject::TASK_ID],
-      "UIBackgroundModes" => ["processing"],
-    }
-    IosProject.verify_metadata!(app)
-    %w[BGTaskSchedulerPermittedIdentifiers UIBackgroundModes].each do |key|
-      invalid = app.dup
-      invalid.delete(key)
-      assert_raises(ArgumentError) { IosProject.verify_metadata!(invalid) }
+  def test_packaging_accepts_disabled_features_without_background_declarations
+    IosProject.verify_metadata!("PipedashBuildWatchEnabled" => false)
+  end
+
+  def test_packaging_rejects_missing_or_reactivated_feature_flag
+    [nil, true, "false", 0].each do |value|
+      assert_raises(ArgumentError) { IosProject.verify_metadata!("PipedashBuildWatchEnabled" => value) }
     end
+  end
+
+  def test_packaging_rejects_live_activities_and_unused_background_capabilities
+    [
+      { "NSSupportsLiveActivities" => true },
+      { "NSSupportsLiveActivitiesFrequentUpdates" => true },
+      { "BGTaskSchedulerPermittedIdentifiers" => ["com.henrique.pipedash.build-watch"] },
+      { "UIBackgroundModes" => ["processing"] },
+      { "UIBackgroundModes" => ["remote-notification"] },
+    ].each do |capability|
+      app = { "PipedashBuildWatchEnabled" => false }.merge(capability)
+      assert_raises(ArgumentError) { IosProject.verify_metadata!(app) }
+    end
+  end
+
+  def test_packaging_rejects_apns_entitlement_without_restricting_local_notifications
+    IosProject.verify_entitlements!({})
+    IosProject.verify_entitlements!("application-identifier" => "TEAM.com.henrique.pipedash")
+    assert_raises(ArgumentError) { IosProject.verify_entitlements!("aps-environment" => "production") }
+    assert_raises(ArgumentError) { IosProject.verify_entitlements!("aps-environment" => "development") }
   end
 end

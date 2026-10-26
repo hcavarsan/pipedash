@@ -249,6 +249,28 @@ impl CoreContext {
             .await
     }
 
+    pub async fn factory_reset(&self) -> DomainResult<usize> {
+        let providers = self.provider_service.list_providers().await?;
+        let providers_removed = providers.len();
+        for provider in providers {
+            self.provider_service.remove_provider(provider.id).await?;
+        }
+
+        for key in self.config_state.load_providers()?.keys() {
+            self.config_state.remove_provider(key).await?;
+        }
+        for provider_id in self.token_store.get_all_tokens().await?.into_keys() {
+            self.token_store.delete_token(provider_id).await?;
+        }
+        self.pipeline_service.clear_all_caches_atomic().await?;
+        let metrics = MetricsRepository::new_from_pool(
+            self.provider_service.repository().cache_pool().clone(),
+        );
+        metrics.flush_metrics(None, true).await?;
+        metrics.reset_all_processing_states().await?;
+        Ok(providers_removed)
+    }
+
     pub async fn shutdown(&self) {
         self.config_watcher.stop().await;
         self.refresh_manager.stop().await;
@@ -275,4 +297,208 @@ fn http_client_manager(proxy_url: &str) -> DomainResult<Arc<infrastructure::Http
     }
 
     Ok(Arc::new(manager))
+}
+
+#[cfg(test)]
+mod reset_tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::application::test_support::FailOnceTokenStore;
+    use crate::infrastructure::{
+        ConfigLoader,
+        ConfigState,
+        PipedashConfig,
+        ProviderFileConfig,
+        SqliteConfigBackend,
+    };
+
+    async fn context(dir: &std::path::Path, tokens: Arc<dyn TokenStore>) -> CoreContext {
+        let mut config = PipedashConfig::default();
+        config.storage.data_dir = dir.display().to_string();
+        config.general.metrics_enabled = false;
+        config.general.default_refresh_interval = 73;
+        let path = dir.join("config.toml");
+        std::fs::write(&path, ConfigLoader::to_toml(&config).unwrap()).unwrap();
+        let config_state = ConfigState::from_config(config, path, Arc::clone(&tokens));
+        let pool = init_database(dir.join("pipedash.db")).await.unwrap();
+        let repository = Arc::new(Repository::new(
+            Arc::new(SqliteConfigBackend::new(pool.clone())),
+            infrastructure::database::DatabasePool::Sqlite(pool),
+            Arc::clone(&tokens),
+        ));
+        let bus: Arc<dyn EventBus> = Arc::new(NoOpEventBus);
+        let http = http_client_manager("").unwrap();
+        let services = application::Services::new(
+            repository,
+            Arc::clone(&http),
+            None,
+            Arc::clone(&bus),
+            Arc::clone(&config_state),
+        );
+        CoreContext::from_services(bus, tokens, http, None, config_state, services)
+    }
+
+    async fn define_provider(core: &CoreContext, key: &str) {
+        core.config_state
+            .add_provider(
+                key.into(),
+                ProviderFileConfig {
+                    name: None,
+                    provider_type: "jenkins".into(),
+                    token: "storage:1".into(),
+                    refresh_interval: 30,
+                    config: HashMap::new(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    fn provider(key: &str) -> ProviderConfig {
+        ProviderConfig {
+            id: None,
+            name: key.into(),
+            provider_type: "jenkins".into(),
+            token: "saved-token".into(),
+            config: HashMap::new(),
+            refresh_interval: 30,
+            version: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn reset_removes_config_only_providers_and_persisted_metrics_when_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = Arc::new(FailOnceTokenStore::default());
+        let core = context(dir.path(), tokens.clone()).await;
+        define_provider(&core, "ci-a").await;
+        define_provider(&core, "config-only").await;
+        core.provider_service
+            .repository()
+            .add_provider(&provider("ci-a"))
+            .await
+            .unwrap();
+        tokens.store_token(999, "orphan-token").await.unwrap();
+        let pool = core
+            .provider_service
+            .repository()
+            .cache_pool()
+            .as_sqlite()
+            .unwrap();
+        sqlx::query("INSERT INTO pipeline_metrics (pipeline_id, timestamp, metric_type, value) VALUES ('retained', '2026-10-26T00:00:00Z', 'duration', 1)").execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO metrics_processing_state (pipeline_id) VALUES ('retained')")
+            .execute(pool)
+            .await
+            .unwrap();
+        std::fs::write(dir.path().join("export.toml"), "user export").unwrap();
+
+        assert_eq!(core.factory_reset().await.unwrap(), 1);
+
+        assert!(core
+            .provider_service
+            .list_providers()
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(tokens.get_all_tokens().await.unwrap().is_empty());
+        core.config_state.reload().await.unwrap();
+        assert!(core.config_state.get().await.providers.is_empty());
+        assert_eq!(
+            core.config_state
+                .get()
+                .await
+                .general
+                .default_refresh_interval,
+            73
+        );
+        core.config_state
+            .sync_providers_from_toml(
+                core.provider_service.repository().config_backend().as_ref(),
+                false,
+            )
+            .await
+            .unwrap();
+        assert!(core
+            .provider_service
+            .list_providers()
+            .await
+            .unwrap()
+            .is_empty());
+        let metrics: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pipeline_metrics")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        let processing: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM metrics_processing_state")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        assert_eq!((metrics, processing), (0, 0));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("export.toml")).unwrap(),
+            "user export"
+        );
+        assert_eq!(core.factory_reset().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn reset_stops_on_token_deletion_failure_and_can_be_retried() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = Arc::new(FailOnceTokenStore::default());
+        let core = context(dir.path(), tokens.clone()).await;
+        define_provider(&core, "ci-a").await;
+        let id = core
+            .provider_service
+            .repository()
+            .add_provider(&provider("ci-a"))
+            .await
+            .unwrap();
+        tokens.fail_next_delete();
+
+        assert!(core.factory_reset().await.is_err());
+        assert!(core
+            .provider_service
+            .repository()
+            .get_provider(id)
+            .await
+            .is_ok());
+        assert!(core
+            .config_state
+            .load_providers()
+            .unwrap()
+            .contains_key("ci-a"));
+
+        assert_eq!(core.factory_reset().await.unwrap(), 1);
+        assert!(tokens.get_all_tokens().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn reset_reports_cache_and_metrics_failures_and_supports_retry() {
+        for table in ["workflow_parameters_cache", "pipeline_metrics"] {
+            let dir = tempfile::tempdir().unwrap();
+            let core = context(dir.path(), Arc::new(MemoryTokenStore::new())).await;
+            let pool = core
+                .provider_service
+                .repository()
+                .cache_pool()
+                .as_sqlite()
+                .unwrap();
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "ALTER TABLE {table} RENAME TO retained_data"
+            )))
+            .execute(pool)
+            .await
+            .unwrap();
+
+            assert!(core.factory_reset().await.is_err(), "{table}");
+
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "ALTER TABLE retained_data RENAME TO {table}"
+            )))
+            .execute(pool)
+            .await
+            .unwrap();
+            assert_eq!(core.factory_reset().await.unwrap(), 0);
+        }
+    }
 }

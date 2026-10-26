@@ -1,0 +1,24 @@
+Monitor CI/CD pipelines from your iPhone or iPad.
+
+Pipedash connects to the providers you configure and brings their pipelines, run history and build metrics into one dashboard.
+
+PIPELINES AND RUNS
+- Monitor GitHub Actions, GitLab CI/CD, Bitbucket Pipelines, Jenkins, Gitea, Buildkite, Argo CD, Tekton and Flux CD.
+- View run status, branches, commit information and execution times.
+- Open logs on the provider's website.
+- Start workflows with supported parameters, rerun workflows and stop running builds.
+- Pin workflows and review build metrics.
+
+STATUS AND NOTIFICATIONS
+- Refresh pipeline status manually or at each provider's configured interval while the app runs.
+- See provider outage and recovery alerts in the notification inbox.
+- Turn on optional local notifications for changes detected during refreshes.
+
+Remote push notifications, background build watching and Live Activities are disabled in this release. Pipedash does not promise monitoring while the app is closed.
+
+YOUR PROVIDERS AND DATA
+Use your existing provider accounts and API credentials. Available actions depend on the provider and token permissions. Self-hosted services must be reachable from your device.
+
+By default, Pipedash stores data on the device and provider tokens in the iOS Keychain. Optional device authentication protects access through Pipedash. Advanced configuration can use your own storage server or proxy. Provider exports omit tokens and let you choose a destination in Files.
+
+Pipedash includes no advertising, analytics or tracking. Privacy Policy and Support are available in Settings > About.
