@@ -158,3 +158,19 @@ test('edit form is dirty against the saved provider and ignores cleared empty va
   assert.equal(isFormDirty(typedAndCleared, provider), false)
   assert.equal(isFormDirty(formReducer(loaded, { type: 'SET_PROVIDER_NAME', name: 'Other' }), provider), true)
 })
+
+test('edit form shows the display name of a provider defined in the config file', () => {
+  const provider = {
+    id: 1,
+    name: 'ci-a',
+    provider_type: 'fluxcd',
+    token: '',
+    refresh_interval: 30,
+    config: { display_name: 'Renamed CI' },
+  }
+
+  const loaded = formReducer(initialFormState, { type: 'INIT_EDIT_MODE', plugin: fluxPlugin, provider })
+
+  assert.equal(loaded.providerName, 'Renamed CI')
+  assert.equal(isFormDirty(loaded, provider), false)
+})

@@ -791,13 +791,12 @@ impl ProviderService {
 
     pub async fn update_provider(&self, id: i64, mut config: ProviderConfig) -> DomainResult<()> {
         let saved_name = self.repository.get_provider(id).await?.name;
-        if config.name != saved_name
-            && self
-                .config_state
-                .get()
-                .await
-                .providers
-                .contains_key(&saved_name)
+        if self
+            .config_state
+            .get()
+            .await
+            .providers
+            .contains_key(&saved_name)
         {
             let display_name = std::mem::replace(&mut config.name, saved_name);
             config
