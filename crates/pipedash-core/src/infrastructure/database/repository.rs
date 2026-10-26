@@ -24,6 +24,7 @@ use crate::domain::{
 use crate::infrastructure::deduplication::hash_pipeline_run;
 use crate::infrastructure::{
     ConfigBackend,
+    ConfigState,
     TokenStore,
 };
 
@@ -315,7 +316,13 @@ impl Repository {
         }).await
     }
 
-    pub async fn remove_provider(&self, id: i64) -> DomainResult<()> {
+    pub async fn remove_provider(&self, id: i64, config_state: &ConfigState) -> DomainResult<()> {
+        let config = self.config_backend.get_provider(id).await?;
+        self.token_store.delete_token(id).await?;
+        if let Some(config) = config {
+            config_state.remove_provider(&config.name).await?;
+        }
+
         let pipelines = self
             .get_cached_pipelines(Some(id))
             .await
@@ -388,22 +395,6 @@ impl Repository {
         }
 
         self.config_backend.delete_provider(id).await?;
-
-        let token_store = self.token_store.clone();
-        tokio::spawn(async move {
-            if let Err(e) = token_store.delete_token(id).await {
-                tracing::warn!(
-                    provider_id = id,
-                    error = %e,
-                    "Failed to delete provider token in background - token may persist in keyring"
-                );
-            } else {
-                tracing::debug!(
-                    provider_id = id,
-                    "Provider token deleted successfully in background"
-                );
-            }
-        });
 
         Ok(())
     }

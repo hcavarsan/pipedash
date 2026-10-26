@@ -108,7 +108,7 @@ async fn reset_waits_for_an_in_flight_resync_and_leaves_no_pairing_behind() {
         .await;
     gate.release.notify_one();
     sync.await.unwrap().unwrap();
-    reset.await.unwrap();
+    reset.await.unwrap().unwrap();
 
     assert!(!reset_ran_during_resync);
     assert!(store::read(dir.path()).unwrap().servers.is_empty());
@@ -239,4 +239,45 @@ async fn every_sync_rotates_every_server_after_a_failure_and_after_a_new_pairing
     for put in relay.requests().iter().filter(|r| r.method == "PUT") {
         assert_eq!(put.body["device_token"], "device-token");
     }
+}
+
+#[tokio::test]
+async fn reset_preserves_unreadable_pairing_state_for_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("push_servers.json");
+    std::fs::write(&path, "invalid-json").unwrap();
+
+    assert!(reset_with(dir.path(), None).await.is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid-json");
+
+    std::fs::write(&path, "{}").unwrap();
+    reset_with(dir.path(), None).await.unwrap();
+    assert!(!path.exists());
+}
+
+#[tokio::test]
+async fn reset_retains_the_pairing_record_when_local_secret_deletion_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let id = "reset-local-secret-failure";
+    store::update(dir.path(), |file| {
+        file.servers.push(ServerRecord {
+            id: id.into(),
+            url: "https://unused.example".into(),
+            label: "Local cleanup".into(),
+            paired_at: chrono::Utc::now(),
+        })
+    })
+    .unwrap();
+    store::set_secret(Secret::RelaySubscription, id, "relay-subscription").unwrap();
+    store::fail_next_delete(Secret::RelaySubscription, id);
+
+    assert!(reset_with(dir.path(), None).await.is_err());
+    assert_eq!(store::read(dir.path()).unwrap().servers[0].id, id);
+    assert!(store::get_secret(Secret::RelaySubscription, id)
+        .unwrap()
+        .is_some());
+
+    reset_with(dir.path(), None).await.unwrap();
+    assert!(!dir.path().join("push_servers.json").exists());
+    assert_no_secrets(id);
 }

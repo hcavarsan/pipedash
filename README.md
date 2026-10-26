@@ -45,12 +45,11 @@ The plugin system makes it easy to add more.
 
 ## What it does
 
-Pipedash polls your providers and shows pipelines organized by repo and workflow. It refreshes in the background (you can set the interval per provider). When a pipeline status changes, you'll see it immediately.
+Pipedash polls your providers and shows pipelines organized by repo and workflow. Each provider has a configurable refresh interval. Status changes appear after the next successful refresh. On iOS, refreshes depend on the app running; this release does not promise monitoring while the app is closed.
 
 What you can do:
 - See pipeline status across all your providers
 - Browse run history with commit info and execution times
-- Watch one queued or running build on a physical iPhone or iPad with iOS 26 or later. Choose Watch run in run history or run details. The Watching section sits above Pinned on the main pipelines page. A single system Live Activity tracks the background task. iOS controls its presentation and can interrupt monitoring. Tracking runs on the device without a remote relay. Stopping a watch does not cancel the build
 - Trigger workflows with parameters (Pipedash loads them from each provider)
 - Export your providers to a TOML file for another machine, with tokens left out as `${VAR}` references. On the other machine, Import under Settings > Providers adds each provider from the file that isn't set up there yet. It never reads tokens, so you add each one in the provider's edit dialog
 - Rerun previous executions with the same parameters
@@ -68,6 +67,8 @@ What you can do:
 - Use keyboard shortcuts on desktop and web: `/` or Ctrl+K (⌘K on macOS) jumps to search, Ctrl+, opens Settings, and Ctrl+\ collapses the sidebar. The desktop app also has Ctrl+R to refresh everything and Ctrl+L to lock. On macOS these also live in the menu bar
 - Right-click a pipeline, pinned workflow or run (or press Shift+F10) for the same actions as its buttons
 
+Remote push notifications and Live Activities are disabled in the current iOS release. Local notifications remain optional and report changes detected during refreshes. On iOS, their controls are in Settings > Notifications.
+
 When you trigger or rerun a workflow, Pipedash fetches available parameters from the plugin (workflow inputs for GitHub Actions, pipeline variables for GitLab CI, build parameters for Jenkins/Buildkite) and shows them in a form.
 
 For GitHub Actions, Run and Rerun create a new `workflow_dispatch` run on the selected ref. An empty `204 No Content` response means GitHub accepted the dispatch.
@@ -76,15 +77,17 @@ For private repositories, GitHub fine-grained tokens need `Contents: Read` to lo
 
 **Privacy and security**
 
-Everything runs locally on your machine. Pipedash connects to your CI/CD providers and, unless you turn it off in Settings → General, to their public status pages (hosted by Atlassian Statuspage or status.io) or a status page you configure. Status checks send no credentials. No analytics or telemetry.
+Pipedash runs on your device or your self-hosted server. It connects to the CI/CD providers, storage servers and optional proxy you configure. Unless you turn it off in Settings > General, it also checks public or configured provider status pages without credentials. It includes no analytics or telemetry. See the [privacy policy](PRIVACY.md) for storage destinations, retention, deletion and exported-copy limits.
 
 Token storage options:
 
-- **System keyring** (desktop) – Your OS encrypts tokens (macOS Keychain, Windows Credential Manager, Linux Secret Service). Default for desktop.
+- **System keyring** (desktop and iOS) – Your OS protects tokens using macOS/iOS Keychain, Windows Credential Manager or Linux Secret Service. The iOS default is Device Keychain with an on-device SQLite database.
 - **Encrypted SQLite** – Pipedash encrypts tokens with AES-256-GCM using Argon2id-derived keys. Works on all platforms.
 - **Encrypted PostgreSQL** – Same AES-256-GCM encryption, stored in PostgreSQL. Use this with the PostgreSQL backend.
 
-You can store pipeline data in SQLite or PostgreSQL on both desktop and web. Switch backends anytime via the setup wizard.
+You can store pipeline data in SQLite or PostgreSQL on desktop and web. Switch backends through the setup wizard. iOS setup uses SQLite and Device Keychain. Advanced configuration can select remote storage, so device-only storage is the default rather than a guarantee for every configuration.
+
+On iOS, Gitea and providers using the shared HTTP client require HTTPS, including redirect destinations. Desktop and web deployments retain their existing self-hosted HTTP support. Configure HTTPS before connecting an affected self-hosted provider from iOS.
 
 **API Authentication** (web deployments)
 
@@ -175,7 +178,7 @@ On first launch (or via settings), a setup wizard walks you through config. Work
 - **PostgreSQL** – Centralized database for team deployments.
 
 **Token storage**
-- **System keyring** (desktop only) – Your OS handles encryption. No password needed.
+- **System keyring** (desktop and iOS) – Your OS handles credential storage. No vault password is needed for the default iOS setup.
 - **Encrypted SQLite** – Pipedash encrypts with AES-256-GCM + Argon2id key derivation.
 - **Encrypted PostgreSQL** – Same encryption, stored in PostgreSQL (requires PostgreSQL backend).
 
@@ -201,7 +204,7 @@ This lets the same core code run in different contexts (desktop app, API server,
 Pipedash stores your provider configs and pipeline data in SQLite (default) or PostgreSQL. Both work on desktop and web.
 
 Token storage options:
-- **System keyring** (desktop) – macOS Keychain, Windows Credential Manager, Linux Secret Service
+- **System keyring** (desktop and iOS) – macOS/iOS Keychain, Windows Credential Manager or Linux Secret Service
 - **Encrypted SQLite** – AES-256-GCM encryption with Argon2id key derivation
 - **Encrypted PostgreSQL** – AES-256-GCM encryption in `encrypted_tokens` table
 

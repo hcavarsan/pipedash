@@ -130,6 +130,7 @@ impl Drop for ParameterFetch<'_> {
 
 pub struct ProviderService {
     repository: Arc<Repository>,
+    config_state: Arc<ConfigState>,
     http_client_manager: Arc<HttpClientManager>,
     providers: RwLock<HashMap<i64, ProviderSlot>>,
     commit_locks: DashMap<i64, Arc<Mutex<()>>>,
@@ -148,7 +149,7 @@ impl ProviderService {
     pub fn new(
         repository: Arc<Repository>, http_client_manager: Arc<HttpClientManager>,
         event_bus: Arc<dyn EventBus>, scheduler: Arc<FetchScheduler>, health: HealthHandle,
-        dispatcher: RefreshDispatcher,
+        dispatcher: RefreshDispatcher, config_state: Arc<ConfigState>,
     ) -> Self {
         let plugin_registry = Arc::new(plugins::create_plugin_registry());
         let provider_factory: ProviderFactory = {
@@ -159,6 +160,7 @@ impl ProviderService {
 
         Self {
             repository,
+            config_state,
             http_client_manager,
             providers: RwLock::new(HashMap::new()),
             commit_locks: DashMap::new(),
@@ -880,13 +882,16 @@ impl ProviderService {
     }
 
     pub async fn remove_provider(&self, id: i64) -> DomainResult<()> {
+        let _apply = self.config_apply.lock().await;
         let lock = self.commit_lock(id);
         let _guard = lock.lock().await;
 
         let config = self.repository.get_provider(id).await?;
         let provider = self.build_summary(id, &config).await?;
 
-        self.repository.remove_provider(id).await?;
+        self.repository
+            .remove_provider(id, &self.config_state)
+            .await?;
         self.providers.write().await.remove(&id);
         self.scheduler.remove(id);
         self.published_in_flight.remove(&id);
@@ -2199,6 +2204,79 @@ type = "travis"
             .into_iter()
             .find(|p| p.name == key)
             .and_then(|p| p.id)
+    }
+
+    #[tokio::test]
+    async fn removal_preserves_the_provider_and_toml_when_token_deletion_fails() {
+        let h = Harness::new().await;
+        config_file(&h, &[("ci-a", "CI A", 30)]);
+        h.provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+        let id = provider_id(&h, "ci-a").await.unwrap();
+        h.token_store.fail_next_delete();
+
+        assert!(h.provider_service.remove_provider(id).await.is_err());
+        assert!(h.repository.get_provider(id).await.is_ok());
+        assert!(h
+            .config_state
+            .load_providers()
+            .unwrap()
+            .contains_key("ci-a"));
+
+        h.provider_service.remove_provider(id).await.unwrap();
+        h.config_state.reload().await.unwrap();
+        h.config_state
+            .sync_providers_from_toml(h.repository.config_backend().as_ref(), false)
+            .await
+            .unwrap();
+        assert!(h.repository.list_providers().await.unwrap().is_empty());
+        assert!(h.token_store.get_all_tokens().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn removal_awaits_token_cleanup_before_deleting_the_provider() {
+        let h = Harness::new().await;
+        let id = h.add_provider("await-delete").await;
+        let gate = Gate::new();
+        h.token_store.gate_delete(Arc::clone(&gate));
+        let remove = tokio::spawn({
+            let service = Arc::clone(&h.provider_service);
+            async move { service.remove_provider(id).await }
+        });
+        gate.arrived().await;
+
+        assert!(!remove.is_finished());
+        assert!(h.repository.get_provider(id).await.is_ok());
+
+        gate.open();
+        remove.await.unwrap().unwrap();
+        assert!(h.repository.get_provider(id).await.is_err());
+        assert!(h.token_store.get_all_tokens().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_config_deletion_keeps_the_provider_available_for_retry() {
+        let h = Harness::new().await;
+        config_file(&h, &[("ci-a", "CI A", 30)]);
+        h.provider_service
+            .apply_config_file(&h.config_state)
+            .await
+            .unwrap();
+        let id = provider_id(&h, "ci-a").await.unwrap();
+        let path = h.config_state.config_path();
+        std::fs::remove_file(path).unwrap();
+        std::fs::create_dir(path).unwrap();
+
+        assert!(h.provider_service.remove_provider(id).await.is_err());
+        assert!(h.repository.get_provider(id).await.is_ok());
+
+        std::fs::remove_dir(path).unwrap();
+        config_file(&h, &[("ci-a", "CI A", 30)]);
+        h.provider_service.remove_provider(id).await.unwrap();
+        assert!(h.repository.get_provider(id).await.is_err());
+        assert!(h.config_state.load_providers().unwrap().is_empty());
     }
 
     #[tokio::test]

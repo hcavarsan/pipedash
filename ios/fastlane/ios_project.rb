@@ -3,7 +3,6 @@ require "yaml"
 module IosProject
   APP_ID = "com.henrique.pipedash"
   APP_TARGET = "pipedash-desktop_iOS"
-  TASK_ID = "#{APP_ID}.build-watch"
 
   def self.configure(spec, version:, build_number:)
     raise ArgumentError, "Expected a three-part iOS version" unless version.match?(/\A\d+\.\d+\.\d+\z/)
@@ -35,9 +34,21 @@ module IosProject
   end
 
   def self.verify_metadata!(app)
-    unless Array(app["BGTaskSchedulerPermittedIdentifiers"]).include?(TASK_ID)
-      raise ArgumentError, "App is missing the build-watch background task identifier"
+    unless app["PipedashBuildWatchEnabled"] == false
+      raise ArgumentError, "Build watching and remote push must remain disabled for release"
     end
-    raise ArgumentError, "App is missing background processing mode" unless Array(app["UIBackgroundModes"]).include?("processing")
+    if app["NSSupportsLiveActivities"] || app["NSSupportsLiveActivitiesFrequentUpdates"]
+      raise ArgumentError, "Live Activities must remain disabled for release"
+    end
+    unless Array(app["BGTaskSchedulerPermittedIdentifiers"]).empty?
+      raise ArgumentError, "Disabled build watching must not declare background tasks"
+    end
+    unless (Array(app["UIBackgroundModes"]) & %w[processing remote-notification]).empty?
+      raise ArgumentError, "Disabled build watching and push must not declare background modes"
+    end
+  end
+
+  def self.verify_entitlements!(entitlements)
+    raise ArgumentError, "Remote push must not include an APNs entitlement" if entitlements.key?("aps-environment")
   end
 end

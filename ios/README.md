@@ -8,10 +8,12 @@ build (`crates/pipedash-desktop/gen` is gitignored), so everything iOS needs liv
 | --- | --- |
 | `fastlane/Fastfile` | Build, simulator capture, screenshot export/upload and release lanes |
 | `xcode/PrivacyInfo.xcprivacy` | Privacy manifest copied into the app target |
-| `xcode/pipedash.entitlements` | App entitlements (`aps-environment` for push) |
+| `xcode/pipedash.entitlements` | App entitlements without APNs access |
 | `fastlane/metadata/en-US/release_notes.txt` | "What's New" sent with `release` |
-| `fastlane/review_notes.txt` | App Review notes; `%{demo_token}` and `%{demo_repository}` are filled at release time |
-| `fastlane/ios_project.rb` | App version, background-task metadata and export profile setup |
+| `fastlane/metadata/en-US/description.txt` | App description sent with `release`, including foreground-refresh limits |
+| `fastlane/review_notes.txt` | App Review instructions with release-time demo token, repository and workflow interpolation |
+| `fastlane/app_review_demo.rb` | Read-only GitHub access checks before release signing or submission |
+| `fastlane/ios_project.rb` | App version, disabled-feature checks and export profile setup |
 | `../crates/pipedash-desktop/icons/ios/app-icon-1024.png` | Full-bleed App Store icon without alpha |
 | `app-store-screenshots/` | Screenshot editor, saved decks, mock captures and export scripts |
 | `fastlane/screenshots/en-US/` | Generated iPhone and iPad images for upload, gitignored |
@@ -21,12 +23,14 @@ build (`crates/pipedash-desktop/gen` is gitignored), so everything iOS needs liv
 - App version: the release version with the major bumped, because the App Store already shipped `1.0`.
   Release `v0.4.0` ships as `1.4.0`. `mise run bump:*` keeps working; the Fastfile derives the iOS version.
 - Build number: the latest build in App Store Connect plus one.
+- Minimum iOS: `15.0`, set by `bundle.iOS.minimumSystemVersion` in [`tauri.ios.conf.json`](../crates/pipedash-desktop/tauri.ios.conf.json).
+  Tauri maps this value to `IPHONEOS_DEPLOYMENT_TARGET`. Its installed CLI schema also defaults to `15.0`.
 
 ## Workflows
 
 - `ios-check.yml` runs on pull requests that touch the app and supports manual runs on a feature branch.
   It runs the Ruby helper tests and publishing guards, builds an unsigned IPA and checks the
-  background declarations, Info.plist keys, export compliance, app icon and required-reason APIs.
+  disabled background capabilities, Info.plist keys, export compliance, app icon and required-reason APIs.
   A second job builds for the simulator, launches the app on iPhone and iPad
   and uploads screenshots as the `ios-simulator-screenshots` artifact.
 - `ios.yml` runs on every `v*` tag with the `beta` lane (TestFlight). Manual runs also offer `release`
@@ -43,7 +47,37 @@ build (`crates/pipedash-desktop/gen` is gitignored), so everything iOS needs liv
 | `APPLE_TEAM_ID` | repository secret | Signing team |
 | `APP_REVIEW_DEMO_TOKEN` | secret | `release` only: GitHub token for the demo repository, filled into the review notes |
 | `APP_REVIEW_DEMO_REPOSITORY` | variable | `release` only: `owner/repo` of the demo repository |
-| `PIPEDASH_PUSH_RELAY_URL` | repository variable | Push relay URL compiled into the app; push is shown as unavailable when unset |
+| `PIPEDASH_PUSH_RELAY_URL` | optional repository variable | Cannot activate remote push or Watch in this disabled-feature build |
+
+## App Review demo access
+
+`release` checks the configured GitHub demo before Apple authentication, signing or upload. It makes only authenticated `GET` requests.
+The repository must be public, active and writable by the token's user. Public access lets reviewers open its GitHub page without repository invitations.
+GitHub may still require sign-in to read workflow logs in the browser.
+
+The check finds an active `workflow_dispatch` workflow on the default branch with defaults for required inputs, a successful manual run and available jobs.
+It reads at most the first 100 workflows, matching the app's workflow list. It fills that workflow's name into the review instructions.
+HTTP failures stop release with the endpoint and permission guidance. Network failures omit raw exception details to protect credentials.
+The lane registers the token for secret masking and rejects `--verbose`, because Fastlane's HTTP debug output can include request credentials.
+
+Complete this checklist before each submission:
+
+1. Use a dedicated public demo repository. Keep production code, credentials, organization secrets, deployments and production network access out of its workflows.
+2. Create a fine-grained token with "Only select repositories" set to that demo repository. Grant Actions read/write and Contents read only.
+   Do not use a production token or an unrestricted classic token. Set an expiry that covers review and keep the token valid until review finishes.
+3. Keep a harmless `workflow_dispatch` workflow on the default branch with defaults for any required inputs. Give it enough runtime to test "Stop workflow" and retain a successful manual run with jobs.
+4. Test the review instructions on an iPhone or iPad, including provider setup, run details, browser logs, "Run workflow" > "Trigger" and "Stop workflow".
+   Provider export should open the native Files picker and allow a destination of your choice.
+
+GitHub's read endpoints cannot prove the token's selected-repository restriction, Actions write permission or the workflow's harmlessness.
+The repository's `permissions.push` field checks the user's repository permission, not the token's full permissions.
+The checklist is required. The preflight does not dispatch or cancel a workflow to test write access.
+
+Run the offline preflight cases without GitHub or Apple credentials:
+
+```sh
+bundle exec ruby fastlane/app_review_demo_test.rb
+```
 
 ## Run locally (macOS)
 
@@ -107,47 +141,22 @@ and TestFlight isolation. The delivery checks exercise Fastlane's runner without
 
 ## Local build watching
 
-Pipedash disables build watching and remote push by default through `PipedashBuildWatchEnabled` in
-`crates/pipedash-desktop/Info.ios.plist`. A missing flag also means `false`.
-While off, the native plugin rejects watch starts, skips background task registration and reports Watch as unsupported.
-The frontend hides the Watch and remote push controls. Existing snapshots remain stored and do not restart automatically.
+The release build disables Watch, remote push and Live Activities. `PipedashBuildWatchEnabled` is `false` in `crates/pipedash-desktop/Info.ios.plist`.
+The native plugin rejects watch starts, skips background task registration and reports Watch as unsupported.
+The frontend hides Watch and remote push controls. Existing snapshots remain stored and do not restart automatically.
 
-To restore both features, set the flag to the plist boolean `true`, rebuild the iOS app and install the new build:
+The app declares no build-watch background task identifiers or `processing`/`remote-notification` background modes.
+It bundles no WidgetKit extension or Live Activity support. `verify_ipa` rejects these capabilities and any enabled build-watch flag before upload.
+A relay URL in the environment cannot activate either feature. Changing the flag alone is not a supported release configuration.
 
-```xml
-<key>PipedashBuildWatchEnabled</key>
-<true/>
-```
-
-This flag ships in the app bundle. It is not an environment variable or an in-app setting.
-Restoring it uses the existing local monitoring implementation and its system-controlled presentation.
-
-`prepare_project` regenerates Tauri's app project before applying the version and build number.
-Build watching uses `BGContinuedProcessingTask` on a physical iPhone or iPad running iOS 26 or later.
-The app declares the background task identifier `com.henrique.pipedash.build-watch` and the
-`processing` background mode. No WidgetKit extension or separate provisioning profile is needed.
-
-iOS supplies the task's Live Activity and cancellation controls. The system decides when to expand,
-collapse or re-present this interface; Pipedash cannot guarantee a compact-only presentation.
-Pipedash changes the task title and subtitle only when their visible content changes, not on every
-provider refresh. ActivityKit authorization is not used to gate the system task. Registration,
-background execution availability and scheduler submission errors determine whether watching can start.
-
-iOS can expire monitoring, stop it through the system interface, or end it after a force quit.
-The app preserves the last observed provider result, reports interruption and does not restart
-monitoring automatically. Stopping monitoring does not cancel the provider's build.
-The simulator cannot validate the continued-processing scheduler or its system presentation.
-The simulator also excludes `BuildWatchController` from compilation. Use the unsigned device build (`bundle exec fastlane ios check` on macOS) to check this controller.
-Linux model tests and Swift syntax parsing do not type-check its iOS-only code.
-On upgrade, the native plugin immediately dismisses custom activities left by older versions;
-it retains their original attribute type only for this cleanup and never creates or updates them.
+On upgrade, the native plugin dismisses custom activities left by older versions. It retains their attribute type only for cleanup.
+The disabled monitoring implementation uses iOS 26 APIs behind availability checks. It does not change the app's iOS 15.0 minimum.
 
 ### Signing prerequisites
 
-The signed lanes use read-only `match` for `com.henrique.pipedash` only. Keep the app's existing Push
-Notifications capability and provisioning entitlements. The certificate repository must contain its
-App Store distribution profile and certificate private key. An authorized maintainer can renew the
-app profile from macOS with writable access to the certificate repository:
+The signed lanes use read-only `match` for `com.henrique.pipedash` only. The certificate repository must contain its App Store profile and certificate private key.
+The app does not request the Push Notifications entitlement. `verify_ipa` rejects an APNs entitlement in the signed app.
+An authorized maintainer can renew the app profile from macOS with writable access to the certificate repository:
 
 ```bash
 cd ios
@@ -161,22 +170,12 @@ The CI deploy key and read-only `match` step do not create missing profiles.
 Tauri archives the app with manual signing settings. Fastlane exports the archive with the app's
 provisioning-profile mapping. Fastlane's `build_app` requires `export_method: "app-store"`; keep
 `app-store-connect` for the Tauri CLI and the Xcode `export_options[:method]` value.
-`verify_ipa` checks the app's background declarations as part of its existing App Store checks.
-
-Run the focused Ruby checks without building or publishing:
-
-```bash
-cd ios
-bundle exec ruby -e 'Dir["fastlane/*_test.rb"].sort.each { |file| require_relative file }'
-```
+`verify_ipa` checks the disabled-feature metadata and rejects bundled app extensions as part of its App Store checks.
 
 ## Push notifications
 
-Remote push uses the same `PipedashBuildWatchEnabled` flag as [build watching](#local-build-watching).
-While off, the app skips token synchronization and rejects pairing, unpairing and test-push commands before accessing saved settings or the network.
+Remote push uses the disabled `PipedashBuildWatchEnabled` flag described in [local build watching](#local-build-watching).
+The app skips token synchronization and rejects pairing, unpairing and test-push commands before accessing saved settings or the network.
 The native plugin unregisters from remote notifications on launch and rejects registration without requesting notification permission.
-Saved pairings remain on the device for reactivation. Local notifications and the server's push APIs remain unchanged.
-
-With the flag on, the app registers its APNs device token with the push relay.
-The app pairs with a self-hosted `pipedash-web` server, which sends failure events to the relay.
-See [relay deployment](../docs/push-relay.md).
+Saved pairings remain on the device. Optional local notifications remain independent and need no APNs entitlement.
+The server's push APIs remain separate from this disabled iOS feature.

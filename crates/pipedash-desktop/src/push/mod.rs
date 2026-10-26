@@ -389,7 +389,9 @@ async fn establish(
             tracing::warn!(error = %cleanup, "could not roll back the push server subscription");
         }
         revoke_relay(relay_url, &subscription_id).await;
-        store::forget(&record.id);
+        if let Err(cleanup) = store::forget(&record.id) {
+            tracing::warn!(%cleanup, "could not roll back the saved push credentials");
+        }
         return Err(error);
     }
     if let Some(stale) = stale.filter(|stale| stale.id != record.id) {
@@ -398,7 +400,7 @@ async fn establish(
         {
             tracing::warn!(%error, "could not remove the old subscription from the push server");
         }
-        store::forget(&stale.id);
+        store::forget(&stale.id)?;
     }
     Ok(())
 }
@@ -470,8 +472,8 @@ async fn unpair(dir: &Path, id: &str) -> Result<()> {
         }
     }
 
+    store::forget(id)?;
     store::update(dir, |file| file.servers.retain(|server| server.id != id))?;
-    store::forget(id);
     Ok(())
 }
 
@@ -577,33 +579,29 @@ async fn sync_token(app: &AppHandle, dir: &Path) -> Result<()> {
     sync_servers(dir, relay_url, &device_token).await
 }
 
-pub async fn reset(dir: &Path) {
-    reset_with(dir, relay::base_url()).await;
+pub async fn reset(dir: &Path) -> Result<(), ErrorResponse> {
+    reset_with(dir, relay::base_url()).await.map_err(Into::into)
 }
 
-async fn reset_with(dir: &Path, relay_url: Option<&str>) {
+async fn reset_with(dir: &Path, relay_url: Option<&str>) -> Result<()> {
     let _state = STATE_LOCK.lock().await;
-    let servers = store::read(dir)
-        .map(|file| file.servers)
-        .unwrap_or_default();
+    let servers = store::read(dir)?.servers;
     for record in servers {
-        if let (Some(relay_url), Ok(Some(subscription_id))) = (
+        if let (Some(relay_url), Some(subscription_id)) = (
             relay_url,
-            store::get_secret(Secret::RelaySubscription, &record.id),
+            store::get_secret(Secret::RelaySubscription, &record.id)?,
         ) {
             revoke_relay(relay_url, &subscription_id).await;
         }
-        if let Ok(Some(api_token)) = store::get_secret(Secret::ApiToken, &record.id) {
+        if let Some(api_token) = store::get_secret(Secret::ApiToken, &record.id)? {
             let host = host_of(&record.url);
             if let Err(error) = server::delete(&record.url, &host, &api_token, &record.id).await {
                 tracing::warn!(%error, "could not remove the subscription from the push server");
             }
         }
-        store::forget(&record.id);
+        store::forget(&record.id)?;
     }
-    if let Err(error) = store::remove_file(dir) {
-        tracing::warn!(%error, "could not delete the push settings");
-    }
+    store::remove_file(dir)
 }
 
 pub fn spawn_token_sync(app: &AppHandle, app_data_dir: &Path) {

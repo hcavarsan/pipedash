@@ -81,6 +81,7 @@ impl Services {
             Arc::new(FetchScheduler::default()),
             health.clone(),
             dispatcher,
+            Arc::clone(&config_state),
         ));
         let health_service = Arc::new(ProviderHealthService::new(
             health_receivers,

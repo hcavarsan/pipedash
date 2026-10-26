@@ -282,24 +282,42 @@ impl ConfigState {
     }
 
     pub async fn remove_provider(&self, id: &str) -> DomainResult<()> {
-        let current_config = self.config.read().await;
-        let mut config = (**current_config).clone();
-        drop(current_config);
-
-        if config.providers.shift_remove(id).is_none() {
-            return Err(DomainError::InvalidConfig(format!(
-                "Provider '{}' not found",
-                id
-            )));
+        let content = match std::fs::read_to_string(&self.config_path) {
+            Ok(content) => Some(content),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(DomainError::DatabaseError(format!(
+                    "Failed to read config file: {e}"
+                )))
+            }
+        };
+        if let Some(content) = content {
+            let mut doc: toml_edit::DocumentMut = content.parse().map_err(|e| {
+                DomainError::DatabaseError(format!("Failed to parse existing TOML: {e}"))
+            })?;
+            if doc
+                .get_mut("providers")
+                .and_then(toml_edit::Item::as_table_like_mut)
+                .and_then(|providers| providers.remove(id))
+                .is_some()
+            {
+                std::fs::write(&self.config_path, doc.to_string()).map_err(|e| {
+                    DomainError::DatabaseError(format!("Failed to write config file: {e}"))
+                })?;
+            }
         }
 
-        self.persist_config(&config).await?;
+        let mut current = self.config.write().await;
+        if current.providers.contains_key(id) {
+            let mut config = (**current).clone();
+            config.providers.shift_remove(id);
+            *current = Arc::new(config);
+        }
 
         let event = ConfigChangeEvent::ProviderRemoved {
             name: id.to_string(),
         };
-        let _ = self.change_tx.send(event.clone());
-
+        let _ = self.change_tx.send(event);
         Ok(())
     }
 

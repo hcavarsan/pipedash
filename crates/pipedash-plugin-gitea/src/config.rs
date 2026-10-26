@@ -6,12 +6,21 @@ use pipedash_plugin_api::{
 };
 
 pub(crate) fn get_base_url(config: &HashMap<String, String>) -> PluginResult<String> {
-    config
+    let url = config
         .get("base_url")
         .map(|url| url.trim().trim_end_matches('/'))
         .filter(|url| !url.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| PluginError::InvalidConfig("Missing Gitea base URL".to_string()))
+        .ok_or_else(|| PluginError::InvalidConfig("Missing Gitea base URL".to_string()))?;
+    #[cfg(target_os = "ios")]
+    if !reqwest::Url::parse(url)
+        .is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some())
+    {
+        return Err(PluginError::InvalidConfig(
+            "Gitea on iOS requires an HTTPS server URL, such as https://git.example.com. Enable HTTPS on your server before adding or importing this provider."
+                .to_string(),
+        ));
+    }
+    Ok(url.to_string())
 }
 
 pub(crate) fn get_repositories(config: &HashMap<String, String>) -> Vec<String> {
@@ -116,6 +125,46 @@ mod tests {
         )]);
         assert_eq!(get_base_url(&config).unwrap(), "https://git.example.com");
         assert!(get_base_url(&HashMap::new()).is_err());
+    }
+
+    #[cfg(not(target_os = "ios"))]
+    #[test]
+    fn desktop_and_web_keep_supporting_self_hosted_http() {
+        let config = HashMap::from([(
+            "base_url".to_string(),
+            " http://git.example.com/ ".to_string(),
+        )]);
+        assert_eq!(get_base_url(&config).unwrap(), "http://git.example.com");
+    }
+
+    #[cfg(target_os = "ios")]
+    #[test]
+    fn ios_requires_an_https_server_url() {
+        for base_url in [
+            "http://git.example.com",
+            "git.example.com",
+            "not a URL",
+            "https://",
+        ] {
+            let config = HashMap::from([("base_url".to_string(), base_url.to_string())]);
+            let error = get_base_url(&config).unwrap_err();
+            assert!(matches!(error, PluginError::InvalidConfig(_)));
+            assert!(error.to_string().contains("HTTPS"));
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    #[test]
+    fn ios_initialization_checks_the_url_before_missing_credentials() {
+        use pipedash_plugin_api::Plugin;
+
+        let config =
+            HashMap::from([("base_url".to_string(), "http://git.example.com".to_string())]);
+        let error = crate::GiteaPlugin::new()
+            .initialize(1, config, None)
+            .unwrap_err();
+        assert!(matches!(error, PluginError::InvalidConfig(_)));
+        assert!(error.to_string().contains("HTTPS"));
     }
 
     #[test]

@@ -101,16 +101,12 @@ impl TokenStore for FallbackTokenStore {
         let primary_result = self.primary.delete_token(provider_id).await;
         let fallback_result = self.fallback.delete_token(provider_id).await;
 
-        if primary_result.is_err() && fallback_result.is_err() {
-            return primary_result; // Return primary's error as it's more
-                                   // relevant
-        }
-
-        Ok(())
+        primary_result?;
+        fallback_result
     }
 
     async fn get_all_tokens(&self) -> DomainResult<HashMap<i64, String>> {
-        let mut all_tokens = self.fallback.get_all_tokens().await.unwrap_or_default();
+        let mut all_tokens = self.fallback.get_all_tokens().await?;
         let primary_tokens = self.primary.get_all_tokens().await?;
 
         all_tokens.extend(primary_tokens);
@@ -211,11 +207,11 @@ mod tests {
         }
 
         async fn delete_token(&self, _provider_id: i64) -> DomainResult<()> {
-            Ok(())
+            Err(DomainError::AuthenticationFailed("vault is locked".into()))
         }
 
         async fn get_all_tokens(&self) -> DomainResult<HashMap<i64, String>> {
-            Ok(HashMap::new())
+            Err(DomainError::AuthenticationFailed("vault is locked".into()))
         }
     }
 
@@ -238,5 +234,21 @@ mod tests {
             locked.get_token(1).await,
             Err(DomainError::DatabaseError(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn deletion_fails_when_either_store_cannot_delete_its_copy() {
+        let primary_locked = FallbackTokenStore::new(
+            Arc::new(LockedTokenStore),
+            Arc::new(MemoryTokenStore::new()),
+        );
+        let fallback_locked = FallbackTokenStore::new(
+            Arc::new(MemoryTokenStore::new()),
+            Arc::new(LockedTokenStore),
+        );
+
+        assert!(primary_locked.delete_token(1).await.is_err());
+        assert!(fallback_locked.delete_token(1).await.is_err());
+        assert!(fallback_locked.get_all_tokens().await.is_err());
     }
 }

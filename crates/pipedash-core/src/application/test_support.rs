@@ -387,11 +387,21 @@ impl StubFactory {
 pub(crate) struct FailOnceTokenStore {
     inner: MemoryTokenStore,
     fail_next_store: AtomicBool,
+    fail_next_delete: AtomicBool,
+    delete_gate: Mutex<Option<Arc<Gate>>>,
 }
 
 impl FailOnceTokenStore {
     pub(crate) fn fail_next_store(&self) {
         self.fail_next_store.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn fail_next_delete(&self) {
+        self.fail_next_delete.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn gate_delete(&self, gate: Arc<Gate>) {
+        *self.delete_gate.lock().unwrap() = Some(gate);
     }
 }
 
@@ -411,6 +421,15 @@ impl TokenStore for FailOnceTokenStore {
     }
 
     async fn delete_token(&self, provider_id: i64) -> DomainResult<()> {
+        if self.fail_next_delete.swap(false, Ordering::SeqCst) {
+            return Err(DomainError::DatabaseError(
+                "token deletion unavailable".into(),
+            ));
+        }
+        let gate = self.delete_gate.lock().unwrap().clone();
+        if let Some(gate) = gate {
+            gate.pass().await;
+        }
         self.inner.delete_token(provider_id).await
     }
 
@@ -532,6 +551,7 @@ impl Harness {
             Arc::clone(&scheduler),
             health.clone(),
             dispatcher,
+            Arc::clone(&config_state),
         );
         if stubbed {
             let stubs = Arc::clone(&stubs);

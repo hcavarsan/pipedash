@@ -16,14 +16,6 @@
     <true/>
     <key>PipedashBuildWatchEnabled</key>
     <false/>
-    <key>BGTaskSchedulerPermittedIdentifiers</key>
-    <array>
-        <string>com.henrique.pipedash.build-watch</string>
-    </array>
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>processing</string>
-    </array>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>

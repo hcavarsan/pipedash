@@ -27,6 +27,8 @@ const BACKUP_KDF_SALT: &[u8] = b"pipedash-backup-salt-v1";
 pub struct KeyringTokenStore {
     keyring_lock: Arc<Mutex<()>>,
     token_cache: Arc<Mutex<Option<HashMap<String, String>>>>,
+    #[cfg(all(test, not(target_os = "ios")))]
+    entries: HashMap<String, Entry>,
 }
 
 impl Default for KeyringTokenStore {
@@ -40,12 +42,32 @@ impl KeyringTokenStore {
         Self {
             keyring_lock: Arc::new(Mutex::new(())),
             token_cache: Arc::new(Mutex::new(None)),
+            #[cfg(all(test, not(target_os = "ios")))]
+            entries: HashMap::new(),
         }
     }
 
-    fn keyring_entry(&self) -> DomainResult<Entry> {
-        Entry::new("pipedash", "tokens")
-            .map_err(|e| DomainError::DatabaseError(format!("Failed to create keyring entry: {e}")))
+    fn with_entry<T>(
+        &self, user: &str, operation: impl FnOnce(&Entry) -> crate::credential::Result<T>,
+    ) -> crate::credential::Result<T> {
+        #[cfg(all(test, not(target_os = "ios")))]
+        if !self.entries.is_empty() {
+            return operation(
+                self.entries
+                    .get(user)
+                    .expect("Missing isolated test credential"),
+            );
+        }
+        operation(&Entry::new("pipedash", user)?)
+    }
+
+    fn delete_entry(&self, user: &str) -> DomainResult<()> {
+        match self.with_entry(user, Entry::delete_credential) {
+            Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+            Err(e) => Err(DomainError::DatabaseError(format!(
+                "Failed to delete keyring entry: {e}"
+            ))),
+        }
     }
 
     async fn get_all_tokens_cached(&self) -> DomainResult<HashMap<String, String>> {
@@ -55,8 +77,7 @@ impl KeyringTokenStore {
             return Ok(cached_tokens.clone());
         }
 
-        let entry = self.keyring_entry()?;
-        let tokens = match entry.get_password() {
+        let tokens = match self.with_entry("tokens", Entry::get_password) {
             Ok(json) => {
                 if json.trim().is_empty() {
                     HashMap::new()
@@ -79,20 +100,20 @@ impl KeyringTokenStore {
     }
 
     async fn save_all_tokens(&self, tokens: &HashMap<String, String>) -> DomainResult<()> {
-        let entry = self.keyring_entry()?;
         let json = serde_json::to_string(tokens)
             .map_err(|e| DomainError::DatabaseError(format!("Failed to serialize tokens: {e}")))?;
 
-        entry.set_password(&json).map_err(|e| {
-            DomainError::DatabaseError(format!(
-                "Failed to store tokens in system keyring: {}\n\
+        self.with_entry("tokens", |entry| entry.set_password(&json))
+            .map_err(|e| {
+                DomainError::DatabaseError(format!(
+                    "Failed to store tokens in system keyring: {}\n\
                  \nThe tokens will not be saved securely. Please ensure:\n\
                  - macOS: Grant Keychain Access permission to Pipedash\n\
                  - Linux: Install libsecret (sudo apt install libsecret-1-dev)\n\
                  - Windows: Ensure Credential Manager is accessible",
-                e
-            ))
-        })?;
+                    e
+                ))
+            })?;
 
         let mut cache = self.token_cache.lock().await;
         *cache = Some(tokens.clone());
@@ -101,12 +122,8 @@ impl KeyringTokenStore {
     }
 
     async fn migrate_legacy_token(&self, provider_id: i64) -> DomainResult<Option<String>> {
-        let old_entry =
-            Entry::new("pipedash", &format!("provider_{}", provider_id)).map_err(|e| {
-                DomainError::DatabaseError(format!("Failed to create old keyring entry: {e}"))
-            })?;
-
-        let token = match old_entry.get_password() {
+        let user = format!("provider_{provider_id}");
+        let token = match self.with_entry(&user, Entry::get_password) {
             Ok(token) => token,
             Err(KeyringError::NoEntry) => return Ok(None),
             Err(e) => {
@@ -120,38 +137,9 @@ impl KeyringTokenStore {
         tokens.insert(provider_id.to_string(), token.clone());
         self.save_all_tokens(&tokens).await?;
 
-        let _ = old_entry.delete_credential();
+        self.delete_entry(&user)?;
 
         Ok(Some(token))
-    }
-
-    pub async fn cleanup_legacy_entries(&self) -> DomainResult<usize> {
-        let _lock = self.keyring_lock.lock().await;
-        let mut cleaned = 0;
-
-        for provider_id in 1..=1000 {
-            let old_entry = match Entry::new("pipedash", &format!("provider_{}", provider_id)) {
-                Ok(entry) => entry,
-                Err(_) => continue,
-            };
-
-            if old_entry.delete_credential().is_ok() {
-                cleaned += 1;
-                tracing::debug!(
-                    "[KeyringTokenStore] Cleaned up legacy entry for provider_{}",
-                    provider_id
-                );
-            }
-        }
-
-        if cleaned > 0 {
-            tracing::info!(
-                "[KeyringTokenStore] Cleaned up {} legacy keyring entries",
-                cleaned
-            );
-        }
-
-        Ok(cleaned)
     }
 
     fn derive_backup_key(password: &str) -> [u8; 32] {
@@ -212,15 +200,15 @@ impl TokenStore for KeyringTokenStore {
 
     async fn delete_token(&self, provider_id: i64) -> DomainResult<()> {
         let _lock = self.keyring_lock.lock().await;
+        self.delete_entry(&format!("provider_{provider_id}"))?;
 
         let mut tokens = self.get_all_tokens_cached().await?;
         tokens.remove(&provider_id.to_string());
 
         if tokens.is_empty() {
-            let entry = self.keyring_entry()?;
-            entry.delete_credential().map_err(|e| {
-                DomainError::DatabaseError(format!("Failed to delete keyring entry: {e}"))
-            })
+            self.delete_entry("tokens")?;
+            *self.token_cache.lock().await = Some(tokens);
+            Ok(())
         } else {
             self.save_all_tokens(&tokens).await
         }
@@ -297,4 +285,115 @@ impl TokenStore for KeyringTokenStore {
 
 pub fn create_keyring_token_store() -> Arc<dyn TokenStore> {
     Arc::new(KeyringTokenStore::new())
+}
+
+#[cfg(all(test, not(target_os = "ios")))]
+mod tests {
+    use keyring_core::mock::Cred;
+
+    use super::*;
+
+    fn store() -> KeyringTokenStore {
+        KeyringTokenStore {
+            entries: ["tokens", "provider_1", "provider_2"]
+                .into_iter()
+                .map(|user| {
+                    (
+                        user.to_string(),
+                        Entry {
+                            inner: keyring_core::Entry::new_with_credential(Arc::new(Cred {
+                                specifiers: ("pipedash".into(), user.into()),
+                                inner: Default::default(),
+                            })),
+                        },
+                    )
+                })
+                .collect(),
+            ..KeyringTokenStore::new()
+        }
+    }
+
+    fn fail_next(store: &KeyringTokenStore, user: &str) {
+        store.entries[user]
+            .inner
+            .as_any()
+            .downcast_ref::<Cred>()
+            .unwrap()
+            .set_error(KeyringError::Invalid(
+                "locked".into(),
+                "access denied".into(),
+            ));
+    }
+
+    #[tokio::test]
+    async fn deleting_the_last_token_does_not_resurrect_it_when_adding_another() {
+        let store = store();
+        store.store_token(1, "old-token").await.unwrap();
+        store.entries["provider_1"]
+            .set_password("legacy-token")
+            .unwrap();
+
+        store.delete_token(1).await.unwrap();
+
+        assert!(store.get_all_tokens().await.unwrap().is_empty());
+        assert!(matches!(
+            store.entries["tokens"].get_password(),
+            Err(KeyringError::NoEntry)
+        ));
+        assert!(matches!(
+            store.get_token(1).await,
+            Err(DomainError::NotFound(_))
+        ));
+        store.store_token(2, "new-token").await.unwrap();
+        *store.token_cache.lock().await = None;
+        assert_eq!(
+            store.get_all_tokens().await.unwrap(),
+            HashMap::from([(2, "new-token".into())])
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_an_absent_token_is_idempotent() {
+        let store = store();
+        store.delete_token(1).await.unwrap();
+        store.delete_token(1).await.unwrap();
+        assert!(store.get_all_tokens().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_persistent_deletion_keeps_the_cache_and_supports_retry() {
+        let store = store();
+        store.store_token(1, "old-token").await.unwrap();
+        fail_next(&store, "tokens");
+
+        assert!(store.delete_token(1).await.is_err());
+        assert_eq!(store.get_token(1).await.unwrap(), "old-token");
+        assert!(store.entries["tokens"].get_password().is_ok());
+
+        store.delete_token(1).await.unwrap();
+        assert!(store.get_all_tokens().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_legacy_deletion_does_not_remove_the_current_token() {
+        let store = store();
+        store.store_token(1, "current-token").await.unwrap();
+        store.entries["provider_1"]
+            .set_password("legacy-token")
+            .unwrap();
+        fail_next(&store, "provider_1");
+
+        assert!(store.delete_token(1).await.is_err());
+        assert_eq!(store.get_token(1).await.unwrap(), "current-token");
+        assert_eq!(
+            store.entries["provider_1"].get_password().unwrap(),
+            "legacy-token"
+        );
+
+        store.delete_token(1).await.unwrap();
+        assert!(matches!(
+            store.get_token(1).await,
+            Err(DomainError::NotFound(_))
+        ));
+    }
 }
