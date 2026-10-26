@@ -162,6 +162,8 @@ See the [FluxCD kind examples](examples/fluxcd/README.md) for healthy, failed an
 
 **Bitbucket Pipelines**: App password with `repository` and `pipeline` read permissions. Works with Bitbucket Cloud and self-hosted.
 
+You can open Bitbucket run details beyond the newest 100 builds.
+
 After you add a provider, Pipedash validates your credentials and fetches available repos. Pick which ones to monitor and save. Your pipelines will show up in the main view and refresh automatically.
 
 ### Initial setup
