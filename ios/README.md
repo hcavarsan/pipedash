@@ -107,12 +107,12 @@ and TestFlight isolation. The delivery checks exercise Fastlane's runner without
 
 ## Local build watching
 
-Pipedash disables build watching by default through `PipedashBuildWatchEnabled` in
+Pipedash disables build watching and remote push by default through `PipedashBuildWatchEnabled` in
 `crates/pipedash-desktop/Info.ios.plist`. A missing flag also means `false`.
 While off, the native plugin rejects watch starts, skips background task registration and reports Watch as unsupported.
-The frontend hides the Watch controls. Existing snapshots remain stored and do not restart automatically.
+The frontend hides the Watch and remote push controls. Existing snapshots remain stored and do not restart automatically.
 
-To restore Watch, set the flag to the plist boolean `true`, rebuild the iOS app and install the new build:
+To restore both features, set the flag to the plist boolean `true`, rebuild the iOS app and install the new build:
 
 ```xml
 <key>PipedashBuildWatchEnabled</key>
@@ -172,5 +172,11 @@ bundle exec ruby -e 'Dir["fastlane/*_test.rb"].sort.each { |file| require_relati
 
 ## Push notifications
 
-The app registers its APNs device token with the push relay and pairs with a self-hosted pipedash-web server,
-which sends failure events to the relay. Deploying the relay: `docs/push-relay.md`.
+Remote push uses the same `PipedashBuildWatchEnabled` flag as [build watching](#local-build-watching).
+While off, the app skips token synchronization and rejects pairing, unpairing and test-push commands before accessing saved settings or the network.
+The native plugin unregisters from remote notifications on launch and rejects registration without requesting notification permission.
+Saved pairings remain on the device for reactivation. Local notifications and the server's push APIs remain unchanged.
+
+With the flag on, the app registers its APNs device token with the push relay.
+The app pairs with a self-hosted `pipedash-web` server, which sends failure events to the relay.
+See [relay deployment](../docs/push-relay.md).

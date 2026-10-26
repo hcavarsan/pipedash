@@ -9,6 +9,7 @@ private typealias DelegateIMP = @convention(c) (AnyObject, Selector, UIApplicati
 
 final class PushRegistry {
   static let shared = PushRegistry()
+  static let enabled = Bundle.main.object(forInfoDictionaryKey: "PipedashBuildWatchEnabled") as? Bool ?? false
 
   private var pending: [Invoke] = []
   private var installed = false
@@ -17,6 +18,10 @@ final class PushRegistry {
   private init() {}
 
   func installDelegateHooks() {
+    guard Self.enabled else {
+      UIApplication.shared.unregisterForRemoteNotifications()
+      return
+    }
     guard !installed, let delegate = UIApplication.shared.delegate else { return }
     installed = true
     appDelegate = delegate
@@ -63,6 +68,10 @@ final class PushRegistry {
   }
 
   func begin(_ invoke: Invoke) {
+    guard Self.enabled else {
+      invoke.reject("Remote push is disabled in this build", code: "unsupported")
+      return
+    }
     pending.append(invoke)
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
@@ -109,6 +118,10 @@ final class PushRegistry {
 class PushPlugin: Plugin {
   public override func load(webview: WKWebView) {
     PushRegistry.shared.installDelegateHooks()
+  }
+
+  @objc func isEnabled(_ invoke: Invoke) {
+    invoke.resolve(PushRegistry.enabled)
   }
 
   @objc func register(_ invoke: Invoke) {

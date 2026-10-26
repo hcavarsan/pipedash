@@ -25,6 +25,7 @@ use tauri::{
     AppHandle,
     State,
 };
+use tauri_plugin_pipedash_push::PipedashPushExt;
 
 use self::store::{
     Secret,
@@ -268,8 +269,6 @@ async fn permission_state(_app: &AppHandle) -> PermissionState {
 
 #[cfg(target_os = "ios")]
 async fn acquire_device_token(app: &AppHandle) -> Result<String> {
-    use tauri_plugin_pipedash_push::PipedashPushExt;
-
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         app.pipedash_push().register_for_remote_notifications()
@@ -300,10 +299,25 @@ pub struct PushStatus {
     pub servers: Vec<PushServer>,
 }
 
+async fn ensure_enabled(app: &AppHandle) -> Result<()> {
+    if !app.pipedash_push().is_enabled().await? {
+        return Err(PushError::Unsupported);
+    }
+    Ok(())
+}
+
 async fn status(app: &AppHandle, dir: &Path) -> Result<PushStatus> {
+    if !app.pipedash_push().is_enabled().await? {
+        return Ok(PushStatus {
+            supported: false,
+            relay_configured: relay::base_url().is_some(),
+            permission: "prompt".to_owned(),
+            servers: Vec::new(),
+        });
+    }
     let file = store::read(dir)?;
     Ok(PushStatus {
-        supported: cfg!(target_os = "ios"),
+        supported: true,
         relay_configured: relay::base_url().is_some(),
         permission: permission_label(permission_state(app).await).to_owned(),
         servers: file
@@ -483,6 +497,7 @@ pub async fn push_pair_server(
     app: AppHandle, app_data_dir: State<'_, AppDataDir>, server_url: String, api_token: String,
     label: Option<String>,
 ) -> Result<PushStatus, ErrorResponse> {
+    ensure_enabled(&app).await?;
     pair(
         &app,
         &app_data_dir.0,
@@ -498,14 +513,16 @@ pub async fn push_pair_server(
 pub async fn push_unpair_server(
     app: AppHandle, app_data_dir: State<'_, AppDataDir>, id: String,
 ) -> Result<PushStatus, ErrorResponse> {
+    ensure_enabled(&app).await?;
     unpair(&app_data_dir.0, &id).await?;
     Ok(status(&app, &app_data_dir.0).await?)
 }
 
 #[tauri::command]
 pub async fn push_send_test(
-    app_data_dir: State<'_, AppDataDir>, id: String,
+    app: AppHandle, app_data_dir: State<'_, AppDataDir>, id: String,
 ) -> Result<(), ErrorResponse> {
+    ensure_enabled(&app).await?;
     Ok(send_test(&app_data_dir.0, &id).await?)
 }
 
@@ -545,6 +562,9 @@ async fn sync_servers(dir: &Path, relay_url: &str, device_token: &str) -> Result
 
 #[cfg(target_os = "ios")]
 async fn sync_token(app: &AppHandle, dir: &Path) -> Result<()> {
+    if !app.pipedash_push().is_enabled().await? {
+        return Ok(());
+    }
     let Some(relay_url) = relay::base_url() else {
         return Ok(());
     };

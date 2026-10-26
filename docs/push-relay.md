@@ -87,6 +87,8 @@ The environment variable wins. Without a relay URL the server refuses to registe
 
 The iOS app is built with the same URL: set `PIPEDASH_PUSH_RELAY_URL` when you build it. That is the relay the app registers its device with. A server and an app must point at the same relay.
 
+The iOS app keeps remote push and build watching off by default. Set `PipedashBuildWatchEnabled` to the plist boolean `true` in `crates/pipedash-desktop/Info.ios.plist` and rebuild to restore both features. See [the iOS flag instructions](../ios/README.md#local-build-watching).
+
 Pairing happens in the iOS app. For each server you pair, it creates a separate relay subscription, then gives the server the resulting subscription id. Unpairing deletes that relay subscription. The server lists its devices at `GET /api/v1/push/subscriptions`, sends a test push with `POST /api/v1/push/subscriptions/{id}/test`, and forgets a device with `DELETE /api/v1/push/subscriptions/{id}`. All of these need the server's API token. The `id` in these paths is derived from the relay subscription id; the server never returns the relay subscription id itself.
 
 A push is sent once for each run that newly moves into a failed state. A pipeline that was already failing when the server first saw it, a refresh, and a restart do not send anything again. If the relay answers `404` or `410` for a device, the server deletes that device.

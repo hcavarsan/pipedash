@@ -21,6 +21,10 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 pub struct PipedashPush<R: Runtime>(PhantomData<fn() -> R>);
 
 impl<R: Runtime> PipedashPush<R> {
+    pub async fn is_enabled(&self) -> Result<bool> {
+        Ok(false)
+    }
+
     pub fn register_for_remote_notifications(&self) -> Result<String> {
         Err(Error::Unsupported)
     }

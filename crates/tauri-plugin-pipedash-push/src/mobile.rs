@@ -36,6 +36,13 @@ struct TokenResponse {
 }
 
 impl<R: Runtime> PipedashPush<R> {
+    pub async fn is_enabled(&self) -> Result<bool> {
+        self.0
+            .run_mobile_plugin_async("isEnabled", ())
+            .await
+            .map_err(|error| Error::Registration(error.to_string()))
+    }
+
     pub fn register_for_remote_notifications(&self) -> Result<String> {
         self.0
             .run_mobile_plugin::<TokenResponse>("register", ())
@@ -45,6 +52,11 @@ impl<R: Runtime> PipedashPush<R> {
                     if resp.code.as_deref() == Some("permissionDenied") =>
                 {
                     Error::PermissionDenied
+                }
+                PluginInvokeError::InvokeRejected(resp)
+                    if resp.code.as_deref() == Some("unsupported") =>
+                {
+                    Error::Unsupported
                 }
                 PluginInvokeError::InvokeRejected(resp) => {
                     Error::Registration(resp.message.unwrap_or_default())
