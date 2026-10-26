@@ -1,4 +1,5 @@
+- Optional local notifications for failed pipelines, long-running runs and provider outages, with background checks when iOS allows them.
 - Unlock Pipedash with Face ID or Touch ID, and lock it when you leave the app.
 - Paste a kubeconfig to monitor Flux CD and Tekton from your iPhone or iPad.
 - Better layout on iPad and in landscape, and native Files pickers for exports.
-- Links to the privacy policy and support in Settings > About.
+- Links to the privacy policy and support page in Settings > About.

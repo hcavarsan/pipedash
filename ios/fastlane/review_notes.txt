@@ -5,14 +5,16 @@ How to review the main features:
 2. Tap "Add provider" > "GitHub Actions". Enter a "Provider name" such as "Review demo" and paste this "API Token":
    %{demo_token}
 3. Tap "Next", choose the repository %{demo_repository} and tap "Add".
-4. On the dashboard, open "%{demo_workflow}" under the demo repository. Open an existing run to view its status and metadata. "View logs" opens GitHub in the external browser. GitHub may require sign-in to read logs.
+4. On the dashboard, open "%{demo_workflow}" under the demo repository. Open an existing run to view its status, branch, commit and timing in the app. "View logs" is optional: it opens the run on GitHub in the default browser, and GitHub may require sign-in to show log text.
 5. To start a run, choose "Run workflow", keep the default branch and tap "Trigger". Open the running workflow and choose "Stop workflow" to cancel it. Use only the demo repository for these actions.
 
 Other features:
 - Face ID: Settings > Storage > "Require Face ID". The app asks for Face ID or the device passcode before loading saved tokens.
 - Local network: a self-hosted provider on a local address may require Local Network permission. The GitHub demo does not need a local server.
-- Provider export: Settings > Providers > "Export providers" opens the native Files picker so you can choose a destination.
+- Provider export: Settings > Providers > "Export providers" opens the native Files picker so you can choose a destination. Exports omit tokens.
 - Notifications: Settings > Notifications > "Notifications" (off by default). After a confirmation and the iOS permission prompt, the app uses Background App Refresh (BGAppRefreshTask, "fetch" mode) to check the user's providers and status pages and post local notifications for failed pipelines, long-running runs and outages. Remote push, background build watching and Live Activities are disabled in this build.
 
 The app connects to the providers the user adds and public status-page hosts: www.githubstatus.com, api.status.io, bitbucket.status.atlassian.com and www.buildkitestatus.com. Users can configure other status pages, a proxy or advanced storage destinations.
+Native iOS features: Keychain token storage, Face ID unlock, Background App Refresh with local notifications, the Files picker and the share sheet.
+Support: https://github.com/hcavarsan/pipedash/blob/main/SUPPORT.md (email hcavarsan@yahoo.com.br)
 Privacy policy: https://github.com/hcavarsan/pipedash/blob/main/PRIVACY.md

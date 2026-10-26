@@ -82,5 +82,5 @@ We may update this privacy policy from time to time. Any changes will be posted 
 
 ## Contact
 
-If you have questions about this privacy policy, please open an issue at:
+If you have questions about this privacy policy, email hcavarsan@yahoo.com.br or open an issue at:
 https://github.com/hcavarsan/pipedash/issues

@@ -11,6 +11,7 @@ build (`crates/pipedash-desktop/gen` is gitignored), so everything iOS needs liv
 | `xcode/pipedash.entitlements` | App entitlements without APNs access |
 | `fastlane/metadata/en-US/release_notes.txt` | "What's New" sent with `release` |
 | `fastlane/metadata/en-US/description.txt` | App description sent with `release`, including foreground-refresh limits |
+| `fastlane/metadata/en-US/support_url.txt` | Support URL sent with `release`; points to [`SUPPORT.md`](../SUPPORT.md), which lists an email contact |
 | `fastlane/review_notes.txt` | App Review instructions with release-time demo token, repository and workflow interpolation |
 | `fastlane/app_review_demo.rb` | Read-only GitHub access checks before release signing or submission |
 | `fastlane/ios_project.rb` | App version, disabled-feature checks and export profile setup |
@@ -64,10 +65,13 @@ Complete this checklist before each submission:
 
 1. Use a dedicated public demo repository. Keep production code, credentials, organization secrets, deployments and production network access out of its workflows.
 2. Create a fine-grained token with "Only select repositories" set to that demo repository. Grant Actions read/write and Contents read only.
-   Do not use a production token or an unrestricted classic token. Set an expiry that covers review and keep the token valid until review finishes.
+   Do not use a production token or an unrestricted classic token. Set an expiry of at least 90 days so the token stays valid through re-reviews and appeals.
+   `release` checks the token only when it runs; an expired token later leaves App Review unable to add the demo provider.
 3. Keep a harmless `workflow_dispatch` workflow on the default branch with defaults for any required inputs. Give it enough runtime to test "Stop workflow" and retain a successful manual run with jobs.
 4. Test the review instructions on an iPhone or iPad, including provider setup, run details, browser logs, "Run workflow" > "Trigger" and "Stop workflow".
    Provider export should open the native Files picker and allow a destination of your choice.
+5. Answer the App Store Connect export compliance questions for this build. The app links rustls/ring for TLS and uses AES-256-GCM with Argon2id for password-encrypted credential storage.
+   `ITSAppUsesNonExemptEncryption` is `false` in `Info.ios.plist` and `verify_ipa` requires that value. Keep it only if your export classification confirms that this use is exempt; otherwise set it to `true`, update `verify_ipa` and upload any documentation App Store Connect requests.
 
 GitHub's read endpoints cannot prove the token's selected-repository restriction, Actions write permission or the workflow's harmlessness.
 The repository's `permissions.push` field checks the user's repository permission, not the token's full permissions.

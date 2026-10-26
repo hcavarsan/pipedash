@@ -14,7 +14,7 @@ STATUS AND NOTIFICATIONS
 - See provider outage and recovery alerts in the notification inbox.
 - Turn on optional local notifications for failed pipelines, long-running runs and provider outages.
 
-With notifications on, Pipedash also checks in the background when iOS allows it, so alerts can be delayed. Remote push notifications, background build watching and Live Activities are disabled in this release.
+With notifications on, Pipedash also checks in the background when iOS allows it, so alerts can be delayed.
 
 YOUR PROVIDERS AND DATA
 Use your existing provider accounts and API credentials. Available actions depend on the provider and token permissions. Self-hosted services must be reachable from your device.

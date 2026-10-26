@@ -14,7 +14,7 @@ import { IosGroup, IosRow } from '../../ios/IosList'
 
 const LINKS = [
   { label: 'Privacy Policy', url: 'https://github.com/hcavarsan/pipedash/blob/main/PRIVACY.md' },
-  { label: 'Support', url: 'https://github.com/hcavarsan/pipedash/issues' },
+  { label: 'Support', url: 'https://github.com/hcavarsan/pipedash/blob/main/SUPPORT.md' },
   { label: 'Source code', url: 'https://github.com/hcavarsan/pipedash' },
 ]
 
