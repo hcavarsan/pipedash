@@ -17,7 +17,10 @@ export const queryKeys = {
 
   runs: {
     all: ['runs'] as const,
-    list: (pipelineId: string, page = 1) => [...queryKeys.runs.all, 'list', pipelineId, { page }] as const,
+    list: (pipelineId: string, page?: number) =>
+      page === undefined
+        ? ([...queryKeys.runs.all, 'list', pipelineId] as const)
+        : ([...queryKeys.runs.all, 'list', pipelineId, { page }] as const),
     detail: (pipelineId: string, runNumber: number) =>
       [...queryKeys.runs.all, 'detail', pipelineId, runNumber] as const,
     active: (pipelineId: string) => [...queryKeys.runs.all, 'active', pipelineId] as const,
