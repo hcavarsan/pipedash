@@ -118,6 +118,7 @@ pub struct ComparedTo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
+    #[serde(default)]
     pub status: String,
     pub message: Option<String>,
 }
@@ -216,6 +217,12 @@ mod tests {
     fn list_keeps_multi_source_app_with_history() {
         let app = r#"{"metadata":{"name":"multi"},"spec":{"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"},{"repoURL":"https://charts.acme.dev","chart":"redis","targetRevision":"18.1.0"}],"destination":{"server":"https://kubernetes.default.svc","namespace":"c"},"project":"default"},"status":{"sync":{"status":"Synced","comparedTo":{"source":{"repoURL":""},"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"}],"destination":{"server":"https://kubernetes.default.svc","namespace":"c"}},"revisions":["abc123","18.1.0"]},"health":{"status":"Healthy"},"history":[{"deployedAt":"2026-10-20T10:00:00Z","id":0,"source":{"repoURL":""},"sources":[{"repoURL":"https://github.com/acme/c","path":"k8s","targetRevision":"main"}],"revisions":["abc123","18.1.0"]}]}}"#;
         assert_eq!(parse_list_with(app), ["ok", "multi"]);
+    }
+
+    #[test]
+    fn list_keeps_app_awaiting_first_reconcile() {
+        let app = r#"{"metadata":{"name":"new"},"spec":{"source":{"repoURL":"https://github.com/acme/d","path":"k8s","targetRevision":"main"},"destination":{"server":"https://kubernetes.default.svc","namespace":"d"},"project":"default"},"status":{"sync":{"status":"","comparedTo":{"source":{"repoURL":""},"destination":{}}},"health":{}}}"#;
+        assert_eq!(parse_list_with(app), ["ok", "new"]);
     }
 
     #[test]
