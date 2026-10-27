@@ -37,6 +37,23 @@ pub(crate) fn map_status(
     }
 }
 
+pub(crate) fn operation_status(phase: &str) -> PipelineStatus {
+    match phase {
+        "Running" | "Terminating" => PipelineStatus::Running,
+        "Succeeded" => PipelineStatus::Success,
+        "Failed" | "Error" => PipelineStatus::Failed,
+        _ => PipelineStatus::Pending,
+    }
+}
+
+pub(crate) fn app_url(server_url: &str, app_name: &str) -> String {
+    format!(
+        "{}/applications/{}",
+        server_url.trim_end_matches('/'),
+        app_name
+    )
+}
+
 pub(crate) fn map_application_to_pipeline(
     app: &types::Application, provider_id: i64, _server_url: &str,
 ) -> Pipeline {
@@ -215,11 +232,7 @@ pub(crate) fn map_history_to_run(
 
     let status = PipelineStatus::Success;
 
-    let logs_url = format!(
-        "{}/applications/{}",
-        server_url.trim_end_matches('/'),
-        app.metadata.name
-    );
+    let logs_url = app_url(server_url, &app.metadata.name);
 
     let mut metadata = HashMap::new();
     metadata.insert(
@@ -303,22 +316,13 @@ pub(crate) fn map_operation_to_run(
 
     let pipeline_id = config::build_pipeline_id(provider_id, &namespace, &app.metadata.name);
 
-    let status = match operation_state.phase.as_str() {
-        "Running" | "Terminating" => PipelineStatus::Running,
-        "Succeeded" => PipelineStatus::Success,
-        "Failed" | "Error" => PipelineStatus::Failed,
-        _ => PipelineStatus::Pending,
-    };
+    let status = operation_status(&operation_state.phase);
 
     let duration = operation_state
         .finished_at
         .map(|finished| (finished - operation_state.started_at).num_seconds());
 
-    let logs_url = format!(
-        "{}/applications/{}",
-        server_url.trim_end_matches('/'),
-        app.metadata.name
-    );
+    let logs_url = app_url(server_url, &app.metadata.name);
 
     let mut metadata = HashMap::new();
     metadata.insert(
