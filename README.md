@@ -59,7 +59,7 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 - Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
 - Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
 - Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage.
-- Keep provider tokens in the system keyring or in a database encrypted with AES-256-GCM. Pipedash sends no analytics or telemetry.
+- Keep provider tokens in the system keyring, or encrypt them with AES-256-GCM in SQLite or PostgreSQL. Pipedash sends no analytics or telemetry.
 
 ## Get started
 
