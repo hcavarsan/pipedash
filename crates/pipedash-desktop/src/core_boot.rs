@@ -132,8 +132,7 @@ pub async fn boot_core(
     }
 
     let app_data_dir = app.state::<AppDataDir>().0.clone();
-    let config = ConfigLoader::load(&app_data_dir.join("config.toml"))
-        .map_err(|e| BootError::Config(e.to_string()))?;
+    let config = load_config(&app_data_dir)?;
 
     let facts = StorageFacts {
         sqlite: config.storage.backend.is_sqlite(),
@@ -181,6 +180,25 @@ pub async fn boot_core(
     tracing::info!("Pipedash initialized with CoreContext ({:?})", kind);
     crate::local_notifications::schedule_sync(app);
     Ok(core)
+}
+
+fn load_config(app_data_dir: &Path) -> Result<PipedashConfig, BootError> {
+    ConfigLoader::load(&app_data_dir.join("config.toml"))
+        .map_err(|e| BootError::Config(e.to_string()))
+}
+
+pub fn launch_outcome<T>(result: Result<T, BootError>) -> Result<(), BootError> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(e @ BootError::Config(_)) => {
+            tracing::error!("{} - starting without the core to show the config error", e);
+            Ok(())
+        }
+        Err(e) => {
+            tracing::error!("CoreContext initialization failed: {}", e);
+            Err(e)
+        }
+    }
 }
 
 fn log_choice(choice: StorageChoice, facts: StorageFacts) {
@@ -564,5 +582,29 @@ mod tests {
         assert!(!is_database_corruption_error(
             "failed to decrypt vault password"
         ));
+    }
+
+    #[test]
+    fn a_config_that_fails_to_load_keeps_the_launch_going_for_the_error_screen() {
+        for content in [
+            "[storage\nbackend = \"sqlite\"\n",
+            "[storage]\ndata_dir = \"${PIPEDASH_TEST_UNSET_VAR_190}\"\n",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("config.toml"), content).unwrap();
+
+            let launch = launch_outcome(load_config(dir.path()));
+            assert!(launch.is_ok(), "{content}: {launch:?}");
+
+            let status = ConfigLoader::get_setup_status(dir.path());
+            assert!(status.config_exists && !status.config_valid, "{content}");
+            assert!(!status.validation_errors.is_empty(), "{content}");
+        }
+    }
+
+    #[test]
+    fn a_storage_failure_still_stops_the_launch() {
+        let launch = launch_outcome::<()>(Err(BootError::Storage("connection refused".into())));
+        assert!(matches!(launch, Err(BootError::Storage(_))));
     }
 }
