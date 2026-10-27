@@ -40,7 +40,10 @@ pub(crate) fn map_status(conditions: &[types::Condition]) -> PipelineStatus {
                 "Cancelled" | "PipelineRunCancelled" => PipelineStatus::Cancelled,
                 _ => PipelineStatus::Failed,
             },
-            "Unknown" => PipelineStatus::Running,
+            "Unknown" => match succeeded_condition.reason.as_str() {
+                "PipelineRunPending" => PipelineStatus::Pending,
+                _ => PipelineStatus::Running,
+            },
             _ => PipelineStatus::Pending,
         }
     } else {
@@ -439,6 +442,7 @@ mod tests {
                 "PipelineRunTimeoutRunningFinally",
                 PipelineStatus::Running,
             ),
+            ("Unknown", "PipelineRunPending", PipelineStatus::Pending),
             ("True", "Succeeded", PipelineStatus::Success),
             ("True", "Completed", PipelineStatus::Success),
             ("False", "Failed", PipelineStatus::Failed),
