@@ -5,6 +5,7 @@ use std::collections::{
 use std::future::Future;
 use std::io;
 use std::sync::atomic::{
+    AtomicBool,
     AtomicU64,
     Ordering,
 };
@@ -89,6 +90,7 @@ const FAILURE_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 const PARTIAL_COOLDOWN: Duration = Duration::from_secs(10);
 const SHUTDOWN_PATIENCE: Duration = Duration::from_secs(5);
 const REVISION_GONE: &str = "This log revision is no longer available";
+const EXPORT_INTERRUPTED: &str = "Pipedash stopped before the log finished downloading";
 const PROVIDER_CHANGED: &str = "The provider changed while the log was downloading. Open it again.";
 
 type TreeKey = (i64, Generation, CacheEpoch, String, i64);
@@ -821,23 +823,36 @@ impl LogExport {
         }
 
         let (tx, rx) = mpsc::channel::<io::Result<Bytes>>(EXPORT_QUEUE);
+        let finished = Arc::new(AtomicBool::new(false));
         let root = service.root.clone();
+        let done = Arc::clone(&finished);
         service.admit(|tracker| {
-            tracker.spawn(export(doc, lease, tx, root));
+            tracker.spawn(export(doc, lease, tx, root, done));
         })?;
 
-        Ok(futures::stream::unfold(rx, |mut rx| async move {
-            rx.recv().await.map(|item| (item, rx))
+        Ok(futures::stream::unfold(Some(rx), move |rx| {
+            let finished = Arc::clone(&finished);
+            async move {
+                let mut rx = rx?;
+                match rx.recv().await {
+                    Some(item) => Some((item, Some(rx))),
+                    None if finished.load(Ordering::SeqCst) => None,
+                    None => Some((Err(io::Error::other(EXPORT_INTERRUPTED)), None)),
+                }
+            }
         }))
     }
 }
 
 async fn export(
     doc: Arc<Document>, lease: ReadLease, tx: mpsc::Sender<io::Result<Bytes>>,
-    root: CancellationToken,
+    root: CancellationToken, finished: Arc<AtomicBool>,
 ) {
     let _lease = lease;
     for index in 0..doc.block_count() {
+        if root.is_cancelled() {
+            return;
+        }
         let block = Arc::clone(&doc);
         let item = match tokio::task::spawn_blocking(move || block.text_block(index)).await {
             Ok(Ok(bytes)) => Ok(bytes),
@@ -848,15 +863,17 @@ async fn export(
         tokio::select! {
             sent = tx.send(item) => {
                 if sent.is_err() {
-                    break;
+                    return;
                 }
             }
-            _ = root.cancelled() => break,
+            _ = root.cancelled() => return,
         }
         if failed {
-            break;
+            finished.store(true, Ordering::SeqCst);
+            return;
         }
     }
+    finished.store(true, Ordering::SeqCst);
 }
 
 async fn ingest(guard: AttemptGuard, work: IngestWork) {

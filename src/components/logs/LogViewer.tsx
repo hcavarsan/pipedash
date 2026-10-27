@@ -415,6 +415,13 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
       set(value)
     }
 
+    function changeText(value: string) {
+      if (!value && filter === 'matches') {
+        setFilter('none')
+      }
+      changeQuery(setQueryText, value)
+    }
+
     useEffect(() => {
       if (!result || search.isPlaceholderData) {
         return
@@ -698,8 +705,8 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
               <PhoneSearchField
                 value={queryText}
                 placeholder="Search logs"
-                onChange={(value) => changeQuery(setQueryText, value)}
-                onClear={() => changeQuery(setQueryText, '')}
+                onChange={changeText}
+                onClear={() => changeText('')}
                 onSubmit={nextMatch}
               />
             </div>
@@ -734,7 +741,7 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
             variant={variant}
             searchRef={searchRef}
             query={queryText}
-            onQueryChange={(value) => changeQuery(setQueryText, value)}
+            onQueryChange={changeText}
             regex={regex}
             onRegexChange={(value) => changeQuery(setRegex, value)}
             caseSensitive={caseSensitive}

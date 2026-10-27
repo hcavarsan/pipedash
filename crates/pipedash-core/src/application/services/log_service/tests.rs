@@ -333,7 +333,8 @@ async fn shutdown_stops_queued_ingests_searches_and_blocked_exports() {
     assert!(svc.inflight.is_empty());
     assert!(search.await.unwrap().is_err());
     assert!(svc.admit(|_| {}).is_err());
-    drop(stream);
+    let items: Vec<io::Result<Bytes>> = stream.collect().await;
+    assert!(items.last().is_some_and(|item| item.is_err()));
 }
 
 #[tokio::test]
