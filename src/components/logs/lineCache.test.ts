@@ -19,7 +19,7 @@ interface Call {
   start: number
   count: number
   release: () => void
-  fail: (error: Error) => void
+  fail: (error: unknown) => void
 }
 
 const doc = (lineCount = 3_000_000): DocRef => ({
@@ -189,7 +189,7 @@ test('a failed request is retried after 5 s while still needed, and not once rel
   assert.equal(reader.calls.length, 2)
 })
 
-test('a revision that is no longer available notifies onRevisionGone', async (context) => {
+test('a NOT_FOUND error notifies onRevisionGone and other codes do not', async (context) => {
   context.mock.timers.enable({ apis: ['setTimeout'] })
   const reader = gatedReader(context)
   const cache = new LogLineCache()
@@ -198,7 +198,28 @@ test('a revision that is no longer available notifies onRevisionGone', async (co
   cache.onRevisionGone((ref) => gone.push(ref))
   cache.need(Symbol('a'), doc(), [0])
   await settle()
-  reader.calls[0]?.fail(new Error('This log revision is no longer available'))
+  reader.calls[0]?.fail(Object.assign(new Error('This log revision is no longer available'), { code: 'INTERNAL' }))
+  await settle()
+  assert.deepEqual(gone, [])
+  context.mock.timers.tick(5000)
+  await settle()
+  reader.calls[1]?.fail(Object.assign(new Error('x'), { code: 'NOT_FOUND' }))
+  await settle()
+
+  assert.deepEqual(gone, [doc()])
+  cache.clear()
+})
+
+test('a command error shaped as { error, code } also counts', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  const reader = gatedReader(context)
+  const cache = new LogLineCache()
+  const gone: DocRef[] = []
+
+  cache.onRevisionGone((ref) => gone.push(ref))
+  cache.need(Symbol('a'), doc(), [0])
+  await settle()
+  reader.calls[0]?.fail({ error: 'gone', code: 'NOT_FOUND' })
   await settle()
 
   assert.deepEqual(gone, [doc()])

@@ -152,6 +152,20 @@ impl DomainError {
             _ => None,
         }
     }
+
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::ProviderNotFound(_) | Self::PipelineNotFound(_) | Self::NotFound(_) => {
+                "NOT_FOUND"
+            }
+            Self::InvalidConfig(_) | Self::InvalidProviderType(_) => "BAD_REQUEST",
+            Self::AuthenticationFailed(_) => "UNAUTHORIZED",
+            Self::ProviderAuthenticationFailed(_) => "PROVIDER_AUTH_FAILED",
+            Self::PermissionDenied(_) => "FORBIDDEN",
+            Self::NotSupported(_) => "NOT_SUPPORTED",
+            _ => "INTERNAL_ERROR",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -196,6 +210,39 @@ mod tests {
         for (err, kind) in permanent {
             assert_eq!(err.failure_kind(), kind);
             assert!(!kind.is_transient());
+        }
+    }
+
+    #[test]
+    fn codes_are_stable_per_variant() {
+        let cases = [
+            (DomainError::ProviderNotFound("x".into()), "NOT_FOUND"),
+            (DomainError::PipelineNotFound("x".into()), "NOT_FOUND"),
+            (DomainError::NotFound("x".into()), "NOT_FOUND"),
+            (DomainError::InvalidConfig("x".into()), "BAD_REQUEST"),
+            (DomainError::InvalidProviderType("x".into()), "BAD_REQUEST"),
+            (
+                DomainError::AuthenticationFailed("x".into()),
+                "UNAUTHORIZED",
+            ),
+            (
+                DomainError::ProviderAuthenticationFailed("x".into()),
+                "PROVIDER_AUTH_FAILED",
+            ),
+            (DomainError::PermissionDenied("x".into()), "FORBIDDEN"),
+            (DomainError::NotSupported("x".into()), "NOT_SUPPORTED"),
+            (DomainError::ApiError("x".into()), "INTERNAL_ERROR"),
+            (DomainError::ConfigNotFound, "INTERNAL_ERROR"),
+            (
+                DomainError::RateLimited {
+                    message: "x".into(),
+                    retry_after: None,
+                },
+                "INTERNAL_ERROR",
+            ),
+        ];
+        for (err, code) in cases {
+            assert_eq!(err.code(), code, "{err:?}");
         }
     }
 }

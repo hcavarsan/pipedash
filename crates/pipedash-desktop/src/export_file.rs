@@ -60,6 +60,7 @@ fn export_error(message: String) -> ErrorResponse {
     ErrorResponse {
         error: message,
         details: None,
+        code: None,
     }
 }
 

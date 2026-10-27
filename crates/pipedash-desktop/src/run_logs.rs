@@ -19,6 +19,7 @@ pub(crate) async fn log_service(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     Ok(Arc::clone(&core.log_service))
 }

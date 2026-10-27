@@ -190,10 +190,30 @@ impl Drop for ReadLease {
     }
 }
 
-#[derive(Default)]
 struct DocEntry {
     current: Option<i64>,
     revisions: BTreeMap<i64, Arc<RevisionState>>,
+    last_access: SystemTime,
+}
+
+impl DocEntry {
+    fn new(last_access: SystemTime) -> Self {
+        Self {
+            current: None,
+            revisions: BTreeMap::new(),
+            last_access,
+        }
+    }
+
+    fn bytes(&self) -> u64 {
+        self.revisions.values().map(|r| r.bytes).sum()
+    }
+
+    fn leased(&self) -> bool {
+        self.revisions
+            .values()
+            .any(|r| r.readers.load(Ordering::SeqCst) > 0)
+    }
 }
 
 struct RunEntry {
@@ -230,6 +250,7 @@ struct Registry {
     last_revision: i64,
     runs: HashMap<RunId, RunEntry>,
     retired: Vec<Arc<RevisionState>>,
+    last_idle_sweep: Option<SystemTime>,
 }
 
 impl Registry {
@@ -281,6 +302,26 @@ fn remove_run(reg: &mut Registry, deletes: &Mutex<Vec<PathBuf>>, id: &RunId) -> 
     }
     remove_file_quiet(&run.dir.join(TREE_FILE));
     remove_file_quiet(&run.dir.join(TOUCH_FILE));
+    dirs
+}
+
+fn remove_doc(
+    reg: &mut Registry, deletes: &Mutex<Vec<PathBuf>>, id: &RunId, doc_key: &str,
+) -> Vec<PathBuf> {
+    let Some(run) = reg.runs.get_mut(id) else {
+        return Vec::new();
+    };
+    let Some(doc) = run.docs.remove(doc_key) else {
+        return Vec::new();
+    };
+    let mut dirs = Vec::new();
+    for state in doc.revisions.into_values() {
+        dirs.push(state.dir.clone());
+        retire(&mut reg.retired, deletes, state);
+    }
+    if run.docs.is_empty() && run.tree_bytes == 0 {
+        dirs.extend(remove_run(reg, deletes, id));
+    }
     dirs
 }
 
@@ -451,15 +492,18 @@ impl LogStore {
             let Some(run) = reg.runs.get_mut(&key.run_id()) else {
                 return Ok(None);
             };
-            let Some(state) = run
-                .docs
-                .get(&key.doc_key())
-                .and_then(|doc| doc.revisions.get(&revision))
+            let Some(doc) = run.docs.get_mut(&key.doc_key()) else {
+                return Ok(None);
+            };
+            let Some(state) = doc
+                .revisions
+                .get(&revision)
                 .filter(|state| !state.doomed.load(Ordering::SeqCst))
                 .cloned()
             else {
                 return Ok(None);
             };
+            doc.last_access = now;
             state.readers.fetch_add(1, Ordering::SeqCst);
             let lease = ReadLease {
                 state,
@@ -613,7 +657,11 @@ impl LogStore {
             docs: HashMap::new(),
         });
         run.last_access = now;
-        let doc = run.docs.entry(doc_key).or_default();
+        let doc = run
+            .docs
+            .entry(doc_key.clone())
+            .or_insert_with(|| DocEntry::new(now));
+        doc.last_access = now;
         let previous = doc
             .current
             .take()
@@ -626,30 +674,54 @@ impl LogStore {
             retire(&mut reg.retired, &self.deletes, previous);
         }
         reg.last_revision = reg.last_revision.max(revision);
-        dirs.extend(self.evict(reg, busy, &run_id));
+        dirs.extend(self.evict(reg, busy, Some((&run_id, &doc_key))));
         Ok((PublishOutcome::Published, dirs))
     }
 
-    fn evict(&self, reg: &mut Registry, busy: &HashSet<RunId>, keep: &RunId) -> Vec<PathBuf> {
+    fn evict(
+        &self, reg: &mut Registry, busy: &HashSet<RunId>, keep: Option<(&RunId, &str)>,
+    ) -> Vec<PathBuf> {
         let mut total = reg.total_bytes();
         if total <= self.budget {
             return Vec::new();
         }
         let target = self.budget / 10 * 9;
-        let mut candidates: Vec<(SystemTime, RunId, u64)> = reg
+        let keep_run = keep.map(|(run, _)| run);
+        let mut runs: Vec<(SystemTime, RunId, u64)> = reg
             .runs
             .iter()
-            .filter(|(id, run)| *id != keep && !busy.contains(*id) && !run.leased())
+            .filter(|(id, run)| Some(*id) != keep_run && !busy.contains(*id) && !run.leased())
             .map(|(id, run)| (run.last_access, id.clone(), run.bytes()))
             .collect();
-        candidates.sort_by_key(|candidate| candidate.0);
+        runs.sort_by_key(|candidate| candidate.0);
         let mut dirs = Vec::new();
-        for (_, id, bytes) in candidates {
+        for (_, id, bytes) in runs {
+            if total <= target {
+                return dirs;
+            }
+            total = total.saturating_sub(bytes);
+            dirs.extend(remove_run(reg, &self.deletes, &id));
+        }
+
+        let mut docs: Vec<(SystemTime, RunId, String, u64)> = Vec::new();
+        for (id, run) in &reg.runs {
+            if Some(id) != keep_run && busy.contains(id) {
+                continue;
+            }
+            for (doc_key, doc) in &run.docs {
+                let protected = keep.is_some_and(|(r, d)| r == id && d == doc_key.as_str());
+                if !protected && !doc.leased() {
+                    docs.push((doc.last_access, id.clone(), doc_key.clone(), doc.bytes()));
+                }
+            }
+        }
+        docs.sort_by_key(|candidate| candidate.0);
+        for (_, id, doc_key, bytes) in docs {
             if total <= target {
                 break;
             }
             total = total.saturating_sub(bytes);
-            dirs.extend(remove_run(reg, &self.deletes, &id));
+            dirs.extend(remove_doc(reg, &self.deletes, &id, &doc_key));
         }
         dirs
     }
@@ -760,13 +832,60 @@ impl LogStore {
     }
 
     pub(crate) async fn sweep(self: &Arc<Self>) -> DomainResult<()> {
+        self.run_sweep(None).await
+    }
+
+    pub async fn sweep_with(self: &Arc<Self>, busy: HashSet<(i64, String)>) -> DomainResult<()> {
+        self.run_sweep(Some(busy)).await
+    }
+
+    async fn run_sweep(self: &Arc<Self>, busy: Option<HashSet<RunId>>) -> DomainResult<()> {
         let store = self.clone();
-        tokio::task::spawn_blocking(move || store.sweep_blocking())
+        tokio::task::spawn_blocking(move || store.sweep_blocking(busy.as_ref()))
             .await
             .map_err(join_error)?
     }
 
-    fn sweep_blocking(&self) -> DomainResult<()> {
+    fn sweep_blocking(&self, busy: Option<&HashSet<RunId>>) -> DomainResult<()> {
+        let first = self.drain_deletes();
+        let Some(busy) = busy else {
+            return first;
+        };
+        let dirs = self.trim(busy);
+        self.forget(&dirs);
+        let second = self.drain_deletes();
+        first.and(second)
+    }
+
+    fn trim(&self, busy: &HashSet<RunId>) -> Vec<PathBuf> {
+        let now = SystemTime::now();
+        let mut guard = lock(&self.registry);
+        let reg = &mut *guard;
+        let mut dirs = Vec::new();
+        let due = reg
+            .last_idle_sweep
+            .is_none_or(|last| now.duration_since(last).unwrap_or_default() >= self.touch_interval);
+        if due {
+            reg.last_idle_sweep = Some(now);
+            let expired: Vec<RunId> = reg
+                .runs
+                .iter()
+                .filter(|(id, run)| {
+                    !busy.contains(*id)
+                        && !run.leased()
+                        && now.duration_since(run.last_access).unwrap_or_default() > CACHE_MAX_IDLE
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in expired {
+                dirs.extend(remove_run(reg, &self.deletes, &id));
+            }
+        }
+        dirs.extend(self.evict(reg, busy, None));
+        dirs
+    }
+
+    fn drain_deletes(&self) -> DomainResult<()> {
         let pending = std::mem::take(&mut *lock(&self.deletes));
         let mut removed = Vec::new();
         let mut failed = Vec::new();
@@ -936,7 +1055,7 @@ fn scan_run(run_dir: &Path, now: SystemTime) -> Option<(RunEntry, i64)> {
         }
         revisions.sort_by_key(|(number, _)| std::cmp::Reverse(*number));
         let keep = revisions.iter().position(|(_, dir)| valid_meta(dir));
-        let mut entry = DocEntry::default();
+        let mut entry = DocEntry::new(touch);
         for (position, (number, dir)) in revisions.into_iter().enumerate() {
             if Some(position) == keep {
                 let state = RevisionState {
@@ -1402,5 +1521,141 @@ mod tests {
             Some("two")
         );
         assert_eq!(store.stats().await.runs, 1);
+    }
+
+    const DOC_TEXT: &str = "a line of log output\nanother line\n";
+
+    fn node_key(node: usize) -> DocKey {
+        DocKey {
+            node_id: format!("job-{node}"),
+            ..doc_key()
+        }
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_trims_docs_inside_one_huge_run() {
+        let size = doc_bytes(DOC_TEXT).await;
+        let budget = size * 2 + size / 2;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = LogStore::open(root(&dir), budget).await.expect("open");
+        let keys: Vec<DocKey> = (0..5).map(node_key).collect();
+        for key in &keys {
+            publish_doc(&store, key, DOC_TEXT).await;
+        }
+        assert!(store.stats().await.bytes <= budget);
+        let last = store.current(&keys[4]).expect("newest doc survives");
+        assert_eq!(
+            first_line(&store, &keys[4], last).await.as_deref(),
+            Some("a line of log output")
+        );
+        assert!(store.current(&keys[0]).is_none());
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_trim_in_one_run_skips_leased_docs() {
+        let size = doc_bytes(DOC_TEXT).await;
+        let budget = size * 2 + size / 2;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = LogStore::open(root(&dir), budget).await.expect("open");
+        let keys: Vec<DocKey> = (0..5).map(node_key).collect();
+        let first = publish_doc(&store, &keys[0], DOC_TEXT).await;
+        let (doc, lease) = store
+            .lease(&keys[0], first)
+            .await
+            .expect("lease")
+            .expect("some");
+        for key in &keys[1..] {
+            publish_doc(&store, key, DOC_TEXT).await;
+        }
+        assert_eq!(store.current(&keys[0]), Some(first));
+        assert!(store.current(&keys[4]).is_some());
+        assert!(store.current(&keys[1]).is_none());
+        assert!(store.stats().await.bytes <= budget);
+        let page = doc
+            .read_lines(store.block_cache(), 0, 1, 4096)
+            .expect("page");
+        assert_eq!(page.lines[0].text, "a line of log output");
+        drop(lease);
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_sweep_trims_once_docs_are_unleased_and_not_busy() {
+        let size = doc_bytes(DOC_TEXT).await;
+        let budget = size * 2 + size / 2;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = LogStore::open(root(&dir), budget).await.expect("open");
+        let keys: Vec<DocKey> = (0..3).map(node_key).collect();
+        let mut leases = Vec::new();
+        for key in &keys[..2] {
+            let revision = publish_doc(&store, key, DOC_TEXT).await;
+            let held = store
+                .lease(key, revision)
+                .await
+                .expect("lease")
+                .expect("some");
+            leases.push(held);
+        }
+        let revision = publish_doc(&store, &keys[2], DOC_TEXT).await;
+        let newest = store
+            .lease(&keys[2], revision)
+            .await
+            .expect("lease")
+            .expect("some");
+        assert!(store.stats().await.bytes > budget);
+
+        drop(leases);
+        let busy = HashSet::from([keys[0].run_id()]);
+        store.sweep_with(busy).await.expect("sweep");
+        assert!(store.stats().await.bytes > budget);
+
+        store.sweep_with(HashSet::new()).await.expect("sweep");
+        assert!(store.stats().await.bytes <= budget);
+        assert!(store.current(&keys[0]).is_none());
+        assert!(store.current(&keys[1]).is_some());
+        assert!(store.current(&keys[2]).is_some());
+        drop(newest);
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_sweep_expires_idle_runs_but_not_leased_or_busy() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = LogStore::open_with(root(&dir), u64::MAX, Duration::ZERO)
+            .await
+            .expect("open");
+        let keys: Vec<DocKey> = (1..=3).map(key_n).collect();
+        let mut revisions = Vec::new();
+        for key in &keys {
+            revisions.push(publish_doc(&store, key, DOC_TEXT).await);
+        }
+        let held = store
+            .lease(&keys[1], revisions[1])
+            .await
+            .expect("lease")
+            .expect("some");
+        let idle = CACHE_MAX_IDLE + Duration::from_secs(3600);
+        for key in &keys {
+            set_access(&store, key, idle);
+        }
+
+        let busy = HashSet::from([keys[2].run_id()]);
+        store.sweep_with(busy).await.expect("sweep");
+        assert!(store.current(&keys[0]).is_none());
+        assert!(store.current(&keys[1]).is_some());
+        assert!(store.current(&keys[2]).is_some());
+        assert!(!rev_dir(&store, &keys[0], revisions[0]).exists());
+        assert!(rev_dir(&store, &keys[1], revisions[1]).is_dir());
+        drop(held);
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_idle_expiry_is_rate_limited() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = LogStore::open(root(&dir), u64::MAX).await.expect("open");
+        let key = doc_key();
+        publish_doc(&store, &key, DOC_TEXT).await;
+        store.sweep_with(HashSet::new()).await.expect("sweep");
+        set_access(&store, &key, CACHE_MAX_IDLE + Duration::from_secs(3600));
+        store.sweep_with(HashSet::new()).await.expect("sweep");
+        assert!(store.current(&key).is_some());
     }
 }

@@ -3,7 +3,14 @@ import { test } from 'node:test'
 
 import type { LogLinesPage } from '../../types/logs'
 
-import { COPY_MAX_LINES, COPY_PAGE_LINES, CopyTooLargeError, collectLines, exportFileName } from './logActions'
+import {
+  COPY_MAX_LINES,
+  COPY_PAGE_LINES,
+  CopyTooLargeError,
+  collectLines,
+  exportFileName,
+  newSessionId,
+} from './logActions'
 
 const source =
   (lines: string[], calls: Array<[number, number]> = []) =>
@@ -49,4 +56,19 @@ test('too many characters fail while paging', async () => {
 
 test('an empty page ends the loop', async () => {
   assert.equal(await collectLines(0, 10, source(['a', 'b'])), 'a\nb')
+})
+
+test('session ids are 32 hex characters and do not need randomUUID', () => {
+  const original = crypto.randomUUID
+
+  Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true })
+
+  try {
+    const first = newSessionId()
+
+    assert.match(first, /^[0-9a-f]{32}$/)
+    assert.notEqual(first, newSessionId())
+  } finally {
+    Object.defineProperty(crypto, 'randomUUID', { value: original, configurable: true })
+  }
 })

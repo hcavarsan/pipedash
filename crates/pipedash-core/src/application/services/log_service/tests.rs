@@ -736,33 +736,82 @@ async fn an_unknown_pipeline_is_not_found() {
     assert!(matches!(err, DomainError::PipelineNotFound(_)));
 }
 
-#[test]
-fn failures_use_plain_wording() {
-    let rate = |retry_after| DomainError::RateLimited {
-        message: "x".into(),
-        retry_after,
-    };
+async fn pause(f: &Fixture) {
+    let lease = f.h.provider_service.acquire(f.id).await.unwrap();
+    f.h.scheduler.set_quota_pause(
+        f.id,
+        lease.generation,
+        Some(Utc::now() + chrono::Duration::minutes(10)),
+        Instant::now(),
+        Utc::now(),
+    );
+}
 
-    assert_eq!(
-        failure_message(&DomainError::NotFound("x".into())),
-        "The provider no longer has this log. It may have expired."
-    );
-    assert_eq!(
-        failure_message(&rate(Some(Duration::from_secs(1)))),
-        "Rate limit reached. Try again in 1 min."
-    );
-    assert_eq!(
-        failure_message(&rate(Some(Duration::from_secs(61)))),
-        "Rate limit reached. Try again in 2 min."
-    );
-    assert_eq!(
-        failure_message(&rate(None)),
-        "Rate limit reached. Try again later."
-    );
-    assert_eq!(
-        failure_message(&DomainError::NetworkError("down".into())),
-        "Network error: down"
-    );
+#[tokio::test]
+async fn a_cold_open_fetches_the_run_once() {
+    let f = Fixture::new(|stub| stub).await;
+
+    f.ready_meta("1").await;
+
+    assert_eq!(f.stub.run_fetches.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_paused_provider_is_not_called_for_the_tree() {
+    let f = Fixture::new(|stub| stub).await;
+    pause(&f).await;
+
+    let err = f
+        .svc()
+        .open_document(&f.pipeline_id, RUN, "1", false)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(err, DomainError::RateLimited { .. }));
+    assert_eq!(f.stub.run_fetches.load(Ordering::SeqCst), 0);
+    assert_eq!(f.stub.log_node_fetch_count(), 0);
+    assert_eq!(f.stub.log_read_count(), 0);
+}
+
+#[tokio::test]
+async fn a_paused_provider_fails_an_ingest_without_reading() {
+    let f = Fixture::new(|stub| stub).await;
+    f.ready_meta("1").await;
+    pause(&f).await;
+
+    assert!(matches!(f.open("2").await, RunLogDocument::Loading { .. }));
+    f.failed(1).await;
+
+    assert!(matches!(
+        f.open("2").await,
+        RunLogDocument::Unavailable { .. }
+    ));
+    assert_eq!(f.stub.log_read_count(), 1);
+}
+
+#[tokio::test]
+async fn a_rate_limited_read_pauses_a_provider_whose_quota_is_nearly_used_up() {
+    let f = Fixture::new(|stub| stub).await;
+    *f.stub.rate_limit.lock().unwrap() = Some(pipedash_plugin_api::RateLimit {
+        limit: 5000,
+        remaining: 10,
+        reset_at: Utc::now() + chrono::Duration::minutes(20),
+    });
+    *f.stub.log_failure.lock().unwrap() = Some(DomainError::RateLimited {
+        message: "slow down".into(),
+        retry_after: Some(Duration::from_secs(60)),
+    });
+
+    f.open("1").await;
+    f.failed(1).await;
+
+    assert!(f.h.scheduler.paused_until(f.id, Utc::now()).is_some());
+    assert!(matches!(
+        f.svc().open_document(&f.pipeline_id, RUN, "1", true).await,
+        Ok(RunLogDocument::Loading { .. })
+    ));
+    f.failed(2).await;
+    assert_eq!(f.stub.log_read_count(), 1);
 }
 
 #[test]

@@ -29,7 +29,7 @@ import { queryKeys } from '../../lib/queryKeys'
 import { useRetryRunLog, useRunLogDocument, useRunLogSearch } from '../../queries/useRunLogQueries'
 import { service } from '../../services'
 import { useLogViewerPrefs } from '../../stores/logViewerPrefsStore'
-import { getHttpStatus } from '../../types/errors'
+import { getErrorCode } from '../../types/errors'
 import type { LogDocumentMeta, LogSearchQuery, RunLogNode } from '../../types/logs'
 import { displayErrorNotification, errorMessage } from '../../utils/errorDisplay'
 import { formatBytes } from '../../utils/formatBytes'
@@ -49,9 +49,10 @@ import { type MatchTriple, styleClassNames } from './LogRow'
 import { LogToolbar } from './LogToolbar'
 import classes from './LogViewer.module.css'
 import { type DocRef, logLineCache, useLogLines } from './lineCache'
-import { collectLines, exportFileName, FULL_LINE_UNITS } from './logActions'
+import { collectLines, exportFileName, FULL_LINE_UNITS, newSessionId } from './logActions'
 import {
   buildRows,
+  filterAfterJump,
   filterRows,
   type LogFilter,
   lineOfItem,
@@ -238,7 +239,7 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
     const clipboard = useClipboard({ timeout: 2000 })
     const contextMenu = useContextMenu()
     const prefs = useLogViewerPrefs()
-    const sessionId = useMemo(() => crypto.randomUUID(), [])
+    const sessionId = useMemo(() => newSessionId(), [])
     const bodyRef = useRef<LogBodyHandle>(null)
     const rulerRef = useRef<LogRulerHandle>(null)
     const searchRef = useRef<HTMLInputElement>(null)
@@ -337,14 +338,19 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
     const goToLine = useCallback(
       (line: number, align: 'center' | 'start' = 'center') => {
         const next = revealLine(current.meta, current.overrides, line)
+        const nextFilter = filterAfterJump(filter, line, matchLines, current.meta.error_lines)
 
         if (next !== current.overrides) {
           setRowsState({ meta: current.meta, overrides: next })
         }
 
+        if (nextFilter !== filter) {
+          setFilter(nextFilter)
+        }
+
         setJump({ line, align })
       },
-      [current]
+      [current, filter, matchLines]
     )
 
     useEffect(() => {
@@ -641,7 +647,7 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
     }, [])
 
     const searchFailure = search.error
-      ? getHttpStatus(search.error) === 400 || /Invalid search pattern/.test(errorMessage(search.error, ''))
+      ? getErrorCode(search.error) === 'BAD_REQUEST'
         ? SEARCH_ERROR
         : errorMessage(search.error, "Couldn't search the log")
       : null

@@ -98,6 +98,7 @@ fn error(message: &str) -> ErrorResponse {
     ErrorResponse {
         error: message.to_owned(),
         details: Some("LOCAL_NOTIFICATIONS".to_owned()),
+        code: None,
     }
 }
 

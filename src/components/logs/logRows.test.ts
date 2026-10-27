@@ -5,6 +5,7 @@ import type { LogSection } from '../../types/logs'
 
 import {
   buildRows,
+  filterAfterJump,
   filterRows,
   isOpen,
   overridesFor,
@@ -169,4 +170,20 @@ test('overridesFor keeps what the user chose across revisions', () => {
   assert.equal(isOpen(failed, next), true)
   assert.equal(isOpen(sameAgain, next), true)
   assert.equal(overridesFor({ sections: [failed] }, prevMeta, new Set()).size, 0)
+})
+
+test('a jump to a line outside the active filter clears it, and keeps it otherwise', () => {
+  assert.equal(filterAfterJump('errors', 10, [3, 4], [10, 20]), 'errors')
+  assert.equal(filterAfterJump('errors', 3, [3, 4], [10, 20]), 'none')
+  assert.equal(filterAfterJump('matches', 3, [3, 4], [10, 20]), 'matches')
+  assert.equal(filterAfterJump('matches', 10, [3, 4], [10, 20]), 'none')
+  assert.equal(filterAfterJump('none', 10, [], []), 'none')
+})
+
+test('a cleared filter makes the target line reachable', () => {
+  const { meta } = fixture()
+  const filtered = filterRows([3, 4])
+
+  assert.equal(rowOfLine(filtered, 8), null)
+  assert.notEqual(rowOfLine(buildRows(meta, revealLine(meta, new Set(), 8)), 8), null)
 })

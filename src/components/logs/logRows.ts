@@ -326,3 +326,16 @@ export function overridesFor(
 
   return result
 }
+
+export function filterAfterJump(
+  filter: LogFilter,
+  line: number,
+  matchLines: readonly number[],
+  errorLines: readonly number[]
+): LogFilter {
+  if (filter === 'matches') {
+    return matchLines.includes(line) ? filter : 'none'
+  }
+
+  return filter === 'errors' && !errorLines.includes(line) ? 'none' : filter
+}

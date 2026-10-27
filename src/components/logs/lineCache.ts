@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 
 import { service } from '../../services'
-import { formatErrorMessage } from '../../types/errors'
+import { getErrorCode } from '../../types/errors'
 import { type LogLine, normalizeLine } from '../../types/logs'
 
 export const LOG_LINE_UNITS = 4096
@@ -35,7 +35,7 @@ interface Need {
 const ALIGN_LINES = 64
 const MAX_REQUEST_LINES = 500
 const RETRY_MS = 5000
-const REVISION_GONE = 'This log revision is no longer available'
+const NOT_FOUND_CODE = 'NOT_FOUND'
 
 const lineKey = (doc: DocRef, line: number): string =>
   `${doc.pipelineId}\u0000${doc.runNumber}\u0000${doc.nodeId}#${doc.revision}#${line}`
@@ -326,7 +326,7 @@ export class LogLineCache {
     }
     this.changed()
 
-    if (formatErrorMessage(error).includes(REVISION_GONE)) {
+    if (getErrorCode(error) === NOT_FOUND_CODE) {
       for (const handler of [...this.goneHandlers]) {
         handler(doc)
       }

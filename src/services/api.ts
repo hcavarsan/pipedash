@@ -43,7 +43,7 @@ import type {
   VaultStatusResponse,
   WorkflowParameter,
 } from '../types'
-import { getHttpStatus } from '../types/errors'
+import { getErrorCode, getHttpStatus } from '../types/errors'
 import type { LogLinesPage, LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 import { DEFAULT_RETRY_CONFIG, withRetry } from '../utils/retryLogic'
 
@@ -61,6 +61,16 @@ const runLogPath = (pipelineId: string, runNumber: number, nodeId?: string): str
   const base = `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/logs`
 
   return nodeId === undefined ? base : `${base}/${encodeURIComponent(nodeId)}`
+}
+
+const codeFromBody = (body: string): string | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(body)
+
+    return getErrorCode(parsed)
+  } catch {
+    return undefined
+  }
 }
 
 const REFRESH_REQUEST: RequestOptions = { timeoutMs: REFRESH_TIMEOUT_MS, retry: false }
@@ -151,7 +161,10 @@ class ApiClient {
             useAuthStore.getState().incrementFailure()
           }
           const errorText = await res.text()
-          const error = Object.assign(new Error(errorText || `HTTP ${res.status}`), { status: res.status })
+          const error = Object.assign(new Error(errorText || `HTTP ${res.status}`), {
+            status: res.status,
+            code: codeFromBody(errorText),
+          })
 
           throw error
         }

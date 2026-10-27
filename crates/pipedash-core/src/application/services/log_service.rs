@@ -2,6 +2,7 @@ use std::collections::{
     HashMap,
     HashSet,
 };
+use std::future::Future;
 use std::io;
 use std::sync::atomic::{
     AtomicU64,
@@ -15,6 +16,7 @@ use std::sync::{
 use std::time::Duration;
 
 use bytes::Bytes;
+use chrono::Utc;
 use dashmap::{
     DashMap,
     Entry,
@@ -90,6 +92,7 @@ const REVISION_GONE: &str = "This log revision is no longer available";
 const PROVIDER_CHANGED: &str = "The provider changed while the log was downloading. Open it again.";
 
 type TreeKey = (i64, Generation, CacheEpoch, String, i64);
+type Built = (Arc<RunLogTree>, Arc<PipelineRun>);
 
 struct Attempt {
     id: u64,
@@ -156,8 +159,8 @@ pub struct LogService {
     provider_service: Arc<ProviderService>,
     repository: Arc<Repository>,
     event_bus: Arc<dyn EventBus>,
-    trees: RequestDeduplicator<RunLogTree, DomainError>,
-    tree_memo: DashMap<TreeKey, (Instant, Arc<RunLogTree>)>,
+    trees: RequestDeduplicator<Built, DomainError>,
+    tree_memo: DashMap<TreeKey, (Instant, Arc<RunLogTree>, Arc<PipelineRun>)>,
     pipeline_providers: DashMap<String, i64>,
     inflight: DashMap<DocKey, Attempt>,
     attempts: DashMap<DocKey, AttemptRecord>,
@@ -184,6 +187,7 @@ struct IngestWork {
     epoch: CacheEpoch,
     key: DocKey,
     node: RunLogNode,
+    run: Arc<PipelineRun>,
     steps: Vec<StepBound>,
     revision: i64,
     cancel: CancellationToken,
@@ -282,18 +286,14 @@ impl LogService {
         &self, pipeline_id: &str, run_number: i64,
     ) -> DomainResult<RunLogTree> {
         let (lease, epoch) = self.lease_of(pipeline_id).await?;
-        let tree = self.tree_of(&lease, epoch, pipeline_id, run_number).await?;
+        let (tree, _) = self.tree_of(&lease, epoch, pipeline_id, run_number).await?;
 
         Ok(RunLogTree::clone(&tree))
     }
 
     async fn tree_of(
         &self, lease: &ProviderLease, epoch: CacheEpoch, pipeline_id: &str, run_number: i64,
-    ) -> DomainResult<Arc<RunLogTree>> {
-        let run = lease
-            .provider
-            .fetch_run_details(pipeline_id, run_number)
-            .await?;
+    ) -> DomainResult<Built> {
         let request = hash_request(
             lease.id,
             lease.generation,
@@ -302,13 +302,12 @@ impl LogService {
                 epoch.global, epoch.provider
             ),
         );
-        let tree = Arc::new(
-            self.trees
-                .deduplicate(request, || {
-                    self.build_tree(lease, epoch, &run, pipeline_id, run_number)
-                })
-                .await?,
-        );
+        let built = self
+            .trees
+            .deduplicate(request, || {
+                self.build_tree(lease, epoch, pipeline_id, run_number)
+            })
+            .await?;
         if self.store.epoch(lease.id) == epoch {
             self.memoize(
                 (
@@ -318,17 +317,22 @@ impl LogService {
                     pipeline_id.to_string(),
                     run_number,
                 ),
-                Arc::clone(&tree),
+                built.clone(),
             );
         }
 
-        Ok(tree)
+        Ok(built)
     }
 
     async fn build_tree(
-        &self, lease: &ProviderLease, epoch: CacheEpoch, run: &PipelineRun, pipeline_id: &str,
-        run_number: i64,
-    ) -> DomainResult<RunLogTree> {
+        &self, lease: &ProviderLease, epoch: CacheEpoch, pipeline_id: &str, run_number: i64,
+    ) -> DomainResult<Built> {
+        let run = self
+            .provider_call(
+                lease,
+                lease.provider.fetch_run_details(pipeline_id, run_number),
+            )
+            .await?;
         if run.status.is_terminal() {
             if let Some(stored) = self
                 .store
@@ -336,13 +340,15 @@ impl LogService {
                 .await
             {
                 if stored.run_status == run.status && stored.run_concluded_at == run.concluded_at {
-                    return Ok(stored.tree);
+                    return Ok((Arc::new(stored.tree), Arc::new(run)));
                 }
             }
         }
 
-        let nodes = lease.provider.fetch_log_nodes(run).await?;
-        let tree = tree_from_nodes(run, nodes);
+        let nodes = self
+            .provider_call(lease, lease.provider.fetch_log_nodes(&run))
+            .await?;
+        let tree = tree_from_nodes(&run, nodes);
         if tree.complete {
             let stored = StoredTree {
                 run_status: run.status.clone(),
@@ -361,19 +367,19 @@ impl LogService {
             }
         }
 
-        Ok(tree)
+        Ok((Arc::new(tree), Arc::new(run)))
     }
 
-    fn memoize(&self, key: TreeKey, tree: Arc<RunLogTree>) {
+    fn memoize(&self, key: TreeKey, built: Built) {
         let now = Instant::now();
         self.tree_memo
-            .retain(|_, (at, _)| now.saturating_duration_since(*at) < COMPLETE_TREE_TTL);
-        self.tree_memo.insert(key, (now, tree));
+            .retain(|_, (at, _, _)| now.saturating_duration_since(*at) < COMPLETE_TREE_TTL);
+        self.tree_memo.insert(key, (now, built.0, built.1));
     }
 
     fn memoized(
         &self, lease: &ProviderLease, epoch: CacheEpoch, pipeline_id: &str, run_number: i64,
-    ) -> Option<Arc<RunLogTree>> {
+    ) -> Option<Built> {
         let entry = self.tree_memo.get(&(
             lease.id,
             lease.generation,
@@ -381,22 +387,59 @@ impl LogService {
             pipeline_id.to_string(),
             run_number,
         ))?;
-        let (at, tree) = entry.value();
+        let (at, tree, run) = entry.value();
         let ttl = if tree.complete {
             COMPLETE_TREE_TTL
         } else {
             OPEN_TREE_TTL
         };
 
-        (Instant::now().saturating_duration_since(*at) < ttl).then(|| Arc::clone(tree))
+        (Instant::now().saturating_duration_since(*at) < ttl)
+            .then(|| (Arc::clone(tree), Arc::clone(run)))
+    }
+
+    fn ensure_active(&self, provider_id: i64) -> DomainResult<()> {
+        let now = Utc::now();
+        match self
+            .provider_service
+            .scheduler()
+            .paused_until(provider_id, now)
+        {
+            Some(until) => Err(DomainError::RateLimited {
+                message: "Provider API quota or rate-limit cooldown is active".to_string(),
+                retry_after: (until - now).to_std().ok(),
+            }),
+            None => Ok(()),
+        }
+    }
+
+    async fn note_limit(&self, lease: &ProviderLease, error: &DomainError) {
+        if matches!(
+            error,
+            DomainError::RateLimited { .. } | DomainError::ServiceUnavailable { .. }
+        ) {
+            self.provider_service.check_quota(lease).await;
+        }
+    }
+
+    async fn provider_call<T>(
+        &self, lease: &ProviderLease, call: impl Future<Output = DomainResult<T>>,
+    ) -> DomainResult<T> {
+        self.ensure_active(lease.id)?;
+        let result = call.await;
+        if let Err(e) = &result {
+            self.note_limit(lease, e).await;
+        }
+
+        result
     }
 
     pub async fn open_document(
         self: &Arc<Self>, pipeline_id: &str, run_number: i64, node_id: &str, retry: bool,
     ) -> DomainResult<RunLogDocument> {
         let (lease, epoch) = self.lease_of(pipeline_id).await?;
-        let tree = match self.memoized(&lease, epoch, pipeline_id, run_number) {
-            Some(tree) => tree,
+        let (tree, run) = match self.memoized(&lease, epoch, pipeline_id, run_number) {
+            Some(built) => built,
             None => self.tree_of(&lease, epoch, pipeline_id, run_number).await?,
         };
         let node = tree
@@ -429,7 +472,7 @@ impl LogService {
                 return Ok(RunLogDocument::Ready(meta));
             }
             if recent.is_none() {
-                self.claim(&key, lease, epoch, node, &tree)?;
+                self.claim(&key, lease, epoch, node, &tree, run)?;
             }
 
             return Ok(RunLogDocument::Ready(meta));
@@ -443,7 +486,7 @@ impl LogService {
         }
 
         Ok(RunLogDocument::Loading {
-            received_bytes: self.claim(&key, lease, epoch, node, &tree)?,
+            received_bytes: self.claim(&key, lease, epoch, node, &tree, run)?,
         })
     }
 
@@ -485,7 +528,7 @@ impl LogService {
 
     fn claim(
         self: &Arc<Self>, key: &DocKey, lease: ProviderLease, epoch: CacheEpoch, node: &RunLogNode,
-        tree: &RunLogTree,
+        tree: &RunLogTree, run: Arc<PipelineRun>,
     ) -> DomainResult<u64> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let cancel = self.root.child_token();
@@ -525,6 +568,7 @@ impl LogService {
             epoch,
             key: key.clone(),
             node: node.clone(),
+            run,
             steps: step_bounds(node, tree),
             revision: self.store.allocate_revision(),
             cancel,
@@ -626,7 +670,7 @@ impl LogService {
     }
 
     async fn sweep(&self) {
-        if let Err(e) = self.store.sweep().await {
+        if let Err(e) = self.store.sweep_with(self.busy_runs()).await {
             tracing::warn!(error = %e, "Failed to remove stale run logs");
         }
     }
@@ -834,6 +878,7 @@ impl IngestWork {
             epoch,
             key,
             node,
+            run,
             steps,
             revision,
             cancel,
@@ -853,18 +898,8 @@ impl IngestWork {
             return finished;
         }
 
-        let run = tokio::select! {
-            run = lease.provider.fetch_run_details(&key.pipeline_id, key.run_number) => run,
-            _ = cancel.cancelled() => {
-                return Finished::Stopped(interrupted().unwrap_or(Stop::Silent));
-            }
-        };
-        let run = match run {
-            Ok(run) => run,
-            Err(e) => return Finished::Failed(failure_message(&e)),
-        };
-        if let Some(finished) = stopped(interrupted()) {
-            return finished;
+        if let Err(e) = service.ensure_active(provider_id) {
+            return Finished::Failed(failure_message(&e));
         }
 
         let tmp = match service.store.tmp_dir().await {
@@ -943,6 +978,7 @@ impl IngestWork {
         if let Some(Err(e)) = read_result {
             if !outcome.truncated {
                 service.store.discard(tmp).await;
+                service.note_limit(&lease, &e).await;
                 return Finished::Failed(failure_message(&e));
             }
         }

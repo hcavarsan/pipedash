@@ -117,6 +117,7 @@ export const LogBody = forwardRef<LogBodyHandle, LogBodyProps>(function LogBody(
   const targetRef = useRef<Target | null>(null)
   const targetSince = useRef(0)
   const renderedRef = useRef<number[]>([])
+  const focusInside = useRef(false)
   const targetTimer = useRef<number | undefined>(undefined)
   const prevRef = useRef<{ model: RowModel; key: string; meta: LogDocumentMeta } | null>(null)
   const stickEnd = useRef(false)
@@ -375,6 +376,12 @@ export const LogBody = forwardRef<LogBodyHandle, LogBodyProps>(function LogBody(
   )
 
   useEffect(() => () => observerRef.current?.disconnect(), [])
+
+  useLayoutEffect(() => {
+    if (focusInside.current && document.activeElement === document.body) {
+      scrollerRef.current?.focus({ preventScroll: true })
+    }
+  })
 
   useLayoutEffect(() => {
     const scroller = scrollerRef.current
@@ -689,8 +696,15 @@ export const LogBody = forwardRef<LogBodyHandle, LogBodyProps>(function LogBody(
         className={classes.scroller}
         data-variant={variant}
         aria-label={`Log for ${jobName}`}
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be reachable by keyboard
-        tabIndex={0}
+        tabIndex={-1}
+        onFocus={() => {
+          focusInside.current = true
+        }}
+        onBlur={(event) => {
+          if (event.target.isConnected) {
+            focusInside.current = false
+          }
+        }}
         onScroll={onScroll}
         onWheel={releaseTarget}
         onTouchStart={releaseTarget}
