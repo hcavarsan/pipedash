@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::{
@@ -179,16 +180,37 @@ impl MetricsService {
             "Checking runs for metrics extraction"
         );
 
-        let new_runs: Vec<_> = runs
+        let candidates: Vec<_> = runs
             .iter()
             .filter(|run| {
                 !is_snapshot(run)
                     && !is_native_history(run)
                     && run.run_number > last_processed
-                    && is_final(&run.status)
                     && run.started_at >= retention_cutoff
             })
             .collect();
+        let oldest_unfinished = candidates
+            .iter()
+            .filter(|run| !is_final(&run.status))
+            .map(|run| run.run_number)
+            .min();
+        let finished: Vec<_> = candidates
+            .into_iter()
+            .filter(|run| is_final(&run.status))
+            .collect();
+        let stored = if finished.is_empty() {
+            HashSet::new()
+        } else {
+            self.repository
+                .get_stored_run_numbers_after(pipeline_id, last_processed)
+                .await?
+        };
+        let mut new_runs: Vec<_> = finished
+            .iter()
+            .copied()
+            .filter(|run| !stored.contains(&run.run_number))
+            .collect();
+        new_runs.sort_by_key(|run| run.run_number);
 
         tracing::debug!(
             pipeline_id = %pipeline_id,
@@ -229,11 +251,20 @@ impl MetricsService {
             &new_runs[..]
         };
 
-        let mut metrics = Vec::new();
-        let mut max_run_number = last_processed;
+        let processed_through = if runs_to_process.len() < new_runs.len() {
+            runs_to_process.last().map(|run| run.run_number)
+        } else {
+            finished.iter().map(|run| run.run_number).max()
+        }
+        .unwrap_or(last_processed);
+        let max_run_number = oldest_unfinished
+            .map_or(processed_through, |run_number| {
+                processed_through.min(run_number - 1)
+            })
+            .max(last_processed);
 
+        let mut metrics = Vec::new();
         for run in runs_to_process {
-            max_run_number = max_run_number.max(run.run_number);
             metrics.extend(
                 record_metrics(pipeline_id, run)
                     .entries
@@ -469,6 +500,52 @@ mod tests {
             .map(|entry| entry.run_number)
             .collect();
         assert_eq!(runs, [2, 2]);
+    }
+
+    #[tokio::test]
+    async fn run_that_finishes_after_a_newer_run_gets_metrics() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = sqlite_service(&dir).await;
+        service.update_global_config(true, 30).await.unwrap();
+        let pipeline_id = "github__1__acme__app__deploy";
+        let run = |run_number: i64, status: &str| -> PipelineRun {
+            serde_json::from_value(json!({
+                "id": format!("{pipeline_id}__{run_number}"), "pipeline_id": pipeline_id,
+                "run_number": run_number, "status": status,
+                "started_at": Utc::now().to_rfc3339(), "logs_url": "",
+                "duration_seconds": 60
+            }))
+            .unwrap()
+        };
+
+        let first = service
+            .extract_and_store_metrics(pipeline_id, &[run(11, "success"), run(10, "running")])
+            .await
+            .unwrap();
+        assert_eq!(first, 3);
+        let mut rerun_11 = run(11, "success");
+        rerun_11.duration_seconds = Some(90);
+        let second = service
+            .extract_and_store_metrics(pipeline_id, &[rerun_11, run(10, "failed")])
+            .await
+            .unwrap();
+        assert_eq!(second, 3);
+        let repeated = service
+            .extract_and_store_metrics(pipeline_id, &[run(11, "success"), run(10, "failed")])
+            .await
+            .unwrap();
+        assert_eq!(repeated, 0);
+
+        let entries = stored(&service, pipeline_id).await;
+        assert_eq!(entries.len(), 6);
+        assert_eq!(
+            find(&entries, 10, MetricType::SuccessRate).unwrap().value,
+            0.0
+        );
+        assert_eq!(
+            find(&entries, 11, MetricType::SuccessRate).unwrap().value,
+            100.0
+        );
     }
 
     fn native_run(

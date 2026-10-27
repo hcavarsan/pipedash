@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::{
     DateTime,
     Duration,
@@ -283,6 +285,35 @@ impl MetricsRepository {
         };
 
         Ok(result)
+    }
+
+    pub async fn get_stored_run_numbers_after(
+        &self, pipeline_id: &str, run_number: i64,
+    ) -> DomainResult<HashSet<i64>> {
+        let result = match &self.pool {
+            DatabasePool::Sqlite(p) => {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT DISTINCT run_number FROM pipeline_metrics WHERE pipeline_id = ? AND run_number > ?",
+                )
+                .bind(pipeline_id)
+                .bind(run_number)
+                .fetch_all(p)
+                .await
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?
+            }
+            DatabasePool::Postgres(p) => {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT DISTINCT run_number::BIGINT FROM pipeline_metrics WHERE pipeline_id = $1 AND run_number > $2",
+                )
+                .bind(pipeline_id)
+                .bind(run_number)
+                .fetch_all(p)
+                .await
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?
+            }
+        };
+
+        Ok(result.into_iter().collect())
     }
 
     pub async fn update_last_processed_run(
