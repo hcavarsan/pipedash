@@ -669,8 +669,8 @@ impl LogService {
         }
     }
 
-    async fn sweep(&self) {
-        if let Err(e) = self.store.sweep_with(self.busy_runs()).await {
+    async fn sweep(&self, reading: &DocKey) {
+        if let Err(e) = self.store.sweep_with(self.busy_runs(), Some(reading)).await {
             tracing::warn!(error = %e, "Failed to remove stale run logs");
         }
     }
@@ -691,7 +691,7 @@ impl LogService {
         })
         .await
         .map_err(|e| DomainError::InternalError(format!("Log reader stopped: {e}")))?;
-        self.sweep().await;
+        self.sweep(&key).await;
 
         page.map_err(|e| self.doc_failure(&key, revision, e))
     }
@@ -740,7 +740,7 @@ impl LogService {
             });
         })?;
         let result = rx.await.map_err(|_| search_cancelled())?;
-        self.sweep().await;
+        self.sweep(&key).await;
 
         result.map_err(|e| match e {
             DocError::Cancelled => search_cancelled(),

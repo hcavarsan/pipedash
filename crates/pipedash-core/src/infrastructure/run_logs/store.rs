@@ -74,6 +74,7 @@ const TREE_TMP_FILE: &str = "tree.json.tmp";
 const STORED_FORMAT: u32 = 1;
 
 type RunId = (i64, String);
+type TrimScope = (HashSet<RunId>, Option<(RunId, String)>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DocKey {
@@ -835,29 +836,33 @@ impl LogStore {
         self.run_sweep(None).await
     }
 
-    pub async fn sweep_with(self: &Arc<Self>, busy: HashSet<(i64, String)>) -> DomainResult<()> {
-        self.run_sweep(Some(busy)).await
+    pub async fn sweep_with(
+        self: &Arc<Self>, busy: HashSet<(i64, String)>, keep: Option<&DocKey>,
+    ) -> DomainResult<()> {
+        let keep = keep.map(|key| (key.run_id(), key.doc_key()));
+        self.run_sweep(Some((busy, keep))).await
     }
 
-    async fn run_sweep(self: &Arc<Self>, busy: Option<HashSet<RunId>>) -> DomainResult<()> {
+    async fn run_sweep(self: &Arc<Self>, trim: Option<TrimScope>) -> DomainResult<()> {
         let store = self.clone();
-        tokio::task::spawn_blocking(move || store.sweep_blocking(busy.as_ref()))
+        tokio::task::spawn_blocking(move || store.sweep_blocking(trim.as_ref()))
             .await
             .map_err(join_error)?
     }
 
-    fn sweep_blocking(&self, busy: Option<&HashSet<RunId>>) -> DomainResult<()> {
+    fn sweep_blocking(&self, trim: Option<&TrimScope>) -> DomainResult<()> {
         let first = self.drain_deletes();
-        let Some(busy) = busy else {
+        let Some((busy, keep)) = trim else {
             return first;
         };
-        let dirs = self.trim(busy);
+        let keep = keep.as_ref().map(|(run, doc)| (run, doc.as_str()));
+        let dirs = self.trim(busy, keep);
         self.forget(&dirs);
         let second = self.drain_deletes();
         first.and(second)
     }
 
-    fn trim(&self, busy: &HashSet<RunId>) -> Vec<PathBuf> {
+    fn trim(&self, busy: &HashSet<RunId>, keep: Option<(&RunId, &str)>) -> Vec<PathBuf> {
         let now = SystemTime::now();
         let mut guard = lock(&self.registry);
         let reg = &mut *guard;
@@ -881,7 +886,7 @@ impl LogStore {
                 dirs.extend(remove_run(reg, &self.deletes, &id));
             }
         }
-        dirs.extend(self.evict(reg, busy, None));
+        dirs.extend(self.evict(reg, busy, keep));
         dirs
     }
 
@@ -1605,10 +1610,10 @@ mod tests {
 
         drop(leases);
         let busy = HashSet::from([keys[0].run_id()]);
-        store.sweep_with(busy).await.expect("sweep");
+        store.sweep_with(busy, None).await.expect("sweep");
         assert!(store.stats().await.bytes > budget);
 
-        store.sweep_with(HashSet::new()).await.expect("sweep");
+        store.sweep_with(HashSet::new(), None).await.expect("sweep");
         assert!(store.stats().await.bytes <= budget);
         assert!(store.current(&keys[0]).is_none());
         assert!(store.current(&keys[1]).is_some());
@@ -1638,7 +1643,7 @@ mod tests {
         }
 
         let busy = HashSet::from([keys[2].run_id()]);
-        store.sweep_with(busy).await.expect("sweep");
+        store.sweep_with(busy, None).await.expect("sweep");
         assert!(store.current(&keys[0]).is_none());
         assert!(store.current(&keys[1]).is_some());
         assert!(store.current(&keys[2]).is_some());
@@ -1653,9 +1658,28 @@ mod tests {
         let store = LogStore::open(root(&dir), u64::MAX).await.expect("open");
         let key = doc_key();
         publish_doc(&store, &key, DOC_TEXT).await;
-        store.sweep_with(HashSet::new()).await.expect("sweep");
+        store.sweep_with(HashSet::new(), None).await.expect("sweep");
         set_access(&store, &key, CACHE_MAX_IDLE + Duration::from_secs(3600));
-        store.sweep_with(HashSet::new()).await.expect("sweep");
+        store.sweep_with(HashSet::new(), None).await.expect("sweep");
         assert!(store.current(&key).is_some());
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_sweep_keeps_the_document_being_read_even_over_budget() {
+        let size = doc_bytes(DOC_TEXT).await;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = LogStore::open(root(&dir), size / 2).await.expect("open");
+        let key = doc_key();
+        publish_doc(&store, &key, DOC_TEXT).await;
+        assert!(store.stats().await.bytes > size / 2);
+
+        store
+            .sweep_with(HashSet::new(), Some(&key))
+            .await
+            .expect("sweep");
+        assert!(store.current(&key).is_some());
+
+        store.sweep_with(HashSet::new(), None).await.expect("sweep");
+        assert!(store.current(&key).is_none());
     }
 }
