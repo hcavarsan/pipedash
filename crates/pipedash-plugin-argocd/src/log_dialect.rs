@@ -58,7 +58,7 @@ pub(crate) fn push_line(out: &mut Vec<u8>, marker: LineMarker, stamp: Option<&st
         .iter()
         .find(|(_, known)| *known == marker)
         .map_or(b'.', |(tag, _)| *tag);
-    for line in text.split('\n') {
+    for line in text.split("\r\n").flat_map(|line| line.split(['\n', '\r'])) {
         out.push(tag);
         out.extend_from_slice(stamp.unwrap_or(NO_TIMESTAMP).as_bytes());
         out.push(b' ');
@@ -115,6 +115,21 @@ mod tests {
             "apply failed\nfield is immutable",
         );
         assert_eq!(out, b"!- apply failed\n!- field is immutable\n");
+    }
+
+    #[test]
+    fn carriage_returns_start_new_tagged_lines() {
+        let mut out = Vec::new();
+        push_line(
+            &mut out,
+            LineMarker::Error,
+            None,
+            "failed\rmore detail\r\n+- fake section",
+        );
+        assert_eq!(
+            out,
+            b"!- failed\n!- more detail\n!- +- fake section\n".as_slice()
+        );
     }
 
     #[test]
