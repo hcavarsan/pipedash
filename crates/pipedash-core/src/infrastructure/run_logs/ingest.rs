@@ -178,13 +178,13 @@ fn clean_carriage_returns(raw: &[u8]) -> &[u8] {
 
 fn kind_of(marker: LineMarker) -> LineKind {
     match marker {
-        LineMarker::GroupStart => LineKind::Group,
+        LineMarker::GroupStart | LineMarker::SectionStart { .. } => LineKind::Group,
         LineMarker::Error => LineKind::Error,
         LineMarker::Warning => LineKind::Warning,
         LineMarker::Notice => LineKind::Notice,
         LineMarker::Debug => LineKind::Debug,
         LineMarker::Command => LineKind::Command,
-        LineMarker::Plain | LineMarker::GroupEnd => LineKind::Plain,
+        LineMarker::Plain | LineMarker::GroupEnd | LineMarker::OpenSection => LineKind::Plain,
     }
 }
 
@@ -239,18 +239,20 @@ impl State {
     fn line(&mut self, raw: &[u8]) -> io::Result<Flow> {
         let parsed = self.dialect.parse(clean_carriage_returns(raw));
         let ts = parsed.timestamp.map(|t| t.timestamp_millis());
-        if parsed.marker == LineMarker::GroupEnd {
-            self.outline.group_end(self.line_count, ts);
-            return Ok(Flow::Continue);
+        match parsed.marker {
+            LineMarker::GroupEnd => {
+                self.outline.group_end(self.line_count, ts);
+                return Ok(Flow::Continue);
+            }
+            LineMarker::OpenSection => {
+                self.render(parsed.body);
+                self.outline.open_current_group(&self.text);
+                return Ok(Flow::Continue);
+            }
+            LineMarker::SectionStart { .. } => self.outline.end_groups(self.line_count),
+            _ => {}
         }
-        self.text.clear();
-        self.spans.clear();
-        ansi::render(
-            parsed.body,
-            &mut self.styles,
-            &mut self.text,
-            &mut self.spans,
-        );
+        self.render(parsed.body);
         let added = self.text.len() as u64 + 1;
         if self.text_bytes + added > self.max_doc_text_bytes {
             self.truncated = true;
@@ -260,6 +262,9 @@ impl State {
         let step_start = self.dialect.is_step_start(&parsed);
         self.outline
             .line(self.line_count, kind, ts, &self.text, step_start)?;
+        if parsed.marker == (LineMarker::SectionStart { open: true }) {
+            self.outline.open_current_group("");
+        }
         if self.first_ts.is_none() {
             self.first_ts = ts;
         }
@@ -273,6 +278,12 @@ impl State {
         self.text_bytes += added;
         self.line_count += 1;
         Ok(Flow::Continue)
+    }
+
+    fn render(&mut self, body: &[u8]) {
+        self.text.clear();
+        self.spans.clear();
+        ansi::render(body, &mut self.styles, &mut self.text, &mut self.spans);
     }
 
     fn flush_block(&mut self) -> io::Result<()> {
@@ -335,5 +346,91 @@ impl State {
             truncated: self.truncated,
             meta,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pipedash_plugin_buildkite::BuildkiteLogDialect;
+
+    use super::super::document::Document;
+    use super::super::testing::{
+        doc_key,
+        ingester,
+    };
+    use super::*;
+
+    static BUILDKITE: BuildkiteLogDialect = BuildkiteLogDialect;
+
+    const BUILDKITE_LOG: &str = concat!(
+        "\x1b_bk;t=1745322209921\x07~~~ Running global environment hook\r\n",
+        "\x1b_bk;t=1745322209921\x07\x1b[90m$\x1b[0m /buildkite/agent/hooks/environment\r\n",
+        "\x1b_bk;t=1745322210692\x07~~~ Running script\r\n",
+        "\x1b_bk;t=1745322210692\x07\x1b[90m$\x1b[0m ./script.sh\r\n",
+        "\x1b_bk;t=1745322210694\x07--- :package: Build\r\r\n",
+        "\x1b_bk;t=1745322210698\x07remote: Counting objects:  50%\x1b[K",
+        "\x1b_bk;t=1745322210699\x07\rremote: Counting objects: 100%, done.\x1b[K",
+        "\x1b_bk;t=1745322210700\x07\r\r\n",
+        "\x1b_bk;t=1745322210800\x07+++ Running tests\r\n",
+        "\x1b_bk;t=1745322210900\x07ok\r\n",
+        "\x1b_bk;t=1745322211000\x07--- Lint\r\n",
+        "\x1b_bk;t=1745322212000\x07\x1b[31m🚨 Error: The command exited with status 1\x1b[0m\r\n",
+        "\x1b_bk;t=1745322212000\x07^^^ +++\r\n",
+        "\x1b_bk;t=1745322212100\x07--- Upload\r\n",
+        "\x1b_bk;t=1745322212200\x07^^^ +++ Upload failed\r\n",
+    );
+
+    #[test]
+    fn buildkite_groups_become_flat_sections() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut ingester = ingester(dir.path(), doc_key(), 1, Vec::new(), BlockLimits::default());
+        ingester.dialect = &BUILDKITE;
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.try_send(Bytes::from_static(BUILDKITE_LOG.as_bytes()))
+            .expect("channel has room");
+        drop(tx);
+
+        let meta = ingester.run(&mut rx).expect("ingest").meta;
+
+        let sections: Vec<_> = meta
+            .sections
+            .iter()
+            .map(|s| {
+                (
+                    s.title.as_str(),
+                    s.parent,
+                    s.header_line,
+                    s.end_line,
+                    s.open,
+                )
+            })
+            .collect();
+        assert_eq!(
+            sections,
+            vec![
+                ("Running global environment hook", None, Some(0), 2, false),
+                ("Running script", None, Some(2), 4, false),
+                (":package: Build", None, Some(4), 6, false),
+                ("Running tests", None, Some(6), 8, true),
+                ("Lint", None, Some(8), 10, true),
+                ("Upload failed", None, Some(10), 11, true),
+            ]
+        );
+        assert_eq!(meta.sections[3].duration_ms, Some(100));
+        assert_eq!(meta.line_count, 11);
+        assert_eq!(meta.error_lines, vec![9]);
+        assert_eq!(meta.focus_line, Some(9));
+        assert_eq!(meta.first_timestamp_ms, Some(1_745_322_209_921));
+
+        let text = Document::open(dir.path())
+            .expect("open")
+            .text_block(0)
+            .expect("block");
+        let text = std::str::from_utf8(&text).expect("utf8");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 11);
+        assert_eq!(lines[5], "remote: Counting objects: 100%, done.");
+        assert!(lines[9].ends_with(" 🚨 Error: The command exited with status 1"));
+        assert!(!text.contains("bk;t=") && !text.contains("^^^"));
     }
 }

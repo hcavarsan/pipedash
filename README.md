@@ -56,6 +56,7 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 
 - See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most.
 - Open the run history with commits, branches and durations, and track build metrics per pipeline.
+- Read, search and download job logs of GitHub Actions and Buildkite runs without leaving Pipedash. Buildkite tokens need the `read_build_logs` scope.
 - Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
 - Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
 - Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage.

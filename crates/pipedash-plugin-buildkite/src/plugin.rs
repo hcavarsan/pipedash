@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use pipedash_plugin_api::*;
 
+use crate::log_dialect::BuildkiteLogDialect;
 use crate::{
     client,
     config,
@@ -44,6 +45,15 @@ impl BuildkitePlugin {
         self.client
             .as_ref()
             .ok_or_else(|| PluginError::Internal("Plugin not initialized".to_string()))
+    }
+
+    fn org_and_slug(pipeline_id: &str) -> PluginResult<(&str, &str)> {
+        match pipeline_id.split("__").collect::<Vec<_>>().as_slice() {
+            [_, _, org, slug] => Ok((*org, *slug)),
+            _ => Err(PluginError::InvalidConfig(format!(
+                "Invalid pipeline ID format: {pipeline_id}"
+            ))),
+        }
     }
 }
 
@@ -217,29 +227,39 @@ impl Plugin for BuildkitePlugin {
     async fn fetch_run_details(
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun> {
-        let parts: Vec<&str> = pipeline_id.split("__").collect();
-        if parts.len() != 4 {
+        let (org, slug) = Self::org_and_slug(pipeline_id)?;
+        let build = self.client()?.fetch_build(org, slug, run_number).await?;
+
+        Ok(client::build_to_pipeline_run(build, pipeline_id))
+    }
+
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let (org, slug) = Self::org_and_slug(run.pipeline_id)?;
+        let jobs = self
+            .client()?
+            .fetch_build_jobs(org, slug, run.run_number)
+            .await?;
+
+        Ok(mapper::jobs_to_log_nodes(&jobs))
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let (org, slug) = Self::org_and_slug(run.pipeline_id)?;
+        if node_id.is_empty() || !node_id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
             return Err(PluginError::InvalidConfig(format!(
-                "Invalid pipeline ID format: {pipeline_id}"
+                "Invalid Buildkite job ID: {node_id}"
             )));
         }
 
-        let org = parts[2];
-        let slug = parts[3];
+        self.client()?
+            .stream_job_log(org, slug, run.run_number, node_id, sink)
+            .await
+    }
 
-        let client = self.client()?;
-        let builds = client.fetch_builds(org, slug, 100).await?;
-
-        let build = builds
-            .into_iter()
-            .find(|b| b.number == run_number)
-            .ok_or_else(|| {
-                PluginError::PipelineNotFound(format!(
-                    "Build #{run_number} not found for pipeline {pipeline_id}"
-                ))
-            })?;
-
-        Ok(client::build_to_pipeline_run(build, pipeline_id))
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &BuildkiteLogDialect
     }
 
     async fn fetch_workflow_parameters(
@@ -339,7 +359,10 @@ impl Plugin for BuildkitePlugin {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -377,9 +400,47 @@ mod tests {
         }
     }
 
-    async fn plugin_selecting(selected: &str) -> BuildkitePlugin {
+    const BUILD_PATH: &str = "/organizations/acme/pipelines/app/builds/150";
+    const JOB_ID: &str = "0190d2a4-7b1e-4c55-9f0e-6f2a1c3b4d5e";
+    const RAW_LOG: &str = "\x1b_bk;t=1745322210692\x07~~~ Running script\r\n\
+                           \x1b_bk;t=1745322210692\x07\x1b[90m$\x1b[0m ./script.sh\r\n";
+
+    fn build_150(path: &str) -> Reply {
+        let json = |body| Reply {
+            status: "200 OK",
+            headers: "Content-Type: application/json\r\n",
+            body,
+        };
+        match path.strip_prefix(BUILD_PATH) {
+            Some("?exclude_jobs=true") => json(
+                r#"{"id":"b-150","number":150,"state":"failed","web_url":"https://buildkite.com/acme/app/builds/150",
+                    "created_at":"2026-10-27T10:00:00.000Z","started_at":"2026-10-27T10:00:05.000Z",
+                    "finished_at":"2026-10-27T10:02:05.000Z","branch":"main","commit":"abc"}"#,
+            ),
+            Some("") => json(
+                r#"{"number":150,"jobs":[{"id":"0190d2a4-7b1e-4c55-9f0e-6f2a1c3b4d5e","type":"script",
+                    "name":"Tests","state":"failed","started_at":"2026-10-27T10:00:05.000Z",
+                    "finished_at":"2026-10-27T10:02:05.000Z"}]}"#,
+            ),
+            Some("/jobs/0190d2a4-7b1e-4c55-9f0e-6f2a1c3b4d5e/log.txt") => Reply {
+                status: "200 OK",
+                headers: "Content-Type: text/plain\r\n",
+                body: RAW_LOG,
+            },
+            _ => Reply {
+                status: "404 Not Found",
+                headers: "Content-Type: application/json\r\n",
+                body: r#"{"message":"Not Found"}"#,
+            },
+        }
+    }
+
+    async fn plugin_answering(
+        reply: fn(&str) -> Reply, selected: &str,
+    ) -> (BuildkitePlugin, Arc<AtomicUsize>) {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let base_url = stub_server(Arc::new(AtomicUsize::new(0)), Duration::ZERO, mixed).await;
+        let requests = Arc::new(AtomicUsize::new(0));
+        let base_url = stub_server(requests.clone(), Duration::ZERO, reply).await;
         let mut plugin = BuildkitePlugin::new();
         let config = HashMap::from([
             ("token".to_string(), "token".to_string()),
@@ -390,7 +451,99 @@ mod tests {
             client::BuildkiteClient::new(Arc::new(reqwest::Client::new()), "token".to_string())
                 .with_base_url(base_url),
         );
-        plugin
+        (plugin, requests)
+    }
+
+    async fn plugin_selecting(selected: &str) -> BuildkitePlugin {
+        plugin_answering(mixed, selected).await.0
+    }
+
+    fn run_150(metadata: &HashMap<String, serde_json::Value>) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: "buildkite__1__acme__app",
+            run_number: 150,
+            run_id: "buildkite__1__acme__app__b-150",
+            metadata,
+        }
+    }
+
+    async fn read(plugin: &BuildkitePlugin, node_id: &str) -> PluginResult<Vec<u8>> {
+        let metadata = HashMap::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin
+            .read_log(run_150(&metadata), node_id, &mut sink)
+            .await;
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        result.map(|()| bytes)
+    }
+
+    #[tokio::test]
+    async fn run_details_load_a_build_by_its_number() {
+        let (plugin, requests) = plugin_answering(build_150, "acme/app").await;
+
+        let run = plugin
+            .fetch_run_details("buildkite__1__acme__app", 150)
+            .await
+            .unwrap();
+
+        assert_eq!(run.run_number, 150);
+        assert_eq!(run.status, PipelineStatus::Failed);
+        assert_eq!(run.duration_seconds, Some(120));
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn build_jobs_become_log_nodes() {
+        let (plugin, _) = plugin_answering(build_150, "acme/app").await;
+        let metadata = HashMap::new();
+
+        let nodes = plugin.fetch_log_nodes(run_150(&metadata)).await.unwrap();
+
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].id, JOB_ID);
+        assert_eq!(nodes[0].name, "Tests");
+        assert_eq!(nodes[0].status, PipelineStatus::Failed);
+        assert_eq!(nodes[0].log, Some(LogAvailability::Ready));
+    }
+
+    #[tokio::test]
+    async fn job_log_streams_the_raw_text() {
+        let (plugin, _) = plugin_answering(build_150, "acme/app").await;
+
+        assert_eq!(read(&plugin, JOB_ID).await.unwrap(), RAW_LOG.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn missing_job_log_is_not_found() {
+        let (plugin, _) = plugin_answering(build_150, "acme/app").await;
+
+        let error = read(&plugin, "0190d2a4-0000-0000-0000-000000000000")
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::PipelineNotFound(_)),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn job_ids_outside_the_uuid_alphabet_are_rejected_without_a_request() {
+        let (plugin, requests) = plugin_answering(build_150, "acme/app").await;
+
+        for node_id in ["", "../../builds/150", "0190d2a4/log", "x?y=1"] {
+            let error = read(&plugin, node_id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{node_id}: {error:?}"
+            );
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

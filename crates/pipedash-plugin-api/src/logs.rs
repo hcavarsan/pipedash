@@ -62,6 +62,8 @@ pub enum LineMarker {
     Plain,
     GroupStart,
     GroupEnd,
+    SectionStart { open: bool },
+    OpenSection,
     Error,
     Warning,
     Notice,

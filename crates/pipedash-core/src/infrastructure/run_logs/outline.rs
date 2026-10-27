@@ -47,6 +47,7 @@ struct Group {
     end: Option<u32>,
     first_ms: Option<i64>,
     last_ms: Option<i64>,
+    open: bool,
 }
 
 pub(crate) struct OutlineOutput {
@@ -171,6 +172,7 @@ impl Outline {
                 end: None,
                 first_ms: self.last_ts,
                 last_ms: None,
+                open: false,
             });
             self.open_groups.push(self.groups.len() - 1);
         } else {
@@ -194,6 +196,26 @@ impl Outline {
             let group = &mut self.groups[group];
             group.end = Some(line_count);
             group.last_ms = self.last_ts;
+        }
+    }
+
+    pub(crate) fn end_groups(&mut self, line_count: u32) {
+        self.ignored_depth = 0;
+        for group in self.open_groups.drain(..) {
+            let group = &mut self.groups[group];
+            group.end = Some(line_count);
+            group.last_ms = self.last_ts;
+        }
+    }
+
+    pub(crate) fn open_current_group(&mut self, title: &str) {
+        let Some(&group) = self.open_groups.last() else {
+            return;
+        };
+        let group = &mut self.groups[group];
+        group.open = true;
+        if !title.trim().is_empty() {
+            group.title = truncate_title(title);
         }
     }
 
@@ -240,6 +262,7 @@ impl Outline {
                 end,
                 parent,
                 depth: parent.map_or(0, |p| drafts[p].depth.saturating_add(1)),
+                open: group.open,
             });
             stack.push((drafts.len() - 1, step));
         }
@@ -289,7 +312,7 @@ impl Outline {
                     LogSectionKind::Step => {
                         draft.status == Some(PipelineStatus::Failed) || only_step
                     }
-                    LogSectionKind::Group => error_count > 0,
+                    LogSectionKind::Group => error_count > 0 || draft.open,
                 };
                 LogSection {
                     id: new_id[old],
@@ -389,6 +412,7 @@ impl Outline {
                     end: starts.get(i + 1).copied().unwrap_or(line_count),
                     parent: None,
                     depth: 0,
+                    open: false,
                 }
             })
             .collect()
@@ -445,6 +469,7 @@ struct Draft {
     end: u32,
     parent: Option<usize>,
     depth: u8,
+    open: bool,
 }
 
 impl Draft {
