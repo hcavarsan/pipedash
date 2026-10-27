@@ -1,6 +1,7 @@
 use std::fmt::Write as _;
 
 use pipedash_plugin_api::{
+    redact_url,
     LineMarker,
     LogAvailability,
     LogNode,
@@ -264,7 +265,9 @@ fn write_history(entry: &RevisionHistory, out: &mut Vec<u8>) {
         .as_ref()
         .filter(|source| !source.repo_url.is_empty())
     {
-        let mut text = format!("Source {}", source.repo_url);
+        let repo = reqwest::Url::parse(&source.repo_url)
+            .map_or_else(|_| source.repo_url.clone(), |url| redact_url(&url));
+        let mut text = format!("Source {repo}");
         if let Some(path) = non_empty(&source.path).or(non_empty(&source.chart)) {
             let _ = write!(text, " {path}");
         }

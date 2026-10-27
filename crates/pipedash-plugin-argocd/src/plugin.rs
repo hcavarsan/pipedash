@@ -710,7 +710,7 @@ mod tests {
             "destination":{"server":"https://kubernetes.default.svc","namespace":"web"},"project":"default"},
         "status":{"sync":{"status":"OutOfSync","revision":"def456"},"health":{"status":"Degraded"},
             "history":[{"revision":"abc123","deployedAt":"2026-10-26T09:00:30Z","deployStartedAt":"2026-10-26T09:00:00Z","id":3,
-                "source":{"repoURL":"https://github.com/acme/web","path":"deploy"},"initiatedBy":{"username":"admin"}}],
+                "source":{"repoURL":"https://ci:s3cret@github.com/acme/web?token=abc","path":"deploy"},"initiatedBy":{"username":"admin"}}],
             "operationState":{"operation":{"sync":{"revision":"def456","prune":true},"initiatedBy":{"automated":true}},
                 "phase":"Failed","message":"one or more objects failed to apply","startedAt":"2026-10-27T10:00:00Z",
                 "finishedAt":"2026-10-27T10:00:42Z","retryCount":2,
