@@ -16,6 +16,8 @@ TARGET = IosProject::APP_TARGET
 TARGET_DIR = File.join(APPLE_DIR, TARGET)
 XCODE_FILES = File.join(ROOT, "ios/xcode")
 APP_ICON = File.join(TAURI_DIR, "icons/ios/app-icon-1024.png")
+# Absolute: lane code runs in ios/fastlane but actions run in ios/, so `__dir__` paths break inside actions.
+FASTLANE_DIR = File.join(ROOT, "ios/fastlane")
 REQUIRED_INFO_KEYS = %w[
   CFBundleDisplayName NSFaceIDUsageDescription NSLocalNetworkUsageDescription UIFileSharingEnabled
   LSSupportsOpeningDocumentsInPlace
@@ -274,7 +276,7 @@ platform :ios do
     rescue StandardError
       UI.user_error!("Unable to check App Review demo access. Check GitHub connectivity, token expiry and repository permissions, then retry release")
     end
-    notes = format(File.read(File.join(__dir__, "review_notes.txt")), demo)
+    notes = format(File.read(File.join(FASTLANE_DIR, "review_notes.txt")), demo)
 
     api_key = asc_api_key
     ipa = build_signed_ipa(api_key: api_key)
@@ -282,7 +284,8 @@ platform :ios do
       api_key: api_key,
       ipa: ipa,
       app_identifier: APP_ID,
-      metadata_path: File.join(__dir__, "metadata"),
+      metadata_path: File.join(FASTLANE_DIR, "metadata"),
+      app_rating_config_path: File.join(FASTLANE_DIR, "age_rating.json"),
       screenshots_path: screenshots_path,
       skip_screenshots: false,
       overwrite_screenshots: true,
