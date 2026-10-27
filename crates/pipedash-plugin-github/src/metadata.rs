@@ -48,6 +48,7 @@ fn create_capabilities() -> PluginCapabilities {
         queues: false,
         custom_tables: false,
         retains_run_history: false,
+        logs: true,
     }
 }
 
@@ -86,6 +87,12 @@ fn create_features() -> Vec<Feature> {
             required_permissions: vec!["repo".to_string()],
         },
         Feature {
+            id: "view_run_logs".to_string(),
+            name: "Read job logs in Pipedash".to_string(),
+            description: "GET /repos/{owner}/{repo}/actions/runs/{id}/jobs and /actions/jobs/{id}/logs - Read and search job logs without leaving Pipedash".to_string(),
+            required_permissions: vec!["repo".to_string()],
+        },
+        Feature {
             id: "monitor_status".to_string(),
             name: "Monitor pipeline status".to_string(),
             description: "Real-time status updates for workflow runs in your dashboard".to_string(),
@@ -105,8 +112,8 @@ fn create_features() -> Vec<Feature> {
         },
         Feature {
             id: "rerun_failed_jobs".to_string(),
-            name: "Re-run failed jobs".to_string(),
-            description: "POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs - Re-run the failed jobs of a run and the jobs that depend on them".to_string(),
+            name: "Re-run runs".to_string(),
+            description: "POST /repos/{owner}/{repo}/actions/runs/{id}/rerun and /rerun-failed-jobs - Re-run a whole run, or only its failed jobs and the jobs that depend on them".to_string(),
             required_permissions: vec!["repo".to_string()],
         },
         Feature {

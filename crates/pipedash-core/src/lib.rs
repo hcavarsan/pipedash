@@ -9,16 +9,27 @@ mod test_env;
 
 use std::sync::Arc;
 
+pub use application::{
+    LogExport,
+    LogService,
+};
 pub use domain::{
     DomainError,
     DomainResult,
     FetchStatus,
+    LogCacheStats,
+    LogDocumentMeta,
+    LogLinesPage,
+    LogSearchQuery,
+    LogSearchResult,
     Pipeline,
     PipelineRun,
     PipelineStatus,
     Provider,
     ProviderConfig,
     ProviderSummary,
+    RunLogDocument,
+    RunLogTree,
     TriggerParams,
 };
 pub use event::{
@@ -65,6 +76,8 @@ pub struct CoreContext {
 
     pub config_state: Arc<infrastructure::ConfigState>,
 
+    pub log_service: Arc<application::LogService>,
+
     config_watcher: Arc<application::ConfigWatcher>,
 }
 
@@ -89,6 +102,7 @@ impl CoreContext {
             refresh_manager: services.refresh_manager,
             health: services.health,
             health_service: services.health_service,
+            log_service: services.log_service,
             config_state,
         }
     }
@@ -143,12 +157,18 @@ impl CoreContext {
 
         let http_client_manager = http_client_manager(&config.general.proxy_url)?;
 
+        let log_store = infrastructure::run_logs::LogStore::open(
+            config.cache_dir().join("run-logs"),
+            infrastructure::run_logs::CACHE_BUDGET_BYTES,
+        )
+        .await?;
         let services = application::Services::new(
             repository,
             Arc::clone(&http_client_manager),
             metrics_service.clone(),
             Arc::clone(&event_bus),
             Arc::clone(&config_state),
+            log_store,
         );
 
         Ok(Self::from_services(
@@ -204,12 +224,18 @@ impl CoreContext {
             Arc::new(application::MetricsService::new(metrics_repository))
         });
 
+        let log_store = infrastructure::run_logs::LogStore::open(
+            config.cache_dir().join("run-logs"),
+            infrastructure::run_logs::CACHE_BUDGET_BYTES,
+        )
+        .await?;
         let services = application::Services::new(
             repository,
             Arc::clone(&http_client_manager),
             metrics_service.clone(),
             Arc::clone(&event_bus),
             Arc::clone(&config_state),
+            log_store,
         );
 
         Ok(Self::from_services(
@@ -263,6 +289,7 @@ impl CoreContext {
             self.token_store.delete_token(provider_id).await?;
         }
         self.pipeline_service.clear_all_caches_atomic().await?;
+        self.log_service.clear().await?;
         let metrics = MetricsRepository::new_from_pool(
             self.provider_service.repository().cache_pool().clone(),
         );
@@ -272,6 +299,7 @@ impl CoreContext {
     }
 
     pub async fn shutdown(&self) {
+        self.log_service.shutdown().await;
         self.config_watcher.stop().await;
         self.refresh_manager.stop().await;
         self.health_service.stop().await;
@@ -329,12 +357,16 @@ mod reset_tests {
         ));
         let bus: Arc<dyn EventBus> = Arc::new(NoOpEventBus);
         let http = http_client_manager("").unwrap();
+        let log_store = infrastructure::run_logs::LogStore::open(dir.join("run-logs"), u64::MAX)
+            .await
+            .unwrap();
         let services = application::Services::new(
             repository,
             Arc::clone(&http),
             None,
             Arc::clone(&bus),
             Arc::clone(&config_state),
+            log_store,
         );
         CoreContext::from_services(bus, tokens, http, None, config_state, services)
     }

@@ -1,3 +1,6 @@
+mod log_dialect;
+
+pub use log_dialect::ActionsLogDialect;
 use pipedash_plugin_api::{
     PluginError,
     PluginResult,

@@ -1,11 +1,14 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use chrono::Utc;
 use futures::future::join_all;
 use octocrab::Octocrab;
 use pipedash_plugin_api::{
+    check_response,
     http,
     AvailablePipeline,
+    LogSink,
     PaginatedResponse,
     PaginationParams,
     PermissionStatus,
@@ -17,7 +20,14 @@ use pipedash_plugin_api::{
     RetryPolicy,
     ReviewDecision,
 };
-use reqwest::header::RETRY_AFTER;
+use reqwest::header::{
+    ACCEPT,
+    RETRY_AFTER,
+};
+use secrecy::{
+    ExposeSecret,
+    SecretString,
+};
 use tracing::debug;
 
 use crate::{
@@ -62,20 +72,30 @@ pub(crate) struct GitHubClient {
     pub(crate) octocrab: Octocrab,
     pub(crate) retry_policy: RetryPolicy,
     permission_checker: PermissionChecker,
+    http: reqwest::Client,
+    token: SecretString,
+    api_url: String,
 }
 
 impl GitHubClient {
     pub fn new(
         octocrab: Octocrab, http_client: reqwest::Client, token: String, api_url: &str,
     ) -> PluginResult<Self> {
-        let token_secret = token.into();
-        let permission_checker =
-            PermissionChecker::new(octocrab.clone(), http_client, token_secret, api_url)?;
+        let token_secret: SecretString = token.into();
+        let permission_checker = PermissionChecker::new(
+            octocrab.clone(),
+            http_client.clone(),
+            token_secret.clone(),
+            api_url,
+        )?;
 
         Ok(Self {
             octocrab,
             retry_policy: RetryPolicy::default(),
             permission_checker,
+            http: http_client,
+            token: token_secret,
+            api_url: api_url.trim_end_matches('/').to_string(),
         })
     }
 
@@ -529,6 +549,22 @@ impl GitHubClient {
             .await
     }
 
+    pub async fn has_workflows(&self, owner: &str, repo: &str) -> PluginResult<bool> {
+        self.retry_policy
+            .retry(|| async {
+                let page = self
+                    .octocrab
+                    .workflows(owner, repo)
+                    .list()
+                    .per_page(1)
+                    .send()
+                    .await
+                    .map_err(|e| map_octocrab_error("Failed to list workflows", e))?;
+                Ok(!page.items.is_empty())
+            })
+            .await
+    }
+
     pub async fn fetch_workflow_source(
         &self, owner: &str, repo: &str, workflow_id: u64,
     ) -> PluginResult<String> {
@@ -546,11 +582,20 @@ impl GitHubClient {
                     .octocrab
                     .repos(owner, repo)
                     .get_content()
-                    .path(workflow.path)
+                    .path(&workflow.path)
                     .raw()
                     .send()
                     .await
-                    .map_err(|e| map_octocrab_error("Failed to fetch workflow file. Fine-grained tokens need Contents (Read) on the repository", e))?;
+                    .map_err(|e| match map_octocrab_error("Failed to fetch workflow file", e) {
+                        PluginError::PipelineNotFound(_) => PluginError::PipelineNotFound(format!(
+                            "{} isn't on the default branch, so this workflow can't be triggered. GitHub keeps listing a workflow after its file is deleted or when it only ran from another branch. On a private repository, a fine-grained token without Contents (Read) gets the same response.",
+                            workflow.path
+                        )),
+                        PluginError::PermissionDenied(message) => PluginError::PermissionDenied(
+                            format!("{message}. Fine-grained tokens need Contents (Read) on the repository"),
+                        ),
+                        other => other,
+                    })?;
 
                 self.octocrab
                     .body_to_string(response)
@@ -657,6 +702,72 @@ impl GitHubClient {
         )))
     }
 
+    pub async fn list_run_jobs(
+        &self, owner: &str, repo: &str, run_id: u64,
+    ) -> PluginResult<Vec<octocrab::models::workflows::Job>> {
+        const PAGE_SIZE: usize = 100;
+
+        let mut jobs = Vec::new();
+
+        for page in 1u32..=100 {
+            let batch = self
+                .retry_policy
+                .retry(|| async {
+                    self.octocrab
+                        .workflows(owner, repo)
+                        .list_jobs(octocrab::models::RunId(run_id))
+                        .filter(octocrab::params::workflows::Filter::Latest)
+                        .per_page(PAGE_SIZE as u8)
+                        .page(page)
+                        .send()
+                        .await
+                        .map_err(|e| map_octocrab_error("Failed to list jobs", e))
+                })
+                .await?;
+
+            let short_page = batch.items.len() < PAGE_SIZE;
+            let total_count = batch.total_count;
+            jobs.extend(batch.items);
+
+            if short_page || total_count.is_some_and(|total| jobs.len() as u64 >= total) {
+                return Ok(jobs);
+            }
+        }
+
+        Err(PluginError::ApiError("Run has more than 10000 jobs".into()))
+    }
+
+    pub async fn stream_job_log(
+        &self, owner: &str, repo: &str, job_id: u64, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let url = reqwest::Url::parse(&format!(
+            "{}/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
+            self.api_url
+        ))
+        .map_err(|e| PluginError::InvalidConfig(format!("Invalid log URL: {e}")))?;
+
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http
+                    .get(url.clone())
+                    .bearer_auth(self.token.expose_secret())
+                    .header(ACCEPT, "application/vnd.github+json")
+                    .header("X-GitHub-Api-Version", "2022-11-28")
+                    .timeout(Duration::from_secs(900))
+                    .send()
+            })
+            .await?;
+
+        if matches!(response.status().as_u16(), 404 | 410) {
+            return Err(PluginError::PipelineNotFound(format!(
+                "Logs for job {job_id} are no longer available"
+            )));
+        }
+
+        sink.pipe(check_response(response).await?).await
+    }
+
     pub async fn cancel_run(&self, owner: &str, repo: &str, run_id: u64) -> PluginResult<()> {
         debug!("Cancelling run {run_id} for {owner}/{repo}");
 
@@ -672,18 +783,23 @@ impl GitHubClient {
         Ok(())
     }
 
-    pub async fn rerun_failed_jobs(
-        &self, owner: &str, repo: &str, run_id: u64,
+    pub async fn rerun(
+        &self, owner: &str, repo: &str, run_id: u64, failed_only: bool,
     ) -> PluginResult<()> {
-        debug!("Re-running failed jobs of run {run_id} for {owner}/{repo}");
+        let (endpoint, action) = if failed_only {
+            ("rerun-failed-jobs", "Failed to re-run failed jobs")
+        } else {
+            ("rerun", "Failed to re-run run")
+        };
+        debug!("POST {endpoint} for run {run_id} of {owner}/{repo}");
 
-        let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs");
+        let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/{endpoint}");
 
         let _: serde_json::Value = self
             .octocrab
             .post(url, None::<&()>)
             .await
-            .map_err(|e| map_octocrab_error("Failed to re-run failed jobs", e))?;
+            .map_err(|e| map_octocrab_error(action, e))?;
 
         Ok(())
     }

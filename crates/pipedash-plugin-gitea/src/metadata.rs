@@ -62,5 +62,6 @@ fn create_capabilities() -> PluginCapabilities {
         queues: false,
         custom_tables: false,
         retains_run_history: false,
+        logs: false,
     }
 }

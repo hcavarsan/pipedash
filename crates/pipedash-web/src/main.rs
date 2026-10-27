@@ -1,3 +1,4 @@
+mod download_tickets;
 mod error;
 mod push;
 mod routes;
@@ -5,6 +6,7 @@ mod state;
 mod static_files;
 mod ws;
 
+use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -23,6 +25,7 @@ use axum::{
         },
         Method,
         StatusCode,
+        Uri,
     },
     middleware::Next,
     response::Response,
@@ -86,6 +89,7 @@ async fn auth_middleware(
         || path == "/api/v1/vault/status"
         || path == "/api/v1/ws"
         || path == "/api/v1/plugins"
+        || (req.method() == Method::GET && path.starts_with("/api/v1/downloads/"))
     {
         return Ok(next.run(req).await);
     }
@@ -103,6 +107,14 @@ async fn auth_middleware(
         Ok(next.run(req).await)
     } else {
         Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
+fn redact_ticket(uri: &Uri) -> Cow<'_, str> {
+    if uri.path().contains("/api/v1/downloads/") {
+        Cow::Borrowed("/api/v1/downloads/[redacted]")
+    } else {
+        Cow::Owned(uri.to_string())
     }
 }
 
@@ -384,7 +396,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let app = app
-        .layer(TraceLayer::new_for_http())
+        .layer(TraceLayer::new_for_http().make_span_with(|req: &Request| {
+            tracing::debug_span!(
+                "request",
+                method = %req.method(),
+                uri = %redact_ticket(req.uri()),
+                version = ?req.version()
+            )
+        }))
         .layer(cors_layer(api_config.cors_allow_all));
 
     tracing::info!("Listening on {}", api_config.bind_addr);
@@ -887,5 +906,44 @@ mod tests {
         let status = websocket_handshake(false, &[("Origin", "http://evil.example")]).await;
 
         assert!(status.contains(" 101"), "{status}");
+    }
+
+    #[tokio::test]
+    async fn only_get_downloads_skip_the_token() {
+        let app = app_with_token();
+
+        assert_eq!(
+            send(
+                &app,
+                Method::POST,
+                "/api/v1/pipelines/p/runs/1/logs/n/download-ticket",
+                None
+            )
+            .await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            send(&app, Method::GET, "/api/v1/downloads/abc", None).await,
+            StatusCode::NOT_FOUND
+        );
+        for method in [Method::POST, Method::DELETE] {
+            assert_eq!(
+                send(&app, method, "/api/v1/downloads/abc", None).await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            send(&app, Method::GET, "/api/v1/pipelines/p/runs/1/logs", None).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[test]
+    fn the_trace_span_never_carries_a_download_ticket() {
+        let ticket: Uri = "/api/v1/downloads/0123456789abcdef".parse().unwrap();
+        let other: Uri = "/api/v1/providers?x=1".parse().unwrap();
+
+        assert_eq!(redact_ticket(&ticket), "/api/v1/downloads/[redacted]");
+        assert_eq!(redact_ticket(&other), "/api/v1/providers?x=1");
     }
 }

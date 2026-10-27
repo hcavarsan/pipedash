@@ -210,6 +210,25 @@ impl GitLabClient {
         Ok(pipelines)
     }
 
+    pub async fn has_ci_config(&self, project: &Project) -> PluginResult<bool> {
+        if project
+            .ci_config_path
+            .as_deref()
+            .is_some_and(|path| !path.is_empty())
+        {
+            return Ok(true);
+        }
+        let url = format!(
+            "{}/projects/{}/repository/files/.gitlab-ci.yml?ref=HEAD",
+            self.api_url, project.id
+        );
+        match self.retry_policy.retry(|| self.get(&url)).await {
+            Ok(_) => Ok(true),
+            Err(PluginError::PipelineNotFound(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     pub async fn get_pipeline(&self, project_id: i64, pipeline_id: i64) -> PluginResult<Pipeline> {
         self.retry_policy
             .retry(|| async {

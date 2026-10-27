@@ -162,6 +162,33 @@ impl Plugin for BitbucketPlugin {
             .collect())
     }
 
+    async fn ids_with_ci(&self, ids: Vec<String>) -> PluginResult<Vec<String>> {
+        let client = self.client()?;
+        let repos: HashMap<String, (String, String)> = self
+            .fetch_all_repositories()
+            .await?
+            .into_iter()
+            .map(|repo| (repo.full_name, (repo.workspace.slug, repo.slug)))
+            .collect();
+        Ok(retain_with_ci(ids, |id| {
+            let repo = repos.get(&id).cloned();
+            async move {
+                let Some((workspace, slug)) = repo else {
+                    return Ok(true);
+                };
+                if !client
+                    .list_pipelines(&workspace, &slug, 1)
+                    .await?
+                    .is_empty()
+                {
+                    return Ok(true);
+                }
+                client.has_pipelines_file(&workspace, &slug).await
+            }
+        })
+        .await)
+    }
+
     async fn fetch_available_pipelines(
         &self, params: Option<PaginationParams>,
     ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
@@ -231,10 +258,23 @@ impl Plugin for BitbucketPlugin {
                 .list_pipelines(&repo.workspace.slug, &repo.slug, 1)
                 .await?;
             let latest = pipelines.first();
-            Ok(mapper::map_pipeline(repo, latest, provider_id))
+            if latest.is_none()
+                && !client
+                    .has_pipelines_file(&repo.workspace.slug, &repo.slug)
+                    .await
+                    .unwrap_or(true)
+            {
+                return Ok(None);
+            }
+            Ok(Some(mapper::map_pipeline(repo, latest, provider_id)))
         });
 
-        collect_partial(join_all(pipeline_futures).await, "repository")
+        Ok(
+            collect_partial(join_all(pipeline_futures).await, "repository")?
+                .into_iter()
+                .flatten()
+                .collect(),
+        )
     }
 
     async fn fetch_run_history(
@@ -495,6 +535,32 @@ mod tests {
                             .to_string(),
                         )
                     }
+                    (true, "/repositories") => {
+                        let repo = |slug: &str| {
+                            serde_json::json!({
+                                "uuid": format!("{{{slug}}}"), "name": slug,
+                                "full_name": format!("ws/{slug}"), "slug": slug,
+                                "workspace": {"uuid": "{ws}", "slug": "ws", "name": "ws"},
+                                "links": {"html": {"href": format!("http://{address}/ws/{slug}")}}
+                            })
+                        };
+                        (
+                            "200 OK",
+                            serde_json::json!({
+                                "values": [repo("repo"), repo("empty"), repo("configured")],
+                                "size": 3, "pagelen": 100
+                            })
+                            .to_string(),
+                        )
+                    }
+                    (true, "/repositories/ws/empty/pipelines")
+                    | (true, "/repositories/ws/configured/pipelines") => (
+                        "200 OK",
+                        serde_json::json!({"values": [], "pagelen": 100}).to_string(),
+                    ),
+                    (true, "/repositories/ws/configured/src/HEAD/bitbucket-pipelines.yml") => {
+                        ("200 OK", "pipelines: {}".to_string())
+                    }
                     (true, "/repositories/ws/repo/pipelines/%7B1%7D/steps") => (
                         "200 OK",
                         serde_json::json!({"values": [], "pagelen": 100}).to_string(),
@@ -543,6 +609,43 @@ mod tests {
         assert_eq!(latest.run_number, 1150);
         assert_eq!(latest.status, PipelineStatus::Success);
         assert_eq!(requests.try_iter().count(), 1);
+    }
+
+    #[tokio::test]
+    async fn only_repositories_without_runs_and_pipelines_file_are_dropped_from_a_selection() {
+        let (plugin, requests) = serve_runs(3).await;
+
+        let kept = plugin
+            .ids_with_ci(
+                ["ws/repo", "ws/empty", "ws/configured"]
+                    .map(String::from)
+                    .to_vec(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(kept, ["ws/repo", "ws/configured"]);
+        assert!(requests
+            .try_iter()
+            .any(|line| line.contains("/ws/empty/src/HEAD/bitbucket-pipelines.yml")));
+    }
+
+    #[tokio::test]
+    async fn tracking_every_repository_lists_those_with_runs_or_a_pipelines_file() {
+        let (plugin, _requests) = serve_runs(3).await;
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+        assert_eq!(
+            pipelines
+                .iter()
+                .map(|pipeline| (pipeline.id.as_str(), pipeline.status))
+                .collect::<Vec<_>>(),
+            [
+                ("bitbucket__1__ws__repo", PipelineStatus::Success),
+                ("bitbucket__1__ws__configured", PipelineStatus::Pending)
+            ]
+        );
     }
 
     #[tokio::test]

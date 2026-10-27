@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../constants/intervals'
 
-export function useDebounce<T>(value: T, delayMs = DEBOUNCE_DELAYS.FILTER): T {
+export function useDebounce<T>(value: T, delayMs: number = DEBOUNCE_DELAYS.FILTER): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value)
 
   useEffect(() => {

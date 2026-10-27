@@ -73,6 +73,7 @@ use crate::infrastructure::database::{
     FETCH_STATUS_SUCCESS,
 };
 use crate::infrastructure::providers::PluginAdapter;
+use crate::infrastructure::run_logs::LogStore;
 use crate::infrastructure::{
     HttpClientManager,
     TokenStore,
@@ -143,13 +144,15 @@ pub struct ProviderService {
     provider_factory: ProviderFactory,
     published_in_flight: DashSet<i64>,
     config_apply: Mutex<()>,
+    log_store: Arc<LogStore>,
 }
 
 impl ProviderService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         repository: Arc<Repository>, http_client_manager: Arc<HttpClientManager>,
         event_bus: Arc<dyn EventBus>, scheduler: Arc<FetchScheduler>, health: HealthHandle,
-        dispatcher: RefreshDispatcher, config_state: Arc<ConfigState>,
+        dispatcher: RefreshDispatcher, config_state: Arc<ConfigState>, log_store: Arc<LogStore>,
     ) -> Self {
         let plugin_registry = Arc::new(plugins::create_plugin_registry());
         let provider_factory: ProviderFactory = {
@@ -173,6 +176,7 @@ impl ProviderService {
             provider_factory,
             published_in_flight: DashSet::new(),
             config_apply: Mutex::new(()),
+            log_store,
         }
     }
 
@@ -244,6 +248,12 @@ impl ProviderService {
 
     pub(crate) fn commit_lock(&self, id: i64) -> Arc<Mutex<()>> {
         Arc::clone(self.commit_locks.entry(id).or_default().value())
+    }
+
+    async fn purge_run_logs(&self, id: i64) {
+        if let Err(e) = self.log_store.purge_provider(id).await {
+            tracing::warn!(provider_id = id, error = %e, "Failed to purge cached run logs");
+        }
     }
 
     async fn current(&self, id: i64) -> Option<ProviderLease> {
@@ -503,7 +513,7 @@ impl ProviderService {
         }
     }
 
-    pub async fn add_provider(&self, config: ProviderConfig) -> DomainResult<i64> {
+    pub async fn add_provider(&self, mut config: ProviderConfig) -> DomainResult<i64> {
         let mut plugin_config = config.config.clone();
         plugin_config.insert("token".to_string(), config.token.clone());
 
@@ -523,6 +533,8 @@ impl ProviderService {
                 config.provider_type, provider_type
             )));
         }
+
+        keep_selection_with_ci(plugin.as_ref(), &mut config).await?;
 
         let permission_status = permission_status.ok();
 
@@ -754,6 +766,7 @@ impl ProviderService {
             tracing::warn!(provider_id = id, error = %e, "Failed to reset fetch status");
         }
         let lease = self.replace(id, instance, config.refresh_interval).await;
+        self.purge_run_logs(id).await;
         self.health.send(HealthInput::ProvidersChanged {
             changed: vec![self.health_input(&config, &lease)],
         });
@@ -804,6 +817,8 @@ impl ProviderService {
             DomainError::InvalidConfig(format!("Credential validation failed: {e}"))
         })?;
 
+        keep_selection_with_ci(plugin.as_ref(), &mut config).await?;
+
         let permission_status = plugin.check_permissions().await.ok();
 
         let mut config_with_id = config.clone();
@@ -832,6 +847,7 @@ impl ProviderService {
         let lease = self
             .replace(id, new_provider, config.refresh_interval)
             .await;
+        self.purge_run_logs(id).await;
         self.health.send(HealthInput::ProvidersChanged {
             changed: vec![self.health_input(&config_with_id, &lease)],
         });
@@ -898,6 +914,7 @@ impl ProviderService {
             .remove_provider(id, &self.config_state)
             .await?;
         self.providers.write().await.remove(&id);
+        self.purge_run_logs(id).await;
         self.scheduler.remove(id);
         self.published_in_flight.remove(&id);
         self.health.send(HealthInput::ProvidersChanged {
@@ -1105,6 +1122,42 @@ fn build_plugin(
     Ok((plugin, client))
 }
 
+async fn keep_selection_with_ci(
+    plugin: &dyn PluginTrait, config: &mut ProviderConfig,
+) -> DomainResult<()> {
+    let Some(selected) = config.config.get("selected_items") else {
+        return Ok(());
+    };
+    let ids: Vec<String> = selected
+        .split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let Ok(kept) = plugin.ids_with_ci(ids.clone()).await else {
+        return Ok(());
+    };
+    if kept.is_empty() {
+        return Err(DomainError::InvalidConfig(
+            "None of the selected repositories has a CI file or a pipeline run yet".to_string(),
+        ));
+    }
+    if kept.len() < ids.len() {
+        tracing::info!(
+            selected = ids.len(),
+            kept = kept.len(),
+            "Skipped selected repositories without a CI file or a pipeline run"
+        );
+        config
+            .config
+            .insert("selected_items".to_string(), kept.join(","));
+    }
+    Ok(())
+}
+
 fn init_plugin(
     http: &HttpClientManager, provider_type: &str, config: HashMap<String, String>,
     provider_id: i64,
@@ -1242,6 +1295,87 @@ mod tests {
             refresh_interval,
             version: None,
         }
+    }
+
+    struct CiCheck(Option<&'static [&'static str]>);
+
+    #[async_trait::async_trait]
+    impl PluginTrait for CiCheck {
+        fn metadata(&self) -> &pipedash_plugin_api::PluginMetadata {
+            unimplemented!()
+        }
+
+        fn initialize(
+            &mut self, _: i64, _: HashMap<String, String>, _: Option<Arc<reqwest::Client>>,
+        ) -> pipedash_plugin_api::PluginResult<()> {
+            Ok(())
+        }
+
+        async fn validate_credentials(&self) -> pipedash_plugin_api::PluginResult<bool> {
+            Ok(true)
+        }
+
+        async fn fetch_pipelines(
+            &self,
+        ) -> pipedash_plugin_api::PluginResult<Vec<pipedash_plugin_api::Pipeline>> {
+            Ok(Vec::new())
+        }
+
+        async fn fetch_run_history(
+            &self, _: &str, _: usize,
+        ) -> pipedash_plugin_api::PluginResult<Vec<pipedash_plugin_api::PipelineRun>> {
+            Ok(Vec::new())
+        }
+
+        async fn fetch_run_details(
+            &self, _: &str, _: i64,
+        ) -> pipedash_plugin_api::PluginResult<pipedash_plugin_api::PipelineRun> {
+            Err(PluginError::NotSupported(String::new()))
+        }
+
+        async fn trigger_pipeline(
+            &self, _: pipedash_plugin_api::TriggerParams,
+        ) -> pipedash_plugin_api::PluginResult<String> {
+            Err(PluginError::NotSupported(String::new()))
+        }
+
+        async fn ids_with_ci(
+            &self, _: Vec<String>,
+        ) -> pipedash_plugin_api::PluginResult<Vec<String>> {
+            self.0
+                .map(|kept| kept.iter().map(|id| id.to_string()).collect())
+                .ok_or_else(|| PluginError::NetworkError("reset".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_saved_selection_keeps_only_repositories_with_ci() {
+        let selected = &[("selected_items", "acme/api, acme/empty,acme/web")];
+
+        let mut config = provider("gh", "github", "t", 30, selected);
+        keep_selection_with_ci(&CiCheck(Some(&["acme/api", "acme/web"])), &mut config)
+            .await
+            .unwrap();
+        assert_eq!(config.config["selected_items"], "acme/api,acme/web");
+
+        let mut config = provider("gh", "github", "t", 30, selected);
+        keep_selection_with_ci(&CiCheck(None), &mut config)
+            .await
+            .unwrap();
+        assert_eq!(
+            config.config["selected_items"],
+            "acme/api, acme/empty,acme/web"
+        );
+
+        let mut config = provider("gh", "github", "t", 30, selected);
+        let error = keep_selection_with_ci(&CiCheck(Some(&[])), &mut config)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, DomainError::InvalidConfig(_)), "{error}");
+        assert_eq!(
+            config.config["selected_items"],
+            "acme/api, acme/empty,acme/web"
+        );
     }
 
     #[tokio::test]

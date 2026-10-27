@@ -7,7 +7,7 @@ import type { Pipeline, WorkflowParameter } from '../../types'
 import { displayWarningNotification } from '../../utils/errorDisplay'
 import { errorId, fieldA11y, fieldAttributes, helpId, withoutType } from '../../utils/formFields'
 import { handleFormEnter, useFocusFirstInvalid } from '../../utils/formFocus'
-import { getPipelineLabels, getReconcileBlockReason } from '../../utils/pipelinePresentation'
+import { getPipelineLabels, getTriggerBlockReason } from '../../utils/pipelinePresentation'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
@@ -75,7 +75,7 @@ export const TriggerWorkflowModal = ({
   const isSubmittingRef = useRef(false)
   const labels = getPipelineLabels(pipeline.provider_type)
   const isFlux = pipeline.provider_type === 'fluxcd'
-  const blockedReason = getReconcileBlockReason(pipeline)
+  const blockedReason = getTriggerBlockReason(pipeline)
 
   const {
     data: parameters = [],

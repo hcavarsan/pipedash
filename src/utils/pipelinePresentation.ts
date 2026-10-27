@@ -67,6 +67,9 @@ const fluxStatusOptions = [
 export const getStatusOptions = (providerType?: string) =>
   providerType === 'fluxcd' ? fluxStatusOptions : STATUS_OPTIONS
 
+export const isDynamicGitHubWorkflow = (pipeline: Pick<Pipeline, 'provider_type' | 'workflow_file'>) =>
+  pipeline.provider_type === 'github' && pipeline.workflow_file?.startsWith('dynamic/') === true
+
 export const getReconcileBlockReason = (pipeline: Pick<Pipeline, 'metadata'>) => {
   if (pipeline.metadata?.missing === true) {
     return 'This resource was not found. Update the selection or recreate it in Flux.'
@@ -77,3 +80,8 @@ export const getReconcileBlockReason = (pipeline: Pick<Pipeline, 'metadata'>) =>
 
   return undefined
 }
+
+export const getTriggerBlockReason = (pipeline: Pick<Pipeline, 'metadata' | 'provider_type' | 'workflow_file'>) =>
+  isDynamicGitHubWorkflow(pipeline)
+    ? 'GitHub starts this built-in workflow itself. It has no workflow file, so only its existing runs can be rerun.'
+    : getReconcileBlockReason(pipeline)

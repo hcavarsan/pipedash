@@ -7,6 +7,7 @@ mod preferences;
 mod providers;
 mod push;
 mod refresh;
+mod run_logs;
 mod settings;
 mod setup;
 mod storage;
@@ -28,7 +29,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/health", get(health::health_check))
         .nest("/setup", setup::router())
         .nest("/providers", providers::router())
-        .nest("/pipelines", pipelines::router())
+        .nest("/pipelines", pipelines::router().merge(run_logs::router()))
         .nest("/plugins", plugins::router())
         .nest("/cache", cache::router())
         .nest("/metrics", metrics::router())
@@ -38,6 +39,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/push", push::router())
         .nest("/storage", storage::router())
         .nest("/vault", vault::router())
+        .route("/downloads/{ticket}", get(run_logs::download))
         .merge(system::router())
 }
 

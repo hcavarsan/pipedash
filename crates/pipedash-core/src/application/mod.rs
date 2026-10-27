@@ -31,6 +31,10 @@ pub use services::health_service::{
     ProviderHealthService,
     ProviderHealthState,
 };
+pub use services::log_service::{
+    LogExport,
+    LogService,
+};
 pub use services::metrics_service::MetricsService;
 pub use services::pipeline_service::{
     PipelineService,
@@ -45,6 +49,7 @@ use tokio::sync::watch;
 
 use crate::event::EventBus;
 use crate::infrastructure::database::Repository;
+use crate::infrastructure::run_logs::LogStore;
 use crate::infrastructure::{
     ConfigState,
     HttpClientManager,
@@ -64,13 +69,14 @@ pub struct Services {
     pub refresh_manager: Arc<RefreshManager>,
     pub health: HealthHandle,
     pub health_service: Arc<ProviderHealthService>,
+    pub log_service: Arc<LogService>,
 }
 
 impl Services {
     pub fn new(
         repository: Arc<Repository>, http_client_manager: Arc<HttpClientManager>,
         metrics_service: Option<Arc<MetricsService>>, event_bus: Arc<dyn EventBus>,
-        config_state: Arc<ConfigState>,
+        config_state: Arc<ConfigState>, log_store: Arc<LogStore>,
     ) -> Self {
         let (health, health_receivers) = HealthHandle::channel();
         let (dispatcher, commands) = RefreshDispatcher::channel();
@@ -85,6 +91,7 @@ impl Services {
             health.clone(),
             dispatcher,
             Arc::clone(&config_state),
+            Arc::clone(&log_store),
         ));
         let health_service = Arc::new(ProviderHealthService::new(
             health_receivers,
@@ -93,6 +100,12 @@ impl Services {
             Arc::clone(&event_bus),
             config_state,
             mode_tx.subscribe(),
+        ));
+        let log_service = Arc::new(LogService::new(
+            log_store,
+            Arc::clone(&provider_service),
+            Arc::clone(&repository),
+            Arc::clone(&event_bus),
         ));
         let pipeline_service = Arc::new(PipelineService::new(
             repository,
@@ -114,6 +127,7 @@ impl Services {
             refresh_manager,
             health,
             health_service,
+            log_service,
         }
     }
 }

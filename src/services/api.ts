@@ -43,7 +43,8 @@ import type {
   VaultStatusResponse,
   WorkflowParameter,
 } from '../types'
-import { getHttpStatus } from '../types/errors'
+import { getErrorCode, getHttpStatus } from '../types/errors'
+import type { LogLinesPage, LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 import { DEFAULT_RETRY_CONFIG, withRetry } from '../utils/retryLogic'
 
 const API_BASE = import.meta.env.VITE_API_URL || withBasePath('/api/v1')
@@ -51,6 +52,25 @@ const API_BASE = import.meta.env.VITE_API_URL || withBasePath('/api/v1')
 interface RequestOptions {
   timeoutMs?: number
   retry?: boolean
+  signal?: AbortSignal
+}
+
+const RUN_LOG_SEARCH_TIMEOUT_MS = 60000
+
+const runLogPath = (pipelineId: string, runNumber: number, nodeId?: string): string => {
+  const base = `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/logs`
+
+  return nodeId === undefined ? base : `${base}/${encodeURIComponent(nodeId)}`
+}
+
+const codeFromBody = (body: string): string | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(body)
+
+    return getErrorCode(parsed)
+  } catch {
+    return undefined
+  }
 }
 
 const REFRESH_REQUEST: RequestOptions = { timeoutMs: REFRESH_TIMEOUT_MS, retry: false }
@@ -81,26 +101,32 @@ class ApiClient {
   private async fetchWithTimeout(
     url: string,
     options: RequestInit,
-    timeoutMs: number = API_TIMEOUTS.DEFAULT
+    timeoutMs: number = API_TIMEOUTS.DEFAULT,
+    signal?: AbortSignal
   ): Promise<Response> {
+    if (signal?.aborted) {
+      throw signal.reason
+    }
+
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    const onAbort = () => controller.abort(signal?.reason)
+
+    signal?.addEventListener('abort', onAbort, { once: true })
 
     try {
-      const response = await fetch(url, {
+      return await fetch(url, {
         ...options,
         signal: controller.signal,
       })
-
-      clearTimeout(timeoutId)
-
-      return response
     } catch (error) {
-      clearTimeout(timeoutId)
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (!signal?.aborted && error instanceof Error && error.name === 'AbortError') {
         throw new Error(`Request timeout after ${timeoutMs}ms`)
       }
       throw error
+    } finally {
+      clearTimeout(timeoutId)
+      signal?.removeEventListener('abort', onAbort)
     }
   }
 
@@ -122,7 +148,8 @@ class ApiClient {
             headers,
             body: body ? JSON.stringify(body) : undefined,
           },
-          options.timeoutMs ?? getTimeoutFor(method, path)
+          options.timeoutMs ?? getTimeoutFor(method, path),
+          options.signal
         )
 
         if (res.ok) {
@@ -134,7 +161,10 @@ class ApiClient {
             useAuthStore.getState().incrementFailure()
           }
           const errorText = await res.text()
-          const error = Object.assign(new Error(errorText || `HTTP ${res.status}`), { status: res.status })
+          const error = Object.assign(new Error(errorText || `HTTP ${res.status}`), {
+            status: res.status,
+            code: codeFromBody(errorText),
+          })
 
           throw error
         }
@@ -364,6 +394,10 @@ class ApiClient {
     await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/rerun-failed-jobs`)
   }
 
+  async rerunRun(pipelineId: string, runNumber: number): Promise<void> {
+    await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/rerun`)
+  }
+
   async openUrl(url: string): Promise<void> {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
@@ -381,6 +415,7 @@ class ApiClient {
     run_history_count: number
     workflow_params_count: number
     metrics_count: number
+    run_logs_bytes: number
   }> {
     return this.get('/cache/stats')
   }
@@ -401,6 +436,70 @@ class ApiClient {
 
   async clearAllCaches(): Promise<void> {
     await this.delete('/cache')
+  }
+
+  async getRunLogTree(pipelineId: string, runNumber: number): Promise<RunLogTree> {
+    return this.get<RunLogTree>(runLogPath(pipelineId, runNumber))
+  }
+
+  async openRunLog(pipelineId: string, runNumber: number, nodeId: string, retry: boolean): Promise<RunLogDocument> {
+    return this.get<RunLogDocument>(`${runLogPath(pipelineId, runNumber, nodeId)}?retry=${retry}`)
+  }
+
+  async readRunLogLines(
+    pipelineId: string,
+    runNumber: number,
+    nodeId: string,
+    revision: number,
+    start: number,
+    count: number,
+    maxLineUnits: number
+  ): Promise<LogLinesPage> {
+    return this.get<LogLinesPage>(
+      `${runLogPath(pipelineId, runNumber, nodeId)}/lines?revision=${revision}&start=${start}&count=${count}&max_line_units=${maxLineUnits}`
+    )
+  }
+
+  async searchRunLog(
+    pipelineId: string,
+    runNumber: number,
+    nodeId: string,
+    revision: number,
+    sessionId: string,
+    query: LogSearchQuery,
+    signal?: AbortSignal
+  ): Promise<LogSearchResult> {
+    return this.request<LogSearchResult>(
+      'POST',
+      `${runLogPath(pipelineId, runNumber, nodeId)}/search?revision=${revision}&session=${encodeURIComponent(sessionId)}`,
+      query,
+      { timeoutMs: RUN_LOG_SEARCH_TIMEOUT_MS, retry: false, signal }
+    )
+  }
+
+  async clearRunLogsCache(): Promise<void> {
+    await this.request('DELETE', '/cache/run-logs', undefined, { retry: false })
+  }
+
+  async exportRunLog(
+    pipelineId: string,
+    runNumber: number,
+    nodeId: string,
+    revision: number,
+    fileName: string
+  ): Promise<boolean> {
+    const { ticket } = await this.post<{ ticket: string }>(
+      `${runLogPath(pipelineId, runNumber, nodeId)}/download-ticket`,
+      { revision, file_name: fileName },
+      { retry: false }
+    )
+    const link = document.createElement('a')
+
+    link.href = `${API_BASE}/downloads/${ticket}`
+    link.download = fileName
+    link.click()
+
+    return true
   }
 
   async getGlobalMetricsConfig(): Promise<GlobalMetricsConfig> {

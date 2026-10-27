@@ -13,6 +13,7 @@ use pipedash_plugin_api::*;
 use crate::{
     client,
     config,
+    mapper,
     metadata,
 };
 
@@ -35,6 +36,7 @@ mod permission_mapping {
     pub const FINE_GRAINED_FEATURE_MAPPINGS: &[(&str, &[&str])] = &[
         ("list_monitor_workflows", &["Repository Metadata"]),
         ("view_run_history", &["Repository Metadata"]),
+        ("view_run_logs", &["Actions (Read)"]),
         ("monitor_status", &["Actions (Read)"]),
         ("trigger_dispatch", &["Actions (Write)", "Contents (Read)"]),
         ("cancel_workflows", &["Actions (Write)"]),
@@ -81,6 +83,19 @@ impl GitHubPlugin {
             .ok_or_else(|| PluginError::Internal("Plugin not initialized".to_string()))
     }
 
+    fn repo_of(pipeline_id: &str) -> PluginResult<(&str, &str)> {
+        let parts: Vec<&str> = pipeline_id.split("__").collect();
+        if parts.len() != 5 {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid pipeline ID format: {} (expected 5 parts, got {})",
+                pipeline_id,
+                parts.len()
+            )));
+        }
+
+        Ok((parts[2], parts[3]))
+    }
+
     fn matches_trigger(
         run: &crate::types::Run, previous_run_number: i64, ref_value: &str,
         trigger_time: chrono::DateTime<chrono::Utc>,
@@ -88,6 +103,33 @@ impl GitHubPlugin {
         run.run_number > previous_run_number
             && run.head_branch == ref_value
             && run.created_at.timestamp() >= trigger_time.timestamp()
+    }
+
+    async fn rerun(
+        &self, pipeline_id: &str, run_number: i64, failed_only: bool,
+    ) -> PluginResult<()> {
+        let parts: Vec<&str> = pipeline_id.split("__").collect();
+        if parts.len() != 5 {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid pipeline ID format: {} (expected 5 parts, got {})",
+                pipeline_id,
+                parts.len()
+            )));
+        }
+
+        let owner = parts[2];
+        let repo = parts[3];
+        let workflow_id_str = parts[4];
+        let workflow_id: u64 = workflow_id_str.parse().map_err(|_| {
+            PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id_str}"))
+        })?;
+
+        let client = self.client()?;
+        let run = client
+            .fetch_run_by_number(owner, repo, workflow_id, run_number)
+            .await?;
+
+        client.rerun(owner, repo, run.id.0, failed_only).await
     }
 }
 
@@ -195,6 +237,16 @@ impl Plugin for GitHubPlugin {
         client
             .fetch_available_pipelines_filtered(org, search, params)
             .await
+    }
+
+    async fn ids_with_ci(&self, ids: Vec<String>) -> PluginResult<Vec<String>> {
+        let client = self.client()?;
+        Ok(retain_with_ci(ids, |id| async move {
+            let (owner, repo) = config::parse_repo(&id)
+                .ok_or_else(|| PluginError::InvalidConfig(format!("Invalid repository: {id}")))?;
+            client.has_workflows(&owner, &repo).await
+        })
+        .await)
     }
 
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
@@ -313,6 +365,43 @@ impl Plugin for GitHubPlugin {
             .await?;
 
         Ok(client::run_to_pipeline_run(run, pipeline_id))
+    }
+
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let (owner, repo) = Self::repo_of(run.pipeline_id)?;
+        let run_id = run
+            .metadata
+            .get("run_id")
+            .and_then(serde_json::Value::as_u64)
+            .or_else(|| {
+                run.run_id
+                    .strip_prefix("github-run-")
+                    .and_then(|id| id.parse().ok())
+            })
+            .ok_or_else(|| {
+                PluginError::InvalidConfig(format!("Run #{} has no GitHub run ID", run.run_number))
+            })?;
+
+        let jobs = self.client()?.list_run_jobs(owner, repo, run_id).await?;
+
+        Ok(mapper::jobs_to_log_nodes(&jobs))
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let (owner, repo) = Self::repo_of(run.pipeline_id)?;
+        let job_id: u64 = node_id
+            .parse()
+            .map_err(|_| PluginError::InvalidConfig("Only jobs have logs on GitHub".into()))?;
+
+        self.client()?
+            .stream_job_log(owner, repo, job_id, sink)
+            .await
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &pipedash_plugin_actions::ActionsLogDialect
     }
 
     async fn fetch_workflow_parameters(
@@ -497,28 +586,11 @@ impl Plugin for GitHubPlugin {
     }
 
     async fn rerun_failed_jobs(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
-        let parts: Vec<&str> = pipeline_id.split("__").collect();
-        if parts.len() != 5 {
-            return Err(PluginError::InvalidConfig(format!(
-                "Invalid pipeline ID format: {} (expected 5 parts, got {})",
-                pipeline_id,
-                parts.len()
-            )));
-        }
+        self.rerun(pipeline_id, run_number, true).await
+    }
 
-        let owner = parts[2];
-        let repo = parts[3];
-        let workflow_id_str = parts[4];
-        let workflow_id: u64 = workflow_id_str.parse().map_err(|_| {
-            PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id_str}"))
-        })?;
-
-        let client = self.client()?;
-        let run = client
-            .fetch_run_by_number(owner, repo, workflow_id, run_number)
-            .await?;
-
-        client.rerun_failed_jobs(owner, repo, run.id.0).await
+    async fn rerun_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
+        self.rerun(pipeline_id, run_number, false).await
     }
 
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
@@ -979,14 +1051,15 @@ mod tests {
                     finished_run(9001, 7, "completed", Some("failure")),
                 ]
             })),
-            ("POST", "/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs") => rerun_reply(),
+            ("POST", "/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs")
+            | ("POST", "/api/v3/repos/acme/app/actions/runs/9001/rerun") => rerun_reply(),
             (method, path) => panic!("Unexpected stub request: {method} {path}"),
         })
         .await
     }
 
     #[tokio::test]
-    async fn rerun_failed_jobs_posts_for_the_run_with_that_number() {
+    async fn reruns_post_the_matching_endpoint_for_the_run_with_that_number() {
         let (plugin, recorded, server) = stub_failed_runs(|| Reply {
             status: 201,
             headers: Vec::new(),
@@ -995,6 +1068,7 @@ mod tests {
         .await;
 
         plugin.rerun_failed_jobs(PIPELINE_ID, 7).await.unwrap();
+        plugin.rerun_run(PIPELINE_ID, 7).await.unwrap();
 
         let posted: Vec<String> = recorded
             .lock()
@@ -1005,7 +1079,10 @@ mod tests {
             .collect();
         assert_eq!(
             posted,
-            ["/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs"]
+            [
+                "/api/v3/repos/acme/app/actions/runs/9001/rerun-failed-jobs",
+                "/api/v3/repos/acme/app/actions/runs/9001/rerun"
+            ]
         );
         server.abort();
     }
@@ -1386,6 +1463,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repositories_without_workflows_are_dropped_from_a_selection() {
+        let (plugin, _recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows") => {
+                ok(serde_json::json!({"total_count": 1, "workflows": [workflow(42)]}))
+            }
+            ("GET", "/api/v3/repos/acme/empty/actions/workflows") => {
+                ok(serde_json::json!({"total_count": 0, "workflows": []}))
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let kept = plugin
+            .ids_with_ci(["acme/app", "acme/empty"].map(String::from).to_vec())
+            .await
+            .unwrap();
+        server.abort();
+
+        assert_eq!(kept, ["acme/app"]);
+    }
+
+    #[tokio::test]
+    async fn workflow_parameters_explain_a_workflow_file_missing_from_the_default_branch() {
+        let (plugin, _recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/workflows/42") => ok(workflow(42)),
+            ("GET", "/api/v3/repos/acme/app/contents/.github/workflows/ci.yml") => {
+                failure(404, "Not Found", &[])
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let error = plugin
+            .fetch_workflow_parameters(PIPELINE_ID)
+            .await
+            .unwrap_err();
+        server.abort();
+
+        assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains(".github/workflows/ci.yml isn't on the default branch"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
     async fn permission_check_uses_the_configured_api_url() {
         let (plugin, recorded, server) = serve(&[], |method, path| match (method, path) {
             ("GET", "/api/v3/user") => Reply {
@@ -1567,5 +1692,263 @@ mod tests {
             ],
             "{targets:?}"
         );
+    }
+
+    fn job(
+        id: u64, status: &str, conclusion: Option<&str>, steps: serde_json::Value,
+    ) -> serde_json::Value {
+        let url = "http://stub.invalid/acme/app";
+        serde_json::json!({
+            "id": id, "run_id": 9001, "workflow_name": "CI", "head_branch": "main",
+            "run_url": url, "run_attempt": 1, "node_id": "n", "head_sha": "abc",
+            "url": url, "html_url": format!("{url}/actions/runs/9001/job/{id}"),
+            "status": status, "conclusion": conclusion,
+            "created_at": "2026-10-20T10:00:00Z", "started_at": "2026-10-20T10:00:05Z",
+            "completed_at": (status == "completed").then_some("2026-10-20T10:01:00Z"),
+            "name": format!("job-{id}"), "steps": steps, "check_run_url": url, "labels": []
+        })
+    }
+
+    fn step(number: u64, status: &str, conclusion: Option<&str>) -> serde_json::Value {
+        serde_json::json!({
+            "name": format!("step-{number}"), "status": status, "conclusion": conclusion,
+            "number": number,
+            "started_at": (status != "pending").then_some("2026-10-20T10:00:06Z"),
+            "completed_at": (status == "completed").then_some("2026-10-20T10:00:09Z")
+        })
+    }
+
+    fn run_ref(metadata: &HashMap<String, serde_json::Value>) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: PIPELINE_ID,
+            run_number: 7,
+            run_id: "github-run-9001",
+            metadata,
+        }
+    }
+
+    const JOBS_PATH: &str = "/api/v3/repos/acme/app/actions/runs/9001/jobs";
+
+    #[tokio::test]
+    async fn log_nodes_map_jobs_and_steps() {
+        let (plugin, _recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", JOBS_PATH) => ok(serde_json::json!({
+                "total_count": 3,
+                "jobs": [
+                    job(1, "completed", Some("failure"), serde_json::json!([
+                        step(1, "completed", Some("success")),
+                        step(2, "completed", Some("failure")),
+                    ])),
+                    job(2, "in_progress", None, serde_json::json!([
+                        step(1, "in_progress", None),
+                        step(2, "pending", None),
+                    ])),
+                    job(3, "queued", None, serde_json::json!([])),
+                ]
+            })),
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let from_metadata = HashMap::from([("run_id".to_string(), serde_json::json!(9001))]);
+        let nodes = plugin
+            .fetch_log_nodes(run_ref(&from_metadata))
+            .await
+            .unwrap();
+        let from_id = plugin
+            .fetch_log_nodes(run_ref(&HashMap::new()))
+            .await
+            .unwrap();
+        let missing = plugin
+            .fetch_log_nodes(RunRef {
+                run_id: "other-9001",
+                ..run_ref(&HashMap::new())
+            })
+            .await
+            .unwrap_err();
+        server.abort();
+
+        assert_eq!(from_id.len(), nodes.len());
+        assert!(
+            matches!(missing, PluginError::InvalidConfig(_)),
+            "{missing}"
+        );
+        let shape: Vec<_> = nodes
+            .iter()
+            .map(|n| {
+                (
+                    n.id.as_str(),
+                    n.parent_id.as_deref(),
+                    n.kind,
+                    n.status,
+                    n.log,
+                )
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                (
+                    "1",
+                    None,
+                    LogNodeKind::Job,
+                    PipelineStatus::Failed,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "1:1",
+                    Some("1"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Success,
+                    None
+                ),
+                (
+                    "1:2",
+                    Some("1"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Failed,
+                    None
+                ),
+                (
+                    "2",
+                    None,
+                    LogNodeKind::Job,
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Pending)
+                ),
+                (
+                    "2:1",
+                    Some("2"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Running,
+                    None
+                ),
+                (
+                    "2:2",
+                    Some("2"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Pending,
+                    None
+                ),
+                (
+                    "3",
+                    None,
+                    LogNodeKind::Job,
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Pending)
+                ),
+            ]
+        );
+        assert_eq!(nodes[0].name, "job-1");
+        assert_eq!(
+            nodes[0].web_url.as_deref(),
+            Some("http://stub.invalid/acme/app/actions/runs/9001/job/1")
+        );
+        assert!(nodes[0].started_at.is_some() && nodes[0].finished_at.is_some());
+        assert!(nodes[3].started_at.is_some() && nodes[3].finished_at.is_none());
+        assert!(nodes[6].started_at.is_none());
+        assert!(nodes[5].started_at.is_none());
+        assert!(nodes[1].started_at.is_some() && nodes[1].finished_at.is_some());
+        assert_eq!(nodes[1].name, "step-1");
+    }
+
+    #[tokio::test]
+    async fn jobs_are_paginated_until_a_short_page() {
+        let pages = std::sync::atomic::AtomicUsize::new(0);
+        let (plugin, recorded, server) = serve(&[], move |method, path| match (method, path) {
+            ("GET", JOBS_PATH) => {
+                let page = pages.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let (first, count) = if page == 0 { (1, 100) } else { (101, 3) };
+                let jobs: Vec<_> = (first..first + count)
+                    .map(|id| job(id, "completed", Some("success"), serde_json::json!([])))
+                    .collect();
+                ok(serde_json::json!({"total_count": 500, "jobs": jobs}))
+            }
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let metadata = HashMap::new();
+        let nodes = plugin.fetch_log_nodes(run_ref(&metadata)).await.unwrap();
+        let requests = recorded.lock().await.len();
+        server.abort();
+
+        assert_eq!(nodes.len(), 103);
+        assert!(nodes.iter().all(|n| n.kind == LogNodeKind::Job));
+        assert_eq!(requests, 2);
+    }
+
+    async fn read_job_log(plugin: &GitHubPlugin, job_id: &str) -> PluginResult<Vec<u8>> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let metadata = HashMap::new();
+        plugin
+            .read_log(run_ref(&metadata), job_id, &mut sink)
+            .await?;
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes)
+    }
+
+    #[tokio::test]
+    async fn job_log_follows_redirect_into_the_sink() {
+        let (plugin, recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("GET", "/api/v3/repos/acme/app/actions/jobs/7/logs") => Reply {
+                status: 302,
+                headers: vec![("Location", "/blob/7.txt")],
+                body: serde_json::Value::String(String::new()),
+            },
+            ("GET", "/blob/7.txt") => ok(serde_json::Value::String(
+                "2026-10-20T10:00:05.0000000Z first\r\nsecond\n".to_string(),
+            )),
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        let bytes = read_job_log(&plugin, "7").await.unwrap();
+        let paths: Vec<String> = recorded
+            .lock()
+            .await
+            .iter()
+            .map(|(_, path, _)| path.clone())
+            .collect();
+        server.abort();
+
+        assert_eq!(bytes, b"2026-10-20T10:00:05.0000000Z first\r\nsecond\n");
+        assert_eq!(
+            paths,
+            ["/api/v3/repos/acme/app/actions/jobs/7/logs", "/blob/7.txt"]
+        );
+    }
+
+    #[tokio::test]
+    async fn expired_job_log_is_pipeline_not_found() {
+        for status in [404, 410] {
+            let (plugin, recorded, server) = serve(&[], move |method, path| match (method, path) {
+                ("GET", "/api/v3/repos/acme/app/actions/jobs/7/logs") => {
+                    failure(status, "Logs expired", &[])
+                }
+                (method, path) => panic!("Unexpected stub request: {method} {path}"),
+            })
+            .await;
+
+            let error = read_job_log(&plugin, "7").await.unwrap_err();
+            let requests = recorded.lock().await.len();
+            let not_a_job = read_job_log(&plugin, "7:2").await.unwrap_err();
+            server.abort();
+
+            assert!(
+                matches!(&error, PluginError::PipelineNotFound(m) if m.contains("job 7")),
+                "{status}: {error}"
+            );
+            assert_eq!(requests, 1, "{status}");
+            assert!(
+                matches!(not_a_job, PluginError::InvalidConfig(_)),
+                "{not_a_job}"
+            );
+        }
     }
 }

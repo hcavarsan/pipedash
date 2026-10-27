@@ -132,6 +132,15 @@ impl Plugin for GiteaPlugin {
         self.client()?.list_organizations().await
     }
 
+    async fn ids_with_ci(&self, ids: Vec<String>) -> PluginResult<Vec<String>> {
+        let client = self.client()?;
+        Ok(retain_with_ci(ids, |id| async move {
+            let (owner, repo) = config::parse_repo(&id)?;
+            Ok(!client.list_workflows(owner, repo).await?.is_empty())
+        })
+        .await)
+    }
+
     async fn fetch_available_pipelines_filtered(
         &self, org: Option<String>, search: Option<String>, params: Option<PaginationParams>,
     ) -> PluginResult<PaginatedResponse<AvailablePipeline>> {
@@ -376,6 +385,9 @@ mod tests {
                     ("GET", "/api/v1/repos/claude/missing/actions/workflows") => {
                         (404, serde_json::json!({"message": "not found"}))
                     }
+                    ("GET", "/api/v1/repos/claude/empty/actions/workflows") => {
+                        (200, serde_json::json!({"workflows": []}))
+                    }
                     ("GET", "/api/v1/repos/claude/smoke__ci/raw/.gitea/workflows/build__test.yaml") => {
                         (200, serde_json::json!("on:\n  workflow_dispatch:\n    inputs:\n      greeting:\n        description: Greeting\n        default: hi\n"))
                     }
@@ -408,6 +420,23 @@ mod tests {
             )
             .unwrap();
         (plugin, server)
+    }
+
+    #[tokio::test]
+    async fn repositories_without_workflows_are_dropped_from_a_selection() {
+        let (plugin, server) = stub_gitea().await;
+
+        let kept = plugin
+            .ids_with_ci(
+                ["claude/smoke__ci", "claude/empty", "claude/missing"]
+                    .map(String::from)
+                    .to_vec(),
+            )
+            .await
+            .unwrap();
+        server.abort();
+
+        assert_eq!(kept, ["claude/smoke__ci", "claude/missing"]);
     }
 
     #[tokio::test]

@@ -1,12 +1,28 @@
-import { Alert, Box, Button, Code, Divider, Group, Loader, Paper, Stack, Text, VisuallyHidden } from '@mantine/core'
+import {
+  Alert,
+  Box,
+  Button,
+  Code,
+  Divider,
+  Group,
+  Loader,
+  Paper,
+  ScrollArea,
+  Stack,
+  Tabs,
+  Text,
+  VisuallyHidden,
+} from '@mantine/core'
 import { useClipboard } from '@mantine/hooks'
 import { IconCopy, IconExternalLink, IconPlayerPlay, IconRefresh, IconShare2, IconSquare } from '@tabler/icons-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
+import { usePlugins } from '../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { useRerunWorkflow, useRunDetails } from '../../queries/useRunDetailsQuery'
-import { useCancelRun } from '../../queries/useRunHistoryQueries'
+import { useCancelRun, useRerunRun } from '../../queries/useRunHistoryQueries'
+import { useRunLogTree } from '../../queries/useRunLogQueries'
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { service } from '../../services'
 import { mobileService } from '../../services/mobile'
@@ -16,18 +32,23 @@ import type { CellRenderer, PipelineStatus } from '../../types'
 import { filterVisibleColumns } from '../../utils/columnBuilder'
 import { type CellValue, renderCellValue } from '../../utils/dynamicRenderers'
 import { displayErrorNotification } from '../../utils/errorDisplay'
+import { formatDuration } from '../../utils/formatDuration'
 import { getValueByPath } from '../../utils/objectPath'
 import { isHttpUrl, openExternal } from '../../utils/openExternal'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { isMobilePlatform } from '../../utils/platform'
 import { CopyButton } from '../atoms/CopyButton'
-import { StatusBadge } from '../atoms/StatusBadge'
+import { StatusBadge, StatusIcon } from '../atoms/StatusBadge'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
+import { LogViewer, type LogViewerHandle } from '../logs/LogViewer'
 
 import { BuildWatchControls } from './BuildWatchControls'
+import { createLogShortcutHandler } from './logShortcuts'
+import { groupLogNodes } from './logTree'
+import { RunLogsPanel } from './RunLogsPanel'
 import classes from './WorkflowLogsModal.module.css'
 
 interface WorkflowLogsModalProps {
@@ -37,9 +58,12 @@ interface WorkflowLogsModalProps {
   runNumber: number
   providerId?: number
   providerType?: string
+  pipelineName: string
+  canViewLogs: boolean
   canTrigger: boolean
   triggerBlockedReason?: string
   canCancel: boolean
+  rerunInPlace?: boolean
   onRerunSuccess?: (pipelineId: string, newRunNumber: number) => void
   onCancelSuccess?: () => void
 }
@@ -73,8 +97,11 @@ export const WorkflowLogsModal = ({
   canTrigger,
   triggerBlockedReason,
   canCancel,
+  rerunInPlace,
   onRerunSuccess,
   onCancelSuccess,
+  pipelineName,
+  canViewLogs,
 }: WorkflowLogsModalProps) => {
   const [cancelling, setCancelling] = useState(false)
   const [cancellationRequestedFor, setCancellationRequestedFor] = useState<string | null>(null)
@@ -85,6 +112,25 @@ export const WorkflowLogsModal = ({
   const abortRef = useRef(false)
   const labels = getPipelineLabels(providerType)
   const isFlux = providerType === 'fluxcd'
+  const { getPluginDisplayName } = usePlugins()
+  const providerName = providerType ? getPluginDisplayName(providerType) : 'provider'
+  const [tab, setTab] = useState<'logs' | 'details'>('logs')
+  const [logNodeId, setLogNodeId] = useState<string | null>(null)
+  const viewerRef = useRef<LogViewerHandle>(null)
+  const shortcuts = useMemo(() => createLogShortcutHandler(() => viewerRef.current), [])
+  const { data: logTree } = useRunLogTree(pipelineId, runNumber, canViewLogs && mobileShell && opened)
+  const logNode = logTree?.nodes.find((node) => node.id === logNodeId && node.log !== null)
+  const jobGroups = canViewLogs && mobileShell ? groupLogNodes(logTree?.nodes ?? [], true) : []
+
+  useEffect(() => {
+    if (tab !== 'logs') {
+      return
+    }
+
+    const frame = requestAnimationFrame(() => viewerRef.current?.focusBody())
+
+    return () => cancelAnimationFrame(frame)
+  }, [tab])
 
   useEffect(() => {
     abortRef.current = false
@@ -103,6 +149,8 @@ export const WorkflowLogsModal = ({
   } = useRunDetails(pipelineId, runNumber, opened)
 
   const rerunMutation = useRerunWorkflow()
+  const rerunRunMutation = useRerunRun()
+  const rerunPending = rerunMutation.isPending || rerunRunMutation.isPending
 
   const { data: tableSchema } = useTableDefinition(providerId ?? 0, 'pipeline_runs')
 
@@ -121,6 +169,14 @@ export const WorkflowLogsModal = ({
     }
 
     try {
+      if (rerunInPlace) {
+        await rerunRunMutation.mutateAsync({ pipelineId, runNumber })
+        onClose()
+        onRerunSuccess?.(pipelineId, runNumber)
+
+        return
+      }
+
       const result = await rerunMutation.mutateAsync({
         pipelineId,
         inputs: runDetails.inputs,
@@ -302,7 +358,7 @@ export const WorkflowLogsModal = ({
             size="sm"
             rightSection={<IconExternalLink size={16} />}
           >
-            {isMobile ? 'Logs' : 'View full logs'}
+            {canViewLogs ? `Open in ${providerName}` : isMobile ? 'Logs' : 'View full logs'}
           </Button>
         )}
         {isRunning && canCancel && (
@@ -318,12 +374,7 @@ export const WorkflowLogsModal = ({
           </Button>
         )}
         {!isRunning && canTrigger && (
-          <Button
-            size="sm"
-            leftSection={<IconPlayerPlay size={16} />}
-            onClick={handleRerun}
-            loading={rerunMutation.isPending}
-          >
+          <Button size="sm" leftSection={<IconPlayerPlay size={16} />} onClick={handleRerun} loading={rerunPending}>
             {isFlux ? labels.trigger : isMobile ? 'Rerun' : 'Rerun workflow'}
           </Button>
         )}
@@ -417,6 +468,20 @@ export const WorkflowLogsModal = ({
               )}
             </IosGroup>
           </div>
+          {jobGroups.map((group) => (
+            <IosGroup key={group.stage ?? 'jobs'} header={group.stage ?? 'Jobs'}>
+              {group.nodes.map((job) => (
+                <IosRow
+                  key={job.id}
+                  icon={<StatusIcon status={job.status} />}
+                  title={job.name}
+                  value={formatDuration(job.duration_seconds)}
+                  chevron
+                  onClick={() => setLogNodeId(job.id)}
+                />
+              ))}
+            </IosGroup>
+          ))}
           {hasLogs && (
             <IosGroup footer={showRerun || stoppable ? undefined : note}>
               <IosRow
@@ -446,8 +511,8 @@ export const WorkflowLogsModal = ({
                     {isFlux ? labels.trigger : 'Rerun workflow'}
                   </Text>
                 }
-                accessory={rerunMutation.isPending ? <Loader size="sm" /> : undefined}
-                disabled={rerunMutation.isPending}
+                accessory={rerunPending ? <Loader size="sm" /> : undefined}
+                disabled={rerunPending}
                 onClick={handleRerun}
               />
             </IosGroup>
@@ -493,16 +558,85 @@ export const WorkflowLogsModal = ({
     )
   }
 
+  const title = isFlux ? 'Reconciliation details' : 'Run details'
+
+  if (canViewLogs && !mobileShell) {
+    const column = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
+
+    return (
+      <StandardModal
+        opened={opened}
+        onClose={onClose}
+        size="full"
+        title={title}
+        footer={footer}
+        disableScrollArea
+        contentPadding={false}
+      >
+        <Tabs
+          value={tab}
+          onChange={(value) => setTab(value === 'details' ? 'details' : 'logs')}
+          keepMounted={false}
+          onKeyDown={tab === 'logs' ? shortcuts : undefined}
+          style={column}
+        >
+          <Tabs.List px="lg">
+            <Tabs.Tab value="logs">Logs</Tabs.Tab>
+            <Tabs.Tab value="details">Details</Tabs.Tab>
+          </Tabs.List>
+          <Tabs.Panel value="logs" style={column}>
+            <RunLogsPanel
+              pipelineId={pipelineId}
+              pipelineName={pipelineName}
+              runNumber={runNumber}
+              providerName={providerName}
+              narrow={isMobile}
+              viewerRef={viewerRef}
+            />
+          </Tabs.Panel>
+          <Tabs.Panel value="details" style={column}>
+            <ScrollArea style={{ flex: 1, minHeight: 0 }}>
+              <Box p="lg">{renderContent()}</Box>
+            </ScrollArea>
+          </Tabs.Panel>
+        </Tabs>
+      </StandardModal>
+    )
+  }
+
   return (
-    <StandardModal
-      opened={opened}
-      onClose={onClose}
-      size="lg"
-      title={isFlux ? 'Reconciliation details' : 'Run details'}
-      footer={mobileShell ? undefined : footer}
-      fullHeight
-    >
-      {renderContent()}
-    </StandardModal>
+    <>
+      <StandardModal
+        opened={opened}
+        onClose={onClose}
+        size="lg"
+        title={title}
+        footer={mobileShell ? undefined : footer}
+        fullHeight
+      >
+        {renderContent()}
+      </StandardModal>
+      {mobileShell && logTree && logNode && (
+        <StandardModal
+          opened
+          onClose={() => setLogNodeId(null)}
+          title={logNode.name}
+          backAction={{ label: `#${runNumber}`, onClick: () => setLogNodeId(null) }}
+          disableScrollArea
+          contentPadding={false}
+          fullHeight
+        >
+          <LogViewer
+            pipelineId={pipelineId}
+            pipelineName={pipelineName}
+            runNumber={runNumber}
+            node={logNode}
+            steps={logTree.nodes.filter((n) => n.parent_id === logNode.id && n.kind === 'step')}
+            variant="phone"
+            providerName={providerName}
+          />
+        </StandardModal>
+      )}
+    </>
   )
 }

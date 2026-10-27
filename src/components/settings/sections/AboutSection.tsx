@@ -13,8 +13,8 @@ import { openExternal } from '@/utils/openExternal'
 import { IosGroup, IosRow } from '../../ios/IosList'
 
 const LINKS = [
-  { label: 'Privacy Policy', url: 'https://github.com/hcavarsan/pipedash/blob/main/PRIVACY.md' },
-  { label: 'Support', url: 'https://github.com/hcavarsan/pipedash/blob/main/SUPPORT.md' },
+  { label: 'Privacy Policy', url: 'https://pipedash.app/privacy' },
+  { label: 'Support', url: 'https://pipedash.app/support' },
   { label: 'Source code', url: 'https://github.com/hcavarsan/pipedash' },
 ]
 

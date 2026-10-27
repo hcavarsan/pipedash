@@ -32,6 +32,7 @@ argon2 = "0.6"
 async-trait = "0.1"
 axum = "0.8"
 base64 = "0.23"
+bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
 dashmap = "6"
 dirs = "7.0"
@@ -44,6 +45,13 @@ indexmap = { version = "2", features = ["serde"] }
 keyring = "4"
 k8s-openapi = { version = "0.28", features = ["v1_32"] }
 kube = { version = "4.2", features = ["client", "config", "runtime"] }
+lz4_flex = { version = "0.14", default-features = false, features = [
+  "checked-decode",
+  "safe-decode",
+  "safe-encode",
+  "std",
+] }
+memchr = "2"
 mime_guess = "2.0"
 octocrab = { version = "0.54.5", default-features = false, features = [
   "follow-redirect",

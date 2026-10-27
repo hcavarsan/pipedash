@@ -1016,6 +1016,16 @@ impl PipelineService {
     }
 
     pub async fn rerun_failed_jobs(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
+        self.rerun(pipeline_id, run_number, true).await
+    }
+
+    pub async fn rerun_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
+        self.rerun(pipeline_id, run_number, false).await
+    }
+
+    async fn rerun(
+        &self, pipeline_id: &str, run_number: i64, failed_only: bool,
+    ) -> DomainResult<()> {
         let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
         let pipeline = cached_pipelines
             .iter()
@@ -1026,7 +1036,11 @@ impl PipelineService {
             .provider_service
             .get_provider(pipeline.provider_id)
             .await?;
-        provider.rerun_failed_jobs(pipeline_id, run_number).await?;
+        if failed_only {
+            provider.rerun_failed_jobs(pipeline_id, run_number).await?;
+        } else {
+            provider.rerun_run(pipeline_id, run_number).await?;
+        }
 
         self.invalidate_run_cache(pipeline_id).await;
 

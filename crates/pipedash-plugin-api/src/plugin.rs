@@ -12,6 +12,13 @@ use crate::health::{
     ComponentHealth,
     StatusSource,
 };
+use crate::logs::{
+    LogDialect,
+    LogNode,
+    LogSink,
+    PlainDialect,
+    RunRef,
+};
 use crate::schema::{
     ConfigSchema,
     TableSchema,
@@ -47,6 +54,8 @@ pub struct PluginCapabilities {
     pub custom_tables: bool,
     #[serde(default)]
     pub retains_run_history: bool,
+    #[serde(default)]
+    pub logs: bool,
 }
 
 #[async_trait]
@@ -81,6 +90,28 @@ pub trait Plugin: Send + Sync {
 
     async fn fetch_organizations(&self) -> PluginResult<Vec<crate::types::Organization>> {
         Ok(Vec::new())
+    }
+
+    async fn ids_with_ci(&self, ids: Vec<String>) -> PluginResult<Vec<String>> {
+        Ok(ids)
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &PlainDialect
+    }
+
+    async fn fetch_log_nodes(&self, _run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        Err(crate::error::PluginError::NotSupported(
+            "Run logs not supported by this provider".to_string(),
+        ))
+    }
+
+    async fn read_log(
+        &self, _run: RunRef<'_>, _node_id: &str, _sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        Err(crate::error::PluginError::NotSupported(
+            "Run logs not supported by this provider".to_string(),
+        ))
     }
 
     async fn fetch_available_pipelines_filtered(
@@ -168,6 +199,12 @@ pub trait Plugin: Send + Sync {
     async fn rerun_failed_jobs(&self, _pipeline_id: &str, _run_number: i64) -> PluginResult<()> {
         Err(crate::error::PluginError::NotSupported(
             "Re-running failed jobs not supported by this provider".to_string(),
+        ))
+    }
+
+    async fn rerun_run(&self, _pipeline_id: &str, _run_number: i64) -> PluginResult<()> {
+        Err(crate::error::PluginError::NotSupported(
+            "Re-running runs not supported by this provider".to_string(),
         ))
     }
 

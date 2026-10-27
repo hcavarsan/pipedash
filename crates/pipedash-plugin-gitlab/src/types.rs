@@ -21,6 +21,8 @@ pub struct Project {
     pub name_with_namespace: String,
     pub description: Option<String>,
     pub web_url: String,
+    #[serde(default)]
+    pub ci_config_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

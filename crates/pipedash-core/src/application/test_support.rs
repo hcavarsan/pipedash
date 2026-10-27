@@ -12,6 +12,7 @@ use std::sync::{
 use std::time::Duration;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use chrono::Utc;
 use pipedash_plugin_api::{
     ComponentHealth,
@@ -50,6 +51,8 @@ use super::{
 use crate::domain::{
     DomainError,
     DomainResult,
+    LogNode,
+    LogSink,
     Pipeline,
     PipelineRun,
     PipelineStatus,
@@ -67,6 +70,7 @@ use crate::infrastructure::database::{
     MetricsRepository,
     Repository,
 };
+use crate::infrastructure::run_logs::LogStore;
 use crate::infrastructure::{
     ConfigState,
     HttpClientManager,
@@ -158,6 +162,13 @@ pub(crate) struct StubProvider {
     pub(crate) health: Mutex<DomainResult<Vec<ComponentHealth>>>,
     pub(crate) health_gate: Option<Arc<Gate>>,
     pub(crate) health_checks: AtomicUsize,
+    pub(crate) log_nodes: Mutex<Vec<LogNode>>,
+    pub(crate) log_chunks: Mutex<Vec<Bytes>>,
+    pub(crate) log_failure: Mutex<Option<DomainError>>,
+    pub(crate) log_gate: Option<Arc<Gate>>,
+    pub(crate) log_nodes_gate: Option<Arc<Gate>>,
+    pub(crate) log_reads: AtomicUsize,
+    pub(crate) log_node_fetches: AtomicUsize,
 }
 
 impl StubProvider {
@@ -184,6 +195,13 @@ impl StubProvider {
             health: Mutex::new(Ok(Vec::new())),
             health_gate: None,
             health_checks: AtomicUsize::new(0),
+            log_nodes: Mutex::new(Vec::new()),
+            log_chunks: Mutex::new(Vec::new()),
+            log_failure: Mutex::new(None),
+            log_gate: None,
+            log_nodes_gate: None,
+            log_reads: AtomicUsize::new(0),
+            log_node_fetches: AtomicUsize::new(0),
         }
     }
 
@@ -247,6 +265,34 @@ impl StubProvider {
     pub(crate) fn health_check_count(&self) -> usize {
         self.health_checks.load(Ordering::SeqCst)
     }
+
+    pub(crate) fn with_logs(mut self, nodes: Vec<LogNode>, chunks: &[&str]) -> Self {
+        self.capabilities.logs = true;
+        *self.log_nodes.lock().unwrap() = nodes;
+        *self.log_chunks.lock().unwrap() = chunks
+            .iter()
+            .map(|chunk| Bytes::copy_from_slice(chunk.as_bytes()))
+            .collect();
+        self
+    }
+
+    pub(crate) fn log_gated(mut self, gate: &Arc<Gate>) -> Self {
+        self.log_gate = Some(Arc::clone(gate));
+        self
+    }
+
+    pub(crate) fn log_nodes_gated(mut self, gate: &Arc<Gate>) -> Self {
+        self.log_nodes_gate = Some(Arc::clone(gate));
+        self
+    }
+
+    pub(crate) fn log_read_count(&self) -> usize {
+        self.log_reads.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn log_node_fetch_count(&self) -> usize {
+        self.log_node_fetches.load(Ordering::SeqCst)
+    }
 }
 
 #[async_trait]
@@ -305,6 +351,10 @@ impl Provider for StubProvider {
         Err(DomainError::NotSupported("stub".to_string()))
     }
 
+    async fn rerun_run(&self, _pipeline_id: &str, _run_number: i64) -> DomainResult<()> {
+        Err(DomainError::NotSupported("stub".to_string()))
+    }
+
     async fn get_workflow_parameters(
         &self, _workflow_id: &str,
     ) -> DomainResult<Vec<WorkflowParameter>> {
@@ -341,6 +391,35 @@ impl Provider for StubProvider {
             gate.pass().await;
         }
         self.health.lock().unwrap().clone()
+    }
+
+    async fn fetch_log_nodes(&self, _run: &PipelineRun) -> DomainResult<Vec<LogNode>> {
+        self.log_node_fetches.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.log_nodes_gate {
+            gate.pass().await;
+        }
+        Ok(self.log_nodes.lock().unwrap().clone())
+    }
+
+    async fn read_log(
+        &self, _run: &PipelineRun, _node_id: &str, sink: &mut LogSink,
+    ) -> DomainResult<()> {
+        self.log_reads.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.log_gate {
+            gate.pass().await;
+        }
+        let failure = self.log_failure.lock().unwrap().clone();
+        if let Some(failure) = failure {
+            return Err(failure);
+        }
+        let chunks = self.log_chunks.lock().unwrap().clone();
+        for chunk in chunks {
+            sink.write(chunk)
+                .await
+                .map_err(|e| DomainError::ProviderError(e.to_string()))?;
+        }
+
+        Ok(())
     }
 }
 
@@ -491,6 +570,8 @@ pub(crate) struct Harness {
     pub(crate) pipeline_service: Arc<PipelineService>,
     pub(crate) refresh_manager: Arc<RefreshManager>,
     pub(crate) metrics: Option<Arc<MetricsService>>,
+    pub(crate) log_store: Arc<LogStore>,
+    pub(crate) log_service: Arc<super::LogService>,
     pub(crate) stubs: Arc<StubFactory>,
     pub(crate) argocd_url: String,
     clock: AtomicU64,
@@ -544,6 +625,9 @@ impl Harness {
         );
         config_state.attach_health(health.clone());
 
+        let log_store = LogStore::open(temp_dir.path().join("run-logs"), u64::MAX)
+            .await
+            .unwrap();
         let mut provider_service = ProviderService::new(
             Arc::clone(&repository),
             Arc::clone(&http),
@@ -552,6 +636,7 @@ impl Harness {
             health.clone(),
             dispatcher,
             Arc::clone(&config_state),
+            Arc::clone(&log_store),
         );
         if stubbed {
             let stubs = Arc::clone(&stubs);
@@ -585,6 +670,12 @@ impl Harness {
             mode_tx,
             commands,
         ));
+        let log_service = Arc::new(super::LogService::new(
+            Arc::clone(&log_store),
+            Arc::clone(&provider_service),
+            Arc::clone(&repository),
+            bus.clone(),
+        ));
 
         Self {
             _temp_dir: temp_dir,
@@ -601,6 +692,8 @@ impl Harness {
             pipeline_service,
             refresh_manager,
             metrics,
+            log_store,
+            log_service,
             stubs,
             argocd_url: json_stub(serde_json::json!({ "items": [] })).await,
             clock: AtomicU64::new(0),

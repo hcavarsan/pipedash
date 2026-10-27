@@ -1,0 +1,462 @@
+.viewer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.bodyWrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.scroller {
+  --log-font-size: var(--mantine-font-size-xs);
+  --log-line-height: 1.5;
+
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: var(--log-font-size);
+  line-height: var(--log-line-height);
+  tab-size: 8;
+}
+
+.scroller[data-variant="phone"] {
+  --log-font-size: var(--ios-fs-footnote);
+  --log-line-height: var(--ios-lh-footnote);
+}
+
+.spacer {
+  position: relative;
+  width: 1px;
+  pointer-events: none;
+}
+
+.layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.layer[data-nowrap] {
+  right: auto;
+  width: max-content;
+  min-width: 100%;
+  white-space: pre;
+  word-break: normal;
+}
+
+.probe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre;
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  box-sizing: border-box;
+  padding-inline-end: 1ch;
+}
+
+.gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  width: calc(var(--log-gutter) * 1ch);
+  margin: 0;
+  padding: 0 1ch 0 0;
+  border: 0;
+  background: linear-gradient(var(--row-bg, transparent), var(--row-bg, transparent)), var(--mantine-color-body);
+  color: var(--mantine-color-dimmed);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  height: 1lh;
+  margin-inline-end: 0.5ch;
+}
+
+.glyphError {
+  color: var(--mantine-color-red-text);
+}
+
+.glyphWarning {
+  color: var(--mantine-color-orange-text);
+}
+
+.num {
+  font-size: var(--log-num-size, inherit);
+}
+
+.gutter:hover .num {
+  color: var(--mantine-color-text);
+}
+
+.scroller[data-variant="phone"] {
+  --log-num-size: var(--ios-fs-caption2);
+}
+
+.ts {
+  flex: none;
+  width: 13ch;
+  color: var(--mantine-color-dimmed);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+}
+
+.error {
+  --row-bg: var(--mantine-color-red-light);
+
+  background: var(--row-bg);
+}
+
+.warning {
+  --row-bg: var(--mantine-color-orange-light);
+
+  background: var(--row-bg);
+}
+
+.selected {
+  --row-bg: var(--mantine-color-blue-light);
+
+  background: var(--row-bg);
+}
+
+.debug .text {
+  color: var(--mantine-color-dimmed);
+}
+
+.command .text {
+  color: var(--mantine-color-blue-text);
+}
+
+.chevron {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 1lh;
+  margin: 0 0.5ch 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+  vertical-align: top;
+}
+
+.scroller[data-variant="phone"] .chevron::after,
+.scroller[data-variant="phone"] .gutter::after {
+  content: "";
+  position: absolute;
+  inset: -0.6em -0.4em;
+}
+
+.scroller[data-variant="phone"] .gutter {
+  position: sticky;
+}
+
+.stepWrap {
+  position: sticky;
+  left: 0;
+  width: var(--log-client-width, 100%);
+  box-sizing: border-box;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 0.75ch;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 1ch;
+  border: 0;
+  background: transparent;
+  color: var(--mantine-color-text);
+  font-family: var(--mantine-font-family);
+  font-size: var(--log-font-size);
+  line-height: var(--log-line-height);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stepTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.stepMeta {
+  flex: none;
+  color: var(--mantine-color-dimmed);
+  font-variant-numeric: tabular-nums;
+}
+
+.sticky {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+}
+
+.omitted {
+  margin: 0 0 0 1ch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mantine-color-dimmed);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mantine-color-dimmed);
+  pointer-events: none;
+}
+
+.match {
+  border-radius: 2px;
+  background: var(--mantine-color-blue-light);
+}
+
+.matchCurrent {
+  border-radius: 2px;
+  background: var(--mantine-color-blue-light);
+  outline: 2px solid var(--mantine-color-blue-filled);
+}
+
+.bold {
+  font-weight: 600;
+}
+
+.dim {
+  opacity: 0.7;
+}
+
+.italic {
+  font-style: italic;
+}
+
+.underline {
+  text-decoration: underline;
+}
+
+.strike {
+  text-decoration: line-through;
+}
+
+.underline.strike {
+  text-decoration: underline line-through;
+}
+
+.fgBlack {
+  color: var(--mantine-color-dimmed);
+}
+
+.fgRed {
+  color: var(--mantine-color-red-text);
+}
+
+.fgGreen {
+  color: var(--mantine-color-green-text);
+}
+
+.fgYellow {
+  color: var(--mantine-color-orange-text);
+}
+
+.fgBlue {
+  color: var(--mantine-color-blue-text);
+}
+
+.fgMagenta {
+  color: var(--mantine-color-grape-text);
+}
+
+.fgCyan {
+  color: var(--mantine-color-cyan-text);
+}
+
+.bgBlack {
+  background: var(--mantine-color-gray-light);
+}
+
+.bgRed {
+  background: var(--mantine-color-red-light);
+}
+
+.bgGreen {
+  background: var(--mantine-color-green-light);
+}
+
+.bgYellow {
+  background: var(--mantine-color-orange-light);
+}
+
+.bgBlue {
+  background: var(--mantine-color-blue-light);
+}
+
+.bgMagenta {
+  background: var(--mantine-color-grape-light);
+}
+
+.bgCyan {
+  background: var(--mantine-color-cyan-light);
+}
+
+.bgWhite {
+  background: var(--mantine-color-default-hover);
+}
+
+.ruler {
+  position: relative;
+  flex: none;
+  width: 12px;
+  border-inline-start: 1px solid var(--mantine-color-default-border);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.rulerCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.rulerBand {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 3px;
+  background: var(--mantine-color-gray-light);
+  box-shadow: inset 0 0 0 1px var(--mantine-color-dimmed);
+  pointer-events: none;
+}
+
+.phoneSearch {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: 0.25em 1em;
+}
+
+.phoneMatches {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1em;
+  color: var(--ios-secondary-label);
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
+}
+
+.phoneBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-around;
+  border-top: 0.5px solid var(--ios-separator);
+  background: var(--ios-material-bar);
+  -webkit-backdrop-filter: var(--ios-material-filter);
+  backdrop-filter: var(--ios-material-filter);
+  font-size: var(--ios-fs-body);
+}
+
+.phoneButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.75em;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ios-tint);
+  font: inherit;
+  font-size: var(--ios-fs-callout, var(--ios-fs-body));
+  cursor: pointer;
+}
+
+.phoneButton:disabled {
+  color: var(--ios-secondary-label);
+  opacity: 0.5;
+}
+
+.phoneButton[aria-pressed="true"] {
+  background: var(--ios-fill-tertiary);
+}
+
+.phoneButton:active:not(:disabled) {
+  opacity: 0.5;
+}
+
+.alertBox {
+  flex: none;
+  padding: 0.5em 1em;
+}
+
+.scroller[data-variant="phone"] .step {
+  min-height: 44px;
+}

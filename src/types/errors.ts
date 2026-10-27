@@ -59,6 +59,22 @@ export function getHttpStatus(error: unknown): number | undefined {
   return undefined
 }
 
+export function getErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) {
+    return undefined
+  }
+
+  if ('code' in error && typeof error.code === 'string') {
+    return error.code
+  }
+
+  if ('cause' in error && typeof error.cause === 'object' && error.cause !== null) {
+    return getErrorCode(error.cause)
+  }
+
+  return undefined
+}
+
 export function toPipedashError(error: unknown): PipedashError {
   if (isPipedashError(error)) {
     return error

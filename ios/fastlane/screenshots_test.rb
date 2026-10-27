@@ -12,10 +12,12 @@ class ScreenshotLanesTest < Minitest::Test
   FIXTURE_FASTLANE = File.join(FIXTURE_ROOT, "ios/fastlane")
   FileUtils.mkdir_p([FIXTURE_FASTLANE, File.join(FIXTURE_ROOT, "ios/app-store-screenshots")])
   FileUtils.cp(File.join(__dir__, "Fastfile"), FIXTURE_FASTLANE)
-  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb review_notes.txt].each do |name|
+  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb review_notes.txt metadata
+     age_rating.json].each do |name|
     FileUtils.ln_s(File.join(__dir__, name), FIXTURE_FASTLANE)
   end
-  FASTFILE = Fastlane::FastFile.new(File.join(FIXTURE_FASTLANE, "Fastfile"))
+  # fastlane evaluates the Fastfile from inside its folder, so `__dir__` is "." there, as on CI.
+  FASTFILE = Dir.chdir(FIXTURE_FASTLANE) { Fastlane::FastFile.new(File.join(FIXTURE_FASTLANE, "Fastfile")) }
   Minitest.after_run { FileUtils.remove_entry(FIXTURE_ROOT) }
 
   def setup
@@ -155,6 +157,20 @@ class ScreenshotLanesTest < Minitest::Test
     assert_includes notes, "demo-token-must-not-leak"
     assert_includes notes, "review/demo"
     assert_includes notes, "Review demo"
+  end
+
+  def test_release_sends_release_notes_and_every_age_rating_answer_from_the_action_directory
+    with_demo { run_lane(:release) }
+    published = @scenario.fetch(:published)
+
+    options = { metadata_path: published.fetch(:metadata_path), app_review_information: {} }
+    Dir.chdir(FIXTURE_ROOT) { Deliver::UploadMetadata.new(options).load_from_filesystem }
+    refute_empty options.fetch(:release_notes).fetch("en-US").strip
+
+    answers = JSON.parse(File.read(published.fetch(:app_rating_config_path)))
+    questions = Spaceship::ConnectAPI::AgeRatingDeclaration.reverse_attr_map.values -
+                %w[gamblingAndContests kidsAgeBand developerAgeRatingInfoUrl]
+    assert_equal questions.sort, answers.keys.sort
   end
 
   def test_invalid_demo_access_blocks_apple_actions_without_leaking_response_body

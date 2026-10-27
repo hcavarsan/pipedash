@@ -165,6 +165,7 @@ fn error(message: &str) -> ErrorResponse {
     ErrorResponse {
         error: message.to_string(),
         details: None,
+        code: None,
     }
 }
 

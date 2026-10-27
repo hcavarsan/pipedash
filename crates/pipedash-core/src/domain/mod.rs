@@ -5,6 +5,7 @@ pub mod pipeline;
 pub mod provider;
 pub mod push;
 pub mod refresh;
+pub mod run_logs;
 pub mod validation;
 
 pub use error::{
@@ -58,6 +59,30 @@ pub use push::PushSubscription;
 pub use refresh::{
     RefreshResult,
     RefreshState,
+};
+pub use run_logs::{
+    AnsiColor,
+    LineKind,
+    LineMarker,
+    LogAvailability,
+    LogCacheStats,
+    LogDialect,
+    LogDocumentMeta,
+    LogLine,
+    LogLinesPage,
+    LogNode,
+    LogNodeKind,
+    LogSearchQuery,
+    LogSearchResult,
+    LogSection,
+    LogSectionKind,
+    LogSink,
+    LogStyle,
+    ParsedLine,
+    PlainDialect,
+    RunLogDocument,
+    RunLogNode,
+    RunLogTree,
 };
 pub use validation::{
     validate_config,
