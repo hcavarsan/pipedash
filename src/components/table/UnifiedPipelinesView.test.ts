@@ -8,7 +8,6 @@ import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
-// Import after the DOM exists so Mantine and the stores initialize against it.
 const { act, cleanup, render, within } = await import('@testing-library/react')
 const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
