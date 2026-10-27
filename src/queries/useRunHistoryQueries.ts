@@ -236,6 +236,9 @@ export function useRerunFailedJobs() {
         queryKey: queryKeys.runs.detail(pipelineId, runNumber),
       })
       queryClient.invalidateQueries({
+        queryKey: queryKeys.runLogs.tree(pipelineId, runNumber),
+      })
+      queryClient.invalidateQueries({
         queryKey: queryKeys.runs.list(pipelineId),
       })
 
@@ -266,6 +269,9 @@ export function useRerunRun() {
     onSuccess: (_data, { pipelineId, runNumber }) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.runs.detail(pipelineId, runNumber),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.runLogs.tree(pipelineId, runNumber),
       })
       queryClient.invalidateQueries({
         queryKey: queryKeys.runs.list(pipelineId),
