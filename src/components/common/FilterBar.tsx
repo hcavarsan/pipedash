@@ -1,4 +1,4 @@
-import { ActionIcon, Box, Button, Group, Select, Stack, Tooltip } from '@mantine/core'
+import { ActionIcon, Box, Button, Group, Select, Stack, Switch, Tooltip } from '@mantine/core'
 import { IconAdjustmentsHorizontal, IconFilter, IconFilterFilled, IconX } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -42,6 +42,11 @@ interface FilterConfig {
   branch?: OptionFilter
   actor?: OptionFilter
   dateRange?: ValueFilter
+  showHidden?: {
+    value: boolean
+    onChange: (value: boolean) => void
+    count: number
+  }
 }
 
 interface FilterBarProps {
@@ -169,7 +174,8 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
         filters.workflow?.value ||
         filters.branch?.value ||
         filters.actor?.value ||
-        filters.dateRange?.value
+        filters.dateRange?.value ||
+        filters.showHidden?.value
       ),
     [
       filters.search,
@@ -181,6 +187,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
       filters.branch,
       filters.actor,
       filters.dateRange,
+      filters.showHidden,
     ]
   )
 
@@ -201,6 +208,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
     filters.branch?.onChange(null)
     filters.actor?.onChange(null)
     filters.dateRange?.onChange(null)
+    filters.showHidden?.onChange(false)
   }, [filters, onClearAll])
 
   const selects = [
@@ -267,8 +275,12 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
       </Box>
     )
 
+  const showHidden =
+    filters.showHidden && (filters.showHidden.count > 0 || filters.showHidden.value) ? filters.showHidden : undefined
+  const showHiddenLabel = showHidden ? `Show hidden (${showHidden.count})` : ''
+
   if (mobileShell) {
-    const activeSelects = selects.filter((select) => select.value).length
+    const activeSelects = selects.filter((select) => select.value).length + (showHidden?.value ? 1 : 0)
 
     return (
       <>
@@ -289,7 +301,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
                 }}
               />
             )}
-            {selects.length > 0 && (
+            {(selects.length > 0 || showHidden) && (
               <button
                 type="button"
                 className={classes.filter}
@@ -329,6 +341,18 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
                   }
                 />
               ))}
+              {showHidden && (
+                <IosRow
+                  title={showHiddenLabel}
+                  accessory={
+                    <Switch
+                      aria-label={showHiddenLabel}
+                      checked={showHidden.value}
+                      onChange={(event) => showHidden.onChange(event.currentTarget.checked)}
+                    />
+                  }
+                />
+              )}
             </IosGroup>
             {hasActiveFilters && (
               <IosGroup>
@@ -364,6 +388,16 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
             leftSection={leftSection}
           />
         ))}
+
+        {showHidden && (
+          <Switch
+            size="xs"
+            label={showHiddenLabel}
+            checked={showHidden.value}
+            onChange={(event) => showHidden.onChange(event.currentTarget.checked)}
+            style={{ alignSelf: 'center' }}
+          />
+        )}
 
         {hasActiveFilters && (
           <Button variant="subtle" color="gray" onClick={clearAllFilters} size="xs" leftSection={<IconX size={14} />}>

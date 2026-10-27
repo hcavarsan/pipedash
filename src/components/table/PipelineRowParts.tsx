@@ -2,6 +2,8 @@ import { ActionIcon, Group, Loader, Menu, Text, Tooltip, VisuallyHidden } from '
 import {
   IconChartLine,
   IconDots,
+  IconEye,
+  IconEyeOff,
   IconHistory,
   IconPin,
   IconPinFilled,
@@ -99,6 +101,8 @@ interface WorkflowActionsProps {
   pipeline: Pipeline
   isPinned: boolean
   onTogglePin: () => void
+  isHidden?: boolean
+  onToggleHidden?: () => void
   onTrigger: (pipeline: Pipeline) => void
   onViewMetrics?: (pipeline: Pipeline) => void
 }
@@ -112,6 +116,8 @@ export function workflowMenuItems({
   pipeline,
   isPinned,
   onTogglePin,
+  isHidden = false,
+  onToggleHidden,
   onTrigger,
   onViewMetrics,
   onViewHistory,
@@ -133,9 +139,18 @@ export function workflowMenuItems({
     icon: isPinned ? <IconPinFilled size={16} /> : <IconPin size={16} />,
     onClick: onTogglePin,
   }
+  const hide: WorkflowMenuItem[] = onToggleHidden
+    ? [
+        {
+          label: isHidden ? 'Unhide' : 'Hide',
+          icon: isHidden ? <IconEye size={16} /> : <IconEyeOff size={16} />,
+          onClick: onToggleHidden,
+        },
+      ]
+    : []
 
   if (!onViewMetrics) {
-    return [history, trigger, pin]
+    return [history, trigger, pin, ...hide]
   }
 
   return [
@@ -143,11 +158,21 @@ export function workflowMenuItems({
     { label: 'View metrics', icon: <IconChartLine size={16} />, onClick: () => onViewMetrics(pipeline) },
     trigger,
     pin,
+    ...hide,
   ]
 }
 
-export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, onViewMetrics }: WorkflowActionsProps) {
+export function WorkflowActions({
+  pipeline,
+  isPinned,
+  onTogglePin,
+  isHidden = false,
+  onToggleHidden,
+  onTrigger,
+  onViewMetrics,
+}: WorkflowActionsProps) {
   const pinLabel = `${isPinned ? 'Unpin' : 'Pin'} ${pipeline.name}`
+  const hideLabel = `${isHidden ? 'Unhide' : 'Hide'} ${pipeline.name}`
   const metricsLabel = `View metrics for ${pipeline.name}`
   const triggerLabel = `${getPipelineLabels(pipeline.provider_type).trigger} ${pipeline.name}`
   const blockedReason = getTriggerBlockReason(pipeline)
@@ -160,6 +185,19 @@ export function WorkflowActions({ pipeline, isPinned, onTogglePin, onTrigger, on
           {isPinned ? <IconPinFilled size={16} /> : <IconPin size={16} />}
         </ActionIcon>
       </Tooltip>
+      {onToggleHidden && (
+        <Tooltip label={hideLabel}>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            aria-label={hideLabel}
+            aria-pressed={isHidden}
+            onClick={onToggleHidden}
+          >
+            {isHidden ? <IconEye size={16} /> : <IconEyeOff size={16} />}
+          </ActionIcon>
+        </Tooltip>
+      )}
       {onViewMetrics && (
         <Tooltip label={metricsLabel}>
           <ActionIcon variant="subtle" color="gray" aria-label={metricsLabel} onClick={() => onViewMetrics(pipeline)}>
@@ -199,12 +237,23 @@ export function WorkflowActionMenu({
   provider,
   isPinned,
   onTogglePin,
+  isHidden,
+  onToggleHidden,
   onTrigger,
   onViewMetrics,
   onViewHistory,
 }: WorkflowActionMenuProps) {
   const openNotifications = useNotificationCenterStore((state) => state.open)
-  const actions = workflowMenuItems({ pipeline, isPinned, onTogglePin, onTrigger, onViewMetrics, onViewHistory })
+  const actions = workflowMenuItems({
+    pipeline,
+    isPinned,
+    onTogglePin,
+    isHidden,
+    onToggleHidden,
+    onTrigger,
+    onViewMetrics,
+    onViewHistory,
+  })
   const blockedReason = getTriggerBlockReason(pipeline)
   const headline = provider ? providerAttention(provider).headline : null
 

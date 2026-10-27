@@ -3,6 +3,7 @@ import { notifications } from '@mantine/notifications'
 import {
   IconChevronDown,
   IconChevronRight,
+  IconEyeOff,
   IconFilterOff,
   IconFolder,
   IconGitBranch,
@@ -17,6 +18,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { usePipelineFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
+import { useHiddenStore } from '../../stores/hiddenStore'
 import { pinKey, usePinnedStore } from '../../stores/pinnedStore'
 import { useProviderStore } from '../../stores/providerStore'
 import { mostSevereStatus } from '../../theme/status'
@@ -203,7 +205,9 @@ export const UnifiedPipelinesView = ({
     provider: providerFilter,
     organization: organizationFilter,
     dateRange,
+    hidden,
   } = filters
+  const showHidden = hidden === 'show'
   const [searchParams] = useSearchParams()
   const pinnedView = searchParams.get('view') === 'pinned'
   const activeProviders = providerFilter
@@ -216,6 +220,8 @@ export const UnifiedPipelinesView = ({
 
   const pinnedKeys = usePinnedStore((s) => s.pinnedKeys)
   const togglePin = usePinnedStore((s) => s.togglePin)
+  const hiddenKeys = useHiddenStore((s) => s.hiddenKeys)
+  const toggleHidden = useHiddenStore((s) => s.toggleHidden)
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const contextMenu = useContextMenu()
   const rowMenu = ({ pipeline, pinKey }: TableRow) => {
@@ -228,6 +234,8 @@ export const UnifiedPipelinesView = ({
         pipeline,
         isPinned: pinnedKeys.includes(pinKey),
         onTogglePin: () => togglePin(pinKey),
+        isHidden: hiddenKeys.includes(pinKey),
+        onToggleHidden: () => toggleHidden(pinKey),
         onTrigger,
         onViewMetrics,
         onViewHistory,
@@ -387,6 +395,11 @@ export const UnifiedPipelinesView = ({
       rowFilters.cutoff
   )
 
+  const hiddenCount = useMemo(
+    () => hiddenKeys.filter((key) => validPipelines.has(key)).length,
+    [hiddenKeys, validPipelines]
+  )
+
   const { pinnedPipelines, sections } = useMemo(() => {
     const buildWorkflowRow = (pipeline: Pipeline): TableRow => ({
       id: `workflow-${pipeline.id}`,
@@ -410,9 +423,12 @@ export const UnifiedPipelinesView = ({
     const pinned = pinnedKeys
       .map((key) => validPipelines.get(key))
       .filter((pipeline): pipeline is Pipeline => !!pipeline && matches(pipeline))
+    const hiddenSet = new Set(showHidden ? [] : hiddenKeys)
 
     const built = repoGroups.flatMap((group): Section[] => {
-      const workflows = group.pipelines.filter(matches)
+      const workflows = group.pipelines.filter(
+        (pipeline) => !hiddenSet.has(pinKeys.get(pipeline.id) ?? '') && matches(pipeline)
+      )
       const matchesAsEmptyRepo =
         group.pipelines.length === 0 &&
         !rowFilters.status &&
@@ -467,7 +483,18 @@ export const UnifiedPipelinesView = ({
     })
 
     return { pinnedPipelines: pinned, sections: built.sort((a, b) => compareRows(a.row, b.row, sortStatus)) }
-  }, [repoGroups, validPipelines, pinKeys, pinnedKeys, rowFilters, sortStatus, getProvider, parseRepositoryName])
+  }, [
+    repoGroups,
+    validPipelines,
+    pinKeys,
+    pinnedKeys,
+    hiddenKeys,
+    showHidden,
+    rowFilters,
+    sortStatus,
+    getProvider,
+    parseRepositoryName,
+  ])
 
   const rows = useMemo(() => {
     const result: TableRow[] = []
@@ -625,6 +652,13 @@ export const UnifiedPipelinesView = ({
             value: dateRange,
             onChange: (value) => setFilter('dateRange', value),
           },
+          showHidden: pinnedView
+            ? undefined
+            : {
+                value: showHidden,
+                onChange: (value) => setFilter('hidden', value ? 'show' : null),
+                count: hiddenCount,
+              },
         }}
         onClearAll={clearFilters}
       />
@@ -688,6 +722,17 @@ export const UnifiedPipelinesView = ({
                   hint={firstIssue.hint}
                   actions={<ProviderRecoveryActions providerId={firstIssue.id} kind={firstIssue.kind} />}
                 />
+              ) : hiddenCount > 0 && !showHidden ? (
+                <EmptyState
+                  icon={<IconEyeOff size={24} />}
+                  title={isFluxView ? 'All resources are hidden' : 'All workflows are hidden'}
+                  description="Turn on Show hidden in the filters to list them and unhide them."
+                  action={
+                    <Button variant="default" size="sm" onClick={() => setFilter('hidden', 'show')}>
+                      Show hidden
+                    </Button>
+                  }
+                />
               ) : (
                 <EmptyState
                   icon={<IconFolder size={24} />}
@@ -724,6 +769,8 @@ export const UnifiedPipelinesView = ({
                 onTrigger={onTrigger}
                 pinnedKeys={pinnedKeys}
                 onTogglePin={togglePin}
+                hiddenKeys={hiddenKeys}
+                onToggleHidden={toggleHidden}
                 onViewMetrics={onViewMetrics}
               />
             ) : isMobile ? (
@@ -735,6 +782,8 @@ export const UnifiedPipelinesView = ({
                 onTrigger={onTrigger}
                 pinnedKeys={pinnedKeys}
                 onTogglePin={togglePin}
+                hiddenKeys={hiddenKeys}
+                onToggleHidden={toggleHidden}
                 onViewMetrics={onViewMetrics}
               />
             ) : (
@@ -825,7 +874,7 @@ export const UnifiedPipelinesView = ({
                   {
                     accessor: 'actions',
                     title: 'Actions',
-                    width: onViewMetrics ? 160 : 140,
+                    width: onViewMetrics ? 190 : 170,
                     textAlign: 'right' as const,
                     render: (row) => {
                       if (row.type === 'repository') {
@@ -845,6 +894,8 @@ export const UnifiedPipelinesView = ({
                               pipeline={pipeline}
                               isPinned={pinnedKeys.includes(rowPinKey)}
                               onTogglePin={() => togglePin(rowPinKey)}
+                              isHidden={hiddenKeys.includes(rowPinKey)}
+                              onToggleHidden={() => toggleHidden(rowPinKey)}
                               onTrigger={onTrigger}
                               onViewMetrics={onViewMetrics}
                             />
