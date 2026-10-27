@@ -893,6 +893,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_update_general_settings_keeps_the_proxy_reference() {
+        let _env = EnvGuard::set(&[("PIPEDASH_TEST_PROXY", Some("http://proxy.corp:3128"))]);
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        std::fs::write(&path, "[general]\nproxy_url = \"${PIPEDASH_TEST_PROXY}\"\n").unwrap();
+        let config = ConfigLoader::load(&path).unwrap();
+        let state =
+            ConfigState::from_config(config, path.clone(), Arc::new(MemoryTokenStore::new()));
+        let general = state.get().await.general.clone();
+        let save = |proxy_url: &str| GeneralSettingsUpdate {
+            metrics_enabled: general.metrics_enabled,
+            default_refresh_interval: general.default_refresh_interval,
+            status_pages_enabled: !general.status_pages_enabled,
+            proxy_url: proxy_url.to_string(),
+        };
+
+        state
+            .update_general_settings(save(&general.proxy_url))
+            .await
+            .unwrap();
+        let kept = std::fs::read_to_string(&path).unwrap();
+        state
+            .update_general_settings(save("http://other.corp:8080"))
+            .await
+            .unwrap();
+        let replaced = std::fs::read_to_string(&path).unwrap();
+
+        assert!(
+            kept.contains("proxy_url = \"${PIPEDASH_TEST_PROXY}\""),
+            "{kept}"
+        );
+        assert!(
+            replaced.contains("proxy_url = \"http://other.corp:8080\""),
+            "{replaced}"
+        );
+    }
+
+    #[tokio::test]
     async fn test_provider_persistence_creates_the_general_table_too() {
         let temp_dir = TempDir::new().unwrap();
         let path = temp_dir.path().join("config.toml");
