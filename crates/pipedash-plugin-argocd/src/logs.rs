@@ -37,6 +37,7 @@ pub(crate) const POD_LOG_TAIL_LINES: &str = "1000";
 const PODS_NODE: &str = "pods";
 const POD_NODE_PREFIX: &str = "pod:";
 const NO_EVENTS: &str = "No events. Kubernetes keeps events for one hour by default.";
+const MAX_STREAM_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) enum SyncRecord<'a> {
     Operation(&'a OperationState),
@@ -596,15 +597,26 @@ pub(crate) struct PodLogDecoder {
 
 impl PodLogDecoder {
     pub(crate) fn feed(&mut self, chunk: &[u8], out: &mut Vec<u8>) -> PluginResult<()> {
-        self.pending.extend_from_slice(chunk);
-        let Some(newline) = self.pending.iter().rposition(|b| *b == b'\n') else {
-            return Ok(());
+        let Some(newline) = chunk.iter().rposition(|b| *b == b'\n') else {
+            self.pending.extend_from_slice(chunk);
+            return self.check_pending();
         };
-        let rest = self.pending.split_off(newline + 1);
-        let complete = std::mem::replace(&mut self.pending, rest);
+        self.pending.extend_from_slice(&chunk[..=newline]);
+        let complete = std::mem::replace(&mut self.pending, chunk[newline + 1..].to_vec());
         complete
             .split(|b| *b == b'\n')
-            .try_for_each(|message| self.message(message, out))
+            .try_for_each(|message| self.message(message, out))?;
+        self.check_pending()
+    }
+
+    fn check_pending(&self) -> PluginResult<()> {
+        if self.pending.len() > MAX_STREAM_MESSAGE_BYTES {
+            return Err(PluginError::ApiError(format!(
+                "ArgoCD sent more than {} MiB of pod logs without a line break",
+                MAX_STREAM_MESSAGE_BYTES / (1024 * 1024)
+            )));
+        }
+        Ok(())
     }
 
     pub(crate) fn finish(&mut self, out: &mut Vec<u8>) -> PluginResult<()> {
@@ -723,6 +735,24 @@ mod tests {
 
         let error = decode(&[b"<html>proxy error</html>\n"]).unwrap_err();
         assert!(matches!(error, PluginError::ApiError(_)), "{error:?}");
+    }
+
+    #[test]
+    fn a_message_without_a_line_break_stops_at_the_buffer_limit() {
+        let mut decoder = PodLogDecoder::default();
+        let mut out = Vec::new();
+        let chunk = vec![b'x'; 1024 * 1024];
+        let mut fed = 0;
+        let error = loop {
+            match decoder.feed(&chunk, &mut out) {
+                Ok(()) => fed += chunk.len(),
+                Err(error) => break error,
+            }
+        };
+
+        assert_eq!(fed, MAX_STREAM_MESSAGE_BYTES);
+        assert!(matches!(error, PluginError::ApiError(_)), "{error:?}");
+        assert!(out.is_empty());
     }
 
     fn app(history: &str) -> Application {
