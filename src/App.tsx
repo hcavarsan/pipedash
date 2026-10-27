@@ -397,6 +397,8 @@ function AppContent() {
           runNumber={logsModal.runNumber}
           providerId={logsPipeline?.provider_id}
           providerType={logsPipeline?.provider_type}
+          pipelineName={logsPipeline?.name ?? ''}
+          canViewLogs={!!logsPipeline && !!getPluginByType(logsPipeline.provider_type)?.capabilities.logs}
           canTrigger={!!logsPipeline && !getReconcileBlockReason(logsPipeline)}
           triggerBlockedReason={logsPipeline ? getReconcileBlockReason(logsPipeline) : undefined}
           rerunInPlace={!!logsPipeline && isDynamicGitHubWorkflow(logsPipeline)}

@@ -51,6 +51,8 @@ pub struct ErrorResponse {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 impl From<pipedash_core::DomainError> for ErrorResponse {
@@ -58,6 +60,7 @@ impl From<pipedash_core::DomainError> for ErrorResponse {
         ErrorResponse {
             error: err.to_string(),
             details: None,
+            code: Some(err.code().to_owned()),
         }
     }
 }
@@ -80,6 +83,7 @@ pub struct CacheStats {
     pub run_history_count: i64,
     pub workflow_params_count: i64,
     pub metrics_count: i64,
+    pub run_logs_bytes: u64,
 }
 
 #[tauri::command]
@@ -89,6 +93,7 @@ pub async fn add_provider(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let id = core.provider_service.add_provider(config).await?;
 
@@ -119,6 +124,7 @@ pub async fn list_providers(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let result = core.provider_service.list_providers().await;
     match &result {
@@ -137,6 +143,7 @@ pub async fn get_provider(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .get_provider_config(id)
@@ -151,6 +158,7 @@ pub async fn update_provider(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .update_provider(id, config)
@@ -166,12 +174,14 @@ pub async fn update_provider_refresh_interval(
         return Err(ErrorResponse {
             error: "Refresh interval must be at least 5 seconds".to_string(),
             details: None,
+            code: None,
         });
     }
 
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .update_provider_refresh_interval(id, refresh_interval)
@@ -186,6 +196,7 @@ pub async fn remove_provider(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .remove_provider(id)
@@ -200,6 +211,7 @@ pub async fn export_providers(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .export_providers_toml()
@@ -214,6 +226,7 @@ pub async fn import_providers(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .import_providers_toml(&content)
@@ -269,6 +282,7 @@ pub async fn get_provider_field_options(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .field_options(&provider_type, &field_key, config)
@@ -276,6 +290,7 @@ pub async fn get_provider_field_options(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to fetch field options: {e}"),
             details: None,
+            code: None,
         })
 }
 
@@ -287,6 +302,7 @@ pub async fn fetch_provider_organizations(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let plugin = core
         .provider_service
@@ -298,6 +314,7 @@ pub async fn fetch_provider_organizations(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to validate credentials: {e}"),
             details: None,
+            code: None,
         })?;
 
     plugin
@@ -306,6 +323,7 @@ pub async fn fetch_provider_organizations(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to fetch organizations: {e}"),
             details: None,
+            code: None,
         })
 }
 
@@ -318,6 +336,7 @@ pub async fn preview_provider_pipelines(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let plugin = core
         .provider_service
@@ -329,6 +348,7 @@ pub async fn preview_provider_pipelines(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to validate credentials: {e}"),
             details: None,
+            code: None,
         })?;
 
     let params = PaginationParams {
@@ -340,6 +360,7 @@ pub async fn preview_provider_pipelines(
         return Err(ErrorResponse {
             error: validation_error,
             details: None,
+            code: None,
         });
     }
 
@@ -349,6 +370,7 @@ pub async fn preview_provider_pipelines(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to fetch available pipelines: {e}"),
             details: None,
+            code: None,
         })
 }
 
@@ -360,6 +382,7 @@ pub async fn validate_provider_credentials(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let plugin = core
         .provider_service
@@ -389,6 +412,7 @@ pub async fn check_provider_permissions(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let plugin = core
         .provider_service
@@ -415,6 +439,7 @@ pub async fn get_provider_permissions(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .get_provider_permissions(provider_id)
@@ -429,6 +454,7 @@ pub async fn get_provider_features(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let provider_config = core
         .provider_service
@@ -445,6 +471,7 @@ pub async fn get_provider_features(
                 provider_config.provider_type
             ),
             details: None,
+            code: None,
         })?;
 
     let permission_status = core
@@ -503,6 +530,7 @@ pub async fn get_provider_table_schema(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let provider_config = core
         .provider_service
@@ -519,6 +547,7 @@ pub async fn get_provider_table_schema(
                 provider_config.provider_type
             ),
             details: None,
+            code: None,
         })?;
 
     Ok(plugin_metadata.table_schema.clone())
@@ -535,6 +564,7 @@ pub async fn get_cached_pipelines(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let result = core
         .pipeline_service
@@ -561,6 +591,7 @@ pub async fn fetch_run_history(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .fetch_run_history_paginated(&pipeline_id, page, page_size)
@@ -575,6 +606,7 @@ pub async fn get_workflow_run_details(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .fetch_run_details(&pipeline_id, run_number)
@@ -589,6 +621,7 @@ pub async fn trigger_pipeline(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let workflow_id = params.workflow_id.clone();
     let result = core.pipeline_service.trigger_pipeline(params).await?;
@@ -607,6 +640,7 @@ pub async fn cancel_pipeline_run(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .cancel_run(&pipeline_id, run_number)
@@ -625,6 +659,7 @@ pub async fn review_pipeline_run(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .review_run(&pipeline_id, run_number, decision)
@@ -639,6 +674,7 @@ pub async fn rerun_failed_jobs(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .rerun_failed_jobs(&pipeline_id, run_number)
@@ -653,6 +689,7 @@ pub async fn rerun_pipeline_run(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .rerun_run(&pipeline_id, run_number)
@@ -672,6 +709,7 @@ pub async fn get_workflow_parameters(
                 workflow_id
             ),
             details: None,
+            code: None,
         });
     }
 
@@ -681,11 +719,13 @@ pub async fn get_workflow_parameters(
             parts[1]
         ),
         details: None,
+        code: None,
     })?;
 
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .get_workflow_parameters(provider_id, &workflow_id)
@@ -693,6 +733,7 @@ pub async fn get_workflow_parameters(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to fetch workflow parameters: {e}"),
             details: None,
+            code: None,
         })
 }
 
@@ -703,6 +744,7 @@ pub async fn refresh_all(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .refresh_all()
@@ -717,6 +759,7 @@ pub async fn refresh_provider(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     Ok(core.pipeline_service.refresh_provider(id).await)
 }
@@ -728,6 +771,7 @@ pub async fn set_refresh_mode(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let refresh_mode = mode.parse::<RefreshMode>().unwrap_or(RefreshMode::Idle);
     core.refresh_manager.set_mode(refresh_mode);
@@ -741,6 +785,7 @@ pub async fn get_refresh_mode(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let mode = core.refresh_manager.get_mode();
     Ok(mode.as_str().to_string())
@@ -754,6 +799,7 @@ pub async fn update_general_settings(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .update_general_settings(&core.config_state, update)
@@ -769,6 +815,7 @@ pub async fn clear_run_history_cache(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .clear_run_history_cache(&pipeline_id)
@@ -783,6 +830,7 @@ pub async fn get_cache_stats(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let pipelines_count = core
         .pipeline_service
@@ -815,6 +863,7 @@ pub async fn get_cache_stats(
         run_history_count,
         workflow_params_count,
         metrics_count,
+        run_logs_bytes: core.log_service.stats().await.bytes,
     })
 }
 
@@ -825,6 +874,7 @@ pub async fn clear_pipelines_cache(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .clear_pipelines_cache()
@@ -839,6 +889,7 @@ pub async fn clear_all_run_history_caches(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service.clear_all_run_history_caches().await;
     Ok(())
@@ -851,6 +902,7 @@ pub async fn clear_workflow_params_cache(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.pipeline_service
         .clear_workflow_params_cache()
@@ -865,11 +917,11 @@ pub async fn clear_all_caches(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
-    core.pipeline_service
-        .clear_all_caches_atomic()
-        .await
-        .map_err(Into::into)
+    core.pipeline_service.clear_all_caches_atomic().await?;
+    core.log_service.clear().await?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -879,10 +931,12 @@ pub async fn get_global_metrics_config(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let metrics_service = core.metrics_service.as_ref().ok_or_else(|| ErrorResponse {
         error: "Metrics service not available".to_string(),
         details: None,
+        code: None,
     })?;
 
     metrics_service
@@ -898,10 +952,12 @@ pub async fn update_global_metrics_config(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let metrics_service = core.metrics_service.as_ref().ok_or_else(|| ErrorResponse {
         error: "Metrics service not available".to_string(),
         details: None,
+        code: None,
     })?;
 
     metrics_service
@@ -917,10 +973,12 @@ pub async fn get_pipeline_metrics_config(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let metrics_service = core.metrics_service.as_ref().ok_or_else(|| ErrorResponse {
         error: "Metrics service not available".to_string(),
         details: None,
+        code: None,
     })?;
 
     metrics_service
@@ -937,10 +995,12 @@ pub async fn update_pipeline_metrics_config(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let metrics_service = core.metrics_service.as_ref().ok_or_else(|| ErrorResponse {
         error: "Metrics service not available".to_string(),
         details: None,
+        code: None,
     })?;
 
     metrics_service
@@ -958,10 +1018,12 @@ pub async fn query_pipeline_metrics(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let metrics_service = core.metrics_service.as_ref().ok_or_else(|| ErrorResponse {
         error: "Metrics service not available".to_string(),
         details: None,
+        code: None,
     })?;
 
     let parsed_metric_type = metric_type.and_then(|t| t.parse::<MetricType>().ok());
@@ -998,10 +1060,12 @@ pub async fn query_aggregated_metrics(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let metrics_service = core.metrics_service.as_ref().ok_or_else(|| ErrorResponse {
         error: "Metrics service not available".to_string(),
         details: None,
+        code: None,
     })?;
 
     let parsed_metric_type = metric_type
@@ -1009,6 +1073,7 @@ pub async fn query_aggregated_metrics(
         .map_err(|_| ErrorResponse {
             error: format!("Invalid metric type: {}", metric_type),
             details: None,
+            code: None,
         })?;
 
     let parsed_aggregation = match aggregation_period.as_str() {
@@ -1020,6 +1085,7 @@ pub async fn query_aggregated_metrics(
             return Err(ErrorResponse {
                 error: format!("Invalid aggregation period: {}", aggregation_period),
                 details: None,
+                code: None,
             })
         }
     };
@@ -1036,6 +1102,7 @@ pub async fn query_aggregated_metrics(
             _ => Err(ErrorResponse {
                 error: format!("Invalid aggregation type: {}", s),
                 details: None,
+                code: None,
             }),
         })
         .transpose()?;
@@ -1070,10 +1137,12 @@ pub async fn get_metrics_storage_stats(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let metrics_service = core.metrics_service.as_ref().ok_or_else(|| ErrorResponse {
         error: "Metrics service not available".to_string(),
         details: None,
+        code: None,
     })?;
 
     metrics_service
@@ -1089,10 +1158,12 @@ pub async fn flush_pipeline_metrics(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let metrics_service = core.metrics_service.as_ref().ok_or_else(|| ErrorResponse {
         error: "Metrics service not available".to_string(),
         details: None,
+        code: None,
     })?;
 
     metrics_service
@@ -1108,10 +1179,12 @@ pub async fn reset_metrics_processing_state(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let metrics_service = core.metrics_service.as_ref().ok_or_else(|| ErrorResponse {
         error: "Metrics service not available".to_string(),
         details: None,
+        code: None,
     })?;
 
     metrics_service
@@ -1120,6 +1193,7 @@ pub async fn reset_metrics_processing_state(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to reset processing state: {}", e),
             details: None,
+            code: None,
         })?;
 
     Ok(())
@@ -1132,6 +1206,7 @@ pub async fn get_table_preferences(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .repository()
@@ -1148,6 +1223,7 @@ pub async fn save_table_preferences(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     core.provider_service
         .repository()
@@ -1163,6 +1239,7 @@ pub async fn get_default_table_preferences(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let provider_config = core
         .provider_service
@@ -1179,6 +1256,7 @@ pub async fn get_default_table_preferences(
                 provider_config.provider_type
             ),
             details: None,
+            code: None,
         })?;
 
     let table = plugin_metadata
@@ -1187,6 +1265,7 @@ pub async fn get_default_table_preferences(
         .ok_or_else(|| ErrorResponse {
             error: format!("Table '{}' not found in schema", table_id),
             details: None,
+            code: None,
         })?;
 
     let column_visibility: std::collections::HashMap<String, bool> = table
@@ -1213,6 +1292,7 @@ pub async fn get_default_table_preferences(
     serde_json::to_string(&prefs).map_err(|e| ErrorResponse {
         error: format!("Failed to serialize default preferences: {}", e),
         details: None,
+        code: None,
     })
 }
 
@@ -1249,6 +1329,7 @@ pub async fn bootstrap_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
         .map_err(|e| ErrorResponse {
             error: e.to_string(),
             details: None,
+            code: None,
         })?;
 
     tracing::info!("Application bootstrap completed successfully");
@@ -1271,12 +1352,14 @@ pub async fn create_initial_config(
         std::fs::create_dir_all(parent).map_err(|e| ErrorResponse {
             error: format!("Failed to create config directory: {}", e),
             details: None,
+            code: None,
         })?;
     }
 
     ConfigLoader::save(&config, &config_path).map_err(|e| ErrorResponse {
         error: format!("Failed to save config: {}", e),
         details: None,
+        code: None,
     })?;
 
     tracing::info!("Created initial config at {:?}", config_path);
@@ -1293,12 +1376,14 @@ pub(crate) fn load_config_from_dir(
             error: "Configuration file not found. Please complete the setup wizard first."
                 .to_string(),
             details: None,
+            code: None,
         });
     }
 
     ConfigLoader::load(&config_path).map_err(|e| ErrorResponse {
         error: format!("Failed to load config: {}", e),
         details: None,
+        code: None,
     })
 }
 
@@ -1541,6 +1626,7 @@ pub async fn save_storage_config(
     ConfigLoader::save(&config, &config_path).map_err(|e| ErrorResponse {
         error: format!("Failed to save storage config: {}", e),
         details: None,
+        code: None,
     })?;
 
     tracing::info!("Storage config saved successfully");
@@ -1562,6 +1648,7 @@ pub async fn get_config_content(
     let content = std::fs::read_to_string(&config_path).map_err(|e| ErrorResponse {
         error: format!("Failed to read config file: {}", e),
         details: None,
+        code: None,
     })?;
 
     Ok(ConfigContentResponse {
@@ -1578,6 +1665,7 @@ pub async fn save_config_content(
     let config: PipedashConfig = toml::from_str(&content).map_err(|e| ErrorResponse {
         error: format!("Invalid TOML syntax: {}", e),
         details: None,
+        code: None,
     })?;
 
     let validation = config.validate();
@@ -1590,6 +1678,7 @@ pub async fn save_config_content(
         return Err(ErrorResponse {
             error: format!("Config validation failed: {}", errors.join(", ")),
             details: None,
+            code: None,
         });
     }
 
@@ -1597,6 +1686,7 @@ pub async fn save_config_content(
     std::fs::write(&config_path, &content).map_err(|e| ErrorResponse {
         error: format!("Failed to save config file: {}", e),
         details: None,
+        code: None,
     })?;
 
     tracing::info!("Config file saved: {:?}", config_path);
@@ -1606,6 +1696,7 @@ pub async fn save_config_content(
         core.apply_config_file().await.map_err(|e| ErrorResponse {
             error: format!("config.toml was saved, but its providers couldn't be applied: {e}"),
             details: None,
+            code: None,
         })?;
     }
 
@@ -1630,6 +1721,7 @@ pub async fn analyze_config(
     .map_err(|e| ErrorResponse {
         error: format!("Failed to create storage manager: {}", e),
         details: None,
+        code: None,
     })?;
 
     let event_bus = core_opt.map(|c| c.event_bus.clone());
@@ -1720,12 +1812,14 @@ pub async fn test_storage_connection(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     let manager = StorageManager::with_token_store(config.clone(), core.token_store.clone(), true)
         .await
         .map_err(|e| ErrorResponse {
             error: format!("Failed to initialize storage: {}", e),
             details: None,
+            code: None,
         })?;
 
     let config_test = manager
@@ -1783,6 +1877,7 @@ pub async fn plan_storage_migration(
             .map_err(|e| ErrorResponse {
                 error: format!("Failed to create storage manager: {}", e),
                 details: None,
+                code: None,
             })?
     } else {
         StorageManager::from_config_allow_locked(current_config.clone(), true)
@@ -1790,6 +1885,7 @@ pub async fn plan_storage_migration(
             .map_err(|e| ErrorResponse {
                 error: format!("Failed to create storage manager: {}", e),
                 details: None,
+                code: None,
             })?
     };
 
@@ -1822,6 +1918,7 @@ pub async fn plan_storage_migration(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to plan migration: {}", e),
             details: None,
+            code: None,
         })
 }
 
@@ -1841,6 +1938,7 @@ pub async fn execute_storage_migration(
             .map_err(|e| ErrorResponse {
                 error: format!("Failed to create storage manager: {}", e),
                 details: None,
+                code: None,
             })?
     } else {
         StorageManager::from_config_allow_locked(source_config, true)
@@ -1848,6 +1946,7 @@ pub async fn execute_storage_migration(
             .map_err(|e| ErrorResponse {
                 error: format!("Failed to create storage manager: {}", e),
                 details: None,
+                code: None,
             })?
     };
 
@@ -1894,6 +1993,7 @@ pub async fn validate_storage_config(
             .map_err(|e| ErrorResponse {
                 error: format!("Failed to create storage manager: {}", e),
                 details: None,
+                code: None,
             })?
     } else {
         StorageManager::from_config_allow_locked(current_config, true)
@@ -1901,6 +2001,7 @@ pub async fn validate_storage_config(
             .map_err(|e| ErrorResponse {
                 error: format!("Failed to create storage manager: {}", e),
                 details: None,
+                code: None,
             })?
     };
 
@@ -1915,6 +2016,7 @@ pub async fn validate_storage_config(
         .map_err(|e| ErrorResponse {
             error: format!("Failed to validate config: {}", e),
             details: None,
+            code: None,
         })
 }
 
@@ -1936,6 +2038,7 @@ pub async fn factory_reset(
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
         details: None,
+        code: None,
     })?;
     crate::build_watch::interrupt(&app);
     crate::local_notifications::reset(&app).await?;
@@ -1966,6 +2069,7 @@ pub async fn restart_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
             .map_err(|e| ErrorResponse {
                 error: e.to_string(),
                 details: None,
+                code: None,
             });
     }
 

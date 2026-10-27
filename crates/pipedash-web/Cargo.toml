@@ -27,6 +27,7 @@ mime_guess.workspace = true
 # Core
 pipedash-core.workspace = true
 pipedash-plugin-api.workspace = true
+rand.workspace = true
 # Static file embedding
 rust-embed.workspace = true
 # TLS/Crypto
@@ -44,6 +45,9 @@ tower.workspace = true
 tower-http.workspace = true
 # Logging
 tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 default = ["postgres"]

@@ -55,13 +55,6 @@ impl AppError {
         )
     }
 
-    pub fn unauthorized(message: impl Into<String>) -> Self {
-        Self::new(
-            StatusCode::UNAUTHORIZED,
-            ApiError::new("UNAUTHORIZED", message),
-        )
-    }
-
     pub fn conflict(message: impl Into<String>) -> Self {
         Self::new(StatusCode::CONFLICT, ApiError::new("CONFLICT", message))
     }
@@ -85,26 +78,21 @@ impl IntoResponse for AppError {
 
 impl From<DomainError> for AppError {
     fn from(err: DomainError) -> Self {
-        match &err {
-            DomainError::ProviderNotFound(_) => AppError::not_found(err.to_string()),
-            DomainError::PipelineNotFound(_) => AppError::not_found(err.to_string()),
-            DomainError::InvalidConfig(_) => AppError::bad_request(err.to_string()),
-            DomainError::AuthenticationFailed(_) => AppError::unauthorized(err.to_string()),
-            DomainError::ProviderAuthenticationFailed(_) => AppError::new(
-                StatusCode::FORBIDDEN,
-                ApiError::new("PROVIDER_AUTH_FAILED", err.to_string()),
-            ),
-            DomainError::PermissionDenied(_) => AppError::new(
-                StatusCode::FORBIDDEN,
-                ApiError::new("FORBIDDEN", err.to_string()),
-            ),
-            DomainError::InvalidProviderType(_) => AppError::bad_request(err.to_string()),
-            DomainError::NotSupported(_) => AppError::new(
-                StatusCode::NOT_IMPLEMENTED,
-                ApiError::new("NOT_SUPPORTED", err.to_string()),
-            ),
-            _ => AppError::internal(err.to_string()),
-        }
+        let status = match &err {
+            DomainError::ProviderNotFound(_)
+            | DomainError::PipelineNotFound(_)
+            | DomainError::NotFound(_) => StatusCode::NOT_FOUND,
+            DomainError::InvalidConfig(_) | DomainError::InvalidProviderType(_) => {
+                StatusCode::BAD_REQUEST
+            }
+            DomainError::AuthenticationFailed(_) => StatusCode::UNAUTHORIZED,
+            DomainError::ProviderAuthenticationFailed(_) | DomainError::PermissionDenied(_) => {
+                StatusCode::FORBIDDEN
+            }
+            DomainError::NotSupported(_) => StatusCode::NOT_IMPLEMENTED,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        AppError::new(status, ApiError::new(err.code(), err.to_string()))
     }
 }
 

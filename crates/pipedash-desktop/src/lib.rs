@@ -9,6 +9,7 @@ pub mod keyring_store;
 mod local_notifications;
 mod native;
 mod push;
+mod run_logs;
 mod system_notifications;
 pub mod tauri_event_bus;
 
@@ -272,12 +273,22 @@ use commands::{
     validate_storage_config,
 };
 use core_boot::BootKind;
-use export_file::save_export_file;
+use export_file::{
+    export_run_log,
+    save_export_file,
+};
 use push::{
     get_push_status,
     push_pair_server,
     push_send_test,
     push_unpair_server,
+};
+use run_logs::{
+    clear_run_logs_cache,
+    get_run_log_tree,
+    open_run_log,
+    read_run_log_lines,
+    search_run_log,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -480,6 +491,12 @@ pub fn run() {
             unlock_with_biometrics,
             set_app_lock,
             save_export_file,
+            export_run_log,
+            get_run_log_tree,
+            open_run_log,
+            read_run_log_lines,
+            search_run_log,
+            clear_run_logs_cache,
             get_push_status,
             push_pair_server,
             push_unpair_server,

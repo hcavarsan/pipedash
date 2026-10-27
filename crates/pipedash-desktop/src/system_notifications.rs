@@ -96,6 +96,7 @@ pub fn show_system_notification<R: Runtime>(
     builder.show().map_err(|e| ErrorResponse {
         error: format!("Couldn't show the notification: {e}"),
         details: None,
+        code: None,
     })
 }
 

@@ -7,8 +7,10 @@ import {
   useClearCache,
   useClearPipelinesCache,
   useClearRunHistoryCache,
+  useClearRunLogsCache,
   useClearWorkflowParamsCache,
 } from '../../../queries/useCacheQueries'
+import { formatBytes } from '../../../utils/formatBytes'
 import { formatCount } from '../../../utils/formatCount'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
@@ -19,12 +21,13 @@ interface CacheSectionProps {
   onRefresh?: () => Promise<void>
 }
 
-type CacheType = 'pipelines' | 'run_history' | 'workflow_params' | 'all'
+type CacheType = 'pipelines' | 'run_history' | 'workflow_params' | 'run_logs' | 'all'
 
 const CACHE_NAMES: Record<CacheType, string> = {
   pipelines: 'pipelines cache',
   run_history: 'run history cache',
   workflow_params: 'workflow parameters cache',
+  run_logs: 'run logs cache',
   all: 'all caches',
 }
 
@@ -36,6 +39,7 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
     pipelines: useClearPipelinesCache(),
     run_history: useClearRunHistoryCache(),
     workflow_params: useClearWorkflowParamsCache(),
+    run_logs: useClearRunLogsCache(),
     all: useClearCache(),
   }
   const isClearing = Object.values(clearMutations).some((mutation) => mutation.isPending)
@@ -66,9 +70,14 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
     }
 
     const cacheItems = [
-      { key: 'pipelines' as const, label: 'Pipelines', count: cacheStats.pipelines_count },
-      { key: 'run_history' as const, label: 'Run history', count: cacheStats.run_history_count },
-      { key: 'workflow_params' as const, label: 'Workflow parameters', count: cacheStats.workflow_params_count },
+      { key: 'pipelines' as const, label: 'Pipelines', count: formatCount(cacheStats.pipelines_count, 'item') },
+      { key: 'run_history' as const, label: 'Run history', count: formatCount(cacheStats.run_history_count, 'item') },
+      {
+        key: 'workflow_params' as const,
+        label: 'Workflow parameters',
+        count: formatCount(cacheStats.workflow_params_count, 'item'),
+      },
+      { key: 'run_logs' as const, label: 'Run logs', count: formatBytes(cacheStats.run_logs_bytes) },
     ]
 
     if (mobileShell) {
@@ -78,7 +87,7 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
         <Stack gap="lg" pb="md">
           <IosGroup>
             {cacheItems.map((item) => (
-              <IosRow key={item.key} title={item.label} value={formatCount(item.count, 'item')} />
+              <IosRow key={item.key} title={item.label} value={item.count} />
             ))}
             {cacheStats.metrics_count > 0 && (
               <IosRow title="Metrics" value={formatCount(cacheStats.metrics_count, 'item')} />
@@ -121,7 +130,7 @@ export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
                   <Text size="xs" c="dimmed">
                     {item.label}
                   </Text>
-                  <Text size="sm">{item.count} items</Text>
+                  <Text size="sm">{item.count}</Text>
                 </Stack>
                 <Stack gap="3xs" align="flex-end">
                   <Button

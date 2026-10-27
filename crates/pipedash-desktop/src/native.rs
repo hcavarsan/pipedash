@@ -258,6 +258,7 @@ fn native_error(error: tauri_plugin_pipedash_native::Error) -> ErrorResponse {
     ErrorResponse {
         error: error.to_string(),
         details: None,
+        code: None,
     }
 }
 

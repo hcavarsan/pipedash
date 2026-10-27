@@ -3162,6 +3162,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "lz4_flex"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
+
+[[package]]
 name = "mac-notification-sys"
 version = "0.6.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4065,6 +4071,7 @@ dependencies = [
  "argon2",
  "async-trait",
  "base64 0.23.1",
+ "bytes",
  "chrono",
  "dashmap",
  "dirs 7.0.0",
@@ -4072,6 +4079,9 @@ dependencies = [
  "glob",
  "hostname",
  "indexmap 2.14.2",
+ "lz4_flex",
+ "memchr",
+ "pipedash-plugin-actions",
  "pipedash-plugin-api",
  "pipedash-plugin-argocd",
  "pipedash-plugin-bitbucket",
@@ -4155,6 +4165,7 @@ dependencies = [
 name = "pipedash-plugin-actions"
 version = "0.4.0"
 dependencies = [
+ "chrono",
  "pipedash-plugin-api",
  "serde",
  "serde-saphyr",
@@ -4166,6 +4177,7 @@ name = "pipedash-plugin-api"
 version = "0.4.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "chrono",
  "futures",
  "reqwest",
@@ -4369,6 +4381,7 @@ dependencies = [
  "mime_guess",
  "pipedash-core",
  "pipedash-plugin-api",
+ "rand 0.10.3",
  "rust-embed",
  "rustls",
  "serde",
@@ -6614,6 +6627,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "slab",

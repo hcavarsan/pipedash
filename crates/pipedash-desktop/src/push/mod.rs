@@ -107,6 +107,7 @@ impl From<PushError> for ErrorResponse {
         Self {
             error: error.to_string(),
             details: Some(error.code().to_owned()),
+            code: None,
         }
     }
 }

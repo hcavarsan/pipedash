@@ -482,6 +482,7 @@ async fn reload_storage(state: &AppState) -> Result<(), String> {
         inner.core.replace(new_core)
     };
     if let Some(old_core) = old_core {
+        state.download_tickets.clear();
         old_core.shutdown().await;
     }
 

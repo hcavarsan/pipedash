@@ -5,6 +5,7 @@ use std::sync::{
 };
 
 use pipedash_core::application::{
+    LogService,
     PipelineService,
     ProviderService,
 };
@@ -18,6 +19,7 @@ use tokio::sync::{
     RwLock,
 };
 
+use crate::download_tickets::DownloadTickets;
 use crate::error::{
     ApiResult,
     AppError,
@@ -37,6 +39,7 @@ pub struct AppState {
     pub inner: Arc<RwLock<AppStateInner>>,
     pub ws_event_bus: Arc<WebSocketEventBus>,
     pub setup_lock: Arc<Mutex<()>>,
+    pub download_tickets: Arc<DownloadTickets>,
     api_token: Arc<StdRwLock<Option<Arc<str>>>>,
 }
 
@@ -52,6 +55,7 @@ impl AppState {
             })),
             ws_event_bus,
             setup_lock: Arc::default(),
+            download_tickets: Arc::default(),
             api_token: Arc::default(),
         }
     }
@@ -67,6 +71,7 @@ impl AppState {
             })),
             ws_event_bus,
             setup_lock: Arc::default(),
+            download_tickets: Arc::default(),
             api_token: Arc::default(),
         }
     }
@@ -84,6 +89,7 @@ impl AppState {
             })),
             ws_event_bus,
             setup_lock: Arc::default(),
+            download_tickets: Arc::default(),
             api_token: Arc::default(),
         }
     }
@@ -112,6 +118,12 @@ impl AppState {
         let inner = self.inner.read().await;
         let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
         Ok(Arc::clone(&core.pipeline_service))
+    }
+
+    pub async fn log_service(&self) -> ApiResult<Arc<LogService>> {
+        let inner = self.inner.read().await;
+        let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+        Ok(Arc::clone(&core.log_service))
     }
 
     pub async fn config_state(&self) -> ApiResult<Arc<ConfigState>> {
