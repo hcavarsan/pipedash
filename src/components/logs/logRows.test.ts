@@ -6,6 +6,7 @@ import type { LogSection } from '../../types/logs'
 import {
   buildRows,
   filterAfterJump,
+  filterAfterQuery,
   filterRows,
   isOpen,
   overridesFor,
@@ -186,4 +187,14 @@ test('a cleared filter makes the target line reachable', () => {
 
   assert.equal(rowOfLine(filtered, 8), null)
   assert.notEqual(rowOfLine(buildRows(meta, revealLine(meta, new Set(), 8)), 8), null)
+})
+
+test('clearing the search turns off the matching-lines filter so the log comes back', () => {
+  const { meta } = fixture()
+
+  assert.equal(filterRows([]).count, 0)
+  assert.equal(filterAfterQuery('matches', ''), 'none')
+  assert.ok(buildRows(meta, new Set()).count > 0)
+  assert.equal(filterAfterQuery('matches', 'boom'), 'matches')
+  assert.equal(filterAfterQuery('errors', ''), 'errors')
 })

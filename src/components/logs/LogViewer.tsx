@@ -53,6 +53,7 @@ import { collectLines, exportFileName, FULL_LINE_UNITS, newSessionId } from './l
 import {
   buildRows,
   filterAfterJump,
+  filterAfterQuery,
   filterRows,
   type LogFilter,
   lineOfItem,
@@ -416,9 +417,7 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
     }
 
     function changeText(value: string) {
-      if (!value && filter === 'matches') {
-        setFilter('none')
-      }
+      setFilter(filterAfterQuery(filter, value))
       changeQuery(setQueryText, value)
     }
 

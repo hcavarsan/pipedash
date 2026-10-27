@@ -339,3 +339,7 @@ export function filterAfterJump(
 
   return filter === 'errors' && !errorLines.includes(line) ? 'none' : filter
 }
+
+export function filterAfterQuery(filter: LogFilter, text: string): LogFilter {
+  return filter === 'matches' && !text ? 'none' : filter
+}
