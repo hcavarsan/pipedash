@@ -258,6 +258,25 @@ where
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ApplicationTree {
+    #[serde(default, deserialize_with = "null_as_empty")]
+    pub nodes: Vec<ResourceNode>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResourceNode {
+    #[serde(default)]
+    pub group: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub namespace: String,
+    #[serde(default)]
+    pub name: String,
+    pub health: Option<HealthStatus>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct EventList {
     #[serde(default, deserialize_with = "null_as_empty")]
     pub items: Vec<Event>,
@@ -285,6 +304,105 @@ impl Event {
             .or(self.event_time)
             .or(self.first_timestamp)
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PodLogMessage {
+    pub result: Option<PodLogEntry>,
+    pub error: Option<StreamError>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodLogEntry {
+    #[serde(default)]
+    pub content: String,
+    pub time_stamp_str: Option<String>,
+    #[serde(default)]
+    pub last: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StreamError {
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub http_code: u16,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResourceManifest {
+    pub manifest: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct Pod {
+    pub metadata: PodMetadata,
+    pub spec: PodSpec,
+    pub status: PodStatus,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct PodMetadata {
+    pub uid: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PodSpec {
+    pub node_name: Option<String>,
+    pub init_containers: Vec<PodContainer>,
+    pub containers: Vec<PodContainer>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct PodContainer {
+    pub name: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PodStatus {
+    pub phase: String,
+    pub reason: Option<String>,
+    pub message: Option<String>,
+    pub init_container_statuses: Vec<ContainerStatus>,
+    pub container_statuses: Vec<ContainerStatus>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ContainerStatus {
+    pub name: String,
+    pub restart_count: i64,
+    pub state: ContainerState,
+    pub last_state: ContainerState,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ContainerState {
+    pub waiting: Option<ContainerWaiting>,
+    pub terminated: Option<ContainerTerminated>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ContainerWaiting {
+    pub reason: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ContainerTerminated {
+    pub exit_code: i64,
+    pub reason: Option<String>,
+    pub message: Option<String>,
+    pub finished_at: Option<DateTime<Utc>>,
 }
 
 #[cfg(test)]
