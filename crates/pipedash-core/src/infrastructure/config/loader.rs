@@ -11,9 +11,12 @@ use thiserror::Error;
 use toml_edit::{
     DocumentMut,
     Item,
+    TableLike,
 };
 
 use super::interpolation::{
+    has_variables,
+    interpolate,
     interpolate_toml,
     InterpolationError,
 };
@@ -306,14 +309,21 @@ impl ConfigLoader {
         }
     }
 
+    fn set_string(table: &mut dyn TableLike, key: &str, value: &str) {
+        let keeps_reference = table.get(key).and_then(Item::as_str).is_some_and(|raw| {
+            has_variables(raw) && interpolate(raw).is_ok_and(|resolved| resolved == value)
+        });
+
+        if !keeps_reference {
+            table.insert(key, Item::Value(value.into()));
+        }
+    }
+
     fn update_document(doc: &mut DocumentMut, config: &PipedashConfig) -> ConfigLoadResult<()> {
         Self::apply_general(doc, &config.general);
 
         if let Some(server) = doc.get_mut("server").and_then(|v| v.as_table_like_mut()) {
-            server.insert(
-                "bind_addr",
-                Item::Value(config.server.bind_addr.clone().into()),
-            );
+            Self::set_string(server, "bind_addr", &config.server.bind_addr);
             server.insert(
                 "cors_allow_all",
                 Item::Value(config.server.cors_allow_all.into()),
@@ -333,10 +343,7 @@ impl ConfigLoader {
             if config.storage.data_dir.is_empty() {
                 storage.remove("data_dir");
             } else {
-                storage.insert(
-                    "data_dir",
-                    Item::Value(config.storage.data_dir.clone().into()),
-                );
+                Self::set_string(storage, "data_dir", &config.storage.data_dir);
             }
 
             if !config.storage.postgres.connection_string.is_empty() {
@@ -347,9 +354,10 @@ impl ConfigLoader {
                     .get_mut("postgres")
                     .and_then(|v| v.as_table_like_mut())
                 {
-                    postgres.insert(
+                    Self::set_string(
+                        postgres,
                         "connection_string",
-                        Item::Value(config.storage.postgres.connection_string.clone().into()),
+                        &config.storage.postgres.connection_string,
                     );
                 }
             }
@@ -599,6 +607,65 @@ bind_addr = "${NONEXISTENT_VAR:-127.0.0.1:8080}"
                 .unwrap()
                 .general
                 .status_pages_enabled
+        );
+    }
+
+    const REFERENCED_CONFIG: &str = "[server]\nbind_addr = \"${PIPEDASH_TEST_BIND}\"\n\n[storage]\nbackend = \"postgres\"\ndata_dir = \"${PIPEDASH_TEST_DATA_DIR}\"\n\n[storage.postgres]\nconnection_string = \"${PIPEDASH_TEST_PG_URL}\"\n";
+
+    fn referenced_env() -> EnvGuard {
+        EnvGuard::set(&[
+            ("PIPEDASH_TEST_BIND", Some("0.0.0.0:9090")),
+            ("PIPEDASH_TEST_DATA_DIR", Some("/srv/pipedash")),
+            (
+                "PIPEDASH_TEST_PG_URL",
+                Some("postgres://pipedash:s3cret@db:5432/pipedash"),
+            ),
+        ])
+    }
+
+    #[test]
+    fn test_save_keeps_variable_references_that_resolve_to_the_saved_values() {
+        let _env = referenced_env();
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        std::fs::write(&path, REFERENCED_CONFIG).unwrap();
+        let config = ConfigLoader::load(&path).unwrap();
+
+        ConfigLoader::save(&config, &path).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("s3cret"), "{text}");
+        for reference in [
+            "${PIPEDASH_TEST_BIND}",
+            "${PIPEDASH_TEST_DATA_DIR}",
+            "${PIPEDASH_TEST_PG_URL}",
+        ] {
+            assert!(
+                text.contains(reference),
+                "{reference} missing from:\n{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_save_replaces_variable_references_when_the_value_changes() {
+        let _env = referenced_env();
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        std::fs::write(&path, REFERENCED_CONFIG).unwrap();
+        let mut config = ConfigLoader::load(&path).unwrap();
+        config.server.bind_addr = "127.0.0.1:8080".to_string();
+        config.storage.data_dir = "/var/lib/pipedash".to_string();
+        config.storage.postgres.connection_string = "postgres://other@db2/pipedash".to_string();
+
+        ConfigLoader::save(&config, &path).unwrap();
+
+        let saved = ConfigLoader::load(&path).unwrap();
+        assert_eq!(saved.server.bind_addr, "127.0.0.1:8080");
+        assert_eq!(saved.storage.data_dir, "/var/lib/pipedash");
+        assert_eq!(
+            saved.storage.postgres.connection_string,
+            "postgres://other@db2/pipedash"
         );
     }
 
