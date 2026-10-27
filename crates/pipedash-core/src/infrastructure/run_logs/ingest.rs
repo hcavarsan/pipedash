@@ -237,8 +237,13 @@ impl State {
     }
 
     fn line(&mut self, raw: &[u8]) -> io::Result<Flow> {
-        let parsed = self.dialect.parse(clean_carriage_returns(raw));
-        let ts = parsed.timestamp.map(|t| t.timestamp_millis());
+        let visible = clean_carriage_returns(raw);
+        let parsed = self.dialect.parse(visible);
+        let timestamp = match parsed.timestamp {
+            None if visible.as_ptr() != raw.as_ptr() => self.dialect.parse(raw).timestamp,
+            timestamp => timestamp,
+        };
+        let ts = timestamp.map(|t| t.timestamp_millis());
         match parsed.marker {
             LineMarker::GroupEnd => {
                 self.outline.group_end(self.line_count, ts);
@@ -429,7 +434,10 @@ mod tests {
         let text = std::str::from_utf8(&text).expect("utf8");
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 11);
-        assert_eq!(lines[5], "remote: Counting objects: 100%, done.");
+        assert_eq!(
+            lines[5],
+            "2025-04-22T11:43:30.698Z remote: Counting objects: 100%, done."
+        );
         assert!(lines[9].ends_with(" 🚨 Error: The command exited with status 1"));
         assert!(!text.contains("bk;t=") && !text.contains("^^^"));
     }
