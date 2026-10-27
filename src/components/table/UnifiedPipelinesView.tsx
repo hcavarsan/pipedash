@@ -423,12 +423,14 @@ export const UnifiedPipelinesView = ({
     const pinned = pinnedKeys
       .map((key) => validPipelines.get(key))
       .filter((pipeline): pipeline is Pipeline => !!pipeline && matches(pipeline))
-    const hiddenSet = new Set(showHidden ? [] : hiddenKeys)
+    const hiddenSet = new Set(hiddenKeys)
 
     const built = repoGroups.flatMap((group): Section[] => {
       const workflows = group.pipelines.filter(
-        (pipeline) => !hiddenSet.has(pinKeys.get(pipeline.id) ?? '') && matches(pipeline)
+        (pipeline) => (showHidden || !hiddenSet.has(pinKeys.get(pipeline.id) ?? '')) && matches(pipeline)
       )
+      const watched = workflows.filter((pipeline) => !hiddenSet.has(pinKeys.get(pipeline.id) ?? ''))
+      const statusWorkflows = watched.length > 0 ? watched : workflows
       const matchesAsEmptyRepo =
         group.pipelines.length === 0 &&
         !rowFilters.status &&
@@ -459,8 +461,8 @@ export const UnifiedPipelinesView = ({
         (latest, p) => (p.last_run && (!latest || p.last_run > latest) ? p.last_run : latest),
         null
       )
-      const status = mostSevereStatus(workflows.map((pipeline) => pipeline.status))
-      const statusPipeline = workflows.find((pipeline) => pipeline.status === status)
+      const status = mostSevereStatus(statusWorkflows.map((pipeline) => pipeline.status))
+      const statusPipeline = statusWorkflows.find((pipeline) => pipeline.status === status)
 
       return [
         {
