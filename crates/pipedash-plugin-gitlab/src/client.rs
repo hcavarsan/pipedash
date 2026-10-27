@@ -87,11 +87,7 @@ impl GitLabClient {
                             self.api_url
                         ))
                         .await?;
-                    let next_page = response
-                        .headers()
-                        .get("x-next-page")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|s| s.parse::<usize>().ok());
+                    let next_page = Self::next_page(&response);
                     let items: Vec<serde_json::Value> = Self::json(response).await?;
 
                     Ok((
@@ -184,19 +180,34 @@ impl GitLabClient {
     }
 
     pub async fn get_project_pipelines(
-        &self, project_id: i64, per_page: usize,
+        &self, project_id: i64, limit: usize,
     ) -> PluginResult<Vec<Pipeline>> {
-        self.retry_policy
-            .retry(|| async {
-                let response = self
-                    .get(&format!(
-                        "{}/projects/{}/pipelines?per_page={}&order_by=updated_at",
-                        self.api_url, project_id, per_page
-                    ))
-                    .await?;
-                Self::json(response).await
-            })
-            .await
+        let per_page = limit.clamp(1, 100);
+        let mut pipelines = Vec::new();
+        let mut page = Some(1);
+
+        while let Some(current) = page.filter(|_| pipelines.len() < limit) {
+            let (mut items, next_page) = self
+                .retry_policy
+                .retry(|| async {
+                    let response = self
+                        .get(&format!(
+                            "{}/projects/{}/pipelines?per_page={}&page={}&order_by=updated_at",
+                            self.api_url, project_id, per_page, current
+                        ))
+                        .await?;
+                    let next_page = Self::next_page(&response);
+                    let items: Vec<Pipeline> = Self::json(response).await?;
+
+                    Ok((items, next_page))
+                })
+                .await?;
+            pipelines.append(&mut items);
+            page = next_page.filter(|next| *next > current);
+        }
+
+        pipelines.truncate(limit);
+        Ok(pipelines)
     }
 
     pub async fn has_ci_config(&self, project: &Project) -> PluginResult<bool> {
@@ -298,6 +309,14 @@ impl GitLabClient {
             params.page_size,
             count,
         ))
+    }
+
+    fn next_page(response: &reqwest::Response) -> Option<usize> {
+        response
+            .headers()
+            .get("x-next-page")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<usize>().ok())
     }
 
     fn parse_url(url: &str) -> PluginResult<Url> {

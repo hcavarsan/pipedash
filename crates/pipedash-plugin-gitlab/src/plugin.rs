@@ -415,6 +415,15 @@ mod tests {
 
     use super::*;
 
+    fn stub_pipeline(id: i64) -> serde_json::Value {
+        serde_json::json!({
+            "id": id, "project_id": 200, "status": "success", "ref": "main", "sha": "abc",
+            "web_url": format!("https://gitlab.example/team/app/-/pipelines/{id}"),
+            "created_at": "2026-10-01T00:00:00Z", "updated_at": "2026-10-01T00:00:00Z",
+            "started_at": null, "finished_at": null, "duration": null, "user": null
+        })
+    }
+
     async fn stub_gitlab() -> (GitLabPlugin, tokio::task::JoinHandle<()>) {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -459,6 +468,32 @@ mod tests {
                     | "/api/v4/projects/103/repository/files/.gitlab-ci.yml" => {
                         status = "404 Not Found";
                         serde_json::json!({"message": "404 File Not Found"})
+                    }
+                    "/api/v4/projects/200" => serde_json::json!({
+                        "id": 200, "name": "app", "name_with_namespace": "team / app",
+                        "description": null, "web_url": format!("http://{addr}/team/app")
+                    }),
+                    "/api/v4/projects/200/pipelines" => {
+                        total = 150_usize;
+                        let page = query.get("page").map_or(1, |p| p.parse::<usize>().unwrap());
+                        let page_size = query
+                            .get("per_page")
+                            .map_or(20, |p| p.parse::<usize>().unwrap())
+                            .min(100);
+                        if page < total.div_ceil(page_size) {
+                            next_page = (page + 1).to_string();
+                        }
+                        serde_json::Value::Array(
+                            (1..=150)
+                                .rev()
+                                .skip((page - 1) * page_size)
+                                .take(page_size)
+                                .map(stub_pipeline)
+                                .collect(),
+                        )
+                    }
+                    path if path.starts_with("/api/v4/projects/200/pipelines/") => {
+                        stub_pipeline(path.rsplit('/').next().unwrap().parse().unwrap())
                     }
                     "/api/v4/groups/42/projects"
                     | "/api/v4/projects"
@@ -691,5 +726,25 @@ mod tests {
         assert_eq!(orgs[1].name, "team-a/backend");
         assert_eq!(orgs[2].name, "team-b/backend");
         assert!(orgs.iter().any(|org| org.id == "105"));
+    }
+
+    #[tokio::test]
+    async fn run_history_reads_past_the_first_100_pipelines() {
+        let (plugin, server) = stub_gitlab().await;
+        let all = plugin
+            .fetch_run_history("gitlab__1__200", 200)
+            .await
+            .unwrap();
+        let some = plugin
+            .fetch_run_history("gitlab__1__200", 120)
+            .await
+            .unwrap();
+        let latest = plugin.fetch_run_history("gitlab__1__200", 1).await.unwrap();
+        server.abort();
+
+        let numbers = |runs: &[PipelineRun]| runs.iter().map(|r| r.run_number).collect::<Vec<_>>();
+        assert_eq!(numbers(&all), (1..=150).rev().collect::<Vec<_>>());
+        assert_eq!(numbers(&some), (31..=150).rev().collect::<Vec<_>>());
+        assert_eq!(numbers(&latest), vec![150]);
     }
 }
