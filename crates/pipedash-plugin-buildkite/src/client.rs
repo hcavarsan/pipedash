@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use chrono::Utc;
 use pipedash_plugin_api::{
@@ -6,6 +7,7 @@ use pipedash_plugin_api::{
     map_send_error,
     AvailablePipeline,
     BuildArtifact,
+    LogSink,
     PaginatedResponse,
     PaginationParams,
     Pipeline,
@@ -193,6 +195,61 @@ impl BuildkiteClient {
 
         all_builds.truncate(limit);
         Ok(all_builds)
+    }
+
+    pub async fn fetch_build(
+        &self, org: &str, slug: &str, number: i64,
+    ) -> PluginResult<types::Build> {
+        self.get_json(&format!(
+            "{}/organizations/{org}/pipelines/{slug}/builds/{number}?exclude_jobs=true",
+            self.base_url
+        ))
+        .await
+    }
+
+    pub async fn fetch_build_jobs(
+        &self, org: &str, slug: &str, number: i64,
+    ) -> PluginResult<Vec<types::Job>> {
+        let build: types::BuildJobs = self
+            .get_json(&format!(
+                "{}/organizations/{org}/pipelines/{slug}/builds/{number}",
+                self.base_url
+            ))
+            .await?;
+
+        Ok(build.jobs)
+    }
+
+    pub async fn stream_job_log(
+        &self, org: &str, slug: &str, number: i64, job_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let url = parse_url(&format!(
+            "{}/organizations/{org}/pipelines/{slug}/builds/{number}/jobs/{job_id}/log.txt",
+            self.base_url
+        ))?;
+
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .get(url.clone())
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", self.token),
+                    )
+                    .header(reqwest::header::ACCEPT, "text/plain")
+                    .timeout(Duration::from_secs(900))
+                    .send()
+            })
+            .await?;
+
+        if matches!(response.status().as_u16(), 404 | 410) {
+            return Err(PluginError::PipelineNotFound(format!(
+                "Logs for job {job_id} are no longer available"
+            )));
+        }
+
+        sink.pipe(check_response(response).await?).await
     }
 
     pub async fn trigger_build(

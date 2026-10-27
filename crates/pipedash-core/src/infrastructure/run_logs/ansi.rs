@@ -106,7 +106,7 @@ pub(crate) fn render(
                     };
                 }
             }
-            Some(b']') => i = osc(body, i + 2),
+            Some(b']' | b'_') => i = osc(body, i + 2),
             _ => i = (i + 2).min(body.len()),
         }
     }
@@ -358,6 +358,14 @@ mod tests {
     fn run_logs_ansi_drops_osc_and_controls() {
         let (text, spans, _) = run(b"a\x1b]0;title\x07b\x1b]8;;x\x1b\\c\x08\x07d\x1b[2Ke\x1bXf\tg");
         assert_eq!(text, "abcdef\tg");
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn run_logs_ansi_drops_apc_strings() {
+        let (text, spans, _) =
+            run(b"done.\x1b[K\x1b_bk;t=1745322210213\x07 next\x1b_bk;t=1\x1b\\ end");
+        assert_eq!(text, "done. next end");
         assert!(spans.is_empty());
     }
 
