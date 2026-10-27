@@ -9,7 +9,6 @@ import type { RunLogNode, RunLogTree } from '../types/logs'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
-// The DOM globals must exist before these modules load, so they load after the register call.
 const { act, cleanup, renderHook, waitFor } = await import('@testing-library/react')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { apiService, tauriService } = await import('../services')
