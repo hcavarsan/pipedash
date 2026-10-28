@@ -75,10 +75,11 @@ pub(crate) fn parse_selected_items(config: &HashMap<String, String>) -> Option<V
 pub(crate) fn parse_repository_name(repo_url: &str) -> String {
     let cleaned = repo_url.trim_end_matches(".git").trim_end_matches('/');
 
-    if let Some(pos) = cleaned.rfind(':') {
-        let after_colon = &cleaned[pos + 1..];
-        if after_colon.contains('/') && !after_colon.starts_with("//") {
-            return after_colon.to_string();
+    if !cleaned.contains("://") {
+        if let Some((_, path)) = cleaned.rsplit_once(':') {
+            if path.contains('/') {
+                return path.to_string();
+            }
         }
     }
 
@@ -95,4 +96,22 @@ pub(crate) fn parse_repository_name(repo_url: &str) -> String {
 pub(crate) fn extract_git_org(repo_url: &str) -> String {
     let repo_name = parse_repository_name(repo_url);
     repo_name.split('/').next().unwrap_or("unknown").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repository_name_ignores_hosts_and_ports() {
+        for url in [
+            "https://github.com/acme/web.git",
+            "http://gitea:3000/acme/web.git",
+            "ssh://git@git.example.com:2222/acme/web",
+            "git@github.com:acme/web.git",
+        ] {
+            assert_eq!(parse_repository_name(url), "acme/web", "{url}");
+            assert_eq!(extract_git_org(url), "acme", "{url}");
+        }
+    }
 }
