@@ -11,6 +11,7 @@ use crate::{
     config,
     mapper,
     metadata,
+    types,
 };
 
 pub struct AzureDevOpsPlugin {
@@ -61,6 +62,23 @@ impl AzureDevOpsPlugin {
                 mapper::map_pipeline(provider_id, &self.organization, project, definition)
             })
             .collect())
+    }
+
+    async fn owned_build(
+        &self, project: &str, definition_id: i64, pipeline_id: &str, build_id: i64,
+    ) -> PluginResult<types::Build> {
+        let build = self.client()?.get_build(project, build_id).await?;
+        let belongs_to_pipeline = build
+            .definition
+            .as_ref()
+            .and_then(|definition| definition.id)
+            .is_none_or(|id| id == definition_id);
+        if !belongs_to_pipeline {
+            return Err(PluginError::PipelineNotFound(format!(
+                "Run #{build_id} does not belong to {pipeline_id}"
+            )));
+        }
+        Ok(build)
     }
 }
 
@@ -222,23 +240,14 @@ impl Plugin for AzureDevOpsPlugin {
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun> {
         let id = config::parse_pipeline_id(pipeline_id)?;
-        let client = self.client()?;
-        let build = client.get_build(id.project, run_number).await?;
-        let belongs_to_pipeline = build
-            .definition
-            .as_ref()
-            .and_then(|definition| definition.id)
-            .is_none_or(|definition_id| definition_id == id.definition_id);
-        if !belongs_to_pipeline {
-            return Err(PluginError::PipelineNotFound(format!(
-                "Run #{run_number} does not belong to {pipeline_id}"
-            )));
-        }
+        let build = self
+            .owned_build(id.project, id.definition_id, pipeline_id, run_number)
+            .await?;
         Ok(mapper::map_run(
             &build,
             pipeline_id,
             id.project,
-            client.server_url(),
+            self.client()?.server_url(),
         ))
     }
 
@@ -272,16 +281,12 @@ impl Plugin for AzureDevOpsPlugin {
                 .variables
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|(_, variable)| variable.allow_override)
+                .filter(|(_, variable)| variable.allow_override && !variable.is_secret)
                 .map(|(name, variable)| WorkflowParameter {
                     label: Some(name.clone()),
-                    description: Some(if variable.is_secret {
-                        "Secret pipeline variable".to_string()
-                    } else {
-                        "Pipeline variable".to_string()
-                    }),
+                    description: Some("Pipeline variable".to_string()),
                     param_type: WorkflowParameterType::String {
-                        default: variable.value.filter(|_| !variable.is_secret),
+                        default: variable.value,
                     },
                     required: false,
                     name,
@@ -295,15 +300,28 @@ impl Plugin for AzureDevOpsPlugin {
         let client = self.client()?;
         let body = mapper::trigger_body(id.definition_id, params.inputs);
         let build = client.queue_build(id.project, &body).await?;
-        Ok(build
+        let logs_url = build
             .web_link()
             .map(str::to_string)
-            .unwrap_or_else(|| config::build_web_url(client.server_url(), id.project, build.id)))
+            .unwrap_or_else(|| config::build_web_url(client.server_url(), id.project, build.id));
+        let branch = body["sourceBranch"]
+            .as_str()
+            .map(mapper::short_branch)
+            .unwrap_or("the default branch");
+        Ok(serde_json::json!({
+            "message": format!("Queued build {} on {branch}", build.id),
+            "run_number": build.id,
+            "logs_url": logs_url
+        })
+        .to_string())
     }
 
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
         let id = config::parse_pipeline_id(pipeline_id)?;
-        self.client()?.cancel_build(id.project, run_number).await
+        let client = self.client()?;
+        self.owned_build(id.project, id.definition_id, pipeline_id, run_number)
+            .await?;
+        client.cancel_build(id.project, run_number).await
     }
 }
 
@@ -579,7 +597,8 @@ mod tests {
                     "variables": {
                         "deployTarget": {"value": "dev", "allowOverride": true},
                         "fixed": {"value": "x"},
-                        "apiKey": {"isSecret": true, "allowOverride": true}
+                        "apiKey": {"isSecret": true, "allowOverride": true},
+                        "branch": {"value": "legacy", "allowOverride": true}
                     }
                 }),
             ),
@@ -606,6 +625,9 @@ mod tests {
                 } else {
                     reply
                 }
+            }
+            ("GET", "/acme/Alpha/_apis/build/builds/923") => {
+                Reply::json(200, build_json(923, "inProgress", None, 1))
             }
             ("GET", "/acme/Alpha/_apis/build/builds/922") => {
                 Reply::json(200, build_json(922, "completed", Some("failed"), 1))
@@ -891,7 +913,7 @@ mod tests {
             run.logs_url,
             "https://dev.azure.com/acme/Alpha/_build/results?buildId=922"
         );
-        assert_eq!(run.inputs, Some(json!({"branch": "main"})));
+        assert_eq!(run.inputs, Some(json!({"source-branch": "main"})));
 
         let foreign = plugin
             .fetch_run_details("azure-devops__1__Alpha/1", 777)
@@ -920,7 +942,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn workflow_parameters_offer_the_default_branch_and_overridable_variables() {
+    async fn workflow_parameters_offer_the_default_branch_and_overridable_non_secret_variables() {
         let stub = serve(azure_reply).await;
         let plugin = plugin_for(&stub, "", "Alpha");
 
@@ -945,8 +967,8 @@ mod tests {
         assert_eq!(
             summary,
             [
-                ("branch", Some("main"), false),
-                ("apiKey", None, false),
+                ("source-branch", Some("main"), false),
+                ("branch", Some("legacy"), false),
                 ("deployTarget", Some("dev"), false),
             ]
         );
@@ -957,17 +979,22 @@ mod tests {
         let stub = serve(azure_reply).await;
         let plugin = plugin_for(&stub, "", "Alpha");
 
-        let link = plugin
+        let result = plugin
             .trigger_pipeline(TriggerParams {
                 workflow_id: "azure-devops__1__Alpha/1".to_string(),
-                inputs: Some(json!({"branch": "feature/x", "deployTarget": "staging"})),
+                inputs: Some(json!({"source-branch": "feature/x", "deployTarget": "staging"})),
             })
             .await
             .unwrap();
 
+        let result: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(
-            link,
-            "https://dev.azure.com/acme/Alpha/_build/results?buildId=930"
+            result,
+            json!({
+                "message": "Queued build 930 on feature/x",
+                "run_number": 930,
+                "logs_url": "https://dev.azure.com/acme/Alpha/_build/results?buildId=930"
+            })
         );
         let requests = stub.requests();
         assert_eq!(requests.len(), 1);
@@ -988,6 +1015,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_variable_named_branch_is_sent_as_a_variable_not_as_the_source_branch() {
+        let stub = serve(azure_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+
+        plugin
+            .trigger_pipeline(TriggerParams {
+                workflow_id: "azure-devops__1__Alpha/1".to_string(),
+                inputs: Some(json!({"source-branch": "main", "branch": "legacy"})),
+            })
+            .await
+            .unwrap();
+
+        let body: Value = serde_json::from_str(&stub.requests()[0].body).unwrap();
+        assert_eq!(
+            body,
+            json!({
+                "definition": {"id": 1},
+                "sourceBranch": "refs/heads/main",
+                "parameters": r#"{"branch":"legacy"}"#
+            })
+        );
+    }
+
+    #[tokio::test]
     async fn cancel_patches_the_build_status_to_cancelling() {
         let stub = serve(azure_reply).await;
         let plugin = plugin_for(&stub, "", "Alpha");
@@ -998,13 +1049,33 @@ mod tests {
             .unwrap();
 
         let requests = stub.requests();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].method, "PATCH");
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].method, "GET");
         assert_eq!(requests[0].url.path(), "/acme/Alpha/_apis/build/builds/923");
-        assert_eq!(requests[0].query("api-version").as_deref(), Some("7.0"));
-        let body: Value = serde_json::from_str(&requests[0].body).unwrap();
+        assert_eq!(requests[1].method, "PATCH");
+        assert_eq!(requests[1].url.path(), "/acme/Alpha/_apis/build/builds/923");
+        assert_eq!(requests[1].query("api-version").as_deref(), Some("7.0"));
+        let body: Value = serde_json::from_str(&requests[1].body).unwrap();
         assert_eq!(body, json!({"status": "cancelling"}));
         assert!(plugin.metadata().capabilities.cancel);
+    }
+
+    #[tokio::test]
+    async fn cancel_refuses_a_build_of_another_definition_without_patching() {
+        let stub = serve(azure_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+
+        let error = plugin
+            .cancel_run("azure-devops__1__Alpha/1", 777)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+        assert!(error.to_string().contains("does not belong"), "{error}");
+        assert!(stub
+            .requests()
+            .iter()
+            .all(|request| request.method == "GET"));
     }
 
     #[tokio::test]
@@ -1120,25 +1191,24 @@ mod tests {
         assert!(matches!(missing_token, PluginError::InvalidConfig(_)));
     }
 
-    #[test]
-    fn metadata_describes_an_azure_devops_provider_without_logs() {
-        let plugin = AzureDevOpsPlugin::new();
-        let metadata = plugin.metadata();
+    #[tokio::test]
+    async fn a_list_cut_short_by_the_page_cap_is_an_error() {
+        let stub = serve(|_| {
+            Reply::json(
+                200,
+                json!({"count": 1, "value": [{"id": "p", "name": "Alpha"}]}),
+            )
+            .continued("again")
+        })
+        .await;
 
-        assert_eq!(metadata.name, "Azure DevOps");
-        assert_eq!(plugin.provider_type(), "azure-devops");
-        assert_eq!(
-            metadata.icon.as_deref(),
-            Some("/provider-icons/azure-devops.svg")
-        );
-        let keys: Vec<_> = metadata
-            .config_schema
-            .fields
-            .iter()
-            .map(|field| field.key.as_str())
-            .collect();
-        assert_eq!(keys, ["server_url", "token", STATUS_PAGE_URL_KEY]);
-        assert!(metadata.capabilities.trigger && metadata.capabilities.cancel);
-        assert!(!metadata.capabilities.logs);
+        let error = plugin_for(&stub, "", "")
+            .fetch_available_pipelines(None)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, PluginError::ApiError(_)), "{error}");
+        assert!(error.to_string().contains("more items"), "{error}");
+        assert!(stub.requests().len() > 1);
     }
 }

@@ -216,6 +216,11 @@ impl AzureDevOpsClient {
                 break;
             }
         }
+        if continuation.is_some() && items.len() < max {
+            return Err(PluginError::ApiError(format!(
+                "Azure DevOps list {path} still has more items after {MAX_PAGES} pages"
+            )));
+        }
         items.truncate(max);
         Ok(items)
     }

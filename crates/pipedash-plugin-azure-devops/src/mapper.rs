@@ -22,7 +22,8 @@ use crate::{
     types,
 };
 
-pub(crate) const BRANCH_INPUT: &str = "branch";
+pub(crate) const BRANCH_INPUT: &str = "source-branch";
+const REF_ECHO_INPUT: &str = "ref";
 const BRANCH_REF_PREFIX: &str = "refs/heads/";
 const REF_PREFIX: &str = "refs/";
 
@@ -175,6 +176,11 @@ pub(crate) fn trigger_body(definition_id: i64, inputs: Option<Value>) -> Value {
             } else {
                 variables.insert(name, Value::String(text));
             }
+        }
+    }
+    if let Some(branch) = &branch {
+        if variables.get(REF_ECHO_INPUT).and_then(Value::as_str) == Some(branch.as_str()) {
+            variables.remove(REF_ECHO_INPUT);
         }
     }
 
@@ -351,7 +357,7 @@ mod tests {
         );
         assert_eq!(
             mapped.inputs,
-            Some(json!({"branch": "main", "deployTarget": "staging"}))
+            Some(json!({"source-branch": "main", "deployTarget": "staging"}))
         );
         assert_eq!(mapped.metadata["build_number"], json!("20261028.2"));
     }
@@ -399,7 +405,19 @@ mod tests {
     fn unparsable_variable_parameters_are_ignored() {
         let run = build(r#"{"id": 7, "sourceBranch": "refs/heads/dev", "parameters": "oops"}"#);
         let mapped = map_run(&run, "azure-devops__1__App/12", "App", &server());
-        assert_eq!(mapped.inputs, Some(json!({"branch": "dev"})));
+        assert_eq!(mapped.inputs, Some(json!({"source-branch": "dev"})));
+    }
+
+    #[test]
+    fn a_build_variable_named_branch_does_not_overwrite_the_saved_branch() {
+        let run = build(
+            r#"{"id": 8, "sourceBranch": "refs/heads/main", "parameters": "{\"branch\":\"legacy\"}"}"#,
+        );
+        let mapped = map_run(&run, "azure-devops__1__App/12", "App", &server());
+        assert_eq!(
+            mapped.inputs,
+            Some(json!({"source-branch": "main", "branch": "legacy"}))
+        );
     }
 
     #[test]
@@ -419,7 +437,7 @@ mod tests {
         let body = trigger_body(
             12,
             Some(
-                json!({"branch": "feature/x", "deployTarget": "staging", "retries": 3, "fast": true}),
+                json!({"source-branch": "feature/x", "deployTarget": "staging", "retries": 3, "fast": true}),
             ),
         );
 
@@ -436,15 +454,35 @@ mod tests {
     fn trigger_body_keeps_full_refs_and_drops_blank_inputs() {
         let body = trigger_body(
             12,
-            Some(json!({"branch": "refs/tags/v1", "empty": "  ", "gone": null})),
+            Some(json!({"source-branch": "refs/tags/v1", "empty": "  ", "gone": null})),
         );
         assert_eq!(body["sourceBranch"], "refs/tags/v1");
         assert!(body.get("parameters").is_none());
 
         assert_eq!(trigger_body(12, None), json!({"definition": {"id": 12}}));
         assert_eq!(
-            trigger_body(12, Some(json!({"branch": ""}))),
+            trigger_body(12, Some(json!({"source-branch": ""}))),
             json!({"definition": {"id": 12}})
         );
+    }
+
+    #[test]
+    fn trigger_body_keeps_a_variable_named_branch_apart_from_the_source_branch() {
+        let body = trigger_body(
+            12,
+            Some(json!({"source-branch": "main", "branch": "legacy"})),
+        );
+        assert_eq!(body["sourceBranch"], "refs/heads/main");
+        assert_eq!(body["parameters"], r#"{"branch":"legacy"}"#);
+    }
+
+    #[test]
+    fn trigger_body_ignores_the_ref_input_the_rerun_flow_adds_for_the_branch() {
+        let body = trigger_body(12, Some(json!({"source-branch": "main", "ref": "main"})));
+        assert_eq!(body["sourceBranch"], "refs/heads/main");
+        assert!(body.get("parameters").is_none());
+
+        let kept = trigger_body(12, Some(json!({"source-branch": "main", "ref": "other"})));
+        assert_eq!(kept["parameters"], r#"{"ref":"other"}"#);
     }
 }
