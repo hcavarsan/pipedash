@@ -74,7 +74,7 @@ export const plugins = providers.map(({ name, provider_type, icon }) => ({
   name, provider_type, icon, version: '0.4.0', description: `${name} workflows`, author: 'Pipedash',
   config_schema: { fields: [] }, table_schema: tableSchema, required_permissions: [], features: [],
   capabilities: { pipelines: true, pipeline_runs: true, trigger: true, cancel: true, agents: false, artifacts: false,
-    queues: false, custom_tables: false, retains_run_history: true },
+    queues: false, custom_tables: false, retains_run_history: true, logs: provider_type === 'github' },
 }))
 export const notifications = [
   { key: 'demo-failed-run', at: now - 8 * 60_000, read: false, tone: 'danger', level: null,
@@ -88,9 +88,67 @@ export const notifications = [
   { key: 'demo-failed-build', at: now - 130 * 60_000, read: true, tone: 'danger', level: null,
     title: 'Build Android app failed', body: 'Run #193 failed on main.', providerIds: [3], pipelineId: pipelines[4].id, link: null },
 ]
+const job = (id, name, status, duration, log = 'ready') => ({
+  id, parent_id: null, kind: 'job', name, status, started_at: ago(8), finished_at: ago(4), duration_seconds: duration,
+  log, web_url: 'https://example.com/demo/job', depth: 0, navigable: true,
+})
+export const logJob = job('contract-tests', 'Contract tests', 'failed', 151)
+const logTree = {
+  nodes: [job('build', 'Build', 'success', 48), job('unit-tests', 'Unit tests', 'success', 63), logJob, job('lint', 'Lint', 'success', 22)],
+  default_node_id: logJob.id, complete: true,
+}
+const plainStyle = { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, strike: false }
+const logStyles = [{ ...plainStyle, fg: 'red', bold: true }, { ...plainStyle, fg: 'green' }, { ...plainStyle, dim: true }]
+const logSteps = [
+  ['Set up job', 'success', [['Runner image: ubuntu-24.04'], ['Job is about to start running on runner acme-linux-4']]],
+  ['Checkout', 'success', [['$ git fetch --depth=1 origin a8f3c21', 'command'], ['HEAD is now at a8f3c21 Validate checkout API contract']]],
+  ['Install dependencies', 'success', [['$ npm ci', 'command'], ['added 812 packages in 14s']]],
+  ['Run contract tests', 'failed', [
+    ['$ npm run test:contract', 'command'],
+    ['PASS  contracts/catalog.contract.test.ts', 'plain', [[0, 4, 1]]],
+    ['PASS  contracts/cart.contract.test.ts', 'plain', [[0, 4, 1]]],
+    ['FAIL  contracts/checkout.contract.test.ts', 'error', [[0, 4, 0]]],
+    ['  POST /v2/checkout › returns the order total'],
+    ['    Expected status 201, received 422', 'error'],
+    ['    Response: { "error": "currency is required" }', 'plain', [[0, 47, 2]]],
+    ['      at contracts/checkout.contract.test.ts:48:23', 'plain', [[0, 51, 2]]],
+    ['Tests: 1 failed, 23 passed, 24 total', 'error'],
+    ['Error: Process completed with exit code 1.', 'error'],
+  ]],
+]
+const logLines = []
+const logSections = logSteps.map(([title, status, lines], id) => {
+  const start = logLines.length
+  logLines.push(...lines.map(([text, kind = 'plain', spans]) => ({ text, kind, ...(spans ? { spans } : {}) })))
+  return {
+    id, parent: null, kind: 'step', node_id: logJob.id, title, status, duration_ms: (id + 1) * 9000, header_line: null,
+    start_line: start, end_line: logLines.length - 1, error_count: lines.filter(([, kind]) => kind === 'error').length, open: status === 'failed',
+  }
+})
+const errorLines = logLines.flatMap((line, index) => (line.kind === 'error' ? [index] : []))
+const logDocument = {
+  state: 'ready', node_id: logJob.id, revision: 1, complete: true, truncated: false, line_count: logLines.length,
+  text_bytes: logLines.reduce((total, line) => total + line.text.length + 1, 0), first_timestamp_ms: now - 8 * 60_000,
+  styles: logStyles, sections: logSections, error_lines: errorLines, warning_lines: [], error_total: errorLines.length,
+  warning_total: 0, focus_line: errorLines[0],
+}
+const metricSeries = {
+  run_duration: [262, 248, 255, 291, 244, 238, 242],
+  success_rate: [92, 100, 88, 75, 100, 96, 87.5],
+  run_frequency: [11, 14, 9, 12, 16, 13, 8],
+}
+const aggregated = ({ metric_type, aggregation_period }) => ({
+  metric_type, aggregation_period, total_count: 83,
+  metrics: metricSeries[metric_type].map((value, index) => ({
+    timestamp: new Date(now - (6 - index) * 86_400_000).toISOString(), value, count: metricSeries.run_frequency[index],
+    min: metric_type === 'run_duration' ? value - 31 : null, max: metric_type === 'run_duration' ? value + 44 : null, avg: value,
+  })),
+})
 export const fixedNow = now
-export function mockResponse(method, url) {
+export function mockResponse(method, url, body = null) {
   const path = decodeURIComponent(url.pathname.replace('/api/v1', ''))
+  // Metrics are queried with POST; that is the only non-GET request a capture may make.
+  if (method === 'POST' && path === '/metrics/aggregated') return aggregated(body)
   if (method !== 'GET') throw new Error(`Unexpected mutation: ${method} ${path}`)
   if (path === '/setup/status') return { config_exists: true, config_valid: true, validation_errors: [], needs_setup: false, needs_migration: false }
   if (path === '/vault/status') return { is_unlocked: true, password_source: 'none', backend: 'sqlite', requires_password: false }
@@ -103,12 +161,30 @@ export function mockResponse(method, url) {
   if (/^\/providers\/[1-4]\/permissions$/.test(path)) return { permissions: [], all_granted: true, checked_at: ago(1) }
   if (/^\/preferences\/table\/[1-4]\/pipeline_runs$/.test(path)) return null
   if (/^\/preferences\/table\/[1-4]\/pipeline_runs\/default$/.test(path)) return { columnOrder: tableSchema.tables[0].columns.map(({ id }) => id), columnVisibility: {} }
+  if (path === '/metrics/config') return { enabled: true, default_retention_days: 30, updated_at: ago(1) }
+  if (path === '/metrics/storage/stats') return { total_metrics_count: 83, estimated_size_bytes: 20_480, estimated_size_mb: 0.02, last_cleanup_at: null, updated_at: ago(1), by_pipeline: [] }
+  if (path === '/storage/config') return {
+    summary: 'SQLite',
+    config: {
+      general: { metrics_enabled: true, default_refresh_interval: 60, status_pages_enabled: true, proxy_url: '' },
+      server: { bind_addr: '127.0.0.1:8080', cors_allow_all: false },
+      storage: { data_dir: '/data', backend: 'sqlite' },
+    },
+  }
   for (const pipeline of pipelines) {
     if (path === `/pipelines/${pipeline.id}/workflow-params`) return parameters
+    if (path === `/metrics/pipelines/${pipeline.id}/config`) return { pipeline_id: pipeline.id, enabled: true, retention_days: 30, created_at: ago(10_080), updated_at: ago(1) }
     const runs = runsFor(pipeline)
     if (path === `/pipelines/${pipeline.id}/runs`) return { runs, total_count: runs.length, has_more: false, is_complete: true, page: 1, page_size: 20, total_pages: 1 }
     const run = runs.find((item) => path === `/pipelines/${pipeline.id}/runs/${item.run_number}`)
     if (run) return run
+    const logs = `/pipelines/${pipeline.id}/runs/${runs[0].run_number}/logs`
+    if (path === logs) return logTree
+    if (path === `${logs}/${logJob.id}`) return logDocument
+    if (path === `${logs}/${logJob.id}/lines`) {
+      const start = Number(url.searchParams.get('start'))
+      return { start, lines: logLines.slice(start, start + Number(url.searchParams.get('count'))) }
+    }
   }
   throw new Error(`Unexpected API request: ${method} ${path}`)
 }

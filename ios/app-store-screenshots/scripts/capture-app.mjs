@@ -1,28 +1,58 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { failure, fixedNow, mockResponse, notifications, pipelines, release } from './capture-fixtures.mjs'
 
+// Screenshots are generated, never committed: run this before export:fastlane (the prepare_screenshots lane does).
 const baseUrl = process.env.CAPTURE_APP_URL || 'http://127.0.0.1:5198'
 const origin = new URL(baseUrl)
 assert(['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname), 'Capture must use a loopback app server')
-const output = fileURLToPath(new URL('../public/screenshots/apple/', import.meta.url))
+const output = fileURLToPath(new URL('../public/screenshots/', import.meta.url))
 const executablePath = process.env.CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined)
-const browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox'] })
+
+// Without CAPTURE_APP_URL, serve the app from the repository root with Vite's dev server; the capture
+// imports app stores through it, so a production build does not work here.
+async function startVite() {
+  const root = fileURLToPath(new URL('../../../', import.meta.url))
+  const env = { ...process.env, BROWSER: 'none' }
+  delete env.TAURI_ARCH
+  delete env.TAURI_DEV_HOST
+  const child = spawn(`${root}node_modules/.bin/vite`, ['--port', origin.port, '--strictPort', '--host', origin.hostname], { cwd: root, env, stdio: ['ignore', 'ignore', 'inherit'] })
+  const exited = new Promise((_, reject) => child.once('exit', (code) => reject(new Error(`Vite exited with code ${code}`))))
+  try {
+    for (const deadline = Date.now() + 120_000; ;) {
+      assert(Date.now() < deadline, 'Vite did not start within 120s')
+      if (await Promise.race([fetch(baseUrl).then((response) => response.ok, () => false), exited])) return child
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+  } catch (error) {
+    child.kill()
+    throw error
+  }
+}
+const vite = process.env.CAPTURE_APP_URL ? null : await startVite()
+let browser
+// iPhone and iPad feed the App Store decks. Desktop and iPhone, as webp, feed the README through
+// pipedash-website/public/img/readme/{desktop,mobile}/NN-<page>.webp.
 const devices = {
-  iphone: { width: 440, height: 956, scale: 3, agent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X' },
-  ipad: { width: 1032, height: 1376, scale: 2, agent: 'iPad; CPU OS 18_0 like Mac OS X' },
+  iphone: { width: 440, height: 956, scale: 3, mobile: true, folder: 'apple/iphone', agent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X' },
+  ipad: { width: 1032, height: 1376, scale: 2, mobile: true, folder: 'apple/ipad', agent: 'iPad; CPU OS 18_0 like Mac OS X' },
+  desktop: { width: 1280, height: 800, scale: 2, mobile: false, folder: 'desktop', agent: 'Macintosh; Intel Mac OS X 10_15_7' },
 }
 
 try {
+  browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox'] })
   for (const [device, settings] of Object.entries(devices)) {
     const failures = []
     const context = await browser.newContext({
       viewport: { width: settings.width, height: settings.height }, deviceScaleFactor: settings.scale,
-      isMobile: true, hasTouch: true, locale: 'en-US', timezoneId: 'UTC', colorScheme: 'dark', reducedMotion: 'reduce',
-      userAgent: `Mozilla/5.0 (${settings.agent}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1`,
+      isMobile: settings.mobile, hasTouch: settings.mobile, locale: 'en-US', timezoneId: 'UTC', colorScheme: 'dark', reducedMotion: 'reduce',
+      userAgent: settings.mobile
+        ? `Mozilla/5.0 (${settings.agent}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1`
+        : `Mozilla/5.0 (${settings.agent}) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15`,
     })
     await context.route('**/*', async (route) => {
       const request = route.request()
@@ -30,7 +60,7 @@ try {
       try {
         assert.equal(url.origin, origin.origin, `External request blocked: ${url.origin}`)
         if (url.pathname.startsWith('/api/v1/')) {
-          await route.fulfill({ json: mockResponse(request.method(), url) })
+          await route.fulfill({ json: mockResponse(request.method(), url, request.postDataJSON()) })
         } else {
           await route.continue()
         }
@@ -55,11 +85,12 @@ try {
     const page = await context.newPage()
     page.setDefaultTimeout(20_000)
     page.on('pageerror', (error) => failures.push(error.message))
-    const folder = `${output}/${device}/en`
+    const folder = `${output}/${settings.folder}/en`
     await mkdir(folder, { recursive: true })
-    const prepare = async (path = '/pipelines') => {
+    const phone = device === 'iphone'
+    const prepare = async (path = '/pipelines', ready = 'Release iOS app') => {
       await page.goto(`${baseUrl}${path}`)
-      await page.getByText(path === '/pipelines' ? 'Release iOS app' : 'API integration tests', { exact: true }).first().waitFor()
+      await page.getByText(ready, { exact: true }).first().waitFor()
       await page.evaluate(async ({ items, phone }) => {
         const { useNotificationCenterStore } = await import('/src/stores/notificationCenterStore.ts')
         useNotificationCenterStore.setState({ items })
@@ -67,7 +98,7 @@ try {
           document.documentElement.style.setProperty('--native-safe-area-top', '62px')
           document.documentElement.style.setProperty('--native-safe-area-bottom', '34px')
         }
-      }, { items: notifications, phone: device === 'iphone' })
+      }, { items: notifications, phone })
       await page.addStyleTag({ content: '.tsqd-parent-container { display: none !important; }' })
     }
     const capture = async (number, expected) => {
@@ -84,10 +115,27 @@ try {
       assert.equal(bytes.readUInt32BE(20), settings.height * settings.scale)
       console.log(`${device}/${number}.png ${settings.width * settings.scale}x${settings.height * settings.scale}`)
     }
-
+    // One page per number, in the order a user meets them: spot a failure, dig into it, act on it, then the wider picture.
     await prepare()
     await capture('01', 'Argo CD')
-    if (device === 'iphone') {
+
+    const history = `/pipelines/${encodeURIComponent(failure.id)}`
+    await prepare(history, 'API integration tests')
+    await capture('02', 'Validate checkout API contract')
+
+    await page.getByText('Validate checkout API contract', { exact: false }).first().click()
+    if (!phone) await page.getByRole('tab', { name: 'Details', exact: true }).click()
+    await capture('03', phone ? 'Contract tests' : 'Actor')
+
+    if (phone) {
+      await page.getByText('Contract tests', { exact: true }).click()
+    } else {
+      await page.getByRole('tab', { name: 'Logs', exact: true }).click()
+    }
+    await capture('04', 'Expected status 201, received 422')
+
+    await prepare()
+    if (phone) {
       await page.getByRole('button', { name: 'Actions for Release iOS app' }).click()
       await page.getByRole('menuitem', { name: 'Trigger', exact: true }).click()
     } else {
@@ -95,27 +143,31 @@ try {
     }
     await page.getByLabel('Release version', { exact: false }).waitFor()
     assert.equal(await page.getByLabel('Release version', { exact: false }).inputValue(), '2.8.0')
-    await capture('02', 'Run tests before release')
+    await capture('05', 'Run tests before release')
 
-    await prepare(`/pipelines/${encodeURIComponent(failure.id)}`)
-    await capture('03', 'Validate checkout API contract')
+    await prepare(`${history}?tab=metrics&dateRange=7d&period=daily`, 'API integration tests')
+    await capture('06', 'Total runs per day')
 
     await prepare()
     await page.evaluate(async () => {
       const { useNotificationCenterStore } = await import('/src/stores/notificationCenterStore.ts')
       useNotificationCenterStore.getState().open({ type: 'provider', providerId: 1 })
     })
-    await capture('04', 'Actions jobs are delayed')
+    await capture('07', 'Actions jobs are delayed')
 
     await prepare()
-    if (device === 'iphone') {
+    if (phone) {
       await page.getByRole('link', { name: /^Notifications/ }).click()
     } else {
       await page.getByRole('button', { name: /Notifications/ }).click()
     }
-    await capture('05', 'API integration tests failed')
+    await capture('08', 'API integration tests failed')
+
+    await prepare(phone ? '/providers' : '/settings/providers', 'Argo CD')
+    await capture('09', 'Jenkins')
     await context.close()
   }
 } finally {
-  await browser.close()
+  await browser?.close()
+  vite?.kill()
 }

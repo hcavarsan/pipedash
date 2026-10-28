@@ -9,6 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "capture": "node scripts/capture-app.mjs",
     "export:fastlane": "node scripts/export-fastlane.mjs",
     "test:export-fastlane": "node --test scripts/export-fastlane.test.mjs",
     "typecheck": "tsc --noEmit",

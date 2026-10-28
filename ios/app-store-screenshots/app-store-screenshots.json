@@ -46,10 +46,10 @@
         "id": "iphone-02",
         "layout": "device-bottom",
         "label": {
-          "en": "01 / RUN WORKFLOWS"
+          "en": "01 / RUN HISTORY"
         },
         "headline": {
-          "en": "Run workflows.\n*From anywhere.*"
+          "en": "Spot the failure.\n*In seconds.*"
         },
         "screenshot": "/screenshots/apple/iphone/{locale}/02.png",
         "transforms": {
@@ -75,10 +75,10 @@
         "id": "iphone-03",
         "layout": "device-top",
         "label": {
-          "en": "02 / RUN HISTORY"
+          "en": "02 / RUN DETAILS"
         },
         "headline": {
-          "en": "Find the failure.\n*See the details.*"
+          "en": "Every run.\n*Every detail.*"
         },
         "screenshot": "/screenshots/apple/iphone/{locale}/03.png",
         "transforms": {
@@ -104,10 +104,10 @@
         "id": "iphone-04",
         "layout": "hero",
         "label": {
-          "en": "03 / STATUS PAGES"
+          "en": "03 / JOB LOGS"
         },
         "headline": {
-          "en": "Provider status.\n*In context.*"
+          "en": "Read the logs.\n*Find the error.*"
         },
         "screenshot": "/screenshots/apple/iphone/{locale}/04.png",
         "transforms": {
@@ -133,10 +133,10 @@
         "id": "iphone-05",
         "layout": "device-bottom",
         "label": {
-          "en": "04 / NOTIFICATIONS"
+          "en": "04 / RUN WORKFLOWS"
         },
         "headline": {
-          "en": "Outage alerts.\n*In one inbox.*"
+          "en": "Run workflows.\n*From anywhere.*"
         },
         "screenshot": "/screenshots/apple/iphone/{locale}/05.png",
         "transforms": {
@@ -160,6 +160,122 @@
       },
       {
         "id": "iphone-06",
+        "layout": "device-top",
+        "label": {
+          "en": "05 / METRICS"
+        },
+        "headline": {
+          "en": "Build health.\n*Over time.*"
+        },
+        "screenshot": "/screenshots/apple/iphone/{locale}/06.png",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 2240,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 170,
+            "y": 70,
+            "width": 980,
+            "height": 2000,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "iphone-07",
+        "layout": "hero",
+        "label": {
+          "en": "06 / STATUS PAGES"
+        },
+        "headline": {
+          "en": "Provider status.\n*In context.*"
+        },
+        "screenshot": "/screenshots/apple/iphone/{locale}/07.png",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 150,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 170,
+            "y": 780,
+            "width": 980,
+            "height": 2000,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "iphone-08",
+        "layout": "device-bottom",
+        "label": {
+          "en": "07 / NOTIFICATIONS"
+        },
+        "headline": {
+          "en": "Outage alerts.\n*In one inbox.*"
+        },
+        "screenshot": "/screenshots/apple/iphone/{locale}/08.png",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 150,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 215,
+            "y": 770,
+            "width": 1040,
+            "height": 2122.4489795918366,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "iphone-09",
+        "layout": "device-top",
+        "label": {
+          "en": "08 / PROVIDERS"
+        },
+        "headline": {
+          "en": "Nine providers.\n*One app.*"
+        },
+        "screenshot": "/screenshots/apple/iphone/{locale}/09.png",
+        "transforms": {
+          "caption": {
+            "x": 88,
+            "y": 2240,
+            "width": 1144,
+            "height": 470,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 170,
+            "y": 70,
+            "width": 980,
+            "height": 2000,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "iphone-10",
         "layout": "no-device",
         "label": {
           "en": "PIPEDASH / BUILT FOR YOUR WORK"
@@ -199,7 +315,7 @@
           {
             "id": "feature-1",
             "text": {
-              "en": "Workflow inputs"
+              "en": "Run history and logs"
             },
             "transform": {
               "x": 130,
@@ -216,7 +332,7 @@
           {
             "id": "feature-2",
             "text": {
-              "en": "Run history"
+              "en": "Workflow inputs"
             },
             "transform": {
               "x": 130,
@@ -233,7 +349,7 @@
           {
             "id": "feature-3",
             "text": {
-              "en": "Status pages"
+              "en": "Build metrics"
             },
             "transform": {
               "x": 130,
@@ -250,7 +366,7 @@
           {
             "id": "feature-4",
             "text": {
-              "en": "Outage notifications"
+              "en": "Status pages"
             },
             "transform": {
               "x": 130,
@@ -259,6 +375,23 @@
               "height": 190,
               "rotation": 0,
               "zIndex": 9
+            },
+            "fontSize": 58,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-5",
+            "text": {
+              "en": "Outage notifications"
+            },
+            "transform": {
+              "x": 130,
+              "y": 2030,
+              "width": 1060,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 10
             },
             "fontSize": 58,
             "fontWeight": 500,
@@ -337,10 +470,10 @@
         "id": "ipad-02",
         "layout": "device-bottom",
         "label": {
-          "en": "01 / RUN WORKFLOWS"
+          "en": "01 / RUN HISTORY"
         },
         "headline": {
-          "en": "Run workflows.\n*From anywhere.*"
+          "en": "Spot the failure.\n*In seconds.*"
         },
         "screenshot": "/screenshots/apple/ipad/{locale}/02.png",
         "typography": {
@@ -369,10 +502,10 @@
         "id": "ipad-03",
         "layout": "device-top",
         "label": {
-          "en": "02 / RUN HISTORY"
+          "en": "02 / RUN DETAILS"
         },
         "headline": {
-          "en": "Find the failure.\n*See the details.*"
+          "en": "Every run.\n*Every detail.*"
         },
         "screenshot": "/screenshots/apple/ipad/{locale}/03.png",
         "typography": {
@@ -401,10 +534,10 @@
         "id": "ipad-04",
         "layout": "hero",
         "label": {
-          "en": "03 / STATUS PAGES"
+          "en": "03 / JOB LOGS"
         },
         "headline": {
-          "en": "Provider status.\n*In context.*"
+          "en": "Read the logs.\n*Find the error.*"
         },
         "screenshot": "/screenshots/apple/ipad/{locale}/04.png",
         "typography": {
@@ -433,10 +566,10 @@
         "id": "ipad-05",
         "layout": "device-bottom",
         "label": {
-          "en": "04 / NOTIFICATIONS"
+          "en": "04 / RUN WORKFLOWS"
         },
         "headline": {
-          "en": "Outage alerts.\n*In one inbox.*"
+          "en": "Run workflows.\n*From anywhere.*"
         },
         "screenshot": "/screenshots/apple/ipad/{locale}/05.png",
         "typography": {
@@ -463,6 +596,134 @@
       },
       {
         "id": "ipad-06",
+        "layout": "device-top",
+        "label": {
+          "en": "05 / METRICS"
+        },
+        "headline": {
+          "en": "Build health.\n*Over time.*"
+        },
+        "screenshot": "/screenshots/apple/ipad/{locale}/06.png",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 2210,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 292,
+            "y": 70,
+            "width": 1480,
+            "height": 1930.4347826086955,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "ipad-07",
+        "layout": "hero",
+        "label": {
+          "en": "06 / STATUS PAGES"
+        },
+        "headline": {
+          "en": "Provider status.\n*In context.*"
+        },
+        "screenshot": "/screenshots/apple/ipad/{locale}/07.png",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 150,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 292,
+            "y": 739,
+            "width": 1480,
+            "height": 1930.4347826086955,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "ipad-08",
+        "layout": "device-bottom",
+        "label": {
+          "en": "07 / NOTIFICATIONS"
+        },
+        "headline": {
+          "en": "Outage alerts.\n*In one inbox.*"
+        },
+        "screenshot": "/screenshots/apple/ipad/{locale}/08.png",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 150,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 292,
+            "y": 739,
+            "width": 1480,
+            "height": 1930.4347826086955,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "ipad-09",
+        "layout": "device-top",
+        "label": {
+          "en": "08 / PROVIDERS"
+        },
+        "headline": {
+          "en": "Nine providers.\n*One app.*"
+        },
+        "screenshot": "/screenshots/apple/ipad/{locale}/09.png",
+        "typography": {
+          "headlineScale": 0.72
+        },
+        "transforms": {
+          "caption": {
+            "x": 130,
+            "y": 2210,
+            "width": 1804,
+            "height": 450,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 292,
+            "y": 70,
+            "width": 1480,
+            "height": 1930.4347826086955,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "ipad-10",
         "layout": "no-device",
         "label": {
           "en": "PIPEDASH / BUILT FOR YOUR WORK"
@@ -505,7 +766,7 @@
           {
             "id": "feature-1",
             "text": {
-              "en": "Workflow inputs"
+              "en": "Run history and logs"
             },
             "transform": {
               "x": 350,
@@ -522,7 +783,7 @@
           {
             "id": "feature-2",
             "text": {
-              "en": "Run history"
+              "en": "Workflow inputs"
             },
             "transform": {
               "x": 350,
@@ -539,7 +800,7 @@
           {
             "id": "feature-3",
             "text": {
-              "en": "Status pages"
+              "en": "Build metrics"
             },
             "transform": {
               "x": 350,
@@ -556,7 +817,7 @@
           {
             "id": "feature-4",
             "text": {
-              "en": "Outage notifications"
+              "en": "Status pages"
             },
             "transform": {
               "x": 350,
@@ -565,6 +826,23 @@
               "height": 190,
               "rotation": 0,
               "zIndex": 9
+            },
+            "fontSize": 70,
+            "fontWeight": 500,
+            "align": "left"
+          },
+          {
+            "id": "feature-5",
+            "text": {
+              "en": "Outage notifications"
+            },
+            "transform": {
+              "x": 350,
+              "y": 2010,
+              "width": 1364,
+              "height": 190,
+              "rotation": 0,
+              "zIndex": 10
             },
             "fontSize": 70,
             "fontWeight": 500,

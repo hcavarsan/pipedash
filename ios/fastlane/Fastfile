@@ -177,11 +177,12 @@ platform :ios do
     UI.user_error!("#{APP_ID} stopped within 20s on #{not_running.map { |d| d["name"] }.join(", ")}") unless not_running.empty?
   end
 
-  desc "Export the approved iPhone and iPad compositions for App Store Connect"
+  desc "Capture the app, then export the approved iPhone and iPad compositions for App Store Connect"
   lane :prepare_screenshots do
     Dir.chdir(File.join(ROOT, "ios/app-store-screenshots")) do
       sh("bun", "install", "--frozen-lockfile")
       sh("bun", "x", "--no-install", "playwright", "install", "chromium") if ENV["CHROMIUM_PATH"].to_s.empty?
+      sh("bun", "run", "capture")
       sh("bun", "run", "build")
       sh("bun", "run", "export:fastlane")
     end

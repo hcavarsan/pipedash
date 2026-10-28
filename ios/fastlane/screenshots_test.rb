@@ -4,6 +4,7 @@ require "fastlane"
 require "deliver"
 require "fileutils"
 require "tmpdir"
+require "zlib"
 
 Fastlane.load_actions
 
@@ -25,9 +26,9 @@ class ScreenshotLanesTest < Minitest::Test
   def setup
     @output = File.join(FIXTURE_FASTLANE, "screenshots")
     FileUtils.mkdir_p(File.join(@output, "en-US"))
-    %w[iphone ipad].each do |device|
-      source = File.join(__dir__, "../app-store-screenshots/public/screenshots/apple", device, "en/01.png")
-      FileUtils.cp(source, File.join(@output, "en-US/01-#{device}.png"))
+    # Captures are generated at release time, so the fixture writes blank PNGs at the App Store sizes.
+    { "iphone" => [1320, 2868], "ipad" => [2064, 2752] }.each do |device, (width, height)|
+      File.binwrite(File.join(@output, "en-US/01-#{device}.png"), blank_png(width, height))
     end
     @events = events = []
     @scenario = scenario = {}
@@ -76,6 +77,12 @@ class ScreenshotLanesTest < Minitest::Test
 
   def teardown
     FileUtils.remove_entry(@output)
+  end
+
+  def blank_png(width, height)
+    chunk = ->(type, data) { [data.bytesize].pack("N") + type + data + [Zlib.crc32(type + data)].pack("N") }
+    "\x89PNG\r\n\x1A\n".b + chunk.("IHDR", [width, height, 8, 2, 0, 0, 0].pack("N2C5")) +
+      chunk.("IDAT", Zlib::Deflate.deflate("\0" * ((width * 3) + 1) * height)) + chunk.("IEND", "")
   end
 
   def run_lane(name, options = {})
