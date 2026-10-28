@@ -1,0 +1,30 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      version:
+        description: Release version
+        type: string
+        default: 2.8.0
+  schedule:
+    - cron: "0 * * * *"
+
+defaults:
+  run:
+    shell: sh
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: ${{ inputs.environment || 'staging' }}
+      VERSION: ${{ inputs.version || '2.8.0' }}
+    steps:
+      - name: Deploy
+        run: echo "Deploying $VERSION to $ENVIRONMENT" && sleep 30

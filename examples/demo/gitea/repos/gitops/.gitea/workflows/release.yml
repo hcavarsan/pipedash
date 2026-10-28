@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+defaults:
+  run:
+    shell: sh
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      REMOTE: http://acme:${{ gitea.token }}@gitea:3000/${{ gitea.repository }}.git
+    steps:
+      - name: Release web
+        run: |
+          work=$(mktemp -d)
+          git clone -q "$REMOTE" "$work"
+          cd "$work"
+          sed -i "s/acme.dev\/release: .*/acme.dev\/release: \"$(date +%s)\"/" argocd/web/deployment.yaml
+          git -c user.name=acme -c user.email=acme@example.com commit -qam "Release web"
+          git push -q origin main

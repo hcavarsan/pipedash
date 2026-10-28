@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/15 * * * *"
+
+defaults:
+  run:
+    shell: sh
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build
+        run: echo "Compiling web bundle" && sleep 20
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Unit tests
+        run: echo "Running 128 unit tests" && sleep 25

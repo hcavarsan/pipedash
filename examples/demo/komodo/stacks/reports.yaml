@@ -1,0 +1,4 @@
+services:
+  reports:
+    image: nginx:does-not-exist
+    restart: unless-stopped

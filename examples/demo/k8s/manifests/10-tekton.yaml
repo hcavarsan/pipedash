@@ -1,0 +1,71 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build
+  namespace: acme-ci
+spec:
+  tasks:
+    - name: compile
+      taskSpec:
+        steps:
+          - name: compile
+            image: alpine:3.22
+            script: |
+              echo "Compiling acme/web"
+              sleep 20
+    - name: unit-tests
+      runAfter: [compile]
+      taskSpec:
+        steps:
+          - name: unit-tests
+            image: alpine:3.22
+            script: |
+              echo "Running unit tests"
+              sleep 20
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: integration-tests
+  namespace: acme-ci
+spec:
+  tasks:
+    - name: contract-tests
+      taskSpec:
+        steps:
+          - name: contract-tests
+            image: alpine:3.22
+            script: |
+              echo "Running contract tests"
+              sleep 20
+              if [ $(( $(date +%s) / 600 % 3 )) -eq 0 ]; then
+                echo "3 contract tests failed"
+                exit 1
+              fi
+              echo "All contract tests passed"
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: deploy
+  namespace: acme-ci
+spec:
+  params:
+    - name: environment
+      type: string
+      default: staging
+  tasks:
+    - name: deploy
+      params:
+        - name: environment
+          value: $(params.environment)
+      taskSpec:
+        params:
+          - name: environment
+            type: string
+        steps:
+          - name: deploy
+            image: alpine:3.22
+            script: |
+              echo "Deploying to $(params.environment)"
+              sleep 20

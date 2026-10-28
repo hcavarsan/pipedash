@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/20 * * * *"
+
+defaults:
+  run:
+    shell: sh
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Contract tests
+        run: echo "Running API contract tests" && sleep 30
+      - name: Verify results
+        run: |
+          if [ $(( $(date +%s) / 1200 % 3 )) -eq 0 ]; then
+            echo "POST /v2/checkout returned 422"
+            exit 1
+          fi
+          echo "All contract tests passed"

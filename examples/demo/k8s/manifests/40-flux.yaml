@@ -1,0 +1,110 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: gitops
+  namespace: acme-flux
+spec:
+  interval: 5m
+  url: http://gitea:3000/acme/gitops.git
+  ref:
+    branch: main
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: catalog
+  namespace: acme-flux
+spec:
+  interval: 10m
+  path: ./flux/catalog
+  sourceRef:
+    kind: GitRepository
+    name: gitops
+  targetNamespace: acme-flux
+  prune: true
+  wait: true
+  timeout: 2m
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: payments
+  namespace: acme-flux
+spec:
+  interval: 10m
+  path: ./does-not-exist
+  sourceRef:
+    kind: GitRepository
+    name: gitops
+  targetNamespace: acme-flux
+  prune: true
+  timeout: 2m
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: search
+  namespace: acme-flux
+spec:
+  interval: 10m
+  path: ./flux/catalog
+  sourceRef:
+    kind: GitRepository
+    name: gitops
+  targetNamespace: acme-flux
+  prune: true
+  suspend: true
+  timeout: 2m
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: checkout
+  namespace: acme-flux
+spec:
+  interval: 10m
+  targetNamespace: acme-flux
+  chart:
+    spec:
+      chart: ./charts/demo
+      sourceRef:
+        kind: GitRepository
+        name: gitops
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: checkout-canary
+  namespace: acme-flux
+spec:
+  interval: 10m
+  timeout: 60s
+  targetNamespace: acme-flux
+  chart:
+    spec:
+      chart: ./charts/demo
+      sourceRef:
+        kind: GitRepository
+        name: gitops
+  install:
+    remediation:
+      retries: 0
+  values:
+    image:
+      tag: does-not-exist
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: inventory
+  namespace: acme-flux
+spec:
+  interval: 10m
+  suspend: true
+  targetNamespace: acme-flux
+  chart:
+    spec:
+      chart: ./charts/demo
+      sourceRef:
+        kind: GitRepository
+        name: gitops

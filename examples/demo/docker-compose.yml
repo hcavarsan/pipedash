@@ -1,0 +1,234 @@
+name: pipedash-demo
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pipedash
+      POSTGRES_PASSWORD: pipedash-demo
+      POSTGRES_DB: pipedash
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/metrics.sql:/docker-entrypoint-initdb.d/metrics.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pipedash -d pipedash"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  gitea:
+    image: gitea/gitea:1.25.5
+    environment:
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__server__ROOT_URL: http://gitea:3000/
+      GITEA__server__LOCAL_ROOT_URL: http://gitea:3000/
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__service__DISABLE_REGISTRATION: "true"
+      GITEA__actions__ENABLED: "true"
+      GITEA__repository__ENABLE_PUSH_CREATE_USER: "true"
+      GITEA__repository__DEFAULT_PUSH_CREATE_PRIVATE: "false"
+    volumes:
+      - gitea-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  gitea-seed:
+    image: gitea/gitea:1.25.5
+    entrypoint: ["/bin/sh", "/seed/seed.sh"]
+    environment:
+      GITEA_PASSWORD: pipedash-demo
+    volumes:
+      - gitea-data:/data
+      - ./gitea:/seed:ro
+      - shared:/shared
+    depends_on:
+      gitea:
+        condition: service_healthy
+    restart: "no"
+
+  runner:
+    image: gitea/act_runner:0.6.1
+    environment:
+      CONFIG_FILE: /config.yaml
+      GITEA_INSTANCE_URL: http://gitea:3000
+      GITEA_RUNNER_REGISTRATION_TOKEN_FILE: /shared/runner-token
+      GITEA_RUNNER_NAME: demo-runner
+      GITEA_RUNNER_LABELS: ubuntu-latest:host
+    volumes:
+      - ./gitea/runner.yaml:/config.yaml:ro
+      - runner-data:/data
+      - shared:/shared:ro
+    depends_on:
+      gitea-seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  jenkins:
+    build: ./jenkins
+    environment:
+      JAVA_OPTS: -Xmx768m -Djenkins.install.runSetupWizard=false
+      CASC_JENKINS_CONFIG: /casc/jenkins.yaml
+      JENKINS_PASSWORD: pipedash-demo
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - ./jenkins/jenkins.yaml:/casc/jenkins.yaml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8080/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  k3s:
+    image: rancher/k3s:v1.37.1-k3s1
+    hostname: k3s
+    command: server --disable=traefik --disable=metrics-server --tls-san=k3s
+    privileged: true
+    tmpfs:
+      - /run
+      - /var/run
+    environment:
+      K3S_KUBECONFIG_OUTPUT: /shared/k3s.yaml
+      K3S_KUBECONFIG_MODE: "644"
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s
+      - k3s-node:/etc/rancher/node
+      - shared:/shared
+    restart: unless-stopped
+
+  k8s-seed:
+    image: alpine/k8s:1.37.1
+    entrypoint: ["/bin/sh", "/seed/seed.sh"]
+    environment:
+      KUBECONFIG: /shared/kubeconfig
+      FLUX_VERSION: v2.9.6
+      TEKTON_VERSION: v1.17.1
+      ARGOCD_CHART_VERSION: 10.11.6
+    volumes:
+      - ./k8s:/seed:ro
+      - shared:/shared
+    depends_on:
+      k3s:
+        condition: service_started
+      gitea-seed:
+        condition: service_completed_successfully
+    restart: "no"
+
+  komodo-mongo:
+    image: mongo:8.0
+    command: --quiet --wiredTigerCacheSizeGB 0.25
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: komodo
+      MONGO_INITDB_ROOT_PASSWORD: pipedash-demo
+    volumes:
+      - komodo-mongo:/data/db
+    restart: unless-stopped
+
+  komodo:
+    image: ghcr.io/moghtech/komodo-core:2.3.4
+    init: true
+    environment:
+      KOMODO_DATABASE_ADDRESS: komodo-mongo:27017
+      KOMODO_DATABASE_USERNAME: komodo
+      KOMODO_DATABASE_PASSWORD: pipedash-demo
+      KOMODO_HOST: http://komodo:9120
+      KOMODO_LOCAL_AUTH: "true"
+      KOMODO_INIT_ADMIN_USERNAME: admin
+      KOMODO_INIT_ADMIN_PASSWORD: pipedash-demo
+      KOMODO_FIRST_SERVER_NAME: demo
+      KOMODO_DISABLE_INIT_RESOURCES: "true"
+      KOMODO_DISABLE_USER_REGISTRATION: "true"
+      KOMODO_PERIPHERY_PUBLIC_KEY: file:/config/keys/periphery.pub
+      KOMODO_JWT_SECRET: pipedash-demo-jwt
+      KOMODO_WEBHOOK_SECRET: pipedash-demo-webhook
+    volumes:
+      - komodo-keys:/config/keys
+    depends_on:
+      - komodo-mongo
+    restart: unless-stopped
+
+  komodo-docker:
+    image: docker:28-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    volumes:
+      - komodo-docker:/var/lib/docker
+    restart: unless-stopped
+
+  komodo-periphery:
+    image: ghcr.io/moghtech/komodo-periphery:2.3.4
+    init: true
+    environment:
+      DOCKER_HOST: tcp://komodo-docker:2375
+      PERIPHERY_CORE_ADDRESS: ws://komodo:9120
+      PERIPHERY_CONNECT_AS: demo
+      PERIPHERY_CORE_PUBLIC_KEYS: file:/config/keys/core.pub
+      PERIPHERY_ROOT_DIRECTORY: /etc/komodo
+    volumes:
+      - komodo-keys:/config/keys
+    depends_on:
+      - komodo
+      - komodo-docker
+    restart: unless-stopped
+
+  komodo-seed:
+    image: alpine/k8s:1.37.1
+    entrypoint: ["/bin/sh", "/seed/seed.sh"]
+    environment:
+      KOMODO_PASSWORD: pipedash-demo
+    volumes:
+      - ./komodo:/seed:ro
+      - shared:/shared
+    depends_on:
+      - komodo-periphery
+    restart: "no"
+
+  pipedash:
+    image: ${PIPEDASH_IMAGE:-ghcr.io/hcavarsan/pipedash-web:latest}
+    ports:
+      - "127.0.0.1:${PIPEDASH_PORT:-8080}:8080"
+    environment:
+      PIPEDASH_BIND_ADDR: 0.0.0.0:8080
+      PIPEDASH_DATA_DIR: /data
+      PIPEDASH_CONFIG_PATH: /config/config.toml
+      PIPEDASH_DEMO_MODE: "true"
+      PIPEDASH_POSTGRES_URL: postgres://pipedash:pipedash-demo@postgres:5432/pipedash
+      DEMO_VAULT_PASSWORD: pipedash-demo-vault
+      GITEA_TOKEN_FILE: /shared/gitea-token
+      ARGOCD_TOKEN_FILE: /shared/argocd-token
+      JENKINS_PASSWORD: pipedash-demo
+      KOMODO_API_KEY_FILE: /shared/komodo-api-key
+      KOMODO_API_SECRET_FILE: /shared/komodo-api-secret
+    volumes:
+      - ./config.toml:/config/config.toml:ro
+      - shared:/shared:ro
+      - pipedash-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      jenkins:
+        condition: service_healthy
+      k8s-seed:
+        condition: service_completed_successfully
+      komodo-seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  gitea-data:
+  runner-data:
+  jenkins-home:
+  k3s-data:
+  k3s-node:
+  shared:
+  pipedash-data:
+  komodo-mongo:
+  komodo-keys:
+  komodo-docker:

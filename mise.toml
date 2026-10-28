@@ -197,6 +197,14 @@ run = "DOCKER_BUILDKIT=1 docker compose -f examples/postgres/docker-compose.yml 
 description = "Stop PostgreSQL example"
 run = "docker compose -f examples/postgres/docker-compose.yml down -v"
 
+[tasks."examples:demo:up"]
+description = "Start the public demo stack"
+run = "docker compose -f examples/demo/docker-compose.yml up -d --build"
+
+[tasks."examples:demo:down"]
+description = "Stop the public demo stack"
+run = "docker compose -f examples/demo/docker-compose.yml down -v"
+
 # ------------------------------------------------------------------------------
 # Utils
 # ------------------------------------------------------------------------------

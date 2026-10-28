@@ -1,0 +1,107 @@
+jenkins:
+  numExecutors: 4
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: pipedash
+          password: ${JENKINS_PASSWORD}
+  authorizationStrategy: loggedInUsersCanDoAnything
+
+security:
+  globalJobDslSecurityConfiguration:
+    useScriptSecurity: false
+
+unclassified:
+  location:
+    url: http://jenkins:8080/
+
+jobs:
+  - script: |
+      folder('acme')
+
+      pipelineJob('acme/build') {
+        logRotator { numToKeep(30) }
+        properties { pipelineTriggers { triggers { cron { spec('H/10 * * * *') } } } }
+        definition {
+          cps {
+            sandbox(true)
+            script('''
+              pipeline {
+                agent any
+                stages {
+                  stage('Compile') { steps { sh 'echo "Compiling acme/api"; sleep 20' } }
+                  stage('Unit tests') { steps { sh 'echo "412 tests passed"; sleep 20' } }
+                }
+              }
+            '''.stripIndent())
+          }
+        }
+      }
+
+      pipelineJob('acme/integration-tests') {
+        logRotator { numToKeep(30) }
+        properties { pipelineTriggers { triggers { cron { spec('H/15 * * * *') } } } }
+        definition {
+          cps {
+            sandbox(true)
+            script('''
+              pipeline {
+                agent any
+                stages {
+                  stage('Contract tests') {
+                    steps {
+                      sh 'echo "Running contract tests"; sleep 30'
+                      script {
+                        if (currentBuild.number % 3 == 0) {
+                          error('3 contract tests failed')
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            '''.stripIndent())
+          }
+        }
+      }
+
+      pipelineJob('acme/deploy') {
+        logRotator { numToKeep(30) }
+        parameters {
+          choiceParam('ENVIRONMENT', ['staging', 'production'], 'Target environment')
+          stringParam('VERSION', '2.8.0', 'Release version')
+        }
+        properties { pipelineTriggers { triggers { cron { spec('H/30 * * * *') } } } }
+        definition {
+          cps {
+            sandbox(true)
+            script('''
+              pipeline {
+                agent any
+                stages {
+                  stage('Deploy') { steps { sh 'echo "Deploying $VERSION to $ENVIRONMENT"; sleep 30' } }
+                }
+              }
+            '''.stripIndent())
+          }
+        }
+      }
+
+      pipelineJob('acme/nightly-e2e') {
+        logRotator { numToKeep(30) }
+        properties { pipelineTriggers { triggers { cron { spec('H/45 * * * *') } } } }
+        definition {
+          cps {
+            sandbox(true)
+            script('''
+              pipeline {
+                agent any
+                stages {
+                  stage('End-to-end') { steps { sh 'echo "Running end-to-end suite"; sleep 240' } }
+                }
+              }
+            '''.stripIndent())
+          }
+        }
+      }

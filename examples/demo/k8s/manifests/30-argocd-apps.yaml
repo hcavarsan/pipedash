@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://gitea:3000/acme/gitops.git
+    targetRevision: main
+    path: argocd/web
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: web
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: worker
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://gitea:3000/acme/gitops.git
+    targetRevision: main
+    path: argocd/worker
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: worker
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: broken
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: http://gitea:3000/acme/gitops.git
+    targetRevision: main
+    path: argocd/broken
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: broken
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,4 @@
+services:
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped

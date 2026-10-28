@@ -1,0 +1,17 @@
+dex:
+  enabled: false
+notifications:
+  enabled: false
+configs:
+  params:
+    server.insecure: true
+  cm:
+    accounts.pipedash: apiKey
+    timeout.reconciliation: 60s
+  rbac:
+    policy.csv: |
+      g, pipedash, role:readonly
+server:
+  service:
+    type: NodePort
+    nodePortHttp: 30080

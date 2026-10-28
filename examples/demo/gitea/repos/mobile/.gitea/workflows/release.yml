@@ -1,0 +1,18 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/30 * * * *"
+
+defaults:
+  run:
+    shell: sh
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build iOS release
+        run: echo "Building iOS release" && sleep 300
