@@ -7,6 +7,7 @@ export interface PipelineFilters {
   provider: string | null
   organization: string | null
   dateRange: string | null
+  hidden: string | null
 }
 
 export function usePipelineFilters(): {
@@ -24,6 +25,7 @@ export function usePipelineFilters(): {
       provider: searchParams.get('provider'),
       organization: searchParams.get('organization'),
       dateRange: searchParams.get('dateRange'),
+      hidden: searchParams.get('hidden'),
     }),
     [searchParams]
   )
@@ -58,6 +60,7 @@ export function usePipelineFilters(): {
         next.delete('provider')
         next.delete('organization')
         next.delete('dateRange')
+        next.delete('hidden')
 
         return next
       },

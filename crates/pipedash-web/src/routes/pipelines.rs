@@ -208,8 +208,7 @@ async fn get_workflow_parameters(
     let provider_service = state.provider_service().await?;
     let params = provider_service
         .get_workflow_parameters(provider_id, &workflow_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch workflow parameters: {e}")))?;
+        .await?;
 
     Ok(Json(params))
 }
@@ -528,5 +527,28 @@ mod tests {
         assert_eq!(before["runs"][0]["run_number"], LATEST_BUILD);
         assert_eq!(trigger, StatusCode::OK);
         assert_eq!(after["runs"][0]["run_number"], LATEST_BUILD + 1);
+    }
+
+    #[tokio::test]
+    async fn workflow_params_keep_the_provider_error_status() {
+        let data_dir =
+            std::env::temp_dir().join(format!("pipedash-workflow-params-{}", std::process::id()));
+        let stub = JenkinsStub::default();
+        let reject = stub.reject.clone();
+        let (app, provider_id, _) = app_with_jenkins(&data_dir, stub).await;
+        let missing = provider_id + 999;
+
+        let (missing_status, missing_body) =
+            get_json(&app, &format!("/jenkins__{missing}__build/workflow-params")).await;
+        reject.store(true, Ordering::SeqCst);
+        let (rejected_status, rejected_body) = get_json(
+            &app,
+            &format!("/jenkins__{provider_id}__build/workflow-params"),
+        )
+        .await;
+        let _ = std::fs::remove_dir_all(&data_dir);
+
+        assert_eq!(missing_status, StatusCode::NOT_FOUND, "{missing_body}");
+        assert_eq!(rejected_status, StatusCode::FORBIDDEN, "{rejected_body}");
     }
 }
