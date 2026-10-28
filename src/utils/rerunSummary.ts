@@ -1,4 +1,6 @@
-import type { PipelineRun } from '../types'
+import type { Pipeline, PipelineRun } from '../types'
+
+import { deployTarget } from './actionTarget'
 
 export type RerunMode = 'all' | 'failed'
 
@@ -11,17 +13,25 @@ export const canRerunFailedOnly = (run: Pick<PipelineRun, 'metadata'>) => run.me
 
 export const buildRerunSummary = (
   run: PipelineRun,
-  { pipelineName, providerName }: { pipelineName: string; providerName: string }
+  {
+    pipeline,
+    providerName,
+  }: {
+    pipeline: Pick<Pipeline, 'name' | 'repository' | 'provider_type' | 'metadata'> | undefined
+    providerName: string
+  }
 ): { fields: RerunSummaryField[]; inputs: RerunSummaryField[] } => {
   const message = run.commit_message?.split('\n')[0]?.trim()
   const commit = [run.commit_sha?.slice(0, 7), message].filter(Boolean).join(' ')
 
   const fields = [
-    { label: 'Pipeline', value: pipelineName },
+    { label: 'Pipeline', value: pipeline?.name ?? '' },
+    { label: 'Repository', value: pipeline?.repository ?? '' },
     { label: 'Provider', value: providerName },
     { label: 'Run', value: `#${run.run_number}` },
     { label: 'Branch', value: run.branch ?? '' },
     { label: 'Commit', value: commit },
+    (pipeline && deployTarget(pipeline)) ?? { label: '', value: '' },
   ].filter(({ value }) => value)
 
   const inputs = Object.entries(run.inputs ?? {})

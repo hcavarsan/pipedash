@@ -1,4 +1,4 @@
-import { ActionIcon, Box, Button, Group, Select, Stack, Tooltip } from '@mantine/core'
+import { ActionIcon, Box, Button, Group, MultiSelect, Select, Stack, Tooltip } from '@mantine/core'
 import { IconAdjustmentsHorizontal, IconFilter, IconFilterFilled, IconX } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -34,7 +34,12 @@ interface FilterConfig {
     onChange: (value: string) => void
     placeholder?: string
   }
-  status?: ValueFilter & { options?: { value: string; label: string }[] }
+  status?: {
+    value: string[]
+    onToggle: (status: string) => void
+    onClear: () => void
+    options?: { value: string; label: string }[]
+  }
   provider?: OptionFilter
   organization?: OptionFilter
   repository?: OptionFilter
@@ -160,7 +165,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
     () =>
       !!(
         filters.search?.value ||
-        filters.status?.value ||
+        filters.status?.value.length ||
         filters.provider?.value ||
         filters.organization?.value ||
         filters.repository?.value ||
@@ -191,7 +196,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
     }
     // Fallback: clear individually
     filters.search?.onChange('')
-    filters.status?.onChange(null)
+    filters.status?.onClear()
     filters.provider?.onChange(null)
     filters.organization?.onChange(null)
     filters.repository?.onChange(null)
@@ -201,20 +206,10 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
     filters.dateRange?.onChange(null)
   }, [filters, onClearAll])
 
+  const status = filters.status
+  const statusOptions = status?.options ?? STATUS_OPTIONS
+
   const selects = [
-    ...(filters.status
-      ? [
-          {
-            key: 'status',
-            label: 'Status',
-            data: [{ value: '', label: 'All statuses' }, ...(filters.status.options ?? STATUS_OPTIONS)],
-            value: filters.status.value,
-            onChange: filters.status.onChange,
-            leftSection: <IconFilter size={14} />,
-            searchable: false,
-          },
-        ]
-      : []),
     ...OPTION_FILTERS.flatMap(({ key, label, allLabel }) => {
       const filter = filters[key]
 
@@ -232,7 +227,6 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
           ],
           value: filter.value,
           onChange: filter.onChange,
-          leftSection: undefined,
           searchable: true,
         },
       ]
@@ -245,7 +239,6 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
             data: dateRangeOptions,
             value: filters.dateRange.value,
             onChange: filters.dateRange.onChange,
-            leftSection: undefined,
             searchable: false,
           },
         ]
@@ -266,7 +259,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
     )
 
   if (mobileShell) {
-    const activeSelects = selects.filter((select) => select.value).length
+    const activeSelects = selects.filter((select) => select.value).length + (status?.value.length ? 1 : 0)
 
     return (
       <>
@@ -287,7 +280,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
                 }}
               />
             )}
-            {selects.length > 0 && (
+            {(selects.length > 0 || status) && (
               <button
                 type="button"
                 className={classes.filter}
@@ -308,6 +301,28 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
         <StandardModal opened={sheetOpen} onClose={() => setSheetOpen(false)} title="Filters" size="md">
           <Stack gap="lg">
             <IosGroup>
+              {status && (
+                <IosRow
+                  title="Status"
+                  accessory={
+                    <MultiSelect
+                      aria-label="Status"
+                      placeholder={status.value.length > 0 ? undefined : 'All'}
+                      data={statusOptions}
+                      value={status.value}
+                      onOptionSubmit={status.onToggle}
+                      onRemove={status.onToggle}
+                      onClear={status.onClear}
+                      variant="unstyled"
+                      w={190}
+                      styles={{
+                        input: { background: 'transparent', paddingLeft: 0 },
+                        pillsList: { justifyContent: 'flex-end' },
+                      }}
+                    />
+                  }
+                />
+              )}
               {selects.map(({ key, label, data, value, onChange, searchable }) => (
                 <IosRow
                   key={key}
@@ -351,16 +366,27 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
       <Group gap="sm" wrap="wrap" align="flex-start">
         {searchInput()}
 
-        {selects.map(({ key, label, data, value, onChange, searchable, leftSection }) => (
-          <FilterSelect
-            key={key}
-            label={label}
-            data={data}
-            value={value}
-            onChange={onChange}
-            searchable={searchable}
-            leftSection={leftSection}
+        {status && (
+          <MultiSelect
+            aria-label="Status"
+            placeholder={status.value.length > 0 ? undefined : 'Status'}
+            data={statusOptions}
+            value={status.value}
+            onOptionSubmit={status.onToggle}
+            onRemove={status.onToggle}
+            onClear={status.onClear}
+            clearable
+            clearButtonProps={{ 'aria-label': 'Clear status filter' }}
+            leftSection={<IconFilter size={14} />}
+            miw={130}
+            flex={1}
+            maw="100%"
+            size="xs"
           />
+        )}
+
+        {selects.map(({ key, label, data, value, onChange, searchable }) => (
+          <FilterSelect key={key} label={label} data={data} value={value} onChange={onChange} searchable={searchable} />
         ))}
 
         {hasActiveFilters && (

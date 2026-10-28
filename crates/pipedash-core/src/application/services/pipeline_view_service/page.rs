@@ -257,7 +257,7 @@ fn date_cutoff(range: DateRange, utc_offset_minutes: i32, now: DateTime<Utc>) ->
 
 struct Filters {
     provider_id: Option<i64>,
-    status: Option<PipelineStatus>,
+    statuses: Vec<PipelineStatus>,
     organization: Option<String>,
     cutoff: Option<DateTime<Utc>>,
     search: Option<String>,
@@ -267,7 +267,7 @@ impl Filters {
     fn new(q: &PipelineViewQuery, now: DateTime<Utc>) -> Self {
         Self {
             provider_id: q.provider_id,
-            status: q.status.clone(),
+            statuses: q.statuses.clone(),
             organization: q.organization.clone().filter(|o| !o.is_empty()),
             cutoff: q
                 .date_range
@@ -282,7 +282,7 @@ impl Filters {
 
     fn active(&self) -> bool {
         self.provider_id.is_some()
-            || self.status.is_some()
+            || !self.statuses.is_empty()
             || self.organization.is_some()
             || self.cutoff.is_some()
             || self.search.is_some()
@@ -309,7 +309,7 @@ impl Filters {
         if self.provider_id.is_some_and(|id| id != p.provider_id) {
             return false;
         }
-        if self.status.as_ref().is_some_and(|s| *s != p.status) {
+        if !self.statuses.is_empty() && !self.statuses.contains(&p.status) {
             return false;
         }
         if let Some(cutoff) = self.cutoff {
@@ -719,7 +719,7 @@ pub(super) fn build_page(
             }
             let first = ids.iter().next().copied().unwrap_or_default();
             let (organization, repo) = split_repository(repository, ctx.provider_name(first));
-            let matches = filters.status.is_none()
+            let matches = filters.statuses.is_empty()
                 && filters.cutoff.is_none()
                 && filters
                     .organization

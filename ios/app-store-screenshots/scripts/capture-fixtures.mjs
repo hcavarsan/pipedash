@@ -16,7 +16,7 @@ export const providers = [
 ].map(([name, provider_type], index) => ({
   id: index + 1, name, provider_type, icon: `/provider-icons/${provider_type}.svg`, pipeline_count: 2,
   last_updated: ago(1), refresh_interval: 60, configured_repositories: [], last_fetch_status: 'success',
-  last_fetch_error: null, last_fetch_error_kind: null, last_fetch_at: ago(1), paused_until: null,
+  last_fetch_error: null, last_fetch_error_kind: null, last_fetch_at: ago(1), last_success_at: ago(index === 0 ? 95 : 1), paused_until: null,
   freshness: index === 0 ? { state: 'down', stale_at: null } : { state: 'fresh', stale_at: ago(-9) },
   health: index === 0 ? {
     ...healthy, level: 'partial_outage',

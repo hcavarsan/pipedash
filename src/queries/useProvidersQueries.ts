@@ -51,6 +51,7 @@ export function useAddProvider() {
                 last_fetch_error: null,
                 last_fetch_error_kind: null,
                 last_fetch_at: null,
+                last_success_at: null,
                 paused_until: null,
                 freshness: { state: 'never', stale_at: null },
                 health: {

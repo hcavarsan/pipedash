@@ -50,3 +50,25 @@ export const providerBadge = (provider: ProviderSummary, now: number) => {
 
   return tone === 'fresh' ? undefined : { color: TONE_META[tone].color, label: TONE_META[tone].label }
 }
+
+export const dataAge = (provider: ProviderSummary, now: number) => {
+  const tone = providerTone(provider, now)
+  const at = provider.last_success_at
+  const ago = at ? formatRelativeTime(at, now) : null
+
+  return {
+    tone,
+    label: !ago
+      ? TONE_META[tone].label
+      : tone === 'fresh'
+        ? `Data checked ${ago}`
+        : `${TONE_META[tone].label} · data checked ${ago}`,
+    detail: at ? `Pipeline data from ${formatDateTime(at)}` : 'No pipeline data fetched yet',
+  }
+}
+
+export const staleNote = (provider: ProviderSummary, now: number) => {
+  const age = dataAge(provider, now)
+
+  return age.tone === 'fresh' ? undefined : age.label
+}

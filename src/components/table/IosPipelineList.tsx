@@ -5,6 +5,7 @@ import { type CSSProperties, type ReactNode, useId } from 'react'
 import { useNow } from '../../hooks/useNow'
 import { STATUS_META } from '../../theme/status'
 import type { PipelineStatus, ProviderSummary } from '../../types'
+import { staleNote } from '../../utils/fetchInfo'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import { IosGroup } from '../ios/IosList'
@@ -219,6 +220,7 @@ export function IosPipelineList({
 
         const isFlux = pipeline.provider_type === 'fluxcd'
         const message = isFlux && pipeline.metadata?.message ? String(pipeline.metadata.message) : undefined
+        const provider = getProvider(pipeline.provider_id)
 
         return (
           <IosPipelineRow
@@ -228,16 +230,14 @@ export function IosPipelineList({
             statusText={getStatusLabel(pipeline)}
             title={row.name}
             subtitle={[row.organization, pipeline.branch].filter(Boolean).join(' · ')}
-            detail={message}
+            detail={[provider && staleNote(provider, now), message].filter(Boolean).join(' · ') || undefined}
             value={relativeOrNever(row.lastRun, now)}
             hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
             longPressMenu
             selected={selection ? selection.selected.has(pipeline.id) : undefined}
             onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
             swipeActions={workflowSwipeActions(pipeline, actions)}
-            trailing={
-              <WorkflowActionMenu pipeline={pipeline} provider={getProvider(pipeline.provider_id)} actions={actions} />
-            }
+            trailing={<WorkflowActionMenu pipeline={pipeline} provider={provider} actions={actions} />}
           />
         )
       })}

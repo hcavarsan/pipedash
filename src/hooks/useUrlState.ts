@@ -5,9 +5,30 @@ import { STATUS_META } from '../theme/status'
 import type { PipelineStatus, PipelineViewQuery } from '../types'
 import { isDateRange } from '../utils/dateRange'
 
+const parseStatuses = (value: string | null): PipelineStatus[] =>
+  (value ?? '').split(',').filter((status): status is PipelineStatus => status in STATUS_META)
+
+const latestParams = () => new URLSearchParams(window.location.search)
+
+export const toggledStatuses = (status: string) => {
+  const current = parseStatuses(latestParams().get('status'))
+
+  return current.includes(status as PipelineStatus) ? current.filter((item) => item !== status) : [...current, status]
+}
+
+const setParam = (params: URLSearchParams, key: string, value: string | string[] | number | null) => {
+  const text = Array.isArray(value) ? value.join(',') : value
+
+  if (text === null || text === '') {
+    params.delete(key)
+  } else {
+    params.set(key, String(text))
+  }
+}
+
 export interface PipelineFilters {
   search: string
-  status: string | null
+  status: string[]
   provider: string | null
   organization: string | null
   dateRange: string | null
@@ -25,7 +46,7 @@ export function usePipelineFilters(): {
   const filters = useMemo(
     (): PipelineFilters => ({
       search: searchParams.get('search') ?? '',
-      status: searchParams.get('status'),
+      status: parseStatuses(searchParams.get('status')),
       provider: searchParams.get('provider'),
       organization: searchParams.get('organization'),
       dateRange: searchParams.get('dateRange'),
@@ -37,14 +58,10 @@ export function usePipelineFilters(): {
   const setFilter = useCallback(
     <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]) => {
       setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev)
+        () => {
+          const next = latestParams()
 
-          if (value === null || value === '') {
-            next.delete(key)
-          } else {
-            next.set(key, String(value))
-          }
+          setParam(next, key, value)
 
           return next
         },
@@ -56,8 +73,8 @@ export function usePipelineFilters(): {
 
   const clearFilters = useCallback(() => {
     setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
+      () => {
+        const next = latestParams()
 
         next.delete('search')
         next.delete('status')
@@ -80,14 +97,14 @@ export function usePipelineViewQuery(): PipelineViewQuery {
 
   return useMemo((): PipelineViewQuery => {
     const provider = Number(searchParams.get('provider'))
-    const status = searchParams.get('status')
+    const statuses = parseStatuses(searchParams.get('status'))
     const dateRange = searchParams.get('dateRange')
 
     return {
       view: searchParams.get('view') ?? 'all',
       provider_id: searchParams.get('provider') && Number.isFinite(provider) ? provider : undefined,
       search: searchParams.get('search') || undefined,
-      status: status && status in STATUS_META ? (status as PipelineStatus) : undefined,
+      statuses: statuses.length > 0 ? statuses : undefined,
       organization: searchParams.get('organization') || undefined,
       date_range: isDateRange(dateRange) ? dateRange : undefined,
       show_hidden: searchParams.get('hidden') === 'show',
@@ -98,7 +115,7 @@ export function usePipelineViewQuery(): PipelineViewQuery {
 
 export interface RunHistoryFilters {
   search: string
-  status: string | null
+  status: string[]
   branch: string | null
   actor: string | null
   dateRange: string | null
@@ -116,7 +133,7 @@ export function useRunHistoryFilters(): {
   const filters = useMemo(
     (): RunHistoryFilters => ({
       search: searchParams.get('search') ?? '',
-      status: searchParams.get('status'),
+      status: parseStatuses(searchParams.get('status')),
       branch: searchParams.get('branch'),
       actor: searchParams.get('actor'),
       dateRange: searchParams.get('dateRange'),
@@ -128,16 +145,10 @@ export function useRunHistoryFilters(): {
   const setFilter = useCallback(
     <K extends keyof RunHistoryFilters>(key: K, value: RunHistoryFilters[K]) => {
       setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev)
+        () => {
+          const next = latestParams()
 
-          const isDefault = (key === 'search' && value === '') || (key === 'page' && value === 1) || value === null
-
-          if (isDefault) {
-            next.delete(key)
-          } else {
-            next.set(key, String(value))
-          }
+          setParam(next, key, key === 'page' && value === 1 ? null : value)
 
           return next
         },
@@ -149,8 +160,8 @@ export function useRunHistoryFilters(): {
 
   const clearFilters = useCallback(() => {
     setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
+      () => {
+        const next = latestParams()
 
         next.delete('search')
         next.delete('status')

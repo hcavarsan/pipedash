@@ -21,6 +21,7 @@ const summary = (name: string, level: ProviderSummary['health']['level']): Provi
   last_fetch_error: null,
   last_fetch_error_kind: null,
   last_fetch_at: null,
+  last_success_at: null,
   paused_until: null,
   freshness: { state: 'never', stale_at: null },
   health: { level, signals: [], next_attempt_at: null, in_flight: false, status_page: null },

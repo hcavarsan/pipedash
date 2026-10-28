@@ -66,6 +66,7 @@ use crate::infrastructure::config::{
     ProviderFileConfig,
 };
 use crate::infrastructure::database::{
+    ProviderFetchStatus,
     Repository,
     FETCH_STATUS_ERROR,
     FETCH_STATUS_NEVER,
@@ -409,18 +410,19 @@ impl ProviderService {
         &self, id: i64, config: &ProviderConfig,
     ) -> DomainResult<ProviderSummary> {
         let cached_pipelines = self.repository.get_cached_pipelines(Some(id)).await?;
-        let (status, last_fetch_error, last_fetch_at) = match self
-            .repository
-            .get_provider_fetch_status(id)
-            .await
-        {
-            Ok(status) => status,
+        let fetch = match self.repository.get_provider_fetch_status(id).await {
+            Ok(fetch) => fetch,
             Err(e) => {
                 tracing::warn!(provider_id = id, error = %e, "Failed to read provider fetch status");
-                (FETCH_STATUS_NEVER.to_string(), None, None)
+                ProviderFetchStatus {
+                    status: FETCH_STATUS_NEVER.to_string(),
+                    error: None,
+                    fetched_at: None,
+                    succeeded_at: None,
+                }
             }
         };
-        let last_fetch_status = match status.as_str() {
+        let last_fetch_status = match fetch.status.as_str() {
             FETCH_STATUS_SUCCESS => FetchStatus::Success,
             FETCH_STATUS_ERROR => FetchStatus::Error,
             _ => FetchStatus::Never,
@@ -439,17 +441,12 @@ impl ProviderService {
             .providers
             .get(&id)
             .filter(|state| Some(state.generation) == generation);
-        let last_fetch_at = last_fetch_at.and_then(|at| {
-            DateTime::parse_from_rfc3339(&at)
-                .ok()
-                .map(|at| at.with_timezone(&Utc))
-        });
         let paused_until = self.scheduler.paused_until(id, wall);
         let level = state.map_or(HealthLevel::Operational, |state| state.level);
         let freshness = ProviderFreshness::compute(
             &last_fetch_status,
             level,
-            last_fetch_at,
+            fetch.fetched_at,
             paused_until,
             config.refresh_interval,
             wall,
@@ -468,8 +465,9 @@ impl ProviderService {
             refresh_interval: config.refresh_interval,
             configured_repositories: configured_repositories(config),
             last_fetch_status,
-            last_fetch_error,
-            last_fetch_at,
+            last_fetch_error: fetch.error,
+            last_fetch_at: fetch.fetched_at,
+            last_success_at: fetch.succeeded_at,
             paused_until,
             last_fetch_error_kind: view.as_ref().and_then(|view| view.last_failure),
             health: ProviderHealth {
@@ -1907,8 +1905,8 @@ type = "travis"
             (view.failures, view.last_failure, view.in_flight),
             (0, None, true)
         );
-        let (status, error, _) = h.repository.get_provider_fetch_status(id).await.unwrap();
-        assert_eq!((status.as_str(), error), ("never", None));
+        let fetch = h.repository.get_provider_fetch_status(id).await.unwrap();
+        assert_eq!((fetch.status.as_str(), fetch.error), ("never", None));
         new_gate.open();
         h.bus
             .wait_for("the new fetch", |events| {

@@ -21,11 +21,15 @@ const run = (overrides: Partial<PipelineRun> = {}): PipelineRun => ({
   ...overrides,
 })
 
-const context = { pipelineName: 'CI', providerName: 'GitHub' }
+const context = {
+  pipeline: { name: 'CI', repository: 'acme/app', provider_type: 'github', metadata: {} },
+  providerName: 'GitHub',
+}
 
-test('summary lists pipeline, provider, run, branch and short commit with first message line', () => {
+test('summary lists pipeline, repository, provider, run, branch and short commit with first message line', () => {
   assert.deepEqual(buildRerunSummary(run(), context).fields, [
     { label: 'Pipeline', value: 'CI' },
+    { label: 'Repository', value: 'acme/app' },
     { label: 'Provider', value: 'GitHub' },
     { label: 'Run', value: '#42' },
     { label: 'Branch', value: 'main' },
@@ -33,12 +37,24 @@ test('summary lists pipeline, provider, run, branch and short commit with first 
   ])
 })
 
+test('summary names where a deployment pipeline acts', () => {
+  const target = (provider_type: string, metadata: Record<string, unknown>) =>
+    buildRerunSummary(run(), { ...context, pipeline: { ...context.pipeline, provider_type, metadata } }).fields.at(-1)
+
+  assert.deepEqual(target('argocd', { destination_cluster: 'prod', destination_namespace: 'shop' }), {
+    label: 'Destination',
+    value: 'prod / shop',
+  })
+  assert.deepEqual(target('fluxcd', { namespace: 'apps' }), { label: 'Namespace', value: 'apps' })
+  assert.deepEqual(target('github', {}), { label: 'Commit', value: 'abcdef1 Fix flaky test' })
+})
+
 test('summary skips branch and commit when the run does not carry them', () => {
   const { fields } = buildRerunSummary(run({ branch: null, commit_sha: null, commit_message: null }), context)
 
   assert.deepEqual(
     fields.map(({ label }) => label),
-    ['Pipeline', 'Provider', 'Run']
+    ['Pipeline', 'Repository', 'Provider', 'Run']
   )
 })
 

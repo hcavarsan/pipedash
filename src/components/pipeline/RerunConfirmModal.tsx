@@ -3,14 +3,14 @@ import { IconCheck } from '@tabler/icons-react'
 import { useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
-import type { PipelineRun } from '../../types'
+import type { Pipeline, PipelineRun } from '../../types'
 import { buildRerunSummary, canRerunFailedOnly, type RerunMode, type RerunSummaryField } from '../../utils/rerunSummary'
 import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
 
 interface RerunConfirmModalProps {
   run: PipelineRun | null
-  pipelineName: string
+  pipeline: Pipeline | undefined
   providerName: string
   onClose: () => void
   onConfirm: (mode: RerunMode) => Promise<unknown>
@@ -52,7 +52,7 @@ const ShellRows = ({ rows, header }: { rows: RerunSummaryField[]; header?: strin
   </IosGroup>
 )
 
-export const RerunConfirmModal = ({ run, pipelineName, providerName, onClose, onConfirm }: RerunConfirmModalProps) => {
+export const RerunConfirmModal = ({ run, pipeline, providerName, onClose, onConfirm }: RerunConfirmModalProps) => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const [choice, setChoice] = useState<RerunMode | null>(null)
@@ -60,7 +60,7 @@ export const RerunConfirmModal = ({ run, pipelineName, providerName, onClose, on
 
   const failedOffered = run !== null && canRerunFailedOnly(run)
   const mode: RerunMode = choice ?? (failedOffered ? 'failed' : 'all')
-  const summary = run ? buildRerunSummary(run, { pipelineName, providerName }) : { fields: [], inputs: [] }
+  const summary = run ? buildRerunSummary(run, { pipeline, providerName }) : { fields: [], inputs: [] }
   const modes: RerunMode[] = failedOffered ? ['failed', 'all'] : []
 
   const close = () => {
@@ -146,7 +146,7 @@ export const RerunConfirmModal = ({ run, pipelineName, providerName, onClose, on
       opened={run !== null}
       onClose={close}
       size="md"
-      title={mobileShell ? 'Confirm re-run' : `Re-run: ${pipelineName}`}
+      title={mobileShell ? 'Confirm re-run' : `Re-run: ${pipeline?.name ?? ''}`}
       loading={pending}
       footer={footer}
       primaryAction={{ label: 'Re-run', onClick: confirm, loading: pending }}

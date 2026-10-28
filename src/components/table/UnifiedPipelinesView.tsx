@@ -28,7 +28,7 @@ import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { usePinning } from '../../hooks/usePinning'
 import { usePipelineExpansion } from '../../hooks/usePipelineExpansion'
 import { usePipelineSelection } from '../../hooks/usePipelineSelection'
-import { usePipelineFilters, usePipelineViewQuery } from '../../hooks/useUrlState'
+import { toggledStatuses, usePipelineFilters, usePipelineViewQuery } from '../../hooks/useUrlState'
 import {
   usePipelineViewPage,
   usePipelineViews,
@@ -68,9 +68,9 @@ import { PipelineCardGrid } from './PipelineCardGrid'
 import {
   FetchInfo,
   type PipelineActions,
+  PipelineStatusBadge,
   RepositoryFetchIndicator,
   RowFetchInfo,
-  RowStatus,
   rowMenuItems,
   SectionActions,
   SectionHeading,
@@ -702,7 +702,8 @@ export const UnifiedPipelinesView = ({
           },
           status: {
             value: statusFilter,
-            onChange: (value) => setFilter('status', value),
+            onToggle: (status) => setFilter('status', toggledStatuses(status)),
+            onClear: () => setFilter('status', []),
             options: getStatusOptions(isFluxView ? 'fluxcd' : undefined),
           },
           provider: {
@@ -964,11 +965,11 @@ export const UnifiedPipelinesView = ({
                 accessor: 'status',
                 title: 'Status',
                 sortable,
-                width: 110,
+                width: 120,
                 textAlign: 'center' as const,
                 render: (row) =>
-                  row.type === 'workflow' ? (
-                    <RowStatus row={row} />
+                  row.type === 'workflow' && row.pipeline ? (
+                    <PipelineStatusBadge pipeline={row.pipeline} provider={getProvider(row.pipeline.provider_id)} />
                   ) : (
                     <RowFetchInfo row={row} getProvider={getProvider} />
                   ),

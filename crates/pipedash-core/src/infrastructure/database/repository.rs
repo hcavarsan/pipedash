@@ -139,6 +139,13 @@ fn run_cache_row(run: &PipelineRun) -> DomainResult<(i64, String, String, i64)> 
     ))
 }
 
+pub struct ProviderFetchStatus {
+    pub status: String,
+    pub error: Option<String>,
+    pub fetched_at: Option<DateTime<Utc>>,
+    pub succeeded_at: Option<DateTime<Utc>>,
+}
+
 pub struct Repository {
     config_backend: Arc<dyn ConfigBackend>,
     cache_pool: DatabasePool,
@@ -468,22 +475,24 @@ impl Repository {
 
             match &cache_pool {
                 DatabasePool::Sqlite(p) => {
-                    let update_sql = "UPDATE providers SET last_fetch_at = ?, last_fetch_status = ?, last_fetch_error = ? WHERE id = ?";
+                    let update_sql = "UPDATE providers SET last_fetch_at = ?, last_fetch_status = ?, last_fetch_error = ?, last_success_at = COALESCE(?, last_success_at) WHERE id = ?";
                     sqlx::query(update_sql)
                         .bind(now.to_rfc3339())
                         .bind(new_status)
                         .bind(error_clone.as_ref())
+                        .bind(success.then(|| now.to_rfc3339()))
                         .bind(provider_id)
                         .execute(p)
                         .await
                         .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                 }
                 DatabasePool::Postgres(p) => {
-                    let update_sql = "UPDATE providers SET last_fetch_at = $1, last_fetch_status = $2, last_fetch_error = $3 WHERE id = $4";
+                    let update_sql = "UPDATE providers SET last_fetch_at = $1, last_fetch_status = $2, last_fetch_error = $3, last_success_at = COALESCE($4, last_success_at) WHERE id = $5";
                     sqlx::query(update_sql)
                         .bind(now)
                         .bind(new_status)
                         .bind(error_clone.as_ref())
+                        .bind(success.then_some(now))
                         .bind(provider_id)
                         .execute(p)
                         .await
@@ -497,43 +506,56 @@ impl Repository {
 
     pub async fn get_provider_fetch_status(
         &self, provider_id: i64,
-    ) -> DomainResult<(String, Option<String>, Option<String>)> {
+    ) -> DomainResult<ProviderFetchStatus> {
         let sql = format!(
-            "SELECT last_fetch_status, last_fetch_error, last_fetch_at FROM providers WHERE id = {}",
+            "SELECT last_fetch_status, last_fetch_error, last_fetch_at, last_success_at FROM providers WHERE id = {}",
             self.placeholder(1)
         );
-        match &self.cache_pool {
+        let not_found = |_| DomainError::ProviderNotFound(provider_id.to_string());
+        let (row_status, error, fetched_at, succeeded_at) = match &self.cache_pool {
             DatabasePool::Sqlite(p) => {
                 let row = sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(provider_id)
                     .fetch_one(p)
                     .await
-                    .map_err(|_e| DomainError::ProviderNotFound(provider_id.to_string()))?;
+                    .map_err(not_found)?;
+                let time = |index: usize| {
+                    row.try_get::<Option<String>, _>(index)
+                        .ok()
+                        .flatten()
+                        .and_then(|at| DateTime::parse_from_rfc3339(&at).ok())
+                        .map(|at| at.with_timezone(&Utc))
+                };
 
-                let status: String = row
-                    .try_get(0)
-                    .unwrap_or_else(|_| FETCH_STATUS_NEVER.to_string());
-                let error: Option<String> = row.try_get(1).ok().flatten();
-                let fetch_at: Option<String> = row.try_get(2).ok().flatten();
-
-                Ok((status, error, fetch_at))
+                (
+                    row.try_get::<String, _>(0).ok(),
+                    row.try_get(1).ok().flatten(),
+                    time(2),
+                    time(3),
+                )
             }
             DatabasePool::Postgres(p) => {
                 let row = sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(provider_id)
                     .fetch_one(p)
                     .await
-                    .map_err(|_e| DomainError::ProviderNotFound(provider_id.to_string()))?;
+                    .map_err(not_found)?;
 
-                let status: String = row
-                    .try_get(0)
-                    .unwrap_or_else(|_| FETCH_STATUS_NEVER.to_string());
-                let error: Option<String> = row.try_get(1).ok().flatten();
-                let fetch_at: Option<String> = row.try_get(2).ok().flatten();
-
-                Ok((status, error, fetch_at))
+                (
+                    row.try_get::<String, _>(0).ok(),
+                    row.try_get(1).ok().flatten(),
+                    row.try_get(2).ok().flatten(),
+                    row.try_get(3).ok().flatten(),
+                )
             }
-        }
+        };
+
+        Ok(ProviderFetchStatus {
+            status: row_status.unwrap_or_else(|| FETCH_STATUS_NEVER.to_string()),
+            error,
+            fetched_at,
+            succeeded_at,
+        })
     }
 
     pub async fn reset_provider_fetch_status(&self, provider_id: i64) -> DomainResult<()> {
@@ -543,7 +565,7 @@ impl Repository {
             match &cache_pool {
                 DatabasePool::Sqlite(p) => {
                     sqlx::query(
-                        "UPDATE providers SET last_fetch_at = NULL, last_fetch_status = ?, last_fetch_error = NULL WHERE id = ?",
+                        "UPDATE providers SET last_fetch_at = NULL, last_success_at = NULL, last_fetch_status = ?, last_fetch_error = NULL WHERE id = ?",
                     )
                     .bind(FETCH_STATUS_NEVER)
                     .bind(provider_id)
@@ -553,7 +575,7 @@ impl Repository {
                 }
                 DatabasePool::Postgres(p) => {
                     sqlx::query(
-                        "UPDATE providers SET last_fetch_at = NULL, last_fetch_status = $1, last_fetch_error = NULL WHERE id = $2",
+                        "UPDATE providers SET last_fetch_at = NULL, last_success_at = NULL, last_fetch_status = $1, last_fetch_error = NULL WHERE id = $2",
                     )
                     .bind(FETCH_STATUS_NEVER)
                     .bind(provider_id)

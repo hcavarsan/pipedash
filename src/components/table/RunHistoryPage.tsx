@@ -40,7 +40,7 @@ import { usePlugins } from '../../contexts/PluginContext'
 import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTableColumns } from '../../hooks/useTableColumns'
-import { useRunHistoryFilters } from '../../hooks/useUrlState'
+import { toggledStatuses, useRunHistoryFilters } from '../../hooks/useUrlState'
 import { useBuildWatch } from '../../queries/useBuildWatchQueries'
 import {
   useClearRunHistoryCache,
@@ -788,7 +788,7 @@ export const RunHistoryPage = ({
       }
 
       return (
-        (!statusFilter || run.status === statusFilter) &&
+        (statusFilter.length === 0 || statusFilter.includes(run.status)) &&
         (!branchFilter || run.branch === branchFilter) &&
         (!actorFilter || run.actor === actorFilter)
       )
@@ -836,7 +836,7 @@ export const RunHistoryPage = ({
     cancelSelected,
     isCancelling: isCancellingSelected,
   } = useBulkCancelRuns({
-    pipelineId: pipeline?.id,
+    pipeline: pipeline ?? undefined,
     page: isMobile ? 1 : page,
     runs: sortedRuns,
     enabled: !!onCancel,
@@ -1179,7 +1179,8 @@ export const RunHistoryPage = ({
                     },
                     status: {
                       value: statusFilter,
-                      onChange: (value) => setFilter('status', value),
+                      onToggle: (status) => setFilter('status', toggledStatuses(status)),
+                      onClear: () => setFilter('status', []),
                       options: getStatusOptions(pipeline.provider_type),
                     },
                     branch: {
@@ -1255,7 +1256,7 @@ export const RunHistoryPage = ({
 
       <RerunConfirmModal
         run={rerunTarget}
-        pipelineName={pipeline?.name ?? ''}
+        pipeline={pipeline ?? undefined}
         providerName={pipeline ? getPluginDisplayName(pipeline.provider_type) : ''}
         onClose={() => setRerunTarget(null)}
         onConfirm={confirmRerun}
