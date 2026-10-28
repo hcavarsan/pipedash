@@ -82,7 +82,7 @@ async fn get_vault_status(State(state): State<AppState>) -> Json<VaultStatusResp
         is_unlocked,
         password_source,
         backend,
-        requires_password,
+        requires_password: requires_password && !crate::demo::enabled(),
         is_first_time,
     })
 }

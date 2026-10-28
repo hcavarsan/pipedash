@@ -1,3 +1,4 @@
+mod demo;
 mod download_tickets;
 mod error;
 mod push;
@@ -393,6 +394,11 @@ async fn main() -> anyhow::Result<()> {
 
     if !api_config.cors_allow_all {
         app = app.layer(axum::middleware::from_fn(reject_cross_origin_requests));
+    }
+
+    if demo::enabled() {
+        tracing::info!("Demo mode: configuration changes and pipeline actions are rejected");
+        app = app.layer(axum::middleware::from_fn(demo::reject_changes));
     }
 
     let app = app
