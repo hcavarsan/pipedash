@@ -36,7 +36,7 @@ interface FilterConfig {
   }
   status?: {
     value: string[]
-    onToggle: (status: string) => void
+    onSelect: (status: string, selected: boolean) => void
     onClear: () => void
     options?: { value: string; label: string }[]
   }
@@ -310,8 +310,8 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
                       placeholder={status.value.length > 0 ? undefined : 'All'}
                       data={statusOptions}
                       value={status.value}
-                      onOptionSubmit={status.onToggle}
-                      onRemove={status.onToggle}
+                      onOptionSubmit={(value) => status.onSelect(value, true)}
+                      onRemove={(value) => status.onSelect(value, false)}
                       onClear={status.onClear}
                       variant="unstyled"
                       w={190}
@@ -372,8 +372,8 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
             placeholder={status.value.length > 0 ? undefined : 'Status'}
             data={statusOptions}
             value={status.value}
-            onOptionSubmit={status.onToggle}
-            onRemove={status.onToggle}
+            onOptionSubmit={(value) => status.onSelect(value, true)}
+            onRemove={(value) => status.onSelect(value, false)}
             onClear={status.onClear}
             clearable
             clearButtonProps={{ 'aria-label': 'Clear status filter' }}

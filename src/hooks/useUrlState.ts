@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 
 import { STATUS_META } from '../theme/status'
@@ -8,14 +8,6 @@ import { isDateRange } from '../utils/dateRange'
 const parseStatuses = (value: string | null): PipelineStatus[] =>
   (value ?? '').split(',').filter((status): status is PipelineStatus => status in STATUS_META)
 
-const latestParams = () => new URLSearchParams(window.location.search)
-
-export const toggledStatuses = (status: string) => {
-  const current = parseStatuses(latestParams().get('status'))
-
-  return current.includes(status as PipelineStatus) ? current.filter((item) => item !== status) : [...current, status]
-}
-
 const setParam = (params: URLSearchParams, key: string, value: string | string[] | number | null) => {
   const text = Array.isArray(value) ? value.join(',') : value
 
@@ -24,6 +16,68 @@ const setParam = (params: URLSearchParams, key: string, value: string | string[]
   } else {
     params.set(key, String(text))
   }
+}
+
+const selectStatusIn = (params: URLSearchParams, status: string, selected: boolean) => {
+  const current: string[] = parseStatuses(params.get('status'))
+
+  if (current.includes(status) !== selected) {
+    setParam(params, 'status', selected ? [...current, status] : current.filter((item) => item !== status))
+  }
+}
+
+const PIPELINE_FILTER_KEYS = ['search', 'status', 'provider', 'organization', 'dateRange', 'hidden']
+
+const RUN_FILTER_KEYS = ['search', 'status', 'branch', 'actor', 'dateRange', 'page']
+
+function useFilterParams(keys: readonly string[]) {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { state } = useLocation()
+  const latest = useRef(searchParams)
+  const pending = useRef<string[]>([])
+
+  useLayoutEffect(() => {
+    const written = pending.current.indexOf(searchParams.toString())
+
+    pending.current = written === -1 ? [] : pending.current.slice(written + 1)
+
+    if (pending.current.length === 0) {
+      latest.current = searchParams
+    }
+  }, [searchParams])
+
+  const update = useCallback(
+    (change: (params: URLSearchParams) => void) => {
+      const next = new URLSearchParams(latest.current)
+
+      change(next)
+
+      if (next.toString() === latest.current.toString()) {
+        return
+      }
+
+      latest.current = next
+      pending.current.push(next.toString())
+      setSearchParams(next, { replace: true, state })
+    },
+    [setSearchParams, state]
+  )
+
+  const clearFilters = useCallback(
+    () =>
+      update((params) => {
+        for (const key of keys) {
+          params.delete(key)
+        }
+      }),
+    [update, keys]
+  )
+  const selectStatus = useCallback(
+    (status: string, selected: boolean) => update((params) => selectStatusIn(params, status, selected)),
+    [update]
+  )
+
+  return { searchParams, update, clearFilters, selectStatus }
 }
 
 export interface PipelineFilters {
@@ -38,10 +92,10 @@ export interface PipelineFilters {
 export function usePipelineFilters(): {
   filters: PipelineFilters
   setFilter: <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]) => void
+  selectStatus: (status: string, selected: boolean) => void
   clearFilters: () => void
 } {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const { state } = useLocation()
+  const { searchParams, update, clearFilters, selectStatus } = useFilterParams(PIPELINE_FILTER_KEYS)
 
   const filters = useMemo(
     (): PipelineFilters => ({
@@ -56,40 +110,12 @@ export function usePipelineFilters(): {
   )
 
   const setFilter = useCallback(
-    <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]) => {
-      setSearchParams(
-        () => {
-          const next = latestParams()
-
-          setParam(next, key, value)
-
-          return next
-        },
-        { replace: true, state }
-      )
-    },
-    [setSearchParams, state]
+    <K extends keyof PipelineFilters>(key: K, value: PipelineFilters[K]) =>
+      update((params) => setParam(params, key, value)),
+    [update]
   )
 
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      () => {
-        const next = latestParams()
-
-        next.delete('search')
-        next.delete('status')
-        next.delete('provider')
-        next.delete('organization')
-        next.delete('dateRange')
-        next.delete('hidden')
-
-        return next
-      },
-      { replace: true, state }
-    )
-  }, [setSearchParams, state])
-
-  return { filters, setFilter, clearFilters }
+  return { filters, setFilter, selectStatus, clearFilters }
 }
 
 export function usePipelineViewQuery(): PipelineViewQuery {
@@ -125,10 +151,10 @@ export interface RunHistoryFilters {
 export function useRunHistoryFilters(): {
   filters: RunHistoryFilters
   setFilter: <K extends keyof RunHistoryFilters>(key: K, value: RunHistoryFilters[K]) => void
+  selectStatus: (status: string, selected: boolean) => void
   clearFilters: () => void
 } {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const { state } = useLocation()
+  const { searchParams, update, clearFilters, selectStatus } = useFilterParams(RUN_FILTER_KEYS)
 
   const filters = useMemo(
     (): RunHistoryFilters => ({
@@ -143,40 +169,12 @@ export function useRunHistoryFilters(): {
   )
 
   const setFilter = useCallback(
-    <K extends keyof RunHistoryFilters>(key: K, value: RunHistoryFilters[K]) => {
-      setSearchParams(
-        () => {
-          const next = latestParams()
-
-          setParam(next, key, key === 'page' && value === 1 ? null : value)
-
-          return next
-        },
-        { replace: true, state }
-      )
-    },
-    [setSearchParams, state]
+    <K extends keyof RunHistoryFilters>(key: K, value: RunHistoryFilters[K]) =>
+      update((params) => setParam(params, key, key === 'page' && value === 1 ? null : value)),
+    [update]
   )
 
-  const clearFilters = useCallback(() => {
-    setSearchParams(
-      () => {
-        const next = latestParams()
-
-        next.delete('search')
-        next.delete('status')
-        next.delete('branch')
-        next.delete('actor')
-        next.delete('dateRange')
-        next.delete('page')
-
-        return next
-      },
-      { replace: true, state }
-    )
-  }, [setSearchParams, state])
-
-  return { filters, setFilter, clearFilters }
+  return { filters, setFilter, selectStatus, clearFilters }
 }
 
 export interface MetricsFilters {

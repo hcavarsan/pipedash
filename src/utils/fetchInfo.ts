@@ -63,7 +63,11 @@ export const dataAge = (provider: ProviderSummary, now: number) => {
       : tone === 'fresh'
         ? `Data checked ${ago}`
         : `${TONE_META[tone].label} · data checked ${ago}`,
-    detail: at ? `Pipeline data from ${formatDateTime(at)}` : 'No pipeline data fetched yet',
+    detail: at
+      ? `Pipeline data from ${formatDateTime(at)}`
+      : tone === 'never'
+        ? 'No pipeline data fetched yet'
+        : 'Last successful fetch time unknown',
   }
 }
 

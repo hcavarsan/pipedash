@@ -28,7 +28,7 @@ import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { usePinning } from '../../hooks/usePinning'
 import { usePipelineExpansion } from '../../hooks/usePipelineExpansion'
 import { usePipelineSelection } from '../../hooks/usePipelineSelection'
-import { toggledStatuses, usePipelineFilters, usePipelineViewQuery } from '../../hooks/useUrlState'
+import { usePipelineFilters, usePipelineViewQuery } from '../../hooks/useUrlState'
 import {
   usePipelineViewPage,
   usePipelineViews,
@@ -153,7 +153,7 @@ export const UnifiedPipelinesView = ({
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
 
-  const { filters, setFilter, clearFilters } = usePipelineFilters()
+  const { filters, setFilter, selectStatus, clearFilters } = usePipelineFilters()
   const {
     search,
     status: statusFilter,
@@ -702,7 +702,7 @@ export const UnifiedPipelinesView = ({
           },
           status: {
             value: statusFilter,
-            onToggle: (status) => setFilter('status', toggledStatuses(status)),
+            onSelect: selectStatus,
             onClear: () => setFilter('status', []),
             options: getStatusOptions(isFluxView ? 'fluxcd' : undefined),
           },

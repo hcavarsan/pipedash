@@ -92,3 +92,11 @@ test('data age counts from the last successful fetch and only notes a stale or d
   )
   assert.equal(staleNote(withAge({ last_success_at: null, freshness: { state: 'down', stale_at: null } }), NOW), 'Down')
 })
+
+test('a missing success time only claims no data when the provider never fetched', () => {
+  const missing = (state: 'never' | 'down') =>
+    dataAge(provider({ last_success_at: null, freshness: { state, stale_at: null } }), NOW).detail
+
+  assert.equal(missing('never'), 'No pipeline data fetched yet')
+  assert.equal(missing('down'), 'Last successful fetch time unknown')
+})

@@ -40,7 +40,7 @@ import { usePlugins } from '../../contexts/PluginContext'
 import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTableColumns } from '../../hooks/useTableColumns'
-import { toggledStatuses, useRunHistoryFilters } from '../../hooks/useUrlState'
+import { useRunHistoryFilters } from '../../hooks/useUrlState'
 import { useBuildWatch } from '../../queries/useBuildWatchQueries'
 import {
   useClearRunHistoryCache,
@@ -150,7 +150,7 @@ export const RunHistoryPage = ({
     }
   }, [pipeline])
 
-  const { filters, setFilter, clearFilters } = useRunHistoryFilters()
+  const { filters, setFilter, selectStatus, clearFilters } = useRunHistoryFilters()
   const { search, status: statusFilter, branch: branchFilter, actor: actorFilter, dateRange, page } = filters
 
   const [cancellingRunNumber, setCancellingRunNumber] = useState<number | null>(null)
@@ -1179,7 +1179,7 @@ export const RunHistoryPage = ({
                     },
                     status: {
                       value: statusFilter,
-                      onToggle: (status) => setFilter('status', toggledStatuses(status)),
+                      onSelect: selectStatus,
                       onClear: () => setFilter('status', []),
                       options: getStatusOptions(pipeline.provider_type),
                     },
