@@ -1,4 +1,5 @@
 name: iOS
+run-name: iOS ${{ inputs.lane || 'beta' }}
 on:
   push:
     tags:
