@@ -4,6 +4,7 @@ use chrono::{
 };
 use serde::{
     Deserialize,
+    Deserializer,
     Serialize,
 };
 
@@ -131,6 +132,62 @@ pub struct OperationState {
     #[serde(rename = "finishedAt")]
     pub finished_at: Option<DateTime<Utc>>,
     pub message: Option<String>,
+    #[serde(default)]
+    pub operation: Operation,
+    #[serde(rename = "syncResult")]
+    pub sync_result: Option<SyncOperationResult>,
+    #[serde(rename = "retryCount", default)]
+    pub retry_count: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Operation {
+    pub sync: Option<SyncOperation>,
+    #[serde(rename = "initiatedBy", default)]
+    pub initiated_by: OperationInitiator,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncOperation {
+    pub revision: Option<String>,
+    #[serde(default)]
+    pub prune: bool,
+    #[serde(rename = "dryRun", default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OperationInitiator {
+    pub username: Option<String>,
+    #[serde(default)]
+    pub automated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncOperationResult {
+    #[serde(default)]
+    pub resources: Vec<ResourceResult>,
+    pub revision: Option<String>,
+    #[serde(default)]
+    pub revisions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceResult {
+    #[serde(default)]
+    pub group: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub namespace: String,
+    #[serde(default)]
+    pub name: String,
+    pub status: Option<String>,
+    pub message: Option<String>,
+    pub hook_type: Option<String>,
+    pub hook_phase: Option<String>,
+    pub sync_phase: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,8 +197,12 @@ pub struct RevisionHistory {
     pub revisions: Vec<String>,
     #[serde(rename = "deployedAt")]
     pub deployed_at: DateTime<Utc>,
+    #[serde(rename = "deployStartedAt")]
+    pub deploy_started_at: Option<DateTime<Utc>>,
     pub id: i64,
     pub source: Option<ApplicationSource>,
+    #[serde(rename = "initiatedBy", default)]
+    pub initiated_by: OperationInitiator,
 }
 
 impl RevisionHistory {
@@ -186,6 +247,44 @@ pub struct SyncStrategyHook {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncStrategyApply {
     pub force: Option<bool>,
+}
+
+fn null_as_empty<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Option::<Vec<T>>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EventList {
+    #[serde(default, deserialize_with = "null_as_empty")]
+    pub items: Vec<Event>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Event {
+    #[serde(rename = "type", default)]
+    pub event_type: String,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub count: i64,
+    pub first_timestamp: Option<DateTime<Utc>>,
+    pub last_timestamp: Option<DateTime<Utc>>,
+    pub event_time: Option<DateTime<Utc>>,
+}
+
+impl Event {
+    pub fn time(&self) -> Option<DateTime<Utc>> {
+        self.last_timestamp
+            .or(self.event_time)
+            .or(self.first_timestamp)
+    }
 }
 
 #[cfg(test)]
