@@ -3,7 +3,7 @@ import { after, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import type { RenderResult } from '@testing-library/react'
-import { createElement } from 'react'
+import { createElement, useState } from 'react'
 
 import type { SignInStart, SignInStatus } from '../../../types'
 
@@ -32,6 +32,25 @@ const started = (id: string): SignInStart => ({
   manual: false,
 })
 
+function Form({ onChange }: { onChange: (reference: string | null) => void }) {
+  const [reference, setReference] = useState<string | null>(null)
+
+  return createElement(SignInField, {
+    id: 'sign-in',
+    providerType: 'argocd',
+    configValues: reference
+      ? { server_url: 'https://argo.example.com', sign_in: reference }
+      : { server_url: 'https://argo.example.com' },
+    ready: true,
+    disabled: false,
+    shell: false,
+    onChange: (next) => {
+      onChange(next)
+      setReference(next)
+    },
+  })
+}
+
 const renderField = async (onChange: (reference: string | null) => void): Promise<RenderResult> => {
   let rendered: RenderResult | undefined
 
@@ -40,19 +59,7 @@ const renderField = async (onChange: (reference: string | null) => void): Promis
       createElement(
         MantineProvider,
         null,
-        createElement(
-          QueryClientProvider,
-          { client },
-          createElement(SignInField, {
-            id: 'sign-in',
-            providerType: 'argocd',
-            configValues: { server_url: 'https://argo.example.com' },
-            ready: true,
-            disabled: false,
-            shell: false,
-            onChange,
-          })
-        )
+        createElement(QueryClientProvider, { client }, createElement(Form, { onChange }))
       )
     )
   })
@@ -104,4 +111,29 @@ test('closing the form before the first status arrives cancels the started flow'
       ['fresh-flow']
     )
   )
+})
+
+test('a failed status check keeps the started sign-in and recovers on the next poll', async (context) => {
+  let failing = true
+  context.mock.method(apiService, 'startSignIn', async () => started('flaky-flow'))
+  context.mock.method(apiService, 'signInStatus', async (): Promise<SignInStatus> => {
+    if (failing) {
+      throw new Error('Server restarting')
+    }
+    return { state: 'completed', account: 'dev@example.com' }
+  })
+  context.mock.method(apiService, 'cancelSignIn', async () => undefined)
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const field = await renderField(() => undefined)
+  fireEvent.click(view().getByRole('button', { name: 'Sign in with SSO' }))
+
+  assert.ok(await view().findByText(/Server restarting/))
+  assert.ok(view().getByRole('button', { name: 'Cancel' }))
+  assert.equal(view().queryByRole('button', { name: 'Sign in with SSO' }), null)
+
+  failing = false
+  assert.ok(await view().findByText('Signed in as dev@example.com', undefined, { timeout: 3000 }))
+  assert.equal(view().queryByText(/Server restarting/), null)
+  await act(async () => field.unmount())
 })

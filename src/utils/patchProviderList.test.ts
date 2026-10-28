@@ -21,7 +21,7 @@ const summary = (id: number, name: string): ProviderSummary => ({
   last_success_at: null,
   paused_until: null,
   freshness: { state: 'never', stale_at: null },
-  sign_in: false,
+  recovery: null,
   health: { level: 'operational', signals: [], next_attempt_at: null, in_flight: false, status_page: null },
 })
 

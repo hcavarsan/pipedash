@@ -5,13 +5,13 @@ import { Link } from 'react-router-dom'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useRefreshProvider } from '../../queries/useRefreshQueries'
 import { useProviderStore } from '../../stores/providerStore'
+import type { ProviderRecovery } from '../../types'
 import { displayErrorNotification } from '../../utils/errorDisplay'
-import type { ProviderRecovery } from '../../utils/providerAttention'
 import { describeRefreshResult } from '../../utils/refreshSummary'
 
 interface ProviderRecoveryActionsProps {
   providerId: number
-  recovery: ProviderRecovery
+  recovery: ProviderRecovery | null
   onNavigate?: () => void
 }
 

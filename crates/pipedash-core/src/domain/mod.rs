@@ -95,6 +95,7 @@ pub use provider::{
     ProviderConfig,
     ProviderFreshness,
     ProviderImportResult,
+    ProviderRecovery,
     ProviderSummary,
 };
 pub use push::PushSubscription;

@@ -99,7 +99,27 @@ pub struct ProviderSummary {
     #[serde(default)]
     pub freshness: ProviderFreshness,
     #[serde(default)]
-    pub sign_in: bool,
+    pub recovery: Option<ProviderRecovery>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRecovery {
+    SignIn,
+    Settings,
+}
+
+impl ProviderRecovery {
+    pub fn for_failure(kind: Option<FailureKind>, signed_in: bool) -> Option<Self> {
+        match kind? {
+            FailureKind::Auth if signed_in => Some(Self::SignIn),
+            FailureKind::Auth
+            | FailureKind::Permission
+            | FailureKind::Config
+            | FailureKind::Tls => Some(Self::Settings),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -409,5 +429,24 @@ mod tests {
             json,
             serde_json::json!({ "state": "never", "stale_at": null })
         );
+    }
+
+    #[test]
+    fn recovery_asks_signed_in_providers_to_sign_in_again() {
+        let recovery = ProviderRecovery::for_failure;
+        assert_eq!(
+            recovery(Some(FailureKind::Auth), true),
+            Some(ProviderRecovery::SignIn)
+        );
+        assert_eq!(
+            recovery(Some(FailureKind::Auth), false),
+            Some(ProviderRecovery::Settings)
+        );
+        assert_eq!(
+            recovery(Some(FailureKind::Tls), true),
+            Some(ProviderRecovery::Settings)
+        );
+        assert_eq!(recovery(Some(FailureKind::Network), true), None);
+        assert_eq!(recovery(None, true), None);
     }
 }

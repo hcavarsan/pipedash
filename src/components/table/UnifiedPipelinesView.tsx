@@ -41,10 +41,10 @@ import { useRefreshProviders } from '../../queries/useRefreshQueries'
 import { usePipelineViewStore } from '../../stores/pipelineViewStore'
 import { useProviderStore } from '../../stores/providerStore'
 import { STATUS_META } from '../../theme/status'
-import type { Pipeline, ProviderSummary, SectionMode, ViewDisplay, ViewSortKey } from '../../types'
+import type { Pipeline, ProviderRecovery, ProviderSummary, SectionMode, ViewDisplay, ViewSortKey } from '../../types'
 import { getErrorCode } from '../../types/errors'
 import { getPipelineLabels, getStatusOptions } from '../../utils/pipelinePresentation'
-import { fetchHint, type ProviderRecovery, providerAttention } from '../../utils/providerAttention'
+import { fetchHint, providerAttention } from '../../utils/providerAttention'
 import { TableCells } from '../../utils/tableCells'
 import { canAddSubView } from '../../utils/viewTree'
 import { useContextMenu } from '../common/ContextMenu'
@@ -99,7 +99,7 @@ const accessorSort = (accessor: string): ViewSortKey | undefined =>
 interface EmptyTableIssue {
   id: number
   name: string
-  recovery: ProviderRecovery
+  recovery: ProviderRecovery | null
   headline: string
   detail: string | null
   hint: string | null

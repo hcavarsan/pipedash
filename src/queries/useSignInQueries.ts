@@ -11,7 +11,10 @@ export function useSignInStatus(id: string | null) {
     enabled: id !== null,
     retry: false,
     staleTime: 0,
-    refetchInterval: (query) => (query.state.data?.state === 'pending' ? REFRESH_INTERVALS.SIGN_IN_STATUS : false),
+    refetchInterval: (query) =>
+      query.state.data?.state === 'pending' || query.state.status === 'error'
+        ? REFRESH_INTERVALS.SIGN_IN_STATUS
+        : false,
   })
 }
 

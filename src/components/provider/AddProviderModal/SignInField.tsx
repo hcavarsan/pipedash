@@ -45,13 +45,13 @@ export function SignInField({
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasted, setPasted] = useState('')
   const reference = configValues[SIGN_IN_KEY] ?? null
-  const { data: status, isLoading } = useSignInStatus(reference)
+  const { data: status, isLoading, error: statusError } = useSignInStatus(reference)
   const start = useStartSignIn()
   const complete = useCompleteSignIn()
   const { mutate: cancelFlow } = useCancelSignIn()
 
   const flow = start.data?.id === reference ? start.data : null
-  const waiting = status?.state === 'pending'
+  const waiting = status ? status.state === 'pending' : flow !== null
   const ownedFlowRef = useRef<string | null>(null)
   const unmountedRef = useRef(false)
 
@@ -129,8 +129,9 @@ export function SignInField({
   const expiredMessage = flow ? FLOW_EXPIRED : SESSION_EXPIRED
   const failure = status?.state === 'failed' ? status.message : status?.state === 'expired' ? expiredMessage : null
   const startError = start.error ? errorMessage(start.error, "Couldn't start the sign-in") : null
-  const shownError = error ?? startError ?? failure ?? undefined
-  const checking = reference !== null && isLoading
+  const statusFailure = statusError ? errorMessage(statusError, "Couldn't check the sign-in") : null
+  const shownError = startError ?? statusFailure ?? failure ?? error ?? undefined
+  const checking = reference !== null && isLoading && flow === null
   const signedIn =
     status?.state === 'completed' ? (status.account ? `Signed in as ${status.account}` : 'Signed in') : null
   const waitingText = `Waiting for you to sign in with ${flow?.label ?? GENERIC_LABEL}…`

@@ -122,6 +122,17 @@ fn send_error(err: reqwest::Error, url: &Url) -> DomainError {
     PluginAdapter::map_error(map_send_error(err, url))
 }
 
+fn web_endpoint(url: Url) -> DomainResult<Url> {
+    if matches!(url.scheme(), "http" | "https") {
+        Ok(url)
+    } else {
+        Err(DomainError::InvalidConfig(format!(
+            "The sign-in server returned an address that isn't a web page: {}",
+            redact_url(&url)
+        )))
+    }
+}
+
 pub(crate) async fn discover(http: &reqwest::Client, issuer: &str) -> DomainResult<Endpoints> {
     let url = parse_url(&format!(
         "{}/.well-known/openid-configuration",
@@ -147,8 +158,8 @@ pub(crate) async fn discover(http: &reqwest::Client, issuer: &str) -> DomainResu
         ))
     })?;
     Ok(Endpoints {
-        authorization: discovery.authorization_endpoint,
-        token: discovery.token_endpoint,
+        authorization: web_endpoint(discovery.authorization_endpoint)?,
+        token: web_endpoint(discovery.token_endpoint)?,
         scopes_supported: discovery.scopes_supported,
     })
 }
@@ -639,6 +650,26 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
+    }
+
+    #[test]
+    fn sign_in_endpoints_must_be_web_addresses() {
+        for allowed in [
+            "https://idp.example.com/auth",
+            "http://localhost:5556/dex/auth",
+        ] {
+            assert!(web_endpoint(Url::parse(allowed).unwrap()).is_ok());
+        }
+        for rejected in [
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "pipedash://open",
+        ] {
+            assert!(matches!(
+                web_endpoint(Url::parse(rejected).unwrap()),
+                Err(DomainError::InvalidConfig(_))
+            ));
+        }
     }
 
     #[test]

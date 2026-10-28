@@ -8,6 +8,7 @@ use std::sync::{
 };
 use std::time::Duration;
 
+use chrono::Utc;
 use pipedash_plugin_api::SignInClient;
 use reqwest::Url;
 use tokio::sync::watch;
@@ -46,13 +47,13 @@ struct Pending {
     verifier: String,
     token_endpoint: Url,
     client: SignInClient,
-    http: Arc<reqwest::Client>,
 }
 
 struct Flow {
     status: watch::Sender<SignInStatus>,
     pending: Option<Pending>,
     credential: Option<SignInCredential>,
+    http: Arc<reqwest::Client>,
     redirect_uri: Url,
     expires_at: Instant,
     listener: Option<JoinHandle<()>>,
@@ -72,6 +73,7 @@ impl Flow {
 #[derive(Default)]
 pub(crate) struct SignInService {
     flows: Mutex<HashMap<String, Flow>>,
+    renewal: tokio::sync::Mutex<()>,
 }
 
 impl SignInService {
@@ -120,9 +122,9 @@ impl SignInService {
                 verifier: authorization.verifier,
                 token_endpoint: endpoints.token,
                 client,
-                http,
             }),
             credential: None,
+            http,
             redirect_uri,
             expires_at,
             listener: None,
@@ -157,7 +159,7 @@ impl SignInService {
     }
 
     pub(crate) async fn finish(&self, id: &str, callback: Callback) -> DomainResult<SignInStatus> {
-        let pending = {
+        let (pending, http) = {
             let mut flows = self.flows();
             let Some(flow) = flows.get_mut(id) else {
                 return Ok(SignInStatus::Expired);
@@ -166,7 +168,7 @@ impl SignInService {
                 .pending
                 .take_if(|pending| callback.state.as_deref() == Some(pending.state.as_str()));
             match matching {
-                Some(pending) => pending,
+                Some(pending) => (pending, Arc::clone(&flow.http)),
                 None if flow.pending.is_some() => {
                     return Err(DomainError::InvalidConfig(FOREIGN_CALLBACK.into()));
                 }
@@ -184,7 +186,7 @@ impl SignInService {
             (Some(error), _) => Err(error_description.unwrap_or(error)),
             (None, None) => Err(MISSING_CODE.to_string()),
             (None, Some(code)) => oauth::exchange(
-                &pending.http,
+                &http,
                 &pending.token_endpoint,
                 &pending.client,
                 &code,
@@ -262,7 +264,21 @@ impl SignInService {
         }
     }
 
-    pub(crate) fn credential(&self, id: &str) -> DomainResult<SignInCredential> {
+    pub(crate) async fn credential(&self, id: &str) -> DomainResult<SignInCredential> {
+        let _renewal = self.renewal.lock().await;
+        let (current, http) = self.completed(id)?;
+        if !current.renew_at().is_some_and(|at| at <= Utc::now()) {
+            return Ok(current);
+        }
+
+        let renewed = oauth::refresh(&http, &current).await?;
+        if let Some(flow) = self.flows().get_mut(id) {
+            flow.credential = Some(renewed.clone());
+        }
+        Ok(renewed)
+    }
+
+    fn completed(&self, id: &str) -> DomainResult<(SignInCredential, Arc<reqwest::Client>)> {
         self.prune();
         let flows = self.flows();
         let Some(flow) = flows.get(id) else {
@@ -271,7 +287,7 @@ impl SignInService {
             ));
         };
         if let Some(credential) = &flow.credential {
-            return Ok(credential.clone());
+            return Ok((credential.clone(), Arc::clone(&flow.http)));
         }
         let status = flow.status.borrow().clone();
         Err(match status {
@@ -406,6 +422,7 @@ mod tests {
         assert_eq!(
             service
                 .credential(&start.id)
+                .await
                 .unwrap()
                 .refresh_token
                 .as_deref(),
@@ -471,7 +488,7 @@ mod tests {
         service.cancel(&first.id).await;
 
         assert_eq!(service.status(&first.id), SignInStatus::Expired);
-        assert!(service.credential(&first.id).is_err());
+        assert!(service.credential(&first.id).await.is_err());
         let second = service.start(client, http).await.unwrap();
         assert!(!second.manual);
     }
@@ -492,6 +509,35 @@ mod tests {
             service.status(&start.id),
             SignInStatus::Completed { .. }
         ));
-        assert!(service.credential(&start.id).is_ok());
+        assert!(service.credential(&start.id).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_completed_sign_in_is_renewed_once_before_it_is_used() {
+        let (service, idp, client) = setup().await;
+        let expired = jwt(json!({"email": "dev@example.com", "exp": Utc::now().timestamp() - 10}));
+        idp.reply(
+            200,
+            json!({"access_token": "a", "id_token": expired, "refresh_token": "r1"}),
+        );
+        let start = service
+            .start(client.clone(), Arc::new(reqwest::Client::new()))
+            .await
+            .unwrap();
+        let pasted = callback(&client, &start, "code=c&state={state}");
+        service.complete(&start.id, pasted.as_str()).await.unwrap();
+        let fresh = jwt(json!({"email": "dev@example.com", "exp": Utc::now().timestamp() + 3600}));
+        idp.reply(
+            200,
+            json!({"access_token": "a", "id_token": fresh, "refresh_token": "r2"}),
+        );
+
+        let first = service.credential(&start.id).await.unwrap();
+        let second = service.credential(&start.id).await.unwrap();
+
+        assert_eq!(first.token, fresh);
+        assert_eq!(first.refresh_token.as_deref(), Some("r2"));
+        assert_eq!(second, first);
+        assert_eq!(idp.forms.lock().unwrap().len(), 2);
     }
 }

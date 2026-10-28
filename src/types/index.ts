@@ -346,6 +346,8 @@ export interface ProviderHealthAlert {
   recovered: boolean
 }
 
+export type ProviderRecovery = 'sign_in' | 'settings'
+
 export interface ProviderSummary {
   id: number
   name: string
@@ -362,7 +364,7 @@ export interface ProviderSummary {
   last_success_at: string | null
   paused_until: string | null
   freshness: { state: ProviderTone; stale_at: string | null }
-  sign_in: boolean
+  recovery: ProviderRecovery | null
   health: ProviderHealth
 }
 

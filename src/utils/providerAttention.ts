@@ -1,10 +1,8 @@
-import type { FailureKind, HealthLevel, HealthSignal, ProviderSummary } from '../types'
+import type { FailureKind, HealthLevel, HealthSignal, ProviderRecovery, ProviderSummary } from '../types'
 
 import { formatTime } from './formatDateTime'
 
 export type AttentionTone = 'warning' | 'danger'
-
-export type ProviderRecovery = 'sign_in' | 'settings' | null
 
 export interface ProviderAttention {
   tone: AttentionTone | null
@@ -12,7 +10,7 @@ export interface ProviderAttention {
   detail: string | null
   hint: string | null
   kind: FailureKind | null
-  recovery: ProviderRecovery
+  recovery: ProviderRecovery | null
   episodeKey: string | null
   refreshingNormally: boolean
   staleNotes: string[]
@@ -25,8 +23,6 @@ const LEVEL_RANK: Record<HealthLevel, number> = {
   partial_outage: 3,
   major_outage: 4,
 }
-
-const SETTINGS_KINDS: FailureKind[] = ['auth', 'permission', 'config', 'tls']
 
 const TRANSIENT_KINDS: Partial<Record<FailureKind, true>> = {
   network: true,
@@ -59,19 +55,11 @@ export const fetchHint = (summary: ProviderSummary): string | null => {
 
   const kind = summary.last_fetch_error_kind
 
-  if (kind === 'auth' && summary.sign_in) {
+  if (summary.recovery === 'sign_in') {
     return SIGN_IN_HINT
   }
 
   return (kind && HINTS[kind]) ?? summary.last_fetch_error
-}
-
-const recoveryFor = (summary: ProviderSummary, kind: FailureKind | null): ProviderRecovery => {
-  if (kind === 'auth' && summary.sign_in) {
-    return 'sign_in'
-  }
-
-  return kind && SETTINGS_KINDS.includes(kind) ? 'settings' : null
 }
 
 export const scheduleNote = ({ health }: ProviderSummary): string | null => {
@@ -128,7 +116,7 @@ export function providerAttention(summary: ProviderSummary): ProviderAttention {
   const fresh = health.signals.filter((signal) => signal.evidence === 'fresh')
   const staleNotes = health.signals.filter((signal) => signal.evidence === 'stale').map(staleNote)
   const lead = pickLead(summary, fresh, kind)
-  const recovery = recoveryFor(summary, kind)
+  const { recovery } = summary
   const refreshingNormally =
     summary.last_fetch_status === 'success' &&
     !health.signals.some((signal) => signal.kind === 'connection') &&

@@ -26,7 +26,7 @@ test('provider validation leaves unknown fields for the operation error', () => 
   assert.deepEqual(mapProviderFieldErrors({ selected_items: 'Select a pipeline' }, []), {})
 })
 
-test('sign-in mode drops the token field and requires a sign-in reference', () => {
+test('sign-in mode drops the token field and needs a completed sign-in', () => {
   const fields = [{ key: 'server_url' }, { key: 'token' }] as ConfigField[]
 
   assert.deepEqual(
@@ -34,7 +34,8 @@ test('sign-in mode drops the token field and requires a sign-in reference', () =
     ['server_url']
   )
   assert.equal(activeConfigFields(fields, 'token').length, 2)
-  assert.equal(validateSignIn('sign_in', {}), 'Sign in to continue')
-  assert.equal(validateSignIn('sign_in', { sign_in: 'abc' }), null)
-  assert.equal(validateSignIn('token', {}), null)
+  assert.equal(validateSignIn('sign_in', {}, undefined), 'Sign in to continue')
+  assert.equal(validateSignIn('sign_in', { sign_in: 'abc' }, { state: 'pending' }), 'Finish signing in to continue')
+  assert.equal(validateSignIn('sign_in', { sign_in: 'abc' }, { state: 'completed', account: null }), null)
+  assert.equal(validateSignIn('token', {}, undefined), null)
 })

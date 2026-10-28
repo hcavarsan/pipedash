@@ -48,6 +48,7 @@ use crate::domain::{
     ProviderFreshness,
     ProviderHealth,
     ProviderImportResult,
+    ProviderRecovery,
     ProviderSummary,
     SignInCredential,
     SignInRef,
@@ -98,6 +99,12 @@ pub struct ProviderLease {
     pub id: i64,
     pub generation: Generation,
     pub provider: Arc<dyn Provider>,
+}
+
+enum TakenSignIn {
+    None,
+    Flow(String),
+    Kept,
 }
 
 struct ProviderSlot {
@@ -270,7 +277,7 @@ impl ProviderService {
             return Ok(());
         };
         let token = match SignInRef::parse(&reference) {
-            SignInRef::Flow(flow) => self.sign_ins.credential(&flow)?.token,
+            SignInRef::Flow(flow) => self.sign_ins.credential(&flow).await?.token,
             SignInRef::Provider(id) => {
                 SignInCredential::bearer(&self.renewed_config(id).await?.token)
             }
@@ -281,18 +288,18 @@ impl ProviderService {
 
     async fn take_sign_in(
         &self, config: &mut ProviderConfig, owner: Option<i64>,
-    ) -> DomainResult<Option<String>> {
+    ) -> DomainResult<TakenSignIn> {
         let Some(reference) = config.config.remove(SIGN_IN_CONFIG_KEY) else {
-            return Ok(None);
+            return Ok(TakenSignIn::None);
         };
         match SignInRef::parse(&reference) {
             SignInRef::Flow(flow) => {
-                config.token = self.sign_ins.credential(&flow)?.encode()?;
-                Ok(Some(flow))
+                config.token = self.sign_ins.credential(&flow).await?.encode()?;
+                Ok(TakenSignIn::Flow(flow))
             }
             SignInRef::Provider(id) if Some(id) == owner => {
                 config.token = self.renewed_config(id).await?.token;
-                Ok(None)
+                Ok(TakenSignIn::Kept)
             }
             SignInRef::Provider(_) => Err(DomainError::InvalidConfig(
                 "This sign-in belongs to another provider".into(),
@@ -614,6 +621,14 @@ impl ProviderService {
             wall,
         );
 
+        let last_fetch_error_kind = view.as_ref().and_then(|view| view.last_failure);
+        let recovery = ProviderRecovery::for_failure(
+            matches!(last_fetch_status, FetchStatus::Error)
+                .then_some(last_fetch_error_kind)
+                .flatten(),
+            SignInCredential::decode(&config.token).is_some(),
+        );
+
         Ok(ProviderSummary {
             id,
             name: config.display_name().to_string(),
@@ -631,7 +646,7 @@ impl ProviderService {
             last_fetch_at: fetch.fetched_at,
             last_success_at: fetch.succeeded_at,
             paused_until,
-            last_fetch_error_kind: view.as_ref().and_then(|view| view.last_failure),
+            last_fetch_error_kind,
             health: ProviderHealth {
                 level,
                 signals: state.map(|state| state.signals.clone()).unwrap_or_default(),
@@ -651,7 +666,7 @@ impl ProviderService {
             },
             version: config.version.unwrap_or(1),
             freshness,
-            sign_in: SignInCredential::decode(&config.token).is_some(),
+            recovery,
         })
     }
 
@@ -675,7 +690,7 @@ impl ProviderService {
     }
 
     pub async fn add_provider(&self, mut config: ProviderConfig) -> DomainResult<i64> {
-        let flow = self.take_sign_in(&mut config, None).await?;
+        let sign_in = self.take_sign_in(&mut config, None).await?;
         let plugin = self
             .init_plugin(&config.provider_type, config.plugin_config(), 0)
             .await?;
@@ -724,7 +739,7 @@ impl ProviderService {
                 timestamp: Utc::now().timestamp_millis(),
             })
             .await;
-        if let Some(flow) = flow {
+        if let TakenSignIn::Flow(flow) = sign_in {
             self.sign_ins.forget(&flow);
         }
 
@@ -980,7 +995,7 @@ impl ProviderService {
                 .config
                 .insert("display_name".to_string(), display_name);
         }
-        let flow = self.take_sign_in(&mut config, Some(id)).await?;
+        let sign_in = self.take_sign_in(&mut config, Some(id)).await?;
         let plugin = self
             .init_plugin(&config.provider_type, config.plugin_config(), id)
             .await?;
@@ -993,14 +1008,16 @@ impl ProviderService {
 
         let permission_status = plugin.check_permissions().await.ok();
 
-        let mut config_with_id = config.clone();
-        config_with_id.id = Some(id);
-        let new_provider = (self.provider_factory)(&config_with_id)?;
-
         let lock = self.commit_lock(id);
         let guard = lock.lock().await;
 
         let current = self.repository.get_provider(id).await?;
+        if matches!(sign_in, TakenSignIn::Kept) {
+            config.token.clone_from(&current.token);
+        }
+        let mut config_with_id = config.clone();
+        config_with_id.id = Some(id);
+        let new_provider = (self.provider_factory)(&config_with_id)?;
         let success = self
             .repository
             .update_provider_with_version(id, &config, current.version.unwrap_or(1))
@@ -1046,7 +1063,7 @@ impl ProviderService {
         }
 
         self.queue_fetch(&lease);
-        if let Some(flow) = flow {
+        if let TakenSignIn::Flow(flow) = sign_in {
             self.sign_ins.forget(&flow);
         }
 

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useReducer, useRef } from 'reac
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../../constants/credentials'
 import { usePlugins } from '../../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
+import { useSignInStatus } from '../../../queries/useSignInQueries'
 import { iosClasses } from '../../../theme/ios'
 import type { ProviderConfig } from '../../../types'
 import { isValidationError, toPipedashError } from '../../../types/errors'
@@ -49,6 +50,7 @@ export function AddProviderModal({
   const labels = getPipelineLabels(selectedPlugin?.provider_type)
   const isFlux = selectedPlugin?.provider_type === 'fluxcd'
   const selectionNeedsRefresh = editMode && !!existingProvider?.config.selected_items && !configValues.selected_items
+  const { data: signInStatus } = useSignInStatus(authMode === 'sign_in' ? (configValues[SIGN_IN_KEY] ?? null) : null)
 
   const providerConfig = useMemo<ProviderConfig>(
     () => ({
@@ -106,7 +108,7 @@ export function AddProviderModal({
       }
     }
 
-    const signInError = validateSignIn(authMode, configValues)
+    const signInError = validateSignIn(authMode, configValues, signInStatus)
 
     if (signInError) {
       errors[SIGN_IN_KEY] = signInError
@@ -119,7 +121,7 @@ export function AddProviderModal({
     }
 
     return Object.keys(errors).length === 0
-  }, [providerName, selectedPlugin, authMode, configValues, focusFirstInvalid])
+  }, [providerName, selectedPlugin, authMode, configValues, signInStatus, focusFirstInvalid])
 
   const handleNext = useCallback(() => {
     if (!validateCredentials() || !selectedPlugin) {
@@ -220,7 +222,7 @@ export function AddProviderModal({
     (activeConfigFields(selectedPlugin.config_schema.fields, authMode).some(
       (field) => field.required && !configValues[field.key]?.trim()
     ) ||
-      validateSignIn(authMode, configValues) !== null)
+      validateSignIn(authMode, configValues, signInStatus) !== null)
   const saveOnly = editMode && !selectionNeedsRefresh
   const credentialsFormId = useId()
 
