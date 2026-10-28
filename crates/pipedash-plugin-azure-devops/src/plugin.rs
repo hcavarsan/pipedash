@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -281,7 +284,7 @@ impl Plugin for AzureDevOpsPlugin {
                 .variables
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|(_, variable)| variable.allow_override && !variable.is_secret)
+                .filter(|(_, variable)| variable.is_overridable())
                 .map(|(name, variable)| WorkflowParameter {
                     label: Some(name.clone()),
                     description: Some("Pipeline variable".to_string()),
@@ -298,7 +301,16 @@ impl Plugin for AzureDevOpsPlugin {
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String> {
         let id = config::parse_pipeline_id(&params.workflow_id)?;
         let client = self.client()?;
-        let body = mapper::trigger_body(id.definition_id, params.inputs);
+        let overridable: HashSet<String> = client
+            .get_definition(id.project, id.definition_id)
+            .await?
+            .variables
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, variable)| variable.is_overridable())
+            .map(|(name, _)| name.to_lowercase())
+            .collect();
+        let body = mapper::trigger_body(id.definition_id, params.inputs, &overridable);
         let build = client.queue_build(id.project, &body).await?;
         let logs_url = build
             .web_link()
@@ -589,6 +601,13 @@ mod tests {
             ("GET", "/acme/Empty/_apis/build/definitions") => {
                 Reply::json(200, json!({"count": 0, "value": []}))
             }
+            ("GET", "/acme/Alpha/_apis/build/definitions/2") => Reply::json(
+                200,
+                json!({
+                    "id": 2, "name": "Docs",
+                    "variables": {"Ref": {"value": "x", "allowOverride": true}}
+                }),
+            ),
             ("GET", "/acme/Alpha/_apis/build/definitions/1") => Reply::json(
                 200,
                 json!({
@@ -997,8 +1016,13 @@ mod tests {
             })
         );
         let requests = stub.requests();
-        assert_eq!(requests.len(), 1);
-        let queued = &requests[0];
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].method, "GET");
+        assert_eq!(
+            requests[0].url.path(),
+            "/acme/Alpha/_apis/build/definitions/1"
+        );
+        let queued = &requests[1];
         assert_eq!(queued.method, "POST");
         assert_eq!(queued.url.path(), "/acme/Alpha/_apis/build/builds");
         assert_eq!(queued.query("api-version").as_deref(), Some("7.0"));
@@ -1027,7 +1051,12 @@ mod tests {
             .await
             .unwrap();
 
-        let body: Value = serde_json::from_str(&stub.requests()[0].body).unwrap();
+        let requests = stub.requests();
+        assert_eq!(
+            requests[0].url.path(),
+            "/acme/Alpha/_apis/build/definitions/1"
+        );
+        let body: Value = serde_json::from_str(&requests[1].body).unwrap();
         assert_eq!(
             body,
             json!({
@@ -1035,6 +1064,85 @@ mod tests {
                 "sourceBranch": "refs/heads/main",
                 "parameters": r#"{"branch":"legacy"}"#
             })
+        );
+    }
+
+    async fn queued_body(
+        plugin: &AzureDevOpsPlugin, stub: &Stub, pipeline: &str, inputs: Value,
+    ) -> Value {
+        plugin
+            .trigger_pipeline(TriggerParams {
+                workflow_id: pipeline.to_string(),
+                inputs: Some(inputs),
+            })
+            .await
+            .unwrap();
+        let requests = stub.requests();
+        let queued = requests
+            .iter()
+            .find(|request| request.method == "POST")
+            .unwrap();
+        serde_json::from_str(&queued.body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_overridable_ref_variable_is_sent_even_when_it_equals_the_branch() {
+        let stub = serve(azure_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+
+        let body = queued_body(
+            &plugin,
+            &stub,
+            "azure-devops__1__Alpha/2",
+            json!({"source-branch": "main", "ref": "main"}),
+        )
+        .await;
+
+        assert_eq!(
+            body,
+            json!({
+                "definition": {"id": 2},
+                "sourceBranch": "refs/heads/main",
+                "parameters": r#"{"ref":"main"}"#
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn the_rerun_ref_echo_is_dropped_when_the_definition_has_no_overridable_ref() {
+        let stub = serve(azure_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+
+        let body = queued_body(
+            &plugin,
+            &stub,
+            "azure-devops__1__Alpha/1",
+            json!({"source-branch": "main", "ref": "main"}),
+        )
+        .await;
+
+        assert_eq!(
+            body,
+            json!({"definition": {"id": 1}, "sourceBranch": "refs/heads/main"})
+        );
+    }
+
+    #[tokio::test]
+    async fn inputs_that_are_not_overridable_variables_are_not_sent() {
+        let stub = serve(azure_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+
+        let body = queued_body(
+            &plugin,
+            &stub,
+            "azure-devops__1__Alpha/1",
+            json!({"DEPLOYtarget": "prod", "fixed": "x", "apiKey": "s3cret", "unknown": "y"}),
+        )
+        .await;
+
+        assert_eq!(
+            body,
+            json!({"definition": {"id": 1}, "parameters": r#"{"DEPLOYtarget":"prod"}"#})
         );
     }
 

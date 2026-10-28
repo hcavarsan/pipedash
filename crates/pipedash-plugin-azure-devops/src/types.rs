@@ -111,6 +111,12 @@ pub(crate) struct Variable {
     pub is_secret: bool,
 }
 
+impl Variable {
+    pub fn is_overridable(&self) -> bool {
+        self.allow_override && !self.is_secret
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct DefinitionDetail {
     #[serde(default)]

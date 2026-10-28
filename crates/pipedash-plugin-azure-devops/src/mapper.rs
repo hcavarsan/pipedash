@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 
 use chrono::{
     DateTime,
@@ -23,7 +26,6 @@ use crate::{
 };
 
 pub(crate) const BRANCH_INPUT: &str = "source-branch";
-const REF_ECHO_INPUT: &str = "ref";
 const BRANCH_REF_PREFIX: &str = "refs/heads/";
 const REF_PREFIX: &str = "refs/";
 
@@ -157,7 +159,9 @@ pub(crate) fn source_branch(branch: &str) -> String {
     }
 }
 
-pub(crate) fn trigger_body(definition_id: i64, inputs: Option<Value>) -> Value {
+pub(crate) fn trigger_body(
+    definition_id: i64, inputs: Option<Value>, overridable: &HashSet<String>,
+) -> Value {
     let mut branch = None;
     let mut variables = Map::new();
     if let Some(Value::Object(inputs)) = inputs {
@@ -173,14 +177,9 @@ pub(crate) fn trigger_body(definition_id: i64, inputs: Option<Value>) -> Value {
             }
             if name == BRANCH_INPUT {
                 branch = Some(text);
-            } else {
+            } else if overridable.contains(&name.to_lowercase()) {
                 variables.insert(name, Value::String(text));
             }
-        }
-    }
-    if let Some(branch) = &branch {
-        if variables.get(REF_ECHO_INPUT).and_then(Value::as_str) == Some(branch.as_str()) {
-            variables.remove(REF_ECHO_INPUT);
         }
     }
 
@@ -432,6 +431,10 @@ mod tests {
         assert_eq!(available.description, None);
     }
 
+    fn overridable(names: &[&str]) -> HashSet<String> {
+        names.iter().map(|name| name.to_lowercase()).collect()
+    }
+
     #[test]
     fn trigger_body_carries_branch_ref_and_variable_overrides() {
         let body = trigger_body(
@@ -439,6 +442,7 @@ mod tests {
             Some(
                 json!({"source-branch": "feature/x", "deployTarget": "staging", "retries": 3, "fast": true}),
             ),
+            &overridable(&["deployTarget", "retries", "fast"]),
         );
 
         assert_eq!(body["definition"], json!({"id": 12}));
@@ -452,16 +456,21 @@ mod tests {
 
     #[test]
     fn trigger_body_keeps_full_refs_and_drops_blank_inputs() {
+        let none = overridable(&["empty", "gone"]);
         let body = trigger_body(
             12,
             Some(json!({"source-branch": "refs/tags/v1", "empty": "  ", "gone": null})),
+            &none,
         );
         assert_eq!(body["sourceBranch"], "refs/tags/v1");
         assert!(body.get("parameters").is_none());
 
-        assert_eq!(trigger_body(12, None), json!({"definition": {"id": 12}}));
         assert_eq!(
-            trigger_body(12, Some(json!({"source-branch": ""}))),
+            trigger_body(12, None, &none),
+            json!({"definition": {"id": 12}})
+        );
+        assert_eq!(
+            trigger_body(12, Some(json!({"source-branch": ""})), &none),
             json!({"definition": {"id": 12}})
         );
     }
@@ -471,18 +480,31 @@ mod tests {
         let body = trigger_body(
             12,
             Some(json!({"source-branch": "main", "branch": "legacy"})),
+            &overridable(&["branch"]),
         );
         assert_eq!(body["sourceBranch"], "refs/heads/main");
         assert_eq!(body["parameters"], r#"{"branch":"legacy"}"#);
     }
 
     #[test]
-    fn trigger_body_ignores_the_ref_input_the_rerun_flow_adds_for_the_branch() {
-        let body = trigger_body(12, Some(json!({"source-branch": "main", "ref": "main"})));
+    fn trigger_body_sends_an_overridable_ref_even_when_it_equals_the_branch() {
+        let body = trigger_body(
+            12,
+            Some(json!({"source-branch": "main", "ref": "main"})),
+            &overridable(&["Ref"]),
+        );
+        assert_eq!(body["sourceBranch"], "refs/heads/main");
+        assert_eq!(body["parameters"], r#"{"ref":"main"}"#);
+    }
+
+    #[test]
+    fn trigger_body_drops_the_rerun_ref_echo_and_any_input_that_is_not_an_overridable_variable() {
+        let body = trigger_body(
+            12,
+            Some(json!({"source-branch": "main", "ref": "main", "unknown": "x", "fixed": "y"})),
+            &overridable(&["deployTarget"]),
+        );
         assert_eq!(body["sourceBranch"], "refs/heads/main");
         assert!(body.get("parameters").is_none());
-
-        let kept = trigger_body(12, Some(json!({"source-branch": "main", "ref": "other"})));
-        assert_eq!(kept["parameters"], r#"{"ref":"other"}"#);
     }
 }
