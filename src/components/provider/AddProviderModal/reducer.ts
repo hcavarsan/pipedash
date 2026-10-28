@@ -1,3 +1,4 @@
+import { SIGN_IN_KEY, TOKEN_KEY } from '../../../constants/credentials'
 import type { ProviderConfig } from '../../../types'
 
 import { type FormAction, type FormState, initialFormState } from './types'
@@ -20,6 +21,7 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         selectedPlugin: action.plugin,
         providerName: action.isEditMode ? state.providerName : action.plugin.name,
+        authMode: 'token',
         configValues: initialConfig,
         selectedOrganization: '',
         selectedPipelines: new Set(),
@@ -33,6 +35,7 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         selectedPlugin: null,
         configValues: {},
+        authMode: 'token',
         providerName: '',
         selectedOrganization: '',
         selectedPipelines: new Set(),
@@ -74,6 +77,31 @@ export function formReducer(state: FormState, action: FormAction): FormState {
 
     case 'SET_CONFIG_VALUES':
       return { ...state, configValues: action.values }
+
+    case 'SET_AUTH_MODE': {
+      const configValues = { ...state.configValues }
+      const fieldErrors = { ...state.fieldErrors }
+
+      delete configValues[action.mode === 'token' ? SIGN_IN_KEY : TOKEN_KEY]
+      delete fieldErrors[SIGN_IN_KEY]
+      delete fieldErrors[TOKEN_KEY]
+
+      return { ...state, authMode: action.mode, configValues, fieldErrors }
+    }
+
+    case 'SET_SIGN_IN': {
+      const configValues = { ...state.configValues }
+      const fieldErrors = { ...state.fieldErrors }
+
+      if (action.reference === null) {
+        delete configValues[SIGN_IN_KEY]
+      } else {
+        configValues[SIGN_IN_KEY] = action.reference
+      }
+      delete fieldErrors[SIGN_IN_KEY]
+
+      return { ...state, configValues, fieldErrors }
+    }
 
     case 'SET_ORGANIZATION':
       return {
@@ -140,13 +168,14 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       const initialConfig = { ...action.provider.config }
 
       if (action.provider.token) {
-        initialConfig.token = action.provider.token
+        initialConfig[TOKEN_KEY] = action.provider.token
       }
 
       return {
         ...state,
         selectedPlugin: action.plugin,
         providerName: action.provider.config.display_name || action.provider.name,
+        authMode: SIGN_IN_KEY in initialConfig ? 'sign_in' : 'token',
         configValues: initialConfig,
         selectedPipelines: new Set(
           (initialConfig.selected_items ?? '')

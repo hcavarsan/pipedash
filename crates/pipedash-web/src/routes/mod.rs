@@ -11,6 +11,7 @@ mod refresh;
 mod run_logs;
 mod settings;
 mod setup;
+mod sign_in;
 mod storage;
 mod system;
 mod vault;
@@ -39,6 +40,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/refresh", refresh::router())
         .nest("/settings", settings::router())
         .nest("/push", push::router())
+        .nest("/sign-in", sign_in::router())
         .nest("/storage", storage::router())
         .nest("/vault", vault::router())
         .route("/downloads/{ticket}", get(run_logs::download))

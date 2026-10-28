@@ -230,7 +230,7 @@ function Connection({ provider, now, onNavigate }: { provider: ProviderSummary; 
         </Text>
       ))}
       <Group gap="xs" mt="3xs">
-        <ProviderRecoveryActions providerId={provider.id} kind={attention.kind} onNavigate={onNavigate} />
+        <ProviderRecoveryActions providerId={provider.id} recovery={attention.recovery} onNavigate={onNavigate} />
       </Group>
     </Section>
   )
@@ -376,7 +376,7 @@ function ShellProviderStatus({ provider, now, onNavigate }: ShellProviderStatusP
       >
         <IosRow title={connectionState(provider, connection?.title, now)} />
         <Group gap="xs" p="sm" style={{ borderTop: '0.5px solid var(--ios-separator)' }}>
-          <ProviderRecoveryActions providerId={provider.id} kind={attention.kind} onNavigate={onNavigate} />
+          <ProviderRecoveryActions providerId={provider.id} recovery={attention.recovery} onNavigate={onNavigate} />
         </Group>
       </IosGroup>
     </>

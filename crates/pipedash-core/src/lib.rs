@@ -30,6 +30,8 @@ pub use domain::{
     ProviderSummary,
     RunLogDocument,
     RunLogTree,
+    SignInStart,
+    SignInStatus,
     TriggerParams,
 };
 pub use event::{

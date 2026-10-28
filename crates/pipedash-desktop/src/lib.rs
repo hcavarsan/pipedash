@@ -11,6 +11,7 @@ mod native;
 mod pipeline_views;
 mod push;
 mod run_logs;
+mod sign_in;
 mod system_notifications;
 pub mod tauri_event_bus;
 
@@ -305,6 +306,12 @@ use run_logs::{
     read_run_log_lines,
     search_run_log,
 };
+use sign_in::{
+    cancel_sign_in,
+    complete_sign_in,
+    sign_in_status,
+    start_sign_in,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -442,6 +449,10 @@ pub fn run() {
             preview_provider_pipelines,
             validate_provider_credentials,
             check_provider_permissions,
+            start_sign_in,
+            sign_in_status,
+            complete_sign_in,
+            cancel_sign_in,
             get_provider_permissions,
             get_provider_features,
             get_provider_table_schema,

@@ -1,4 +1,4 @@
-import type { FailureKind, HealthLevel, HealthSignal, ProviderSummary } from '../types'
+import type { FailureKind, HealthLevel, HealthSignal, ProviderRecovery, ProviderSummary } from '../types'
 
 import { formatTime } from './formatDateTime'
 
@@ -10,6 +10,7 @@ export interface ProviderAttention {
   detail: string | null
   hint: string | null
   kind: FailureKind | null
+  recovery: ProviderRecovery | null
   episodeKey: string | null
   refreshingNormally: boolean
   staleNotes: string[]
@@ -31,6 +32,7 @@ const TRANSIENT_KINDS: Partial<Record<FailureKind, true>> = {
 }
 
 const UNREACHABLE_HINT = "Pipedash can't reach this provider. Check the network or VPN of the machine running Pipedash."
+const SIGN_IN_HINT = 'Your sign-in expired. Sign in again in Settings → Providers.'
 const SETTINGS_HINT = 'Check the provider URL and certificate settings.'
 
 const HINTS: Partial<Record<FailureKind, string>> = {
@@ -52,6 +54,10 @@ export const fetchHint = (summary: ProviderSummary): string | null => {
   }
 
   const kind = summary.last_fetch_error_kind
+
+  if (summary.recovery === 'sign_in') {
+    return SIGN_IN_HINT
+  }
 
   return (kind && HINTS[kind]) ?? summary.last_fetch_error
 }
@@ -110,6 +116,7 @@ export function providerAttention(summary: ProviderSummary): ProviderAttention {
   const fresh = health.signals.filter((signal) => signal.evidence === 'fresh')
   const staleNotes = health.signals.filter((signal) => signal.evidence === 'stale').map(staleNote)
   const lead = pickLead(summary, fresh, kind)
+  const { recovery } = summary
   const refreshingNormally =
     summary.last_fetch_status === 'success' &&
     !health.signals.some((signal) => signal.kind === 'connection') &&
@@ -122,6 +129,7 @@ export function providerAttention(summary: ProviderSummary): ProviderAttention {
       detail: null,
       hint: null,
       kind,
+      recovery,
       episodeKey: null,
       refreshingNormally,
       staleNotes,
@@ -136,6 +144,7 @@ export function providerAttention(summary: ProviderSummary): ProviderAttention {
     detail: lead.detail,
     hint: [base, scheduleNote(summary)].filter(Boolean).join(' ') || null,
     kind,
+    recovery,
     episodeKey: lead.episodeKey,
     refreshingNormally,
     staleNotes,

@@ -54,6 +54,7 @@ export function useAddProvider() {
                 last_success_at: null,
                 paused_until: null,
                 freshness: { state: 'never', stale_at: null },
+                recovery: null,
                 health: {
                   level: 'operational',
                   signals: [],

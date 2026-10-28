@@ -2,8 +2,10 @@ import { Box, Button, Group, Stack, Stepper, Text } from '@mantine/core'
 import { IconCheck, IconKey, IconList } from '@tabler/icons-react'
 import { useCallback, useEffect, useId, useMemo, useReducer, useRef } from 'react'
 
+import { SIGN_IN_KEY, TOKEN_KEY } from '../../../constants/credentials'
 import { usePlugins } from '../../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
+import { useSignInStatus } from '../../../queries/useSignInQueries'
 import { iosClasses } from '../../../theme/ios'
 import type { ProviderConfig } from '../../../types'
 import { isValidationError, toPipedashError } from '../../../types/errors'
@@ -23,7 +25,13 @@ import { PipelinesStep } from './PipelinesStep'
 import { formReducer, isFormDirty } from './reducer'
 import { type AddProviderModalProps, initialFormState } from './types'
 import { usePermissionCheck } from './usePermissionCheck'
-import { mapProviderFieldErrors, validateConfigField, validateProviderName } from './validation'
+import {
+  activeConfigFields,
+  mapProviderFieldErrors,
+  validateConfigField,
+  validateProviderName,
+  validateSignIn,
+} from './validation'
 
 export function AddProviderModal({
   opened,
@@ -38,16 +46,17 @@ export function AddProviderModal({
   const { plugins, loading: pluginsLoading } = usePlugins()
 
   const [state, dispatch] = useReducer(formReducer, initialFormState)
-  const { step, selectedPlugin, providerName, configValues, selectedPipelines, submitting, error } = state
+  const { step, selectedPlugin, providerName, authMode, configValues, selectedPipelines, submitting, error } = state
   const labels = getPipelineLabels(selectedPlugin?.provider_type)
   const isFlux = selectedPlugin?.provider_type === 'fluxcd'
   const selectionNeedsRefresh = editMode && !!existingProvider?.config.selected_items && !configValues.selected_items
+  const { data: signInStatus } = useSignInStatus(authMode === 'sign_in' ? (configValues[SIGN_IN_KEY] ?? null) : null)
 
   const providerConfig = useMemo<ProviderConfig>(
     () => ({
       name: providerName,
       provider_type: selectedPlugin?.provider_type || '',
-      token: configValues.token || '',
+      token: configValues[TOKEN_KEY] || '',
       config: configValues,
       refresh_interval: 300,
     }),
@@ -91,12 +100,18 @@ export function AddProviderModal({
       return false
     }
 
-    for (const field of selectedPlugin.config_schema.fields) {
+    for (const field of activeConfigFields(selectedPlugin.config_schema.fields, authMode)) {
       const fieldError = validateConfigField(field, configValues[field.key] || '')
 
       if (fieldError) {
         errors[field.key] = fieldError
       }
+    }
+
+    const signInError = validateSignIn(authMode, configValues, signInStatus)
+
+    if (signInError) {
+      errors[SIGN_IN_KEY] = signInError
     }
 
     dispatch({ type: 'SET_FIELD_ERRORS', errors })
@@ -106,7 +121,7 @@ export function AddProviderModal({
     }
 
     return Object.keys(errors).length === 0
-  }, [providerName, selectedPlugin, configValues, focusFirstInvalid])
+  }, [providerName, selectedPlugin, authMode, configValues, signInStatus, focusFirstInvalid])
 
   const handleNext = useCallback(() => {
     if (!validateCredentials() || !selectedPlugin) {
@@ -127,7 +142,7 @@ export function AddProviderModal({
         return
       }
 
-      const { token = '', ...config } = configValues
+      const { [TOKEN_KEY]: token = '', ...config } = configValues
 
       if (includeSelection) {
         config.selected_items = Array.from(selectedPipelines).join(',')
@@ -202,6 +217,12 @@ export function AddProviderModal({
     }
   }, [validateCredentials, saveProvider])
 
+  const credentialsIncomplete =
+    !!selectedPlugin &&
+    (activeConfigFields(selectedPlugin.config_schema.fields, authMode).some(
+      (field) => field.required && !configValues[field.key]?.trim()
+    ) ||
+      validateSignIn(authMode, configValues, signInStatus) !== null)
   const saveOnly = editMode && !selectionNeedsRefresh
   const credentialsFormId = useId()
 
@@ -214,12 +235,7 @@ export function AddProviderModal({
               {selectedPlugin && selectedPlugin.required_permissions.length > 0 && (
                 <PermissionCheckButton
                   onClick={permission.checkPermissions}
-                  disabled={
-                    submitting ||
-                    selectedPlugin.config_schema.fields.some(
-                      (field) => field.required && !configValues[field.key]?.trim()
-                    )
-                  }
+                  disabled={submitting || credentialsIncomplete}
                   loading={permission.checking}
                 />
               )}
@@ -283,7 +299,7 @@ export function AddProviderModal({
     [
       step,
       selectedPlugin,
-      configValues,
+      credentialsIncomplete,
       submitting,
       permission,
       editMode,
@@ -305,10 +321,7 @@ export function AddProviderModal({
     selectedPlugin && selectedPlugin.required_permissions.length > 0 ? (
       <PermissionCheckButton
         onClick={permission.checkPermissions}
-        disabled={
-          submitting ||
-          selectedPlugin.config_schema.fields.some((field) => field.required && !configValues[field.key]?.trim())
-        }
+        disabled={submitting || credentialsIncomplete}
         loading={permission.checking}
       />
     ) : undefined

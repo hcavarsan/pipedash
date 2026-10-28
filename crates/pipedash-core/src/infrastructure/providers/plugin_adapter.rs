@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{
+    DateTime,
+    Utc,
+};
 use pipedash_plugin_api::{
     Plugin as PluginTrait,
     RunRef,
@@ -22,14 +26,19 @@ pub struct PluginAdapter {
     plugin: Arc<dyn PluginTrait>,
     provider_type: String,
     provider_id: i64,
+    renew_at: Option<DateTime<Utc>>,
 }
 
 impl PluginAdapter {
-    pub fn new(plugin: Box<dyn PluginTrait>, provider_type: String, provider_id: i64) -> Self {
+    pub fn new(
+        plugin: Box<dyn PluginTrait>, provider_type: String, provider_id: i64,
+        renew_at: Option<DateTime<Utc>>,
+    ) -> Self {
         Self {
             plugin: Arc::from(plugin),
             provider_type,
             provider_id,
+            renew_at,
         }
     }
 
@@ -248,6 +257,10 @@ impl Provider for PluginAdapter {
 
     fn capabilities(&self) -> &pipedash_plugin_api::PluginCapabilities {
         &self.plugin.metadata().capabilities
+    }
+
+    fn renew_at(&self) -> Option<DateTime<Utc>> {
+        self.renew_at
     }
 
     fn status_source(&self) -> Option<&pipedash_plugin_api::StatusSource> {

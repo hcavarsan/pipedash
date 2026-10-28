@@ -31,6 +31,7 @@ use super::health_service::{
     HealthInput,
     ProviderHealthInput,
 };
+use super::sign_in_service::SignInService;
 use crate::application::fetch_scheduler::{
     FetchScheduler,
     ForcedClaim,
@@ -47,7 +48,13 @@ use crate::domain::{
     ProviderFreshness,
     ProviderHealth,
     ProviderImportResult,
+    ProviderRecovery,
     ProviderSummary,
+    SignInCredential,
+    SignInRef,
+    SignInStart,
+    SignInStatus,
+    SIGN_IN_CONFIG_KEY,
 };
 use crate::event::{
     CoreEvent,
@@ -72,6 +79,7 @@ use crate::infrastructure::database::{
     FETCH_STATUS_NEVER,
     FETCH_STATUS_SUCCESS,
 };
+use crate::infrastructure::oauth;
 use crate::infrastructure::providers::PluginAdapter;
 use crate::infrastructure::run_logs::LogStore;
 use crate::infrastructure::{
@@ -91,6 +99,12 @@ pub struct ProviderLease {
     pub id: i64,
     pub generation: Generation,
     pub provider: Arc<dyn Provider>,
+}
+
+enum TakenSignIn {
+    None,
+    Flow(String),
+    Kept,
 }
 
 struct ProviderSlot {
@@ -135,6 +149,8 @@ pub struct ProviderService {
     http_client_manager: Arc<HttpClientManager>,
     providers: RwLock<HashMap<i64, ProviderSlot>>,
     commit_locks: DashMap<i64, Arc<Mutex<()>>>,
+    renewal_locks: DashMap<i64, Arc<Mutex<()>>>,
+    sign_ins: Arc<SignInService>,
     plugin_registry: Arc<PluginRegistry>,
     parameter_fetches: DashMap<String, Arc<Mutex<()>>>,
     event_bus: Arc<dyn EventBus>,
@@ -166,6 +182,8 @@ impl ProviderService {
             http_client_manager,
             providers: RwLock::new(HashMap::new()),
             commit_locks: DashMap::new(),
+            renewal_locks: DashMap::new(),
+            sign_ins: Arc::new(SignInService::default()),
             plugin_registry,
             parameter_fetches: DashMap::new(),
             event_bus,
@@ -216,9 +234,10 @@ impl ProviderService {
             .is_some_and(|plugin| plugin.metadata().capabilities.retains_run_history)
     }
 
-    pub fn init_plugin(
-        &self, provider_type: &str, config: HashMap<String, String>, provider_id: i64,
+    pub async fn init_plugin(
+        &self, provider_type: &str, mut config: HashMap<String, String>, provider_id: i64,
     ) -> DomainResult<Box<dyn PluginTrait>> {
+        self.resolve_sign_in(&mut config).await?;
         init_plugin(
             &self.http_client_manager,
             provider_type,
@@ -228,8 +247,9 @@ impl ProviderService {
     }
 
     pub async fn field_options(
-        &self, provider_type: &str, field_key: &str, config: HashMap<String, String>,
+        &self, provider_type: &str, field_key: &str, mut config: HashMap<String, String>,
     ) -> DomainResult<Vec<String>> {
+        self.resolve_sign_in(&mut config).await?;
         let (mut plugin, client) = build_plugin(&self.http_client_manager, provider_type, &config)?;
         let init_error = plugin.initialize(0, config.clone(), Some(client)).err();
 
@@ -246,6 +266,152 @@ impl ProviderService {
 
     pub(crate) fn commit_lock(&self, id: i64) -> Arc<Mutex<()>> {
         Arc::clone(self.commit_locks.entry(id).or_default().value())
+    }
+
+    fn renewal_lock(&self, id: i64) -> Arc<Mutex<()>> {
+        Arc::clone(self.renewal_locks.entry(id).or_default().value())
+    }
+
+    async fn resolve_sign_in(&self, config: &mut HashMap<String, String>) -> DomainResult<()> {
+        let Some(reference) = config.remove(SIGN_IN_CONFIG_KEY) else {
+            return Ok(());
+        };
+        let token = match SignInRef::parse(&reference) {
+            SignInRef::Flow(flow) => self.sign_ins.credential(&flow).await?.token,
+            SignInRef::Provider(id) => {
+                SignInCredential::bearer(&self.renewed_config(id).await?.token)
+            }
+        };
+        config.insert("token".to_string(), token);
+        Ok(())
+    }
+
+    async fn take_sign_in(
+        &self, config: &mut ProviderConfig, owner: Option<i64>,
+    ) -> DomainResult<TakenSignIn> {
+        let Some(reference) = config.config.remove(SIGN_IN_CONFIG_KEY) else {
+            return Ok(TakenSignIn::None);
+        };
+        match SignInRef::parse(&reference) {
+            SignInRef::Flow(flow) => {
+                config.token = self.sign_ins.credential(&flow).await?.encode()?;
+                Ok(TakenSignIn::Flow(flow))
+            }
+            SignInRef::Provider(id) if Some(id) == owner => {
+                config.token = self.renewed_config(id).await?.token;
+                Ok(TakenSignIn::Kept)
+            }
+            SignInRef::Provider(_) => Err(DomainError::InvalidConfig(
+                "This sign-in belongs to another provider".into(),
+            )),
+        }
+    }
+
+    async fn renewed_config(&self, id: i64) -> DomainResult<ProviderConfig> {
+        let renewal = self.renewal_lock(id);
+        let _renewal = renewal.lock().await;
+        let config = self.repository.get_provider(id).await?;
+        let Some(current) = SignInCredential::decode(&config.token)
+            .filter(|credential| credential.renew_at().is_some_and(|at| at <= Utc::now()))
+        else {
+            return Ok(config);
+        };
+
+        let (_, http) = build_plugin(
+            &self.http_client_manager,
+            &config.provider_type,
+            &config.config,
+        )?;
+        let token = oauth::refresh(&http, &current).await?.encode()?;
+
+        let commit = self.commit_lock(id);
+        let _commit = commit.lock().await;
+        let mut latest = self.repository.get_provider(id).await?;
+        if latest.token != config.token {
+            return Ok(latest);
+        }
+        self.repository.store_token(id, &token).await?;
+        tracing::info!(provider_id = id, "Renewed the provider sign-in");
+        latest.token = token;
+        Ok(latest)
+    }
+
+    async fn renew(&self, stale: ProviderLease) -> DomainResult<ProviderLease> {
+        let config = self.renewed_config(stale.id).await?;
+        let provider = (self.provider_factory)(&config)?;
+        let mut providers = self.providers.write().await;
+        let slot = providers
+            .get_mut(&stale.id)
+            .ok_or_else(|| DomainError::ProviderNotFound(stale.id.to_string()))?;
+        if slot.generation == stale.generation {
+            slot.provider = provider;
+        }
+        Ok(slot.lease(stale.id))
+    }
+
+    pub async fn provider_for_editing(&self, id: i64) -> DomainResult<ProviderConfig> {
+        let mut config = self.repository.get_provider(id).await?;
+        if SignInCredential::decode(&config.token).is_some() {
+            config.token.clear();
+            config.config.insert(
+                SIGN_IN_CONFIG_KEY.to_string(),
+                SignInRef::Provider(id).to_string(),
+            );
+        }
+        Ok(config)
+    }
+
+    pub async fn stored_plugin(&self, id: i64) -> DomainResult<Box<dyn PluginTrait>> {
+        let config = self.renewed_config(id).await?;
+        init_plugin(
+            &self.http_client_manager,
+            &config.provider_type,
+            config.plugin_config(),
+            id,
+        )
+    }
+
+    pub async fn start_sign_in(
+        &self, provider_type: &str, config: HashMap<String, String>,
+    ) -> DomainResult<SignInStart> {
+        let (plugin, http) = build_plugin(&self.http_client_manager, provider_type, &config)?;
+        let client = plugin
+            .sign_in_client(&config, &http)
+            .await
+            .map_err(PluginAdapter::map_error)?;
+        self.sign_ins.start(client, http).await
+    }
+
+    pub async fn sign_in_status(&self, reference: &str) -> DomainResult<SignInStatus> {
+        match SignInRef::parse(reference) {
+            SignInRef::Flow(flow) => Ok(self.sign_ins.status(&flow)),
+            SignInRef::Provider(id) => match self.renewed_config(id).await {
+                Ok(config) => Ok(SignInCredential::decode(&config.token).map_or(
+                    SignInStatus::Expired,
+                    |credential| SignInStatus::Completed {
+                        account: credential.account,
+                    },
+                )),
+                Err(DomainError::ProviderAuthenticationFailed(message)) => {
+                    Ok(SignInStatus::Failed { message })
+                }
+                Err(e) => Err(e),
+            },
+        }
+    }
+
+    pub async fn complete_sign_in(
+        &self, flow: &str, redirect_url: &str,
+    ) -> DomainResult<SignInStatus> {
+        self.sign_ins.complete(flow, redirect_url).await
+    }
+
+    pub async fn cancel_sign_in(&self, flow: &str) {
+        self.sign_ins.cancel(flow).await;
+    }
+
+    pub async fn wait_for_sign_in(&self, flow: &str) -> SignInStatus {
+        self.sign_ins.wait(flow).await
     }
 
     async fn purge_run_logs(&self, id: i64) {
@@ -328,11 +494,14 @@ impl ProviderService {
 
     pub async fn acquire(&self, id: i64) -> DomainResult<ProviderLease> {
         if let Some(lease) = self.current(id).await {
+            if lease.provider.renew_at().is_some_and(|at| at <= Utc::now()) {
+                return self.renew(lease).await;
+            }
             return Ok(lease);
         }
 
         for _ in 0..ACQUIRE_ATTEMPTS {
-            let config = self.repository.get_provider(id).await?;
+            let config = self.renewed_config(id).await?;
             let provider = (self.provider_factory)(&config)?;
             let lock = self.commit_lock(id);
             let _guard = lock.lock().await;
@@ -452,6 +621,14 @@ impl ProviderService {
             wall,
         );
 
+        let last_fetch_error_kind = view.as_ref().and_then(|view| view.last_failure);
+        let recovery = ProviderRecovery::for_failure(
+            matches!(last_fetch_status, FetchStatus::Error)
+                .then_some(last_fetch_error_kind)
+                .flatten(),
+            SignInCredential::decode(&config.token).is_some(),
+        );
+
         Ok(ProviderSummary {
             id,
             name: config.display_name().to_string(),
@@ -469,7 +646,7 @@ impl ProviderService {
             last_fetch_at: fetch.fetched_at,
             last_success_at: fetch.succeeded_at,
             paused_until,
-            last_fetch_error_kind: view.as_ref().and_then(|view| view.last_failure),
+            last_fetch_error_kind,
             health: ProviderHealth {
                 level,
                 signals: state.map(|state| state.signals.clone()).unwrap_or_default(),
@@ -489,6 +666,7 @@ impl ProviderService {
             },
             version: config.version.unwrap_or(1),
             freshness,
+            recovery,
         })
     }
 
@@ -512,10 +690,10 @@ impl ProviderService {
     }
 
     pub async fn add_provider(&self, mut config: ProviderConfig) -> DomainResult<i64> {
-        let mut plugin_config = config.config.clone();
-        plugin_config.insert("token".to_string(), config.token.clone());
-
-        let plugin = self.init_plugin(&config.provider_type, plugin_config, 0)?;
+        let sign_in = self.take_sign_in(&mut config, None).await?;
+        let plugin = self
+            .init_plugin(&config.provider_type, config.plugin_config(), 0)
+            .await?;
 
         let (validation_result, permission_status) =
             tokio::join!(plugin.validate_credentials(), plugin.check_permissions());
@@ -561,6 +739,9 @@ impl ProviderService {
                 timestamp: Utc::now().timestamp_millis(),
             })
             .await;
+        if let TakenSignIn::Flow(flow) = sign_in {
+            self.sign_ins.forget(&flow);
+        }
 
         Ok(id)
     }
@@ -814,10 +995,10 @@ impl ProviderService {
                 .config
                 .insert("display_name".to_string(), display_name);
         }
-        let mut plugin_config = config.config.clone();
-        plugin_config.insert("token".to_string(), config.token.clone());
-
-        let plugin = self.init_plugin(&config.provider_type, plugin_config, id)?;
+        let sign_in = self.take_sign_in(&mut config, Some(id)).await?;
+        let plugin = self
+            .init_plugin(&config.provider_type, config.plugin_config(), id)
+            .await?;
 
         plugin.validate_credentials().await.map_err(|e| {
             DomainError::InvalidConfig(format!("Credential validation failed: {e}"))
@@ -827,14 +1008,16 @@ impl ProviderService {
 
         let permission_status = plugin.check_permissions().await.ok();
 
-        let mut config_with_id = config.clone();
-        config_with_id.id = Some(id);
-        let new_provider = (self.provider_factory)(&config_with_id)?;
-
         let lock = self.commit_lock(id);
         let guard = lock.lock().await;
 
         let current = self.repository.get_provider(id).await?;
+        if matches!(sign_in, TakenSignIn::Kept) {
+            config.token.clone_from(&current.token);
+        }
+        let mut config_with_id = config.clone();
+        config_with_id.id = Some(id);
+        let new_provider = (self.provider_factory)(&config_with_id)?;
         let success = self
             .repository
             .update_provider_with_version(id, &config, current.version.unwrap_or(1))
@@ -880,6 +1063,9 @@ impl ProviderService {
         }
 
         self.queue_fetch(&lease);
+        if let TakenSignIn::Flow(flow) = sign_in {
+            self.sign_ins.forget(&flow);
+        }
 
         Ok(())
     }
@@ -1093,11 +1279,7 @@ impl ProviderService {
     pub async fn recheck_provider_permissions(
         &self, provider_id: i64,
     ) -> DomainResult<pipedash_plugin_api::PermissionStatus> {
-        let config = self.repository.get_provider(provider_id).await?;
-        let mut plugin_config = config.config.clone();
-        plugin_config.insert("token".to_string(), config.token.clone());
-
-        let plugin = self.init_plugin(&config.provider_type, plugin_config, provider_id)?;
+        let plugin = self.stored_plugin(provider_id).await?;
 
         let status = plugin
             .check_permissions()
@@ -1196,26 +1378,15 @@ pub(crate) fn plugin_provider(
     }
 
     let provider_id = config.id.unwrap_or(0);
-    let mut plugin_config = config.config.clone();
-
-    let resolved_token = if config.token.is_empty() {
-        String::new()
-    } else {
-        match TokenReference::parse(&config.token) {
-            Ok(TokenReference::EnvVar(var_name)) => std::env::var(&var_name).unwrap_or_else(|_| {
-                tracing::warn!(
-                    provider_id = provider_id,
-                    var_name = %var_name,
-                    "Environment variable not found, using empty token"
-                );
-                String::new()
-            }),
-            Ok(TokenReference::None) => String::new(),
-            Ok(_) => config.token.clone(),
-            Err(_) => config.token.clone(),
+    let (token, renew_at) = match SignInCredential::decode(&config.token) {
+        Some(credential) => {
+            let renew_at = credential.renew_at();
+            (credential.token, renew_at)
         }
+        None => (resolve_token_reference(provider_id, &config.token), None),
     };
-    plugin_config.insert("token".to_string(), resolved_token);
+    let mut plugin_config = config.config.clone();
+    plugin_config.insert("token".to_string(), token);
 
     let plugin = init_plugin(http, &config.provider_type, plugin_config, provider_id)?;
 
@@ -1223,7 +1394,26 @@ pub(crate) fn plugin_provider(
         plugin,
         config.provider_type.clone(),
         provider_id,
+        renew_at,
     )))
+}
+
+fn resolve_token_reference(provider_id: i64, token: &str) -> String {
+    if token.is_empty() {
+        return String::new();
+    }
+    match TokenReference::parse(token) {
+        Ok(TokenReference::EnvVar(var_name)) => std::env::var(&var_name).unwrap_or_else(|_| {
+            tracing::warn!(
+                provider_id = provider_id,
+                var_name = %var_name,
+                "Environment variable not found, using empty token"
+            );
+            String::new()
+        }),
+        Ok(TokenReference::None) => String::new(),
+        Ok(_) | Err(_) => token.to_string(),
+    }
 }
 
 fn configured_repositories(config: &ProviderConfig) -> Vec<String> {
@@ -1274,6 +1464,7 @@ mod tests {
     use super::*;
     use crate::application::test_support::{
         pipeline,
+        FeedStub,
         Gate,
         Harness,
         StubProvider,
@@ -1281,6 +1472,7 @@ mod tests {
     use crate::application::FetchResult;
     use crate::domain::PipelineStatus;
     use crate::infrastructure::config::ConfigLoader;
+    use crate::infrastructure::oauth::test_idp::Idp;
     use crate::test_env::EnvGuard;
 
     const GITHUB_SECRET: &str = "ghp_exampleSECRET0123456789";
@@ -2200,6 +2392,7 @@ type = "travis"
         assert!(h
             .provider_service
             .init_plugin("fluxcd", config.clone(), 0)
+            .await
             .is_err());
 
         let contexts = h
@@ -2314,9 +2507,11 @@ type = "travis"
         let id = add(true).await.unwrap();
         let insecure = service
             .init_plugin("argocd", argocd_settings(&url, true), 0)
+            .await
             .unwrap();
         let secure = service
             .init_plugin("argocd", argocd_settings(&url, false), 0)
+            .await
             .unwrap();
         let rejected = add(false).await.unwrap_err();
 
@@ -2705,5 +2900,174 @@ type = "travis"
         watcher.stop().await;
 
         assert!(h.provider_service.generation_of(id).await.is_some());
+    }
+
+    fn sign_in(token_endpoint: String, expires_in: chrono::Duration) -> SignInCredential {
+        SignInCredential {
+            token: "bearer".into(),
+            refresh_token: Some("r1".into()),
+            expires_at: Some(Utc::now() + expires_in),
+            token_endpoint,
+            client_id: "cli".into(),
+            kind: pipedash_plugin_api::SignInToken::AccessToken,
+            account: Some("dev@example.com".into()),
+        }
+    }
+
+    async fn stored_sign_in(h: &Harness, id: i64) -> SignInCredential {
+        SignInCredential::decode(&h.repository.get_provider(id).await.unwrap().token).unwrap()
+    }
+
+    #[tokio::test]
+    async fn renew_is_scheduled_a_minute_before_the_sign_in_expires() {
+        let h = Harness::with_real_plugins().await;
+        let id = h.add_provider("sso").await;
+        let credential = sign_in(
+            "http://127.0.0.1:9/token".into(),
+            chrono::Duration::minutes(30),
+        );
+        h.repository
+            .store_token(id, &credential.encode().unwrap())
+            .await
+            .unwrap();
+
+        let lease = h.provider_service.acquire(id).await.unwrap();
+
+        assert_eq!(
+            lease.provider.renew_at(),
+            Some(credential.expires_at.unwrap() - chrono::Duration::seconds(60))
+        );
+    }
+
+    #[tokio::test]
+    async fn renew_refreshes_and_stores_an_expired_sign_in() {
+        let h = Harness::new().await;
+        let idp = Idp::start().await;
+        idp.reply(
+            200,
+            serde_json::json!({"access_token": "new", "refresh_token": "r2", "expires_in": 3600}),
+        );
+        let (id, _) = h.add_stub(StubProvider::new).await;
+        let expired = sign_in(idp.token_endpoint(), chrono::Duration::minutes(-1));
+        h.repository
+            .store_token(id, &expired.encode().unwrap())
+            .await
+            .unwrap();
+
+        h.provider_service.acquire(id).await.unwrap();
+
+        let renewed = stored_sign_in(&h, id).await;
+        assert_eq!(renewed.token, "new");
+        assert_eq!(renewed.refresh_token.as_deref(), Some("r2"));
+        assert_eq!(renewed.account.as_deref(), Some("dev@example.com"));
+    }
+
+    #[tokio::test]
+    async fn renew_with_a_revoked_sign_in_asks_to_sign_in_again() {
+        let h = Harness::new().await;
+        let idp = Idp::start().await;
+        idp.reply(400, serde_json::json!({"error": "invalid_grant"}));
+        let (id, _) = h.add_stub(StubProvider::new).await;
+        let expired = sign_in(idp.token_endpoint(), chrono::Duration::minutes(-1));
+        h.repository
+            .store_token(id, &expired.encode().unwrap())
+            .await
+            .unwrap();
+
+        let error = h.provider_service.acquire(id).await.err().unwrap();
+
+        assert!(
+            matches!(error, DomainError::ProviderAuthenticationFailed(m) if m == crate::domain::SIGN_IN_EXPIRED)
+        );
+    }
+
+    #[tokio::test]
+    async fn editing_a_signed_in_provider_keeps_its_session() {
+        let h = Harness::with_real_plugins().await;
+        let id = h.add_provider("sso").await;
+        let credential = sign_in(
+            "http://127.0.0.1:9/token".into(),
+            chrono::Duration::minutes(30),
+        );
+        h.repository
+            .store_token(id, &credential.encode().unwrap())
+            .await
+            .unwrap();
+
+        let editing = h.provider_service.provider_for_editing(id).await.unwrap();
+        assert_eq!(editing.token, "");
+        assert_eq!(
+            editing.config.get(SIGN_IN_CONFIG_KEY),
+            Some(&format!("provider:{id}"))
+        );
+
+        h.provider_service
+            .update_provider(id, editing)
+            .await
+            .unwrap();
+
+        assert_eq!(stored_sign_in(&h, id).await, credential);
+        let other = h.add_provider("other").await;
+        let mut stolen = h
+            .provider_service
+            .provider_for_editing(other)
+            .await
+            .unwrap();
+        stolen
+            .config
+            .insert(SIGN_IN_CONFIG_KEY.into(), format!("provider:{id}"));
+        assert!(matches!(
+            h.provider_service.update_provider(other, stolen).await,
+            Err(DomainError::InvalidConfig(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn editing_during_a_renewal_keeps_the_renewed_session() {
+        let h = Harness::with_real_plugins().await;
+        let argocd = FeedStub::start().await;
+        argocd.respond_json(serde_json::json!({ "items": [] }));
+        let original = sign_in(
+            "http://127.0.0.1:9/token".into(),
+            chrono::Duration::minutes(30),
+        );
+        let mut config = h.config("sso", 30);
+        config
+            .config
+            .insert("server_url".into(), argocd.base_url.clone());
+        config.token = original.encode().unwrap();
+        let id = h.repository.add_provider(&config).await.unwrap();
+        let editing = h.provider_service.provider_for_editing(id).await.unwrap();
+
+        let checks = Gate::new();
+        argocd.set_gate(Some(&checks));
+        let edit = tokio::spawn({
+            let service = Arc::clone(&h.provider_service);
+            async move { service.update_provider(id, editing).await }
+        });
+        checks.arrived().await;
+        let renewed = SignInCredential {
+            token: "renewed".into(),
+            refresh_token: Some("r2".into()),
+            expires_at: Some(Utc::now() + chrono::Duration::minutes(45)),
+            ..original.clone()
+        };
+        h.repository
+            .store_token(id, &renewed.encode().unwrap())
+            .await
+            .unwrap();
+        checks.open();
+        edit.await.unwrap().unwrap();
+
+        assert_eq!(stored_sign_in(&h, id).await, renewed);
+        assert_eq!(
+            h.provider_service
+                .acquire(id)
+                .await
+                .unwrap()
+                .provider
+                .renew_at(),
+            renewed.renew_at()
+        );
     }
 }

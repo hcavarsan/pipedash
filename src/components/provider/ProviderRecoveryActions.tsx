@@ -1,24 +1,24 @@
 import { Button, Text } from '@mantine/core'
-import { IconRefresh, IconSettings } from '@tabler/icons-react'
+import { IconLogin, IconRefresh, IconSettings } from '@tabler/icons-react'
 import { Link } from 'react-router-dom'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useRefreshProvider } from '../../queries/useRefreshQueries'
-import type { FailureKind } from '../../types'
+import { useProviderStore } from '../../stores/providerStore'
+import type { ProviderRecovery } from '../../types'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 import { describeRefreshResult } from '../../utils/refreshSummary'
 
-const SETTINGS_KINDS: FailureKind[] = ['auth', 'permission', 'config', 'tls']
-
 interface ProviderRecoveryActionsProps {
   providerId: number
-  kind: FailureKind | null
+  recovery: ProviderRecovery | null
   onNavigate?: () => void
 }
 
-export function ProviderRecoveryActions({ providerId, kind, onNavigate }: ProviderRecoveryActionsProps) {
+export function ProviderRecoveryActions({ providerId, recovery, onNavigate }: ProviderRecoveryActionsProps) {
   const refresh = useRefreshProvider()
   const buttonSize = useMobileShell() ? 'sm' : 'compact-xs'
+  const requestEditProvider = useProviderStore((state) => state.requestEditProvider)
 
   return (
     <>
@@ -33,7 +33,7 @@ export function ProviderRecoveryActions({ providerId, kind, onNavigate }: Provid
       >
         Retry now
       </Button>
-      {kind && SETTINGS_KINDS.includes(kind) && (
+      {recovery === 'settings' && (
         <Button
           component={Link}
           to="/settings/providers"
@@ -43,6 +43,19 @@ export function ProviderRecoveryActions({ providerId, kind, onNavigate }: Provid
           onClick={onNavigate}
         >
           Open provider settings
+        </Button>
+      )}
+      {recovery === 'sign_in' && (
+        <Button
+          size={buttonSize}
+          variant="default"
+          leftSection={<IconLogin size={14} aria-hidden />}
+          onClick={() => {
+            onNavigate?.()
+            requestEditProvider(providerId)
+          }}
+        >
+          Sign in again
         </Button>
       )}
       {refresh.data && (

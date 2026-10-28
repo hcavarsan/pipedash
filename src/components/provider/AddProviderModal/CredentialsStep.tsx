@@ -1,11 +1,13 @@
 import {
   Box,
+  Input,
   Loader,
   MultiSelect,
   NativeSelect,
   NumberInput,
   PasswordInput,
   ScrollArea,
+  SegmentedControl,
   Select,
   Stack,
   Switch,
@@ -16,6 +18,7 @@ import {
 import { useQueries } from '@tanstack/react-query'
 import { type Dispatch, Fragment, type ReactNode, type RefObject, useMemo } from 'react'
 
+import { SIGN_IN_KEY, TOKEN_KEY } from '../../../constants/credentials'
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
 import { useMobileShell } from '../../../hooks/useIsMobile'
@@ -29,8 +32,9 @@ import { IosGroup, IosRow } from '../../ios/IosList'
 
 import { ShellField, StepHeading } from './ShellForm'
 import shell from './ShellForm.module.css'
+import { SignInField } from './SignInField'
 import type { FormAction, FormState } from './types'
-import { validateConfigField, validateProviderName } from './validation'
+import { activeConfigFields, validateConfigField, validateProviderName } from './validation'
 
 const NAME_HINT = 'A friendly name to identify this provider'
 
@@ -72,7 +76,7 @@ export function CredentialsStep({
   scopeNote,
 }: CredentialsStepProps) {
   const mobileShell = useMobileShell()
-  const { selectedPlugin, providerName, configValues, fieldErrors, submitting } = state
+  const { selectedPlugin, providerName, authMode, configValues, fieldErrors, submitting } = state
   const announcement = useErrorAnnouncement(fieldErrors)
 
   const configValuesKey = useMemo(() => JSON.stringify(configValues), [configValues])
@@ -365,6 +369,59 @@ export function CredentialsStep({
     }
   }
 
+  const renderAuthField = (field: ConfigField) => {
+    const input = mobileShell ? renderShellField(field) : renderConfigField(field)
+
+    if (field.key !== TOKEN_KEY || !selectedPlugin?.capabilities.sign_in) {
+      return input
+    }
+
+    const authControl = (
+      <SegmentedControl
+        aria-label="Authentication"
+        fullWidth
+        data={[
+          { value: 'token', label: field.label },
+          { value: 'sign_in', label: 'Single sign-on' },
+        ]}
+        value={authMode}
+        disabled={submitting}
+        onChange={(value) => dispatch({ type: 'SET_AUTH_MODE', mode: value === 'sign_in' ? 'sign_in' : 'token' })}
+      />
+    )
+    const body =
+      authMode === 'sign_in' ? (
+        <SignInField
+          id={`${formId}-${SIGN_IN_KEY}`}
+          providerType={selectedPlugin.provider_type}
+          configValues={configValues}
+          ready={activeConfigFields(fields, 'sign_in').every(
+            (config) => validateConfigField(config, configValues[config.key] || '') === null
+          )}
+          error={fieldErrors[SIGN_IN_KEY]}
+          disabled={submitting}
+          shell={mobileShell}
+          onChange={(reference) => dispatch({ type: 'SET_SIGN_IN', reference })}
+        />
+      ) : (
+        input
+      )
+
+    return mobileShell ? (
+      <>
+        <IosGroup header="Authentication">{authControl}</IosGroup>
+        {body}
+      </>
+    ) : (
+      <>
+        <Input.Wrapper label="Authentication">
+          <Box mt="xs">{authControl}</Box>
+        </Input.Wrapper>
+        {body}
+      </>
+    )
+  }
+
   const renderContent = () => {
     if (mobileShell) {
       const nameId = `${formId}-providerName`
@@ -408,7 +465,7 @@ export function CredentialsStep({
               </ShellField>
 
               {fields.map((field) => (
-                <Fragment key={field.key}>{renderShellField(field)}</Fragment>
+                <Fragment key={field.key}>{renderAuthField(field)}</Fragment>
               ))}
 
               {permissionRow}
@@ -475,7 +532,9 @@ export function CredentialsStep({
                   required
                 />
 
-                {fields.map((field) => renderConfigField(field))}
+                {fields.map((field) => (
+                  <Fragment key={field.key}>{renderAuthField(field)}</Fragment>
+                ))}
               </Stack>
             ) : (
               !pluginsLoading && (

@@ -12,6 +12,10 @@ export const queryKeys = {
     refreshInterval: (id: number) => [...queryKeys.providers.all, 'refreshInterval', id] as const,
   },
 
+  signIn: {
+    status: (id: string) => ['signIn', 'status', id] as const,
+  },
+
   pipelines: {
     all: ['pipelines'] as const,
     list: (filters?: { providerId?: number }) => [...queryKeys.pipelines.all, 'list', filters ?? {}] as const,

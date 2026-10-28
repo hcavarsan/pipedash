@@ -205,6 +205,7 @@ fn create_capabilities() -> PluginCapabilities {
         custom_tables: false,
         retains_run_history: true,
         logs: false,
+        sign_in: false,
     }
 }
 

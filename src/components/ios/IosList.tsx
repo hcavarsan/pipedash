@@ -59,6 +59,7 @@ interface IosRowProps {
   selected?: boolean
   longPressMenu?: boolean
   ariaLabel?: string
+  invalid?: boolean
   swipeActions?: SwipeAction[]
 }
 
@@ -76,6 +77,7 @@ export function IosRow({
   selected,
   longPressMenu,
   ariaLabel,
+  invalid,
   swipeActions,
 }: IosRowProps) {
   const location = useLocation()
@@ -89,6 +91,7 @@ export function IosRow({
     'data-disabled': disabled ? '' : undefined,
     'data-selected': selected ? '' : undefined,
     'aria-label': ariaLabel,
+    'aria-invalid': invalid || undefined,
   }
   const content = (
     <>

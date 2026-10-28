@@ -23,6 +23,7 @@ use crate::schema::{
     ConfigSchema,
     TableSchema,
 };
+use crate::sign_in::SignInClient;
 use crate::types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +57,8 @@ pub struct PluginCapabilities {
     pub retains_run_history: bool,
     #[serde(default)]
     pub logs: bool,
+    #[serde(default)]
+    pub sign_in: bool,
 }
 
 #[async_trait]
@@ -248,6 +251,14 @@ pub trait Plugin: Send + Sync {
         &self, _field_key: &str, _config: &HashMap<String, String>,
     ) -> PluginResult<Vec<String>> {
         Ok(Vec::new())
+    }
+
+    async fn sign_in_client(
+        &self, _config: &HashMap<String, String>, _http_client: &reqwest::Client,
+    ) -> PluginResult<SignInClient> {
+        Err(crate::error::PluginError::NotSupported(
+            "Sign-in is not supported by this provider".to_string(),
+        ))
     }
 
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {

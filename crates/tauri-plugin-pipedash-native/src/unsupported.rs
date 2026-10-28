@@ -98,6 +98,14 @@ impl<R: Runtime> PipedashNative<R> {
         Err(Error::Unsupported)
     }
 
+    pub async fn open_auth_session(&self, _url: &str) -> Result<bool> {
+        Err(Error::Unsupported)
+    }
+
+    pub async fn close_auth_session(&self) -> Result<()> {
+        Ok(())
+    }
+
     pub fn on_notification_response<F: Fn(NotificationResponse) + Send + Sync + 'static>(
         &self, _handler: F,
     ) -> Result<()> {
