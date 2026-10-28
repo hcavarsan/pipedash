@@ -6,6 +6,7 @@ members = [
   "crates/pipedash-plugin-actions",
   "crates/pipedash-plugin-api",
   "crates/pipedash-plugin-argocd",
+  "crates/pipedash-plugin-azure-devops",
   "crates/pipedash-plugin-bitbucket",
   "crates/pipedash-plugin-buildkite",
   "crates/pipedash-plugin-fluxcd",
@@ -66,6 +67,7 @@ pipedash-core = { version = "0.5.0", path = "crates/pipedash-core" }
 pipedash-plugin-actions = { version = "0.5.0", path = "crates/pipedash-plugin-actions" }
 pipedash-plugin-api = { version = "0.5.0", path = "crates/pipedash-plugin-api" }
 pipedash-plugin-argocd = { version = "0.5.0", path = "crates/pipedash-plugin-argocd" }
+pipedash-plugin-azure-devops = { version = "0.5.0", path = "crates/pipedash-plugin-azure-devops" }
 pipedash-plugin-bitbucket = { version = "0.5.0", path = "crates/pipedash-plugin-bitbucket" }
 pipedash-plugin-buildkite = { version = "0.5.0", path = "crates/pipedash-plugin-buildkite" }
 pipedash-plugin-fluxcd = { version = "0.5.0", path = "crates/pipedash-plugin-fluxcd" }
@@ -132,6 +134,7 @@ pipedash-core = { path = "crates/pipedash-core" }
 pipedash-plugin-actions = { path = "crates/pipedash-plugin-actions" }
 pipedash-plugin-api = { path = "crates/pipedash-plugin-api" }
 pipedash-plugin-argocd = { path = "crates/pipedash-plugin-argocd" }
+pipedash-plugin-azure-devops = { path = "crates/pipedash-plugin-azure-devops" }
 pipedash-plugin-bitbucket = { path = "crates/pipedash-plugin-bitbucket" }
 pipedash-plugin-buildkite = { path = "crates/pipedash-plugin-buildkite" }
 pipedash-plugin-fluxcd = { path = "crates/pipedash-plugin-fluxcd" }
