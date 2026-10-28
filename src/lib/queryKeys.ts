@@ -32,6 +32,7 @@ export const queryKeys = {
     detail: (pipelineId: string, runNumber: number) =>
       [...queryKeys.runs.all, 'detail', pipelineId, runNumber] as const,
     active: (pipelineId: string) => [...queryKeys.runs.all, 'active', pipelineId] as const,
+    unfinished: (pipelineIds: string[]) => [...queryKeys.runs.all, 'unfinished', pipelineIds] as const,
   },
 
   metrics: {

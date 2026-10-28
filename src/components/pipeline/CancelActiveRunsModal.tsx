@@ -1,19 +1,16 @@
 import { Button, Group, Stack, Text } from '@mantine/core'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { PAGE_SIZES } from '../../constants/pagination'
 import { usePlugins } from '../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
-import { service } from '../../services'
+import { useUnfinishedRuns } from '../../queries/useRunHistoryQueries'
 import type { Pipeline } from '../../types'
 import {
   buildCancelGroups,
   type CancelGroup,
   cancellableGroups,
   countRuns,
-  findUnfinishedRuns,
-  type UnfinishedRuns,
   unfinishedPipelines,
 } from '../../utils/cancelActiveRuns'
 import { formatCount } from '../../utils/formatCount'
@@ -34,8 +31,6 @@ interface CancelActiveRunsModalProps {
   onClose: () => void
   onConfirm: (groups: CancelGroup[]) => Promise<unknown>
 }
-
-const IDLE = { for: [] as Pipeline[], done: 0, result: null as UnfinishedRuns | null }
 
 export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: CancelActiveRunsModalProps) => {
   const { isMobile } = useIsMobile()
@@ -67,35 +62,10 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
         .join(' '),
     }
   }, [scope, getPluginByType, getPluginDisplayName])
-  const [found, setFound] = useState<{ for: Pipeline[]; done: number; result: UnfinishedRuns | null }>(IDLE)
-
-  useEffect(() => {
-    if (!opened || candidates.length === 0) {
-      return
-    }
-
-    let stale = false
-
-    setFound({ for: candidates, done: 0, result: null })
-    findUnfinishedRuns(
-      candidates,
-      (pipelineId, page) =>
-        stale
-          ? Promise.reject(new Error('Stale search'))
-          : service.fetchRunHistory(pipelineId, page, PAGE_SIZES.RUN_HISTORY),
-      undefined,
-      (done) => !stale && setFound((current) => ({ ...current, done }))
-    ).then((result) => !stale && setFound({ for: candidates, done: candidates.length, result }))
-
-    return () => {
-      stale = true
-    }
-  }, [opened, candidates])
-
-  const search = found.for === candidates ? found : IDLE
-  const loading = candidates.length > 0 && search.result === null
-  const unreadable = search.result?.failed.map((pipeline) => pipeline.name) ?? []
-  const groups = buildCancelGroups(candidates, search.result?.runs ?? {}, (pipeline) => ({
+  const search = useUnfinishedRuns(candidates, opened)
+  const loading = search.isFetching
+  const unreadable = search.data?.failed.map((pipeline) => pipeline.name) ?? []
+  const groups = buildCancelGroups(candidates, search.data?.runs ?? {}, (pipeline) => ({
     name: getPluginDisplayName(pipeline.provider_type),
     canCancel: Boolean(getPluginByType(pipeline.provider_type)?.capabilities.cancel),
   }))
@@ -186,7 +156,7 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
       {loading ? (
         <LoadingState
           variant="compact"
-          message={`Looking for running runs… (${search.done} of ${formatCount(candidates.length, 'pipeline')})`}
+          message={`Looking for running runs… (${search.progress} of ${formatCount(candidates.length, 'pipeline')})`}
         />
       ) : (
         <Stack gap={mobileShell ? 'lg' : 'md'}>
