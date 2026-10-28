@@ -77,12 +77,18 @@ mod tests {
             (Method::POST, "/api/v1/providers".to_string()),
             (Method::PUT, "/api/v1/providers/1".to_string()),
             (Method::DELETE, "/api/v1/providers/1".to_string()),
-            (Method::PUT, "/api/v1/providers/1/refresh-interval".to_string()),
+            (
+                Method::PUT,
+                "/api/v1/providers/1/refresh-interval".to_string(),
+            ),
             (Method::POST, format!("{pipeline}/trigger")),
             (Method::POST, format!("{pipeline}/runs/7/cancel")),
             (Method::POST, format!("{pipeline}/runs/7/rerun")),
             (Method::PUT, "/api/v1/settings/general".to_string()),
-            (Method::PUT, "/api/v1/preferences/table/1/pipeline_runs".to_string()),
+            (
+                Method::PUT,
+                "/api/v1/preferences/table/1/pipeline_runs".to_string(),
+            ),
             (Method::POST, "/api/v1/vault/unlock".to_string()),
             (Method::POST, "/api/v1/setup/config".to_string()),
             (Method::DELETE, "/api/v1/cache".to_string()),
@@ -92,7 +98,10 @@ mod tests {
         ];
 
         for (method, path) in blocked {
-            assert!(is_blocked(&method, &path), "{method} {path} should be blocked");
+            assert!(
+                is_blocked(&method, &path),
+                "{method} {path} should be blocked"
+            );
         }
     }
 
@@ -106,7 +115,10 @@ mod tests {
             (Method::GET, "/assets/index.js"),
             (Method::OPTIONS, "/api/v1/providers"),
             (Method::POST, "/api/v1/pipelines/p/runs/7/logs/job/search"),
-            (Method::POST, "/api/v1/pipelines/p/runs/7/logs/job/download-ticket"),
+            (
+                Method::POST,
+                "/api/v1/pipelines/p/runs/7/logs/job/download-ticket",
+            ),
             (Method::POST, "/api/v1/metrics/aggregated"),
             (Method::POST, "/api/v1/metrics/pipelines/p/query"),
             (Method::POST, "/api/v1/providers/1/refresh"),
@@ -114,7 +126,10 @@ mod tests {
         ];
 
         for (method, path) in allowed {
-            assert!(!is_blocked(&method, path), "{method} {path} should be allowed");
+            assert!(
+                !is_blocked(&method, path),
+                "{method} {path} should be allowed"
+            );
         }
     }
 
@@ -125,11 +140,8 @@ mod tests {
             .route("/api/v1/refresh/all", post(|| async { "ok" }))
             .layer(axum::middleware::from_fn(reject_changes));
         let send = |uri: &str| {
-            app.clone().oneshot(
-                axum::http::Request::post(uri)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            app.clone()
+                .oneshot(axum::http::Request::post(uri).body(Body::empty()).unwrap())
         };
 
         let rejected = send("/api/v1/factory-reset").await.unwrap();
