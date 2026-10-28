@@ -150,7 +150,7 @@ export const RunHistoryPage = ({
     }
   }, [pipeline])
 
-  const { filters, setFilter, clearFilters } = useRunHistoryFilters()
+  const { filters, setFilter, selectStatus, clearFilters } = useRunHistoryFilters()
   const { search, status: statusFilter, branch: branchFilter, actor: actorFilter, dateRange, page } = filters
 
   const [cancellingRunNumber, setCancellingRunNumber] = useState<number | null>(null)
@@ -788,7 +788,7 @@ export const RunHistoryPage = ({
       }
 
       return (
-        (!statusFilter || run.status === statusFilter) &&
+        (statusFilter.length === 0 || statusFilter.includes(run.status)) &&
         (!branchFilter || run.branch === branchFilter) &&
         (!actorFilter || run.actor === actorFilter)
       )
@@ -836,7 +836,7 @@ export const RunHistoryPage = ({
     cancelSelected,
     isCancelling: isCancellingSelected,
   } = useBulkCancelRuns({
-    pipelineId: pipeline?.id,
+    pipeline: pipeline ?? undefined,
     page: isMobile ? 1 : page,
     runs: sortedRuns,
     enabled: !!onCancel,
@@ -1179,7 +1179,8 @@ export const RunHistoryPage = ({
                     },
                     status: {
                       value: statusFilter,
-                      onChange: (value) => setFilter('status', value),
+                      onSelect: selectStatus,
+                      onClear: () => setFilter('status', []),
                       options: getStatusOptions(pipeline.provider_type),
                     },
                     branch: {
@@ -1255,7 +1256,7 @@ export const RunHistoryPage = ({
 
       <RerunConfirmModal
         run={rerunTarget}
-        pipelineName={pipeline?.name ?? ''}
+        pipeline={pipeline ?? undefined}
         providerName={pipeline ? getPluginDisplayName(pipeline.provider_type) : ''}
         onClose={() => setRerunTarget(null)}
         onConfirm={confirmRerun}

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { ProviderSummary } from '../types'
 
-import { describeFetch, providerTone, worstTone } from './fetchInfo'
+import { dataAge, describeFetch, providerTone, staleNote, worstTone } from './fetchInfo'
 import { formatRelativeTime } from './formatRelativeTime'
 
 const NOW = Date.parse('2026-10-28T12:00:00Z')
@@ -69,4 +69,34 @@ test('the worst tone wins', () => {
   assert.equal(worstTone(['fresh', 'down', 'stale']), 'down')
   assert.equal(worstTone(['fresh', 'never']), 'never')
   assert.equal(worstTone([]), 'fresh')
+})
+
+test('data age counts from the last successful fetch and only notes a stale or down state', () => {
+  const at = '2026-10-28T10:00:00Z'
+  const ago = formatRelativeTime(at, NOW)
+  const withAge = (overrides: Partial<ProviderSummary>) => provider({ last_success_at: at, ...overrides })
+  const stale = withAge({ freshness: { state: 'fresh', stale_at: '2026-10-28T11:00:00Z' } })
+  const down = withAge({
+    last_fetch_status: 'error',
+    last_fetch_at: '2026-10-28T11:59:00Z',
+    freshness: { state: 'down', stale_at: null },
+  })
+
+  assert.equal(dataAge(withAge({}), NOW).label, `Data checked ${ago}`)
+  assert.equal(staleNote(withAge({}), NOW), undefined)
+  assert.equal(staleNote(stale, NOW), `Stale · data checked ${ago}`)
+  assert.equal(staleNote(down, NOW), `Down · data checked ${ago}`)
+  assert.equal(
+    dataAge(withAge({ last_success_at: null, freshness: { state: 'never', stale_at: null } }), NOW).label,
+    'Never fetched'
+  )
+  assert.equal(staleNote(withAge({ last_success_at: null, freshness: { state: 'down', stale_at: null } }), NOW), 'Down')
+})
+
+test('a missing success time only claims no data when the provider never fetched', () => {
+  const missing = (state: 'never' | 'down') =>
+    dataAge(provider({ last_success_at: null, freshness: { state, stale_at: null } }), NOW).detail
+
+  assert.equal(missing('never'), 'No pipeline data fetched yet')
+  assert.equal(missing('down'), 'Last successful fetch time unknown')
 })

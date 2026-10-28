@@ -81,6 +81,8 @@ pub struct ProviderSummary {
     pub last_fetch_error: Option<String>,
     pub last_fetch_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default)]
+    pub last_success_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
     pub paused_until: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default)]
     pub last_fetch_error_kind: Option<FailureKind>,

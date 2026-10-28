@@ -26,6 +26,7 @@ pub use postgres_backend::PostgresConfigBackend;
 pub use push_repository::PushRepository;
 pub use repository::{
     DatabasePool,
+    ProviderFetchStatus,
     Repository,
 };
 pub(crate) use repository::{

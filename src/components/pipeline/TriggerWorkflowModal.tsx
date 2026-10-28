@@ -4,10 +4,12 @@ import { type ChangeEvent, useEffect, useId, useRef, useState } from 'react'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTriggerWorkflow, useWorkflowParameters } from '../../queries/useWorkflowQueries'
 import type { Pipeline, WorkflowParameter } from '../../types'
+import { actionTarget } from '../../utils/actionTarget'
 import { displayWarningNotification } from '../../utils/errorDisplay'
 import { errorId, fieldA11y, fieldAttributes, helpId, withoutType } from '../../utils/formFields'
 import { handleFormEnter, useFocusFirstInvalid } from '../../utils/formFocus'
 import { getPipelineLabels, getTriggerBlockReason } from '../../utils/pipelinePresentation'
+import { ActionTargetRows } from '../common/ActionTargetRows'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
@@ -104,6 +106,10 @@ export const TriggerWorkflowModal = ({
   }, [opened, parameters, initialInputs])
 
   const dirty = parameters.some((param) => comparable(paramValues[param.name]) !== comparable(baseline[param.name]))
+  const chosenBranch = comparable(paramValues.ref ?? paramValues.branch)
+  const target = actionTarget(pipeline, [{ branch: chosenBranch || pipeline.branch, inputs: paramValues }]).filter(
+    ({ label }) => mobileShell || label !== 'Pipeline'
+  )
   const lastTextName = [...parameters]
     .reverse()
     .find((param) => param.type === 'string' || param.type === 'number')?.name
@@ -509,11 +515,9 @@ export const TriggerWorkflowModal = ({
         }}
         onKeyDown={handleFormEnter}
       >
-        {mobileShell && (
-          <Text size="sm" c="dimmed" mb="md" style={{ overflowWrap: 'anywhere' }}>
-            {pipeline.repository ? `${pipeline.repository} / ${pipeline.name}` : pipeline.name}
-          </Text>
-        )}
+        <Stack mb="md">
+          <ActionTargetRows rows={target} />
+        </Stack>
         {renderContent()}
         <LiveStatus message={announcement} />
       </form>

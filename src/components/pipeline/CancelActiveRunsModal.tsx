@@ -6,6 +6,7 @@ import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
 import { useUnfinishedRuns } from '../../queries/useRunHistoryQueries'
 import type { Pipeline } from '../../types'
+import { actionTarget } from '../../utils/actionTarget'
 import {
   buildCancelGroups,
   type CancelGroup,
@@ -70,6 +71,11 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
     canCancel: Boolean(getPluginByType(pipeline.provider_type)?.capabilities.cancel),
   }))
   const targets = cancellableGroups(groups)
+  const where = (group: CancelGroup) =>
+    actionTarget(group.pipeline, group.runs)
+      .filter(({ label }) => label !== 'Pipeline' && label !== 'Branch')
+      .map(({ label, value }) => `${label}: ${value}`)
+      .join(' · ')
   const count = countRuns(targets)
   const label = scope?.label ?? ''
   const ready = !loading && count > 0
@@ -99,7 +105,7 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
     : undefined
 
   const shellBody = groups.map((group) => (
-    <IosGroup key={group.pipeline.id} header={`${group.pipeline.name} · ${group.name}`}>
+    <IosGroup key={group.pipeline.id} header={`${group.pipeline.name} · ${group.name}`} footer={where(group)}>
       {group.runs.map((run) => (
         <IosRow
           key={run.run_number}
@@ -121,6 +127,9 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
           {group.name}
         </Text>
       </Group>
+      <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
+        {where(group)}
+      </Text>
       {group.runs.map((run) => (
         <Group key={run.run_number} justify="space-between" wrap="nowrap" gap="md">
           <Group gap="sm" wrap="nowrap" miw={0}>

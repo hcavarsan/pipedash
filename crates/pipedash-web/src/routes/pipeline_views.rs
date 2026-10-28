@@ -395,6 +395,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pipeline_view_page_filters_by_any_of_several_statuses() {
+        let h = harness().await;
+
+        for (statuses, total) in [
+            ("failed,success", h.pipeline_ids.len()),
+            ("success", h.pipeline_ids.len()),
+            ("running,pending", 0),
+        ] {
+            let (status, page) = call(
+                &h.app,
+                Method::GET,
+                &format!("/pipeline-views/page?view=all&statuses={statuses}"),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{statuses}");
+            assert_eq!(page["total"], total, "{statuses}");
+        }
+
+        let (status, _) = call(
+            &h.app,
+            Method::GET,
+            "/pipeline-views/page?view=all&statuses=bogus",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn pipeline_view_pins_round_trip_over_http() {
         let h = harness().await;
 

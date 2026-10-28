@@ -1,19 +1,21 @@
-import { Text } from '@mantine/core'
 import { useCallback, useMemo, useState } from 'react'
 
+import { confirmBody } from '../components/common/ActionTargetRows'
 import { useCancelRuns } from '../queries/useRunHistoryQueries'
-import type { PipelineRun } from '../types'
+import type { Pipeline, PipelineRun } from '../types'
+import { actionTarget } from '../utils/actionTarget'
 import { openConfirm } from '../utils/confirm'
 
 interface UseBulkCancelRunsOptions {
-  pipelineId: string | undefined
+  pipeline: Pipeline | undefined
   page: number
   runs: PipelineRun[]
   enabled: boolean
   cancellingRunNumber: number | null
 }
 
-export function useBulkCancelRuns({ pipelineId, page, runs, enabled, cancellingRunNumber }: UseBulkCancelRunsOptions) {
+export function useBulkCancelRuns({ pipeline, page, runs, enabled, cancellingRunNumber }: UseBulkCancelRunsOptions) {
+  const pipelineId = pipeline?.id
   const [selectedRunNumbers, setSelectedRunNumbers] = useState<number[]>([])
   const cancelRunsMutation = useCancelRuns()
 
@@ -39,7 +41,7 @@ export function useBulkCancelRuns({ pipelineId, page, runs, enabled, cancellingR
   }, [])
 
   const cancelSelected = useCallback(() => {
-    if (!pipelineId || selectedRuns.length === 0) {
+    if (!pipeline || !pipelineId || selectedRuns.length === 0) {
       return
     }
 
@@ -48,11 +50,9 @@ export function useBulkCancelRuns({ pipelineId, page, runs, enabled, cancellingR
 
     openConfirm({
       title: cancelLabel,
-      children: (
-        <Text size="sm">
-          This cancels {runNumbers.length === 1 ? 'run' : 'runs'}{' '}
-          {runNumbers.map((runNumber) => `#${runNumber}`).join(', ')}. You can't undo this.
-        </Text>
+      children: confirmBody(
+        `This cancels ${runNumbers.length === 1 ? 'run' : 'runs'} ${runNumbers.map((runNumber) => `#${runNumber}`).join(', ')}. You can't undo this.`,
+        actionTarget(pipeline, selectedRuns)
       ),
       labels: { confirm: cancelLabel, cancel: 'Keep running' },
       confirmProps: { color: 'red' },
@@ -61,7 +61,7 @@ export function useBulkCancelRuns({ pipelineId, page, runs, enabled, cancellingR
         setSelectedRunNumbers([])
       },
     })
-  }, [pipelineId, selectedRuns, cancelRunsMutation])
+  }, [pipeline, pipelineId, selectedRuns, cancelRunsMutation])
 
   return {
     selectedRuns,

@@ -224,7 +224,7 @@ body,
   inset: 0;
 }
 
-.stretched :is(button, a, [role="img"], .mantine-Checkbox-root):not(.item-primary) {
+.stretched :is(button, a, [role="img"], [data-raised], .mantine-Checkbox-root):not(.item-primary) {
   position: relative;
   z-index: 1;
 }

@@ -23,6 +23,7 @@ import {
   IconFileSettings,
   IconFolder,
   IconFolderCode,
+  IconFolders,
   IconPin,
   IconPinFilled,
   IconPinnedOff,
@@ -93,6 +94,8 @@ const PINNED_ID = 'pinned'
 
 const PROVIDERS_KEY = 'providers'
 
+const VIEWS_COLLAPSED_KEY = 'views:collapsed'
+
 const PINNED_FALLBACK: NavNode = { key: `view:${PINNED_ID}`, name: 'Pinned', children: [] }
 
 type MenuProps = { onContextMenu: (event: MouseEvent) => void; onKeyDown: (event: KeyboardEvent) => void }
@@ -121,7 +124,7 @@ interface TreeRowProps {
   depth: number
   label: string
   icon: ReactNode
-  to: string
+  to?: string
   active: boolean
   description?: ReactNode
   expandable?: boolean
@@ -143,47 +146,51 @@ const TreeRow = ({
   onToggle,
   menu,
   actions,
-}: TreeRowProps) => (
-  <Group
-    gap={0}
-    wrap="nowrap"
-    className="nav-item interactive-surface stretched"
-    ml={depth * 12}
-    mod={{ current: active }}
-  >
-    {expandable ? (
-      <ActionIcon
-        size="xs"
-        aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
-        aria-expanded={open}
-        onClick={onToggle}
-      >
-        <IconChevronRight size={14} style={{ transform: open ? 'rotate(90deg)' : undefined }} />
-      </ActionIcon>
-    ) : (
-      <Box w={18} flex="none" />
-    )}
-    <NavLink
-      {...menu}
-      flex={1}
-      miw={0}
-      className="item-primary"
-      leftSection={icon}
-      label={
-        <Text size="sm" truncate>
-          {label}
-        </Text>
-      }
-      description={description}
-      active={active}
-      aria-current={active ? 'page' : undefined}
-      component={Link}
-      to={to}
-      variant="light"
-    />
-    {actions}
-  </Group>
-)
+}: TreeRowProps) => {
+  const row = {
+    ...menu,
+    flex: 1,
+    miw: 0,
+    className: 'item-primary',
+    leftSection: icon,
+    label: (
+      <Text size="sm" truncate>
+        {label}
+      </Text>
+    ),
+    description,
+    variant: 'light',
+  } as const
+
+  return (
+    <Group
+      gap={0}
+      wrap="nowrap"
+      className="nav-item interactive-surface stretched"
+      ml={depth * 12}
+      mod={{ current: active }}
+    >
+      {expandable ? (
+        <ActionIcon
+          size="xs"
+          aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          <IconChevronRight size={14} style={{ transform: open ? 'rotate(90deg)' : undefined }} />
+        </ActionIcon>
+      ) : (
+        <Box w={18} flex="none" />
+      )}
+      {to ? (
+        <NavLink {...row} active={active} aria-current={active ? 'page' : undefined} component={Link} to={to} />
+      ) : (
+        <NavLink {...row} component="button" type="button" aria-expanded={open} onClick={onToggle} />
+      )}
+      {actions}
+    </Group>
+  )
+}
 
 export const Navbar = ({ compact = false }: NavbarProps) => {
   const { pathname, state } = useLocation()
@@ -251,6 +258,10 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
     viewNodes.filter((node) => node.view && node.view.kind !== 'pinned'),
     query
   )
+  const viewsOpen =
+    searching ||
+    !expanded.includes(VIEWS_COLLAPSED_KEY) ||
+    otherNodes.some((node) => node.view && node.view.id === activeRootId)
   const visiblePins = pins.filter((pin) => matchesQuery(pin.name, query))
   const visibleProviders = providers.filter((provider) => matchesQuery(provider.name, query))
   const showProviders = !searching || matchesQuery('All providers', query) || visibleProviders.length > 0
@@ -452,7 +463,19 @@ export const Navbar = ({ compact = false }: NavbarProps) => {
 
           <Divider my="2xs" />
 
-          {otherNodes.map((node) => renderViewNode(node, 0))}
+          {otherNodes.length > 0 && (
+            <TreeRow
+              depth={0}
+              expandable
+              open={viewsOpen}
+              onToggle={() => toggle(VIEWS_COLLAPSED_KEY)}
+              label="All views"
+              icon={<NavTile icon={IconFolders} size={ICON_TILE.list} />}
+              description={formatCount(otherNodes.length, 'view')}
+              active={false}
+            />
+          )}
+          {viewsOpen && otherNodes.map((node) => renderViewNode(node, 1))}
           {views && !searching && !views.some((view) => view.kind === 'custom') && (
             <Button
               leftSection={<IconPlus size={16} />}
