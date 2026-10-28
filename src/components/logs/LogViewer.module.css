@@ -410,16 +410,53 @@
   line-height: var(--ios-lh-footnote);
 }
 
+/* Floating capsule, like the tab bar (MobileTabBar.module.css); the sheet already pads the home-indicator area below it. */
 .phoneBar {
   display: flex;
   flex: none;
   align-items: center;
-  justify-content: space-around;
-  border-top: 0.5px solid var(--ios-separator);
+  justify-content: space-between;
+  gap: 2px;
+  margin: 0 16px 8px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--ios-label) 14%, transparent);
+  border-radius: 32px;
   background: var(--ios-material-bar);
   -webkit-backdrop-filter: var(--ios-material-filter);
   backdrop-filter: var(--ios-material-filter);
-  font-size: var(--ios-fs-body);
+  box-shadow:
+    0 8px 28px rgb(0 0 0 / 0.28),
+    inset 0 0 0 1px var(--ios-material-edge);
+  /* Bar chrome follows Dynamic Type only up to the chrome cap, like the tab bar, so it never overflows. */
+  font-size: calc(17px * var(--ios-chrome-scale, 1));
+}
+
+:global(html[data-increase-contrast]) .phoneBar {
+  border-color: var(--ios-separator);
+}
+
+.phoneBarGroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* The error navigation takes the free width; the right-hand buttons keep their size. */
+.phoneBarGroup:first-child {
+  flex: 1 1 auto;
+}
+
+.phoneErrorCounter {
+  /* overflow (needed for the ellipsis) clips vertically too, so give tall glyphs room at any text size. */
+  padding: 0.15em 0.25em 0.15em 0.75em;
+  overflow: hidden;
+  color: var(--ios-secondary-label);
+  font-size: 0.88em;
+  line-height: 1.33;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .phoneButton {
@@ -431,7 +468,7 @@
   min-height: 44px;
   padding: 0 0.75em;
   border: 0;
-  border-radius: 8px;
+  border-radius: 26px;
   background: transparent;
   color: var(--ios-tint);
   font: inherit;
@@ -450,6 +487,26 @@
 
 .phoneButton:active:not(:disabled) {
   opacity: 0.5;
+}
+
+.phoneBar .phoneButton {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: inherit;
+}
+
+.phoneBar .phoneButton:active:not(:disabled) {
+  opacity: 1;
+  background: var(--ios-fill-tertiary);
+  transform: scale(0.95);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phoneBar .phoneButton:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 .alertBox {

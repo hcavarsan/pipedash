@@ -8,6 +8,7 @@ import {
   COPY_PAGE_LINES,
   CopyTooLargeError,
   collectLines,
+  errorCounter,
   exportFileName,
   newSessionId,
 } from './logActions'
@@ -27,6 +28,20 @@ test('file names are slugged and capped at 255 bytes with the extension', () => 
 
   assert.equal(long.length, 255)
   assert.ok(long.endsWith('.log'))
+})
+
+test('the error counter shows the position of the selected error line, otherwise the total', () => {
+  const lines = [3, 9, 20]
+
+  assert.equal(errorCounter([], 0, null), 'No errors')
+  assert.equal(errorCounter(lines, 3, null), '3 errors')
+  assert.equal(errorCounter([4], 1, null), '1 error')
+  assert.equal(errorCounter(lines, 3, 3), 'Error 1 of 3')
+  assert.equal(errorCounter(lines, 3, 20), 'Error 3 of 3')
+  assert.equal(errorCounter(lines, 3, 10), '3 errors')
+  assert.equal(errorCounter(lines, 3, 99), '3 errors')
+  // The server stores a capped number of error positions but still counts every error.
+  assert.equal(errorCounter(lines, 900, 9), 'Error 2 of 900')
 })
 
 test('collectLines pages through the range and joins with newlines', async () => {

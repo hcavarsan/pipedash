@@ -1,4 +1,5 @@
 import type { LogLinesPage } from '../../types/logs'
+import { formatCount } from '../../utils/formatCount'
 
 export const FULL_LINE_UNITS = 1_048_576
 export const COPY_MAX_LINES = 50_000
@@ -62,4 +63,28 @@ export function newSessionId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16))
 
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+// `errorLines` is sorted and may be capped below `errorTotal`, so positions past the cap read as the count.
+export function errorCounter(errorLines: readonly number[], errorTotal: number, line: number | null): string {
+  if (errorTotal === 0) {
+    return 'No errors'
+  }
+
+  let low = 0
+  let high = errorLines.length
+
+  while (line !== null && low < high) {
+    const mid = (low + high) >>> 1
+
+    if (errorLines[mid] < line) {
+      low = mid + 1
+    } else {
+      high = mid
+    }
+  }
+
+  return line !== null && errorLines[low] === line
+    ? `Error ${(low + 1).toLocaleString()} of ${errorTotal.toLocaleString()}`
+    : formatCount(errorTotal, 'error')
 }

@@ -6,7 +6,6 @@ import {
   IconCheck,
   IconChevronDown,
   IconChevronUp,
-  IconCircleX,
   IconCopy,
   IconDots,
   IconExternalLink,
@@ -43,13 +42,14 @@ import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { PhoneSearchField } from '../common/PhoneSearchField'
 import { StandardModal } from '../common/StandardModal'
+import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { LogBody, type LogBodyHandle } from './LogBody'
 import { LogOverviewRuler, type LogRulerHandle } from './LogOverviewRuler'
 import { type MatchTriple, styleClassNames } from './LogRow'
 import { LogToolbar } from './LogToolbar'
 import classes from './LogViewer.module.css'
 import { type DocRef, logLineCache, useLogLines } from './lineCache'
-import { collectLines, exportFileName, FULL_LINE_UNITS, newSessionId } from './logActions'
+import { collectLines, errorCounter, exportFileName, FULL_LINE_UNITS, newSessionId } from './logActions'
 import {
   buildRows,
   filterAfterJump,
@@ -625,6 +625,8 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
       stepError,
       initialFocus: () => {
         if (meta.focus_line !== null) {
+          // The focus line is the first error the server picked; record it so Next error moves past it.
+          lastError.current = meta.focus_line
           setSelection({ anchor: meta.focus_line, from: meta.focus_line, to: meta.focus_line })
           goToLine(meta.focus_line)
         } else if (!meta.complete) {
@@ -789,77 +791,98 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
         </div>
         {phone && (
           <div className={classes.phoneBar}>
-            <button
-              type="button"
-              className={classes.phoneButton}
-              aria-label="Next error"
-              disabled={noErrors}
-              onClick={() => stepError(1)}
-            >
-              <IconCircleX size="1.2em" aria-hidden />
-              {meta.error_total > 0 && <span>{meta.error_total}</span>}
-            </button>
-            {queryText && (
+            {/* Same pattern as the search matches: where you are, then previous and next. */}
+            <div className={classes.phoneBarGroup}>
+              <span className={classes.phoneErrorCounter} aria-live="polite">
+                {errorCounter(
+                  meta.error_lines,
+                  meta.error_total,
+                  selection && selection.from === selection.to ? selection.from : null
+                )}
+              </span>
               <button
                 type="button"
                 className={classes.phoneButton}
-                aria-label="Matching lines"
-                aria-pressed={filter === 'matches'}
-                disabled={noMatches && filter !== 'matches'}
-                onClick={() => setFilter(filter === 'matches' ? 'none' : 'matches')}
+                aria-label="Previous error"
+                disabled={noErrors}
+                onClick={() => stepError(-1)}
               >
-                <IconFilter size="1.2em" aria-hidden />
+                <IconChevronUp size="1.2em" aria-hidden />
               </button>
-            )}
-            <Menu position="top-end" withinPortal>
-              <Menu.Target>
-                <button type="button" className={classes.phoneButton} aria-label="More">
-                  <IconDots size="1.2em" aria-hidden />
+              <button
+                type="button"
+                className={classes.phoneButton}
+                aria-label="Next error"
+                disabled={noErrors}
+                onClick={() => stepError(1)}
+              >
+                <IconChevronDown size="1.2em" aria-hidden />
+              </button>
+            </div>
+            <div className={classes.phoneBarGroup}>
+              {queryText && (
+                <button
+                  type="button"
+                  className={classes.phoneButton}
+                  aria-label="Matching lines"
+                  aria-pressed={filter === 'matches'}
+                  disabled={noMatches && filter !== 'matches'}
+                  onClick={() => setFilter(filter === 'matches' ? 'none' : 'matches')}
+                >
+                  <IconFilter size="1.2em" aria-hidden />
                 </button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item
-                  role="menuitemcheckbox"
-                  aria-checked={prefs.wrap}
-                  rightSection={prefs.wrap ? <IconCheck size={14} /> : null}
-                  onClick={() => prefs.setWrap(!prefs.wrap)}
-                >
-                  Wrap lines
-                </Menu.Item>
-                <Menu.Item
-                  role="menuitemcheckbox"
-                  aria-checked={prefs.timestamps}
-                  rightSection={prefs.timestamps ? <IconCheck size={14} /> : null}
-                  onClick={() => prefs.setTimestamps(!prefs.timestamps)}
-                >
-                  Show timestamps
-                </Menu.Item>
-                <Menu.Item
-                  role="menuitemcheckbox"
-                  aria-checked={filter === 'errors'}
-                  disabled={noErrors && filter !== 'errors'}
-                  rightSection={filter === 'errors' ? <IconCheck size={14} /> : null}
-                  onClick={() => setFilter(filter === 'errors' ? 'none' : 'errors')}
-                >
-                  Show error lines only
-                </Menu.Item>
-                <Menu.Divider />
-                <Menu.Item
-                  leftSection={<IconArrowUp size={14} />}
-                  onClick={() => bodyRef.current?.scrollToRow(0, 'start')}
-                >
-                  Go to top
-                </Menu.Item>
-                <Menu.Item leftSection={<IconArrowDown size={14} />} onClick={() => bodyRef.current?.scrollToEnd()}>
-                  Go to bottom
-                </Menu.Item>
-                <Menu.Divider />
-                <Menu.Item disabled={exporting} onClick={() => void exportLog()}>
-                  Export log
-                </Menu.Item>
-                {openJob && <Menu.Item onClick={openJob}>Open job in {providerName}</Menu.Item>}
-              </Menu.Dropdown>
-            </Menu>
+              )}
+              <Menu position="top-end" withinPortal>
+                <Menu.Target>
+                  <button type="button" className={classes.phoneButton} aria-label="More">
+                    <IconDots size="1.2em" aria-hidden />
+                  </button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item
+                    role="menuitemcheckbox"
+                    aria-checked={prefs.wrap}
+                    rightSection={prefs.wrap ? <IconCheck size={14} /> : null}
+                    onClick={() => prefs.setWrap(!prefs.wrap)}
+                  >
+                    Wrap lines
+                  </Menu.Item>
+                  <Menu.Item
+                    role="menuitemcheckbox"
+                    aria-checked={prefs.timestamps}
+                    rightSection={prefs.timestamps ? <IconCheck size={14} /> : null}
+                    onClick={() => prefs.setTimestamps(!prefs.timestamps)}
+                  >
+                    Show timestamps
+                  </Menu.Item>
+                  <Menu.Item
+                    role="menuitemcheckbox"
+                    aria-checked={filter === 'errors'}
+                    disabled={noErrors && filter !== 'errors'}
+                    rightSection={filter === 'errors' ? <IconCheck size={14} /> : null}
+                    onClick={() => setFilter(filter === 'errors' ? 'none' : 'errors')}
+                  >
+                    Show error lines only
+                  </Menu.Item>
+                  <Menu.Divider />
+                  <Menu.Item
+                    leftSection={<IconArrowUp size={14} />}
+                    onClick={() => bodyRef.current?.scrollToRow(0, 'start')}
+                  >
+                    Go to top
+                  </Menu.Item>
+                  <Menu.Item leftSection={<IconArrowDown size={14} />} onClick={() => bodyRef.current?.scrollToEnd()}>
+                    Go to bottom
+                  </Menu.Item>
+                  <Menu.Divider />
+                  <Menu.Item disabled={exporting} onClick={() => void exportLog()}>
+                    Export log
+                  </Menu.Item>
+                  {openJob && <Menu.Item onClick={openJob}>Open job in {providerName}</Menu.Item>}
+                  <ActionSheetCancel />
+                </Menu.Dropdown>
+              </Menu>
+            </div>
           </div>
         )}
         <VisuallyHidden role="status">{searchFailure ?? counter ?? ''}</VisuallyHidden>
