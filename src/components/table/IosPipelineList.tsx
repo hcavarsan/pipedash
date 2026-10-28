@@ -210,6 +210,8 @@ interface IosPipelineListProps {
   onTrigger: (pipeline: Pipeline) => void
   pinnedKeys: string[]
   onTogglePin: (pinKey: string) => void
+  hiddenKeys: string[]
+  onToggleHidden: (pinKey: string) => void
   onViewMetrics?: (pipeline: Pipeline) => void
 }
 
@@ -225,6 +227,8 @@ export function IosPipelineList({
   onTrigger,
   pinnedKeys,
   onTogglePin,
+  hiddenKeys,
+  onToggleHidden,
   onViewMetrics,
 }: IosPipelineListProps) {
   const now = useNow(30_000)
@@ -297,6 +301,8 @@ export function IosPipelineList({
                 provider={getProvider(pipeline.provider_id)}
                 isPinned={pinnedKeys.includes(pinKey)}
                 onTogglePin={() => onTogglePin(pinKey)}
+                isHidden={hiddenKeys.includes(pinKey)}
+                onToggleHidden={() => onToggleHidden(pinKey)}
                 onTrigger={onTrigger}
                 onViewMetrics={onViewMetrics}
                 onViewHistory={onViewHistory}

@@ -54,7 +54,7 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 
 ## Features
 
-- See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most.
+- See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most. Hide a workflow you don't watch, and it leaves the table and its repository's status until you unhide it under Show hidden.
 - Open the run history with commits, branches and durations, and track build metrics per pipeline.
 - Read, search and download job logs of GitHub Actions and Buildkite runs without leaving Pipedash. Buildkite tokens need the `read_build_logs` scope.
 - Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.

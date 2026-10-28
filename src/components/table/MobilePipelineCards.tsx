@@ -18,6 +18,8 @@ interface MobilePipelineCardsProps {
   onTrigger: (pipeline: Pipeline) => void
   pinnedKeys: string[]
   onTogglePin: (pinKey: string) => void
+  hiddenKeys: string[]
+  onToggleHidden: (pinKey: string) => void
   onViewMetrics?: (pipeline: Pipeline) => void
 }
 
@@ -40,6 +42,8 @@ export function MobilePipelineCards({
   onTrigger,
   pinnedKeys,
   onTogglePin,
+  hiddenKeys,
+  onToggleHidden,
   onViewMetrics,
 }: MobilePipelineCardsProps) {
   const renderProviders = (row: TableRow) => (
@@ -138,6 +142,8 @@ export function MobilePipelineCards({
                   pipeline={pipeline}
                   isPinned={pinnedKeys.includes(pinKey)}
                   onTogglePin={() => onTogglePin(pinKey)}
+                  isHidden={hiddenKeys.includes(pinKey)}
+                  onToggleHidden={() => onToggleHidden(pinKey)}
                   onTrigger={onTrigger}
                   onViewMetrics={onViewMetrics}
                 />
