@@ -1394,10 +1394,10 @@ mod tests {
     #[tokio::test]
     async fn a_hanging_provider_does_not_lose_another_providers_result() {
         let h = Harness::new().await;
-        h.start().await;
         let gate = Gate::new();
         let (hanging, _) = h.add_stub(|id| StubProvider::new(id).gated(&gate)).await;
         let (healthy, _) = h.add_stub(StubProvider::new).await;
+        h.start().await;
 
         let results = h
             .pipeline_service
@@ -1512,9 +1512,9 @@ mod tests {
     #[tokio::test]
     async fn a_second_refresh_all_joins_the_running_one() {
         let h = Harness::new().await;
-        h.start().await;
         let gate = Gate::new();
         let (_, stub) = h.add_stub(|id| StubProvider::new(id).gated(&gate)).await;
+        h.start().await;
         let first = tokio::spawn({
             let service = Arc::clone(&h.pipeline_service);
             async move { service.refresh_all().await }
