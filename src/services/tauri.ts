@@ -46,6 +46,8 @@ import {
   type RefreshResult,
   type ReviewDecision,
   type SetupStatus,
+  type SignInStart,
+  type SignInStatus,
   type StorageConfigResponse,
   type StoragePathsResponse,
   type TableSchema,
@@ -257,6 +259,22 @@ export const tauriService = {
     } catch (error) {
       throw toPipedashError(error)
     }
+  },
+
+  startSignIn: async (providerType: string, config: Record<string, string>): Promise<SignInStart> => {
+    return invokeWithTimeout<SignInStart>('start_sign_in', { providerType, config }, undefined, false)
+  },
+
+  signInStatus: async (id: string): Promise<SignInStatus> => {
+    return invokeWithTimeout<SignInStatus>('sign_in_status', { id })
+  },
+
+  completeSignIn: async (id: string, redirectUrl: string): Promise<SignInStatus> => {
+    return invokeWithTimeout<SignInStatus>('complete_sign_in', { id, redirectUrl }, undefined, false)
+  },
+
+  cancelSignIn: async (id: string): Promise<void> => {
+    return invokeWithTimeout<void>('cancel_sign_in', { id }, undefined, false)
   },
 
   checkProviderPermissions: async (

@@ -1,3 +1,4 @@
+pub mod credential;
 pub mod error;
 pub mod health;
 pub mod metrics;
@@ -9,6 +10,14 @@ pub mod refresh;
 pub mod run_logs;
 pub mod validation;
 
+pub use credential::{
+    SignInCredential,
+    SignInRef,
+    SignInStart,
+    SignInStatus,
+    SIGN_IN_CONFIG_KEY,
+    SIGN_IN_EXPIRED,
+};
 pub use error::{
     DomainError,
     DomainResult,

@@ -1,6 +1,7 @@
 import { notifications } from '@mantine/notifications'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { SIGN_IN_KEY } from '../constants/credentials'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
@@ -54,6 +55,7 @@ export function useAddProvider() {
                 last_success_at: null,
                 paused_until: null,
                 freshness: { state: 'never', stale_at: null },
+                sign_in: SIGN_IN_KEY in config.config,
                 health: {
                   level: 'operational',
                   signals: [],

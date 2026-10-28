@@ -16,6 +16,7 @@ use crate::{
     logs,
     mapper,
     metadata,
+    sign_in,
 };
 
 const DEFAULT_PAGE_SIZE: usize = 1000;
@@ -668,6 +669,14 @@ impl Plugin for ArgocdPlugin {
             Ok(vec![])
         }
     }
+
+    async fn sign_in_client(
+        &self, config: &HashMap<String, String>, http_client: &reqwest::Client,
+    ) -> PluginResult<SignInClient> {
+        let server_url = config::get_server_url(config)?;
+        let settings = client::ArgocdClient::fetch_settings(http_client, &server_url).await?;
+        sign_in::client_for(&settings, &server_url)
+    }
 }
 
 #[cfg(test)]
@@ -808,6 +817,7 @@ mod tests {
         let has = |pair: &str| query.split('&').any(|part| part == pair);
         let ok = |body: &str| ("200 OK", body.to_string());
         match path {
+            "/api/v1/settings" => ok(r#"{"url":"","dexConfig":{"connectors":[{"name":"GitHub","type":"github","id":"github"}]}}"#),
             "/api/v1/applications/web" => ok(APP),
             "/api/v1/applications/web/resource-tree" => ok(TREE),
             "/api/v1/applications/web/events" if query.is_empty() => ok(APP_EVENTS),
@@ -889,6 +899,25 @@ mod tests {
             )
             .unwrap();
         (plugin, requests)
+    }
+
+    #[tokio::test]
+    async fn sign_in_client_reads_unauthenticated_settings() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let requests = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let server_url = stub_argocd(requests.clone()).await;
+
+        let client = ArgocdPlugin::new()
+            .sign_in_client(
+                &cfg(&[("server_url", &server_url)]),
+                &reqwest::Client::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(client.issuer, format!("{server_url}/api/dex"));
+        assert_eq!(client.label, "GitHub");
+        assert_eq!(*requests.lock().await, ["/api/v1/settings"]);
     }
 
     const PIPELINE_ID: &str = "argocd__1__argocd__web";

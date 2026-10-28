@@ -2,11 +2,15 @@ import type { FeatureAvailability, PermissionStatus, PluginMetadata, ProviderCon
 
 export type Step = 'credentials' | 'pipelines'
 
+export type AuthMode = 'token' | 'sign_in'
+
 export interface FormState {
   step: Step
 
   selectedPlugin: PluginMetadata | null
   providerName: string
+
+  authMode: AuthMode
 
   configValues: Record<string, string>
 
@@ -34,6 +38,8 @@ export type FormAction =
   | { type: 'SET_PROVIDER_NAME'; name: string }
   | { type: 'UPDATE_CONFIG'; key: string; value: string }
   | { type: 'SET_CONFIG_VALUES'; values: Record<string, string> }
+  | { type: 'SET_AUTH_MODE'; mode: AuthMode }
+  | { type: 'SET_SIGN_IN'; reference: string | null }
   | { type: 'SET_ORGANIZATION'; organization: string }
   | { type: 'TOGGLE_PIPELINE'; pipelineId: string }
   | { type: 'SELECT_ALL_PIPELINES'; pipelineIds: string[] }
@@ -60,6 +66,7 @@ export const initialFormState: FormState = {
   step: 'credentials',
   selectedPlugin: null,
   providerName: '',
+  authMode: 'token',
   configValues: {},
   selectedOrganization: '',
   selectedPipelines: new Set(),

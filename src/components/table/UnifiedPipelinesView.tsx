@@ -44,7 +44,7 @@ import { STATUS_META } from '../../theme/status'
 import type { Pipeline, ProviderSummary, SectionMode, ViewDisplay, ViewSortKey } from '../../types'
 import { getErrorCode } from '../../types/errors'
 import { getPipelineLabels, getStatusOptions } from '../../utils/pipelinePresentation'
-import { fetchHint, providerAttention } from '../../utils/providerAttention'
+import { fetchHint, type ProviderRecovery, providerAttention } from '../../utils/providerAttention'
 import { TableCells } from '../../utils/tableCells'
 import { canAddSubView } from '../../utils/viewTree'
 import { useContextMenu } from '../common/ContextMenu'
@@ -99,7 +99,7 @@ const accessorSort = (accessor: string): ViewSortKey | undefined =>
 interface EmptyTableIssue {
   id: number
   name: string
-  kind: ProviderSummary['last_fetch_error_kind']
+  recovery: ProviderRecovery
   headline: string
   detail: string | null
   hint: string | null
@@ -107,7 +107,7 @@ interface EmptyTableIssue {
 
 const toEmptyTableIssue = (provider: ProviderSummary): EmptyTableIssue | null => {
   const attention = providerAttention(provider)
-  const base = { id: provider.id, name: provider.name, kind: attention.kind }
+  const base = { id: provider.id, name: provider.name, recovery: attention.recovery }
 
   if (attention.headline) {
     return { ...base, headline: attention.headline, detail: attention.detail, hint: attention.hint }
@@ -619,7 +619,7 @@ export const UnifiedPipelinesView = ({
       title={`Couldn't fetch ${labels.items} from ${emptyTableIssues.map((issue) => issue.name).join(', ')}`}
       error={[firstIssue.headline, firstIssue.detail].filter(Boolean).join(': ')}
       hint={firstIssue.hint}
-      actions={<ProviderRecoveryActions providerId={firstIssue.id} kind={firstIssue.kind} />}
+      actions={<ProviderRecoveryActions providerId={firstIssue.id} recovery={firstIssue.recovery} />}
     />
   ) : page.hidden_count > 0 && !showHidden ? (
     <EmptyState

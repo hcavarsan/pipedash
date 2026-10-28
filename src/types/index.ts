@@ -362,8 +362,22 @@ export interface ProviderSummary {
   last_success_at: string | null
   paused_until: string | null
   freshness: { state: ProviderTone; stale_at: string | null }
+  sign_in: boolean
   health: ProviderHealth
 }
+
+export interface SignInStart {
+  id: string
+  authorize_url: string
+  label: string
+  manual: boolean
+}
+
+export type SignInStatus =
+  | { state: 'pending' }
+  | { state: 'completed'; account: string | null }
+  | { state: 'failed'; message: string }
+  | { state: 'expired' }
 
 export interface ProviderImportResult {
   added: string[]
@@ -386,6 +400,7 @@ interface PluginCapabilities {
   custom_tables: boolean
   retains_run_history: boolean
   logs: boolean
+  sign_in: boolean
 }
 
 type ConfigFieldType = 'Text' | 'Password' | 'TextArea' | 'Boolean' | 'Select' | 'MultiSelect' | 'Number'

@@ -242,7 +242,7 @@ async fn get_provider(
     State(state): State<AppState>, Path(id): Path<i64>,
 ) -> ApiResult<Json<ProviderResponse>> {
     let provider_service = state.provider_service().await?;
-    let provider = provider_service.get_provider_config(id).await?;
+    let provider = provider_service.provider_for_editing(id).await?;
     Ok(Json(provider.into()))
 }
 
@@ -308,13 +308,7 @@ async fn update_refresh_interval(
 async fn get_provider_organizations(
     State(state): State<AppState>, Path(id): Path<i64>,
 ) -> ApiResult<Json<Vec<Organization>>> {
-    let provider_service = state.provider_service().await?;
-    let config = provider_service.get_provider_config(id).await?;
-
-    let mut plugin_config = config.config.clone();
-    plugin_config.insert("token".to_string(), config.token.clone());
-
-    let plugin = provider_service.init_plugin(&config.provider_type, plugin_config, id)?;
+    let plugin = state.provider_service().await?.stored_plugin(id).await?;
 
     let orgs = plugin
         .fetch_organizations()
@@ -422,7 +416,8 @@ async fn validate_credentials(
     let plugin = state
         .provider_service()
         .await?
-        .init_plugin(&req.provider_type, req.config, 0)?;
+        .init_plugin(&req.provider_type, req.config, 0)
+        .await?;
 
     match plugin.validate_credentials().await {
         Ok(valid) if valid => Ok(Json(ValidationResult {
@@ -446,7 +441,8 @@ async fn fetch_organizations(
     let plugin = state
         .provider_service()
         .await?
-        .init_plugin(&req.provider_type, req.config, 0)?;
+        .init_plugin(&req.provider_type, req.config, 0)
+        .await?;
 
     plugin
         .validate_credentials()
@@ -467,7 +463,8 @@ async fn check_permissions(
     let plugin = state
         .provider_service()
         .await?
-        .init_plugin(&req.provider_type, req.config, 0)?;
+        .init_plugin(&req.provider_type, req.config, 0)
+        .await?;
 
     let permission_status = plugin.check_permissions().await.ok();
 
@@ -489,7 +486,8 @@ async fn preview_pipelines(
     let plugin = state
         .provider_service()
         .await?
-        .init_plugin(&req.provider_type, req.config, 0)?;
+        .init_plugin(&req.provider_type, req.config, 0)
+        .await?;
 
     plugin
         .validate_credentials()

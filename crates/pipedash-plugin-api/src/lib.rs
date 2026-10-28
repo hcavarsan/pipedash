@@ -6,6 +6,7 @@ pub mod logs;
 pub mod plugin;
 pub mod registry;
 pub mod schema;
+pub mod sign_in;
 pub mod types;
 pub mod utils;
 
@@ -56,6 +57,10 @@ pub use schema::{
     ConfigField,
     ConfigFieldType,
     ConfigSchema,
+};
+pub use sign_in::{
+    SignInClient,
+    SignInToken,
 };
 pub use types::{
     AvailablePipeline,

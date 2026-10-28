@@ -42,6 +42,8 @@ import type {
   RefreshResult,
   ReviewDecision,
   SetupStatus,
+  SignInStart,
+  SignInStatus,
   StorageConfigResponse,
   StoragePathsResponse,
   TableSchema,
@@ -330,6 +332,40 @@ class ApiClient {
       provider_type: providerType,
       config,
     })
+  }
+
+  async startSignIn(providerType: string, config: Record<string, string>): Promise<SignInStart> {
+    const tab = window.open('', '_blank')
+
+    try {
+      const start = await this.post<SignInStart>('/sign-in', { provider_type: providerType, config }, { retry: false })
+
+      if (tab) {
+        tab.opener = null
+        tab.location.href = start.authorize_url
+      }
+
+      return start
+    } catch (error) {
+      tab?.close()
+      throw error
+    }
+  }
+
+  async signInStatus(id: string): Promise<SignInStatus> {
+    return this.get<SignInStatus>(`/sign-in/${encodeURIComponent(id)}`)
+  }
+
+  async completeSignIn(id: string, redirectUrl: string): Promise<SignInStatus> {
+    return this.post<SignInStatus>(
+      `/sign-in/${encodeURIComponent(id)}/complete`,
+      { redirect_url: redirectUrl },
+      { retry: false }
+    )
+  }
+
+  async cancelSignIn(id: string): Promise<void> {
+    await this.delete(`/sign-in/${encodeURIComponent(id)}`)
   }
 
   async checkProviderPermissions(providerType: string, config: Record<string, string>): Promise<PermissionCheckResult> {

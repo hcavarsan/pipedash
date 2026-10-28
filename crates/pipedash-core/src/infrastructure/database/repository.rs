@@ -232,6 +232,10 @@ impl Repository {
         Ok(provider)
     }
 
+    pub async fn store_token(&self, id: i64, token: &str) -> DomainResult<()> {
+        self.token_store.store_token(id, token).await
+    }
+
     pub async fn list_providers(&self) -> DomainResult<Vec<ProviderConfig>> {
         let mut providers = self.config_backend.list_providers().await?;
 

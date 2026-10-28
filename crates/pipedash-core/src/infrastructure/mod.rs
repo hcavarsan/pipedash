@@ -4,6 +4,7 @@ pub mod database;
 pub mod deduplication;
 pub mod http_client;
 pub mod migration;
+pub(crate) mod oauth;
 pub mod providers;
 pub mod run_logs;
 pub mod secrets;

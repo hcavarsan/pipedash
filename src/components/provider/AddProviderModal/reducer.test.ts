@@ -26,6 +26,7 @@ const fluxPlugin = {
     custom_tables: false,
     retains_run_history: true,
     logs: false,
+    sign_in: false,
   },
 }
 
@@ -174,4 +175,37 @@ test('edit form shows the display name of a provider defined in the config file'
 
   assert.equal(loaded.providerName, 'Renamed CI')
   assert.equal(isFormDirty(loaded, provider), false)
+})
+
+test('switching to sign-in drops the token and keeps selected pipelines', () => {
+  const next = formReducer(
+    {
+      ...initialFormState,
+      configValues: { token: 'abc', server_url: 'https://argo' },
+      selectedPipelines: new Set(['a']),
+    },
+    { type: 'SET_AUTH_MODE', mode: 'sign_in' }
+  )
+
+  assert.equal(next.authMode, 'sign_in')
+  assert.deepEqual(next.configValues, { server_url: 'https://argo' })
+  assert.deepEqual([...next.selectedPipelines], ['a'])
+})
+
+test('editing a provider with a stored sign-in starts in sign-in mode', () => {
+  const next = formReducer(initialFormState, {
+    type: 'INIT_EDIT_MODE',
+    plugin: fluxPlugin,
+    provider: {
+      id: 3,
+      name: 'Argo',
+      provider_type: 'argocd',
+      token: '',
+      refresh_interval: 30,
+      config: { sign_in: 'provider:3' },
+    },
+  })
+
+  assert.equal(next.authMode, 'sign_in')
+  assert.equal(next.configValues.sign_in, 'provider:3')
 })

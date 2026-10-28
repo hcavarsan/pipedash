@@ -26,6 +26,7 @@ use crate::types::{
     EventList,
     Pod,
     ResourceManifest,
+    Settings,
     SyncRequest,
     SyncStrategy,
     SyncStrategyApply,
@@ -60,6 +61,15 @@ impl ArgocdClient {
         format!("{}/api/v1", server_url.trim_end_matches('/'))
     }
 
+    pub async fn fetch_settings(
+        http_client: &reqwest::Client, server_url: &str,
+    ) -> PluginResult<Settings> {
+        let raw = format!("{}/settings", Self::build_api_url(server_url));
+        let url = Url::parse(&raw)
+            .map_err(|e| PluginError::InvalidConfig(format!("Invalid URL: {}", e)))?;
+        read_json(http_client.get(url.clone()), &url).await
+    }
+
     fn endpoint(&self, path: &str) -> PluginResult<Url> {
         let raw = format!("{}{}", self.api_url, path);
         Url::parse(&raw).map_err(|e| PluginError::InvalidConfig(format!("Invalid URL: {}", e)))
@@ -68,24 +78,11 @@ impl ArgocdClient {
     async fn get_json<T: DeserializeOwned>(&self, url: &Url) -> PluginResult<T> {
         self.retry_policy
             .retry(|| async {
-                let response = self
+                let request = self
                     .http_client
                     .get(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
-                    .send()
-                    .await
-                    .map_err(|e| map_send_error(e, url))?;
-
-                check_response(response)
-                    .await?
-                    .json::<T>()
-                    .await
-                    .map_err(|e| {
-                        PluginError::ApiError(format!(
-                            "Failed to parse ArgoCD API response: {}",
-                            e.without_url()
-                        ))
-                    })
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_header);
+                read_json(request, url).await
             })
             .await
     }
@@ -241,6 +238,22 @@ impl ArgocdClient {
         check_response(response).await?;
         Ok(())
     }
+}
+
+async fn read_json<T: DeserializeOwned>(
+    request: reqwest::RequestBuilder, url: &Url,
+) -> PluginResult<T> {
+    let response = request.send().await.map_err(|e| map_send_error(e, url))?;
+    check_response(response)
+        .await?
+        .json::<T>()
+        .await
+        .map_err(|e| {
+            PluginError::ApiError(format!(
+                "Failed to parse ArgoCD API response: {}",
+                e.without_url()
+            ))
+        })
 }
 
 fn sync_strategy(force: bool, apply_only: bool) -> Option<SyncStrategy> {

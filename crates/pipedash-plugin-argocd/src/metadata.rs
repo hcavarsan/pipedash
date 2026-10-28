@@ -34,19 +34,6 @@ fn create_config_schema() -> ConfigSchema {
             validation_message: Some("Must be a valid HTTP or HTTPS URL".to_string()),
         })
         .add_field(ConfigField {
-            key: "token".to_string(),
-            label: "Authentication Token".to_string(),
-            description: Some(
-                "ArgoCD authentication token or Kubernetes service account token".to_string(),
-            ),
-            field_type: ConfigFieldType::Password,
-            required: true,
-            default_value: None,
-            options: None,
-            validation_regex: None,
-            validation_message: None,
-        })
-        .add_field(ConfigField {
             key: "insecure".to_string(),
             label: "Skip TLS Verification".to_string(),
             description: Some(
@@ -56,6 +43,19 @@ fn create_config_schema() -> ConfigSchema {
             field_type: ConfigFieldType::Boolean,
             required: false,
             default_value: Some(serde_json::Value::Bool(false)),
+            options: None,
+            validation_regex: None,
+            validation_message: None,
+        })
+        .add_field(ConfigField {
+            key: "token".to_string(),
+            label: "Authentication Token".to_string(),
+            description: Some(
+                "ArgoCD authentication token or Kubernetes service account token".to_string(),
+            ),
+            field_type: ConfigFieldType::Password,
+            required: true,
+            default_value: None,
             options: None,
             validation_regex: None,
             validation_message: None,
@@ -89,5 +89,6 @@ fn create_capabilities() -> PluginCapabilities {
         custom_tables: false,
         retains_run_history: false,
         logs: true,
+        sign_in: true,
     }
 }

@@ -48,6 +48,7 @@ const summary = (overrides: Partial<ProviderSummary> = {}): ProviderSummary => (
   last_success_at: null,
   paused_until: null,
   freshness: { state: 'never', stale_at: null },
+  sign_in: false,
   health: health('operational'),
   ...overrides,
 })
@@ -228,4 +229,13 @@ test('outage levels start at partial outage', () => {
   assert.equal(isOutageLevel('degraded'), false)
   assert.equal(isOutageLevel('partial_outage'), true)
   assert.equal(isOutageLevel('major_outage'), true)
+})
+
+test('an auth failure on a sign-in provider asks to sign in again', () => {
+  const failing = { last_fetch_status: 'error', last_fetch_error: 'denied', last_fetch_error_kind: 'auth' } as const
+  const result = providerAttention(summary({ ...failing, sign_in: true }))
+
+  assert.equal(result.recovery, 'sign_in')
+  assert.equal(result.hint, 'Your sign-in expired. Sign in again in Settings → Providers.')
+  assert.equal(providerAttention(summary(failing)).recovery, 'settings')
 })

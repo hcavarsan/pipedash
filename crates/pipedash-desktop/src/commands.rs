@@ -146,7 +146,7 @@ pub async fn get_provider(
         code: None,
     })?;
     core.provider_service
-        .get_provider_config(id)
+        .provider_for_editing(id)
         .await
         .map_err(Into::into)
 }
@@ -306,7 +306,8 @@ pub async fn fetch_provider_organizations(
     })?;
     let plugin = core
         .provider_service
-        .init_plugin(&provider_type, config, 0)?;
+        .init_plugin(&provider_type, config, 0)
+        .await?;
 
     plugin
         .validate_credentials()
@@ -340,7 +341,8 @@ pub async fn preview_provider_pipelines(
     })?;
     let plugin = core
         .provider_service
-        .init_plugin(&provider_type, config, 0)?;
+        .init_plugin(&provider_type, config, 0)
+        .await?;
 
     plugin
         .validate_credentials()
@@ -386,7 +388,8 @@ pub async fn validate_provider_credentials(
     })?;
     let plugin = core
         .provider_service
-        .init_plugin(&provider_type, config, 0)?;
+        .init_plugin(&provider_type, config, 0)
+        .await?;
 
     match plugin.validate_credentials().await {
         Ok(valid) if valid => Ok(ValidationResult {
@@ -416,7 +419,8 @@ pub async fn check_provider_permissions(
     })?;
     let plugin = core
         .provider_service
-        .init_plugin(&provider_type, config, 0)?;
+        .init_plugin(&provider_type, config, 0)
+        .await?;
 
     let permission_status = plugin.check_permissions().await.ok();
 

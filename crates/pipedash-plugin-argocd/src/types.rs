@@ -13,6 +13,40 @@ pub struct ApplicationList {
     pub items: Vec<Application>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    pub url: String,
+    pub dex_config: Option<DexConfig>,
+    pub oidc_config: Option<OidcConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct DexConfig {
+    pub connectors: Vec<Connector>,
+    #[serde(rename = "dexAuthConnectorID")]
+    pub auth_connector_id: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct Connector {
+    pub name: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct OidcConfig {
+    pub name: String,
+    pub issuer: String,
+    #[serde(rename = "clientID")]
+    pub client_id: String,
+    #[serde(rename = "cliClientID")]
+    pub cli_client_id: String,
+    pub scopes: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Application {
     pub metadata: ApplicationMetadata,

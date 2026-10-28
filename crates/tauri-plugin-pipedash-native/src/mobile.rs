@@ -76,6 +76,11 @@ struct ShareLinkArgs<'a> {
 }
 
 #[derive(Serialize)]
+struct AuthSessionArgs<'a> {
+    url: &'a str,
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StopBuildWatchArgs<'a> {
     session_id: &'a str,
@@ -96,6 +101,11 @@ struct FinishNotificationRefreshArgs<'a> {
 #[derive(Deserialize)]
 struct ShareResult {
     completed: bool,
+}
+
+#[derive(Deserialize)]
+struct AuthSessionResult {
+    cancelled: bool,
 }
 
 #[derive(Serialize)]
@@ -202,6 +212,17 @@ impl<R: Runtime> PipedashNative<R> {
             .call("shareLink", ShareLinkArgs { url, source_rect })
             .await?;
         Ok(result.completed)
+    }
+
+    pub async fn open_auth_session(&self, url: &str) -> Result<bool> {
+        let result: AuthSessionResult = self
+            .call("openAuthSession", AuthSessionArgs { url })
+            .await?;
+        Ok(result.cancelled)
+    }
+
+    pub async fn close_auth_session(&self) -> Result<()> {
+        self.call("closeAuthSession", ()).await
     }
 
     pub fn on_notification_response<F: Fn(NotificationResponse) + Send + Sync + 'static>(

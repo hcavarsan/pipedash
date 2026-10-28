@@ -6,6 +6,7 @@ use serde::{
     Serialize,
 };
 
+use super::credential::SignInCredential;
 use super::error::{
     DomainError,
     DomainResult,
@@ -51,6 +52,12 @@ impl ProviderConfig {
             .map(|s| s.as_str())
             .unwrap_or(&self.name)
     }
+
+    pub fn plugin_config(&self) -> HashMap<String, String> {
+        let mut config = self.config.clone();
+        config.insert("token".to_string(), SignInCredential::bearer(&self.token));
+        config
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +98,8 @@ pub struct ProviderSummary {
     pub version: i64,
     #[serde(default)]
     pub freshness: ProviderFreshness,
+    #[serde(default)]
+    pub sign_in: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,6 +214,10 @@ pub trait Provider: Send + Sync {
     fn provider_type(&self) -> &str;
 
     fn capabilities(&self) -> &pipedash_plugin_api::PluginCapabilities;
+
+    fn renew_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        None
+    }
 
     fn status_source(&self) -> Option<&pipedash_plugin_api::StatusSource>;
 

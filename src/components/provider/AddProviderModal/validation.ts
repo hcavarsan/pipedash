@@ -1,4 +1,7 @@
+import { SIGN_IN_KEY, TOKEN_KEY } from '../../../constants/credentials'
 import type { ConfigField } from '../../../types'
+
+import type { AuthMode } from './types'
 
 type ValidatedField = Pick<ConfigField, 'label' | 'required' | 'validation_regex' | 'validation_message'>
 
@@ -38,3 +41,9 @@ export function mapProviderFieldErrors(
 
   return fields
 }
+
+export const activeConfigFields = (fields: ConfigField[], authMode: AuthMode): ConfigField[] =>
+  authMode === 'sign_in' ? fields.filter((field) => field.key !== TOKEN_KEY) : fields
+
+export const validateSignIn = (authMode: AuthMode, configValues: Record<string, string>): string | null =>
+  authMode === 'sign_in' && !configValues[SIGN_IN_KEY] ? 'Sign in to continue' : null

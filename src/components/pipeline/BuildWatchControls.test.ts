@@ -180,6 +180,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     last_success_at: null,
     paused_until: null,
     freshness: { state: 'never', stale_at: null },
+    sign_in: false,
     health: { level: 'operational', signals: [], next_attempt_at: null, in_flight: false, status_page: null },
   }
 
