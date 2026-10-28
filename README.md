@@ -48,6 +48,72 @@ flowchart LR
   Core --> iOS[iOS app]
 ```
 
+## Screenshots
+
+<details>
+<summary><b>Desktop and web</b> (9 pages)</summary>
+
+<h4>Pipelines</h4>
+<p>Every provider in one table, grouped by repository, with pinned workflows on top.</p>
+<img src="https://pipedash.app/img/readme/desktop/01-pipelines.webp" alt="Desktop: Pipelines" width="100%" />
+
+<h4>Run history</h4>
+<p>Commits, branches, actors and durations of each run.</p>
+<img src="https://pipedash.app/img/readme/desktop/02-run-history.webp" alt="Desktop: Run history" width="100%" />
+
+<h4>Run details</h4>
+<p>Status, commit, branch and duration of one run.</p>
+<img src="https://pipedash.app/img/readme/desktop/03-run-details.webp" alt="Desktop: Run details" width="100%" />
+
+<h4>Job logs</h4>
+<p>Steps, errors and search in the job log.</p>
+<img src="https://pipedash.app/img/readme/desktop/04-job-logs.webp" alt="Desktop: Job logs" width="100%" />
+
+<h4>Trigger a workflow</h4>
+<p>The inputs Pipedash loads from the provider.</p>
+<img src="https://pipedash.app/img/readme/desktop/05-trigger-workflow.webp" alt="Desktop: Trigger a workflow" width="100%" />
+
+<h4>Metrics</h4>
+<p>Run duration, success rate and run count over time.</p>
+<img src="https://pipedash.app/img/readme/desktop/06-metrics.webp" alt="Desktop: Metrics" width="100%" />
+
+<h4>Provider status</h4>
+<p>The provider's status page and open incidents.</p>
+<img src="https://pipedash.app/img/readme/desktop/07-provider-status.webp" alt="Desktop: Provider status" width="100%" />
+
+<h4>Notifications</h4>
+<p>Failed runs and provider outages in one inbox.</p>
+<img src="https://pipedash.app/img/readme/desktop/08-notifications.webp" alt="Desktop: Notifications" width="100%" />
+
+<h4>Providers</h4>
+<p>Connected providers, their status and refresh interval.</p>
+<img src="https://pipedash.app/img/readme/desktop/09-providers.webp" alt="Desktop: Providers" width="100%" />
+
+</details>
+
+<details>
+<summary><b>Mobile</b> (9 pages)</summary>
+
+<table>
+  <tr>
+    <td align="center" width="33%"><b>Pipelines</b><br><img src="https://pipedash.app/img/readme/mobile/01-pipelines.webp" alt="Mobile: Pipelines" width="100%" /></td>
+    <td align="center" width="33%"><b>Run history</b><br><img src="https://pipedash.app/img/readme/mobile/02-run-history.webp" alt="Mobile: Run history" width="100%" /></td>
+    <td align="center" width="33%"><b>Run details</b><br><img src="https://pipedash.app/img/readme/mobile/03-run-details.webp" alt="Mobile: Run details" width="100%" /></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><b>Job logs</b><br><img src="https://pipedash.app/img/readme/mobile/04-job-logs.webp" alt="Mobile: Job logs" width="100%" /></td>
+    <td align="center" width="33%"><b>Trigger a workflow</b><br><img src="https://pipedash.app/img/readme/mobile/05-trigger-workflow.webp" alt="Mobile: Trigger a workflow" width="100%" /></td>
+    <td align="center" width="33%"><b>Metrics</b><br><img src="https://pipedash.app/img/readme/mobile/06-metrics.webp" alt="Mobile: Metrics" width="100%" /></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><b>Provider status</b><br><img src="https://pipedash.app/img/readme/mobile/07-provider-status.webp" alt="Mobile: Provider status" width="100%" /></td>
+    <td align="center" width="33%"><b>Notifications</b><br><img src="https://pipedash.app/img/readme/mobile/08-notifications.webp" alt="Mobile: Notifications" width="100%" /></td>
+    <td align="center" width="33%"><b>Providers</b><br><img src="https://pipedash.app/img/readme/mobile/09-providers.webp" alt="Mobile: Providers" width="100%" /></td>
+  </tr>
+</table>
+
+</details>
+
 ## Supported providers
 
 GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton CD, ArgoCD and FluxCD. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
