@@ -87,7 +87,7 @@ flowchart LR
     GH[GitHub Actions]
     GL[GitLab CI]
     K8S[Tekton, ArgoCD, FluxCD]
-    More[Gitea, Bitbucket, Buildkite, Jenkins]
+    More[Gitea, Bitbucket, Buildkite, Jenkins, Komodo]
   end
   Providers -- API polling --> Core[pipedash-core]
   Core <--> DB[(SQLite or PostgreSQL)]
@@ -98,7 +98,7 @@ flowchart LR
 
 ## Supported providers
 
-GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton CD, ArgoCD and FluxCD. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
+GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Tekton CD, ArgoCD, FluxCD and Komodo Stacks. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
 
 ## Features
 

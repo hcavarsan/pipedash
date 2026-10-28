@@ -1231,7 +1231,10 @@ fn configured_repositories(config: &ProviderConfig) -> Vec<String> {
         .config
         .get("selected_items")
         .map(|items| {
-            if matches!(config.provider_type.as_str(), "argocd" | "fluxcd") {
+            if matches!(
+                config.provider_type.as_str(),
+                "argocd" | "fluxcd" | "komodo"
+            ) {
                 return Vec::new();
             }
 
