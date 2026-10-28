@@ -27,67 +27,28 @@
   </a>
 </p>
 
-## About
-
-Pipedash shows the pipelines of all your CI/CD providers in one table, so you stop switching between dashboards to find the build that failed. It polls each provider with the token or kubeconfig you add and caches the results. From the same table you open, trigger, rerun and cancel runs.
-
-It runs as a desktop app, as a self-hosted web server in Docker or as an iOS app. All three share one Rust core.
-
-```mermaid
-flowchart LR
-  subgraph Providers
-    GH[GitHub Actions]
-    GL[GitLab CI]
-    K8S[Tekton, ArgoCD, FluxCD]
-    More[Gitea, Bitbucket, Buildkite, Jenkins]
-  end
-  Providers -- API polling --> Core[pipedash-core]
-  Core <--> DB[(SQLite or PostgreSQL)]
-  Core --> Desktop[Desktop app]
-  Core --> Web[Web server]
-  Core --> iOS[iOS app]
-```
-
 ## Screenshots
 
 <details>
 <summary><b>Desktop and web</b> (9 pages)</summary>
 
-<h4>Pipelines</h4>
-<p>Every provider in one table, grouped by repository, with pinned workflows on top.</p>
-<img src="https://pipedash.app/img/readme/desktop/01-pipelines.webp" alt="Desktop: Pipelines" width="100%" />
-
-<h4>Run history</h4>
-<p>Commits, branches, actors and durations of each run.</p>
-<img src="https://pipedash.app/img/readme/desktop/02-run-history.webp" alt="Desktop: Run history" width="100%" />
-
-<h4>Run details</h4>
-<p>Status, commit, branch and duration of one run.</p>
-<img src="https://pipedash.app/img/readme/desktop/03-run-details.webp" alt="Desktop: Run details" width="100%" />
-
-<h4>Job logs</h4>
-<p>Steps, errors and search in the job log.</p>
-<img src="https://pipedash.app/img/readme/desktop/04-job-logs.webp" alt="Desktop: Job logs" width="100%" />
-
-<h4>Trigger a workflow</h4>
-<p>The inputs Pipedash loads from the provider.</p>
-<img src="https://pipedash.app/img/readme/desktop/05-trigger-workflow.webp" alt="Desktop: Trigger a workflow" width="100%" />
-
-<h4>Metrics</h4>
-<p>Run duration, success rate and run count over time.</p>
-<img src="https://pipedash.app/img/readme/desktop/06-metrics.webp" alt="Desktop: Metrics" width="100%" />
-
-<h4>Provider status</h4>
-<p>The provider's status page and open incidents.</p>
-<img src="https://pipedash.app/img/readme/desktop/07-provider-status.webp" alt="Desktop: Provider status" width="100%" />
-
-<h4>Notifications</h4>
-<p>Failed runs and provider outages in one inbox.</p>
-<img src="https://pipedash.app/img/readme/desktop/08-notifications.webp" alt="Desktop: Notifications" width="100%" />
-
-<h4>Providers</h4>
-<p>Connected providers, their status and refresh interval.</p>
-<img src="https://pipedash.app/img/readme/desktop/09-providers.webp" alt="Desktop: Providers" width="100%" />
+<table>
+  <tr>
+    <td align="center" width="33%"><b>Pipelines</b><br><img src="https://pipedash.app/img/readme/desktop/01-pipelines.webp" alt="Desktop: Pipelines" width="100%" /></td>
+    <td align="center" width="33%"><b>Run history</b><br><img src="https://pipedash.app/img/readme/desktop/02-run-history.webp" alt="Desktop: Run history" width="100%" /></td>
+    <td align="center" width="33%"><b>Run details</b><br><img src="https://pipedash.app/img/readme/desktop/03-run-details.webp" alt="Desktop: Run details" width="100%" /></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><b>Job logs</b><br><img src="https://pipedash.app/img/readme/desktop/04-job-logs.webp" alt="Desktop: Job logs" width="100%" /></td>
+    <td align="center" width="33%"><b>Trigger a workflow</b><br><img src="https://pipedash.app/img/readme/desktop/05-trigger-workflow.webp" alt="Desktop: Trigger a workflow" width="100%" /></td>
+    <td align="center" width="33%"><b>Metrics</b><br><img src="https://pipedash.app/img/readme/desktop/06-metrics.webp" alt="Desktop: Metrics" width="100%" /></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><b>Provider status</b><br><img src="https://pipedash.app/img/readme/desktop/07-provider-status.webp" alt="Desktop: Provider status" width="100%" /></td>
+    <td align="center" width="33%"><b>Notifications</b><br><img src="https://pipedash.app/img/readme/desktop/08-notifications.webp" alt="Desktop: Notifications" width="100%" /></td>
+    <td align="center" width="33%"><b>Providers</b><br><img src="https://pipedash.app/img/readme/desktop/09-providers.webp" alt="Desktop: Providers" width="100%" /></td>
+  </tr>
+</table>
 
 </details>
 
@@ -113,6 +74,27 @@ flowchart LR
 </table>
 
 </details>
+
+## About
+
+Pipedash shows the pipelines of all your CI/CD providers in one table, so you stop switching between dashboards to find the build that failed. It polls each provider with the token or kubeconfig you add and caches the results. From the same table you open, trigger, rerun and cancel runs.
+
+It runs as a desktop app, as a self-hosted web server in Docker or as an iOS app. All three share one Rust core.
+
+```mermaid
+flowchart LR
+  subgraph Providers
+    GH[GitHub Actions]
+    GL[GitLab CI]
+    K8S[Tekton, ArgoCD, FluxCD]
+    More[Gitea, Bitbucket, Buildkite, Jenkins]
+  end
+  Providers -- API polling --> Core[pipedash-core]
+  Core <--> DB[(SQLite or PostgreSQL)]
+  Core --> Desktop[Desktop app]
+  Core --> Web[Web server]
+  Core --> iOS[iOS app]
+```
 
 ## Supported providers
 
