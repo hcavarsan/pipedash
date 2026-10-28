@@ -2,11 +2,13 @@ import { notifications } from '@mantine/notifications'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
+import { confirmBody } from '../components/common/ActionTargetRows'
 import { PAGE_SIZES } from '../constants/pagination'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
-import type { Pipeline, ReviewDecision } from '../types'
+import type { Pipeline, PipelineRun, ReviewDecision } from '../types'
+import { actionTarget, type TargetPipeline } from '../utils/actionTarget'
 import { findUnfinishedRuns } from '../utils/cancelActiveRuns'
 import { openConfirm } from '../utils/confirm'
 import { errorMessage } from '../utils/errorDisplay'
@@ -205,11 +207,19 @@ export function useCancelRun() {
     },
   })
 
-  const cancel = async (variables: { pipelineId: string; runNumber: number }) => {
+  const cancel = async (variables: {
+    pipelineId: string
+    runNumber: number
+    pipeline?: TargetPipeline
+    run?: Pick<PipelineRun, 'branch' | 'inputs'>
+  }) => {
     const { promise, resolve } = Promise.withResolvers<boolean>()
     openConfirm({
       title: 'Cancel run',
-      children: `This cancels run #${variables.runNumber}. You can't undo this.`,
+      children: confirmBody(
+        `This cancels run #${variables.runNumber}. You can't undo this.`,
+        variables.pipeline ? actionTarget(variables.pipeline, variables.run ? [variables.run] : []) : []
+      ),
       labels: { confirm: 'Cancel run', cancel: 'Keep running' },
       confirmProps: { color: 'red' },
       onConfirm: () => resolve(true),
@@ -222,7 +232,7 @@ export function useCancelRun() {
       return false
     }
 
-    await mutation.mutateAsync(variables)
+    await mutation.mutateAsync({ pipelineId: variables.pipelineId, runNumber: variables.runNumber })
 
     return true
   }

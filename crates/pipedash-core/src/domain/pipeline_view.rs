@@ -29,6 +29,31 @@ where
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
+fn status_list<'de, D>(deserializer: D) -> Result<Vec<PipelineStatus>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        List(Vec<PipelineStatus>),
+        Joined(String),
+    }
+
+    match Raw::deserialize(deserializer)? {
+        Raw::List(statuses) => Ok(statuses),
+        Raw::Joined(joined) => joined
+            .split(',')
+            .filter(|status| !status.is_empty())
+            .map(|status| {
+                PipelineStatus::deserialize(serde::de::value::StrDeserializer::<D::Error>::new(
+                    status,
+                ))
+            })
+            .collect(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum ViewRef {
@@ -465,8 +490,8 @@ pub struct PipelineViewQuery {
     pub provider_id: Option<i64>,
     #[serde(default)]
     pub search: Option<String>,
-    #[serde(default)]
-    pub status: Option<PipelineStatus>,
+    #[serde(default, deserialize_with = "status_list")]
+    pub statuses: Vec<PipelineStatus>,
     #[serde(default)]
     pub organization: Option<String>,
     #[serde(default)]
@@ -543,5 +568,21 @@ mod tests {
         assert_eq!(absent.parent, None);
         assert_eq!(top.parent, Some(None));
         assert_eq!(nested.parent, Some(Some(ViewRef::Custom(12))));
+    }
+
+    #[test]
+    fn query_statuses_accept_a_list_or_comma_separated_text() {
+        let listed: PipelineViewQuery =
+            serde_json::from_str(r#"{"statuses":["running","pending"]}"#).unwrap();
+        let joined: PipelineViewQuery =
+            serde_json::from_str(r#"{"statuses":"running,pending"}"#).unwrap();
+        let absent: PipelineViewQuery = serde_json::from_str("{}").unwrap();
+        let expected = vec![PipelineStatus::Running, PipelineStatus::Pending];
+        assert_eq!(listed.statuses, expected);
+        assert_eq!(joined.statuses, expected);
+        assert!(absent.statuses.is_empty());
+        assert!(
+            serde_json::from_str::<PipelineViewQuery>(r#"{"statuses":"running,bogus"}"#).is_err()
+        );
     }
 }

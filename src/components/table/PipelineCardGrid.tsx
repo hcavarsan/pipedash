@@ -4,9 +4,9 @@ import type { ReactNode } from 'react'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
 import type { ProviderSummary, ViewPipeline } from '../../types'
+import { staleNote } from '../../utils/fetchInfo'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
-import { StatusBadge } from '../atoms/StatusBadge'
 import { useContextMenu } from '../common/ContextMenu'
 import { IosGroup } from '../ios/IosList'
 
@@ -15,6 +15,7 @@ import {
   FetchInfo,
   type PipelineActions,
   type PipelineSelection,
+  PipelineStatusBadge,
   WorkflowActionMenu,
   WorkflowActions,
   workflowMenuItems,
@@ -55,6 +56,7 @@ export function PipelineCardGrid({
               statusText={getStatusLabel(pipeline)}
               title={pipeline.name}
               subtitle={[pipeline.repository, provider?.name ?? 'Unknown'].join(' · ')}
+              detail={provider && staleNote(provider, now)}
               value={relativeOrNever(pipeline.last_run, now)}
               hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
               longPressMenu
@@ -103,7 +105,7 @@ export function PipelineCardGrid({
                 </Text>
               </UnstyledButton>
               <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
-                <StatusBadge status={pipeline.status} label={getStatusLabel(pipeline)} />
+                <PipelineStatusBadge pipeline={pipeline} provider={getProvider(pipeline.provider_id)} />
                 <FetchInfo providers={[getProvider(pipeline.provider_id)].flatMap((provider) => provider ?? [])} />
               </Group>
             </Group>

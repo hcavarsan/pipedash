@@ -4,13 +4,13 @@ import type { ReactNode } from 'react'
 
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { ProviderSummary } from '../../types'
-import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
-import { StatusBadge } from '../atoms/StatusBadge'
+import { getPipelineLabels } from '../../utils/pipelinePresentation'
 import { ProviderStatusButton } from '../provider/ProviderStatusButton'
 
 import {
   type PipelineActions,
   type PipelineSelection,
+  PipelineStatusBadge,
   RepositoryFetchIndicator,
   RowFetchInfo,
   rowMenuItems,
@@ -134,7 +134,7 @@ export function MobilePipelineCards({ rows, getProvider, onToggleRepo, actions, 
                         {row.name}
                       </Text>
                     </Group>
-                    {row.status && <StatusBadge status={row.status} label={getStatusLabel(pipeline)} />}
+                    <PipelineStatusBadge pipeline={pipeline} provider={getProvider(pipeline.provider_id)} />
                   </Group>
 
                   <Group gap="md" wrap="wrap">

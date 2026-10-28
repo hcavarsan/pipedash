@@ -1441,11 +1441,12 @@ mod tests {
             .unwrap();
 
         let result = h.fetch_directly(id).await;
-        let (status, error, _) = h.repository.get_provider_fetch_status(id).await.unwrap();
+        let fetch = h.repository.get_provider_fetch_status(id).await.unwrap();
 
         assert!(matches!(result, FetchResult::Committed(Err(_))));
-        assert_eq!(status, "error");
-        assert!(error.is_some());
+        assert_eq!(fetch.status, "error");
+        assert!(fetch.error.is_some());
+        assert_eq!(fetch.succeeded_at, None);
         assert_eq!(h.bus.count("pipelines-updated"), 0);
     }
 
@@ -1760,26 +1761,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn every_successful_fetch_records_and_publishes_its_time() {
+    async fn a_failed_fetch_keeps_the_time_of_the_last_successful_one() {
         let h = Harness::new().await;
-        let (id, _) = h.add_stub(StubProvider::new).await;
+        let (id, stub) = h.add_stub(StubProvider::new).await;
         h.provider_service.acquire(id).await.unwrap();
-        let fetch_time = || async {
-            h.repository
-                .get_provider_fetch_status(id)
-                .await
-                .unwrap()
-                .2
-                .unwrap()
-        };
+        let fetch_status = || async { h.repository.get_provider_fetch_status(id).await.unwrap() };
 
         h.fetch_directly(id).await;
-        let first = fetch_time().await;
+        let first = fetch_status().await;
         tokio::time::sleep(Duration::from_millis(5)).await;
         h.fetch_directly(id).await;
-        let second = fetch_time().await;
+        let second = fetch_status().await;
+        assert!(second.fetched_at > first.fetched_at);
+        assert_eq!(second.succeeded_at, second.fetched_at);
 
-        assert!(second > first, "{second} should be after {first}");
+        *stub.pipelines.lock().unwrap() = Err(DomainError::NetworkError("offline".into()));
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        h.fetch_directly(id).await;
+        let failed = fetch_status().await;
+        assert!(failed.fetched_at > second.fetched_at);
+        assert_eq!(failed.succeeded_at, second.succeeded_at);
+
         let published = h
             .bus
             .events()
@@ -1787,12 +1789,13 @@ mod tests {
             .rev()
             .find_map(|event| match event {
                 CoreEvent::ProviderStatusUpdated { provider } if provider.id == id => {
-                    provider.last_fetch_at
+                    Some(provider)
                 }
                 _ => None,
             })
             .unwrap();
-        assert_eq!(published.to_rfc3339(), second);
+        assert_eq!(published.last_fetch_at, failed.fetched_at);
+        assert_eq!(published.last_success_at, second.succeeded_at);
     }
 
     #[tokio::test]
@@ -1812,7 +1815,7 @@ mod tests {
         let result = fetch.await.unwrap();
         let status_read = h.repository.get_provider_fetch_status(id);
         tokio::pin!(status_read);
-        let (status, error, _) = loop {
+        let fetch = loop {
             if let std::task::Poll::Ready(read) = futures::poll!(status_read.as_mut()) {
                 break read.unwrap();
             }
@@ -1823,8 +1826,8 @@ mod tests {
             panic!("expected a timeout, got {result:?}");
         };
         assert_eq!(message, "Connection timeout - provider did not respond");
-        assert_eq!(status, "error");
-        assert!(error.unwrap().contains("did not respond"));
+        assert_eq!(fetch.status, "error");
+        assert!(fetch.error.unwrap().contains("did not respond"));
         assert_eq!(
             h.scheduler.view(id, Instant::now()).unwrap().last_failure,
             Some(crate::domain::FailureKind::Timeout)

@@ -27,7 +27,7 @@ import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { mobileService } from '../../services/mobile'
 import { STATUS_META } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
-import type { CellRenderer, PipelineStatus } from '../../types'
+import type { CellRenderer, Pipeline, PipelineStatus } from '../../types'
 import { filterVisibleColumns } from '../../utils/columnBuilder'
 import { type CellValue, renderCellValue } from '../../utils/dynamicRenderers'
 import { displayErrorNotification } from '../../utils/errorDisplay'
@@ -59,7 +59,7 @@ interface WorkflowLogsModalProps {
   runNumber: number
   providerId?: number
   providerType?: string
-  pipelineName: string
+  pipeline: Pipeline | undefined
   canViewLogs: boolean
   canTrigger: boolean
   triggerBlockedReason?: string
@@ -101,9 +101,10 @@ export const WorkflowLogsModal = ({
   rerunInPlace,
   onRerunSuccess,
   onCancelSuccess,
-  pipelineName,
+  pipeline,
   canViewLogs,
 }: WorkflowLogsModalProps) => {
+  const pipelineName = pipeline?.name ?? ''
   const [cancelling, setCancelling] = useState(false)
   const [confirmingRerun, setConfirmingRerun] = useState(false)
   const [cancellationRequestedFor, setCancellationRequestedFor] = useState<string | null>(null)
@@ -205,7 +206,7 @@ export const WorkflowLogsModal = ({
     if (!mobileShell) {
       setCancelling(true)
       try {
-        const requested = await cancelRun.mutateAsync({ pipelineId, runNumber })
+        const requested = await cancelRun.mutateAsync({ pipelineId, runNumber, pipeline, run: runDetails })
         if (requested) {
           setCancellationRequestedFor(`${pipelineId}:${runNumber}`)
           await refetch()
@@ -222,7 +223,7 @@ export const WorkflowLogsModal = ({
     setCancelling(true)
 
     try {
-      if (!(await cancelRun.mutateAsync({ pipelineId, runNumber }))) {
+      if (!(await cancelRun.mutateAsync({ pipelineId, runNumber, pipeline, run: runDetails }))) {
         return
       }
 
@@ -573,7 +574,7 @@ export const WorkflowLogsModal = ({
   const rerunConfirm = (
     <RerunConfirmModal
       run={confirmingRerun && runDetails ? runDetails : null}
-      pipelineName={pipelineName}
+      pipeline={pipeline}
       providerName={providerName}
       onClose={() => setConfirmingRerun(false)}
       onConfirm={handleRerun}

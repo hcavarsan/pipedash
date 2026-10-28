@@ -21,7 +21,7 @@ import { type ReactNode, useId } from 'react'
 import { useNow } from '../../hooks/useNow'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import type { PinKind, Pipeline, PipelineStatus, ProviderSummary, SectionMode, ViewPipeline } from '../../types'
-import { describeFetch, providerTone, TONE_META, worstTone } from '../../utils/fetchInfo'
+import { dataAge, describeFetch, providerTone, TONE_META, worstTone } from '../../utils/fetchInfo'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getStatusLabel, getTriggerBlockReason } from '../../utils/pipelinePresentation'
 import { providerAttention } from '../../utils/providerAttention'
@@ -114,26 +114,39 @@ export interface TableRow {
   pipelines?: ViewPipeline[]
 }
 
-export function RowStatus({ row }: { row: TableRow }) {
-  if (!row.status) {
-    return null
-  }
-
-  const lastActivity = row.lastRun ? formatDateTime(row.lastRun) : 'Never'
-
+export function PipelineStatusBadge({
+  pipeline,
+  provider,
+}: {
+  pipeline: ViewPipeline
+  provider: ProviderSummary | undefined
+}) {
+  const now = useNow(30_000)
+  const age = provider && dataAge(provider, now)
+  const lastActivity = `Last activity: ${pipeline.last_run ? formatDateTime(pipeline.last_run) : 'Never'}`
+  const activity =
+    pipeline.provider_type === 'fluxcd' ? String(pipeline.metadata?.message ?? lastActivity) : lastActivity
   return (
     <Tooltip
       multiline
       maw={480}
       label={
-        row.pipeline?.provider_type === 'fluxcd'
-          ? String(row.pipeline.metadata?.message ?? `Last activity: ${lastActivity}`)
-          : `Last activity: ${lastActivity}`
+        <Stack gap={2}>
+          <Text size="xs">{activity}</Text>
+          {age && <Text size="xs">{age.label}</Text>}
+          {age && <Text size="xs">{age.detail}</Text>}
+        </Stack>
       }
     >
-      <span>
-        <StatusBadge status={row.status} label={row.pipeline ? getStatusLabel(row.pipeline) : undefined} />
-      </span>
+      <Group component="span" gap={4} wrap="nowrap" display="inline-flex" data-raised>
+        <StatusBadge status={pipeline.status} label={getStatusLabel(pipeline)} />
+        {age && age.tone !== 'fresh' && (
+          <>
+            <ToneDot tone={age.tone} />
+            <VisuallyHidden>{age.label}</VisuallyHidden>
+          </>
+        )}
+      </Group>
     </Tooltip>
   )
 }

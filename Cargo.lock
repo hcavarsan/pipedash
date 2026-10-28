@@ -4101,6 +4101,7 @@ dependencies = [
  "pipedash-plugin-github",
  "pipedash-plugin-gitlab",
  "pipedash-plugin-jenkins",
+ "pipedash-plugin-komodo",
  "pipedash-plugin-tekton",
  "rand 0.10.3",
  "regex",
@@ -4147,6 +4148,7 @@ dependencies = [
  "pipedash-plugin-github",
  "pipedash-plugin-gitlab",
  "pipedash-plugin-jenkins",
+ "pipedash-plugin-komodo",
  "pipedash-plugin-tekton",
  "rand 0.10.3",
  "reqwest",
@@ -4344,6 +4346,21 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "futures",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-komodo"
+version = "0.5.0"
+dependencies = [
+ "async-trait",
+ "chrono",
  "pipedash-plugin-api",
  "reqwest",
  "rustls",

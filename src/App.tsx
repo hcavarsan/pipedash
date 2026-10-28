@@ -239,7 +239,9 @@ function AppContent() {
 
   const handleCancel = useCallback(
     async (pipeline: Pipeline, run: PipelineRun) => {
-      if (await cancelRun({ pipelineId: run.pipeline_id, runNumber: run.run_number }).catch(() => false)) {
+      if (
+        await cancelRun({ pipelineId: run.pipeline_id, runNumber: run.run_number, pipeline, run }).catch(() => false)
+      ) {
         refreshProvider(pipeline.provider_id)
       }
     },
@@ -400,7 +402,7 @@ function AppContent() {
           runNumber={logsModal.runNumber}
           providerId={logsPipeline?.provider_id}
           providerType={logsPipeline?.provider_type}
-          pipelineName={logsPipeline?.name ?? ''}
+          pipeline={logsPipeline}
           canViewLogs={!!logsPipeline && !!getPluginByType(logsPipeline.provider_type)?.capabilities.logs}
           canTrigger={!!logsPipeline && !getReconcileBlockReason(logsPipeline)}
           triggerBlockedReason={logsPipeline ? getReconcileBlockReason(logsPipeline) : undefined}

@@ -160,7 +160,7 @@ export interface PipelineViewQuery {
   view: ViewRef
   provider_id?: number
   search?: string
-  status?: PipelineStatus
+  statuses?: PipelineStatus[]
   organization?: string
   date_range?: DateRangeValue
   show_hidden: boolean
@@ -359,6 +359,7 @@ export interface ProviderSummary {
   last_fetch_error: string | null
   last_fetch_error_kind: FailureKind | null
   last_fetch_at: string | null
+  last_success_at: string | null
   paused_until: string | null
   freshness: { state: ProviderTone; stale_at: string | null }
   health: ProviderHealth
