@@ -74,13 +74,17 @@ const runLogPath = (pipelineId: string, runNumber: number, nodeId?: string): str
   return nodeId === undefined ? base : `${base}/${encodeURIComponent(nodeId)}`
 }
 
-const codeFromBody = (body: string): string | undefined => {
+const parseErrorBody = (body: string): { code?: string; message?: string } => {
   try {
     const parsed: unknown = JSON.parse(body)
+    const message =
+      typeof parsed === 'object' && parsed !== null && 'message' in parsed && typeof parsed.message === 'string'
+        ? parsed.message
+        : undefined
 
-    return getErrorCode(parsed)
+    return { code: getErrorCode(parsed), message }
   } catch {
-    return undefined
+    return {}
   }
 }
 
@@ -172,9 +176,10 @@ class ApiClient {
             useAuthStore.getState().incrementFailure()
           }
           const errorText = await res.text()
-          const error = Object.assign(new Error(errorText || `HTTP ${res.status}`), {
+          const { code, message } = parseErrorBody(errorText)
+          const error = Object.assign(new Error(message || errorText || `HTTP ${res.status}`), {
             status: res.status,
-            code: codeFromBody(errorText),
+            code,
           })
 
           throw error
