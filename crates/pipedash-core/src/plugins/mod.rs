@@ -12,6 +12,9 @@ pub fn create_plugin_registry() -> PluginRegistry {
     registry.register(Box::new(pipedash_plugin_gitlab::GitLabPlugin::new()));
     registry.register(Box::new(pipedash_plugin_bitbucket::BitbucketPlugin::new()));
     registry.register(Box::new(pipedash_plugin_buildkite::BuildkitePlugin::new()));
+    registry.register(Box::new(
+        pipedash_plugin_azure_devops::AzureDevOpsPlugin::new(),
+    ));
     registry.register(Box::new(pipedash_plugin_jenkins::JenkinsPlugin::new()));
     registry.register(Box::new(pipedash_plugin_tekton::TektonPlugin::new()));
     registry.register(Box::new(pipedash_plugin_argocd::ArgocdPlugin::new()));
@@ -37,6 +40,9 @@ pub fn create_plugin(provider_type: &str) -> Option<Box<dyn PluginTrait>> {
         "gitlab" => Some(Box::new(pipedash_plugin_gitlab::GitLabPlugin::new())),
         "bitbucket" => Some(Box::new(pipedash_plugin_bitbucket::BitbucketPlugin::new())),
         "buildkite" => Some(Box::new(pipedash_plugin_buildkite::BuildkitePlugin::new())),
+        "azure-devops" => Some(Box::new(
+            pipedash_plugin_azure_devops::AzureDevOpsPlugin::new(),
+        )),
         "jenkins" => Some(Box::new(pipedash_plugin_jenkins::JenkinsPlugin::new())),
         "tekton" => Some(Box::new(pipedash_plugin_tekton::TektonPlugin::new())),
         "argocd" => Some(Box::new(pipedash_plugin_argocd::ArgocdPlugin::new())),

@@ -28,6 +28,7 @@ lz4_flex.workspace = true
 memchr.workspace = true
 pipedash-plugin-api.workspace = true
 pipedash-plugin-argocd.workspace = true
+pipedash-plugin-azure-devops.workspace = true
 pipedash-plugin-bitbucket.workspace = true
 pipedash-plugin-buildkite.workspace = true
 pipedash-plugin-fluxcd.workspace = true

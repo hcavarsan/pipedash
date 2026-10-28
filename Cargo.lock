@@ -4093,6 +4093,7 @@ dependencies = [
  "pipedash-plugin-actions",
  "pipedash-plugin-api",
  "pipedash-plugin-argocd",
+ "pipedash-plugin-azure-devops",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
  "pipedash-plugin-fluxcd",
@@ -4138,6 +4139,7 @@ dependencies = [
  "pipedash-core",
  "pipedash-plugin-api",
  "pipedash-plugin-argocd",
+ "pipedash-plugin-azure-devops",
  "pipedash-plugin-bitbucket",
  "pipedash-plugin-buildkite",
  "pipedash-plugin-fluxcd",
@@ -4210,6 +4212,21 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-azure-devops"
+version = "0.5.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

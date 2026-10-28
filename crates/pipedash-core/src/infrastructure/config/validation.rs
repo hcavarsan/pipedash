@@ -176,6 +176,7 @@ impl ConfigValidator {
                     "gitlab",
                     "bitbucket",
                     "buildkite",
+                    "azure-devops",
                     "jenkins",
                     "tekton",
                     "argocd",
