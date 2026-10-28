@@ -1,6 +1,8 @@
 import { Box } from '@mantine/core'
 import { DataTable, type DataTableProps } from 'mantine-datatable'
 
+const INTERACTIVE_TARGET = 'button, a, input, label, [role="checkbox"]'
+
 export function StandardTable<T>(props: DataTableProps<T>) {
   return (
     <Box
@@ -17,7 +19,17 @@ export function StandardTable<T>(props: DataTableProps<T>) {
       <DataTable<T>
         {...props}
         withTableBorder={false}
-        highlightOnHover
+        rowClassName={props.onRowClick ? 'interactive-surface row-clickable' : 'interactive-surface'}
+        onRowClick={
+          props.onRowClick &&
+          ((params) => {
+            const target = params.event.target as Element
+
+            if (params.event.currentTarget.contains(target) && !target.closest(INTERACTIVE_TARGET)) {
+              props.onRowClick?.(params)
+            }
+          })
+        }
         withColumnBorders={false}
         scrollAreaProps={{
           type: 'auto',

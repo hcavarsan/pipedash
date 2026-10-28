@@ -123,10 +123,6 @@
   background: transparent;
 }
 
-:global(html[data-ios]) :global(.mantine-ActionIcon-root)[data-row-menu]:is(:hover, :active) {
-  background: transparent;
-}
-
 :global(html[data-ios]) .tab:hover:not([data-active]) {
   background: transparent;
   color: inherit;

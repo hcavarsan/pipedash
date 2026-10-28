@@ -70,18 +70,14 @@ try {
       }
     })
     await context.routeWebSocket('**/api/v1/ws', () => {})
-    await context.addInitScript(({ now, pins }) => {
+    await context.addInitScript(({ now }) => {
       const NativeDate = Date
       globalThis.Date = class extends NativeDate {
         constructor(...args) { super(...(args.length ? args : [now])) }
         static now() { return now }
       }
-      localStorage.setItem('pipedash-pinned-pipelines', JSON.stringify({ state: { pinnedKeys: pins }, version: 0 }))
       localStorage.setItem('mantine-color-scheme-value', 'dark')
-    }, {
-      now: fixedNow,
-      pins: [`GitHub:${release.id.replace('__1__', '__')}`, `GitLab:${pipelines[2].id.replace('__2__', '__')}`],
-    })
+    }, { now: fixedNow })
     const page = await context.newPage()
     page.setDefaultTimeout(20_000)
     page.on('pageerror', (error) => failures.push(error.message))

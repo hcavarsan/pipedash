@@ -10,10 +10,7 @@ use chrono::{
     DateTime,
     Utc,
 };
-use dashmap::{
-    DashMap,
-    DashSet,
-};
+use dashmap::DashMap;
 use pipedash_plugin_api::{
     Plugin as PluginTrait,
     PluginRegistry,
@@ -47,6 +44,7 @@ use crate::domain::{
     HealthLevel,
     Provider,
     ProviderConfig,
+    ProviderFreshness,
     ProviderHealth,
     ProviderImportResult,
     ProviderSummary,
@@ -64,6 +62,7 @@ use crate::infrastructure::config::{
     ConfigLoader,
     ConfigState,
     GeneralSettingsUpdate,
+    PipedashConfig,
     ProviderFileConfig,
 };
 use crate::infrastructure::database::{
@@ -142,7 +141,6 @@ pub struct ProviderService {
     health: HealthHandle,
     dispatcher: RefreshDispatcher,
     provider_factory: ProviderFactory,
-    published_in_flight: DashSet<i64>,
     config_apply: Mutex<()>,
     log_store: Arc<LogStore>,
 }
@@ -174,7 +172,6 @@ impl ProviderService {
             health,
             dispatcher,
             provider_factory,
-            published_in_flight: DashSet::new(),
             config_apply: Mutex::new(()),
             log_store,
         }
@@ -392,11 +389,6 @@ impl ProviderService {
     pub(crate) async fn emit_status(&self, id: i64) {
         match self.summary_of(id).await {
             Ok(provider) => {
-                if provider.health.in_flight {
-                    self.published_in_flight.insert(id);
-                } else {
-                    self.published_in_flight.remove(&id);
-                }
                 self.event_bus
                     .emit(CoreEvent::ProviderStatusUpdated { provider })
                     .await;
@@ -405,10 +397,6 @@ impl ProviderService {
                 tracing::warn!(provider_id = id, error = %e, "Failed to build provider summary");
             }
         }
-    }
-
-    pub(crate) fn published_in_flight(&self, id: i64) -> bool {
-        self.published_in_flight.contains(&id)
     }
 
     async fn summary_of(&self, id: i64) -> DomainResult<ProviderSummary> {
@@ -451,6 +439,21 @@ impl ProviderService {
             .providers
             .get(&id)
             .filter(|state| Some(state.generation) == generation);
+        let last_fetch_at = last_fetch_at.and_then(|at| {
+            DateTime::parse_from_rfc3339(&at)
+                .ok()
+                .map(|at| at.with_timezone(&Utc))
+        });
+        let paused_until = self.scheduler.paused_until(id, wall);
+        let level = state.map_or(HealthLevel::Operational, |state| state.level);
+        let freshness = ProviderFreshness::compute(
+            &last_fetch_status,
+            level,
+            last_fetch_at,
+            paused_until,
+            config.refresh_interval,
+            wall,
+        );
 
         Ok(ProviderSummary {
             id,
@@ -466,15 +469,11 @@ impl ProviderService {
             configured_repositories: configured_repositories(config),
             last_fetch_status,
             last_fetch_error,
-            last_fetch_at: last_fetch_at.and_then(|at| {
-                DateTime::parse_from_rfc3339(&at)
-                    .ok()
-                    .map(|at| at.with_timezone(&Utc))
-            }),
-            paused_until: self.scheduler.paused_until(id, wall),
+            last_fetch_at,
+            paused_until,
             last_fetch_error_kind: view.as_ref().and_then(|view| view.last_failure),
             health: ProviderHealth {
-                level: state.map_or(HealthLevel::Operational, |state| state.level),
+                level,
                 signals: state.map(|state| state.signals.clone()).unwrap_or_default(),
                 next_attempt_at: view
                     .as_ref()
@@ -491,6 +490,7 @@ impl ProviderService {
                 status_page: state.and_then(|state| state.status_page.clone()),
             },
             version: config.version.unwrap_or(1),
+            freshness,
         })
     }
 
@@ -640,7 +640,11 @@ impl ProviderService {
 
     pub async fn apply_config_file(&self, config_state: &ConfigState) -> DomainResult<SyncResult> {
         let _apply = self.config_apply.lock().await;
-        let file = config_state.load_providers()?;
+        let PipedashConfig {
+            providers: file,
+            views,
+            ..
+        } = config_state.load_file()?;
         let current = config_state.get().await;
         let changed: Vec<(String, ProviderFileConfig)> = file
             .iter()
@@ -683,6 +687,10 @@ impl ProviderService {
                 "Applied provider changes from config file"
             );
             self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+        }
+        if current.views != views {
+            config_state.remember_views(views).await;
+            self.event_bus.emit(CoreEvent::PipelineViewsChanged).await;
         }
         config_state.remember_providers(file).await;
 
@@ -916,7 +924,6 @@ impl ProviderService {
         self.providers.write().await.remove(&id);
         self.purge_run_logs(id).await;
         self.scheduler.remove(id);
-        self.published_in_flight.remove(&id);
         self.health.send(HealthInput::ProvidersChanged {
             changed: vec![ProviderHealthInput {
                 id,

@@ -4,6 +4,7 @@ use super::schema::{
     PipedashConfig,
     ProviderFileConfig,
     StorageBackend,
+    ViewFileConfig,
 };
 
 #[derive(Debug, Default)]
@@ -120,6 +121,7 @@ impl ConfigValidator {
 
         Self::validate_storage(&config.storage, &mut result);
         Self::validate_providers(&config.providers, &mut result);
+        Self::validate_views(&config.views, &mut result);
 
         result
     }
@@ -211,6 +213,53 @@ impl ConfigValidator {
             }
         }
     }
+
+    fn validate_views(views: &IndexMap<String, ViewFileConfig>, result: &mut ValidationResult) {
+        for (key, view) in views {
+            let prefix = format!("views.{key}");
+
+            if key.is_empty() {
+                result.add_error(ConfigError {
+                    field: "views".to_string(),
+                    message: "View ID (table key) cannot be empty".to_string(),
+                    code: ConfigErrorCode::MissingRequired,
+                });
+            }
+
+            if view.name.trim().is_empty() {
+                result.add_error(ConfigError {
+                    field: format!("{prefix}.name"),
+                    message: "View name is required".to_string(),
+                    code: ConfigErrorCode::MissingRequired,
+                });
+            }
+
+            if view.providers.is_empty()
+                && view.repositories.is_empty()
+                && view
+                    .name_contains
+                    .as_deref()
+                    .is_none_or(|s| s.trim().is_empty())
+                && view.statuses.is_empty()
+            {
+                result.add_error(ConfigError {
+                    field: prefix.clone(),
+                    message: "Config view needs at least one of providers, repositories, name_contains or statuses".to_string(),
+                    code: ConfigErrorCode::MissingRequired,
+                });
+            }
+
+            for pattern in &view.repositories {
+                if let Err(e) = glob::Pattern::new(pattern.trim()) {
+                    result.add_error(ConfigError {
+                        field: format!("{prefix}.repositories"),
+                        message: format!("Invalid repository pattern \"{pattern}\": {e}"),
+                        code: ConfigErrorCode::InvalidValue,
+                    });
+                }
+            }
+        }
+    }
 }
 
 impl PipedashConfig {
@@ -264,6 +313,38 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.field.contains(".type") && e.code == ConfigErrorCode::MissingRequired));
+    }
+
+    #[test]
+    fn validate_views_rejects_a_view_without_rules() {
+        let mut config = PipedashConfig::default();
+        config.views.insert(
+            "release".to_string(),
+            ViewFileConfig {
+                name: "Release".to_string(),
+                ..Default::default()
+            },
+        );
+        config.views.insert(
+            "broken".to_string(),
+            ViewFileConfig {
+                name: "Broken".to_string(),
+                repositories: vec!["acme/[".to_string()],
+                ..Default::default()
+            },
+        );
+
+        let result = config.validate();
+
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.field == "views.release" && e.code == ConfigErrorCode::MissingRequired));
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.field == "views.broken.repositories"
+                && e.code == ConfigErrorCode::InvalidValue));
     }
 
     #[test]

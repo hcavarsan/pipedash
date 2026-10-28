@@ -1,20 +1,14 @@
-import { Image, Indicator, Text, ThemeIcon } from '@mantine/core'
-import { IconAlertOctagon, IconAlertTriangle } from '@tabler/icons-react'
+import { Box, Image, Text, ThemeIcon } from '@mantine/core'
+import { IconInfoCircleFilled } from '@tabler/icons-react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { withBasePath } from '../../../lib/basePath'
-import type { AttentionTone } from '../../../utils/providerAttention'
 
 interface ProviderIconProps {
   name: string
   icon: string | null
   size: number
-  attention?: { tone: AttentionTone; label: string }
-}
-
-const TONE_COLOR: Record<AttentionTone, string> = {
-  warning: 'orange',
-  danger: 'red',
+  badge?: { color: string; label: string }
 }
 
 const initials = (name: string) => {
@@ -23,21 +17,17 @@ const initials = (name: string) => {
   return (words.length > 1 ? `${words[0][0]}${words[1][0]}` : words[0].slice(0, 2)).toUpperCase()
 }
 
-export const ProviderIcon = ({ name, icon, size, attention }: ProviderIconProps) => {
+export const ProviderIcon = ({ name, icon, size, badge }: ProviderIconProps) => {
   const mobileShell = useMobileShell()
   const fontSize = size <= 24 ? 'xs' : size <= 32 ? 'sm' : size <= 40 ? 'md' : size <= 48 ? 'lg' : 'xl'
-  const AttentionIcon = attention?.tone === 'danger' ? IconAlertOctagon : IconAlertTriangle
 
   return (
-    <Indicator
-      color={attention ? TONE_COLOR[attention.tone] : 'gray'}
-      size={Math.max(mobileShell ? 8 : 16, size / 3)}
-      offset={1}
-      withBorder
-      disabled={!attention}
-      role={attention ? 'img' : undefined}
-      aria-label={attention?.label}
-      label={!mobileShell && attention ? <AttentionIcon size={14} aria-hidden /> : undefined}
+    <Box
+      pos="relative"
+      display="inline-flex"
+      style={{ flexShrink: 0 }}
+      role={badge ? 'img' : undefined}
+      aria-label={badge ? `${name}: ${badge.label}` : undefined}
     >
       <ThemeIcon size={size} variant="transparent" color="gray" aria-hidden>
         {icon ? (
@@ -48,6 +38,20 @@ export const ProviderIcon = ({ name, icon, size, attention }: ProviderIconProps)
           </Text>
         )}
       </ThemeIcon>
-    </Indicator>
+      {badge && (
+        <IconInfoCircleFilled
+          size={Math.max(10, Math.round(size * 0.45))}
+          color={badge.color}
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: -3,
+            right: -3,
+            borderRadius: '50%',
+            background: 'var(--mantine-color-body)',
+          }}
+        />
+      )}
+    </Box>
   )
 }

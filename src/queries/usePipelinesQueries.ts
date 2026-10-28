@@ -9,12 +9,19 @@ import type { Pipeline, ProviderSummary } from '../types'
 export function invalidateProviderPipelines(queryClient: QueryClient, providerId: number) {
   queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list({ providerId }), exact: true })
   queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
+  invalidateViewPages(queryClient)
+}
+
+function invalidateViewPages(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
+  queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
 }
 
 export function setProviderPipelines(queryClient: QueryClient, providerId: number, pipelines: Pipeline[]) {
   const allKey = queryKeys.pipelines.list()
 
   queryClient.setQueryData(queryKeys.pipelines.list({ providerId }), pipelines)
+  invalidateViewPages(queryClient)
 
   if (queryClient.getQueryData(allKey) === undefined) {
     queryClient.invalidateQueries({ queryKey: allKey, exact: true })

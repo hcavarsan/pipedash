@@ -17,6 +17,7 @@ export const providers = [
   id: index + 1, name, provider_type, icon: `/provider-icons/${provider_type}.svg`, pipeline_count: 2,
   last_updated: ago(1), refresh_interval: 60, configured_repositories: [], last_fetch_status: 'success',
   last_fetch_error: null, last_fetch_error_kind: null, last_fetch_at: ago(1), paused_until: null,
+  freshness: index === 0 ? { state: 'down', stale_at: null } : { state: 'fresh', stale_at: ago(-9) },
   health: index === 0 ? {
     ...healthy, level: 'partial_outage',
     status_page: { name: 'GitHub', url: 'https://www.githubstatus.com/', checked_at: ago(1), error: null, components, other_incidents: [] },
@@ -145,6 +146,42 @@ const aggregated = ({ metric_type, aggregation_period }) => ({
   })),
 })
 export const fixedNow = now
+const viewRules = { provider_ids: [], repositories: [], name_contains: null, statuses: [] }
+const viewCapabilities = (pinned) => ({ rename: false, delete: false, edit_rules: false, edit_members: pinned, edit_display: true, reorder: pinned })
+const pinnedPipelines = [release, pipelines[2]]
+const viewPipeline = (pipeline) => ({ ...pipeline, organization: pipeline.repository.split('/')[0], pinned: pinnedPipelines.includes(pipeline), hidden: false, memberships: [] })
+export const pipelineViews = [
+  { id: 'all', kind: 'all', name: 'All pipelines', rules: viewRules, display: { sort: 'name', direction: 'asc', sections: 'repository', layout: 'table' }, capabilities: viewCapabilities(false), count: pipelines.length, parent: null },
+  { id: 'pinned', kind: 'pinned', name: 'Pinned', rules: viewRules, display: { sort: 'manual', direction: 'asc', sections: 'none', layout: 'cards' }, capabilities: viewCapabilities(true), count: pinnedPipelines.length, parent: null },
+]
+const viewSection = (id, kind, title, members) => ({
+  id, kind, title, organization: kind === 'none' ? null : members[0].repository.split('/')[0],
+  provider_ids: [...new Set(members.map((pipeline) => pipeline.provider_id))].sort((a, b) => a - b),
+  status: null, status_pipeline_id: null, last_run: members.map((pipeline) => pipeline.last_run).sort().at(-1) ?? null,
+  pending_fetch: false, pipelines: members.map(viewPipeline),
+})
+function pipelinePage(viewId) {
+  const pinned = viewId === 'pinned'
+  const members = pinned ? pinnedPipelines : pipelines
+  const sections = pinned
+    ? [viewSection('all', 'none', '', members)]
+    : [...new Set(members.map((pipeline) => pipeline.repository))]
+        .map((repository) => viewSection(`repo:${repository}`, 'repository', repository.split('/').slice(1).join('/'), members.filter((pipeline) => pipeline.repository === repository)))
+        .sort((a, b) => a.title.localeCompare(b.title))
+  return {
+    view: pipelineViews.find((view) => view.id === viewId) ?? pipelineViews[0],
+    pinned: pinned ? [] : pinnedPipelines.map(viewPipeline),
+    pinned_blocks: [],
+    sections,
+    total: sections.reduce((sum, section) => sum + section.pipelines.length, 0),
+    hidden_count: 0,
+    filters_active: false,
+    facets: {
+      organizations: [...new Set(members.map((pipeline) => pipeline.repository.split('/')[0]))].sort(),
+      provider_ids: [...new Set(members.map((pipeline) => pipeline.provider_id))].sort((a, b) => a - b),
+    },
+  }
+}
 export function mockResponse(method, url, body = null) {
   const path = decodeURIComponent(url.pathname.replace('/api/v1', ''))
   // Metrics are queried with POST; that is the only non-GET request a capture may make.
@@ -154,6 +191,9 @@ export function mockResponse(method, url, body = null) {
   if (path === '/vault/status') return { is_unlocked: true, password_source: 'none', backend: 'sqlite', requires_password: false }
   if (path === '/providers') return providers
   if (path === '/plugins') return plugins
+  if (path === '/pipeline-views') return pipelineViews
+  if (path === '/pipeline-views/pins') return []
+  if (path === '/pipeline-views/page') return pipelinePage(url.searchParams.get('view') ?? 'all')
   if (path === '/health') return { version: '0.4.0' }
   if (path === '/pipelines/cached') return pipelines.filter((pipeline) => !url.searchParams.has('provider_id') || pipeline.provider_id === Number(url.searchParams.get('provider_id')))
   if (/^\/providers\/[1-4]\/table-schema$/.test(path)) return tableSchema

@@ -135,43 +135,19 @@ export const WindowControls = () => {
   return (
     <Group gap={0} h="100%" style={{ WebkitAppRegion: 'no-drag' }}>
       <Tooltip label="Minimize window">
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          h="100%"
-          w={46}
-          radius={0}
-          onClick={handleMinimize}
-          aria-label="Minimize window"
-        >
+        <ActionIcon h="100%" w={46} radius={0} onClick={handleMinimize} aria-label="Minimize window">
           <IconMinus size={14} stroke={1.5} />
         </ActionIcon>
       </Tooltip>
 
       <Tooltip label={maximizeLabel}>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
-          h="100%"
-          w={46}
-          radius={0}
-          onClick={handleMaximize}
-          aria-label={maximizeLabel}
-        >
+        <ActionIcon h="100%" w={46} radius={0} onClick={handleMaximize} aria-label={maximizeLabel}>
           {isMaximized ? <IconSquares size={14} stroke={1.5} /> : <IconSquare size={14} stroke={1.5} />}
         </ActionIcon>
       </Tooltip>
 
       <Tooltip label="Close window">
-        <ActionIcon
-          variant="subtle"
-          color="red"
-          h="100%"
-          w={46}
-          radius={0}
-          onClick={handleClose}
-          aria-label="Close window"
-        >
+        <ActionIcon color="red" h="100%" w={46} radius={0} onClick={handleClose} aria-label="Close window">
           <IconX size={14} stroke={1.5} />
         </ActionIcon>
       </Tooltip>

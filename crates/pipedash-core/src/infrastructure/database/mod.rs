@@ -1,6 +1,7 @@
 use std::path::Path;
 
 mod metrics_repository;
+mod pipeline_view_repository;
 mod push_repository;
 mod repository;
 mod schema;
@@ -12,6 +13,13 @@ mod postgres_backend;
 pub use metrics_repository::{
     MetricsRepository,
     RecordMetrics,
+};
+pub use pipeline_view_repository::{
+    PipelineViewRepository,
+    StoredMember,
+    StoredPin,
+    StoredView,
+    ViewExport,
 };
 #[cfg(feature = "postgres")]
 pub use postgres_backend::PostgresConfigBackend;

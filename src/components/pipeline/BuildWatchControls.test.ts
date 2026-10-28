@@ -45,6 +45,21 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
   const os = { platform: 'ios' }
   const callbacks = new Map<number, (event: unknown) => void>()
   let nextCallback = 0
+  let pinnedInView = false
+  const display = { sort: 'name', direction: 'asc', sections: 'repository', layout: 'table' }
+  const capabilities = {
+    rename: false,
+    delete: false,
+    edit_rules: false,
+    edit_members: true,
+    edit_display: true,
+    reorder: true,
+  }
+  const rules = { provider_ids: [], repositories: [], name_contains: null, statuses: [] }
+  const views = [
+    { id: 'all', kind: 'all', name: 'All pipelines', rules, display, capabilities, count: 1 },
+    { id: 'pinned', kind: 'pinned', name: 'Pinned', rules, display, capabilities, count: 0 },
+  ]
 
   Object.assign(window, {
     __TAURI_OS_PLUGIN_INTERNALS__: os,
@@ -83,6 +98,31 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
             nativeChange = () => callback({ event: 'build-watch-changed', id: 1, payload: null })
             return 1
           }
+          case 'list_pipeline_views':
+            return views
+          case 'get_pipeline_view_page': {
+            const query = args?.query as { view: string }
+            const viewPipeline = {
+              ...pipeline,
+              organization: 'owner',
+              pinned: pinnedInView,
+              hidden: false,
+              memberships: [],
+            }
+            return {
+              view: views.find((view) => view.id === query.view) ?? views[0],
+              pinned: pinnedInView ? [viewPipeline] : [],
+              pinned_blocks: [],
+              sections: [],
+              total: 0,
+              hidden_count: 0,
+              filters_active: false,
+              facets: { organizations: [], provider_ids: [] },
+            }
+          }
+          case 'get_available_plugins':
+          case 'list_pins':
+            return []
           case 'plugin:event|unlisten':
           case 'native_open_settings':
             return
@@ -101,8 +141,8 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
   const { useBuildWatchLifecycle } = await import('../../queries/useBuildWatchQueries')
   const { MemoryRouter, Route, Routes } = await import('react-router-dom')
   const { UnifiedPipelinesView } = await import('../table/UnifiedPipelinesView')
-  const { pinKey, usePinnedStore } = await import('../../stores/pinnedStore')
   const { queryKeys } = await import('../../lib/queryKeys')
+  const { PluginProvider } = await import('../../contexts/PluginContext')
   const { BuildWatchControls, BuildWatchSection } = await import('./BuildWatchControls')
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const view = () => within(document.body)
@@ -138,6 +178,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     last_fetch_error_kind: null,
     last_fetch_at: null,
     paused_until: null,
+    freshness: { state: 'never', stale_at: null },
     health: { level: 'operational', signals: [], next_attempt_at: null, in_flight: false, status_page: null },
   }
 
@@ -155,22 +196,25 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     const onViewRun = (id: string, number: number) => opened.push([id, number])
     const content = options.page
       ? createElement(
-          Routes,
+          PluginProvider,
           null,
-          createElement(Route, {
-            path: '/pipelines',
-            element: createElement(UnifiedPipelinesView, {
-              pipelines: [pipeline],
-              providers: [provider],
-              loading: options.loading,
-              error: options.error,
-              onRetry: () => {},
-              onTrigger: () => {},
-              onViewHistory: () => {},
-              onViewRun,
+          createElement(
+            Routes,
+            null,
+            createElement(Route, {
+              path: '/pipelines',
+              element: createElement(UnifiedPipelinesView, {
+                providers: [provider],
+                loading: options.loading,
+                error: options.error,
+                onRetry: () => {},
+                onTrigger: () => {},
+                onViewHistory: () => {},
+                onViewRun,
+              }),
             }),
-          }),
-          createElement(Route, { path: '*', element: createElement('div', null, 'Other page') })
+            createElement(Route, { path: '*', element: createElement('div', null, 'Other page') })
+          )
         )
       : createElement(
           Fragment,
@@ -209,7 +253,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     await act(async () => cleanup())
     client.clear()
     notifications.clean()
-    usePinnedStore.setState({ pinnedKeys: [] })
+    pinnedInView = false
     calls.length = 0
     nativeStatus = available()
     failure = null
@@ -371,7 +415,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
 
   test('the main pipelines list places the watched run above pinned and keeps its actions local', async () => {
     nativeStatus = { ...available(), watch: { ...snapshot } }
-    usePinnedStore.setState({ pinnedKeys: [pinKey(pipeline, provider.name)] })
+    pinnedInView = true
     const opened = mount({ page: '/pipelines' })
     const section = await view().findByRole('region', { name: 'Watching' })
     const pinned = view().getByRole('region', { name: 'Pinned' })

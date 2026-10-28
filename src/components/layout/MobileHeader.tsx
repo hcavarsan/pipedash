@@ -1,5 +1,5 @@
 import { ActionIcon } from '@mantine/core'
-import { IconChevronLeft, IconLock, IconPlus, IconRefresh } from '@tabler/icons-react'
+import { IconChevronLeft, IconLock, IconPlus } from '@tabler/icons-react'
 import { type CSSProperties, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
@@ -10,6 +10,7 @@ import { type BarSnapshot, useMobileNavStore } from '../../stores/mobileNavStore
 import { useProviderStore } from '../../stores/providerStore'
 import { lockMeansSomething } from '../../utils/appLock'
 import { ConnectionStatus } from '../common/ConnectionStatus'
+import { RefreshButton } from '../common/RefreshButton'
 
 import classes from './MobileHeader.module.css'
 import { mobileChrome } from './mobileChrome'
@@ -174,13 +175,7 @@ export function MobileHeader() {
   })
 
   const lock = canLock ? (
-    <ActionIcon
-      variant="subtle"
-      color="gray"
-      aria-label="Lock Pipedash"
-      loading={lockMutation.isPending}
-      onClick={() => lockMutation.mutate()}
-    >
+    <ActionIcon aria-label="Lock Pipedash" loading={lockMutation.isPending} onClick={() => lockMutation.mutate()}>
       <IconLock size={22} />
     </ActionIcon>
   ) : null
@@ -188,23 +183,15 @@ export function MobileHeader() {
   const actions = (
     <>
       {refreshable && (
-        <ActionIcon
-          variant="subtle"
-          color="gray"
+        <RefreshButton
+          iconSize={22}
           aria-label="Refresh all"
-          data-refreshing={refreshAll.isPending || undefined}
-          aria-busy={refreshAll.isPending}
-          onClick={() => {
-            if (!refreshAll.isPending) {
-              refreshAll.mutate()
-            }
-          }}
-        >
-          <IconRefresh size={22} />
-        </ActionIcon>
+          pending={refreshAll.isPending}
+          onClick={() => refreshAll.mutate()}
+        />
       )}
       {tab === 'providers' && (
-        <ActionIcon variant="subtle" color="blue" aria-label="Add provider" onClick={openAddProviderModal}>
+        <ActionIcon color="blue" aria-label="Add provider" onClick={openAddProviderModal}>
           <IconPlus size={24} />
         </ActionIcon>
       )}

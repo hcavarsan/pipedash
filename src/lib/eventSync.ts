@@ -138,6 +138,14 @@ export function useEventSync() {
       queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
     })
 
+    register<EventPayloadMap['pipeline-views-changed']>('pipeline-views-changed', () => {
+      logger.debug('EventSync', 'pipeline-views-changed')
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() })
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })
+    })
+
     register<EventPayloadMap['pipelines-updated']>('pipelines-updated', async (payload) => {
       if (!payload?.pipelines || payload.providerId === undefined) {
         logger.warn('EventSync', 'pipelines-updated: Invalid payload, invalidating cache', payload)

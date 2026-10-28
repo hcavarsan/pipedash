@@ -1,10 +1,16 @@
-import { ActionIcon, Group, Loader, Menu, Text, Tooltip, VisuallyHidden } from '@mantine/core'
+import { ActionIcon, Group, Loader, Menu, Stack, Text, Tooltip, UnstyledButton, VisuallyHidden } from '@mantine/core'
 import {
   IconChartLine,
+  IconChevronDown,
+  IconChevronRight,
   IconDots,
   IconEye,
   IconEyeOff,
+  IconFolderMinus,
+  IconFolderOpen,
+  IconFolderPlus,
   IconHistory,
+  IconInfoCircle,
   IconPin,
   IconPinFilled,
   IconPlayerPlayFilled,
@@ -12,13 +18,17 @@ import {
 } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
 
+import { useNow } from '../../hooks/useNow'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
+import type { PinKind, Pipeline, PipelineStatus, ProviderSummary, SectionMode, ViewPipeline } from '../../types'
+import { describeFetch, providerTone, TONE_META, worstTone } from '../../utils/fetchInfo'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getStatusLabel, getTriggerBlockReason } from '../../utils/pipelinePresentation'
 import { providerAttention } from '../../utils/providerAttention'
 import { StatusBadge } from '../atoms/StatusBadge'
+import { ToneDot } from '../atoms/ToneDot'
 import type { ContextMenuItem } from '../common/ContextMenu'
+import { RefreshButton } from '../common/RefreshButton'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import type { SwipeAction } from '../ios/SwipeActions'
 
@@ -26,14 +36,24 @@ interface SectionHeadingProps {
   id?: string
   icon: ReactNode
   label: string
+  info?: ReactNode
+  actions?: ReactNode
   count: number
+  expanded?: boolean
+  onToggle?: () => void
 }
 
-export function SectionHeading({ id, icon, label, count }: SectionHeadingProps) {
-  return (
-    <Group gap="xs">
+export function SectionHeading({ id, icon, label, info, actions, count, expanded, onToggle }: SectionHeadingProps) {
+  const content = (
+    <Group gap="xs" wrap="nowrap">
+      {onToggle &&
+        (expanded ? (
+          <IconChevronDown size={16} style={{ flexShrink: 0 }} aria-hidden />
+        ) : (
+          <IconChevronRight size={16} style={{ flexShrink: 0 }} aria-hidden />
+        ))}
       {icon}
-      <Text id={id} size="sm" fw={600}>
+      <Text id={id} size="sm" fw={600} truncate>
         {label}
       </Text>
       <Text size="sm" c="dimmed">
@@ -41,13 +61,47 @@ export function SectionHeading({ id, icon, label, count }: SectionHeadingProps) 
       </Text>
     </Group>
   )
+
+  const heading = onToggle ? (
+    <UnstyledButton
+      className="item-primary"
+      px="2xs"
+      py="3xs"
+      miw={0}
+      maw="100%"
+      onClick={onToggle}
+      aria-expanded={expanded}
+    >
+      {content}
+    </UnstyledButton>
+  ) : (
+    content
+  )
+
+  return info || actions || onToggle ? (
+    <Group
+      gap="3xs"
+      wrap="nowrap"
+      maw="100%"
+      bdrs="sm"
+      className={onToggle ? 'interactive-surface stretched' : undefined}
+      style={{ alignSelf: 'flex-start' }}
+    >
+      {heading}
+      {info}
+      {actions}
+    </Group>
+  ) : (
+    heading
+  )
 }
 
 export interface TableRow {
   id: string
-  type: 'repository' | 'workflow'
+  type: 'section' | 'workflow'
   name: string
-  pinKey?: string
+  depth?: number
+  kind?: SectionMode | 'view'
   expanded?: boolean
   organization?: string
   pipelineCount?: number
@@ -55,9 +109,9 @@ export interface TableRow {
   providerLabel?: string
   hasPendingFetch?: boolean
   status?: PipelineStatus | null
-  statusLabel?: string
   lastRun?: string | null
-  pipeline?: Pipeline
+  pipeline?: ViewPipeline
+  pipelines?: ViewPipeline[]
 }
 
 export function RowStatus({ row }: { row: TableRow }) {
@@ -65,7 +119,6 @@ export function RowStatus({ row }: { row: TableRow }) {
     return null
   }
 
-  const prefix = row.type === 'repository' ? 'Most severe workflow status. ' : ''
   const lastActivity = row.lastRun ? formatDateTime(row.lastRun) : 'Never'
 
   return (
@@ -75,11 +128,11 @@ export function RowStatus({ row }: { row: TableRow }) {
       label={
         row.pipeline?.provider_type === 'fluxcd'
           ? String(row.pipeline.metadata?.message ?? `Last activity: ${lastActivity}`)
-          : `${prefix}Last activity: ${lastActivity}`
+          : `Last activity: ${lastActivity}`
       }
     >
       <span>
-        <StatusBadge status={row.status} label={row.pipeline ? getStatusLabel(row.pipeline) : row.statusLabel} />
+        <StatusBadge status={row.status} label={row.pipeline ? getStatusLabel(row.pipeline) : undefined} />
       </span>
     </Tooltip>
   )
@@ -97,14 +150,112 @@ export function RepositoryFetchIndicator({ row }: { row: TableRow }) {
   )
 }
 
-interface WorkflowActionsProps {
-  pipeline: Pipeline
-  isPinned: boolean
-  onTogglePin: () => void
-  isHidden?: boolean
-  onToggleHidden?: () => void
-  onTrigger: (pipeline: Pipeline) => void
-  onViewMetrics?: (pipeline: Pipeline) => void
+export function FetchInfo({ providers }: { providers: ProviderSummary[] }) {
+  const now = useNow(30_000)
+  const openNotifications = useNotificationCenterStore((state) => state.open)
+  const worst = worstTone(providers.map((provider) => providerTone(provider, now)))
+
+  if (providers.length === 0) {
+    return null
+  }
+
+  const openProvider = (provider: ProviderSummary) => openNotifications({ type: 'provider', providerId: provider.id })
+  const [only] = providers
+  const button = (
+    <ActionIcon
+      variant="transparent"
+      color="gray"
+      c={TONE_META[worst].color}
+      size="sm"
+      aria-label="Fetch info"
+      onClick={providers.length === 1 ? () => openProvider(only) : undefined}
+    >
+      <IconInfoCircle size={16} />
+    </ActionIcon>
+  )
+  const icon = (
+    <Tooltip
+      multiline
+      maw={420}
+      events={{ hover: true, focus: true, touch: false }}
+      label={
+        <Stack gap="xs">
+          {providers.map((provider) => {
+            const info = describeFetch(provider, now)
+            const tone = providerTone(provider, now)
+
+            return (
+              <Stack key={provider.id} gap={0}>
+                <Group gap="xs" wrap="nowrap">
+                  <ToneDot tone={tone} />
+                  <Text size="xs" fw={600}>
+                    {info.name} · {TONE_META[tone].label}
+                  </Text>
+                </Group>
+                <Text size="xs">Last fetch: {info.lastFetch}</Text>
+                <Text size="xs">Status: {info.status}</Text>
+              </Stack>
+            )
+          })}
+        </Stack>
+      }
+    >
+      {providers.length < 2 ? button : <Menu.Target>{button}</Menu.Target>}
+    </Tooltip>
+  )
+
+  if (providers.length < 2) {
+    return icon
+  }
+
+  return (
+    <Menu position="bottom-end">
+      {icon}
+      <Menu.Dropdown>
+        {providers.map((provider) => (
+          <Menu.Item
+            key={provider.id}
+            leftSection={<ToneDot tone={providerTone(provider, now)} />}
+            onClick={() => openProvider(provider)}
+          >
+            {provider.name}
+          </Menu.Item>
+        ))}
+        <ActionSheetCancel />
+      </Menu.Dropdown>
+    </Menu>
+  )
+}
+
+export function RowFetchInfo({
+  row,
+  getProvider,
+}: {
+  row: TableRow
+  getProvider: (providerId: number) => ProviderSummary | undefined
+}) {
+  return <FetchInfo providers={Array.from(row.providerIds ?? [], getProvider).flatMap((p) => p ?? [])} />
+}
+
+export interface PipelineActions {
+  onTogglePin: (p: ViewPipeline) => void
+  onToggleHidden: (p: ViewPipeline) => void
+  onAddToView: (p: ViewPipeline) => void
+  onRemoveFromView?: (p: ViewPipeline) => void
+  removeLabel?: string
+  onTrigger: (p: Pipeline) => void
+  onViewMetrics?: (p: Pipeline) => void
+  onViewHistory: (p: Pipeline) => void
+  onOpenView: (viewId: string) => void
+  onRefreshProviders: (providerIds: number[]) => void
+  isRefreshing: (providerIds: number[]) => boolean
+  pinItem: (kind: PinKind, ref: string) => WorkflowMenuItem
+  cancelItem: (label: string, pipelines: ViewPipeline[]) => WorkflowMenuItem | null
+}
+
+export interface PipelineSelection {
+  selected: Set<string>
+  onToggle: (pipeline: ViewPipeline) => void
 }
 
 type WorkflowMenuItem = Extract<ContextMenuItem, { label: string }>
@@ -112,67 +263,85 @@ type WorkflowMenuItem = Extract<ContextMenuItem, { label: string }>
 export const triggerIcon = (pipeline: Pipeline) =>
   pipeline.provider_type === 'fluxcd' ? <IconRefresh size={16} /> : <IconPlayerPlayFilled size={16} />
 
-export function workflowMenuItems({
-  pipeline,
-  isPinned,
-  onTogglePin,
-  isHidden = false,
-  onToggleHidden,
-  onTrigger,
-  onViewMetrics,
-  onViewHistory,
-}: WorkflowActionsProps & { onViewHistory: (pipeline: Pipeline) => void }): WorkflowMenuItem[] {
-  const labels = getPipelineLabels(pipeline.provider_type)
-  const history: WorkflowMenuItem = {
-    label: labels.history,
-    icon: <IconHistory size={16} />,
-    onClick: () => onViewHistory(pipeline),
-  }
-  const trigger: WorkflowMenuItem = {
-    label: labels.trigger,
-    icon: triggerIcon(pipeline),
-    disabled: Boolean(getTriggerBlockReason(pipeline)),
-    onClick: () => onTrigger(pipeline),
-  }
-  const pin: WorkflowMenuItem = {
-    label: isPinned ? 'Unpin' : 'Pin',
-    icon: isPinned ? <IconPinFilled size={16} /> : <IconPin size={16} />,
-    onClick: onTogglePin,
-  }
-  const hide: WorkflowMenuItem[] = onToggleHidden
-    ? [
-        {
-          label: isHidden ? 'Unhide' : 'Hide',
-          icon: isHidden ? <IconEye size={16} /> : <IconEyeOff size={16} />,
-          onClick: onToggleHidden,
-        },
-      ]
-    : []
+export const repositoryRef = (sectionId: string) => sectionId.slice('repo:'.length)
 
-  if (!onViewMetrics) {
-    return [history, trigger, pin, ...hide]
+export const viewRef = (sectionId: string) => sectionId.slice('view:'.length)
+
+export const refreshItem = (providerIds: number[], actions: PipelineActions): WorkflowMenuItem => ({
+  label: 'Refresh',
+  icon: <IconRefresh size={16} />,
+  disabled: actions.isRefreshing(providerIds),
+  onClick: () => actions.onRefreshProviders(providerIds),
+})
+
+export const rowMenuItems = (row: TableRow, actions: PipelineActions): WorkflowMenuItem[] => {
+  if (row.type !== 'section') {
+    return []
   }
 
-  return [
-    history,
-    { label: 'View metrics', icon: <IconChartLine size={16} />, onClick: () => onViewMetrics(pipeline) },
-    trigger,
-    pin,
-    ...hide,
-  ]
+  const cancel = actions.cancelItem(row.name, row.pipelines ?? [])
+  const items: WorkflowMenuItem[] =
+    row.kind === 'repository'
+      ? [actions.pinItem('repository', repositoryRef(row.id))]
+      : row.kind === 'view'
+        ? [
+            {
+              label: 'Open view',
+              icon: <IconFolderOpen size={16} />,
+              onClick: () => actions.onOpenView(viewRef(row.id)),
+            },
+          ]
+        : []
+
+  return cancel ? [...items, cancel] : items
 }
 
-export function WorkflowActions({
-  pipeline,
-  isPinned,
-  onTogglePin,
-  isHidden = false,
-  onToggleHidden,
-  onTrigger,
-  onViewMetrics,
-}: WorkflowActionsProps) {
-  const pinLabel = `${isPinned ? 'Unpin' : 'Pin'} ${pipeline.name}`
-  const hideLabel = `${isHidden ? 'Unhide' : 'Hide'} ${pipeline.name}`
+export function workflowMenuItems(pipeline: ViewPipeline, actions: PipelineActions): WorkflowMenuItem[] {
+  const labels = getPipelineLabels(pipeline.provider_type)
+  const { onViewMetrics, onRemoveFromView } = actions
+  const items: WorkflowMenuItem[] = [
+    { label: labels.history, icon: <IconHistory size={16} />, onClick: () => actions.onViewHistory(pipeline) },
+  ]
+
+  if (onViewMetrics) {
+    items.push({ label: 'View metrics', icon: <IconChartLine size={16} />, onClick: () => onViewMetrics(pipeline) })
+  }
+
+  items.push(
+    {
+      label: labels.trigger,
+      icon: triggerIcon(pipeline),
+      disabled: Boolean(getTriggerBlockReason(pipeline)),
+      onClick: () => actions.onTrigger(pipeline),
+    },
+    refreshItem([pipeline.provider_id], actions),
+    {
+      label: pipeline.pinned ? 'Unpin' : 'Pin',
+      icon: pipeline.pinned ? <IconPinFilled size={16} /> : <IconPin size={16} />,
+      onClick: () => actions.onTogglePin(pipeline),
+    },
+    { label: 'Add to view…', icon: <IconFolderPlus size={16} />, onClick: () => actions.onAddToView(pipeline) }
+  )
+
+  if (onRemoveFromView) {
+    items.push({
+      label: actions.removeLabel ?? 'Remove from view',
+      icon: <IconFolderMinus size={16} />,
+      onClick: () => onRemoveFromView(pipeline),
+    })
+  }
+
+  items.push({
+    label: pipeline.hidden ? 'Unhide' : 'Hide',
+    icon: pipeline.hidden ? <IconEye size={16} /> : <IconEyeOff size={16} />,
+    onClick: () => actions.onToggleHidden(pipeline),
+  })
+
+  return items
+}
+
+export function WorkflowActions({ pipeline, actions }: { pipeline: ViewPipeline; actions: PipelineActions }) {
+  const { onViewMetrics } = actions
   const metricsLabel = `View metrics for ${pipeline.name}`
   const triggerLabel = `${getPipelineLabels(pipeline.provider_type).trigger} ${pipeline.name}`
   const blockedReason = getTriggerBlockReason(pipeline)
@@ -180,42 +349,22 @@ export function WorkflowActions({
 
   return (
     <Group gap="xs" wrap="nowrap">
-      <Tooltip label={pinLabel}>
-        <ActionIcon variant="subtle" color="gray" aria-label={pinLabel} aria-pressed={isPinned} onClick={onTogglePin}>
-          {isPinned ? <IconPinFilled size={16} /> : <IconPin size={16} />}
-        </ActionIcon>
-      </Tooltip>
-      {onToggleHidden && (
-        <Tooltip label={hideLabel}>
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            aria-label={hideLabel}
-            aria-pressed={isHidden}
-            onClick={onToggleHidden}
-          >
-            {isHidden ? <IconEye size={16} /> : <IconEyeOff size={16} />}
-          </ActionIcon>
-        </Tooltip>
-      )}
       {onViewMetrics && (
         <Tooltip label={metricsLabel}>
-          <ActionIcon variant="subtle" color="gray" aria-label={metricsLabel} onClick={() => onViewMetrics(pipeline)}>
+          <ActionIcon aria-label={metricsLabel} onClick={() => onViewMetrics(pipeline)}>
             <IconChartLine size={16} />
           </ActionIcon>
         </Tooltip>
       )}
       <Tooltip label={triggerLabel}>
         <ActionIcon
-          variant="subtle"
-          color="gray"
           aria-label={triggerLabel}
           aria-disabled={blockedReason ? true : undefined}
           aria-describedby={blockedReason ? reasonId : undefined}
           data-disabled={blockedReason ? true : undefined}
           onClick={() => {
             if (!blockedReason) {
-              onTrigger(pipeline)
+              actions.onTrigger(pipeline)
             }
           }}
         >
@@ -227,47 +376,91 @@ export function WorkflowActions({
   )
 }
 
-interface WorkflowActionMenuProps extends WorkflowActionsProps {
-  provider?: ProviderSummary
-  onViewHistory: (pipeline: Pipeline) => void
+export function RowActionMenu({ name, items }: { name: string; items: WorkflowMenuItem[] }) {
+  if (items.length === 0) {
+    return null
+  }
+
+  return (
+    <Menu position="bottom">
+      <Menu.Target>
+        <ActionIcon data-row-menu aria-label={`Actions for ${name}`}>
+          <IconDots size={22} />
+        </ActionIcon>
+      </Menu.Target>
+      <Menu.Dropdown>
+        {items.map((item) => (
+          <Menu.Item
+            key={item.label}
+            leftSection={item.icon}
+            color={item.color}
+            disabled={item.disabled}
+            onClick={item.onClick}
+          >
+            {item.label}
+          </Menu.Item>
+        ))}
+        <ActionSheetCancel />
+      </Menu.Dropdown>
+    </Menu>
+  )
+}
+
+export function SectionActions({
+  name,
+  providerIds,
+  items,
+  actions,
+}: {
+  name: string
+  providerIds: number[]
+  items: WorkflowMenuItem[]
+  actions: PipelineActions
+}) {
+  const refreshLabel = `Refresh ${name}`
+
+  return (
+    <Group gap="xs" wrap="nowrap">
+      {providerIds.length > 0 && (
+        <Tooltip label={refreshLabel}>
+          <RefreshButton
+            iconSize={16}
+            aria-label={refreshLabel}
+            pending={actions.isRefreshing(providerIds)}
+            onClick={() => actions.onRefreshProviders(providerIds)}
+          />
+        </Tooltip>
+      )}
+      <RowActionMenu name={name} items={items} />
+    </Group>
+  )
 }
 
 export function WorkflowActionMenu({
   pipeline,
   provider,
-  isPinned,
-  onTogglePin,
-  isHidden,
-  onToggleHidden,
-  onTrigger,
-  onViewMetrics,
-  onViewHistory,
-}: WorkflowActionMenuProps) {
+  actions,
+}: {
+  pipeline: ViewPipeline
+  provider?: ProviderSummary
+  actions: PipelineActions
+}) {
   const openNotifications = useNotificationCenterStore((state) => state.open)
-  const actions = workflowMenuItems({
-    pipeline,
-    isPinned,
-    onTogglePin,
-    isHidden,
-    onToggleHidden,
-    onTrigger,
-    onViewMetrics,
-    onViewHistory,
-  })
+  const items = workflowMenuItems(pipeline, actions)
   const blockedReason = getTriggerBlockReason(pipeline)
   const headline = provider ? providerAttention(provider).headline : null
 
   return (
     <Menu position="bottom">
       <Menu.Target>
-        <ActionIcon variant="subtle" color="gray" data-row-menu aria-label={`Actions for ${pipeline.name}`}>
+        <ActionIcon data-row-menu aria-label={`Actions for ${pipeline.name}`}>
           <IconDots size={22} />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Label>{pipeline.name}</Menu.Label>
         {blockedReason && <Menu.Label>{blockedReason}</Menu.Label>}
-        {actions.map((action) => (
+        {items.map((action) => (
           <Menu.Item key={action.label} disabled={action.disabled} onClick={action.onClick}>
             {action.label}
           </Menu.Item>
@@ -283,13 +476,13 @@ export function WorkflowActionMenu({
   )
 }
 
-export function workflowSwipeActions(
-  pipeline: Pipeline,
-  isPinned: boolean,
-  onTogglePin: () => void,
-  onTrigger: (pipeline: Pipeline) => void
-): SwipeAction[] {
-  const pin: SwipeAction = { key: 'pin', label: isPinned ? 'Unpin' : 'Pin', tone: 'orange', onSelect: onTogglePin }
+export function workflowSwipeActions(pipeline: ViewPipeline, actions: PipelineActions): SwipeAction[] {
+  const pin: SwipeAction = {
+    key: 'pin',
+    label: pipeline.pinned ? 'Unpin' : 'Pin',
+    tone: 'orange',
+    onSelect: () => actions.onTogglePin(pipeline),
+  }
 
   if (getTriggerBlockReason(pipeline)) {
     return [pin]
@@ -302,7 +495,7 @@ export function workflowSwipeActions(
       label: getPipelineLabels(pipeline.provider_type).trigger,
       tone: 'blue',
       primary: true,
-      onSelect: () => onTrigger(pipeline),
+      onSelect: () => actions.onTrigger(pipeline),
     },
   ]
 }

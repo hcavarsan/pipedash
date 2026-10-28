@@ -59,13 +59,7 @@ const PathRow = ({ label, path, kind, canOpen, onEdit }: PathRowProps) => {
       <Group gap="3xs" wrap="nowrap" style={{ flexShrink: 0 }}>
         {onEdit && (
           <Tooltip label={`Edit ${label.toLowerCase()} file`} position="top">
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="sm"
-              aria-label={`Edit ${label.toLowerCase()} file`}
-              onClick={onEdit}
-            >
+            <ActionIcon size="sm" aria-label={`Edit ${label.toLowerCase()} file`} onClick={onEdit}>
               <IconEdit size={16} />
             </ActionIcon>
           </Tooltip>
@@ -75,13 +69,7 @@ const PathRow = ({ label, path, kind, canOpen, onEdit }: PathRowProps) => {
 
         {canOpen && (
           <Tooltip label={`Open ${label.toLowerCase()} in file manager`} position="top">
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="sm"
-              aria-label={`Open ${label.toLowerCase()} in file manager`}
-              onClick={handleOpenFolder}
-            >
+            <ActionIcon size="sm" aria-label={`Open ${label.toLowerCase()} in file manager`} onClick={handleOpenFolder}>
               <IconFolderOpen size={16} />
             </ActionIcon>
           </Tooltip>

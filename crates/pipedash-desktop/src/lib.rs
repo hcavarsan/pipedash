@@ -8,6 +8,7 @@ pub mod fallback_store;
 pub mod keyring_store;
 mod local_notifications;
 mod native;
+mod pipeline_views;
 mod push;
 mod run_logs;
 mod system_notifications;
@@ -277,6 +278,20 @@ use export_file::{
     export_run_log,
     save_export_file,
 };
+use pipeline_views::{
+    create_pipeline_view,
+    delete_pipeline_view,
+    get_pipeline_view_page,
+    import_legacy_pipeline_marks,
+    list_pins,
+    list_pipeline_view_members,
+    list_pipeline_views,
+    reorder_pipeline_views,
+    set_pin,
+    set_pipeline_hidden,
+    set_pipeline_view_membership,
+    update_pipeline_view,
+};
 use push::{
     get_push_status,
     push_pair_server,
@@ -493,6 +508,18 @@ pub fn run() {
             read_run_log_lines,
             search_run_log,
             clear_run_logs_cache,
+            list_pipeline_views,
+            get_pipeline_view_page,
+            create_pipeline_view,
+            update_pipeline_view,
+            delete_pipeline_view,
+            reorder_pipeline_views,
+            list_pipeline_view_members,
+            set_pipeline_view_membership,
+            list_pins,
+            set_pin,
+            set_pipeline_hidden,
+            import_legacy_pipeline_marks,
             get_push_status,
             push_pair_server,
             push_unpair_server,

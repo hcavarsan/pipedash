@@ -203,7 +203,7 @@ export function LogToolbar(props: LogToolbarProps) {
         <Menu position="bottom-end" withinPortal>
           <Menu.Target>
             <Tooltip label="Log options">
-              <ActionIcon variant="subtle" color="gray" aria-label="Log options">
+              <ActionIcon aria-label="Log options">
                 <IconDots size={16} />
               </ActionIcon>
             </Tooltip>

@@ -186,7 +186,7 @@ export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDat
 
               return (
                 <UnstyledButton
-                  className="interactive-surface"
+                  className="item-primary"
                   fz="sm"
                   fw={isSelected ? 600 : undefined}
                   aria-pressed={isSelected}

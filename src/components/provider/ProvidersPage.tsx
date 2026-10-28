@@ -44,14 +44,7 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
         />
         <Menu position="bottom-end" withinPortal>
           <Menu.Target>
-            <ActionIcon
-              className={classes.actions}
-              variant="subtle"
-              color="gray"
-              size={44}
-              data-row-menu
-              aria-label={`Actions for ${provider.name}`}
-            >
+            <ActionIcon className={classes.actions} size={44} data-row-menu aria-label={`Actions for ${provider.name}`}>
               <IconDots size={20} />
             </ActionIcon>
           </Menu.Target>

@@ -176,7 +176,8 @@ export const StandardModal = ({
           type={mobileShell ? 'scroll' : 'auto'}
           scrollbarSize={mobileShell ? 3 : undefined}
           scrollHideDelay={mobileShell ? 200 : undefined}
-          style={{ flex: 1, minHeight: 0 }}
+          style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+          styles={{ viewport: { flex: 1, minHeight: 0, height: 'auto' } }}
         >
           <Box p={padding} pb={bottomInset}>
             {children}

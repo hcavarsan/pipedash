@@ -1,0 +1,122 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import type { PipelineView, ViewMembership, ViewPipeline } from '../types'
+import {
+  canAddSubView,
+  childViews,
+  directMembers,
+  eligibleViewParents,
+  flattenViewTree,
+  reorderSlots,
+  rootViewOf,
+  setDirectMembership,
+  viewAncestors,
+  viewDepth,
+  viewMemberIds,
+} from './viewTree'
+
+const view = (id: string, parent: string | null = null, kind = 'custom') => ({ id, parent, kind }) as PipelineView
+
+const views = [
+  view('all', null, 'all'),
+  view('a'),
+  view('a1', 'a'),
+  view('a1x', 'a1'),
+  view('a2', 'a'),
+  view('b'),
+  view('cfg', null, 'config'),
+]
+
+const ids = (list: PipelineView[]) => list.map((v) => v.id)
+
+test('depth, ancestors and root follow the parent chain', () => {
+  assert.equal(viewDepth(views, 'a'), 1)
+  assert.equal(viewDepth(views, 'a1x'), 3)
+  assert.deepEqual(ids(viewAncestors(views, 'a1x')), ['a', 'a1'])
+  assert.equal(rootViewOf(views, 'a1x')?.id, 'a')
+  assert.equal(rootViewOf(views, 'b')?.id, 'b')
+  assert.deepEqual(ids(childViews(views, 'a')), ['a1', 'a2'])
+})
+
+test('flattenViewTree returns pre-order even when the list order was disturbed', () => {
+  const shuffled = [views[1], views[5], views[2], views[3], views[4]]
+
+  assert.deepEqual(ids(flattenViewTree(shuffled)), ['a', 'a1', 'a1x', 'a2', 'b'])
+})
+
+test('only custom views shallower than the maximum depth accept sub-views', () => {
+  assert.equal(canAddSubView(views, views[1]), true)
+  assert.equal(canAddSubView(views, views[2]), true)
+  assert.equal(canAddSubView(views, views[3]), false)
+  assert.equal(canAddSubView(views, views[0]), false)
+  assert.equal(canAddSubView(views, views[6]), false)
+})
+
+test('a new view can sit under custom views of depth 1 or 2', () => {
+  assert.deepEqual(ids(eligibleViewParents(views, null)), ['a', 'a1', 'a2', 'b'])
+})
+
+test('a view cannot move into itself, its subtree, or past the maximum depth', () => {
+  assert.deepEqual(ids(eligibleViewParents(views, 'a')), [])
+  assert.deepEqual(ids(eligibleViewParents(views, 'a1')), ['a', 'b'])
+  assert.deepEqual(ids(eligibleViewParents(views, 'a1x')), ['a', 'a1', 'a2', 'b'])
+  assert.deepEqual(ids(eligibleViewParents(views, 'b')), ['a', 'a1', 'a2'])
+})
+
+test('reorderSlots permutes only the moved ids within their slots', () => {
+  assert.deepEqual(reorderSlots(['a', 'a1', 'b', 'c'], ['c', 'a', 'b']), ['c', 'a1', 'a', 'b'])
+})
+
+const pipeline = (id: string, memberships: ViewMembership[]) => ({ id, memberships }) as ViewPipeline
+
+test('leaving the only sub-view that brought a pipeline into a parent also clears the parent', () => {
+  const members = directMembers([
+    pipeline('p', [
+      { view: 'a', source: 'sub_view' },
+      { view: 'a1', source: 'manual' },
+    ]),
+  ])
+
+  assert.deepEqual([...viewMemberIds(views, members, 'a')], ['p'])
+
+  const next = setDirectMembership(views, members, 'a1', ['p'], false)
+
+  assert.deepEqual([...viewMemberIds(views, next, 'a1')], [])
+  assert.deepEqual([...viewMemberIds(views, next, 'a')], [])
+})
+
+test('a parent keeps a pipeline after one sub-view drops it when it is still own or in a sibling', () => {
+  const members = directMembers([
+    pipeline('own', [
+      { view: 'a', source: 'rule' },
+      { view: 'a1', source: 'manual' },
+    ]),
+    pipeline('sibling', [
+      { view: 'a', source: 'sub_view' },
+      { view: 'a1', source: 'manual' },
+      { view: 'a2', source: 'manual' },
+    ]),
+  ])
+
+  const next = setDirectMembership(views, members, 'a1', ['own', 'sibling'], false)
+
+  assert.deepEqual([...viewMemberIds(views, next, 'a')].sort(), ['own', 'sibling'])
+  assert.deepEqual([...viewMemberIds(views, next, 'a1')], [])
+})
+
+test('removing a pipeline from a parent removes it from the whole subtree', () => {
+  const members = directMembers([
+    pipeline('p', [
+      { view: 'a', source: 'sub_view' },
+      { view: 'a1', source: 'sub_view' },
+      { view: 'a1x', source: 'manual' },
+      { view: 'b', source: 'manual' },
+    ]),
+  ])
+
+  const next = setDirectMembership(views, members, 'a', ['p'], false)
+
+  assert.deepEqual([...viewMemberIds(views, next, 'a1x')], [])
+  assert.deepEqual([...viewMemberIds(views, next, 'b')], ['p'])
+})

@@ -243,15 +243,13 @@ impl PipelineService {
             Ok(pipelines) => self.apply_pipelines(lease, pipelines).await,
             Err(error) => Err(error),
         };
-        let status_changed = match &applied {
+        match &applied {
             Ok(_) => self.write_status(id, true, None).await,
             Err(error) => self.write_status(id, false, Some(error.to_string())).await,
         };
 
-        let mut content_changed = false;
         let (outcome, result) = match applied {
             Ok(applied) => {
-                content_changed = !applied.changed_ids.is_empty();
                 let count = applied.pipelines.len();
                 self.emit_fetch_events(id, applied).await;
                 (Outcome::Success, FetchResult::Committed(Ok(count)))
@@ -263,26 +261,17 @@ impl PipelineService {
             _ => None,
         };
 
-        let before = self.scheduler.view(id, Instant::now());
         let view = claim
             .take()
             .and_then(|claim| claim.complete(Instant::now(), outcome, result.clone()));
         if let Some(view) = view {
-            let changed = status_changed
-                || content_changed
-                || self.provider_service.published_in_flight(id)
-                || before.is_none_or(|before| {
-                    before.failures != view.failures || before.last_failure != view.last_failure
-                });
             self.health.send(HealthInput::FetchOutcome {
                 provider_id: id,
                 generation: lease.generation,
                 view,
                 kind,
             });
-            if changed {
-                self.provider_service.emit_status(id).await;
-            }
+            self.provider_service.emit_status(id).await;
         }
 
         result
@@ -1405,10 +1394,10 @@ mod tests {
     #[tokio::test]
     async fn a_hanging_provider_does_not_lose_another_providers_result() {
         let h = Harness::new().await;
-        h.start().await;
         let gate = Gate::new();
         let (hanging, _) = h.add_stub(|id| StubProvider::new(id).gated(&gate)).await;
         let (healthy, _) = h.add_stub(StubProvider::new).await;
+        h.start().await;
 
         let results = h
             .pipeline_service
@@ -1523,9 +1512,9 @@ mod tests {
     #[tokio::test]
     async fn a_second_refresh_all_joins_the_running_one() {
         let h = Harness::new().await;
-        h.start().await;
         let gate = Gate::new();
         let (_, stub) = h.add_stub(|id| StubProvider::new(id).gated(&gate)).await;
+        h.start().await;
         let first = tokio::spawn({
             let service = Arc::clone(&h.pipeline_service);
             async move { service.refresh_all().await }
@@ -1768,6 +1757,42 @@ mod tests {
             })
             .unwrap();
         assert!(!last.health.in_flight);
+    }
+
+    #[tokio::test]
+    async fn every_successful_fetch_records_and_publishes_its_time() {
+        let h = Harness::new().await;
+        let (id, _) = h.add_stub(StubProvider::new).await;
+        h.provider_service.acquire(id).await.unwrap();
+        let fetch_time = || async {
+            h.repository
+                .get_provider_fetch_status(id)
+                .await
+                .unwrap()
+                .2
+                .unwrap()
+        };
+
+        h.fetch_directly(id).await;
+        let first = fetch_time().await;
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        h.fetch_directly(id).await;
+        let second = fetch_time().await;
+
+        assert!(second > first, "{second} should be after {first}");
+        let published = h
+            .bus
+            .events()
+            .into_iter()
+            .rev()
+            .find_map(|event| match event {
+                CoreEvent::ProviderStatusUpdated { provider } if provider.id == id => {
+                    provider.last_fetch_at
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(published.to_rfc3339(), second);
     }
 
     #[tokio::test]

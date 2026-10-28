@@ -1,6 +1,7 @@
 mod cache;
 pub mod health;
 mod metrics;
+mod pipeline_views;
 mod pipelines;
 mod plugins;
 mod preferences;
@@ -30,6 +31,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/setup", setup::router())
         .nest("/providers", providers::router())
         .nest("/pipelines", pipelines::router().merge(run_logs::router()))
+        .nest("/pipeline-views", pipeline_views::router())
         .nest("/plugins", plugins::router())
         .nest("/cache", cache::router())
         .nest("/metrics", metrics::router())

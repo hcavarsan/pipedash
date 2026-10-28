@@ -8,9 +8,12 @@ import type {
   AggregationType,
   ConfigAnalysisResponse,
   ConfigContentResponse,
+  CreateViewInput,
   FeatureAvailability,
   GeneralConfig,
   GlobalMetricsConfig,
+  LegacyImportResult,
+  LegacyMarks,
   MetricEntry,
   MetricsConfig,
   MetricsStats,
@@ -24,9 +27,14 @@ import type {
   PaginatedRunHistory,
   PermissionCheckResult,
   PermissionStatus,
+  PinKind,
+  PinnedItem,
   PipedashConfig,
   Pipeline,
   PipelineRun,
+  PipelineView,
+  PipelineViewPage,
+  PipelineViewQuery,
   PluginMetadata,
   ProviderConfig,
   ProviderImportResult,
@@ -41,6 +49,9 @@ import type {
   UnlockVaultResponse,
   ValidationResult,
   VaultStatusResponse,
+  ViewMember,
+  ViewPatch,
+  ViewRef,
   WorkflowParameter,
 } from '../types'
 import { getErrorCode, getHttpStatus } from '../types/errors'
@@ -586,6 +597,62 @@ class ApiClient {
     const defaults = await this.get<unknown>(`/preferences/table/${providerId}/${encodeURIComponent(tableId)}/default`)
 
     return JSON.stringify(defaults)
+  }
+
+  async listPipelineViews(): Promise<PipelineView[]> {
+    return this.get<PipelineView[]>('/pipeline-views')
+  }
+
+  async getPipelineViewPage(query: PipelineViewQuery): Promise<PipelineViewPage> {
+    const params = new URLSearchParams()
+
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null) {
+        params.set(key, String(value))
+      }
+    }
+
+    return this.get<PipelineViewPage>(`/pipeline-views/page?${params}`)
+  }
+
+  async createPipelineView(input: CreateViewInput): Promise<PipelineView> {
+    return this.post<PipelineView>('/pipeline-views', input)
+  }
+
+  async updatePipelineView(id: ViewRef, patch: ViewPatch): Promise<PipelineView> {
+    return this.put<PipelineView>(`/pipeline-views/${encodeURIComponent(id)}`, patch)
+  }
+
+  async deletePipelineView(id: ViewRef): Promise<void> {
+    await this.delete(`/pipeline-views/${encodeURIComponent(id)}`)
+  }
+
+  async reorderPipelineViews(order: ViewRef[]): Promise<void> {
+    await this.put('/pipeline-views/order', { order })
+  }
+
+  async listPipelineViewMembers(id: ViewRef): Promise<ViewMember[]> {
+    return this.get<ViewMember[]>(`/pipeline-views/${encodeURIComponent(id)}/members`)
+  }
+
+  async setPipelineViewMembership(id: ViewRef, pipelineId: string, member: boolean): Promise<void> {
+    await this.put(`/pipeline-views/${encodeURIComponent(id)}/membership`, { pipeline_id: pipelineId, member })
+  }
+
+  async setPipelineHidden(pipelineId: string, hidden: boolean): Promise<void> {
+    await this.put('/pipeline-views/hidden', { pipeline_id: pipelineId, hidden })
+  }
+
+  async listPins(): Promise<PinnedItem[]> {
+    return this.get<PinnedItem[]>('/pipeline-views/pins')
+  }
+
+  async setPin(kind: PinKind, ref: string, pinned: boolean): Promise<void> {
+    await this.put('/pipeline-views/pins', { kind, ref, pinned })
+  }
+
+  async importLegacyPipelineMarks(marks: LegacyMarks): Promise<LegacyImportResult> {
+    return this.post<LegacyImportResult>('/pipeline-views/legacy-import', marks)
   }
 
   async checkSetupStatus(): Promise<SetupStatus> {

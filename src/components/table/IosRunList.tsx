@@ -189,14 +189,7 @@ export const IosRunList = ({
   )
 }
 
-interface IosRunToolbarProps {
-  count: number
-  cancelling: boolean
-  onDone: () => void
-  onCancelRuns: () => void
-}
-
-export const IosRunToolbar = ({ count, cancelling, onDone, onCancelRuns }: IosRunToolbarProps) => {
+export const IosToolbar = ({ label, children }: { label: string; children: ReactNode }) => {
   const [toolbar, ref] = useState<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -232,19 +225,32 @@ export const IosRunToolbar = ({ count, cancelling, onDone, onCancelRuns }: IosRu
 
   return (
     <Portal>
-      <div ref={ref} className={classes.toolbar} role="toolbar" aria-label="Selected runs">
-        <Button variant="subtle" onClick={onDone}>
-          Done
-        </Button>
-        <span className={classes.count} role="status">
-          {count === 0 ? 'Select runs' : `${count} selected`}
-        </span>
-        {count > 0 && (
-          <Button variant="subtle" color="red" loading={cancelling} onClick={onCancelRuns}>
-            {count > 1 ? `Cancel ${count} runs` : 'Cancel run'}
-          </Button>
-        )}
+      <div ref={ref} className={classes.toolbar} role="toolbar" aria-label={label}>
+        {children}
       </div>
     </Portal>
   )
 }
+
+interface IosRunToolbarProps {
+  count: number
+  cancelling: boolean
+  onDone: () => void
+  onCancelRuns: () => void
+}
+
+export const IosRunToolbar = ({ count, cancelling, onDone, onCancelRuns }: IosRunToolbarProps) => (
+  <IosToolbar label="Selected runs">
+    <Button variant="subtle" onClick={onDone}>
+      Done
+    </Button>
+    <span className={classes.count} role="status">
+      {count === 0 ? 'Select runs' : `${count} selected`}
+    </span>
+    {count > 0 && (
+      <Button variant="subtle" color="red" loading={cancelling} onClick={onCancelRuns}>
+        {count > 1 ? `Cancel ${count} runs` : 'Cancel run'}
+      </Button>
+    )}
+  </IosToolbar>
+)

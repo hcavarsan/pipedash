@@ -103,6 +103,7 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 ## Features
 
 - See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most. Hide a workflow you don't watch, and it leaves the table and its repository's status until you unhide it under Show hidden.
+- Organize pipelines into your own views, shown as tabs and in the sidebar, and nest views up to three levels deep. A parent view lists its sub-views as sections first, then its own pipelines, and you can open any sub-view from its section. Add pipelines by hand or by rules (provider, repository pattern such as `acme/*`, name and status), or define read-only views under `[views.<key>]` in `config.toml`. Each view keeps its own sort, sections and table or card layout. Pin views and repositories to the sidebar. Select several pipelines to pin, hide, add them to a view or create a new view from them at once.
 - Open the run history with commits, branches and durations, and track build metrics per pipeline.
 - Read, search and download job logs of GitHub Actions and Buildkite runs without leaving Pipedash. Buildkite tokens need the `read_build_logs` scope.
 - Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.

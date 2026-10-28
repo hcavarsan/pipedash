@@ -1,10 +1,13 @@
 import { notifications } from '@mantine/notifications'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 
+import { PAGE_SIZES } from '../constants/pagination'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
-import type { ReviewDecision } from '../types'
+import type { Pipeline, ReviewDecision } from '../types'
+import { findUnfinishedRuns } from '../utils/cancelActiveRuns'
 import { openConfirm } from '../utils/confirm'
 import { errorMessage } from '../utils/errorDisplay'
 import { formatCount } from '../utils/formatCount'
@@ -22,6 +25,48 @@ export function useRunHistory(pipelineId: string, page = 1, pageSize = 20) {
     placeholderData: keepPreviousData,
     enabled: !!pipelineId,
   })
+}
+
+export function useUnfinishedRuns(pipelines: Pipeline[], enabled: boolean) {
+  const queryClient = useQueryClient()
+  const [progress, setProgress] = useState(0)
+  const queryKey = queryKeys.runs.unfinished(pipelines.map((pipeline) => pipeline.id))
+  const active = enabled && pipelines.length > 0
+  const query = useQuery({
+    queryKey,
+    queryFn: ({ signal }) => {
+      setProgress(0)
+
+      return findUnfinishedRuns(
+        pipelines,
+        (pipelineId, page) =>
+          queryClient.fetchQuery({
+            queryKey: queryKeys.runs.list(pipelineId, page),
+            queryFn: () => service.fetchRunHistory(pipelineId, page, PAGE_SIZES.RUN_HISTORY),
+            staleTime: 0,
+          }),
+        undefined,
+        setProgress,
+        signal
+      )
+    },
+    staleTime: 0,
+    gcTime: 0,
+    enabled: active,
+  })
+  const key = JSON.stringify(queryKey)
+
+  useEffect(() => {
+    if (!active) {
+      return
+    }
+
+    return () => {
+      void queryClient.cancelQueries({ queryKey: JSON.parse(key), exact: true })
+    }
+  }, [active, key, queryClient])
+
+  return { ...query, progress }
 }
 
 export function useTablePreferences(providerId: number, tableId: string) {

@@ -2,17 +2,14 @@
   --pad: 1em;
   --glyph: 1.1em;
   --gap: 0.75em;
-  --inset: calc(var(--pad) + var(--glyph) + var(--gap));
+  --level: 0;
+  --inset: calc(var(--pad) + (var(--level) + 1) * (var(--glyph) + var(--gap)));
   position: relative;
   display: flex;
   align-items: center;
   font-size: var(--ios-fs-body);
   background: var(--ios-cell);
   background-image: linear-gradient(var(--row-press, transparent), var(--row-press, transparent));
-}
-
-.row[data-nested] {
-  --inset: calc(var(--pad) + 2 * (var(--glyph) + var(--gap)));
 }
 
 .row[data-swipeable] {
@@ -52,11 +49,16 @@
 }
 
 .row[data-nested] .main {
-  padding-left: calc(var(--pad) + var(--glyph) + var(--gap));
+  padding-left: calc(var(--pad) + var(--level) * (var(--glyph) + var(--gap)));
 }
 
 .row[data-trailing] .main {
   padding-right: 4px;
+}
+
+.row[data-selecting] {
+  --check: 22px;
+  --inset: calc(var(--pad) + var(--check) + var(--gap) + (var(--level) + 1) * (var(--glyph) + var(--gap)));
 }
 
 .row:has(.main:active),
@@ -160,8 +162,9 @@
 
 .spacer {
   display: flex;
+  align-items: center;
   justify-content: center;
-  width: 44px;
+  min-width: 44px;
 }
 
 .row[data-flat] {

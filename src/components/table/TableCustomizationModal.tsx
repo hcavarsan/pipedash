@@ -299,7 +299,7 @@ export function TableCustomizationModal({
                       <div className={classes.trailing}>
                         <Menu position="bottom">
                           <Menu.Target>
-                            <ActionIcon variant="subtle" color="gray" aria-label={`Reorder ${item.title}`}>
+                            <ActionIcon aria-label={`Reorder ${item.title}`}>
                               <IconDots size={22} />
                             </ActionIcon>
                           </Menu.Target>
@@ -348,13 +348,7 @@ export function TableCustomizationModal({
           rightSection={
             searchQuery && (
               <Tooltip label="Clear search">
-                <ActionIcon
-                  size="sm"
-                  variant="subtle"
-                  color="gray"
-                  aria-label="Clear search"
-                  onClick={() => setSearchQuery('')}
-                >
+                <ActionIcon size="sm" aria-label="Clear search" onClick={() => setSearchQuery('')}>
                   <IconX size={14} />
                 </ActionIcon>
               </Tooltip>
@@ -385,8 +379,6 @@ export function TableCustomizationModal({
             <Tooltip label="Show all columns">
               <ActionIcon
                 size="sm"
-                variant="subtle"
-                color="gray"
                 aria-label="Show all columns"
                 onClick={() => setColumnItems((prev) => prev.map((item) => ({ ...item, visible: true })))}
               >
@@ -396,8 +388,6 @@ export function TableCustomizationModal({
             <Tooltip label="Hide optional columns">
               <ActionIcon
                 size="sm"
-                variant="subtle"
-                color="gray"
                 aria-label="Hide optional columns"
                 onClick={() =>
                   setColumnItems((prev) => prev.map((item) => (item.locked ? item : { ...item, visible: false })))
@@ -449,8 +439,6 @@ export function TableCustomizationModal({
                     <Tooltip label={`Move ${item.title} up`}>
                       <ActionIcon
                         size="xs"
-                        variant="subtle"
-                        color="gray"
                         aria-label={`Move ${item.title} up`}
                         onClick={() => handleMoveUp(actualIndex)}
                         disabled={!item.moveable || actualIndex === 0}
@@ -461,8 +449,6 @@ export function TableCustomizationModal({
                     <Tooltip label={`Move ${item.title} down`}>
                       <ActionIcon
                         size="xs"
-                        variant="subtle"
-                        color="gray"
                         aria-label={`Move ${item.title} down`}
                         onClick={() => handleMoveDown(actualIndex)}
                         disabled={!item.moveable || actualIndex === columnItems.length - 1}

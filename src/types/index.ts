@@ -1,3 +1,5 @@
+import type { ProviderTone } from '../utils/fetchInfo'
+
 export type PipelineStatus = 'success' | 'failed' | 'running' | 'pending' | 'cancelled' | 'skipped'
 
 export interface BuildWatchSnapshot {
@@ -58,6 +60,145 @@ export interface Pipeline {
   workflow_file: string | null
   metadata?: Record<string, unknown>
   overdue_run?: string | null
+}
+
+export type ViewRef = string
+export type ViewKind = 'all' | 'pinned' | 'hidden' | 'custom' | 'config'
+export type ViewSortKey = 'name' | 'last_run' | 'status' | 'organization' | 'provider' | 'manual'
+export type SortDirection = 'asc' | 'desc'
+export type SectionMode = 'repository' | 'organization' | 'provider' | 'status' | 'none'
+export type ViewLayout = 'table' | 'cards'
+
+export interface ViewDisplay {
+  sort: ViewSortKey
+  direction: SortDirection
+  sections: SectionMode
+  layout: ViewLayout
+}
+
+export interface ViewRules {
+  provider_ids: number[]
+  repositories: string[]
+  name_contains: string | null
+  statuses: PipelineStatus[]
+}
+
+export interface ViewCapabilities {
+  rename: boolean
+  delete: boolean
+  edit_rules: boolean
+  edit_members: boolean
+  edit_display: boolean
+  reorder: boolean
+}
+
+export interface PipelineView {
+  id: ViewRef
+  kind: ViewKind
+  name: string
+  rules: ViewRules
+  display: ViewDisplay
+  capabilities: ViewCapabilities
+  count: number
+  parent: ViewRef | null
+}
+
+export interface ViewMembership {
+  view: ViewRef
+  source: 'manual' | 'rule' | 'sub_view'
+}
+
+export interface ViewPipeline extends Pipeline {
+  organization: string
+  pinned: boolean
+  hidden: boolean
+  memberships: ViewMembership[]
+}
+
+export interface ViewSection {
+  id: string
+  kind: SectionMode | 'view'
+  title: string
+  organization: string | null
+  provider_ids: number[]
+  status: PipelineStatus | null
+  status_pipeline_id: string | null
+  last_run: string | null
+  pending_fetch: boolean
+  pipelines: ViewPipeline[]
+}
+
+export interface PipelineViewPage {
+  view: PipelineView
+  pinned: ViewPipeline[]
+  pinned_blocks: PinnedBlock[]
+  sections: ViewSection[]
+  total: number
+  hidden_count: number
+  filters_active: boolean
+  facets: { organizations: string[]; provider_ids: number[] }
+}
+
+export type PinKind = 'view' | 'repository'
+
+export interface PinnedItem {
+  kind: PinKind
+  ref: string
+  name: string
+}
+
+export interface PinnedBlock {
+  kind: 'repository'
+  ref: string
+  name: string
+  pipelines: ViewPipeline[]
+}
+
+export type DateRangeValue = 'today' | '24h' | '7d' | '30d' | '60d' | '90d'
+
+export interface PipelineViewQuery {
+  view: ViewRef
+  provider_id?: number
+  search?: string
+  status?: PipelineStatus
+  organization?: string
+  date_range?: DateRangeValue
+  show_hidden: boolean
+  utc_offset_minutes: number
+}
+
+export interface CreateViewInput {
+  name: string
+  rules?: ViewRules
+  display?: ViewDisplay
+  members?: string[]
+  parent?: ViewRef | null
+}
+
+export interface ViewPatch {
+  name?: string
+  rules?: ViewRules
+  display?: ViewDisplay
+  members?: string[]
+  parent?: ViewRef | null
+}
+
+export interface ViewMember {
+  pipeline_id: string
+  name: string | null
+  repository: string | null
+  provider_id: number
+  available: boolean
+}
+
+export interface LegacyMarks {
+  pinned: string[]
+  hidden: string[]
+}
+
+export interface LegacyImportResult {
+  imported: number
+  skipped: number
 }
 
 export interface PipelineRun {
@@ -219,6 +360,7 @@ export interface ProviderSummary {
   last_fetch_error_kind: FailureKind | null
   last_fetch_at: string | null
   paused_until: string | null
+  freshness: { state: ProviderTone; stale_at: string | null }
   health: ProviderHealth
 }
 

@@ -41,6 +41,7 @@ pub use services::pipeline_service::{
     RunWatch,
     WatchedRun,
 };
+pub use services::pipeline_view_service::PipelineViewService;
 pub use services::provider_service::{
     ProviderLease,
     ProviderService,
@@ -70,6 +71,7 @@ pub struct Services {
     pub health: HealthHandle,
     pub health_service: Arc<ProviderHealthService>,
     pub log_service: Arc<LogService>,
+    pub pipeline_view_service: Arc<PipelineViewService>,
 }
 
 impl Services {
@@ -82,6 +84,9 @@ impl Services {
         let (dispatcher, commands) = RefreshDispatcher::channel();
         let (mode_tx, mode_rx) = watch::channel(RefreshMode::Active);
         config_state.attach_health(health.clone());
+        let view_repository = Arc::clone(&repository);
+        let view_config_state = Arc::clone(&config_state);
+        let view_event_bus = Arc::clone(&event_bus);
 
         let provider_service = Arc::new(ProviderService::new(
             Arc::clone(&repository),
@@ -120,6 +125,13 @@ impl Services {
             mode_tx,
             commands,
         ));
+        let pipeline_view_service = Arc::new(PipelineViewService::new(
+            view_repository,
+            Arc::clone(&provider_service),
+            Arc::clone(&pipeline_service),
+            view_config_state,
+            view_event_bus,
+        ));
 
         Self {
             provider_service,
@@ -128,6 +140,7 @@ impl Services {
             health,
             health_service,
             log_service,
+            pipeline_view_service,
         }
     }
 }

@@ -138,16 +138,64 @@ body,
   }
 }
 
+:root {
+  --item-hover: var(--mantine-color-default-hover);
+  --item-press: color-mix(in srgb, var(--mantine-color-text) 12%, var(--mantine-color-default));
+  --item-current: var(--mantine-color-blue-light);
+}
+
+.mantine-ActionIcon-root[data-variant="subtle"] {
+  background-color: transparent;
+  transition: background-color 120ms ease;
+}
+
+:root:not([data-ios])
+  .mantine-ActionIcon-root[data-variant="subtle"]:not(
+    :disabled,
+    [data-disabled],
+    [data-loading],
+    [data-current]
+  ):hover {
+  background-color: var(--item-hover);
+}
+
+:root:not([data-ios])
+  .mantine-ActionIcon-root[data-variant="subtle"]:not(
+    :disabled,
+    [data-disabled],
+    [data-loading],
+    [data-current]
+  ):active {
+  background-color: var(--item-press);
+  transform: none;
+}
+
 .interactive-surface {
   transition: background-color 120ms ease;
 }
 
 .interactive-surface:hover {
-  background-color: var(--mantine-color-default-hover);
+  background-color: var(--item-hover);
 }
 
-:root:not([data-ios]) .interactive-surface:active:not([aria-disabled="true"]) {
-  background-color: color-mix(in srgb, var(--mantine-color-text) 12%, var(--mantine-color-default));
+.interactive-surface[data-current],
+.interactive-surface[data-current]:hover {
+  background-color: var(--item-current);
+}
+
+.interactive-surface:is(:is(button, a):active, :has(.item-primary:active)):not([aria-disabled="true"]) {
+  background-color: var(--item-press);
+}
+
+.row-clickable {
+  cursor: pointer;
+}
+
+.row-clickable:active:not(:has(:is(button, a, input, label, [role="checkbox"]):not(.item-primary):active)) {
+  background-color: var(--item-press);
+}
+
+:root:not([data-ios]) .interactive-surface:active {
   transition-duration: 0ms;
 }
 
@@ -158,6 +206,29 @@ body,
   background-color: transparent;
 }
 
+.interactive-surface :is(button, a):not([data-variant="filled"], [data-variant="default"], [data-variant="outline"]) {
+  background-color: transparent;
+}
+
+.stretched {
+  position: relative;
+}
+
+.stretched .item-primary {
+  position: static;
+}
+
+.stretched .item-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.stretched :is(button, a, [role="img"], .mantine-Checkbox-root):not(.item-primary) {
+  position: relative;
+  z-index: 1;
+}
+
 :root:not([data-ios]) :focus-visible {
   outline: none;
 }
@@ -165,6 +236,15 @@ body,
 :root[data-keyboard-focus]:not([data-ios]) :focus-visible:not([tabindex="-1"]) {
   outline: 2px solid var(--mantine-primary-color-filled);
   outline-offset: 2px;
+}
+
+:root[data-keyboard-focus]:not([data-ios]) .interactive-surface:has(.item-primary:focus-visible) {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+
+:root[data-keyboard-focus]:not([data-ios]) .item-primary:focus-visible:not([tabindex="-1"]) {
+  outline: none;
 }
 
 :root:not([data-ios]) .desktop-heading[data-order="1"] {
@@ -201,23 +281,6 @@ body,
 
 .nav-item {
   border-radius: var(--mantine-radius-sm);
-  transition: background-color 120ms ease;
-}
-
-.nav-item:hover {
-  background-color: var(--mantine-color-default-hover);
-}
-
-.nav-item[data-active] {
-  background-color: var(--mantine-color-blue-light);
-}
-
-.nav-item[data-active]:hover {
-  background-color: var(--mantine-color-blue-light-hover);
-}
-
-.nav-item-link {
-  background-color: transparent;
 }
 
 :root {
@@ -372,6 +435,8 @@ body,
   --ios-chevron: rgb(60 60 67 / 0.3);
   --ios-separator: rgb(60 60 67 / 0.29);
   --ios-fill: rgb(120 120 128 / 0.16);
+  --item-hover: transparent;
+  --item-press: var(--ios-fill);
   --ios-fill-tertiary: rgb(118 118 128 / 0.12);
   --ios-grabber: rgb(60 60 67 / 0.3);
   --ios-segment-active: #fff;
@@ -510,14 +575,6 @@ html[data-ios][data-mantine-color-scheme="dark"]
 [data-ios] textarea,
 [data-ios] select {
   font-size: max(16px, var(--ios-fs-body));
-}
-
-[data-ios] .interactive-surface:hover {
-  background-color: transparent;
-}
-
-[data-ios] .interactive-surface:active {
-  background-color: var(--ios-fill);
 }
 
 html[data-ios],

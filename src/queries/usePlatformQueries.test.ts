@@ -33,7 +33,6 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
     return response
   })
   const { useNotificationStore } = await import('../stores/notificationStore')
-  const { usePinnedStore } = await import('../stores/pinnedStore')
   const { useFactoryReset } = await import('./usePlatformQueries')
   notifyManager.setNotifyFunction((callback) => act(callback))
 
@@ -45,7 +44,6 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
     failure = null
     localStorage.setItem('retained-settings', 'keep-until-complete')
     useNotificationStore.getState().setNotificationsEnabled(true)
-    usePinnedStore.setState({ pinnedKeys: ['ci:build'] })
   })
   afterEach(async () => {
     await act(async () => cleanup())
@@ -70,7 +68,6 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
 
       assert.equal(localStorage.getItem('retained-settings'), 'keep-until-complete')
       assert.equal(useNotificationStore.getState().notificationsEnabled, true)
-      assert.deepEqual(usePinnedStore.getState().pinnedKeys, ['ci:build'])
       assert.equal(completed.mock.callCount(), 0)
       assert.equal(notices.mock.callCount(), 1)
       assert.equal(notices.mock.calls.at(0)?.arguments[0]?.color, 'red')
@@ -88,7 +85,6 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
     })
 
     assert.equal(localStorage.getItem('retained-settings'), 'keep-until-complete')
-    assert.deepEqual(usePinnedStore.getState().pinnedKeys, ['ci:build'])
     assert.equal(completed.mock.callCount(), 0)
     assert.equal(notices.mock.calls.at(0)?.arguments[0]?.color, 'red')
   })
@@ -104,7 +100,6 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
 
     assert.equal(localStorage.getItem('retained-settings'), null)
     assert.equal(useNotificationStore.getState().notificationsEnabled, false)
-    assert.deepEqual(usePinnedStore.getState().pinnedKeys, [])
     assert.equal(completed.mock.callCount(), 1)
     assert.equal(notices.mock.calls.at(0)?.arguments[0]?.color, 'green')
   })

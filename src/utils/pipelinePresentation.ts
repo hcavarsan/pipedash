@@ -67,8 +67,10 @@ const fluxStatusOptions = [
 export const getStatusOptions = (providerType?: string) =>
   providerType === 'fluxcd' ? fluxStatusOptions : STATUS_OPTIONS
 
-export const isDynamicGitHubWorkflow = (pipeline: Pick<Pipeline, 'provider_type' | 'workflow_file'>) =>
+const isDynamicGitHubWorkflow = (pipeline: Pick<Pipeline, 'provider_type' | 'workflow_file'>) =>
   pipeline.provider_type === 'github' && pipeline.workflow_file?.startsWith('dynamic/') === true
+
+export const canRerunInPlace = (pipeline: Pick<Pipeline, 'provider_type'>) => pipeline.provider_type === 'github'
 
 export const getReconcileBlockReason = (pipeline: Pick<Pipeline, 'metadata'>) => {
   if (pipeline.metadata?.missing === true) {

@@ -71,8 +71,6 @@ export function SearchInput({
               <Tooltip label="Clear search">
                 <ActionIcon
                   type="button"
-                  variant="subtle"
-                  color="gray"
                   size="sm"
                   aria-label="Clear search"
                   onClick={() => {

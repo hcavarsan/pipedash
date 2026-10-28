@@ -7,6 +7,7 @@ use std::sync::{
 use pipedash_core::application::{
     LogService,
     PipelineService,
+    PipelineViewService,
     ProviderService,
 };
 use pipedash_core::infrastructure::{
@@ -118,6 +119,12 @@ impl AppState {
         let inner = self.inner.read().await;
         let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
         Ok(Arc::clone(&core.pipeline_service))
+    }
+
+    pub async fn pipeline_view_service(&self) -> ApiResult<Arc<PipelineViewService>> {
+        let inner = self.inner.read().await;
+        let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
+        Ok(Arc::clone(&core.pipeline_view_service))
     }
 
     pub async fn log_service(&self) -> ApiResult<Arc<LogService>> {

@@ -1,20 +1,29 @@
-import { Loader, Menu, UnstyledButton } from '@mantine/core'
-import { IconArrowDown, IconArrowUp, IconChevronRight } from '@tabler/icons-react'
-import type { DataTableSortStatus } from 'mantine-datatable'
-import { type ReactNode, useId } from 'react'
+import { Loader } from '@mantine/core'
+import { IconCheck, IconChevronRight } from '@tabler/icons-react'
+import { type CSSProperties, type ReactNode, useId } from 'react'
 
 import { useNow } from '../../hooks/useNow'
 import { STATUS_META } from '../../theme/status'
-import type { Pipeline, PipelineStatus, ProviderSummary } from '../../types'
+import type { PipelineStatus, ProviderSummary } from '../../types'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusGlyph } from '../atoms/StatusBadge'
-import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup } from '../ios/IosList'
 import { type SwipeAction, SwipeActions } from '../ios/SwipeActions'
 import { useRowMenuLongPress } from '../ios/useLongPress'
 
 import classes from './IosPipelineList.module.css'
-import { type TableRow, WorkflowActionMenu, workflowSwipeActions } from './PipelineRowParts'
+import runClasses from './IosRunList.module.css'
+import {
+  type PipelineActions,
+  type PipelineSelection,
+  RowActionMenu,
+  RowFetchInfo,
+  refreshItem,
+  rowMenuItems,
+  type TableRow,
+  WorkflowActionMenu,
+  workflowSwipeActions,
+} from './PipelineRowParts'
 
 interface IosPipelineRowProps {
   status?: PipelineStatus | null
@@ -23,13 +32,14 @@ interface IosPipelineRowProps {
   subtitle: string
   detail?: string
   value?: string
-  nested?: boolean
+  depth?: number
   expanded?: boolean
   hint?: string
   onClick: () => void
   trailing?: ReactNode
   swipeActions?: SwipeAction[]
   longPressMenu?: boolean
+  selected?: boolean
 }
 
 export function IosPipelineRow({
@@ -39,16 +49,18 @@ export function IosPipelineRow({
   subtitle,
   detail,
   value,
-  nested,
+  depth,
   expanded,
   hint,
   onClick,
   trailing,
   swipeActions,
   longPressMenu,
+  selected,
 }: IosPipelineRowProps) {
   const hintId = useId()
-  const pressRef = useRowMenuLongPress(Boolean(longPressMenu))
+  const selecting = selected !== undefined
+  const pressRef = useRowMenuLongPress(Boolean(longPressMenu) && !selecting)
   const statusLabel = status ? (statusText ?? STATUS_META[status].label) : undefined
   const body = (
     <>
@@ -57,8 +69,14 @@ export function IosPipelineRow({
         className={classes.main}
         onClick={onClick}
         aria-expanded={expanded}
+        aria-pressed={selected}
         aria-describedby={hint ? hintId : undefined}
       >
+        {selecting && (
+          <span className={runClasses.check} data-selected={selected || undefined} aria-hidden>
+            {selected && <IconCheck size={16} stroke={3} />}
+          </span>
+        )}
         {status ? <StatusGlyph status={status} /> : <span className={classes.glyphEmpty} aria-hidden />}
         <span className={classes.text}>
           <span className={classes.title}>{title}</span>
@@ -76,16 +94,18 @@ export function IosPipelineRow({
           {detail && <span className={classes.detail}>{detail}</span>}
         </span>
         {value && <span className={classes.value}>{value}</span>}
-        <span className={classes.chevron} data-open={expanded ? '' : undefined} aria-hidden>
-          <IconChevronRight size={18} />
-        </span>
+        {!selecting && (
+          <span className={classes.chevron} data-open={expanded ? '' : undefined} aria-hidden>
+            <IconChevronRight size={18} />
+          </span>
+        )}
       </button>
       {hint && (
         <span id={hintId} hidden>
           {hint}
         </span>
       )}
-      {trailing && <div className={classes.trailing}>{trailing}</div>}
+      {trailing && !selecting && <div className={classes.trailing}>{trailing}</div>}
     </>
   )
 
@@ -94,11 +114,13 @@ export function IosPipelineRow({
       ref={pressRef}
       className={classes.row}
       data-repo={expanded === undefined ? undefined : ''}
-      data-nested={nested ? '' : undefined}
-      data-trailing={trailing ? '' : undefined}
-      data-swipeable={swipeActions?.length ? '' : undefined}
+      data-nested={depth ? '' : undefined}
+      style={depth ? ({ '--level': depth } as CSSProperties) : undefined}
+      data-selecting={selecting ? '' : undefined}
+      data-trailing={trailing && !selecting ? '' : undefined}
+      data-swipeable={swipeActions?.length && !selecting ? '' : undefined}
     >
-      {swipeActions?.length ? <SwipeActions actions={swipeActions}>{body}</SwipeActions> : body}
+      {swipeActions?.length && !selecting ? <SwipeActions actions={swipeActions}>{body}</SwipeActions> : body}
     </div>
   )
 }
@@ -121,115 +143,26 @@ const compactRelative = (value: string, now: number) => {
 export const relativeOrNever = (value: string | null | undefined, now: number) =>
   value ? compactRelative(value, now) : 'Never'
 
-interface SortMenuProps {
-  sortStatus: DataTableSortStatus<TableRow>
-  onSortStatusChange: (sortStatus: DataTableSortStatus<TableRow>) => void
-  groupTitle: string
-}
-
-const DEFAULT_DIRECTION: Record<string, 'asc' | 'desc'> = { lastRun: 'desc' }
-
-function SortMenu({ sortStatus, onSortStatusChange, groupTitle }: SortMenuProps) {
-  const options = [
-    { accessor: 'name', label: 'Name' },
-    { accessor: 'lastRun', label: 'Last Run' },
-    { accessor: 'status', label: 'Status' },
-    { accessor: 'organization', label: groupTitle },
-    { accessor: 'provider', label: 'Provider' },
-  ]
-  const current = options.find((option) => option.accessor === sortStatus.columnAccessor) ?? options[0]
-  const ascending = sortStatus.direction === 'asc'
-  const orders = [
-    { direction: 'asc', label: current.accessor === 'lastRun' ? 'Oldest First' : 'Ascending' },
-    { direction: 'desc', label: current.accessor === 'lastRun' ? 'Newest First' : 'Descending' },
-  ] as const
-  const DirectionIcon = ascending ? IconArrowUp : IconArrowDown
-
-  return (
-    <Menu position="bottom">
-      <Menu.Target>
-        <UnstyledButton
-          className={classes.sort}
-          aria-label={`Sort by ${current.label}, ${ascending ? 'ascending' : 'descending'}`}
-        >
-          {current.label}
-          <DirectionIcon size={14} aria-hidden />
-        </UnstyledButton>
-      </Menu.Target>
-      <Menu.Dropdown>
-        <Menu.Label>Sort by</Menu.Label>
-        {options.map(({ accessor, label }) => {
-          const active = accessor === current.accessor
-
-          return (
-            <Menu.Item
-              key={accessor}
-              role="menuitemradio"
-              aria-checked={active}
-              onClick={() =>
-                onSortStatusChange({
-                  columnAccessor: accessor,
-                  direction: active ? sortStatus.direction : (DEFAULT_DIRECTION[accessor] ?? 'asc'),
-                })
-              }
-            >
-              {active ? `${label} ✓` : label}
-            </Menu.Item>
-          )
-        })}
-        <Menu.Divider />
-        {orders.map(({ direction, label }) => {
-          const active = sortStatus.direction === direction
-
-          return (
-            <Menu.Item
-              key={direction}
-              role="menuitemradio"
-              aria-checked={active}
-              onClick={() => onSortStatusChange({ columnAccessor: current.accessor, direction })}
-            >
-              {active ? `${label} ✓` : label}
-            </Menu.Item>
-          )
-        })}
-        <ActionSheetCancel />
-      </Menu.Dropdown>
-    </Menu>
-  )
-}
-
 interface IosPipelineListProps {
   header?: ReactNode
-  groupTitle: string
-  sortStatus: DataTableSortStatus<TableRow>
-  onSortStatusChange: (sortStatus: DataTableSortStatus<TableRow>) => void
+  headerAction?: ReactNode
   rows: TableRow[]
   getProvider: (providerId: number) => ProviderSummary | undefined
   onToggleRepo: (repoId: string) => void
-  onViewHistory: (pipeline: Pipeline) => void
-  onTrigger: (pipeline: Pipeline) => void
-  pinnedKeys: string[]
-  onTogglePin: (pinKey: string) => void
-  hiddenKeys: string[]
-  onToggleHidden: (pinKey: string) => void
-  onViewMetrics?: (pipeline: Pipeline) => void
+  actions: PipelineActions
+  selection?: PipelineSelection
+  onSelect?: () => void
 }
 
 export function IosPipelineList({
   header,
-  groupTitle,
-  sortStatus,
-  onSortStatusChange,
+  headerAction,
   rows,
   getProvider,
   onToggleRepo,
-  onViewHistory,
-  onTrigger,
-  pinnedKeys,
-  onTogglePin,
-  hiddenKeys,
-  onToggleHidden,
-  onViewMetrics,
+  actions,
+  selection,
+  onSelect,
 }: IosPipelineListProps) {
   const now = useNow(30_000)
 
@@ -237,11 +170,18 @@ export function IosPipelineList({
     <IosGroup
       header={header}
       headerAction={
-        <SortMenu sortStatus={sortStatus} onSortStatusChange={onSortStatusChange} groupTitle={groupTitle} />
+        <>
+          {headerAction}
+          {onSelect && (
+            <button type="button" className={runClasses.headerAction} onClick={onSelect}>
+              Select
+            </button>
+          )}
+        </>
       }
     >
       {rows.map((row) => {
-        if (row.type === 'repository') {
+        if (row.type === 'section') {
           const isFluxGroup =
             !!row.providerIds?.size &&
             Array.from(row.providerIds).every((id) => getProvider(id)?.provider_type === 'fluxcd')
@@ -251,25 +191,29 @@ export function IosPipelineList({
           return (
             <IosPipelineRow
               key={row.id}
-              status={row.status}
-              statusText={row.statusLabel}
               title={row.name}
               subtitle={Array.from(new Set([row.organization, row.providerLabel, count].filter(Boolean))).join(' · ')}
               value={relativeOrNever(row.lastRun, now)}
               expanded={row.expanded}
               onClick={() => onToggleRepo(row.id)}
+              longPressMenu
               trailing={
                 <span className={classes.spacer}>
+                  <RowFetchInfo row={row} getProvider={getProvider} />
                   {row.hasPendingFetch && <Loader size="sm" aria-label="Fetching pipelines" />}
+                  <RowActionMenu
+                    name={row.name}
+                    items={[refreshItem(Array.from(row.providerIds ?? []), actions), ...rowMenuItems(row, actions)]}
+                  />
                 </span>
               }
             />
           )
         }
 
-        const { pipeline, pinKey } = row
+        const { pipeline } = row
 
-        if (!pipeline || !pinKey) {
+        if (!pipeline) {
           return null
         }
 
@@ -279,7 +223,7 @@ export function IosPipelineList({
         return (
           <IosPipelineRow
             key={row.id}
-            nested
+            depth={row.depth}
             status={row.status}
             statusText={getStatusLabel(pipeline)}
             title={row.name}
@@ -288,25 +232,11 @@ export function IosPipelineList({
             value={relativeOrNever(row.lastRun, now)}
             hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
             longPressMenu
-            onClick={() => onViewHistory(pipeline)}
-            swipeActions={workflowSwipeActions(
-              pipeline,
-              pinnedKeys.includes(pinKey),
-              () => onTogglePin(pinKey),
-              onTrigger
-            )}
+            selected={selection ? selection.selected.has(pipeline.id) : undefined}
+            onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
+            swipeActions={workflowSwipeActions(pipeline, actions)}
             trailing={
-              <WorkflowActionMenu
-                pipeline={pipeline}
-                provider={getProvider(pipeline.provider_id)}
-                isPinned={pinnedKeys.includes(pinKey)}
-                onTogglePin={() => onTogglePin(pinKey)}
-                isHidden={hiddenKeys.includes(pinKey)}
-                onToggleHidden={() => onToggleHidden(pinKey)}
-                onTrigger={onTrigger}
-                onViewMetrics={onViewMetrics}
-                onViewHistory={onViewHistory}
-              />
+              <WorkflowActionMenu pipeline={pipeline} provider={getProvider(pipeline.provider_id)} actions={actions} />
             }
           />
         )

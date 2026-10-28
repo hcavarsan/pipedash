@@ -37,13 +37,7 @@ export const PushDeviceRow = ({
         accessory={
           <Menu position="bottom-end">
             <Menu.Target>
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                data-row-menu
-                aria-label={`Actions for ${title}`}
-                loading={testing || removing}
-              >
+              <ActionIcon data-row-menu aria-label={`Actions for ${title}`} loading={testing || removing}>
                 <IconDots size={20} />
               </ActionIcon>
             </Menu.Target>
@@ -76,19 +70,12 @@ export const PushDeviceRow = ({
 
       <Group gap="3xs" wrap="nowrap" style={{ flexShrink: 0 }}>
         <Tooltip label={testLabel}>
-          <ActionIcon variant="subtle" color="gray" size="lg" aria-label={testLabel} loading={testing} onClick={onTest}>
+          <ActionIcon size="lg" aria-label={testLabel} loading={testing} onClick={onTest}>
             <IconSend size={16} />
           </ActionIcon>
         </Tooltip>
         <Tooltip label={removeLabel}>
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="lg"
-            aria-label={removeLabel}
-            loading={removing}
-            onClick={onRemove}
-          >
+          <ActionIcon size="lg" aria-label={removeLabel} loading={removing} onClick={onRemove}>
             <IconTrash size={16} />
           </ActionIcon>
         </Tooltip>

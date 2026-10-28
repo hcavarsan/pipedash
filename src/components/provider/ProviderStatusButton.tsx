@@ -3,6 +3,7 @@ import { Group, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import type { ProviderSummary } from '../../types'
+import { providerBadge } from '../../utils/fetchInfo'
 import { providerAttention } from '../../utils/providerAttention'
 import { TABLE_CELL_STYLES } from '../../utils/tableCells'
 import { ProviderIcon } from '../atoms/ProviderIcon'
@@ -24,7 +25,6 @@ export function ProviderStatusButton({ provider }: { provider: ProviderSummary |
 
   const button = (
     <UnstyledButton
-      className="interactive-surface"
       px={mobileShell ? 4 : '3xs'}
       py={mobileShell ? 2 : '4xs'}
       mih={mobileShell ? 44 : undefined}
@@ -37,7 +37,7 @@ export function ProviderStatusButton({ provider }: { provider: ProviderSummary |
       }}
     >
       <Group gap={TABLE_CELL_STYLES.spacing.gap} wrap="nowrap">
-        <ProviderIcon name={provider.name} icon={provider.icon} size={22} attention={attention} />
+        <ProviderIcon name={provider.name} icon={provider.icon} size={22} badge={providerBadge(provider, Date.now())} />
         {mobileShell && attention ? (
           <Stack gap={0}>
             <Text size={TABLE_CELL_STYLES.text.size} truncate>

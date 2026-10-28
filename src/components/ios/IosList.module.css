@@ -117,8 +117,6 @@
   flex-shrink: 0;
   width: var(--icon);
   height: var(--icon);
-  border-radius: 7px;
-  background: var(--ios-fill);
   color: var(--ios-secondary-label);
 }
 

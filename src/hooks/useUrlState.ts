@@ -1,6 +1,10 @@
 import { useCallback, useMemo } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 
+import { STATUS_META } from '../theme/status'
+import type { PipelineStatus, PipelineViewQuery } from '../types'
+import { isDateRange } from '../utils/dateRange'
+
 export interface PipelineFilters {
   search: string
   status: string | null
@@ -69,6 +73,27 @@ export function usePipelineFilters(): {
   }, [setSearchParams, state])
 
   return { filters, setFilter, clearFilters }
+}
+
+export function usePipelineViewQuery(): PipelineViewQuery {
+  const [searchParams] = useSearchParams()
+
+  return useMemo((): PipelineViewQuery => {
+    const provider = Number(searchParams.get('provider'))
+    const status = searchParams.get('status')
+    const dateRange = searchParams.get('dateRange')
+
+    return {
+      view: searchParams.get('view') ?? 'all',
+      provider_id: searchParams.get('provider') && Number.isFinite(provider) ? provider : undefined,
+      search: searchParams.get('search') || undefined,
+      status: status && status in STATUS_META ? (status as PipelineStatus) : undefined,
+      organization: searchParams.get('organization') || undefined,
+      date_range: isDateRange(dateRange) ? dateRange : undefined,
+      show_hidden: searchParams.get('hidden') === 'show',
+      utc_offset_minutes: -new Date().getTimezoneOffset(),
+    }
+  }, [searchParams])
 }
 
 export interface RunHistoryFilters {

@@ -33,6 +33,7 @@ import { queryKeys } from './lib/queryKeys'
 import { useBuildWatchLifecycle } from './queries/useBuildWatchQueries'
 import { useLocalNotificationsLifecycle } from './queries/useLocalNotificationQueries'
 import { usePipelines } from './queries/usePipelinesQueries'
+import { useLegacyPipelineMarksImport, usePipelineViews } from './queries/usePipelineViewQueries'
 import { useProviders } from './queries/useProvidersQueries'
 import { useRefreshProvider } from './queries/useRefreshQueries'
 import { useCancelRun, useRerunFailedJobs, useRerunRun, useReviewRun } from './queries/useRunHistoryQueries'
@@ -44,7 +45,7 @@ import { useAuthStore } from './stores/authStore'
 import { useModalStore } from './stores/modalStore'
 import type { Pipeline, PipelineRun, ReviewDecision } from './types'
 import { displayErrorNotification } from './utils/errorDisplay'
-import { getReconcileBlockReason, isDynamicGitHubWorkflow } from './utils/pipelinePresentation'
+import { canRerunInPlace, getReconcileBlockReason } from './utils/pipelinePresentation'
 
 function AppContent() {
   const navigate = useNavigate()
@@ -85,6 +86,9 @@ function AppContent() {
   } = useProviders({
     enabled: shouldEnableQueries,
   })
+  useLegacyPipelineMarksImport(shouldEnableQueries && providersSuccess && providers.length > 0)
+  const { data: pipelineViews } = usePipelineViews(shouldEnableQueries)
+  const viewParam = searchParams.get('view')
 
   const selectedProviderId = providers.find((p) => String(p.id) === providerParam)?.id
 
@@ -107,8 +111,8 @@ function AppContent() {
       : detailMatch
         ? (detailPipeline?.name ?? 'Pipeline unavailable')
         : location.pathname === '/pipelines'
-          ? searchParams.get('view') === 'pinned'
-            ? 'Pinned Pipelines'
+          ? viewParam
+            ? `${pipelineViews?.find((view) => view.id === viewParam)?.name ?? 'View'} Pipelines`
             : providerName
               ? `${providerName} Pipelines`
               : 'Pipelines'
@@ -204,7 +208,7 @@ function AppContent() {
       }
       useModalStore.getState().setRerunLoading(pipeline.id, run.run_number)
       try {
-        if (isDynamicGitHubWorkflow(pipeline)) {
+        if (canRerunInPlace(pipeline)) {
           await rerunRun({ pipelineId: run.pipeline_id, runNumber: run.run_number })
             .then(() => refreshProvider(pipeline.provider_id))
             .catch(() => undefined)
@@ -273,7 +277,6 @@ function AppContent() {
           element={
             <ErrorBoundary scope="route">
               <UnifiedPipelinesView
-                pipelines={pipelines}
                 providers={providers}
                 loading={loading}
                 error={providersError ?? pipelinesError}
@@ -401,7 +404,7 @@ function AppContent() {
           canViewLogs={!!logsPipeline && !!getPluginByType(logsPipeline.provider_type)?.capabilities.logs}
           canTrigger={!!logsPipeline && !getReconcileBlockReason(logsPipeline)}
           triggerBlockedReason={logsPipeline ? getReconcileBlockReason(logsPipeline) : undefined}
-          rerunInPlace={!!logsPipeline && isDynamicGitHubWorkflow(logsPipeline)}
+          rerunInPlace={!!logsPipeline && canRerunInPlace(logsPipeline)}
           canCancel={!!logsPipeline && !!getPluginByType(logsPipeline.provider_type)?.capabilities.cancel}
           onRerunSuccess={async (pipelineId, newRunNumber) => {
             await syncAfterAction(logsPipeline?.provider_id)

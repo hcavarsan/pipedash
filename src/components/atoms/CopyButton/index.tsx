@@ -15,7 +15,6 @@ export const CopyButton = ({ value, label }: CopyButtonProps) => {
     <>
       <Tooltip label={currentLabel}>
         <ActionIcon
-          variant="subtle"
           color={copied ? 'green' : 'gray'}
           size="sm"
           aria-label={currentLabel}
