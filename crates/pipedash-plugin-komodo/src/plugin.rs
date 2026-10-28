@@ -180,9 +180,10 @@ impl Plugin for KomodoPlugin {
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
         let provider_id = self.provider_id()?;
         let selected = config::parse_selected_items(&self.config);
-        let stacks = self.client()?.list_stacks().await?;
+        let client = self.client()?;
+        let stacks = client.list_stacks().await?;
 
-        let pipelines: Vec<Pipeline> = stacks
+        let listed: Vec<&types::StackListItem> = stacks
             .iter()
             .filter(|stack| {
                 selected.as_ref().is_none_or(|items| {
@@ -191,7 +192,15 @@ impl Plugin for KomodoPlugin {
                         .any(|item| *item == stack.id || *item == stack.name)
                 })
             })
-            .map(|stack| mapper::map_pipeline(stack, provider_id))
+            .collect();
+        let stack_ids: Vec<&str> = listed.iter().map(|stack| stack.id.as_str()).collect();
+        let last_starts = client.latest_update_starts(&stack_ids).await?;
+
+        let pipelines: Vec<Pipeline> = listed
+            .iter()
+            .map(|stack| {
+                mapper::map_pipeline(stack, provider_id, last_starts.get(&stack.id).copied())
+            })
             .collect();
 
         debug!(
@@ -287,6 +296,11 @@ mod tests {
     const NEWEST_START: i64 = 1_761_660_000_000;
     const UPDATE_COUNT: usize = 250;
     const UPDATES_PER_PAGE: usize = 100;
+    const BUSY_START: i64 = NEWEST_START - 5_000_000;
+    const BUSY_UPDATES: usize = 650;
+    const RUNNING_START: i64 = NEWEST_START - 10_000_000;
+    const RUNNING_UPDATES: usize = 150;
+    const DOWN_START: i64 = NEWEST_START - 20_000_000;
     const STATES: [&str; 11] = [
         "deploying",
         "running",
@@ -366,6 +380,45 @@ mod tests {
         })
     }
 
+    fn stack_update(stack_id: &str, index: usize, start_ts: i64) -> Value {
+        json!({
+            "id": format!("{stack_id}-u{index}"), "operation": "DeployStack", "start_ts": start_ts,
+            "success": true, "username": "ada", "operator": "usr1",
+            "target": {"type": "Stack", "id": stack_id}, "status": "Complete"
+        })
+    }
+
+    fn updates_of(stack_id: &str) -> Vec<Value> {
+        match stack_id {
+            "stk1" => (0..UPDATE_COUNT).map(listed_update).collect(),
+            "dup" => vec![
+                json!({"id": "d1", "start_ts": 7, "status": "Complete", "success": true}),
+                json!({"id": "d2", "start_ts": 7, "status": "Complete", "success": true}),
+            ],
+            "id-dead" => (0..BUSY_UPDATES)
+                .map(|i| stack_update(stack_id, i, BUSY_START - i as i64 * 1_000))
+                .collect(),
+            "id-running" => (0..RUNNING_UPDATES)
+                .map(|i| stack_update(stack_id, i, RUNNING_START - i as i64 * 1_000))
+                .collect(),
+            "id-down" => vec![stack_update(stack_id, 0, DOWN_START)],
+            _ => Vec::new(),
+        }
+    }
+
+    fn queried_stack_ids(query: &Value) -> Vec<String> {
+        let target = &query["target.id"];
+        match target.as_str() {
+            Some(id) => vec![id.to_string()],
+            None => target["$in"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|id| id.as_str().map(str::to_string))
+                .collect(),
+        }
+    }
+
     fn list_updates(query: &Value, page: usize) -> (u16, Value) {
         if query["target.type"] != "Stack" {
             return (
@@ -373,14 +426,11 @@ mod tests {
                 json!({"error": "expected a Stack target", "trace": []}),
             );
         }
-        let all: Vec<Value> = match query["target.id"].as_str() {
-            Some("stk1") => (0..UPDATE_COUNT).map(listed_update).collect(),
-            Some("dup") => vec![
-                json!({"id": "d1", "start_ts": 7, "status": "Complete", "success": true}),
-                json!({"id": "d2", "start_ts": 7, "status": "Complete", "success": true}),
-            ],
-            _ => Vec::new(),
-        };
+        let mut all: Vec<Value> = queried_stack_ids(query)
+            .iter()
+            .flat_map(|id| updates_of(id))
+            .collect();
+        all.sort_by_key(|update| std::cmp::Reverse(update["start_ts"].as_i64()));
         let updates: Vec<Value> = all
             .into_iter()
             .filter(|update| {
@@ -590,11 +640,17 @@ mod tests {
         assert_eq!(pipelines[1].metadata["update_available"], json!(true));
 
         let requests = requests.lock().await;
-        assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].path, "/read");
         assert_eq!(
             requests[0].body,
             json!({"type": "ListStacks", "params": {"query": {}, "limit": 0}})
+        );
+        assert_eq!(requests[1].body["type"], "ListUpdates");
+        assert_eq!(
+            requests[1].body["params"]["query"]["target.id"]["$in"]
+                .as_array()
+                .map(Vec::len),
+            Some(STATES.len())
         );
     }
 
@@ -612,6 +668,70 @@ mod tests {
 
         let (nothing, _, _) = stub_plugin(&[("selected_items", "")]).await;
         assert!(nothing.fetch_pipelines().await.unwrap().is_empty());
+    }
+
+    async fn last_runs(extra: &[(&str, &str)]) -> (HashMap<String, Option<i64>>, Vec<u64>, Value) {
+        let (plugin, _, requests) = stub_plugin(extra).await;
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+        let last_runs = pipelines
+            .into_iter()
+            .map(|pipeline| {
+                (
+                    pipeline.name,
+                    pipeline.last_run.map(|at| at.timestamp_millis()),
+                )
+            })
+            .collect();
+        let first_lookup = bodies(&requests, "ListUpdates").await.remove(0);
+        (
+            last_runs,
+            list_update_pages(&requests).await,
+            first_lookup["params"]["query"].clone(),
+        )
+    }
+
+    #[tokio::test]
+    async fn last_run_is_the_newest_update_start_and_none_without_updates() {
+        let (last_runs, pages, query) =
+            last_runs(&[("selected_items", "id-running,id-down,id-paused")]).await;
+
+        assert_eq!(last_runs["stack-running"], Some(RUNNING_START));
+        assert_eq!(last_runs["stack-down"], Some(DOWN_START));
+        assert_eq!(last_runs["stack-paused"], None);
+        assert_eq!(pages, [0, 1]);
+        assert_eq!(
+            query,
+            json!({
+                "target.type": "Stack",
+                "target.id": {"$in": ["id-running", "id-paused", "id-down"]}
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn update_paging_stops_once_every_stack_is_seen() {
+        let (last_runs, pages, _) = last_runs(&[("selected_items", "id-running")]).await;
+
+        assert_eq!(last_runs["stack-running"], Some(RUNNING_START));
+        assert_eq!(pages, [0]);
+    }
+
+    #[tokio::test]
+    async fn update_paging_is_capped_when_a_stack_stays_unseen() {
+        let (last_runs, pages, _) = last_runs(&[("selected_items", "id-dead,id-down")]).await;
+
+        assert_eq!(last_runs["stack-dead"], Some(BUSY_START));
+        assert_eq!(last_runs["stack-down"], None);
+        assert_eq!(pages, [0, 1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn no_update_lookup_is_sent_without_stacks() {
+        let (plugin, _, requests) = stub_plugin(&[("selected_items", "")]).await;
+
+        assert!(plugin.fetch_pipelines().await.unwrap().is_empty());
+
+        assert!(bodies(&requests, "ListUpdates").await.is_empty());
     }
 
     #[tokio::test]

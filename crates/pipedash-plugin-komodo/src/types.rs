@@ -89,6 +89,14 @@ pub(crate) struct UpdateListItem {
     pub operator: String,
     #[serde(default)]
     pub status: String,
+    #[serde(default)]
+    pub target: UpdateTarget,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct UpdateTarget {
+    #[serde(default)]
+    pub id: String,
 }
 
 #[derive(Debug, Deserialize)]

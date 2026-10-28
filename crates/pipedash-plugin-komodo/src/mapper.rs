@@ -61,7 +61,9 @@ fn repository(stack: &StackListItem) -> String {
     }
 }
 
-pub(crate) fn map_pipeline(stack: &StackListItem, provider_id: i64) -> Pipeline {
+pub(crate) fn map_pipeline(
+    stack: &StackListItem, provider_id: i64, last_update_start: Option<i64>,
+) -> Pipeline {
     let info = &stack.info;
     let mut metadata = HashMap::from([
         ("stack_id".to_string(), json!(stack.id)),
@@ -96,7 +98,7 @@ pub(crate) fn map_pipeline(stack: &StackListItem, provider_id: i64) -> Pipeline 
         provider_type: "komodo".to_string(),
         name: stack.name.clone(),
         status: map_stack_state(&info.state),
-        last_run: None,
+        last_run: last_update_start.map(timestamp),
         last_updated: Utc::now(),
         repository: repository(stack),
         branch,
@@ -253,7 +255,7 @@ mod tests {
 
     #[test]
     fn stack_on_main_maps_server_repo_and_update_facts() {
-        let pipeline = map_pipeline(&stack(MAIN_STACK), 3);
+        let pipeline = map_pipeline(&stack(MAIN_STACK), 3, Some(1761660000123));
 
         assert_eq!(pipeline.id, "komodo__3__66a1");
         assert_eq!(pipeline.provider_type, "komodo");
@@ -261,7 +263,10 @@ mod tests {
         assert_eq!(pipeline.status, PipelineStatus::Success);
         assert_eq!(pipeline.repository, "prod-1/web");
         assert_eq!(pipeline.branch.as_deref(), Some("main"));
-        assert_eq!(pipeline.last_run, None);
+        assert_eq!(
+            pipeline.last_run.map(|at| at.timestamp_millis()),
+            Some(1761660000123)
+        );
         assert_eq!(pipeline.metadata["server"], json!("prod-1"));
         assert_eq!(pipeline.metadata["state"], json!("running"));
         assert_eq!(pipeline.metadata["update_available"], json!(true));
@@ -278,9 +283,10 @@ mod tests {
 
     #[test]
     fn stack_on_v1_without_names_falls_back_to_server_id_and_skips_empty_facts() {
-        let pipeline = map_pipeline(&stack(V1_STACK), 3);
+        let pipeline = map_pipeline(&stack(V1_STACK), 3, None);
 
         assert_eq!(pipeline.status, PipelineStatus::Cancelled);
+        assert_eq!(pipeline.last_run, None);
         assert_eq!(pipeline.repository, "66s1/files");
         assert_eq!(pipeline.branch, None);
         assert_eq!(pipeline.metadata["server"], json!("66s1"));
@@ -299,7 +305,7 @@ mod tests {
 
     #[test]
     fn stack_with_only_a_name_is_still_mapped() {
-        let pipeline = map_pipeline(&stack(r#"{"id": "x", "name": "bare"}"#), 1);
+        let pipeline = map_pipeline(&stack(r#"{"id": "x", "name": "bare"}"#), 1, None);
 
         assert_eq!(pipeline.repository, "bare");
         assert_eq!(pipeline.status, PipelineStatus::Pending);
@@ -313,6 +319,7 @@ mod tests {
                 r#"{"id": "x", "name": "api", "info": {"swarm_id": "s", "swarm_name": "edge", "server_id": "", "state": "running"}}"#,
             ),
             1,
+            None,
         );
 
         assert_eq!(pipeline.repository, "edge/api");

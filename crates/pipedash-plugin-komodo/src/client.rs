@@ -1,3 +1,7 @@
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 use std::sync::Arc;
 
 use pipedash_plugin_api::{
@@ -29,6 +33,8 @@ pub(crate) struct KomodoClient {
     api_secret: String,
     retry_policy: RetryPolicy,
 }
+
+const MAX_LAST_RUN_PAGES: u32 = 5;
 
 impl KomodoClient {
     pub fn new(
@@ -70,6 +76,29 @@ impl KomodoClient {
         }
         updates.truncate(limit);
         Ok(updates)
+    }
+
+    pub async fn latest_update_starts(
+        &self, stack_ids: &[&str],
+    ) -> PluginResult<HashMap<String, i64>> {
+        let mut pending: HashSet<&str> = stack_ids.iter().copied().collect();
+        let mut latest = HashMap::new();
+        if pending.is_empty() {
+            return Ok(latest);
+        }
+        let query = json!({ "target.type": "Stack", "target.id": { "$in": stack_ids } });
+        for page in 0..MAX_LAST_RUN_PAGES {
+            let response = self.list_updates(query.clone(), page).await?;
+            for update in response.updates {
+                if pending.remove(update.target.id.as_str()) {
+                    latest.insert(update.target.id, update.start_ts);
+                }
+            }
+            if pending.is_empty() || response.next_page.is_none() {
+                break;
+            }
+        }
+        Ok(latest)
     }
 
     pub async fn updates_started_at(
