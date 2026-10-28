@@ -26,8 +26,8 @@ import {
   IconFileText,
   IconGitBranch,
   IconHistory,
+  IconPlayerPlay,
   IconRefresh,
-  IconRefreshAlert,
   IconSquare,
   IconUser,
   IconX,
@@ -36,6 +36,7 @@ import type { DataTableSortStatus } from 'mantine-datatable'
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PAGE_SIZES } from '../../constants/pagination'
+import { usePlugins } from '../../contexts/PluginContext'
 import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTableColumns } from '../../hooks/useTableColumns'
@@ -59,11 +60,13 @@ import { formatCount } from '../../utils/formatCount'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { formatDuration } from '../../utils/formatDuration'
 import {
+  canRerunInPlace,
   getPipelineLabels,
   getStatusLabel,
   getStatusOptions,
   getTriggerBlockReason,
 } from '../../utils/pipelinePresentation'
+import type { RerunMode } from '../../utils/rerunSummary'
 import { TableCells } from '../../utils/tableCells'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { useContextMenu } from '../common/ContextMenu'
@@ -78,6 +81,7 @@ import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup, IosRow } from '../ios/IosList'
 import type { SwipeAction } from '../ios/SwipeActions'
 import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
+import { RerunConfirmModal } from '../pipeline/RerunConfirmModal'
 
 import { IosRunList, IosRunToolbar } from './IosRunList'
 import { triggerIcon } from './PipelineRowParts'
@@ -133,6 +137,7 @@ export const RunHistoryPage = ({
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const buildWatch = useBuildWatch()
+  const { getPluginDisplayName } = usePlugins()
   const watching = buildWatch.data?.watch?.monitoring === 'watching'
   const watchDisabled =
     buildWatch.busy || buildWatch.isFetching || buildWatch.isError || !buildWatch.data?.available || watching
@@ -151,6 +156,7 @@ export const RunHistoryPage = ({
   const [cancellingRunNumber, setCancellingRunNumber] = useState<number | null>(null)
   const [reviewingRunNumber, setReviewingRunNumber] = useState<number | null>(null)
   const [rerunningFailedRunNumber, setRerunningFailedRunNumber] = useState<number | null>(null)
+  const [rerunTarget, setRerunTarget] = useState<PipelineRun | null>(null)
   const { data: runsTable } = useTableDefinition(pipeline?.provider_id ?? 0, 'pipeline_runs')
   const defaultSortStatus = useMemo<DataTableSortStatus<PipelineRun>>(
     () => ({
@@ -320,6 +326,23 @@ export const RunHistoryPage = ({
     [onRerunFailedJobs]
   )
 
+  const requestRerun = useCallback(
+    (pipeline: Pipeline, run: PipelineRun) => {
+      if (canRerunInPlace(pipeline)) {
+        setRerunTarget(run)
+      } else {
+        onRerun?.(pipeline, run)
+      }
+    },
+    [onRerun]
+  )
+
+  const confirmRerun = async (mode: RerunMode) => {
+    if (pipeline && rerunTarget) {
+      await (mode === 'failed' ? handleRerunFailedJobs(pipeline, rerunTarget) : onRerun?.(pipeline, rerunTarget))
+    }
+  }
+
   const rerunLoading = useModalStore((s) => s.rerunLoading)
 
   const getRunActions = useCallback(
@@ -386,24 +409,15 @@ export const RunHistoryPage = ({
           },
         })
       } else if (!active && onRerun) {
-        const busy = rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number
+        const busy =
+          (rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number) ||
+          rerunningFailedRunNumber === run.run_number
         actions.push({
           label: isFlux ? `Reconcile ${pipeline.name}` : `Rerun run #${run.run_number}`,
-          icon: <IconRefresh size={16} />,
+          icon: <IconPlayerPlay size={16} />,
           disabled: busy,
           loading: busy,
-          onClick: () => onRerun(pipeline, run),
-        })
-      }
-      if (!active && run.metadata?.can_rerun_failed_jobs === true && onRerunFailedJobs) {
-        actions.push({
-          label: `Re-run failed jobs of run #${run.run_number}`,
-          icon: <IconRefreshAlert size={16} />,
-          disabled: rerunningFailedRunNumber !== null,
-          loading: rerunningFailedRunNumber === run.run_number,
-          onClick: () => {
-            void handleRerunFailedJobs(pipeline, run)
-          },
+          onClick: () => requestRerun(pipeline, run),
         })
       }
       if (withDetails) {
@@ -424,11 +438,10 @@ export const RunHistoryPage = ({
       cancellingRunNumber,
       handleCancelRun,
       onRerun,
+      requestRerun,
       rerunLoading,
       isFlux,
-      onRerunFailedJobs,
       rerunningFailedRunNumber,
-      handleRerunFailedJobs,
       labels.run,
       onViewRun,
       buildWatch,
@@ -504,7 +517,7 @@ export const RunHistoryPage = ({
         label: isFlux ? 'Reconcile' : 'Rerun',
         tone: 'blue',
         primary: true,
-        onSelect: () => onRerun(pipeline, run),
+        onSelect: () => requestRerun(pipeline, run),
       })
     }
 
@@ -572,18 +585,10 @@ export const RunHistoryPage = ({
                 </Menu.Item>
               )
             : onRerun && (
-                <Menu.Item onClick={() => onRerun(pipeline, run)}>
+                <Menu.Item onClick={() => requestRerun(pipeline, run)}>
                   {isFlux ? `Reconcile ${pipeline.name}` : `Rerun ${labels.run}`}
                 </Menu.Item>
               )}
-          {!isActive && run.metadata?.can_rerun_failed_jobs === true && onRerunFailedJobs && (
-            <Menu.Item
-              disabled={rerunningFailedRunNumber !== null}
-              onClick={() => handleRerunFailedJobs(pipeline, run)}
-            >
-              Re-run failed jobs
-            </Menu.Item>
-          )}
           <Menu.Item onClick={() => onViewRun(pipeline.id, run.run_number)}>View details</Menu.Item>
           <ActionSheetCancel />
         </Menu.Dropdown>
@@ -867,7 +872,7 @@ export const RunHistoryPage = ({
         const selected = selectedRuns.some((selectedRun) => selectedRun.run_number === run.run_number)
 
         return (
-          <Card key={run.run_number} padding="lg">
+          <Card key={run.run_number} padding="lg" className="interactive-surface stretched">
             <Stack gap="xs">
               <Group justify="space-between" wrap="nowrap">
                 <Group gap="xs" wrap="nowrap" flex={1} miw={0}>
@@ -885,7 +890,7 @@ export const RunHistoryPage = ({
                     />
                   )}
                   <UnstyledButton
-                    className="interactive-surface"
+                    className="item-primary"
                     aria-label={`View details for ${labels.run} #${run.run_number}`}
                     onClick={() => onViewRun(currentPipeline.id, run.run_number)}
                   >
@@ -1032,7 +1037,6 @@ export const RunHistoryPage = ({
         <StandardTable<PipelineRun>
           records={sortedRuns}
           onRowClick={({ record }) => onViewRun(currentPipeline.id, record.run_number)}
-          rowStyle={() => ({ cursor: 'pointer' })}
           customRowAttributes={(record) => {
             const menu = runMenu(record)
 
@@ -1247,6 +1251,14 @@ export const RunHistoryPage = ({
         currentOrder={columnPreferences.columnOrder}
         currentVisibility={columnPreferences.columnVisibility}
         onApply={handleApplyCustomization}
+      />
+
+      <RerunConfirmModal
+        run={rerunTarget}
+        pipelineName={pipeline?.name ?? ''}
+        providerName={pipeline ? getPluginDisplayName(pipeline.provider_type) : ''}
+        onClose={() => setRerunTarget(null)}
+        onConfirm={confirmRerun}
       />
     </PageContainer>
   )

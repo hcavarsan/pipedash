@@ -35,13 +35,7 @@ export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', action
         <Group gap="xs" align="center" flex={1} miw={0}>
           {onBack && (
             <Tooltip label={backLabel}>
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                size={isMobile ? 'sm' : 'md'}
-                onClick={onBack}
-                aria-label={backLabel}
-              >
+              <ActionIcon size={isMobile ? 'sm' : 'md'} onClick={onBack} aria-label={backLabel}>
                 <IconArrowLeft size={16} />
               </ActionIcon>
             </Tooltip>

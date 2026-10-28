@@ -5,7 +5,6 @@ import {
   IconLayoutSidebarLeftExpand,
   IconLock,
   IconLockOpen,
-  IconRefresh,
   IconSettings,
 } from '@tabler/icons-react'
 import React, { useCallback, useEffect, useState } from 'react'
@@ -22,6 +21,7 @@ import { lockMeansSomething } from '../../utils/appLock'
 import { isDesktopTauri, platform } from '../../utils/platform'
 import { AppLogo } from '../atoms/AppLogo'
 import { ConnectionStatus } from '../common/ConnectionStatus'
+import { RefreshButton } from '../common/RefreshButton'
 import { WindowControls } from '../common/WindowControls'
 import { NotificationCenter } from '../notifications/NotificationCenter'
 
@@ -102,7 +102,7 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
 
   const sidebarToggle = onToggleNavbar && (
     <Tooltip label={commandTooltip(sidebarLabel, 'mod+\\')} position="bottom">
-      <ActionIcon onClick={onToggleNavbar} size="lg" variant="subtle" color="gray" aria-label={sidebarLabel}>
+      <ActionIcon onClick={onToggleNavbar} size="lg" aria-label={sidebarLabel}>
         {navbarOpened ? <IconLayoutSidebarLeftCollapse size={20} /> : <IconLayoutSidebarLeftExpand size={20} />}
       </ActionIcon>
     </Tooltip>
@@ -154,11 +154,9 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
                 position="bottom"
               >
                 <ActionIcon
-                  variant="subtle"
                   size="lg"
                   onClick={canLock ? handleLockVault : undefined}
                   disabled={!canLock}
-                  color="gray"
                   aria-label={lockLabel}
                 >
                   {isVaultUnlocked ? <IconLockOpen size={20} /> : <IconLock size={20} />}
@@ -169,22 +167,18 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
             <NotificationCenter />
 
             <Tooltip label={commandTooltip('Refresh all', showWindowChrome ? 'mod+R' : undefined)} position="bottom">
-              <ActionIcon
-                variant="subtle"
+              <RefreshButton
                 size="lg"
+                iconSize={20}
+                pending={refreshAll.isPending}
                 onClick={handleRefresh}
-                data-refreshing={refreshAll.isPending || undefined}
-                aria-busy={refreshAll.isPending}
-                color="gray"
                 aria-label="Refresh all"
-              >
-                <IconRefresh size={20} />
-              </ActionIcon>
+              />
             </Tooltip>
 
             {onOpenSettings && (
               <Tooltip label={commandTooltip(settingsLabel, 'mod+,')} position="bottom">
-                <ActionIcon variant="subtle" size="lg" onClick={onOpenSettings} color="gray" aria-label={settingsLabel}>
+                <ActionIcon size="lg" onClick={onOpenSettings} aria-label={settingsLabel}>
                   {settingsOpen ? <IconArrowLeft size={20} /> : <IconSettings size={20} />}
                 </ActionIcon>
               </Tooltip>

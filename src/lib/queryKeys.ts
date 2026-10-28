@@ -1,3 +1,4 @@
+import type { PipelineViewQuery } from '../types'
 import type { LogSearchQuery } from '../types/logs'
 
 export const queryKeys = {
@@ -15,6 +16,11 @@ export const queryKeys = {
     all: ['pipelines'] as const,
     list: (filters?: { providerId?: number }) => [...queryKeys.pipelines.all, 'list', filters ?? {}] as const,
     detail: (id: string) => [...queryKeys.pipelines.all, 'detail', id] as const,
+    views: () => [...queryKeys.pipelines.all, 'views'] as const,
+    pages: () => [...queryKeys.pipelines.all, 'page'] as const,
+    page: (q: PipelineViewQuery) => [...queryKeys.pipelines.all, 'page', q] as const,
+    viewMembers: (id: string) => [...queryKeys.pipelines.all, 'viewMembers', id] as const,
+    pins: () => [...queryKeys.pipelines.all, 'pins'] as const,
   },
 
   runs: {

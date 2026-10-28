@@ -550,8 +550,6 @@ export const ProvidersSection = ({ onHeaderActionsChange }: ProvidersSectionProp
                           <Tooltip label={`Edit refresh interval for ${provider.name}`}>
                             <ActionIcon
                               size="sm"
-                              variant="subtle"
-                              color="gray"
                               aria-label={`Edit refresh interval for ${provider.name}`}
                               onClick={() => handleEditRefreshInterval(provider.id, provider.refresh_interval)}
                             >

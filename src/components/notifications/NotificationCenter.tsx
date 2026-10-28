@@ -418,7 +418,7 @@ export function NotificationCenter() {
       <Popover opened={opened} onChange={toggle} position="bottom-end" width={380} shadow="md" trapFocus returnFocus>
         <Popover.Target>
           <Tooltip label={label} position="bottom" disabled={opened}>
-            <ActionIcon variant="subtle" size="lg" color="gray" aria-label={label} onClick={() => toggle(!opened)}>
+            <ActionIcon size="lg" aria-label={label} onClick={() => toggle(!opened)}>
               <IconBell size={20} />
             </ActionIcon>
           </Tooltip>

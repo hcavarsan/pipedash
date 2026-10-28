@@ -21,7 +21,7 @@ import { usePlugins } from '../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
 import { useRerunWorkflow, useRunDetails } from '../../queries/useRunDetailsQuery'
-import { useCancelRun, useRerunRun } from '../../queries/useRunHistoryQueries'
+import { useCancelRun, useRerunFailedJobs, useRerunRun } from '../../queries/useRunHistoryQueries'
 import { useRunLogTree } from '../../queries/useRunLogQueries'
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { service } from '../../services'
@@ -37,6 +37,7 @@ import { getValueByPath } from '../../utils/objectPath'
 import { isHttpUrl, openExternal } from '../../utils/openExternal'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { isMobilePlatform } from '../../utils/platform'
+import type { RerunMode } from '../../utils/rerunSummary'
 import { CopyButton } from '../atoms/CopyButton'
 import { StatusBadge, StatusIcon } from '../atoms/StatusBadge'
 import { ErrorState } from '../common/ErrorState'
@@ -48,6 +49,7 @@ import { LogViewer, type LogViewerHandle } from '../logs/LogViewer'
 import { BuildWatchControls } from './BuildWatchControls'
 import { createLogShortcutHandler } from './logShortcuts'
 import { groupLogNodes } from './logTree'
+import { RerunConfirmModal } from './RerunConfirmModal'
 import { RunLogsPanel } from './RunLogsPanel'
 import classes from './WorkflowLogsModal.module.css'
 
@@ -104,6 +106,7 @@ export const WorkflowLogsModal = ({
   canViewLogs,
 }: WorkflowLogsModalProps) => {
   const [cancelling, setCancelling] = useState(false)
+  const [confirmingRerun, setConfirmingRerun] = useState(false)
   const [cancellationRequestedFor, setCancellationRequestedFor] = useState<string | null>(null)
   const cancelRun = useCancelRun()
   const clipboard = useClipboard({ timeout: 2000 })
@@ -150,7 +153,8 @@ export const WorkflowLogsModal = ({
 
   const rerunMutation = useRerunWorkflow()
   const rerunRunMutation = useRerunRun()
-  const rerunPending = rerunMutation.isPending || rerunRunMutation.isPending
+  const rerunFailedMutation = useRerunFailedJobs()
+  const rerunPending = rerunMutation.isPending || rerunRunMutation.isPending || rerunFailedMutation.isPending
 
   const { data: tableSchema } = useTableDefinition(providerId ?? 0, 'pipeline_runs')
 
@@ -163,14 +167,14 @@ export const WorkflowLogsModal = ({
   const isRunning = runDetails?.status === 'running' || runDetails?.status === 'pending'
   const isPending = runDetails?.status === 'pending'
 
-  const handleRerun = async () => {
+  const handleRerun = async (mode: RerunMode) => {
     if (!runDetails) {
       return
     }
 
     try {
-      if (rerunInPlace) {
-        await rerunRunMutation.mutateAsync({ pipelineId, runNumber })
+      if (mode === 'failed' || rerunInPlace) {
+        await (mode === 'failed' ? rerunFailedMutation : rerunRunMutation).mutateAsync({ pipelineId, runNumber })
         onClose()
         onRerunSuccess?.(pipelineId, runNumber)
 
@@ -191,6 +195,8 @@ export const WorkflowLogsModal = ({
       logger.error('WorkflowLogsModal', 'Failed to re-run workflow', error)
     }
   }
+
+  const requestRerun = () => (isFlux ? handleRerun('all') : setConfirmingRerun(true))
 
   const handleCancel = async () => {
     if (!runDetails) {
@@ -374,7 +380,7 @@ export const WorkflowLogsModal = ({
           </Button>
         )}
         {!isRunning && canTrigger && (
-          <Button size="sm" leftSection={<IconPlayerPlay size={16} />} onClick={handleRerun} loading={rerunPending}>
+          <Button size="sm" leftSection={<IconPlayerPlay size={16} />} onClick={requestRerun} loading={rerunPending}>
             {isFlux ? labels.trigger : isMobile ? 'Rerun' : 'Rerun workflow'}
           </Button>
         )}
@@ -520,7 +526,7 @@ export const WorkflowLogsModal = ({
                 }
                 accessory={rerunPending ? <Loader size="sm" /> : undefined}
                 disabled={rerunPending}
-                onClick={handleRerun}
+                onClick={requestRerun}
               />
             </IosGroup>
           )}
@@ -567,47 +573,60 @@ export const WorkflowLogsModal = ({
 
   const title = isFlux ? 'Reconciliation details' : 'Run details'
 
+  const rerunConfirm = (
+    <RerunConfirmModal
+      run={confirmingRerun && runDetails ? runDetails : null}
+      pipelineName={pipelineName}
+      providerName={providerName}
+      onClose={() => setConfirmingRerun(false)}
+      onConfirm={handleRerun}
+    />
+  )
+
   if (canViewLogs && !mobileShell) {
     const column = { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } as const
 
     return (
-      <StandardModal
-        opened={opened}
-        onClose={onClose}
-        size="full"
-        title={title}
-        footer={footer}
-        disableScrollArea
-        contentPadding={false}
-      >
-        <Tabs
-          value={tab}
-          onChange={(value) => setTab(value === 'details' ? 'details' : 'logs')}
-          keepMounted={false}
-          onKeyDown={tab === 'logs' ? shortcuts : undefined}
-          style={column}
+      <>
+        <StandardModal
+          opened={opened}
+          onClose={onClose}
+          size="full"
+          title={title}
+          footer={footer}
+          disableScrollArea
+          contentPadding={false}
         >
-          <Tabs.List px="lg">
-            <Tabs.Tab value="logs">Logs</Tabs.Tab>
-            <Tabs.Tab value="details">Details</Tabs.Tab>
-          </Tabs.List>
-          <Tabs.Panel value="logs" style={column}>
-            <RunLogsPanel
-              pipelineId={pipelineId}
-              pipelineName={pipelineName}
-              runNumber={runNumber}
-              providerName={providerName}
-              narrow={isMobile}
-              viewerRef={viewerRef}
-            />
-          </Tabs.Panel>
-          <Tabs.Panel value="details" style={column}>
-            <ScrollArea style={{ flex: 1, minHeight: 0 }}>
-              <Box p="lg">{renderContent()}</Box>
-            </ScrollArea>
-          </Tabs.Panel>
-        </Tabs>
-      </StandardModal>
+          <Tabs
+            value={tab}
+            onChange={(value) => setTab(value === 'details' ? 'details' : 'logs')}
+            keepMounted={false}
+            onKeyDown={tab === 'logs' ? shortcuts : undefined}
+            style={column}
+          >
+            <Tabs.List px="lg">
+              <Tabs.Tab value="logs">Logs</Tabs.Tab>
+              <Tabs.Tab value="details">Details</Tabs.Tab>
+            </Tabs.List>
+            <Tabs.Panel value="logs" style={column}>
+              <RunLogsPanel
+                pipelineId={pipelineId}
+                pipelineName={pipelineName}
+                runNumber={runNumber}
+                providerName={providerName}
+                narrow={isMobile}
+                viewerRef={viewerRef}
+              />
+            </Tabs.Panel>
+            <Tabs.Panel value="details" style={column}>
+              <ScrollArea style={{ flex: 1, minHeight: 0 }}>
+                <Box p="lg">{renderContent()}</Box>
+              </ScrollArea>
+            </Tabs.Panel>
+          </Tabs>
+        </StandardModal>
+        {rerunConfirm}
+      </>
     )
   }
 
@@ -644,6 +663,7 @@ export const WorkflowLogsModal = ({
           />
         </StandardModal>
       )}
+      {rerunConfirm}
     </>
   )
 }

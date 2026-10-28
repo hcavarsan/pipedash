@@ -33,6 +33,7 @@ pub use config::{
     StorageManager,
     SyncResult as ConfigSyncResult,
     TokenReference,
+    ViewFileConfig,
 };
 pub use config_backend::{
     ConfigBackend,

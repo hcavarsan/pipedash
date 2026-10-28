@@ -2,6 +2,7 @@ pub mod error;
 pub mod health;
 pub mod metrics;
 pub mod pipeline;
+pub mod pipeline_view;
 pub mod provider;
 pub mod push;
 pub mod refresh;
@@ -47,6 +48,36 @@ pub use pipeline::{
     PipelineRun,
     PipelineStatus,
     TriggerParams,
+};
+pub use pipeline_view::{
+    CreateViewInput,
+    DateRange,
+    LegacyImportResult,
+    LegacyMarks,
+    MembershipSource,
+    PinKind,
+    PinnedBlock,
+    PinnedItem,
+    PipelineView,
+    PipelineViewPage,
+    PipelineViewQuery,
+    RuleMatcher,
+    SectionKind,
+    SectionMode,
+    SortDirection,
+    SortKey,
+    ViewCapabilities,
+    ViewDisplay,
+    ViewFacets,
+    ViewKind,
+    ViewLayout,
+    ViewMember,
+    ViewMembership,
+    ViewPatch,
+    ViewPipeline,
+    ViewRef,
+    ViewRules,
+    ViewSection,
 };
 pub use provider::{
     FetchStatus,

@@ -394,6 +394,13 @@ impl Repository {
             }
         }
 
+        if let Err(e) = super::PipelineViewRepository::new(self.cache_pool.clone())
+            .delete_provider_members(id)
+            .await
+        {
+            tracing::warn!("Failed to remove pipeline view members of provider {id}: {e}");
+        }
+
         self.config_backend.delete_provider(id).await?;
 
         Ok(())
@@ -459,30 +466,28 @@ impl Repository {
                 }
             };
 
-            if status_changed {
-                match &cache_pool {
-                    DatabasePool::Sqlite(p) => {
-                        let update_sql = "UPDATE providers SET last_fetch_at = ?, last_fetch_status = ?, last_fetch_error = ? WHERE id = ?";
-                        sqlx::query(update_sql)
-                            .bind(now.to_rfc3339())
-                            .bind(new_status)
-                            .bind(error_clone.as_ref())
-                            .bind(provider_id)
-                            .execute(p)
-                            .await
-                            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    }
-                    DatabasePool::Postgres(p) => {
-                        let update_sql = "UPDATE providers SET last_fetch_at = $1, last_fetch_status = $2, last_fetch_error = $3 WHERE id = $4";
-                        sqlx::query(update_sql)
-                            .bind(now)
-                            .bind(new_status)
-                            .bind(error_clone.as_ref())
-                            .bind(provider_id)
-                            .execute(p)
-                            .await
-                            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    }
+            match &cache_pool {
+                DatabasePool::Sqlite(p) => {
+                    let update_sql = "UPDATE providers SET last_fetch_at = ?, last_fetch_status = ?, last_fetch_error = ? WHERE id = ?";
+                    sqlx::query(update_sql)
+                        .bind(now.to_rfc3339())
+                        .bind(new_status)
+                        .bind(error_clone.as_ref())
+                        .bind(provider_id)
+                        .execute(p)
+                        .await
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                }
+                DatabasePool::Postgres(p) => {
+                    let update_sql = "UPDATE providers SET last_fetch_at = $1, last_fetch_status = $2, last_fetch_error = $3 WHERE id = $4";
+                    sqlx::query(update_sql)
+                        .bind(now)
+                        .bind(new_status)
+                        .bind(error_clone.as_ref())
+                        .bind(provider_id)
+                        .execute(p)
+                        .await
+                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                 }
             }
 

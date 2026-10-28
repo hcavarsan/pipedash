@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Badge,
   Card,
   Combobox,
@@ -93,6 +94,7 @@ export const baseTheme = createTheme({
   colors: { blue, green, red, yellow, gray },
   spacing: Object.fromEntries(Object.entries(SPACING_PX).map(([name, value]) => [name, rem(value)])),
   components: {
+    ActionIcon: ActionIcon.extend({ defaultProps: { variant: 'subtle', color: 'gray' } }),
     Badge: Badge.extend({ defaultProps: { tt: 'none' } }),
     Card: Card.extend({ defaultProps: { radius: 'md', withBorder: true } }),
     Paper: Paper.extend({ defaultProps: { radius: 'md' } }),

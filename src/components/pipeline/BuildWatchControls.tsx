@@ -90,7 +90,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps) {
   const actions = current && (
     <Menu position="bottom">
       <Menu.Target>
-        <ActionIcon variant="subtle" color="gray" size={44} data-row-menu aria-label="Watched run actions">
+        <ActionIcon size={44} data-row-menu aria-label="Watched run actions">
           <IconDots size={22} />
         </ActionIcon>
       </Menu.Target>
@@ -131,11 +131,11 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps) {
         trailing={actions}
       />
     ) : (
-      <Card padding="sm">
+      <Card padding="sm" className="interactive-surface stretched">
         <Stack gap="xs" h="100%" justify="space-between">
           <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
             <UnstyledButton
-              className="interactive-surface"
+              className="item-primary"
               miw={0}
               mih={44}
               flex={1}

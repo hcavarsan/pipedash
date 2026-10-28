@@ -369,7 +369,7 @@ impl ConfigState {
             .await
     }
 
-    pub fn load_providers(&self) -> DomainResult<indexmap::IndexMap<String, ProviderFileConfig>> {
+    pub fn load_file(&self) -> DomainResult<PipedashConfig> {
         let file = ConfigLoader::load(&self.config_path)
             .map_err(|e| DomainError::InvalidConfig(format!("Failed to reload config: {}", e)))?;
 
@@ -381,7 +381,11 @@ impl ConfigState {
             )));
         }
 
-        Ok(file.providers)
+        Ok(file)
+    }
+
+    pub fn load_providers(&self) -> DomainResult<indexmap::IndexMap<String, ProviderFileConfig>> {
+        self.load_file().map(|file| file.providers)
     }
 
     pub async fn remember_provider(&self, id: &str, provider: &ProviderFileConfig) {
@@ -397,6 +401,15 @@ impl ConfigState {
         let mut config = self.config.write().await;
         let mut next = (**config).clone();
         next.providers = providers;
+        *config = Arc::new(next);
+    }
+
+    pub async fn remember_views(
+        &self, views: indexmap::IndexMap<String, super::schema::ViewFileConfig>,
+    ) {
+        let mut config = self.config.write().await;
+        let mut next = (**config).clone();
+        next.views = views;
         *config = Arc::new(next);
     }
 

@@ -8,6 +8,10 @@ use serde::{
 };
 
 use super::token_ref::TokenReference;
+use crate::domain::{
+    PipelineStatus,
+    ViewDisplay,
+};
 
 pub(super) const DEFAULT_REFRESH_INTERVAL_SECS: u32 = 30;
 
@@ -83,6 +87,24 @@ pub struct PipedashConfig {
 
     #[serde(default, skip_serializing_if = "PushConfig::is_unset")]
     pub push: PushConfig,
+
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub views: IndexMap<String, ViewFileConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ViewFileConfig {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub providers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repositories: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_contains: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub statuses: Vec<PipelineStatus>,
+    #[serde(flatten)]
+    pub display: ViewDisplay,
 }
 
 impl PipedashConfig {

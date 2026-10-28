@@ -30,11 +30,6 @@ export const STATUS_OPTIONS = (Object.keys(STATUS_META) as PipelineStatus[]).map
   label: STATUS_META[status].label,
 }))
 
-const SEVERITY_ORDER: PipelineStatus[] = ['failed', 'running', 'pending', 'cancelled', 'success', 'skipped']
-
-export const mostSevereStatus = (statuses: PipelineStatus[]): PipelineStatus | null =>
-  SEVERITY_ORDER.find((status) => statuses.includes(status)) ?? null
-
 export const HEALTH_META: Record<HealthLevel, { label: string; color: string; icon: Icon }> = {
   operational: { label: 'Operational', color: 'green', icon: IconCircleCheck },
   maintenance: { label: 'Maintenance', color: 'gray', icon: IconTool },

@@ -24,6 +24,16 @@ pub async fn init_database(path: PathBuf) -> anyhow::Result<SqlitePool> {
                                                // prevent compounding with
                                                // retries
 
+    let migrating = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options.clone())
+        .await?;
+    sqlx::migrate!("./migrations/sqlite")
+        .set_ignore_missing(true)
+        .run(&migrating)
+        .await?;
+    migrating.close().await;
+
     let pool = SqlitePoolOptions::new()
         .max_connections(50)
         .min_connections(10)
@@ -31,11 +41,6 @@ pub async fn init_database(path: PathBuf) -> anyhow::Result<SqlitePool> {
         .idle_timeout(Duration::from_secs(300))
         .max_lifetime(Duration::from_secs(1800))
         .connect_with(options)
-        .await?;
-
-    sqlx::migrate!("./migrations/sqlite")
-        .set_ignore_missing(true)
-        .run(&pool)
         .await?;
 
     pool.execute("PRAGMA cache_size = -64000").await?; // 64MB cache

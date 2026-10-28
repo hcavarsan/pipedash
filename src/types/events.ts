@@ -39,6 +39,7 @@ export type EventPayloadMap = {
   'provider-status-updated': ProviderStatusUpdatedPayload
   'provider-health-alert': ProviderHealthAlert
   'providers-changed': undefined
+  'pipeline-views-changed': undefined
   'pipeline-cache-invalidated': CacheInvalidatedPayload
   'pipeline-status-changed': PipelineStatusChangedPayload
   'refresh-status': RefreshStatusPayload

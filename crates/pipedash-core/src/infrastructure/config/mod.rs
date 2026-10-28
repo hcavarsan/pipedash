@@ -36,6 +36,7 @@ pub use schema::{
     ServerConfig,
     StorageBackend,
     StorageConfig,
+    ViewFileConfig,
 };
 pub use state::{
     ConfigChangeEvent,

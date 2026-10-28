@@ -41,6 +41,7 @@ use crate::infrastructure::{
     database::{
         DatabasePool,
         MetricsRepository,
+        PipelineViewRepository,
         PushRepository,
         RecordMetrics,
     },
@@ -710,6 +711,39 @@ impl MigrationOrchestrator {
                     );
                 }
 
+                if !same_database(&plan.from, &plan.to) {
+                    let mapping = &result.provider_id_mapping;
+                    let mut export = PipelineViewRepository::new(self.source_pool.clone())
+                        .export()
+                        .await?;
+                    let remap = |pipeline_id: &mut String, provider_id: &mut i64| match (
+                        remap_pipeline_id(pipeline_id, mapping),
+                        mapping.get(provider_id),
+                    ) {
+                        (Some(next), Some(target)) => {
+                            *pipeline_id = next;
+                            *provider_id = *target;
+                            true
+                        }
+                        _ => false,
+                    };
+                    export
+                        .members
+                        .retain_mut(|m| remap(&mut m.pipeline_id, &mut m.provider_id));
+                    for view in &mut export.views {
+                        view.rules.provider_ids = view
+                            .rules
+                            .provider_ids
+                            .iter()
+                            .filter_map(|id| mapping.get(id).copied())
+                            .collect();
+                    }
+                    PipelineViewRepository::new(target_manager.database_pool())
+                        .import(&export)
+                        .await?;
+                    tracing::info!("[Migration] Migrated {} pipeline views", export.views.len());
+                }
+
                 if options.clean_target {
                     let source_names: std::collections::HashSet<String> =
                         source_providers.iter().map(|p| p.name.clone()).collect();
@@ -1338,5 +1372,209 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(migrated, expected);
+    }
+
+    #[tokio::test]
+    async fn views_and_pins_survive_a_restart_and_a_storage_migration() {
+        use crate::domain::{
+            PinKind,
+            SectionMode,
+            ViewDisplay,
+            ViewKind,
+            ViewLayout,
+            ViewRules,
+        };
+        use crate::infrastructure::database::ViewExport;
+
+        let source_dir = TempDir::new().unwrap();
+        let target_dir = TempDir::new().unwrap();
+        let config_path = source_dir.path().join("config.toml");
+        std::fs::write(&config_path, "[storage]\nbackend = \"sqlite\"\n").unwrap();
+        let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
+
+        let mut source = PipedashConfig::default();
+        source.storage.data_dir = source_dir.path().to_string_lossy().to_string();
+        source.storage.vault_password = Some("test-password".to_string());
+        let mut target = source.clone();
+        target.storage.data_dir = target_dir.path().to_string_lossy().to_string();
+
+        let manager = StorageManager::from_config(source.clone(), false)
+            .await
+            .unwrap();
+        let backend = manager.config_backend();
+        let mut ids = Vec::new();
+        for name in ["deleted", "gh"] {
+            let provider = ProviderConfig {
+                id: None,
+                name: name.to_string(),
+                provider_type: "github".to_string(),
+                token: String::new(),
+                config: HashMap::new(),
+                refresh_interval: 30,
+                version: None,
+            };
+            ids.push(backend.create_provider(&provider).await.unwrap());
+        }
+        backend.delete_provider(ids[0]).await.unwrap();
+        let provider = ids[1];
+        let pipeline = |n: u32| format!("github__{provider}__o__r__{n}");
+
+        let repo = PipelineViewRepository::new(manager.database_pool());
+        let rules = ViewRules {
+            provider_ids: vec![provider],
+            repositories: vec!["o/*".to_string()],
+            name_contains: Some("deploy".to_string()),
+            statuses: Vec::new(),
+        };
+        let cards = ViewDisplay {
+            layout: ViewLayout::Cards,
+            sections: SectionMode::Provider,
+            ..ViewDisplay::default()
+        };
+        let release = repo
+            .insert_custom("Release", None, &rules, &cards)
+            .await
+            .unwrap();
+        let prod = repo
+            .insert_custom(
+                "Prod",
+                Some(release),
+                &ViewRules::default(),
+                &ViewDisplay::default(),
+            )
+            .await
+            .unwrap();
+        let eu = repo
+            .insert_custom(
+                "EU",
+                Some(prod),
+                &ViewRules::default(),
+                &ViewDisplay::default(),
+            )
+            .await
+            .unwrap();
+        repo.upsert_member(eu, provider, &pipeline(1), false)
+            .await
+            .unwrap();
+        repo.upsert_member(release, provider, &pipeline(2), true)
+            .await
+            .unwrap();
+        let pinned = repo
+            .list_views()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|v| v.kind == ViewKind::Pinned)
+            .unwrap();
+        repo.update_view(
+            pinned.id,
+            &pinned.name,
+            None,
+            &pinned.rules,
+            &ViewDisplay {
+                layout: ViewLayout::Table,
+                ..pinned.display
+            },
+        )
+        .await
+        .unwrap();
+        repo.insert_pin(PinKind::View, &eu.to_string())
+            .await
+            .unwrap();
+        repo.insert_pin(PinKind::Repository, "o/r").await.unwrap();
+        repo.insert_pin(PinKind::View, &release.to_string())
+            .await
+            .unwrap();
+
+        let snapshot = |export: ViewExport, provider: i64| {
+            let pid = |id: &str| id.replace(&format!("__{provider}__"), "__P__");
+            let view_name = |id: i64| {
+                export
+                    .views
+                    .iter()
+                    .find(|v| v.id == id)
+                    .unwrap()
+                    .name
+                    .clone()
+            };
+            let views: Vec<_> = export
+                .views
+                .iter()
+                .map(|v| {
+                    let mut rules = v.rules.clone();
+                    rules.provider_ids = rules
+                        .provider_ids
+                        .iter()
+                        .map(|id| i64::from(*id == provider))
+                        .collect();
+                    (
+                        v.kind,
+                        v.name.clone(),
+                        v.parent_id.map(view_name),
+                        v.position,
+                        rules,
+                        v.display,
+                    )
+                })
+                .collect();
+            let members: Vec<_> = export
+                .members
+                .iter()
+                .map(|m| {
+                    (
+                        view_name(m.view_id),
+                        pid(&m.pipeline_id),
+                        m.excluded,
+                        m.provider_id == provider,
+                    )
+                })
+                .collect();
+            let pins: Vec<_> = export
+                .pins
+                .iter()
+                .map(|p| match p.kind {
+                    PinKind::View => view_name(p.reference.parse().unwrap()),
+                    PinKind::Repository => p.reference.clone(),
+                })
+                .collect();
+            format!("{views:?}\n{members:?}\n{pins:?}")
+        };
+        let before = snapshot(repo.export().await.unwrap(), provider);
+        drop(repo);
+        drop(manager);
+
+        let manager = StorageManager::from_config(source, false).await.unwrap();
+        let reopened = PipelineViewRepository::new(manager.database_pool())
+            .export()
+            .await
+            .unwrap();
+        assert_eq!(snapshot(reopened, provider), before);
+
+        let orchestrator = MigrationOrchestrator::from_manager(&manager, None, None).await;
+        let options = MigrationOptions {
+            migrate_tokens: false,
+            migrate_cache: false,
+            ..Default::default()
+        };
+        let plan = orchestrator
+            .plan_migration(target.clone(), &options)
+            .unwrap();
+        let result = orchestrator.execute_migration(plan, options, false).await;
+        assert!(result.success, "{:?}", result.errors);
+
+        let target_manager = StorageManager::from_config(target, false).await.unwrap();
+        let target_provider = target_manager
+            .config_backend()
+            .list_providers()
+            .await
+            .unwrap()[0]
+            .id
+            .unwrap();
+        assert_ne!(target_provider, provider);
+        let migrated = PipelineViewRepository::new(target_manager.database_pool())
+            .export()
+            .await
+            .unwrap();
+        assert_eq!(snapshot(migrated, target_provider), before);
     }
 }

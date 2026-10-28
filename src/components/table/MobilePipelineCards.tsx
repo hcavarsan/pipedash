@@ -1,26 +1,30 @@
-import { Box, Card, Group, Stack, Text, UnstyledButton } from '@mantine/core'
-import { IconChevronDown, IconChevronRight, IconFolder, IconGitBranch } from '@tabler/icons-react'
+import { Box, Card, Checkbox, Group, Stack, Text, UnstyledButton } from '@mantine/core'
+import { IconChevronDown, IconChevronRight, IconFolder, IconFolders, IconGitBranch } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { TYPOGRAPHY } from '../../theme/typography'
-import type { Pipeline, ProviderSummary } from '../../types'
+import type { ProviderSummary } from '../../types'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { ProviderStatusButton } from '../provider/ProviderStatusButton'
 
-import { RepositoryFetchIndicator, type TableRow, WorkflowActions } from './PipelineRowParts'
+import {
+  type PipelineActions,
+  type PipelineSelection,
+  RepositoryFetchIndicator,
+  RowFetchInfo,
+  rowMenuItems,
+  SectionActions,
+  type TableRow,
+  WorkflowActions,
+} from './PipelineRowParts'
 
 interface MobilePipelineCardsProps {
   rows: TableRow[]
   getProvider: (providerId: number) => ProviderSummary | undefined
   onToggleRepo: (repoId: string) => void
-  onViewHistory: (pipeline: Pipeline) => void
-  onTrigger: (pipeline: Pipeline) => void
-  pinnedKeys: string[]
-  onTogglePin: (pinKey: string) => void
-  hiddenKeys: string[]
-  onToggleHidden: (pinKey: string) => void
-  onViewMetrics?: (pipeline: Pipeline) => void
+  actions: PipelineActions
+  selection?: PipelineSelection
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -34,18 +38,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-export function MobilePipelineCards({
-  rows,
-  getProvider,
-  onToggleRepo,
-  onViewHistory,
-  onTrigger,
-  pinnedKeys,
-  onTogglePin,
-  hiddenKeys,
-  onToggleHidden,
-  onViewMetrics,
-}: MobilePipelineCardsProps) {
+export function MobilePipelineCards({ rows, getProvider, onToggleRepo, actions, selection }: MobilePipelineCardsProps) {
   const renderProviders = (row: TableRow) => (
     <Group gap="xs" px="xs" wrap="wrap">
       {Array.from(row.providerIds ?? []).map((providerId) => (
@@ -57,16 +50,18 @@ export function MobilePipelineCards({
   return (
     <Stack gap="sm">
       {rows.map((row) => {
-        if (row.type === 'repository') {
+        const indent = row.depth ? `calc(var(--mantine-spacing-xl) * ${row.depth})` : undefined
+
+        if (row.type === 'section') {
           const isFluxGroup =
             !!row.providerIds?.size &&
             Array.from(row.providerIds).every((id) => getProvider(id)?.provider_type === 'fluxcd')
           return (
-            <Card key={row.id} padding="xs">
+            <Card key={row.id} padding="xs" className="interactive-surface stretched">
               <Stack gap={4}>
                 <Group wrap="nowrap" align="flex-start" gap="xs">
                   <UnstyledButton
-                    className="interactive-surface"
+                    className="item-primary"
                     onClick={() => onToggleRepo(row.id)}
                     aria-expanded={row.expanded}
                     p="xs"
@@ -81,21 +76,33 @@ export function MobilePipelineCards({
                           ) : (
                             <IconChevronRight size={16} style={{ flexShrink: 0 }} />
                           )}
-                          <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                          {row.kind === 'view' ? (
+                            <IconFolders size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                          ) : (
+                            <IconFolder size={16} color="var(--mantine-color-dimmed)" style={{ flexShrink: 0 }} />
+                          )}
                           <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight} truncate>
                             {row.name}
                           </Text>
                         </Group>
-                        {row.status && <StatusBadge status={row.status} label={row.statusLabel} />}
                       </Group>
 
                       <Group gap="md" wrap="wrap">
-                        <Field label={isFluxGroup ? 'Namespace' : 'Organization'}>{row.organization}</Field>
+                        {row.kind !== 'view' && (
+                          <Field label={isFluxGroup ? 'Namespace' : 'Organization'}>{row.organization}</Field>
+                        )}
                         <Field label={isFluxGroup ? 'Resources' : 'Workflows'}>{row.pipelineCount}</Field>
                       </Group>
                     </Stack>
                   </UnstyledButton>
+                  <RowFetchInfo row={row} getProvider={getProvider} />
                   <RepositoryFetchIndicator row={row} />
+                  <SectionActions
+                    name={row.name}
+                    providerIds={Array.from(row.providerIds ?? [])}
+                    items={rowMenuItems(row, actions)}
+                    actions={actions}
+                  />
                 </Group>
                 {renderProviders(row)}
               </Stack>
@@ -103,18 +110,18 @@ export function MobilePipelineCards({
           )
         }
 
-        const { pipeline, pinKey } = row
+        const { pipeline } = row
 
-        if (!pipeline || !pinKey) {
+        if (!pipeline) {
           return null
         }
 
         return (
-          <Card key={row.id} padding="xs" ml="xl">
+          <Card key={row.id} padding="xs" ml={indent} className="interactive-surface stretched">
             <Stack gap="xs">
               <UnstyledButton
-                className="interactive-surface"
-                onClick={() => onViewHistory(pipeline)}
+                className="item-primary"
+                onClick={() => actions.onViewHistory(pipeline)}
                 aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
                 p="xs"
                 bdrs="sm"
@@ -137,16 +144,17 @@ export function MobilePipelineCards({
                 </Stack>
               </UnstyledButton>
               <Group justify="space-between" wrap="nowrap">
-                {renderProviders(row)}
-                <WorkflowActions
-                  pipeline={pipeline}
-                  isPinned={pinnedKeys.includes(pinKey)}
-                  onTogglePin={() => onTogglePin(pinKey)}
-                  isHidden={hiddenKeys.includes(pinKey)}
-                  onToggleHidden={() => onToggleHidden(pinKey)}
-                  onTrigger={onTrigger}
-                  onViewMetrics={onViewMetrics}
-                />
+                <Group gap="xs" wrap="nowrap">
+                  {selection && (
+                    <Checkbox
+                      aria-label={`Select ${pipeline.name}`}
+                      checked={selection.selected.has(pipeline.id)}
+                      onChange={() => selection.onToggle(pipeline)}
+                    />
+                  )}
+                  {renderProviders(row)}
+                </Group>
+                <WorkflowActions pipeline={pipeline} actions={actions} />
               </Group>
             </Stack>
           </Card>

@@ -8,6 +8,7 @@ import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
 
 import { NotificationHost } from '../notifications/NotificationCenter'
 import { ProviderModals } from '../provider/ProviderModals'
+import { PipelineViewModals } from '../table/PipelineViewModals'
 import classes from './AppLayout.module.css'
 import { Header } from './Header'
 import { MobileHeader } from './MobileHeader'
@@ -196,6 +197,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
 
         {mobileShell && <MobileTabBar />}
         <ProviderModals />
+        <PipelineViewModals />
         <NotificationHost />
       </AppShell>
     </>

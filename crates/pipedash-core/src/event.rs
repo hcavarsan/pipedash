@@ -36,6 +36,8 @@ pub enum CacheInvalidationReason {
 pub enum CoreEvent {
     ProvidersChanged,
 
+    PipelineViewsChanged,
+
     PipelinesUpdated {
         pipelines: Vec<Pipeline>,
         provider_id: i64,
@@ -155,6 +157,7 @@ impl CoreEvent {
     pub fn event_name(&self) -> &'static str {
         match self {
             CoreEvent::ProvidersChanged => "providers-changed",
+            CoreEvent::PipelineViewsChanged => "pipeline-views-changed",
             CoreEvent::PipelinesUpdated { .. } => "pipelines-updated",
             CoreEvent::PipelineStatusChanged { .. } => "pipeline-status-changed",
             CoreEvent::PipelinesFailed { .. } => "pipelines-failed",
@@ -184,6 +187,7 @@ impl CoreEvent {
     pub fn to_json_payload(&self) -> serde_json::Value {
         match self {
             CoreEvent::ProvidersChanged => serde_json::json!({}),
+            CoreEvent::PipelineViewsChanged => serde_json::json!({}),
             CoreEvent::PipelinesUpdated {
                 pipelines,
                 provider_id,
@@ -356,6 +360,10 @@ mod tests {
         assert_eq!(
             CoreEvent::ProvidersChanged.event_name(),
             "providers-changed"
+        );
+        assert_eq!(
+            CoreEvent::PipelineViewsChanged.event_name(),
+            "pipeline-views-changed"
         );
         assert_eq!(
             CoreEvent::PipelineStatusChanged {

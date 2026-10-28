@@ -78,6 +78,8 @@ pub struct CoreContext {
 
     pub log_service: Arc<application::LogService>,
 
+    pub pipeline_view_service: Arc<application::PipelineViewService>,
+
     config_watcher: Arc<application::ConfigWatcher>,
 }
 
@@ -103,6 +105,7 @@ impl CoreContext {
             health: services.health,
             health_service: services.health_service,
             log_service: services.log_service,
+            pipeline_view_service: services.pipeline_view_service,
             config_state,
         }
     }
@@ -289,6 +292,7 @@ impl CoreContext {
             self.token_store.delete_token(provider_id).await?;
         }
         self.pipeline_service.clear_all_caches_atomic().await?;
+        self.pipeline_view_service.reset().await?;
         self.log_service.clear().await?;
         let metrics = MetricsRepository::new_from_pool(
             self.provider_service.repository().cache_pool().clone(),

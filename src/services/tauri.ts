@@ -10,11 +10,14 @@ import {
   type AggregationType,
   type ConfigAnalysisResponse,
   type ConfigContentResponse,
+  type CreateViewInput,
   createError,
   type ExportFileResult,
   type FeatureAvailability,
   type GeneralConfig,
   type GlobalMetricsConfig,
+  type LegacyImportResult,
+  type LegacyMarks,
   type MetricEntry,
   type MetricsConfig,
   type MetricsStats,
@@ -28,9 +31,14 @@ import {
   type PaginatedRunHistory,
   type PermissionCheckResult,
   type PermissionStatus,
+  type PinKind,
+  type PinnedItem,
   type PipedashConfig,
   type Pipeline,
   type PipelineRun,
+  type PipelineView,
+  type PipelineViewPage,
+  type PipelineViewQuery,
   type PluginMetadata,
   type ProviderConfig,
   type ProviderImportResult,
@@ -46,6 +54,9 @@ import {
   type UnlockVaultResponse,
   type ValidationResult,
   type VaultStatusResponse,
+  type ViewMember,
+  type ViewPatch,
+  type ViewRef,
   type WorkflowParameter,
 } from '../types'
 import type { LogLinesPage, LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
@@ -552,6 +563,54 @@ export const tauriService = {
 
   getDefaultTablePreferences: async (providerId: number, tableId: string): Promise<string> => {
     return invoke<string>('get_default_table_preferences', { providerId, tableId })
+  },
+
+  listPipelineViews: async (): Promise<PipelineView[]> => {
+    return invoke<PipelineView[]>('list_pipeline_views')
+  },
+
+  getPipelineViewPage: async (query: PipelineViewQuery): Promise<PipelineViewPage> => {
+    return invoke<PipelineViewPage>('get_pipeline_view_page', { query })
+  },
+
+  createPipelineView: async (input: CreateViewInput): Promise<PipelineView> => {
+    return invoke<PipelineView>('create_pipeline_view', { input })
+  },
+
+  updatePipelineView: async (id: ViewRef, patch: ViewPatch): Promise<PipelineView> => {
+    return invoke<PipelineView>('update_pipeline_view', { id, patch })
+  },
+
+  deletePipelineView: async (id: ViewRef): Promise<void> => {
+    return invoke<void>('delete_pipeline_view', { id })
+  },
+
+  reorderPipelineViews: async (order: ViewRef[]): Promise<void> => {
+    return invoke<void>('reorder_pipeline_views', { order })
+  },
+
+  listPipelineViewMembers: async (id: ViewRef): Promise<ViewMember[]> => {
+    return invoke<ViewMember[]>('list_pipeline_view_members', { id })
+  },
+
+  setPipelineViewMembership: async (id: ViewRef, pipelineId: string, member: boolean): Promise<void> => {
+    return invoke<void>('set_pipeline_view_membership', { id, pipelineId, member })
+  },
+
+  setPipelineHidden: async (pipelineId: string, hidden: boolean): Promise<void> => {
+    return invoke<void>('set_pipeline_hidden', { pipelineId, hidden })
+  },
+
+  listPins: async (): Promise<PinnedItem[]> => {
+    return invoke<PinnedItem[]>('list_pins')
+  },
+
+  setPin: async (kind: PinKind, ref: string, pinned: boolean): Promise<void> => {
+    return invoke<void>('set_pin', { kind, ref, pinned })
+  },
+
+  importLegacyPipelineMarks: async (marks: LegacyMarks): Promise<LegacyImportResult> => {
+    return invoke<LegacyImportResult>('import_legacy_pipeline_marks', { marks })
   },
 
   checkSetupStatus: async (): Promise<SetupStatus> => {
