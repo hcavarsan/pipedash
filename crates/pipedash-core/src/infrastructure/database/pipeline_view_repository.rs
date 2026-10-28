@@ -122,6 +122,16 @@ fn to_json<T: serde::Serialize>(value: &T) -> DomainResult<String> {
     serde_json::to_string(value).map_err(|e| DomainError::InternalError(e.to_string()))
 }
 
+fn unique_name(name: &str, taken: &mut HashSet<String>) -> String {
+    let mut candidate = name.to_string();
+    let mut n = 2;
+    while !taken.insert(candidate.to_lowercase()) {
+        candidate = format!("{name} ({n})");
+        n += 1;
+    }
+    candidate
+}
+
 pub struct PipelineViewRepository {
     pool: DatabasePool,
 }
@@ -484,22 +494,9 @@ impl PipelineViewRepository {
     pub async fn import(&self, export: &ViewExport, clean: bool) -> DomainResult<()> {
         let existing = self.list_views().await?;
         let mut view_ids: HashMap<i64, i64> = HashMap::new();
-        let mut merged: HashSet<i64> = HashSet::new();
-        for view in &export.views {
-            let target = if view.kind == ViewKind::Custom {
-                existing.iter().find(|g| {
-                    !clean
-                        && g.kind == ViewKind::Custom
-                        && g.name.to_lowercase() == view.name.to_lowercase()
-                })
-            } else {
-                existing.iter().find(|g| g.kind == view.kind)
-            };
-            if let Some(target) = target {
+        for view in export.views.iter().filter(|v| v.kind != ViewKind::Custom) {
+            if let Some(target) = existing.iter().find(|g| g.kind == view.kind) {
                 view_ids.insert(view.id, target.id);
-                if view.kind == ViewKind::Custom {
-                    merged.insert(view.id);
-                }
             }
         }
         let position_offset = if clean {
@@ -560,9 +557,19 @@ impl PipelineViewRepository {
             self.placeholder(2),
         );
 
+        let mut taken: HashSet<String> = existing
+            .iter()
+            .filter(|v| v.kind == ViewKind::Custom)
+            .map(|v| v.name.to_lowercase())
+            .collect();
         let mut prepared = Vec::with_capacity(export.views.len());
         for view in &export.views {
-            prepared.push((view, to_json(&view.rules)?, to_json(&view.display)?));
+            let name = if view.kind == ViewKind::Custom && !clean {
+                unique_name(&view.name, &mut taken)
+            } else {
+                view.name.clone()
+            };
+            prepared.push((view, name, to_json(&view.rules)?, to_json(&view.display)?));
         }
 
         on_pool!(&self.pool, |p| async {
@@ -571,13 +578,10 @@ impl PipelineViewRepository {
             for sql in clear {
                 sqlx::query(*sql).execute(&mut *tx).await?;
             }
-            for (view, rules, display) in &prepared {
-                if merged.contains(&view.id) {
-                    continue;
-                }
+            for (view, name, rules, display) in &prepared {
                 if view.kind == ViewKind::Custom {
                     let id = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(custom.clone()))
-                        .bind(&view.name)
+                        .bind(name)
                         .bind(view.position + position_offset)
                         .bind(rules)
                         .bind(display)
@@ -593,7 +597,7 @@ impl PipelineViewRepository {
                         .await?;
                 }
             }
-            for view in export.views.iter().filter(|v| !merged.contains(&v.id)) {
+            for view in &export.views {
                 let parents = view
                     .parent_id
                     .and_then(|old| Some((view_ids.get(&view.id)?, view_ids.get(&old)?)));
@@ -659,6 +663,12 @@ mod tests {
     async fn view_named(repo: &PipelineViewRepository, name: &str) -> StoredView {
         let views = repo.list_views().await.unwrap();
         views.into_iter().find(|v| v.name == name).unwrap()
+    }
+
+    async fn insert_plain(repo: &PipelineViewRepository, name: &str, parent: Option<i64>) -> i64 {
+        repo.insert_custom(name, parent, &ViewRules::default(), &ViewDisplay::default())
+            .await
+            .unwrap()
     }
 
     async fn exercise(repo: &PipelineViewRepository) {
@@ -945,18 +955,17 @@ mod tests {
             .filter(|v| v.kind == ViewKind::Custom)
             .map(|v| v.name.as_str())
             .collect();
-        assert_eq!(customs, vec!["Mine", "release"]);
+        assert_eq!(customs, vec!["Mine", "release", "Release (2)"]);
+        let imported = view_named(target, "Release (2)").await.id;
         let members = target.list_members().await.unwrap();
         assert_eq!(members_of(&members, mine), vec!["github__1__b"]);
-        assert_eq!(
-            members_of(&members, same),
-            vec!["github__1__a", "github__1__c"]
-        );
+        assert_eq!(members_of(&members, same), vec!["github__1__c"]);
+        assert_eq!(members_of(&members, imported), vec!["github__1__a"]);
         assert_eq!(
             pins(target.list_pins().await.unwrap()),
             vec![
                 (PinKind::Repository, "acme/web".to_string()),
-                (PinKind::View, same.to_string()),
+                (PinKind::View, imported.to_string()),
                 (PinKind::Repository, "acme/app".to_string()),
             ]
         );
@@ -994,6 +1003,38 @@ mod tests {
             &PipelineViewRepository::new(DatabasePool::Sqlite(target)),
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn sqlite_import_keeps_source_tree_depth_beside_same_named_target_view() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = PipelineViewRepository::new(DatabasePool::Sqlite(
+            init_database(dir.path().join("source.db")).await.unwrap(),
+        ));
+        let target = PipelineViewRepository::new(DatabasePool::Sqlite(
+            init_database(dir.path().join("target.db")).await.unwrap(),
+        ));
+        let a = insert_plain(&target, "A", None).await;
+        let b = insert_plain(&target, "B", Some(a)).await;
+        let target_x = insert_plain(&target, "X", Some(b)).await;
+        let x = insert_plain(&source, "X", None).await;
+        let y = insert_plain(&source, "Y", Some(x)).await;
+        insert_plain(&source, "Z", Some(y)).await;
+
+        target
+            .import(&source.export().await.unwrap(), false)
+            .await
+            .unwrap();
+
+        let views = target.list_views().await.unwrap();
+        let parent_of = |name: &str| views.iter().find(|v| v.name == name).unwrap().parent_id;
+        let id_of = |name: &str| views.iter().find(|v| v.name == name).unwrap().id;
+        assert_eq!(views.iter().filter(|v| v.name == "X").count(), 1);
+        assert_eq!(id_of("X"), target_x);
+        assert_eq!(parent_of("X"), Some(b));
+        assert_eq!(parent_of("X (2)"), None);
+        assert_eq!(parent_of("Y"), Some(id_of("X (2)")));
+        assert_eq!(parent_of("Z"), Some(id_of("Y")));
     }
 
     #[cfg(feature = "postgres")]

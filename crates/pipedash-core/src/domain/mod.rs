@@ -81,8 +81,10 @@ pub use pipeline_view::{
 };
 pub use provider::{
     FetchStatus,
+    FreshnessState,
     Provider,
     ProviderConfig,
+    ProviderFreshness,
     ProviderImportResult,
     ProviderSummary,
 };

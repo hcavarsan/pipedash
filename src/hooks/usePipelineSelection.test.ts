@@ -13,7 +13,7 @@ const { usePipelineSelection } = await import('./usePipelineSelection')
 
 const pipeline = (id: string) => ({ id }) as ViewPipeline
 const pageOf = (...ids: string[]) =>
-  ({ pinned: [], sections: [{ pipelines: ids.map(pipeline) }] }) as unknown as PipelineViewPage
+  ({ pinned: [], pinned_blocks: [], sections: [{ pipelines: ids.map(pipeline) }] }) as unknown as PipelineViewPage
 
 beforeEach(() => cleanup())
 
@@ -44,6 +44,22 @@ test('selecting visible rows keeps selected pipelines from collapsed sections', 
   assert.deepEqual(
     result.current.selectedPipelines.map((p) => p.id),
     ['a', 'c']
+  )
+})
+
+test('a pipeline present only in a pinned block can be selected', () => {
+  const page = {
+    pinned: [],
+    pinned_blocks: [{ pipelines: [pipeline('x')] }],
+    sections: [],
+  } as unknown as PipelineViewPage
+  const { result } = render(page)
+
+  act(() => result.current.toggle(pipeline('x')))
+
+  assert.deepEqual(
+    result.current.selectedPipelines.map((p) => p.id),
+    ['x']
   )
 })
 

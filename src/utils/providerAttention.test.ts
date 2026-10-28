@@ -46,6 +46,7 @@ const summary = (overrides: Partial<ProviderSummary> = {}): ProviderSummary => (
   last_fetch_error_kind: null,
   last_fetch_at: null,
   paused_until: null,
+  freshness: { state: 'never', stale_at: null },
   health: health('operational'),
   ...overrides,
 })

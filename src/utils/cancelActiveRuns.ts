@@ -1,4 +1,4 @@
-import type { Pipeline, PipelineRun, PipelineStatus } from '../types'
+import type { PaginatedRunHistory, Pipeline, PipelineRun, PipelineStatus } from '../types'
 
 import { formatCount } from './formatCount'
 
@@ -34,6 +34,50 @@ export const buildCancelGroups = (
 
     return runs.length > 0 ? [{ pipeline, runs, ...providerOf(pipeline) }] : []
   })
+
+export interface UnfinishedRuns {
+  runs: Record<string, PipelineRun[]>
+  failed: Pipeline[]
+}
+
+export const findUnfinishedRuns = async (
+  pipelines: Pipeline[],
+  fetchPage: (pipelineId: string, page: number) => Promise<PaginatedRunHistory>,
+  concurrency = 4,
+  onProgress?: (done: number) => void
+): Promise<UnfinishedRuns> => {
+  const result: UnfinishedRuns = { runs: {}, failed: [] }
+  const queue = [...pipelines]
+  let done = 0
+
+  const worker = async () => {
+    for (let pipeline = queue.shift(); pipeline; pipeline = queue.shift()) {
+      const found: PipelineRun[] = []
+
+      try {
+        for (let page = 1, more = true; more; page++) {
+          const history = await fetchPage(pipeline.id, page)
+          const unfinished = history.runs.filter((run) => isUnfinished(run.status))
+
+          found.push(...unfinished)
+          more = history.has_more && unfinished.length > 0
+        }
+      } catch {
+        result.failed.push(pipeline)
+      }
+
+      if (found.length > 0) {
+        result.runs[pipeline.id] = found
+      }
+
+      onProgress?.(++done)
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker))
+
+  return result
+}
 
 export const cancellableGroups = (groups: CancelGroup[]) => groups.filter((group) => group.canCancel)
 

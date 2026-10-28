@@ -1,3 +1,5 @@
+import type { ProviderTone } from '../utils/fetchInfo'
+
 export type PipelineStatus = 'success' | 'failed' | 'running' | 'pending' | 'cancelled' | 'skipped'
 
 export interface BuildWatchSnapshot {
@@ -358,6 +360,7 @@ export interface ProviderSummary {
   last_fetch_error_kind: FailureKind | null
   last_fetch_at: string | null
   paused_until: string | null
+  freshness: { state: ProviderTone; stale_at: string | null }
   health: ProviderHealth
 }
 

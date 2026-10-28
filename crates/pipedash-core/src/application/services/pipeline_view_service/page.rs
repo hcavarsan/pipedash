@@ -323,6 +323,7 @@ impl Filters {
                 p.branch.as_deref(),
                 Some(item.repo.as_str()),
                 Some(item.organization.as_str()),
+                Some(p.repository.as_str()),
             ]
             .into_iter()
             .flatten(),
@@ -725,7 +726,11 @@ pub(super) fn build_page(
                     .as_ref()
                     .is_none_or(|o| *o == organization)
                 && filters.provider_id.is_none_or(|p| ids.contains(&p))
-                && filters.search_matches([repo.as_str(), organization.as_str()]);
+                && filters.search_matches([
+                    repo.as_str(),
+                    organization.as_str(),
+                    repository.as_str(),
+                ]);
             if !matches {
                 continue;
             }
@@ -1227,6 +1232,23 @@ mod tests {
         );
         assert_eq!(page.sections[0].status, Some(PipelineStatus::Failed));
         assert_eq!(page.total, 3);
+    }
+
+    #[test]
+    fn search_matches_full_repository_path() {
+        let s = snapshot(vec![
+            named("build", "acme/app", PipelineStatus::Success),
+            named("deploy", "acme/other", PipelineStatus::Success),
+        ]);
+        let q = PipelineViewQuery {
+            search: Some("acme/app".into()),
+            ..query(ViewRef::All)
+        };
+
+        let page = build_page(&s, &q, Utc::now()).unwrap();
+
+        assert_eq!(page.total, 1);
+        assert_eq!(names(&page.sections[0].pipelines), vec!["build"]);
     }
 
     #[test]

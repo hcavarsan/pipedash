@@ -44,6 +44,7 @@ use crate::domain::{
     HealthLevel,
     Provider,
     ProviderConfig,
+    ProviderFreshness,
     ProviderHealth,
     ProviderImportResult,
     ProviderSummary,
@@ -438,6 +439,21 @@ impl ProviderService {
             .providers
             .get(&id)
             .filter(|state| Some(state.generation) == generation);
+        let last_fetch_at = last_fetch_at.and_then(|at| {
+            DateTime::parse_from_rfc3339(&at)
+                .ok()
+                .map(|at| at.with_timezone(&Utc))
+        });
+        let paused_until = self.scheduler.paused_until(id, wall);
+        let level = state.map_or(HealthLevel::Operational, |state| state.level);
+        let freshness = ProviderFreshness::compute(
+            &last_fetch_status,
+            level,
+            last_fetch_at,
+            paused_until,
+            config.refresh_interval,
+            wall,
+        );
 
         Ok(ProviderSummary {
             id,
@@ -453,15 +469,11 @@ impl ProviderService {
             configured_repositories: configured_repositories(config),
             last_fetch_status,
             last_fetch_error,
-            last_fetch_at: last_fetch_at.and_then(|at| {
-                DateTime::parse_from_rfc3339(&at)
-                    .ok()
-                    .map(|at| at.with_timezone(&Utc))
-            }),
-            paused_until: self.scheduler.paused_until(id, wall),
+            last_fetch_at,
+            paused_until,
             last_fetch_error_kind: view.as_ref().and_then(|view| view.last_failure),
             health: ProviderHealth {
-                level: state.map_or(HealthLevel::Operational, |state| state.level),
+                level,
                 signals: state.map(|state| state.signals.clone()).unwrap_or_default(),
                 next_attempt_at: view
                     .as_ref()
@@ -478,6 +490,7 @@ impl ProviderService {
                 status_page: state.and_then(|state| state.status_page.clone()),
             },
             version: config.version.unwrap_or(1),
+            freshness,
         })
     }
 

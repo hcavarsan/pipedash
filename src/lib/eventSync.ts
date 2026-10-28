@@ -142,6 +142,7 @@ export function useEventSync() {
       logger.debug('EventSync', 'pipeline-views-changed')
       queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
       queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() })
       queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })
     })
 

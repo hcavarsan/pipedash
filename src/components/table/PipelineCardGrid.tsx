@@ -6,6 +6,7 @@ import { useNow } from '../../hooks/useNow'
 import type { ProviderSummary, ViewPipeline } from '../../types'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
+import { StatusBadge } from '../atoms/StatusBadge'
 import { useContextMenu } from '../common/ContextMenu'
 import { IosGroup } from '../ios/IosList'
 
@@ -101,10 +102,10 @@ export function PipelineCardGrid({
                   {pipeline.repository}
                 </Text>
               </UnstyledButton>
-              <FetchInfo
-                lead={getStatusLabel(pipeline)}
-                providers={[getProvider(pipeline.provider_id)].flatMap((provider) => provider ?? [])}
-              />
+              <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
+                <StatusBadge status={pipeline.status} label={getStatusLabel(pipeline)} />
+                <FetchInfo providers={[getProvider(pipeline.provider_id)].flatMap((provider) => provider ?? [])} />
+              </Group>
             </Group>
 
             <Group justify="space-between" wrap="nowrap" gap="sm">

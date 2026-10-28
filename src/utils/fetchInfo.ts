@@ -35,24 +35,11 @@ export const TONE_META: Record<ProviderTone, { label: string; color: string }> =
 }
 
 const TONE_SEVERITY: ProviderTone[] = ['down', 'stale', 'never', 'fresh']
-const MIN_STALE_MS = 10 * 60_000
 
 export const providerTone = (provider: ProviderSummary, now: number): ProviderTone => {
-  const { health, last_fetch_status: status, last_fetch_at: fetchedAt, paused_until: pausedUntil } = provider
+  const { state, stale_at: staleAt } = provider.freshness
 
-  if (status === 'error' || health.level === 'partial_outage' || health.level === 'major_outage') {
-    return 'down'
-  }
-
-  if (status === 'never') {
-    return 'never'
-  }
-
-  const staleAfter = Math.max(3 * provider.refresh_interval * 1000, MIN_STALE_MS)
-  const paused = pausedUntil !== null && Date.parse(pausedUntil) > now
-  const old = fetchedAt !== null && now - Date.parse(fetchedAt) > staleAfter
-
-  return paused || old ? 'stale' : 'fresh'
+  return state === 'fresh' && staleAt !== null && now > Date.parse(staleAt) ? 'stale' : state
 }
 
 export const worstTone = (tones: ProviderTone[]): ProviderTone =>

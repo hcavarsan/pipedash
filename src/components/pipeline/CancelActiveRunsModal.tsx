@@ -1,13 +1,10 @@
 import { Button, Group, Stack, Text } from '@mantine/core'
-import { useQueries } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { PAGE_SIZES } from '../../constants/pagination'
 import { usePlugins } from '../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
-import { GC_TIMES } from '../../lib/cacheConfig'
-import { queryKeys } from '../../lib/queryKeys'
 import { service } from '../../services'
 import type { Pipeline } from '../../types'
 import {
@@ -15,6 +12,8 @@ import {
   type CancelGroup,
   cancellableGroups,
   countRuns,
+  findUnfinishedRuns,
+  type UnfinishedRuns,
   unfinishedPipelines,
 } from '../../utils/cancelActiveRuns'
 import { formatCount } from '../../utils/formatCount'
@@ -36,8 +35,7 @@ interface CancelActiveRunsModalProps {
   onConfirm: (groups: CancelGroup[]) => Promise<unknown>
 }
 
-const skippedNote = (group: CancelGroup) =>
-  `${group.name} can't cancel runs from Pipedash. ${formatCount(group.runs.length, 'run')} skipped.`
+const IDLE = { for: [] as Pipeline[], done: 0, result: null as UnfinishedRuns | null }
 
 export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: CancelActiveRunsModalProps) => {
   const { isMobile } = useIsMobile()
@@ -46,27 +44,61 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
   const { getPluginByType, getPluginDisplayName } = usePlugins()
   const [pending, setPending] = useState(false)
 
-  const candidates = scope ? unfinishedPipelines(scope.pipelines) : []
-  const results = useQueries({
-    queries: candidates.map((pipeline) => ({
-      queryKey: queryKeys.runs.list(pipeline.id, 1),
-      queryFn: () => service.fetchRunHistory(pipeline.id, 1, PAGE_SIZES.RUN_HISTORY),
-      staleTime: 0,
-      gcTime: GC_TIMES.MEDIUM,
-      enabled: opened,
-    })),
-  })
+  const { candidates, skippedNote } = useMemo(() => {
+    const cancelCapable = (pipeline: Pipeline) => Boolean(getPluginByType(pipeline.provider_type)?.capabilities.cancel)
+    const pipelines = scope?.pipelines ?? []
+    const skipped = new Map<string, number>()
 
-  const loading = results.some((result) => result.isFetching)
-  const unreadable = candidates.filter((_, index) => results[index].isError).map((pipeline) => pipeline.name)
-  const groups = buildCancelGroups(
-    candidates,
-    Object.fromEntries(candidates.map((pipeline, index) => [pipeline.id, results[index].data?.runs ?? []])),
-    (pipeline) => ({
-      name: getPluginDisplayName(pipeline.provider_type),
-      canCancel: Boolean(getPluginByType(pipeline.provider_type)?.capabilities.cancel),
-    })
-  )
+    for (const pipeline of unfinishedPipelines(pipelines)) {
+      if (!cancelCapable(pipeline)) {
+        const name = getPluginDisplayName(pipeline.provider_type)
+
+        skipped.set(name, (skipped.get(name) ?? 0) + 1)
+      }
+    }
+
+    return {
+      candidates: pipelines.filter(cancelCapable),
+      skippedNote: [...skipped]
+        .map(
+          ([name, total]) =>
+            `Skipped ${formatCount(total, 'running pipeline')} on ${name}: it can't cancel runs from Pipedash.`
+        )
+        .join(' '),
+    }
+  }, [scope, getPluginByType, getPluginDisplayName])
+  const [found, setFound] = useState<{ for: Pipeline[]; done: number; result: UnfinishedRuns | null }>(IDLE)
+
+  useEffect(() => {
+    if (!opened || candidates.length === 0) {
+      return
+    }
+
+    let stale = false
+
+    setFound({ for: candidates, done: 0, result: null })
+    findUnfinishedRuns(
+      candidates,
+      (pipelineId, page) =>
+        stale
+          ? Promise.reject(new Error('Stale search'))
+          : service.fetchRunHistory(pipelineId, page, PAGE_SIZES.RUN_HISTORY),
+      undefined,
+      (done) => !stale && setFound((current) => ({ ...current, done }))
+    ).then((result) => !stale && setFound({ for: candidates, done: candidates.length, result }))
+
+    return () => {
+      stale = true
+    }
+  }, [opened, candidates])
+
+  const search = found.for === candidates ? found : IDLE
+  const loading = candidates.length > 0 && search.result === null
+  const unreadable = search.result?.failed.map((pipeline) => pipeline.name) ?? []
+  const groups = buildCancelGroups(candidates, search.result?.runs ?? {}, (pipeline) => ({
+    name: getPluginDisplayName(pipeline.provider_type),
+    canCancel: Boolean(getPluginByType(pipeline.provider_type)?.capabilities.cancel),
+  }))
   const targets = cancellableGroups(groups)
   const count = countRuns(targets)
   const label = scope?.label ?? ''
@@ -97,11 +129,7 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
     : undefined
 
   const shellBody = groups.map((group) => (
-    <IosGroup
-      key={group.pipeline.id}
-      header={`${group.pipeline.name} · ${group.name}`}
-      footer={group.canCancel ? undefined : skippedNote(group)}
-    >
+    <IosGroup key={group.pipeline.id} header={`${group.pipeline.name} · ${group.name}`}>
       {group.runs.map((run) => (
         <IosRow
           key={run.run_number}
@@ -123,11 +151,6 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
           {group.name}
         </Text>
       </Group>
-      {!group.canCancel && (
-        <Text size="xs" c="orange">
-          {skippedNote(group)}
-        </Text>
-      )}
       {group.runs.map((run) => (
         <Group key={run.run_number} justify="space-between" wrap="nowrap" gap="md">
           <Group gap="sm" wrap="nowrap" miw={0}>
@@ -161,19 +184,24 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
       footer={footer}
     >
       {loading ? (
-        <LoadingState variant="compact" message="Looking for running runs…" />
-      ) : groups.length === 0 ? (
-        <Text size="sm">
-          {unreadable.length > 0
-            ? `Couldn't load runs for ${unreadable.join(', ')}.`
-            : `Nothing is running in ${label}.`}
-        </Text>
+        <LoadingState
+          variant="compact"
+          message={`Looking for running runs… (${search.done} of ${formatCount(candidates.length, 'pipeline')})`}
+        />
       ) : (
         <Stack gap={mobileShell ? 'lg' : 'md'}>
+          {groups.length === 0 && unreadable.length === 0 && (
+            <Text size="sm">{skippedNote ? `No runs to cancel in ${label}.` : `Nothing is running in ${label}.`}</Text>
+          )}
           {mobileShell ? shellBody : desktopBody}
           {unreadable.length > 0 && (
             <Text size="xs" c="red">
               Couldn't load runs for {unreadable.join(', ')}.
+            </Text>
+          )}
+          {skippedNote && (
+            <Text size="xs" c="orange">
+              {skippedNote}
             </Text>
           )}
         </Stack>

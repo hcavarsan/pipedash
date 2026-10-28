@@ -6,10 +6,11 @@ export function usePipelineSelection(view: string, page: PipelineViewPage | unde
   const pipelines = useMemo(
     () =>
       new Map(
-        [...(page?.pinned ?? []), ...(page?.sections.flatMap((section) => section.pipelines) ?? [])].map((p) => [
-          p.id,
-          p,
-        ])
+        [
+          ...(page?.pinned ?? []),
+          ...(page?.pinned_blocks.flatMap((block) => block.pipelines) ?? []),
+          ...(page?.sections.flatMap((section) => section.pipelines) ?? []),
+        ].map((p) => [p.id, p])
       ),
     [page]
   )

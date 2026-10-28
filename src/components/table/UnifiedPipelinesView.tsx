@@ -372,7 +372,7 @@ export const UnifiedPipelinesView = ({
     </Button>
   ) : (
     page &&
-    page.total + page.pinned.length > 0 && (
+    (page.total + page.pinned.length > 0 || page.pinned_blocks.some((block) => block.pipelines.length > 0)) && (
       <Button size="sm" miw={100} variant="default" leftSection={<IconListCheck size={16} />} onClick={startSelection}>
         Select
       </Button>

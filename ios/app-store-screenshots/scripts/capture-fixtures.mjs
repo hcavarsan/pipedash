@@ -17,6 +17,7 @@ export const providers = [
   id: index + 1, name, provider_type, icon: `/provider-icons/${provider_type}.svg`, pipeline_count: 2,
   last_updated: ago(1), refresh_interval: 60, configured_repositories: [], last_fetch_status: 'success',
   last_fetch_error: null, last_fetch_error_kind: null, last_fetch_at: ago(1), paused_until: null,
+  freshness: index === 0 ? { state: 'down', stale_at: null } : { state: 'fresh', stale_at: ago(-9) },
   health: index === 0 ? {
     ...healthy, level: 'partial_outage',
     status_page: { name: 'GitHub', url: 'https://www.githubstatus.com/', checked_at: ago(1), error: null, components, other_incidents: [] },

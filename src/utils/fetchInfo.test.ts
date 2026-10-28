@@ -17,6 +17,7 @@ const provider = (overrides: Partial<ProviderSummary>) =>
     refresh_interval: 30,
     paused_until: null,
     health: { level: 'operational' },
+    freshness: { state: 'fresh', stale_at: null },
     ...overrides,
   }) as ProviderSummary
 
@@ -44,24 +45,23 @@ test('a failed fetch includes the error message when there is one', () => {
   assert.equal(describeFetch(provider({ last_fetch_status: 'error' }), NOW).status, 'Failed')
 })
 
-test('tone is down on a fetch error or an outage', () => {
-  assert.equal(providerTone(provider({ last_fetch_status: 'error' }), NOW), 'down')
-  assert.equal(providerTone(provider({ health: { level: 'major_outage' } } as Partial<ProviderSummary>), NOW), 'down')
-  assert.equal(providerTone(provider({ health: { level: 'partial_outage' } } as Partial<ProviderSummary>), NOW), 'down')
+test('tone passes the server state through', () => {
+  for (const state of ['down', 'never', 'stale'] as const) {
+    assert.equal(providerTone(provider({ freshness: { state, stale_at: null } }), NOW), state)
+  }
 })
 
-test('tone is never when nothing was fetched and fresh after a recent success', () => {
-  assert.equal(providerTone(provider({ last_fetch_status: 'never', last_fetch_at: null }), NOW), 'never')
-  assert.equal(providerTone(provider({}), NOW), 'fresh')
+test('a fresh provider turns stale once stale_at has passed', () => {
+  const fresh = (staleAt: string | null) => provider({ freshness: { state: 'fresh', stale_at: staleAt } })
+
+  assert.equal(providerTone(fresh('2026-10-28T12:05:00Z'), NOW), 'fresh')
+  assert.equal(providerTone(fresh('2026-10-28T12:00:00Z'), NOW), 'fresh')
+  assert.equal(providerTone(fresh('2026-10-28T11:59:59Z'), NOW), 'stale')
+  assert.equal(providerTone(fresh(null), NOW), 'fresh')
 })
 
-test('tone turns stale after max(3 intervals, 10 minutes) or while paused', () => {
-  assert.equal(providerTone(provider({ last_fetch_at: '2026-10-28T11:51:00Z' }), NOW), 'fresh')
-  assert.equal(providerTone(provider({ last_fetch_at: '2026-10-28T11:49:00Z' }), NOW), 'stale')
-  assert.equal(providerTone(provider({ refresh_interval: 600, last_fetch_at: '2026-10-28T11:35:00Z' }), NOW), 'fresh')
-  assert.equal(providerTone(provider({ refresh_interval: 600, last_fetch_at: '2026-10-28T11:25:00Z' }), NOW), 'stale')
-  assert.equal(providerTone(provider({ paused_until: '2026-10-28T12:05:00Z' }), NOW), 'stale')
-  assert.equal(providerTone(provider({ paused_until: '2026-10-28T11:00:00Z' }), NOW), 'fresh')
+test('a non-fresh state ignores stale_at', () => {
+  assert.equal(providerTone(provider({ freshness: { state: 'down', stale_at: '2026-10-28T11:00:00Z' } }), NOW), 'down')
 })
 
 test('the worst tone wins', () => {

@@ -150,12 +150,12 @@ export function RepositoryFetchIndicator({ row }: { row: TableRow }) {
   )
 }
 
-export function FetchInfo({ providers, lead }: { providers: ProviderSummary[]; lead?: string }) {
+export function FetchInfo({ providers }: { providers: ProviderSummary[] }) {
   const now = useNow(30_000)
   const openNotifications = useNotificationCenterStore((state) => state.open)
   const worst = worstTone(providers.map((provider) => providerTone(provider, now)))
 
-  if (providers.length === 0 && !lead) {
+  if (providers.length === 0) {
     return null
   }
 
@@ -165,9 +165,9 @@ export function FetchInfo({ providers, lead }: { providers: ProviderSummary[]; l
     <ActionIcon
       variant="transparent"
       color="gray"
-      c={providers.length > 0 ? TONE_META[worst].color : 'dimmed'}
+      c={TONE_META[worst].color}
       size="sm"
-      aria-label={lead ? `${lead}, fetch info` : 'Fetch info'}
+      aria-label="Fetch info"
       onClick={providers.length === 1 ? () => openProvider(only) : undefined}
     >
       <IconInfoCircle size={16} />
@@ -180,11 +180,6 @@ export function FetchInfo({ providers, lead }: { providers: ProviderSummary[]; l
       events={{ hover: true, focus: true, touch: false }}
       label={
         <Stack gap="xs">
-          {lead && (
-            <Text size="xs" fw={600}>
-              {lead}
-            </Text>
-          )}
           {providers.map((provider) => {
             const info = describeFetch(provider, now)
             const tone = providerTone(provider, now)
