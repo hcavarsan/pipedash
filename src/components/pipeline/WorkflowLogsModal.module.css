@@ -2,6 +2,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
+  max-width: 100%;
+}
+
+/* Lets a truncating value (TruncatedText) ellipsize inside the row instead of running past its edge. */
+.value > * {
+  min-width: 0;
 }
 
 .value :global(.mantine-ActionIcon-root) {

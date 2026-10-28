@@ -456,8 +456,15 @@ export const WorkflowLogsModal = ({
             <IosGroup>
               {rows.map(({ field, value }) =>
                 field.id === 'message' ||
-                (field.renderer === 'Text' && typeof value === 'string' && value.length > 32) ? (
-                  <IosRow key={field.id} title={renderValue(field, value)} subtitle={field.label} />
+                ((field.renderer === 'Text' || field.renderer === 'TruncatedText') &&
+                  typeof value === 'string' &&
+                  value.length > 32) ? (
+                  // Long text wraps under its label; a truncated value would hide the rest on touch screens.
+                  <IosRow
+                    key={field.id}
+                    title={field.renderer === 'TruncatedText' ? String(value) : renderValue(field, value)}
+                    subtitle={field.label}
+                  />
                 ) : (
                   <IosRow
                     key={field.id}
