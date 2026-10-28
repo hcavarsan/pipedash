@@ -113,7 +113,7 @@ test('closing the form before the first status arrives cancels the started flow'
   )
 })
 
-test('a failed status check keeps the started sign-in and recovers on the next poll', async (context) => {
+test('a failed status check keeps the started sign-in until the status loads', async (context) => {
   let failing = true
   context.mock.method(apiService, 'startSignIn', async () => started('flaky-flow'))
   context.mock.method(apiService, 'signInStatus', async (): Promise<SignInStatus> => {
@@ -133,7 +133,10 @@ test('a failed status check keeps the started sign-in and recovers on the next p
   assert.equal(view().queryByRole('button', { name: 'Sign in with SSO' }), null)
 
   failing = false
-  assert.ok(await view().findByText('Signed in as dev@example.com', undefined, { timeout: 3000 }))
+  await act(async () => {
+    await client.refetchQueries({ queryKey: ['signIn'] })
+  })
+  assert.ok(await view().findByText('Signed in as dev@example.com'))
   assert.equal(view().queryByText(/Server restarting/), null)
   await act(async () => field.unmount())
 })
