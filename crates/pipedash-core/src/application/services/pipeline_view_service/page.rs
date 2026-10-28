@@ -9,6 +9,8 @@ use chrono::{
     DateTime,
     Duration,
     FixedOffset,
+    NaiveTime,
+    Offset,
     TimeZone,
     Utc,
 };
@@ -234,12 +236,11 @@ fn date_cutoff(range: DateRange, utc_offset_minutes: i32, now: DateTime<Utc>) ->
             let offset = utc_offset_minutes
                 .checked_mul(60)
                 .and_then(FixedOffset::east_opt)
-                .unwrap_or_else(|| FixedOffset::east_opt(0).expect("zero offset is valid"));
+                .unwrap_or_else(|| Utc.fix());
             let midnight = now
                 .with_timezone(&offset)
                 .date_naive()
-                .and_hms_opt(0, 0, 0)
-                .expect("midnight is valid");
+                .and_time(NaiveTime::MIN);
             offset
                 .from_local_datetime(&midnight)
                 .single()

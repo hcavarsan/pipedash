@@ -409,6 +409,49 @@ impl PipelineViewService {
         Ok(resolved)
     }
 
+    async fn edited_members(
+        &self, view_id: i64, ids: &[String], rules: &ViewRules,
+    ) -> DomainResult<(Vec<(i64, String)>, Vec<(i64, String)>)> {
+        let current: HashMap<String, i64> = self
+            .views
+            .list_members()
+            .await?
+            .into_iter()
+            .filter(|m| m.view_id == view_id && !m.excluded)
+            .map(|m| (m.pipeline_id, m.provider_id))
+            .collect();
+        let cached = self.cached().await?;
+        let mut seen = HashSet::new();
+        let mut kept = Vec::new();
+        for id in ids {
+            if !seen.insert(id.as_str()) {
+                continue;
+            }
+            let provider_id = match current.get(id) {
+                Some(provider_id) => *provider_id,
+                None => {
+                    cached
+                        .get(id)
+                        .ok_or_else(|| DomainError::NotFound(format!("Pipeline {id} not found")))?
+                        .provider_id
+                }
+            };
+            kept.push((provider_id, id.clone()));
+        }
+        let matcher = rules.matcher();
+        let mut excluded: Vec<(i64, String)> = current
+            .into_iter()
+            .filter(|(id, _)| {
+                !seen.contains(id.as_str())
+                    && !rules.is_empty()
+                    && cached.get(id).is_none_or(|p| matcher.matches(p))
+            })
+            .map(|(id, provider_id)| (provider_id, id))
+            .collect();
+        excluded.sort();
+        Ok((kept, excluded))
+    }
+
     fn unique_name(stored: &[StoredView], name: &str, except: Option<i64>) -> DomainResult<()> {
         let lower = name.to_lowercase();
         if stored.iter().any(|g| {
@@ -456,7 +499,7 @@ impl PipelineViewService {
             .insert_custom(&name, parent.map(|p| p.id), &rules, &input.display)
             .await?;
         if !members.is_empty() {
-            self.views.replace_manual_members(id, &members).await?;
+            self.views.replace_manual_members(id, &members, &[]).await?;
         }
         self.changed().await;
         self.view(&ViewRef::Custom(id)).await
@@ -507,7 +550,7 @@ impl PipelineViewService {
             None => view.parent_id,
         };
         let members = match &patch.members {
-            Some(ids) => Some(self.resolve_pipelines(ids).await?),
+            Some(ids) => Some(self.edited_members(view.id, ids, &rules).await?),
             None => None,
         };
 
@@ -520,8 +563,10 @@ impl PipelineViewService {
                 .update_view(view.id, &name, parent_id, &rules, &display)
                 .await?;
         }
-        if let Some(members) = members {
-            self.views.replace_manual_members(view.id, &members).await?;
+        if let Some((kept, excluded)) = members {
+            self.views
+                .replace_manual_members(view.id, &kept, &excluded)
+                .await?;
         }
         self.changed().await;
         self.view(&id).await
@@ -855,6 +900,75 @@ mod tests {
             .unwrap();
         assert_eq!(page.total, 1);
         assert_eq!(page.view.count, 1);
+    }
+
+    #[tokio::test]
+    async fn pipeline_view_editor_keeps_unavailable_members_and_excludes_removed_rule_matches() {
+        let h = Harness::new().await;
+        let (provider, ids) = seed(&h).await;
+        let views = service(&h);
+        let created = views
+            .create_view(CreateViewInput {
+                rules: ViewRules {
+                    name_contains: Some("deploy".into()),
+                    ..Default::default()
+                },
+                members: vec![ids[0].clone(), ids[1].clone()],
+                ..input("Release")
+            })
+            .await
+            .unwrap();
+        let listed = |page: PipelineViewPage| -> Vec<String> {
+            page.sections
+                .into_iter()
+                .flat_map(|s| s.pipelines)
+                .map(|p| p.pipeline.name)
+                .collect()
+        };
+        let page_of = || {
+            views.page(PipelineViewQuery {
+                view: created.id.clone(),
+                ..Default::default()
+            })
+        };
+        let members = |ids: &[&String]| ViewPatch {
+            members: Some(ids.iter().map(|id| (*id).clone()).collect()),
+            ..Default::default()
+        };
+
+        let cached = vec![
+            pipeline(provider, "deploy", PipelineStatus::Failed),
+            pipeline(provider, "lint", PipelineStatus::Success),
+        ];
+        h.repository
+            .update_pipelines_cache(provider, &cached)
+            .await
+            .unwrap();
+
+        views
+            .update_view(created.id.clone(), members(&[&ids[0]]))
+            .await
+            .unwrap();
+        assert!(listed(page_of().await.unwrap()).is_empty());
+        let kept = views.list_members(created.id.clone()).await.unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].pipeline_id, ids[0]);
+        assert!(!kept[0].available);
+
+        views
+            .update_view(created.id.clone(), members(&[&ids[0], &ids[1]]))
+            .await
+            .unwrap();
+        assert_eq!(listed(page_of().await.unwrap()), vec!["deploy"]);
+
+        let missing = views
+            .update_view(
+                created.id.clone(),
+                members(&[&ids[0], &"github__9__gone".to_string()]),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(missing, DomainError::NotFound(_)));
     }
 
     #[tokio::test]

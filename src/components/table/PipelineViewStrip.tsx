@@ -68,7 +68,7 @@ export function PipelineViewStrip() {
           py="2xs"
           px="sm"
           flex="0 0 auto"
-          c="blue"
+          c="dimmed"
           ml="auto"
           onClick={openManage}
         >

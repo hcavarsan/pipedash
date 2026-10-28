@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{
+    HashMap,
+    HashSet,
+};
 
 use super::DatabasePool;
 use crate::domain::{
@@ -385,29 +388,36 @@ impl PipelineViewRepository {
     }
 
     pub async fn replace_manual_members(
-        &self, view_id: i64, members: &[(i64, String)],
+        &self, view_id: i64, members: &[(i64, String)], excluded: &[(i64, String)],
     ) -> DomainResult<()> {
         let clear = format!(
             "DELETE FROM pipeline_view_members WHERE view_id = {} AND excluded = FALSE",
             self.placeholder(1)
         );
-        let insert = format!(
-            "INSERT INTO pipeline_view_members (view_id, provider_id, pipeline_id, position, excluded)
-             VALUES ({}, {}, {}, {}, FALSE)
-             ON CONFLICT (view_id, pipeline_id) DO UPDATE SET provider_id = excluded.provider_id, position = excluded.position, excluded = FALSE",
-            self.placeholder(1),
-            self.placeholder(2),
-            self.placeholder(3),
-            self.placeholder(4),
-        );
+        let insert = |flag: &str| {
+            format!(
+                "INSERT INTO pipeline_view_members (view_id, provider_id, pipeline_id, position, excluded)
+                 VALUES ({}, {}, {}, {}, {flag})
+                 ON CONFLICT (view_id, pipeline_id) DO UPDATE SET provider_id = excluded.provider_id, position = excluded.position, excluded = {flag}",
+                self.placeholder(1),
+                self.placeholder(2),
+                self.placeholder(3),
+                self.placeholder(4),
+            )
+        };
+        let rows: Vec<(String, &(i64, String))> = members
+            .iter()
+            .map(|m| (insert("FALSE"), m))
+            .chain(excluded.iter().map(|m| (insert("TRUE"), m)))
+            .collect();
         on_pool!(&self.pool, |p| async {
             let mut tx = p.begin().await?;
             sqlx::query(sqlx::AssertSqlSafe(clear.clone()))
                 .bind(view_id)
                 .execute(&mut *tx)
                 .await?;
-            for (index, (provider_id, pipeline_id)) in members.iter().enumerate() {
-                sqlx::query(sqlx::AssertSqlSafe(insert.clone()))
+            for (index, (sql, (provider_id, pipeline_id))) in rows.iter().enumerate() {
+                sqlx::query(sqlx::AssertSqlSafe(sql.clone()))
                     .bind(view_id)
                     .bind(*provider_id)
                     .bind(pipeline_id)
@@ -471,23 +481,47 @@ impl PipelineViewRepository {
         })
     }
 
-    pub async fn import(&self, export: &ViewExport) -> DomainResult<()> {
+    pub async fn import(&self, export: &ViewExport, clean: bool) -> DomainResult<()> {
         let existing = self.list_views().await?;
         let mut view_ids: HashMap<i64, i64> = HashMap::new();
+        let mut merged: HashSet<i64> = HashSet::new();
         for view in &export.views {
-            if view.kind == ViewKind::Custom {
-                continue;
-            }
-            if let Some(target) = existing.iter().find(|g| g.kind == view.kind) {
+            let target = if view.kind == ViewKind::Custom {
+                existing.iter().find(|g| {
+                    !clean
+                        && g.kind == ViewKind::Custom
+                        && g.name.to_lowercase() == view.name.to_lowercase()
+                })
+            } else {
+                existing.iter().find(|g| g.kind == view.kind)
+            };
+            if let Some(target) = target {
                 view_ids.insert(view.id, target.id);
+                if view.kind == ViewKind::Custom {
+                    merged.insert(view.id);
+                }
             }
         }
+        let position_offset = if clean {
+            0
+        } else {
+            existing
+                .iter()
+                .filter(|v| v.kind == ViewKind::Custom)
+                .map(|v| v.position + 1)
+                .max()
+                .unwrap_or(0)
+        };
 
-        let clear = [
-            "DELETE FROM pipeline_view_members",
-            "DELETE FROM pipeline_views WHERE kind = 'custom'",
-            "DELETE FROM pipeline_view_pins",
-        ];
+        let clear: &[&str] = if clean {
+            &[
+                "DELETE FROM pipeline_view_members",
+                "DELETE FROM pipeline_views WHERE kind = 'custom'",
+                "DELETE FROM pipeline_view_pins",
+            ]
+        } else {
+            &[]
+        };
         let system = format!(
             "UPDATE pipeline_views SET display_json = {}, position = {}, updated_at = {} WHERE id = {}",
             self.placeholder(1),
@@ -510,7 +544,8 @@ impl PipelineViewRepository {
         );
         let member = format!(
             "INSERT INTO pipeline_view_members (view_id, provider_id, pipeline_id, position, excluded)
-             VALUES ({}, {}, {}, {}, {})",
+             VALUES ({}, {}, {}, {}, {})
+             ON CONFLICT (view_id, pipeline_id) DO NOTHING",
             self.placeholder(1),
             self.placeholder(2),
             self.placeholder(3),
@@ -518,10 +553,11 @@ impl PipelineViewRepository {
             self.placeholder(5),
         );
         let pin_insert = format!(
-            "INSERT INTO pipeline_view_pins (kind, ref, position) VALUES ({}, {}, {})",
+            "INSERT INTO pipeline_view_pins (kind, ref, position)
+             VALUES ({}, {}, (SELECT COALESCE(MAX(position), -1) + 1 FROM pipeline_view_pins))
+             ON CONFLICT (kind, ref) DO NOTHING",
             self.placeholder(1),
             self.placeholder(2),
-            self.placeholder(3),
         );
 
         let mut prepared = Vec::with_capacity(export.views.len());
@@ -533,13 +569,16 @@ impl PipelineViewRepository {
             let mut view_ids = view_ids.clone();
             let mut tx = p.begin().await?;
             for sql in clear {
-                sqlx::query(sql).execute(&mut *tx).await?;
+                sqlx::query(*sql).execute(&mut *tx).await?;
             }
             for (view, rules, display) in &prepared {
+                if merged.contains(&view.id) {
+                    continue;
+                }
                 if view.kind == ViewKind::Custom {
                     let id = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(custom.clone()))
                         .bind(&view.name)
-                        .bind(view.position)
+                        .bind(view.position + position_offset)
                         .bind(rules)
                         .bind(display)
                         .fetch_one(&mut *tx)
@@ -554,7 +593,7 @@ impl PipelineViewRepository {
                         .await?;
                 }
             }
-            for view in &export.views {
+            for view in export.views.iter().filter(|v| !merged.contains(&v.id)) {
                 let parents = view
                     .parent_id
                     .and_then(|old| Some((view_ids.get(&view.id)?, view_ids.get(&old)?)));
@@ -579,7 +618,7 @@ impl PipelineViewRepository {
                     .execute(&mut *tx)
                     .await?;
             }
-            for (index, pin) in export.pins.iter().enumerate() {
+            for pin in &export.pins {
                 let parsed = pin.reference.parse::<i64>().ok();
                 let reference = match pin.kind {
                     PinKind::Repository => Some(pin.reference.clone()),
@@ -593,7 +632,6 @@ impl PipelineViewRepository {
                 sqlx::query(sqlx::AssertSqlSafe(pin_insert.clone()))
                     .bind(pin.kind.as_str())
                     .bind(reference)
-                    .bind(index as i64)
                     .execute(&mut *tx)
                     .await?;
             }
@@ -610,6 +648,7 @@ mod tests {
     use crate::domain::{
         SectionMode,
         SortKey,
+        ViewLayout,
     };
     use crate::infrastructure::database::init_database;
 
@@ -713,6 +752,7 @@ mod tests {
                 (1, "github__1__c".to_string()),
                 (2, "gitlab__2__d".to_string()),
             ],
+            &[],
         )
         .await
         .unwrap();
@@ -746,7 +786,7 @@ mod tests {
             .all(|m| m.provider_id != 2));
 
         let exported = repo.export().await.unwrap();
-        repo.import(&exported).await.unwrap();
+        repo.import(&exported, true).await.unwrap();
         let reimported = repo.export().await.unwrap();
         assert_eq!(reimported.views.len(), exported.views.len());
         assert_eq!(reimported.members.len(), exported.members.len());
@@ -770,7 +810,7 @@ mod tests {
         .unwrap();
 
         let nested = repo.export().await.unwrap();
-        repo.import(&nested).await.unwrap();
+        repo.import(&nested, true).await.unwrap();
         let release = view_named(repo, "Releases").await.id;
         let child = view_named(repo, "Child").await;
         assert_eq!(child.parent_id, Some(release));
@@ -816,6 +856,146 @@ mod tests {
         exercise(&PipelineViewRepository::new(DatabasePool::Sqlite(pool))).await;
     }
 
+    async fn import_merges_or_replaces(
+        source: &PipelineViewRepository, target: &PipelineViewRepository,
+    ) {
+        source.reset().await.unwrap();
+        target.reset().await.unwrap();
+        let release = source
+            .insert_custom(
+                "Release",
+                None,
+                &ViewRules::default(),
+                &ViewDisplay::default(),
+            )
+            .await
+            .unwrap();
+        source
+            .upsert_member(release, 1, "github__1__a", false)
+            .await
+            .unwrap();
+        source
+            .insert_pin(PinKind::View, &release.to_string())
+            .await
+            .unwrap();
+        source
+            .insert_pin(PinKind::Repository, "acme/app")
+            .await
+            .unwrap();
+
+        let mine = target
+            .insert_custom("Mine", None, &ViewRules::default(), &ViewDisplay::default())
+            .await
+            .unwrap();
+        target
+            .upsert_member(mine, 1, "github__1__b", false)
+            .await
+            .unwrap();
+        let same = target
+            .insert_custom(
+                "release",
+                None,
+                &ViewRules::default(),
+                &ViewDisplay::default(),
+            )
+            .await
+            .unwrap();
+        target
+            .upsert_member(same, 1, "github__1__c", false)
+            .await
+            .unwrap();
+        target
+            .insert_pin(PinKind::Repository, "acme/web")
+            .await
+            .unwrap();
+        let all = source
+            .list_views()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|v| v.kind == ViewKind::All)
+            .unwrap();
+        let cards = ViewDisplay {
+            layout: ViewLayout::Cards,
+            ..all.display
+        };
+        source
+            .update_view(all.id, &all.name, None, &all.rules, &cards)
+            .await
+            .unwrap();
+
+        let export = source.export().await.unwrap();
+        let members_of = |members: &[StoredMember], view: i64| {
+            let mut ids: Vec<String> = members
+                .iter()
+                .filter(|m| m.view_id == view)
+                .map(|m| m.pipeline_id.clone())
+                .collect();
+            ids.sort();
+            ids
+        };
+        let pins = |pins: Vec<StoredPin>| -> Vec<(PinKind, String)> {
+            pins.into_iter().map(|p| (p.kind, p.reference)).collect()
+        };
+
+        target.import(&export, false).await.unwrap();
+        let views = target.list_views().await.unwrap();
+        let customs: Vec<&str> = views
+            .iter()
+            .filter(|v| v.kind == ViewKind::Custom)
+            .map(|v| v.name.as_str())
+            .collect();
+        assert_eq!(customs, vec!["Mine", "release"]);
+        let members = target.list_members().await.unwrap();
+        assert_eq!(members_of(&members, mine), vec!["github__1__b"]);
+        assert_eq!(
+            members_of(&members, same),
+            vec!["github__1__a", "github__1__c"]
+        );
+        assert_eq!(
+            pins(target.list_pins().await.unwrap()),
+            vec![
+                (PinKind::Repository, "acme/web".to_string()),
+                (PinKind::View, same.to_string()),
+                (PinKind::Repository, "acme/app".to_string()),
+            ]
+        );
+        assert_eq!(view_named(target, "All pipelines").await.display, cards);
+
+        target.import(&export, true).await.unwrap();
+        let views = target.list_views().await.unwrap();
+        let release = views.iter().find(|v| v.kind == ViewKind::Custom).unwrap();
+        assert_eq!(
+            views.iter().filter(|v| v.kind == ViewKind::Custom).count(),
+            1
+        );
+        assert_eq!(release.name, "Release");
+        assert_eq!(
+            members_of(&target.list_members().await.unwrap(), release.id),
+            vec!["github__1__a"]
+        );
+        assert_eq!(
+            pins(target.list_pins().await.unwrap()),
+            vec![
+                (PinKind::View, release.id.to_string()),
+                (PinKind::Repository, "acme/app".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_import_keeps_target_views_unless_cleaning() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = init_database(dir.path().join("source.db")).await.unwrap();
+        let target = init_database(dir.path().join("target.db")).await.unwrap();
+
+        import_merges_or_replaces(
+            &PipelineViewRepository::new(DatabasePool::Sqlite(source)),
+            &PipelineViewRepository::new(DatabasePool::Sqlite(target)),
+        )
+        .await;
+    }
+
     #[cfg(feature = "postgres")]
     #[tokio::test]
     #[ignore = "requires TEST_DATABASE_URL"]
@@ -826,6 +1006,15 @@ mod tests {
             .await
             .unwrap();
 
-        exercise(&PipelineViewRepository::new(DatabasePool::Postgres(pool))).await;
+        let target = PipelineViewRepository::new(DatabasePool::Postgres(pool));
+        exercise(&target).await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let source = init_database(dir.path().join("source.db")).await.unwrap();
+        import_merges_or_replaces(
+            &PipelineViewRepository::new(DatabasePool::Sqlite(source)),
+            &target,
+        )
+        .await;
     }
 }

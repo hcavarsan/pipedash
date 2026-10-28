@@ -739,7 +739,7 @@ impl MigrationOrchestrator {
                             .collect();
                     }
                     PipelineViewRepository::new(target_manager.database_pool())
-                        .import(&export)
+                        .import(&export, options.clean_target)
                         .await?;
                     tracing::info!("[Migration] Migrated {} pipeline views", export.views.len());
                 }

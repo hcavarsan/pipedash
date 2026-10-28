@@ -84,7 +84,7 @@ export function SubViewBar() {
             bdrs="sm"
             py="2xs"
             px="sm"
-            c="blue"
+            c="dimmed"
             onClick={() => openEditor(null, [], current.id)}
           >
             <Group gap="3xs" wrap="nowrap">

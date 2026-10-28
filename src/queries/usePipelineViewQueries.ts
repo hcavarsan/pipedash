@@ -1,5 +1,5 @@
 import { notifications } from '@mantine/notifications'
-import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -62,7 +62,7 @@ export function usePipelineViewPage(query: PipelineViewQuery, enabled: boolean) 
   return useQuery({
     queryKey: queryKeys.pipelines.page(query),
     queryFn: () => service.getPipelineViewPage(query),
-    placeholderData: keepPreviousData,
+    placeholderData: (previous) => (previous?.view.id === query.view ? previous : undefined),
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.SHORT,
     retry: (failureCount, error) => getErrorCode(error) !== 'NOT_FOUND' && failureCount < 3,
