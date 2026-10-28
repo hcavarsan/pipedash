@@ -57,7 +57,7 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 - See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most. Hide a workflow you don't watch, and it leaves the table and its repository's status until you unhide it under Show hidden.
 - Open the run history with commits, branches and durations, and track build metrics per pipeline.
 - Read, search and download job logs of GitHub Actions and Buildkite runs without leaving Pipedash. Buildkite tokens need the `read_build_logs` scope.
-- Open an ArgoCD sync to read its per-resource results by sync phase and the app's recent events.
+- Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
 - Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
 - Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
 - Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage.

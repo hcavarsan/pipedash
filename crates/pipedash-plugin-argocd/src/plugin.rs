@@ -8,6 +8,7 @@ use tracing::{
     warn,
 };
 
+use crate::client::PodLogRequest;
 use crate::log_dialect::ArgocdLogDialect;
 use crate::{
     client,
@@ -58,6 +59,37 @@ impl ArgocdPlugin {
         self.server_url
             .as_deref()
             .ok_or_else(|| PluginError::Internal("Server URL not set".to_string()))
+    }
+
+    async fn read_pod_log(
+        &self, app_name: &str, namespace: &str, pod_name: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let client = self.client()?;
+        let pod = client.pod(app_name, namespace, pod_name).await?;
+        let events = client
+            .pod_events(app_name, namespace, pod_name, &pod.metadata.uid)
+            .await?;
+        let mut out = Vec::new();
+        logs::write_pod_summary(&pod, namespace, pod_name, events, &mut out);
+        sink.write(out.into()).await?;
+
+        for container in logs::container_logs(&pod) {
+            let mut header = Vec::new();
+            container.write_header(&mut header);
+            sink.write(header.into()).await?;
+            let request = PodLogRequest {
+                namespace,
+                pod: pod_name,
+                container: container.name,
+                previous: container.previous,
+            };
+            if client.stream_pod_log(app_name, request, sink).await? == 0 {
+                let mut empty = Vec::new();
+                logs::write_no_output(&mut empty);
+                sink.write(empty.into()).await?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -445,13 +477,18 @@ impl Plugin for ArgocdPlugin {
 
     async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
         let (_provider_id, _namespace, app_name) = config::parse_pipeline_id(run.pipeline_id)?;
-        let app = self.client()?.get_application(&app_name).await?;
+        let client = self.client()?;
+        let (app, tree) = tokio::try_join!(
+            client.get_application(&app_name),
+            client.resource_tree(&app_name)
+        )?;
         let sync = logs::find_sync(&app, run.run_number).ok_or_else(|| {
             PluginError::PipelineNotFound(format!("Run {} not found", run.run_number))
         })?;
 
         Ok(logs::log_nodes(
             &sync,
+            &tree,
             &mapper::app_url(self.get_server_url()?, &app_name),
         ))
     }
@@ -472,9 +509,12 @@ impl Plugin for ArgocdPlugin {
         } else if node_id == logs::EVENTS_NODE {
             logs::write_events(client.application_events(&app_name).await?, &mut out);
         } else {
-            return Err(PluginError::InvalidConfig(format!(
-                "Invalid ArgoCD log node: {node_id}"
-            )));
+            let (namespace, pod_name) = logs::pod_of_node(node_id).ok_or_else(|| {
+                PluginError::InvalidConfig(format!("Invalid ArgoCD log node: {node_id}"))
+            })?;
+            return self
+                .read_pod_log(&app_name, namespace, pod_name, sink)
+                .await;
         }
         sink.write(out.into()).await
     }
@@ -719,15 +759,84 @@ mod tests {
                     {"group":"apps","version":"v1","kind":"Deployment","namespace":"web","name":"web","status":"Synced","syncPhase":"Sync","message":"deployment.apps/web configured"},
                     {"group":"","version":"v1","kind":"ConfigMap","namespace":"web","name":"web-config","status":"SyncFailed","syncPhase":"Sync","message":"ConfigMap \"web-config\" is invalid"}]}}}}"#;
 
+    const TREE: &str = r#"{"nodes":[
+        {"group":"apps","version":"v1","kind":"Deployment","namespace":"web","name":"web","uid":"d1","health":{"status":"Degraded"}},
+        {"version":"v1","kind":"Pod","namespace":"web","name":"web-7f9c-def","uid":"p2","health":{"status":"Healthy"}},
+        {"version":"v1","kind":"Pod","namespace":"web","name":"web-7f9c-abc","uid":"p1","health":{"status":"Degraded"}}]}"#;
+
     const APP_EVENTS: &str = r#"{"metadata":{},"items":[
         {"type":"Warning","reason":"OperationCompleted","message":"Sync operation to def456 failed","count":1,"firstTimestamp":"2026-10-27T10:00:42Z","lastTimestamp":"2026-10-27T10:00:42Z"},
         {"type":"Normal","reason":"OperationStarted","message":"Initiated automated sync to 'def456'","firstTimestamp":"2026-10-27T10:00:00Z","lastTimestamp":"2026-10-27T10:00:00Z","eventTime":null}]}"#;
+
+    const POD_EVENTS: &str = r#"{"metadata":{},"items":[
+        {"type":"Warning","reason":"BackOff","message":"Back-off restarting failed container app","count":12,"firstTimestamp":"2026-10-27T10:01:00Z","lastTimestamp":"2026-10-27T10:06:00Z"}]}"#;
+
+    const CRASHING_POD: &str = r#"{"metadata":{"name":"web-7f9c-abc","namespace":"web","uid":"p1"},
+        "spec":{"nodeName":"node-1","initContainers":[{"name":"migrate","image":"migrate:1"}],"containers":[{"name":"app","image":"web:2"}]},
+        "status":{"phase":"Running",
+            "initContainerStatuses":[{"name":"migrate","restartCount":0,"state":{"terminated":{"exitCode":0,"reason":"Completed"}}}],
+            "containerStatuses":[{"name":"app","restartCount":3,
+                "state":{"waiting":{"reason":"CrashLoopBackOff","message":"back-off 40s restarting failed container=app"}},
+                "lastState":{"terminated":{"exitCode":1,"reason":"Error","finishedAt":"2026-10-27T10:05:02Z"}}}]}}"#;
+
+    const HEALTHY_POD: &str = r#"{"metadata":{"name":"web-7f9c-def","namespace":"web","uid":"p2"},
+        "spec":{"containers":[{"name":"app"}]},
+        "status":{"phase":"Running","containerStatuses":[{"name":"app","restartCount":0,"state":{"running":{}}}]}}"#;
+
+    const LAST: &str = r#"{"result":{"content":"","timeStampStr":"2026-10-27T10:06:00Z","podName":"","last":true}}"#;
+
+    fn log_stream(lines: &[&str]) -> String {
+        lines
+            .iter()
+            .map(|content| {
+                format!(
+                    "{}\n",
+                    serde_json::json!({"result": {
+                        "content": content,
+                        "timeStampStr": "2026-10-27T10:05:01.5Z",
+                        "podName": "web-7f9c-abc",
+                        "last": false,
+                    }})
+                )
+            })
+            .chain([format!("{LAST}\n")])
+            .collect()
+    }
+
     fn argocd_reply(target: &str) -> (&'static str, String) {
         let (path, query) = target.split_once('?').unwrap_or((target, ""));
+        let has = |pair: &str| query.split('&').any(|part| part == pair);
         let ok = |body: &str| ("200 OK", body.to_string());
         match path {
             "/api/v1/applications/web" => ok(APP),
+            "/api/v1/applications/web/resource-tree" => ok(TREE),
             "/api/v1/applications/web/events" if query.is_empty() => ok(APP_EVENTS),
+            "/api/v1/applications/web/events" if has("resourceName=web-7f9c-abc") => {
+                ok(POD_EVENTS)
+            }
+            "/api/v1/applications/web/events" => ok(r#"{"metadata":{},"items":null}"#),
+            "/api/v1/applications/web/resource" if has("kind=Pod") && has("version=v1") => {
+                let pod = if has("resourceName=web-7f9c-abc") {
+                    CRASHING_POD
+                } else {
+                    HEALTHY_POD
+                };
+                ok(&serde_json::json!({ "manifest": pod }).to_string())
+            }
+            "/api/v1/applications/web/logs" if has("podName=web-7f9c-def") => (
+                "403 Forbidden",
+                r#"{"error":"permission denied: logs, get, default/web","code":7,"message":"permission denied: logs, get, default/web"}"#
+                    .to_string(),
+            ),
+            "/api/v1/applications/web/logs" if has("tailLines=1000") && has("follow=false") => {
+                if has("container=migrate") {
+                    ok(&log_stream(&["migrations applied"]))
+                } else if has("previous=true") {
+                    ok(&log_stream(&["panic: missing DATABASE_URL"]))
+                } else {
+                    ok(&format!("{LAST}\n"))
+                }
+            }
             _ => ("404 Not Found", r#"{"message":"not found"}"#.to_string()),
         }
     }
@@ -830,7 +939,7 @@ mod tests {
     const CLOSED: LineMarker = LineMarker::SectionStart { open: false };
 
     #[tokio::test]
-    async fn log_nodes_list_sync_result_and_events() {
+    async fn log_nodes_list_sync_result_events_and_pods() {
         let (plugin, _) = stub_plugin().await;
         let metadata = HashMap::new();
         let run = RunRef {
@@ -868,10 +977,23 @@ mod tests {
                     PipelineStatus::Success,
                     Some(LogAvailability::Partial)
                 ),
+                ("pods", None, PipelineStatus::Failed, None),
+                (
+                    "pod:web:web-7f9c-abc",
+                    Some("pods"),
+                    PipelineStatus::Failed,
+                    Some(LogAvailability::Partial)
+                ),
+                (
+                    "pod:web:web-7f9c-def",
+                    Some("pods"),
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Partial)
+                ),
             ]
         );
         assert_eq!(nodes[0].name, "Sync result");
-        assert_eq!(nodes[1].name, "Application events");
+        assert_eq!(nodes[3].name, "web-7f9c-abc");
     }
 
     #[tokio::test]
@@ -961,10 +1083,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn crashing_pod_shows_status_events_and_every_container_attempt() {
+        let (plugin, requests) = stub_plugin().await;
+
+        let lines = read(
+            &plugin,
+            run_at("2026-10-27T10:00:00Z"),
+            "pod:web:web-7f9c-abc",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            lines,
+            [
+                line(OPEN, "Pod web/web-7f9c-abc"),
+                line(LineMarker::Plain, "Phase Running on node node-1"),
+                line(
+                    LineMarker::Plain,
+                    "Init container migrate: exited with code 0 (Completed)"
+                ),
+                line(
+                    LineMarker::Error,
+                    "Container app: waiting (CrashLoopBackOff), 3 restarts, last exit code 1 (Error): back-off 40s restarting failed container=app"
+                ),
+                line(OPEN, "Events"),
+                line(
+                    LineMarker::Warning,
+                    "Warning BackOff: Back-off restarting failed container app (x12)"
+                ),
+                line(CLOSED, "Init container migrate"),
+                line(LineMarker::Plain, "migrations applied"),
+                line(OPEN, "Container app, previous attempt"),
+                line(LineMarker::Plain, "panic: missing DATABASE_URL"),
+                line(OPEN, "Container app"),
+                line(LineMarker::Plain, "No log output."),
+            ]
+        );
+        let requests = requests.lock().await;
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.contains("resourceUID=p1") && r.contains("resourceNamespace=web")),
+            "{requests:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn pod_log_without_the_logs_permission_is_permission_denied() {
+        let (plugin, _) = stub_plugin().await;
+
+        let error = read(
+            &plugin,
+            run_at("2026-10-27T10:00:00Z"),
+            "pod:web:web-7f9c-def",
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(&error, PluginError::PermissionDenied(message) if message.contains("logs, get")),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn unknown_node_ids_are_rejected_without_a_request() {
         let (plugin, requests) = stub_plugin().await;
 
-        for node_id in ["", "pods", "pod:web:web-1", "sync/x"] {
+        for node_id in [
+            "",
+            "pods",
+            "pod:web",
+            "pod:web:a?b=1",
+            "pod:..:x",
+            "pod/web/a",
+        ] {
             let error = read(&plugin, run_at("2026-10-27T10:00:00Z"), node_id)
                 .await
                 .unwrap_err();
