@@ -63,6 +63,7 @@ jobs:
         env:
           LANE: ${{ inputs.lane || 'beta' }}
           APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          GITHUB_TOKEN: ${{ github.token }} # read the GitHub release that becomes What's New
           MATCH_GIT_URL: git@github.com:hcavarsan/pipedash-certificates-v2.git
           GIT_SSH_COMMAND: ssh -i ${{ runner.temp }}/match_key -o IdentitiesOnly=yes -o UserKnownHostsFile=${{ runner.temp }}/known_hosts
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}

@@ -5,6 +5,7 @@ require_relative "app_icon_appearances"
 require_relative "required_reason_apis"
 require_relative "ios_project"
 require_relative "app_review_demo"
+require_relative "store_text"
 
 default_platform(:ios)
 
@@ -278,6 +279,25 @@ platform :ios do
     end
     notes = format(File.read(File.join(FASTLANE_DIR, "review_notes.txt")), demo)
 
+    texts_dir = File.join(FASTLANE_DIR, "release_notes")
+    begin
+      whats_new = StoreText.whats_new(version: ios_version, tag: "v#{release_version}", dir: texts_dir) do |path|
+        github_api(
+          server_url: "https://api.github.com",
+          api_bearer: ENV["GITHUB_TOKEN"],
+          http_method: "GET",
+          path: path,
+          secure: true,
+          error_handlers: { "*" => proc { |_response| } },
+        )
+      end
+      promotional = StoreText.promotional_text(version: ios_version, dir: texts_dir)
+    rescue StoreText::Error => error
+      UI.user_error!(error.message)
+    end
+    store_text = { release_notes: { "en-US" => whats_new } }
+    store_text[:promotional_text] = { "en-US" => promotional } if promotional
+
     api_key = asc_api_key
     ipa = build_signed_ipa(api_key: api_key)
     upload_to_app_store(
@@ -292,10 +312,11 @@ platform :ios do
       sync_screenshots: false,
       app_review_information: { notes: notes },
       submit_for_review: true,
-      automatic_release: false,
+      automatic_release: true,
       force: true,
       run_precheck_before_submit: false,
       submission_information: { add_id_info_uses_idfa: false },
+      **store_text,
     )
   end
 end

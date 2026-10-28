@@ -10,12 +10,14 @@ Fastlane.load_actions
 class ScreenshotLanesTest < Minitest::Test
   FIXTURE_ROOT = Dir.mktmpdir("pipedash-screenshot-lanes-")
   FIXTURE_FASTLANE = File.join(FIXTURE_ROOT, "ios/fastlane")
-  FileUtils.mkdir_p([FIXTURE_FASTLANE, File.join(FIXTURE_ROOT, "ios/app-store-screenshots")])
+  FileUtils.mkdir_p([FIXTURE_FASTLANE, File.join(FIXTURE_ROOT, "ios/app-store-screenshots"),
+                     File.join(FIXTURE_FASTLANE, "release_notes"), File.join(FIXTURE_ROOT, "crates/pipedash-desktop")])
   FileUtils.cp(File.join(__dir__, "Fastfile"), FIXTURE_FASTLANE)
-  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb review_notes.txt metadata
-     age_rating.json].each do |name|
+  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb store_text.rb review_notes.txt
+     metadata age_rating.json].each do |name|
     FileUtils.ln_s(File.join(__dir__, name), FIXTURE_FASTLANE)
   end
+  File.write(File.join(FIXTURE_ROOT, "crates/pipedash-desktop/tauri.conf.json"), '{"version":"0.9.0"}')
   # fastlane evaluates the Fastfile from inside its folder, so `__dir__` is "." there, as on CI.
   FASTFILE = Dir.chdir(FIXTURE_FASTLANE) { Fastlane::FastFile.new(File.join(FIXTURE_FASTLANE, "Fastfile")) }
   Minitest.after_run { FileUtils.remove_entry(FIXTURE_ROOT) }
@@ -60,9 +62,13 @@ class ScreenshotLanesTest < Minitest::Test
                { "workflow_runs" => [{ "id" => 42 }] }
              when /\/jobs\?/
                { "jobs" => [{ "id" => 1 }] }
+             when "/repos/hcavarsan/pipedash/releases/tags/v0.9.0"
+               { "body" => "### Added\n\n- Read job logs (#179)\n- Bump version\n" }
              else
                raise "Unexpected GitHub path: #{path}"
              end
+      return { status: 404, json: {} } if scenario[:release_missing] && path.include?("/releases/")
+
       { status: scenario.fetch(:github_status, 200), json: json, body: "demo-token-must-not-leak" }
     end
     @file.define_singleton_method(:method_missing) { |name, *_| raise "Unexpected action: #{name}" }
@@ -144,33 +150,50 @@ class ScreenshotLanesTest < Minitest::Test
     with_demo { run_lane(:release) }
 
     requests = @scenario.fetch(:github_requests)
-    assert_equal 5, requests.length
-    requests.each do |request|
+    demo_requests = requests.reject { |request| request[:path].include?("/releases/") }
+    assert_equal 5, demo_requests.length
+    demo_requests.each do |request|
       assert_equal "GET", request[:http_method]
       assert_equal "https://api.github.com", request[:server_url]
       assert_equal "demo-token-must-not-leak", request[:api_bearer]
       assert_equal true, request[:secure]
       assert_nil request.fetch(:error_handlers).fetch("*").call({ body: "demo-token-must-not-leak" })
     end
-    assert_equal [:github] * 5 + [:authenticate, :sign, :app_store], @events
+    assert_equal [:github] * 6 + [:authenticate, :sign, :app_store], @events
     notes = @scenario.fetch(:published).fetch(:app_review_information).fetch(:notes)
     assert_includes notes, "demo-token-must-not-leak"
     assert_includes notes, "review/demo"
     assert_includes notes, "Review demo"
   end
 
-  def test_release_sends_release_notes_and_every_age_rating_answer_from_the_action_directory
+  def test_release_sends_versioned_store_text_and_every_age_rating_answer_from_the_action_directory
     with_demo { run_lane(:release) }
     published = @scenario.fetch(:published)
 
+    release = @scenario.fetch(:github_requests).find { |request| request[:path].include?("/releases/") }
+    refute_equal "demo-token-must-not-leak", release[:api_bearer]
+    assert_equal({ "en-US" => "Added\n- Read job logs" }, published.fetch(:release_notes))
+    refute published.key?(:promotional_text)
+    assert_equal true, published.fetch(:automatic_release)
+
     options = { metadata_path: published.fetch(:metadata_path), app_review_information: {} }
     Dir.chdir(FIXTURE_ROOT) { Deliver::UploadMetadata.new(options).load_from_filesystem }
-    refute_empty options.fetch(:release_notes).fetch("en-US").strip
+    assert_includes 1..170, options.fetch(:promotional_text).fetch("en-US").strip.length
+    refute options.key?(:release_notes)
 
     answers = JSON.parse(File.read(published.fetch(:app_rating_config_path)))
     questions = Spaceship::ConnectAPI::AgeRatingDeclaration.reverse_attr_map.values -
                 %w[gamblingAndContests kidsAgeBand developerAgeRatingInfoUrl]
     assert_equal questions.sort, answers.keys.sort
+  end
+
+  def test_release_without_text_for_the_version_stops_before_signing
+    @scenario[:release_missing] = true
+    error = with_demo { assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:release) } }
+
+    assert_includes error.message, "v0.9.0"
+    assert_includes error.message, "release_notes/1.9.0.txt"
+    refute_includes @events, :sign
   end
 
   def test_invalid_demo_access_blocks_apple_actions_without_leaking_response_body

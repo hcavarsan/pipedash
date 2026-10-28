@@ -1,0 +1,1 @@
+Read job logs inside Pipedash: open a failed run at its error, search the whole log and jump between errors, on iPhone and iPad.
