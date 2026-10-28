@@ -24,7 +24,6 @@ import { useRerunWorkflow, useRunDetails } from '../../queries/useRunDetailsQuer
 import { useCancelRun, useRerunFailedJobs, useRerunRun } from '../../queries/useRunHistoryQueries'
 import { useRunLogTree } from '../../queries/useRunLogQueries'
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
-import { service } from '../../services'
 import { mobileService } from '../../services/mobile'
 import { STATUS_META } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
@@ -223,7 +222,9 @@ export const WorkflowLogsModal = ({
     setCancelling(true)
 
     try {
-      await service.cancelPipelineRun(pipelineId, runNumber)
+      if (!(await cancelRun.mutateAsync({ pipelineId, runNumber }))) {
+        return
+      }
 
       const maxAttempts = 10
       let attempt = 0
@@ -263,12 +264,8 @@ export const WorkflowLogsModal = ({
       if (onCancelSuccess) {
         onCancelSuccess()
       }
-    } catch (error: unknown) {
-      if (abortRef.current) {
-        return
-      }
-
-      displayErrorNotification(error, `Couldn't cancel run #${runNumber}`)
+    } catch {
+      return
     } finally {
       if (!abortRef.current) {
         setCancelling(false)
