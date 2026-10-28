@@ -142,7 +142,7 @@ pub async fn boot_core(
     let choice = choose_storage(kind, facts);
     log_choice(choice, facts);
 
-    let storage_manager = create_storage_manager(kind, choice, &config, &app_data_dir).await?;
+    let storage_manager = create_storage_manager(kind, choice, &config).await?;
 
     if kind == BootKind::Unlock {
         match storage_manager.token_store().await.get_all_tokens().await {
@@ -244,7 +244,7 @@ fn spawn_background_tasks(core: Arc<CoreContext>, kind: BootKind) {
 }
 
 async fn create_storage_manager(
-    kind: BootKind, choice: StorageChoice, config: &PipedashConfig, app_data_dir: &Path,
+    kind: BootKind, choice: StorageChoice, config: &PipedashConfig,
 ) -> Result<StorageManager, BootError> {
     let error = match build_storage_manager(choice, config).await {
         Ok(manager) => return Ok(manager),
@@ -289,13 +289,14 @@ async fn create_storage_manager(
         error_msg
     );
 
-    let backup_info = reset_corrupted_databases(app_data_dir).map_err(|reset_err| {
+    let data_dir = config.data_dir();
+    let backup_info = reset_corrupted_databases(&data_dir).map_err(|reset_err| {
         tracing::error!("Database backup failed: {}", reset_err);
         BootError::Storage(format!(
             "Failed to backup corrupted databases: {}. \
             Original error: {}. \
-            Please try deleting the app data directory manually: {:?}",
-            reset_err, error_msg, app_data_dir
+            Please try deleting the data directory manually: {:?}",
+            reset_err, error_msg, data_dir
         ))
     })?;
 
@@ -391,11 +392,11 @@ fn is_database_corruption_error(error_msg: &str) -> bool {
         || msg.contains("unable to open database")
 }
 
-fn reset_corrupted_databases(app_data_dir: &Path) -> Result<BackupInfo, String> {
-    let db_path = app_data_dir.join("pipedash.db");
-    let metrics_db_path = app_data_dir.join("metrics.db");
+fn reset_corrupted_databases(data_dir: &Path) -> Result<BackupInfo, String> {
+    let db_path = data_dir.join("pipedash.db");
+    let metrics_db_path = data_dir.join("metrics.db");
 
-    let backup_dir = app_data_dir.join("corrupt_backups");
+    let backup_dir = data_dir.join("corrupt_backups");
     std::fs::create_dir_all(&backup_dir)
         .map_err(|e| format!("Failed to create backup directory: {}", e))?;
 
@@ -582,6 +583,35 @@ mod tests {
         assert!(!is_database_corruption_error(
             "failed to decrypt vault password"
         ));
+    }
+
+    #[tokio::test]
+    async fn recovery_resets_the_corrupt_database_in_the_configured_data_dir() {
+        for custom in [false, true] {
+            let app_dir = tempfile::tempdir().unwrap();
+            let custom_dir = tempfile::tempdir().unwrap();
+            let data_dir = if custom {
+                custom_dir.path()
+            } else {
+                app_dir.path()
+            };
+            let mut config = PipedashConfig::default();
+            config.storage.data_dir = data_dir.display().to_string();
+            std::fs::write(data_dir.join("pipedash.db"), vec![0x42u8; 8192]).unwrap();
+
+            let result =
+                create_storage_manager(BootKind::Launch, StorageChoice::Locked, &config).await;
+            assert!(
+                result.is_ok(),
+                "custom_data_dir={custom}: {:?}",
+                result.err()
+            );
+
+            let backups = std::fs::read_dir(data_dir.join("corrupt_backups"))
+                .unwrap()
+                .count();
+            assert_eq!(backups, 1, "custom_data_dir={custom}");
+        }
     }
 
     #[test]
