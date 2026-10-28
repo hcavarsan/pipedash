@@ -1,0 +1,7 @@
+- Read job logs inside Pipedash for GitHub Actions and Buildkite: open a failed run at its error, search the whole log and jump between errors.
+- See Argo CD sync results, app events and pod logs in the run logs.
+- Hide workflows you don't watch, next to Pin, and bring them back with Show hidden in the filters.
+- After a rerun, the logs show the new attempt right away.
+- GitLab run history goes past the newest 100 pipelines.
+- Tekton runs held as pending show as pending, and Argo CD lists an app while it waits for its first sync.
+- Metrics count runs that finish after a newer run.
