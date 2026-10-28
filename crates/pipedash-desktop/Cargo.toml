@@ -30,6 +30,7 @@ pipedash-plugin-github.workspace = true
 pipedash-plugin-gitea.workspace = true
 pipedash-plugin-gitlab.workspace = true
 pipedash-plugin-jenkins.workspace = true
+pipedash-plugin-komodo.workspace = true
 pipedash-plugin-tekton.workspace = true
 rand.workspace = true
 reqwest.workspace = true

@@ -13,6 +13,7 @@ members = [
   "crates/pipedash-plugin-gitea",
   "crates/pipedash-plugin-gitlab",
   "crates/pipedash-plugin-jenkins",
+  "crates/pipedash-plugin-komodo",
   "crates/pipedash-plugin-tekton",
   "crates/pipedash-push-relay",
   "crates/pipedash-web",
@@ -72,6 +73,7 @@ pipedash-plugin-github = { version = "0.5.0", path = "crates/pipedash-plugin-git
 pipedash-plugin-gitea = { version = "0.5.0", path = "crates/pipedash-plugin-gitea" }
 pipedash-plugin-gitlab = { version = "0.5.0", path = "crates/pipedash-plugin-gitlab" }
 pipedash-plugin-jenkins = { version = "0.5.0", path = "crates/pipedash-plugin-jenkins" }
+pipedash-plugin-komodo = { version = "0.5.0", path = "crates/pipedash-plugin-komodo" }
 pipedash-plugin-tekton = { version = "0.5.0", path = "crates/pipedash-plugin-tekton" }
 rand = "0.10"
 regex = "1.13"
@@ -137,4 +139,5 @@ pipedash-plugin-github = { path = "crates/pipedash-plugin-github" }
 pipedash-plugin-gitea = { path = "crates/pipedash-plugin-gitea" }
 pipedash-plugin-gitlab = { path = "crates/pipedash-plugin-gitlab" }
 pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
+pipedash-plugin-komodo = { path = "crates/pipedash-plugin-komodo" }
 pipedash-plugin-tekton = { path = "crates/pipedash-plugin-tekton" }

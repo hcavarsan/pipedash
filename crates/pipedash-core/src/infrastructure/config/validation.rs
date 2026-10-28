@@ -180,6 +180,7 @@ impl ConfigValidator {
                     "tekton",
                     "argocd",
                     "fluxcd",
+                    "komodo",
                 ];
                 if !valid_types.contains(&provider.provider_type.as_str()) {
                     result.add_warning(ConfigWarning {
