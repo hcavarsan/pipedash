@@ -303,6 +303,24 @@ pub(crate) fn map_history_to_run(
     }
 }
 
+pub(crate) fn map_runs(
+    app: &types::Application, provider_id: i64, server_url: &str, limit: usize,
+) -> Vec<PipelineRun> {
+    let operation = map_operation_to_run(app, provider_id, server_url);
+    let operation_started = app.status.operation_state.as_ref().map(|op| op.started_at);
+    let history = app
+        .status
+        .history
+        .iter()
+        .flatten()
+        .rev()
+        .filter(|entry| operation_started.is_none() || entry.deploy_started_at != operation_started)
+        .take(limit)
+        .map(|entry| map_history_to_run(entry, app, provider_id, server_url));
+
+    operation.into_iter().chain(history).collect()
+}
+
 pub(crate) fn map_operation_to_run(
     app: &types::Application, provider_id: i64, server_url: &str,
 ) -> Option<PipelineRun> {
@@ -460,6 +478,25 @@ mod tests {
             available.description.as_deref(),
             Some("Project: default | Path: deploy | Target: release | Namespace: web | Cluster: 10.0.0.1")
         );
+    }
+
+    #[test]
+    fn current_operation_replaces_its_own_history_entry() {
+        let app = app(
+            r#"{"source":{"repoURL":"https://github.com/acme/web","path":"deploy"},"destination":{"namespace":"web"},"project":"default"}"#,
+            r#","history":[
+                {"deployedAt":"2026-10-20T10:00:30Z","deployStartedAt":"2026-10-20T10:00:00Z","id":1,"revision":"abc"},
+                {"deployedAt":"2026-10-20T11:00:30Z","deployStartedAt":"2026-10-20T11:00:00Z","id":2,"revision":"def"}],
+              "operationState":{"operation":{"sync":{"revision":"def"}},"phase":"Succeeded",
+                "startedAt":"2026-10-20T11:00:00Z","finishedAt":"2026-10-20T11:00:30Z"}"#,
+        );
+
+        let ids: Vec<_> = map_runs(&app, 1, "https://argocd.acme.dev", 10)
+            .into_iter()
+            .map(|run| run.id)
+            .collect();
+
+        assert_eq!(ids, ["argocd-sync-web-current", "argocd-sync-web-1"]);
     }
 
     #[test]

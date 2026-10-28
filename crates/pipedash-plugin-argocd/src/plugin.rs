@@ -428,20 +428,7 @@ impl Plugin for ArgocdPlugin {
 
         let app = client.get_application(&app_name).await?;
 
-        let history = app.status.history.as_deref().unwrap_or(&[]);
-
-        let mut runs: Vec<PipelineRun> = history
-            .iter()
-            .rev()
-            .take(limit)
-            .map(|h| mapper::map_history_to_run(h, &app, provider_id, server_url))
-            .collect();
-
-        if let Some(current_run) = mapper::map_operation_to_run(&app, provider_id, server_url) {
-            runs.insert(0, current_run);
-        }
-
-        Ok(runs)
+        Ok(mapper::map_runs(&app, provider_id, server_url, limit))
     }
 
     async fn fetch_run_details(
