@@ -394,15 +394,11 @@ pub fn run() {
             } else {
                 tracing::info!("Configuration found - initializing application");
 
-                tauri::async_runtime::block_on(core_boot::boot_core(
+                core_boot::launch_outcome(tauri::async_runtime::block_on(core_boot::boot_core(
                     app.handle(),
                     BootKind::Launch,
                     false,
-                ))
-                .map_err(|e| {
-                    tracing::error!("CoreContext initialization failed: {}", e);
-                    e
-                })?;
+                )))?;
             }
 
             system_notifications::register(app.handle())?;

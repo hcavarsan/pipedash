@@ -14,6 +14,8 @@ use tracing::debug;
 use crate::types::{
     Application,
     ApplicationList,
+    Event,
+    EventList,
     SyncRequest,
     SyncStrategy,
     SyncStrategyApply,
@@ -90,6 +92,11 @@ impl ArgocdClient {
     pub async fn get_application(&self, app_name: &str) -> PluginResult<Application> {
         let url = self.endpoint(&format!("/applications/{}", app_name))?;
         self.get_json(&url).await
+    }
+
+    pub async fn application_events(&self, app_name: &str) -> PluginResult<Vec<Event>> {
+        let url = self.endpoint(&format!("/applications/{app_name}/events"))?;
+        Ok(self.get_json::<EventList>(&url).await?.items)
     }
 
     pub async fn sync_application(

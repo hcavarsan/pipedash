@@ -42,6 +42,29 @@ pub(crate) struct Author {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct BuildJobs {
+    #[serde(default)]
+    pub jobs: Vec<Job>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct Job {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
+    pub name: Option<String>,
+    pub command: Option<String>,
+    pub step_key: Option<String>,
+    pub state: Option<String>,
+    pub web_url: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub retried: Option<bool>,
+    pub parallel_group_index: Option<i64>,
+    pub parallel_group_total: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct Agent {
     pub id: String,
     pub name: String,

@@ -23,7 +23,7 @@ fn create_config_schema() -> ConfigSchema {
         key: "token".to_string(),
         label: "API Token".to_string(),
         description: Some(
-            "Buildkite API Access Token with read_builds, read_pipelines, and read_organizations scopes"
+            "Buildkite API Access Token with read_builds, read_build_logs, read_pipelines, and read_organizations scopes"
                 .to_string(),
         ),
         field_type: ConfigFieldType::Password,
@@ -46,6 +46,6 @@ fn create_capabilities() -> PluginCapabilities {
         queues: false,
         custom_tables: false,
         retains_run_history: false,
-        logs: false,
+        logs: true,
     }
 }

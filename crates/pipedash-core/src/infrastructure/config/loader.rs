@@ -298,7 +298,6 @@ impl ConfigLoader {
                 i64::from(general.default_refresh_interval).into(),
             ),
             ("status_pages_enabled", general.status_pages_enabled.into()),
-            ("proxy_url", general.proxy_url.as_str().into()),
         ] {
             match table.get_mut(key) {
                 Some(existing) => *existing = Item::Value(value),
@@ -307,6 +306,7 @@ impl ConfigLoader {
                 }
             }
         }
+        Self::set_string(table, "proxy_url", &general.proxy_url);
     }
 
     fn set_string(table: &mut dyn TableLike, key: &str, value: &str) {
