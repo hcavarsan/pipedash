@@ -236,6 +236,25 @@ test('runs found before a later page fails are kept and the pipeline is reported
   )
 })
 
+test('stops requesting pages and pipelines once the search is aborted', async () => {
+  const controller = new AbortController()
+  const calls: string[] = []
+  const fetchPage = async (pipelineId: string, page: number) => {
+    calls.push(`${pipelineId}:${page}`)
+    controller.abort()
+
+    return pageOf([run(page, { status: 'running' })], true)
+  }
+
+  const result = await findUnfinishedRuns([pipeline('a'), pipeline('b')], fetchPage, 1, undefined, controller.signal)
+
+  assert.deepEqual(calls, ['a:1'])
+  assert.deepEqual(
+    result.runs.a.map((item) => item.run_number),
+    [1]
+  )
+})
+
 test('never has more requests in flight than the concurrency limit', async () => {
   let inFlight = 0
   let peak = 0

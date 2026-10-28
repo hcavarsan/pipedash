@@ -1,6 +1,6 @@
 import { notifications } from '@mantine/notifications'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { PAGE_SIZES } from '../constants/pagination'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
@@ -30,9 +30,11 @@ export function useRunHistory(pipelineId: string, page = 1, pageSize = 20) {
 export function useUnfinishedRuns(pipelines: Pipeline[], enabled: boolean) {
   const queryClient = useQueryClient()
   const [progress, setProgress] = useState(0)
+  const queryKey = queryKeys.runs.unfinished(pipelines.map((pipeline) => pipeline.id))
+  const active = enabled && pipelines.length > 0
   const query = useQuery({
-    queryKey: queryKeys.runs.unfinished(pipelines.map((pipeline) => pipeline.id)),
-    queryFn: () => {
+    queryKey,
+    queryFn: ({ signal }) => {
       setProgress(0)
 
       return findUnfinishedRuns(
@@ -44,13 +46,25 @@ export function useUnfinishedRuns(pipelines: Pipeline[], enabled: boolean) {
             staleTime: 0,
           }),
         undefined,
-        setProgress
+        setProgress,
+        signal
       )
     },
     staleTime: 0,
     gcTime: 0,
-    enabled: enabled && pipelines.length > 0,
+    enabled: active,
   })
+  const key = JSON.stringify(queryKey)
+
+  useEffect(() => {
+    if (!active) {
+      return
+    }
+
+    return () => {
+      void queryClient.cancelQueries({ queryKey: JSON.parse(key), exact: true })
+    }
+  }, [active, key, queryClient])
 
   return { ...query, progress }
 }

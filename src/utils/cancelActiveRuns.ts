@@ -44,18 +44,19 @@ export const findUnfinishedRuns = async (
   pipelines: Pipeline[],
   fetchPage: (pipelineId: string, page: number) => Promise<PaginatedRunHistory>,
   concurrency = 4,
-  onProgress?: (done: number) => void
+  onProgress?: (done: number) => void,
+  signal?: AbortSignal
 ): Promise<UnfinishedRuns> => {
   const result: UnfinishedRuns = { runs: {}, failed: [] }
   const queue = [...pipelines]
   let done = 0
 
   const worker = async () => {
-    for (let pipeline = queue.shift(); pipeline; pipeline = queue.shift()) {
+    for (let pipeline = queue.shift(); pipeline && !signal?.aborted; pipeline = queue.shift()) {
       const found: PipelineRun[] = []
 
       try {
-        for (let page = 1, more = true; more; page++) {
+        for (let page = 1, more = true; more && !signal?.aborted; page++) {
           const history = await fetchPage(pipeline.id, page)
           const unfinished = history.runs.filter((run) => isUnfinished(run.status))
 
