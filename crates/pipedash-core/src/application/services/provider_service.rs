@@ -1464,6 +1464,7 @@ mod tests {
     use super::*;
     use crate::application::test_support::{
         pipeline,
+        FeedStub,
         Gate,
         Harness,
         StubProvider,
@@ -3019,5 +3020,54 @@ type = "travis"
             h.provider_service.update_provider(other, stolen).await,
             Err(DomainError::InvalidConfig(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn editing_during_a_renewal_keeps_the_renewed_session() {
+        let h = Harness::with_real_plugins().await;
+        let argocd = FeedStub::start().await;
+        argocd.respond_json(serde_json::json!({ "items": [] }));
+        let original = sign_in(
+            "http://127.0.0.1:9/token".into(),
+            chrono::Duration::minutes(30),
+        );
+        let mut config = h.config("sso", 30);
+        config
+            .config
+            .insert("server_url".into(), argocd.base_url.clone());
+        config.token = original.encode().unwrap();
+        let id = h.repository.add_provider(&config).await.unwrap();
+        let editing = h.provider_service.provider_for_editing(id).await.unwrap();
+
+        let checks = Gate::new();
+        argocd.set_gate(Some(&checks));
+        let edit = tokio::spawn({
+            let service = Arc::clone(&h.provider_service);
+            async move { service.update_provider(id, editing).await }
+        });
+        checks.arrived().await;
+        let renewed = SignInCredential {
+            token: "renewed".into(),
+            refresh_token: Some("r2".into()),
+            expires_at: Some(Utc::now() + chrono::Duration::minutes(45)),
+            ..original.clone()
+        };
+        h.repository
+            .store_token(id, &renewed.encode().unwrap())
+            .await
+            .unwrap();
+        checks.open();
+        edit.await.unwrap().unwrap();
+
+        assert_eq!(stored_sign_in(&h, id).await, renewed);
+        assert_eq!(
+            h.provider_service
+                .acquire(id)
+                .await
+                .unwrap()
+                .provider
+                .renew_at(),
+            renewed.renew_at()
+        );
     }
 }
