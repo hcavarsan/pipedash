@@ -1,8 +1,0 @@
-- Organize pipelines into views with sub-views, pin pipelines, views and repositories, and use Select to pin, hide or cancel several at once.
-- Read job logs inside Pipedash for GitLab, Jenkins, Buildkite, Bitbucket, Gitea, Azure DevOps, Tekton and Komodo.
-- See Argo CD sync results, app events and pod logs, and Flux CD reconciliations and events, in the run logs.
-- Add Azure DevOps pipelines and Komodo stacks next to your other providers.
-- Sign in to Argo CD with single sign-on instead of pasting a token.
-- Filter by several statuses at once, and see the repository, branch and environment in cancel, re-run and trigger dialogs.
-- Job logs on iPhone get a native toolbar to jump between errors, and long run details stay inside their row.
-- Argo CD lists apps waiting for their first sync, shows each sync once in run history and names repositories with a port in their URL.
