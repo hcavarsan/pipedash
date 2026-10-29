@@ -1,10 +1,10 @@
 import { notifications } from '@mantine/notifications'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
+import { type UseMutationResult, useMutation, useMutationState, useQueryClient } from '@tanstack/react-query'
 
 import { queryKeys } from '../lib/queryKeys'
-import { isTauri, service } from '../services'
-import type { ProviderSummary } from '../types'
+import { isTauri } from '../services/isTauri'
+import { service } from '../services/service'
+import type { ProviderSummary, RefreshResult } from '../types/domain'
 import { displayErrorNotification } from '../utils/errorDisplay'
 import { summarizeRefresh } from '../utils/refreshSummary'
 
@@ -12,55 +12,64 @@ const REFRESH_TOAST_MS = 5000
 
 const desktopOffline = () => isTauri() && !navigator.onLine
 
-export function useRefreshProvider() {
+const REFRESH_PROVIDER_KEY = ['providers', 'refresh'] as const
+
+export function useRefreshProvider(): UseMutationResult<RefreshResult, Error, number, unknown> {
   return useMutation({
+    mutationKey: REFRESH_PROVIDER_KEY,
     mutationFn: (providerId: number) => service.refreshProvider(providerId),
   })
 }
 
-export function useRefreshProviders() {
+interface RefreshProvidersResult {
+  refresh: (providerIds: number[]) => Promise<void>
+  refreshing: ReadonlySet<number>
+}
+
+export function useRefreshProviders(): RefreshProvidersResult {
   const queryClient = useQueryClient()
   const { mutateAsync: refreshProvider } = useRefreshProvider()
-  const [refreshing, setRefreshing] = useState<ReadonlySet<number>>(new Set())
+  const pendingIds = useMutationState({
+    filters: { mutationKey: REFRESH_PROVIDER_KEY, status: 'pending' },
+    select: (mutation) => mutation.state.variables,
+  })
+  const refreshing: ReadonlySet<number> = new Set(pendingIds.filter((id): id is number => typeof id === 'number'))
 
-  const refresh = useCallback(
-    async (providerIds: number[]) => {
-      const ids = providerIds.filter((id) => !refreshing.has(id))
+  const refresh = async (providerIds: number[]): Promise<void> => {
+    const ids = providerIds.filter((id) => !refreshing.has(id))
 
-      if (ids.length === 0) {
-        return
+    if (ids.length === 0) {
+      return
+    }
+
+    const settled = await Promise.allSettled(ids.map((id) => refreshProvider(id)))
+
+    if (!desktopOffline()) {
+      const results = settled.flatMap((entry) => (entry.status === 'fulfilled' ? [entry.value] : []))
+      const failed = settled.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected')
+
+      if (results.length > 0) {
+        const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
+        const { message, color } = summarizeRefresh(results, providers)
+
+        notifications.show({ message, color, autoClose: REFRESH_TOAST_MS })
       }
 
-      setRefreshing((current) => new Set([...current, ...ids]))
-
-      try {
-        const results = await Promise.all(ids.map((id) => refreshProvider(id)))
-
-        if (!desktopOffline()) {
-          const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
-          const { message, color } = summarizeRefresh(results, providers)
-
-          notifications.show({ message, color, autoClose: REFRESH_TOAST_MS })
-        }
-      } catch (error) {
-        if (!desktopOffline()) {
-          displayErrorNotification(error, "Couldn't refresh")
-        }
-      } finally {
-        setRefreshing((current) => new Set([...current].filter((id) => !ids.includes(id))))
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
-        ])
+      if (failed) {
+        displayErrorNotification(failed.reason, "Couldn't refresh")
       }
-    },
-    [queryClient, refreshProvider, refreshing]
-  )
+    }
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+    ])
+  }
 
   return { refresh, refreshing }
 }
 
-export function useRefreshAll() {
+export function useRefreshAll(): UseMutationResult<RefreshResult[], Error, void, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({

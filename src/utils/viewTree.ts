@@ -1,15 +1,16 @@
-import type { PipelineView, ViewPipeline } from '../types'
+import type { PipelineView, ViewPipeline } from '../types/domain'
 
 const MAX_VIEW_DEPTH = 3
 
 const findView = (views: PipelineView[], id: string) => views.find((view) => view.id === id)
 
-export const childViews = (views: PipelineView[], id: string | null) => views.filter((view) => view.parent === id)
+export const childViews = (views: PipelineView[], id: string | null): PipelineView[] =>
+  views.filter((view) => view.parent === id)
 
 export const flattenViewTree = (views: PipelineView[], root: string | null = null): PipelineView[] =>
   childViews(views, root).flatMap((view) => [view, ...flattenViewTree(views, view.id)])
 
-export const viewAncestors = (views: PipelineView[], id: string) => {
+export const viewAncestors = (views: PipelineView[], id: string): PipelineView[] => {
   const path: PipelineView[] = []
   let parent = findView(views, id)?.parent
 
@@ -27,17 +28,18 @@ export const viewAncestors = (views: PipelineView[], id: string) => {
   return path
 }
 
-export const viewDepth = (views: PipelineView[], id: string) => viewAncestors(views, id).length + 1
+export const viewDepth = (views: PipelineView[], id: string): number => viewAncestors(views, id).length + 1
 
-export const rootViewOf = (views: PipelineView[], id: string) => viewAncestors(views, id)[0] ?? findView(views, id)
+export const rootViewOf = (views: PipelineView[], id: string): PipelineView | undefined =>
+  viewAncestors(views, id)[0] ?? findView(views, id)
 
 const subtreeHeight = (views: PipelineView[], id: string): number =>
   1 + Math.max(0, ...childViews(views, id).map((view) => subtreeHeight(views, view.id)))
 
-export const canAddSubView = (views: PipelineView[], view: PipelineView) =>
+export const canAddSubView = (views: PipelineView[], view: PipelineView): boolean =>
   view.kind === 'custom' && viewDepth(views, view.id) < MAX_VIEW_DEPTH
 
-export const eligibleViewParents = (views: PipelineView[], id: string | null) => {
+export const eligibleViewParents = (views: PipelineView[], id: string | null): PipelineView[] => {
   const height = id === null ? 1 : subtreeHeight(views, id)
   const excluded = new Set(id === null ? [] : [id, ...flattenViewTree(views, id).map((view) => view.id)])
 
@@ -46,11 +48,21 @@ export const eligibleViewParents = (views: PipelineView[], id: string | null) =>
   )
 }
 
-export const reorderSlots = (order: string[], next: string[]) => {
+export const reorderSlots = (order: string[], next: string[]): string[] => {
   const moved = new Set(next)
   let index = 0
 
-  return order.map((id) => (moved.has(id) ? next[index++] : id))
+  return order.map((id) => {
+    const replacement = next[index]
+
+    if (moved.has(id) && replacement !== undefined) {
+      index += 1
+
+      return replacement
+    }
+
+    return id
+  })
 }
 
 export type DirectMembers = Record<string, string[]>
@@ -89,5 +101,5 @@ export const setDirectMembership = (
   }
 }
 
-export const viewMemberIds = (views: PipelineView[], members: DirectMembers, id: string) =>
+export const viewMemberIds = (views: PipelineView[], members: DirectMembers, id: string): Set<string> =>
   new Set([id, ...flattenViewTree(views, id).map((view) => view.id)].flatMap((view) => members[view] ?? []))

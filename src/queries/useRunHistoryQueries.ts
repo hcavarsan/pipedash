@@ -1,15 +1,23 @@
 import { notifications } from '@mantine/notifications'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type InfiniteData,
+  type UseInfiniteQueryResult,
+  type UseMutationResult,
+  type UseQueryResult,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-
 import { confirmBody } from '../components/common/ActionTargetRows'
 import { PAGE_SIZES } from '../constants/pagination'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
-import { service } from '../services'
-import type { Pipeline, PipelineRun, ReviewDecision } from '../types'
+import { service } from '../services/service'
+import type { PaginatedRunHistory, Pipeline, PipelineRun, ReviewDecision } from '../types/domain'
 import { actionTarget, type TargetPipeline } from '../utils/actionTarget'
-import { findUnfinishedRuns } from '../utils/cancelActiveRuns'
+import { findUnfinishedRuns, type UnfinishedRuns } from '../utils/cancelActiveRuns'
 import { openConfirm } from '../utils/confirm'
 import { errorMessage } from '../utils/errorDisplay'
 import { formatCount } from '../utils/formatCount'
@@ -18,18 +26,40 @@ function notifyCancellationRequested(message: string) {
   notifications.show({ title: 'Cancellation requested', message, color: 'gray' })
 }
 
-export function useRunHistory(pipelineId: string, page = 1, pageSize = 20) {
-  return useQuery({
-    queryKey: queryKeys.runs.list(pipelineId, page),
+export function useRunHistory(
+  pipelineId: string,
+  page = 1,
+  pageSize = 20,
+  enabled = true
+): UseQueryResult<PaginatedRunHistory, Error> {
+  return useQuery<PaginatedRunHistory>({
+    queryKey: queryKeys.runs.list(pipelineId, page, pageSize),
     queryFn: () => service.fetchRunHistory(pipelineId, page, pageSize),
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.MEDIUM,
-    placeholderData: keepPreviousData,
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === pipelineId ? previous : undefined),
+    enabled: enabled && !!pipelineId,
+  })
+}
+
+export function useRunHistoryInfinite(
+  pipelineId: string,
+  pageSize: number = PAGE_SIZES.RUN_HISTORY
+): UseInfiniteQueryResult<InfiniteData<PaginatedRunHistory, number>, Error> {
+  return useInfiniteQuery({
+    queryKey: queryKeys.runs.infinite(pipelineId, pageSize),
+    queryFn: ({ pageParam }) => service.fetchRunHistory(pipelineId, pageParam, pageSize),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, _pages, lastPageParam) => (lastPage.has_more ? lastPageParam + 1 : undefined),
+    staleTime: STALE_TIMES.FAST_CHANGING,
+    gcTime: GC_TIMES.MEDIUM,
     enabled: !!pipelineId,
   })
 }
 
-export function useUnfinishedRuns(pipelines: Pipeline[], enabled: boolean) {
+type UseUnfinishedRunsResult = UseQueryResult<UnfinishedRuns, Error> & { progress: number }
+
+export function useUnfinishedRuns(pipelines: Pipeline[], enabled: boolean): UseUnfinishedRunsResult {
   const queryClient = useQueryClient()
   const [progress, setProgress] = useState(0)
   const queryKey = queryKeys.runs.unfinished(pipelines.map((pipeline) => pipeline.id))
@@ -43,7 +73,7 @@ export function useUnfinishedRuns(pipelines: Pipeline[], enabled: boolean) {
         pipelines,
         (pipelineId, page) =>
           queryClient.fetchQuery({
-            queryKey: queryKeys.runs.list(pipelineId, page),
+            queryKey: queryKeys.runs.list(pipelineId, page, PAGE_SIZES.RUN_HISTORY),
             queryFn: () => service.fetchRunHistory(pipelineId, page, PAGE_SIZES.RUN_HISTORY),
             staleTime: 0,
           }),
@@ -71,7 +101,15 @@ export function useUnfinishedRuns(pipelines: Pipeline[], enabled: boolean) {
   return { ...query, progress }
 }
 
-export function useTablePreferences(providerId: number, tableId: string) {
+export interface TablePreferences {
+  columnOrder?: string[] | undefined
+  columnVisibility?: Record<string, boolean> | undefined
+}
+
+export function useTablePreferences(
+  providerId: number,
+  tableId: string
+): UseQueryResult<TablePreferences | null, Error> {
   return useQuery({
     queryKey: queryKeys.tablePreferences.detail(providerId, tableId),
     queryFn: async () => {
@@ -103,7 +141,12 @@ export function useTablePreferences(providerId: number, tableId: string) {
   })
 }
 
-export function useSaveTablePreferences() {
+export function useSaveTablePreferences(): UseMutationResult<
+  void,
+  Error,
+  { providerId: number; tableId: string; preferences: unknown },
+  { previousPreferences: unknown; providerId: number; tableId: string }
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -128,6 +171,11 @@ export function useSaveTablePreferences() {
           queryKeys.tablePreferences.detail(context.providerId, context.tableId),
           context.previousPreferences
         )
+      } else if (context) {
+        queryClient.removeQueries({
+          queryKey: queryKeys.tablePreferences.detail(context.providerId, context.tableId),
+          exact: true,
+        })
       }
 
       notifications.show({
@@ -138,7 +186,7 @@ export function useSaveTablePreferences() {
     },
 
     onSuccess: (_data, { providerId, tableId }) => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.tablePreferences.detail(providerId, tableId),
       })
 
@@ -152,35 +200,21 @@ export function useSaveTablePreferences() {
   })
 }
 
-export function useClearRunHistoryCache() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (pipelineId: string) => service.clearRunHistoryCache(pipelineId),
-
-    onSuccess: (_data, pipelineId) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.runs.list(pipelineId),
-      })
-
-      notifications.show({
-        title: 'Cache cleared',
-        message: 'Run history cache cleared successfully',
-        color: 'green',
-      })
-    },
-
-    onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't clear cache",
-        message: errorMessage(error, 'Try clearing the run history cache again.'),
-        color: 'red',
-      })
-    },
-  })
+interface CancelRunVariables {
+  pipelineId: string
+  runNumber: number
+  pipeline?: TargetPipeline | undefined
+  run?: Pick<PipelineRun, 'branch' | 'inputs'> | undefined
 }
 
-export function useCancelRun() {
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+
+type UseCancelRunResult = DistributiveOmit<
+  UseMutationResult<void, Error, { pipelineId: string; runNumber: number }, unknown>,
+  'mutateAsync'
+> & { mutateAsync: (variables: CancelRunVariables) => Promise<boolean> }
+
+export function useCancelRun(): UseCancelRunResult {
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
@@ -188,10 +222,10 @@ export function useCancelRun() {
       service.cancelPipelineRun(pipelineId, runNumber),
 
     onSuccess: (_data, { pipelineId, runNumber }) => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runs.detail(pipelineId, runNumber),
       })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runs.list(pipelineId),
       })
 
@@ -207,12 +241,7 @@ export function useCancelRun() {
     },
   })
 
-  const cancel = async (variables: {
-    pipelineId: string
-    runNumber: number
-    pipeline?: TargetPipeline
-    run?: Pick<PipelineRun, 'branch' | 'inputs'>
-  }) => {
+  const cancel = async (variables: CancelRunVariables) => {
     const { promise, resolve } = Promise.withResolvers<boolean>()
     openConfirm({
       title: 'Cancel run',
@@ -240,7 +269,12 @@ export function useCancelRun() {
   return { ...mutation, mutateAsync: cancel }
 }
 
-export function useReviewRun() {
+export function useReviewRun(): UseMutationResult<
+  void,
+  Error,
+  { pipelineId: string; runNumber: number; decision: ReviewDecision },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -255,10 +289,10 @@ export function useReviewRun() {
     }) => service.reviewPipelineRun(pipelineId, runNumber, decision),
 
     onSuccess: (_data, { pipelineId, runNumber, decision }) => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runs.detail(pipelineId, runNumber),
       })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runs.list(pipelineId),
       })
 
@@ -279,7 +313,12 @@ export function useReviewRun() {
   })
 }
 
-export function useRerunFailedJobs() {
+export function useRerunFailedJobs(): UseMutationResult<
+  void,
+  Error,
+  { pipelineId: string; runNumber: number },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -287,13 +326,13 @@ export function useRerunFailedJobs() {
       service.rerunFailedJobs(pipelineId, runNumber),
 
     onSuccess: (_data, { pipelineId, runNumber }) => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runs.detail(pipelineId, runNumber),
       })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runLogs.tree(pipelineId, runNumber),
       })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runs.list(pipelineId),
       })
 
@@ -314,21 +353,22 @@ export function useRerunFailedJobs() {
   })
 }
 
-export function useRerunRun() {
+export function useRerunRun(): UseMutationResult<void, Error, { pipelineId: string; runNumber: number }, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: ['runs', 'rerun'],
     mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
       service.rerunRun(pipelineId, runNumber),
 
     onSuccess: (_data, { pipelineId, runNumber }) => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runs.detail(pipelineId, runNumber),
       })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runLogs.tree(pipelineId, runNumber),
       })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runs.list(pipelineId),
       })
 
@@ -349,7 +389,12 @@ export function useRerunRun() {
   })
 }
 
-export function useCancelRuns() {
+export function useCancelRuns(): UseMutationResult<
+  { cancelled: number[]; failed: number[] },
+  Error,
+  { pipelineId: string; runNumbers: number[] },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -359,18 +404,18 @@ export function useCancelRuns() {
       )
 
       return {
-        cancelled: runNumbers.filter((_, index) => results[index].status === 'fulfilled'),
-        failed: runNumbers.filter((_, index) => results[index].status === 'rejected'),
+        cancelled: runNumbers.filter((_, index) => results[index]?.status === 'fulfilled'),
+        failed: runNumbers.filter((_, index) => results[index]?.status === 'rejected'),
       }
     },
 
     onSuccess: ({ cancelled, failed }, { pipelineId, runNumbers }) => {
       cancelled.forEach((runNumber) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: queryKeys.runs.detail(pipelineId, runNumber),
         })
       })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.runs.list(pipelineId),
       })
 

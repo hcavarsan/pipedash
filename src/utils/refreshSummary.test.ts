@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { ProviderSummary, RefreshResult } from '../types'
+import { providerSummaryFixture } from '../testing/fixtures'
+import type { RefreshResult } from '../types/domain'
 
 import { describeRefreshResult, summarizeRefresh } from './refreshSummary'
 
@@ -13,7 +14,7 @@ const result = (provider_id: number, overrides: Partial<RefreshResult> = {}): Re
   ...overrides,
 })
 
-const provider = (id: number, name: string) => ({ id, name }) as ProviderSummary
+const provider = (id: number, name: string) => providerSummaryFixture({ id, name })
 
 test('summarizes a clean refresh with the number of providers', () => {
   assert.deepEqual(summarizeRefresh([result(1)], []), { message: 'Refreshed 1 provider', color: 'green' })
@@ -69,4 +70,13 @@ test('describes a single result for the retry action', () => {
   assert.equal(describeRefreshResult(result(1, { state: 'recent' })), 'Checked a moment ago')
   assert.equal(describeRefreshResult(result(1, { state: 'failed', kind: 'auth', message: 'bad token' })), 'bad token')
   assert.equal(describeRefreshResult(result(1, { state: 'failed', kind: 'timeout' })), 'timed out')
+})
+
+test('an empty refresh reports zero providers refreshed', () => {
+  assert.deepEqual(summarizeRefresh([], []), { message: 'Refreshed 0 providers', color: 'green' })
+})
+
+test('describes pending and removed providers for the retry action', () => {
+  assert.equal(describeRefreshResult(result(1, { state: 'pending' })), 'Still checking')
+  assert.equal(describeRefreshResult(result(1, { state: 'not_found' })), 'Provider no longer exists')
 })

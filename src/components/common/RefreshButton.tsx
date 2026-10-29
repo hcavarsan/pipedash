@@ -1,6 +1,6 @@
 import { ActionIcon, type ActionIconProps } from '@mantine/core'
 import { IconRefresh } from '@tabler/icons-react'
-import type { ComponentPropsWithRef } from 'react'
+import type { ComponentPropsWithRef, ReactNode } from 'react'
 
 type RefreshButtonProps = ActionIconProps &
   Omit<ComponentPropsWithRef<'button'>, keyof ActionIconProps | 'children'> & {
@@ -8,7 +8,7 @@ type RefreshButtonProps = ActionIconProps &
     iconSize: number
   }
 
-export const RefreshButton = ({ pending, iconSize, onClick, ...props }: RefreshButtonProps) => (
+export const RefreshButton = ({ pending, iconSize, onClick, ...props }: RefreshButtonProps): ReactNode => (
   <ActionIcon
     {...props}
     data-refreshing={pending || undefined}
@@ -19,6 +19,6 @@ export const RefreshButton = ({ pending, iconSize, onClick, ...props }: RefreshB
       }
     }}
   >
-    <IconRefresh size={iconSize} />
+    <IconRefresh size={iconSize} aria-hidden />
   </ActionIcon>
 )

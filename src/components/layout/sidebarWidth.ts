@@ -11,7 +11,7 @@ export interface SidebarSize {
   compact: boolean
 }
 
-export const clampSidebarWidth = (width: number, viewportWidth: number) => {
+export const clampSidebarWidth = (width: number, viewportWidth: number): number => {
   const max = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.floor(viewportWidth * MAX_VIEWPORT_SHARE)))
 
   return Math.min(Math.max(Math.round(width), SIDEBAR_MIN_WIDTH), max)
@@ -34,7 +34,7 @@ export const sizeAfterStep = (step: number, current: SidebarSize, viewportWidth:
   return { width: clampSidebarWidth(width + step, viewportWidth), compact: false }
 }
 
-export const sidebarCssWidth = (width: number) => {
+export const sidebarCssWidth = (width: number): string => {
   const stored = Number.isFinite(width) ? Math.min(width, SIDEBAR_MAX_WIDTH) : SIDEBAR_DEFAULT_WIDTH
 
   return `clamp(${SIDEBAR_MIN_WIDTH}px, ${stored}px, ${MAX_VIEWPORT_SHARE * 100}vw)`

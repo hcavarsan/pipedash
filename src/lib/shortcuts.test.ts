@@ -25,3 +25,8 @@ test('formats other platforms with readable modifier separators', () => {
   assert.equal(shortcutLabel('mod+k'), 'Ctrl+K')
   assert.equal(shortcutLabel('mod+\\'), 'Ctrl+\\')
 })
+
+test('falls back to Ctrl labels when there is no navigator', () => {
+  Reflect.deleteProperty(globalThis, 'navigator')
+  assert.equal(shortcutLabel('mod+k'), 'Ctrl+K')
+})

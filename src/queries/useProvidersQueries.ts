@@ -1,16 +1,22 @@
 import { notifications } from '@mantine/notifications'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
-import { service } from '../services'
-import type { ProviderConfig, ProviderImportResult, ProviderSummary } from '../types'
+import { service } from '../services/service'
+import type { PermissionCheckResult, ProviderConfig, ProviderImportResult, ProviderSummary } from '../types/domain'
 import { errorMessage } from '../utils/errorDisplay'
 import { saveFile } from '../utils/saveFile'
 import { invalidateProviderPipelines } from './usePipelinesQueries'
 
-export function useProviders(options?: { enabled?: boolean }) {
+export function useProviders(options?: { enabled?: boolean }): UseQueryResult<ProviderSummary[], Error> {
   return useQuery({
     queryKey: queryKeys.providers.list(),
     queryFn: async () => {
@@ -27,7 +33,7 @@ export function useProviders(options?: { enabled?: boolean }) {
   })
 }
 
-export function useAddProvider() {
+export function useAddProvider(): UseMutationResult<number, Error, ProviderConfig, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -67,7 +73,8 @@ export function useAddProvider() {
             ]
       )
 
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
         title: 'Provider added',
@@ -86,7 +93,12 @@ export function useAddProvider() {
   })
 }
 
-export function useUpdateProvider() {
+export function useUpdateProvider(): UseMutationResult<
+  void,
+  Error,
+  { id: number; config: ProviderConfig },
+  { previousProviders: ProviderSummary[] | undefined }
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -97,8 +109,8 @@ export function useUpdateProvider() {
 
       const previousProviders = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
 
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
-        old.map((p) => (p.id === id ? { ...p, ...config } : p))
+      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old) =>
+        old?.map((p) => (p.id === id ? { ...p, name: config.name, refresh_interval: config.refresh_interval } : p))
       )
 
       return { previousProviders }
@@ -117,8 +129,8 @@ export function useUpdateProvider() {
     },
 
     onSuccess: (_data, { id }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
       invalidateProviderPipelines(queryClient, id)
 
       notifications.show({
@@ -130,7 +142,7 @@ export function useUpdateProvider() {
   })
 }
 
-export function useRemoveProvider() {
+export function useRemoveProvider(): UseMutationResult<void, Error, number, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -149,8 +161,8 @@ export function useRemoveProvider() {
         predicate: (query) => query.queryKey[0] === 'tablePreferences' && query.queryKey[1] === id,
       })
 
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
         title: 'Provider removed',
@@ -169,7 +181,7 @@ export function useRemoveProvider() {
   })
 }
 
-export function useExportProviders() {
+export function useExportProviders(): UseMutationResult<boolean, Error, void, unknown> {
   return useMutation({
     mutationFn: async () =>
       saveFile('pipedash-providers.toml', await service.exportProviders(), {
@@ -211,15 +223,15 @@ function importSummary({ added, skipped }: ProviderImportResult): string {
   return parts.join(' ')
 }
 
-export function useImportProviders() {
+export function useImportProviders(): UseMutationResult<ProviderImportResult, Error, File, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (file: File) => service.importProviders(await file.text()),
 
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
         title: result.added.length > 0 ? 'Providers imported' : 'No providers imported',
@@ -239,7 +251,14 @@ export function useImportProviders() {
   })
 }
 
-export function useUpdateProviderRefreshInterval(notify = true) {
+export function useUpdateProviderRefreshInterval(
+  notify = true
+): UseMutationResult<
+  void,
+  Error,
+  { id: number; refreshInterval: number },
+  { previousProviders: ProviderSummary[] | undefined }
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -251,8 +270,8 @@ export function useUpdateProviderRefreshInterval(notify = true) {
 
       const previousProviders = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
 
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
-        old.map((p) => (p.id === id ? { ...p, refresh_interval: refreshInterval } : p))
+      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old) =>
+        old?.map((p) => (p.id === id ? { ...p, refresh_interval: refreshInterval } : p))
       )
 
       return { previousProviders }
@@ -274,8 +293,8 @@ export function useUpdateProviderRefreshInterval(notify = true) {
     },
 
     onSuccess: (_data, { id }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.refreshInterval(id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.detail(id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.refreshInterval(id) })
       if (!notify) {
         return
       }
@@ -289,7 +308,10 @@ export function useUpdateProviderRefreshInterval(notify = true) {
   })
 }
 
-export function useProviderPermissions(providerType: string, config: ProviderConfig) {
+export function useProviderPermissions(
+  providerType: string,
+  config: ProviderConfig
+): UseQueryResult<PermissionCheckResult, Error> {
   return useQuery({
     queryKey: ['checkProviderPermissions', providerType, config.config],
     queryFn: () => service.checkProviderPermissions(providerType, config.config || {}),

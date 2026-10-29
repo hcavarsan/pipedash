@@ -44,31 +44,41 @@ export function displayErrorNotification(
     id,
     title,
     color: 'red',
-    message: onRetry ? (
-      <>
-        {message}
-        <button
-          type="button"
-          className={classes.retry}
-          onClick={(event) => {
-            event.stopPropagation()
-            notifications.hide(id)
-            onRetry()
-          }}
-        >
-          Retry
-        </button>
-      </>
-    ) : (
-      message
-    ),
+    message:
+      onRetry || onDetails ? (
+        <>
+          {message}
+          {onRetry ? (
+            <button
+              type="button"
+              className={classes.retry}
+              onClick={(event) => {
+                event.stopPropagation()
+                notifications.hide(id)
+                onRetry()
+              }}
+            >
+              Retry
+            </button>
+          ) : null}
+          {onDetails ? (
+            <button
+              type="button"
+              className={classes.retry}
+              onClick={(event) => {
+                event.stopPropagation()
+                notifications.hide(id)
+                onDetails()
+              }}
+            >
+              View details
+            </button>
+          ) : null}
+        </>
+      ) : (
+        message
+      ),
     autoClose: onRetry || onDetails ? false : duration,
-    onClick: onDetails
-      ? () => {
-          notifications.hide(id)
-          onDetails()
-        }
-      : undefined,
   })
 }
 

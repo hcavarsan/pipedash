@@ -1,14 +1,14 @@
 import { listen } from '@tauri-apps/api/event'
-import { useEffect } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { type NavigateFunction, useNavigate } from 'react-router-dom'
 
 import { isMobileShell } from '../hooks/useIsMobile'
 import { logger } from '../lib/logger'
-import { isTauri } from '../services'
+import { isTauri } from '../services/isTauri'
 import { mobileService, NATIVE_INTENT_EVENT, STATUS_BAR_TAP_EVENT } from '../services/mobile'
 import { useModalStore } from '../stores/modalStore'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
-import type { NativeIntent } from '../types'
+import type { NativeIntent } from '../types/domain'
 import { isMobilePlatform } from '../utils/platform'
 import { openNotificationDetails } from '../utils/systemNotifications'
 
@@ -17,7 +17,7 @@ import { scrollActiveToTop } from './layout/scrollToTop'
 const NOTIFICATIONS = '/notifications'
 
 function openPipeline(navigate: NavigateFunction, pipelineId: string, from: string, runNumber?: number) {
-  navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, { state: { from } })
+  void navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, { state: { from } })
   if (runNumber) {
     useModalStore.getState().openLogsModal(pipelineId, runNumber)
   }
@@ -33,7 +33,7 @@ function handleIntent(navigate: NavigateFunction, intent: NativeIntent) {
         intent.runNumber
       )
     } else {
-      navigate(intent.path)
+      void navigate(intent.path)
     }
 
     return
@@ -43,7 +43,7 @@ function handleIntent(navigate: NavigateFunction, intent: NativeIntent) {
 
   if (intent.action !== 'open-run' && intent.key && known) {
     if (isMobileShell()) {
-      navigate(NOTIFICATIONS)
+      void navigate(NOTIFICATIONS)
     }
     openNotificationDetails(intent.key)
 
@@ -57,7 +57,7 @@ function handleIntent(navigate: NavigateFunction, intent: NativeIntent) {
   }
 
   if (isMobileShell()) {
-    navigate(NOTIFICATIONS)
+    void navigate(NOTIFICATIONS)
   }
 }
 
@@ -81,7 +81,7 @@ function listenNative(event: string, onEvent: () => void): () => void {
   }
 }
 
-export function NativeBridge() {
+export function NativeBridge(): ReactNode {
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -89,10 +89,15 @@ export function NativeBridge() {
       return
     }
 
-    const drain = () => {
+    let active = true
+    const drain = (): void => {
       mobileService
         .takePendingIntent()
-        .then((intent) => intent && handleIntent(navigate, intent))
+        .then((intent) => {
+          if (active && intent) {
+            handleIntent(navigate, intent)
+          }
+        })
         .catch((error: unknown) => logger.warn('NativeBridge', "Couldn't read the pending intent", error))
     }
 
@@ -101,6 +106,7 @@ export function NativeBridge() {
     const stopTaps = listenNative(STATUS_BAR_TAP_EVENT, scrollActiveToTop)
 
     return () => {
+      active = false
       stopIntents()
       stopTaps()
     }

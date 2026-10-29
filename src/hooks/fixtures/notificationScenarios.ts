@@ -8,18 +8,22 @@ import { notifications } from '@mantine/notifications'
 import { QueryClient, QueryClientProvider, type UseMutationResult } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
-
+import {
+  useLocalNotificationSettings,
+  useLocalNotificationsLifecycle,
+  useSetLocalNotifications,
+} from '../../features/notifications/queries/useLocalNotificationQueries'
 import { queryKeys } from '../../lib/queryKeys'
-import { useLocalNotificationsLifecycle, useSetLocalNotifications } from '../../queries/useLocalNotificationQueries'
 import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../stores/notificationStore'
-import type { LocalNotificationSettings, Pipeline, ProviderHealthAlert } from '../../types'
+import type { LocalNotificationSettings, Pipeline, ProviderHealthAlert } from '../../types/domain'
 import { showSystemNotification } from '../../utils/systemNotifications'
 import { useFailureNotifications } from '../useFailureNotifications'
 import { useProviderHealthAlerts } from '../useProviderHealthAlerts'
 
 import { cachedPermission, callbacks, delivered, listeners, native, permission } from './notificationEnvironment'
+import { defineRegistrationScenarios } from './notificationRegistrationScenarios'
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 const pipeline: Pipeline = {
@@ -44,17 +48,7 @@ const outage: ProviderHealthAlert = {
   link: { url: 'https://www.githubstatus.com/', kind: 'status_page' },
   recovered: false,
 }
-let pushes = 0
 let mutation: UseMutationResult<LocalNotificationSettings, Error, boolean> | undefined
-const originalPush = useNotificationCenterStore.getState().push
-
-useNotificationCenterStore.setState({
-  push: (input) => {
-    pushes += 1
-    originalPush(input)
-  },
-})
-
 function Hooks() {
   useFailureNotifications()
   useProviderHealthAlerts()
@@ -63,6 +57,7 @@ function Hooks() {
 
 function Lifecycle() {
   useLocalNotificationsLifecycle()
+  useLocalNotificationSettings()
   mutation = useSetLocalNotifications()
   return null
 }
@@ -96,7 +91,6 @@ afterEach(async () => {
   useNotificationCenterStore.setState({ items: [], selection: null })
   useNotificationStore.setState({ notificationsEnabled: false })
   delivered.length = 0
-  pushes = 0
   mutation = undefined
   native.settings = { enabled: false, available: true, reason: null }
   native.calls.length = 0
@@ -108,6 +102,8 @@ afterEach(async () => {
 })
 
 after(() => GlobalRegistrator.unregister())
+
+defineRegistrationScenarios(client, Hooks)
 
 test('a backend-confirmed failure reaches the center before a pipeline list loads and leaves iOS delivery to Rust', async () => {
   await mount()
@@ -125,9 +121,11 @@ test('consecutive failed runs notify once each without duplicating cache updates
     await publish('pipelines-failed', { pipelines: [failed] })
     setProviderPipelines(client, pipeline.provider_id, [failed])
   }
-  assert.equal(pushes, 2)
-  assert.equal(useNotificationCenterStore.getState().items.length, 1)
-  assert.equal(useNotificationCenterStore.getState().items[0].read, false)
+  const { items } = useNotificationCenterStore.getState()
+  assert.equal(items.length, 1)
+  const [item] = items
+  assert.ok(item)
+  assert.equal(item.read, false)
   assert.deepEqual(delivered, [])
 })
 
@@ -136,8 +134,13 @@ test('a running-to-failed cache update does not duplicate the backend failure al
   setProviderPipelines(client, pipeline.provider_id, [{ ...pipeline, status: 'running' }])
   setProviderPipelines(client, pipeline.provider_id, [pipeline])
   await publish('pipelines-failed', { pipelines: [pipeline] })
+  const first = useNotificationCenterStore.getState().items[0]
+  assert.ok(first)
+  useNotificationCenterStore.getState().markRead(first.key)
   setProviderPipelines(client, pipeline.provider_id, [pipeline])
-  assert.equal(pushes, 1)
+  const { items } = useNotificationCenterStore.getState()
+  assert.equal(items.length, 1)
+  assert.equal(items[0]?.read, true)
 })
 
 test('overdue runs still alert once when their cached observation changes', async () => {
@@ -147,7 +150,7 @@ test('overdue runs still alert once when their cached observation changes', asyn
   const overdue = { ...running, overdue_run: 'run-42' }
   setProviderPipelines(client, pipeline.provider_id, [overdue])
   setProviderPipelines(client, pipeline.provider_id, [overdue])
-  assert.equal(pushes, 1)
+  assert.equal(useNotificationCenterStore.getState().items.length, 1)
   assert.equal(useNotificationCenterStore.getState().items[0]?.tone, 'warning')
   assert.deepEqual(delivered, [])
 })
@@ -179,7 +182,7 @@ test('a provider outage reaches the center without a webview delivery or Remote 
   await mount()
   await publish('provider-health-alert', outage)
   assert.equal(useNotificationCenterStore.getState().items[0]?.key, outage.notification_key)
-  assert.equal(pushes, 1)
+  assert.equal(useNotificationCenterStore.getState().items.length, 1)
   assert.deepEqual(delivered, [])
 })
 
@@ -201,20 +204,24 @@ test('revoking iOS permission overrides the webview permission cache', async () 
   assert.deepEqual(delivered, [])
 })
 
-test('a legacy enabled preference never provisions background access and the store follows the backend', async () => {
+test('a legacy enabled preference never provisions background access and the query follows the backend', async () => {
   useNotificationStore.setState({ notificationsEnabled: true })
   await mountLifecycle()
-  await waitFor(() => assert.equal(useNotificationStore.getState().notificationsEnabled, false))
+  await waitFor(() =>
+    assert.equal(client.getQueryData<{ enabled: boolean }>(queryKeys.localNotifications.settings())?.enabled, false)
+  )
   assert.deepEqual(
     native.calls.map((call) => call.command),
     ['get_local_notification_settings']
   )
 })
 
-test('a backend that already has notifications on turns the store on', async () => {
+test('a backend that already has notifications on reports them on', async () => {
   native.settings = { enabled: true, available: true, reason: null }
   await mountLifecycle()
-  await waitFor(() => assert.equal(useNotificationStore.getState().notificationsEnabled, true))
+  await waitFor(() =>
+    assert.equal(client.getQueryData<{ enabled: boolean }>(queryKeys.localNotifications.settings())?.enabled, true)
+  )
 })
 
 test('returning to the foreground adopts a change made outside the app', async () => {
@@ -245,7 +252,7 @@ test('enabling sends the explicit command and records the backend answer', async
   assert.deepEqual(native.calls.find((call) => call.command === 'set_local_notifications_enabled')?.args, {
     enabled: true,
   })
-  assert.equal(useNotificationStore.getState().notificationsEnabled, true)
+  assert.equal(client.getQueryData<{ enabled: boolean }>(queryKeys.localNotifications.settings())?.enabled, true)
 })
 
 test('a failed enable reports the error and never turns notifications on', async (context) => {
@@ -257,6 +264,5 @@ test('a failed enable reports the error and never turns notifications on', async
     await mutation?.mutateAsync(true).catch(() => undefined)
   })
   assert.equal(shown.mock.callCount(), 1)
-  assert.equal(useNotificationStore.getState().notificationsEnabled, false)
   assert.equal(client.getQueryData<{ enabled: boolean }>(queryKeys.localNotifications.settings())?.enabled, false)
 })

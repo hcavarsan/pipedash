@@ -9,17 +9,18 @@ import { PRESENT_EASING } from '../../lib/motion'
 import type { SheetDetent } from '../../lib/sheetDetents'
 import { iosClasses } from '../../theme/ios'
 import { TYPOGRAPHY } from '../../theme/typography'
-import type { ModalBaseProps } from '../../types'
+import type { ModalBaseProps } from '../../types/components'
 import { confirmDiscard } from '../../utils/confirm'
+import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
 
 type ModalSize = 'md' | 'lg' | 'xl' | 'full'
 
 export interface ModalAction {
   label: string
   onClick: () => void
-  loading?: boolean
-  disabled?: boolean
-  destructive?: boolean
+  loading?: boolean | undefined
+  disabled?: boolean | undefined
+  destructive?: boolean | undefined
 }
 
 interface StandardModalProps extends ModalBaseProps {
@@ -52,10 +53,10 @@ const columnStyle = { display: 'flex', flexDirection: 'column', minHeight: 0, ov
 interface HeaderButtonProps {
   children: ReactNode
   onClick: () => void
-  strong?: boolean
-  destructive?: boolean
-  disabled?: boolean
-  loading?: boolean
+  strong?: boolean | undefined
+  destructive?: boolean | undefined
+  disabled?: boolean | undefined
+  loading?: boolean | undefined
 }
 
 const HeaderButton = ({ children, onClick, strong, destructive, disabled, loading }: HeaderButtonProps) => (
@@ -90,13 +91,14 @@ export const StandardModal = ({
   backAction,
   dirty = false,
   detents,
-}: StandardModalProps) => {
+}: StandardModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const reducedMotion = useReducedMotion()
   const { id, zIndex, covered } = useSheetStack(opened && mobileShell)
   const [instant, setInstant] = useState(false)
-  const exited = useRef<(() => void) | null>(null)
+  const exited = useRef<((closed: boolean) => void) | null>(null)
+  const closeTimer = useRef<number | null>(null)
   const latest = useRef({ dirty, onClose })
 
   latest.current = { dirty, onClose }
@@ -117,32 +119,44 @@ export const StandardModal = ({
     return true
   }, [])
 
+  const settlePending = useCallback((closed: boolean) => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+
+    const resolve = exited.current
+
+    exited.current = null
+    resolve?.(closed)
+  }, [])
+
   const closeNow = useCallback(() => {
     const { promise, resolve } = Promise.withResolvers<boolean>()
 
-    exited.current = () => resolve(true)
+    settlePending(false)
+    exited.current = resolve
     setInstant(true)
     latest.current.onClose()
-    window.setTimeout(() => {
-      if (exited.current) {
-        exited.current = null
-        setInstant(false)
-        resolve(false)
-      }
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null
+      setInstant(false)
+      settlePending(false)
     }, CLOSE_WAIT_MS)
 
     return promise
-  }, [])
+  }, [settlePending])
 
   const handle = useMemo<SheetHandle>(() => ({ requestClose, closeNow }), [requestClose, closeNow])
 
   useEffect(() => registerSheet(id, handle), [id, handle])
 
-  const onExitTransitionEnd = useCallback(() => {
-    exited.current?.()
-    exited.current = null
+  useEffect(() => () => settlePending(false), [settlePending])
+
+  const onExitTransitionEnd = (): void => {
+    settlePending(true)
     setInstant(false)
-  }, [])
+  }
 
   const sharedProps = {
     opened,
@@ -167,20 +181,25 @@ export const StandardModal = ({
     body: { ...columnStyle, flex: 1, padding: 0 },
   }
 
+  const body = (
+    <ErrorBoundary scope="feature" name="Dialog content" resetKeys={[opened]}>
+      {children}
+    </ErrorBoundary>
+  )
+
   const content = (
     <>
       {disableScrollArea ? (
-        <Box style={{ ...columnStyle, flex: 1, padding, paddingBottom: bottomInset }}>{children}</Box>
+        <Box style={{ ...columnStyle, flex: 1, padding, paddingBottom: bottomInset }}>{body}</Box>
       ) : (
         <ScrollArea
           type={mobileShell ? 'scroll' : 'auto'}
-          scrollbarSize={mobileShell ? 3 : undefined}
-          scrollHideDelay={mobileShell ? 200 : undefined}
+          {...(mobileShell ? { scrollbarSize: 3, scrollHideDelay: 200 } : {})}
           style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
           styles={{ viewport: { flex: 1, minHeight: 0, height: 'auto' } }}
         >
-          <Box p={padding} pb={bottomInset}>
-            {children}
+          <Box p={padding} {...(bottomInset === undefined ? {} : { pb: bottomInset })}>
+            {body}
           </Box>
         </ScrollArea>
       )}

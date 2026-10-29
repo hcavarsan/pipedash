@@ -1,11 +1,12 @@
 import { Notifications } from '@mantine/notifications'
+import type { ReactNode } from 'react'
 
 import { useBannerSwipe } from '../hooks/useBannerSwipe'
 import { useMobileShell } from '../hooks/useIsMobile'
 import { PRESENT_EASING } from '../lib/motion'
 import { iosToastClassNames } from './ios'
 
-export function ToastHost() {
+export function ToastHost(): ReactNode {
   const mobileShell = useMobileShell()
 
   useBannerSwipe(mobileShell)

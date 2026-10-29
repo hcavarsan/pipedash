@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { PipelineRun } from '../types'
+import type { PipelineRun } from '../types/domain'
 
 import { buildRerunSummary, canRerunFailedOnly } from './rerunSummary'
 

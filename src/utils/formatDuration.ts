@@ -3,19 +3,21 @@ export const formatDuration = (seconds: number | null | undefined): string => {
     return '—'
   }
 
-  if (seconds < 60) {
-    return `${Math.round(seconds)}s`
+  const total = Math.round(seconds)
+
+  if (total < 60) {
+    return `${total}s`
   }
 
-  if (seconds < 3600) {
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.round(seconds % 60)
+  if (total < 3600) {
+    const mins = Math.floor(total / 60)
+    const secs = total % 60
 
     return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`
   }
 
-  const hours = Math.floor(seconds / 3600)
-  const mins = Math.round((seconds % 3600) / 60)
+  const hours = Math.floor(total / 3600)
+  const mins = Math.round((total % 3600) / 60)
 
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
 }

@@ -1,8 +1,13 @@
 import { platform as tauriOsPlatform } from '@tauri-apps/plugin-os'
 
-import { isTauri } from '../services'
+import { isTauri } from '../services/isTauri'
 
-export type Platform = 'macos' | 'windows' | 'linux' | 'ios' | 'android'
+import { isOneOf } from './isOneOf'
+import { isRecord } from './isRecord'
+
+const PLATFORMS = ['macos', 'windows', 'linux', 'ios', 'android'] as const
+
+export type Platform = (typeof PLATFORMS)[number]
 
 let cachedPlatform: Platform | null = null
 let cachedTauriPlatform: Platform | null = null
@@ -19,7 +24,7 @@ export function setPlatformOverride(platform: 'macos' | 'windows' | 'linux' | nu
 export function getPlatformOverride(): Platform | null {
   const override = localStorage.getItem('platform-override')
 
-  return override as Platform | null
+  return isOneOf(PLATFORMS, override) ? override : null
 }
 
 export function normalizePlatform(name: string): Platform {
@@ -49,10 +54,10 @@ export const isIosPlatform = (): boolean => isTauri() && tauriPlatform() === 'io
 export const isDesktopTauri = (): boolean => isTauri() && !isMobilePlatform()
 
 function modernPlatformDetection(): Platform {
-  if ('userAgentData' in navigator) {
-    const userAgentData = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
+  if ('userAgentData' in navigator && isRecord(navigator.userAgentData)) {
+    const userAgentData = navigator.userAgentData
 
-    if (userAgentData?.platform) {
+    if (typeof userAgentData.platform === 'string' && userAgentData.platform) {
       const platform = userAgentData.platform.toLowerCase()
 
       if (platform.includes('mac')) {

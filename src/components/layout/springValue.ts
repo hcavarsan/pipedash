@@ -1,4 +1,15 @@
-import { animateSpring, SPRING_DEFAULT, type SpringAnimation, type SpringConfig } from '../../lib/spring'
+import {
+  animateSpring,
+  SPRING_DEFAULT,
+  SPRING_MOMENTUM,
+  type SpringAnimation,
+  type SpringConfig,
+} from '../../lib/spring'
+
+export const FLICK_SPEED = 500
+
+export const springFor = (velocity: number): SpringConfig =>
+  Math.abs(velocity) > FLICK_SPEED ? SPRING_MOMENTUM : SPRING_DEFAULT
 
 export interface SpringValue {
   readonly value: number

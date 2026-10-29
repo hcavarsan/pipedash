@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { QueryClient } from '@tanstack/react-query'
 
-import type { ProviderConfig, ProviderSummary } from '../types'
+import type { ProviderConfig, ProviderSummary } from '../types/domain'
 
 import { applyProviderStatus } from './providerStatusSync'
 import { queryKeys } from './queryKeys'
@@ -47,13 +47,25 @@ test('a list request that resolves after a status event does not overwrite it, a
     .fetchQuery({ queryKey: queryKeys.providers.list(), queryFn: () => delayed, staleTime: 0 })
     .catch(() => undefined)
 
-  await applyProviderStatus(queryClient, summary('fresh', 'major_outage'))
+  await applyProviderStatus(queryClient, summary('fresh', 'major_outage'), () => true)
   resolve([summary('stale response', 'operational')])
   await inFlight
 
-  const list = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
+  const [first] = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
 
-  assert.equal(list?.[0].name, 'fresh')
-  assert.equal(list?.[0].health.level, 'major_outage')
+  assert.ok(first)
+  assert.equal(first.name, 'fresh')
+  assert.equal(first.health.level, 'major_outage')
   assert.equal(queryClient.getQueryData(queryKeys.providers.detail(1)), detail)
+})
+
+test('a status event whose subscription ended while cancelling leaves the list untouched', async () => {
+  const queryClient = new QueryClient()
+  queryClient.setQueryData(queryKeys.providers.list(), [summary('old', 'operational')])
+
+  await applyProviderStatus(queryClient, summary('fresh', 'major_outage'), () => false)
+
+  const [first] = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
+
+  assert.equal(first?.name, 'old')
 })

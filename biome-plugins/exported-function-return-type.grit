@@ -1,0 +1,9 @@
+language js(typescript, jsx)
+
+or {
+  JsExport(export_clause = JsFunctionDeclaration(return_type_annotation = .)),
+  JsExport(export_clause = JsExportDefaultDeclarationClause(declaration = JsFunctionExportDefaultDeclaration(return_type_annotation = .))),
+  JsExport(export_clause = JsVariableDeclarationClause(declaration = JsVariableDeclaration(declarators = some JsVariableDeclarator(initializer = JsInitializerClause(expression = or { JsArrowFunctionExpression(return_type_annotation = .), JsFunctionExpression(return_type_annotation = .) })))))
+} as $node where {
+  register_diagnostic(span=$node, message="Exported functions need an explicit return type")
+}

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-import type { HealthLevel } from '../types'
+import type { HealthLevel } from '../types/domain'
 import type { EventPayloadMap } from '../types/events'
 
 export const MAX_CENTER_NOTIFICATIONS = 50

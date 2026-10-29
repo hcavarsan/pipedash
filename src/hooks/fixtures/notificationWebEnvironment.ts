@@ -3,7 +3,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 GlobalRegistrator.register({ width: 1200, height: 800 })
 Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
 
-export const delivered: Array<{ title: string; body?: string }> = []
+export const delivered: Array<{ title: string; body?: string | undefined }> = []
 
 class BrowserNotification {
   static permission = 'granted'

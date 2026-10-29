@@ -8,11 +8,11 @@ import { useMobileShell } from '../../hooks/useIsMobile'
 export type ContextMenuItem =
   | {
       label: string
-      icon?: ReactNode
+      icon?: ReactNode | undefined
       onClick: () => void
-      color?: 'red'
-      disabled?: boolean
-      shortcut?: string
+      color?: 'red' | undefined
+      disabled?: boolean | undefined
+      shortcut?: string | undefined
     }
   | { divider: true }
 
@@ -55,7 +55,7 @@ export function useContextMenu(): (items: () => ContextMenuItem[]) => {
 
       const entries = items()
 
-      if (!entries.some((item) => !('divider' in item))) {
+      if (!entries.some((item) => 'label' in item && !item.disabled)) {
         return
       }
 
@@ -78,7 +78,7 @@ export function useContextMenu(): (items: () => ContextMenuItem[]) => {
   }
 }
 
-export function ContextMenuHost() {
+export function ContextMenuHost(): ReactNode {
   const menu = useContextMenuStore((state) => state.menu)
   const close = useContextMenuStore((state) => state.close)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -138,11 +138,11 @@ export function ContextMenuHost() {
                   <Text size="xs" c="dimmed">
                     {item.shortcut}
                   </Text>
-                ) : undefined
+                ) : null
               }
-              color={item.color}
-              disabled={item.disabled}
-              data-autofocus={item === firstItem || undefined}
+              disabled={item.disabled ?? false}
+              {...(item.color === undefined ? {} : { color: item.color })}
+              {...(item === firstItem ? { 'data-autofocus': true } : {})}
               onClick={item.onClick}
             >
               {item.label}

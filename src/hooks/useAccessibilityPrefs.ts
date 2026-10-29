@@ -20,6 +20,7 @@ export function useAccessibilityPrefs(): void {
     const contrast = window.matchMedia(MORE_CONTRAST)
     let native: NativeAccessibility = { reduceTransparency: false, increaseContrast: false }
     let cancelled = false
+    let readVersion = 0
 
     const apply = () => {
       root.toggleAttribute('data-reduce-transparency', transparency.matches || native.reduceTransparency)
@@ -30,10 +31,12 @@ export function useAccessibilityPrefs(): void {
         return
       }
 
+      const version = ++readVersion
+
       mobileService
         .accessibility()
         .then((next) => {
-          if (!cancelled) {
+          if (!cancelled && version === readVersion) {
             native = next
             apply()
           }

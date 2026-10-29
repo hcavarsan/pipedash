@@ -28,6 +28,8 @@ export function openConfirm(options: ConfirmOptions): string {
   }
 
   const { cancelProps, children, confirmProps, groupProps, labels } = options
+  const { color: _cancelColor, ...cancelRest } = cancelProps ?? {}
+  const { color: _confirmColor, ...confirmRest } = confirmProps ?? {}
   const destructive = confirmProps?.color === 'red'
   const buttonClass = (preferred: boolean, extra = '') =>
     [iosClasses.alertButton, preferred ? iosClasses.alertButtonPreferred : '', extra].filter(Boolean).join(' ')
@@ -47,14 +49,13 @@ export function openConfirm(options: ConfirmOptions): string {
     },
     children: <div ref={fitActions}>{children}</div>,
     groupProps: { ...groupProps, gap: 0, className: iosClasses.alertActions },
-    cancelProps: { ...cancelProps, variant: 'transparent', color: undefined, className: buttonClass(destructive) },
+    cancelProps: { ...cancelRest, variant: 'transparent', className: buttonClass(destructive) },
     confirmProps: {
-      ...confirmProps,
+      ...confirmRest,
       variant: 'transparent',
-      color: undefined,
-      className: buttonClass(!destructive, destructive ? iosClasses.alertButtonDestructive : ''),
+      className: buttonClass(!destructive, destructive ? (iosClasses.alertButtonDestructive ?? '') : ''),
     },
-    labels,
+    ...(labels ? { labels } : {}),
   })
 }
 

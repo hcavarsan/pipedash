@@ -8,7 +8,12 @@ const NARROW_QUERY = `(max-width: ${MOBILE_BREAKPOINT}px)`
 
 export const isPhone = (): boolean => /iPhone|iPod/.test(navigator.userAgent)
 
-export const useIsMobile = () => {
+interface IsMobileResult {
+  isMobile: boolean
+  isDesktop: boolean
+}
+
+export const useIsMobile = (): IsMobileResult => {
   const narrow = useMediaQuery(NARROW_QUERY, undefined, { getInitialValueInEffect: false })
   const isMobile = isPhone() || narrow
 

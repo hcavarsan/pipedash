@@ -2,11 +2,11 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 
 import { STATUS_META } from '../theme/status'
-import type { PipelineStatus, PipelineViewQuery } from '../types'
+import type { PipelineStatus, PipelineViewQuery } from '../types/domain'
 import { isDateRange } from '../utils/dateRange'
 
 const parseStatuses = (value: string | null): PipelineStatus[] =>
-  (value ?? '').split(',').filter((status): status is PipelineStatus => status in STATUS_META)
+  (value ?? '').split(',').filter((status): status is PipelineStatus => Object.hasOwn(STATUS_META, status))
 
 const setParam = (params: URLSearchParams, key: string, value: string | string[] | number | null) => {
   const text = Array.isArray(value) ? value.join(',') : value
@@ -27,6 +27,14 @@ const selectStatusIn = (params: URLSearchParams, status: string, selected: boole
 }
 
 const PIPELINE_FILTER_KEYS = ['search', 'status', 'provider', 'organization', 'dateRange', 'hidden']
+
+const METRICS_FILTER_KEYS = ['dateRange', 'period']
+
+const parsePage = (value: string | null): number => {
+  const page = Number(value)
+
+  return Number.isSafeInteger(page) && page >= 1 ? page : 1
+}
 
 const RUN_FILTER_KEYS = ['search', 'status', 'branch', 'actor', 'dateRange', 'page']
 
@@ -163,7 +171,7 @@ export function useRunHistoryFilters(): {
       branch: searchParams.get('branch'),
       actor: searchParams.get('actor'),
       dateRange: searchParams.get('dateRange'),
-      page: Number(searchParams.get('page')) || 1,
+      page: parsePage(searchParams.get('page')),
     }),
     [searchParams]
   )
@@ -186,8 +194,7 @@ export function useMetricsFilters(): {
   filters: MetricsFilters
   setFilter: <K extends keyof MetricsFilters>(key: K, value: MetricsFilters[K]) => void
 } {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const { state } = useLocation()
+  const { searchParams, update } = useFilterParams(METRICS_FILTER_KEYS)
 
   const filters = useMemo(
     (): MetricsFilters => ({
@@ -198,25 +205,13 @@ export function useMetricsFilters(): {
   )
 
   const setFilter = useCallback(
-    <K extends keyof MetricsFilters>(key: K, value: MetricsFilters[K]) => {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev)
+    <K extends keyof MetricsFilters>(key: K, value: MetricsFilters[K]) =>
+      update((params) => {
+        const isDefault = (key === 'dateRange' && value === '24h') || (key === 'period' && value === 'hourly')
 
-          const isDefault = (key === 'dateRange' && value === '24h') || (key === 'period' && value === 'hourly')
-
-          if (isDefault) {
-            next.delete(key)
-          } else {
-            next.set(key, value)
-          }
-
-          return next
-        },
-        { replace: true, state }
-      )
-    },
-    [setSearchParams, state]
+        setParam(params, key, isDefault ? null : value)
+      }),
+    [update]
   )
 
   return { filters, setFilter }

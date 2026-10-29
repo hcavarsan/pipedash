@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { ProviderSummary } from '../types'
+import { providerSummaryFixture } from '../testing/fixtures'
+import type { ProviderSummary } from '../types/domain'
 
 import { dataAge, describeFetch, providerTone, staleNote, worstTone } from './fetchInfo'
 import { formatRelativeTime } from './formatRelativeTime'
@@ -9,17 +10,16 @@ import { formatRelativeTime } from './formatRelativeTime'
 const NOW = Date.parse('2026-10-28T12:00:00Z')
 
 const provider = (overrides: Partial<ProviderSummary>) =>
-  ({
+  providerSummaryFixture({
     name: 'GitHub',
     last_fetch_status: 'success',
     last_fetch_error: null,
     last_fetch_at: '2026-10-28T11:59:00Z',
     refresh_interval: 30,
     paused_until: null,
-    health: { level: 'operational' },
     freshness: { state: 'fresh', stale_at: null },
     ...overrides,
-  }) as ProviderSummary
+  })
 
 test('a provider that never fetched reads Never and Not fetched yet', () => {
   assert.deepEqual(describeFetch(provider({ last_fetch_status: 'never', last_fetch_at: null }), NOW), {

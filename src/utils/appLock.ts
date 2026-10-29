@@ -1,4 +1,4 @@
-import type { Biometry, VaultStatusResponse } from '../types'
+import type { Biometry, VaultStatusResponse } from '../types/domain'
 
 type LockState = Pick<VaultStatusResponse, 'is_unlocked' | 'requires_password' | 'app_lock'>
 

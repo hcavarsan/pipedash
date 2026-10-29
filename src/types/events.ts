@@ -1,4 +1,4 @@
-import type { Pipeline, ProviderHealthAlert, ProviderSummary } from './index'
+import type { Pipeline, ProviderHealthAlert, ProviderSummary } from './domain'
 
 export interface PipelinesUpdatedPayload {
   pipelines: Pipeline[]

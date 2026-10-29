@@ -85,3 +85,32 @@ test('the list keeps only the newest notifications', () => {
   assert.equal(items[0]?.title, `run ${MAX_CENTER_NOTIFICATIONS}`)
   assert.equal(items.at(-1)?.title, 'run 1')
 })
+
+test('mark read only affects the requested notification and unknown keys change nothing', () => {
+  const { push, markRead } = useNotificationCenterStore.getState()
+  push(input())
+  push(input({ key: 'connection:2' }))
+
+  markRead('connection:2')
+  markRead('missing')
+
+  assert.deepEqual(
+    useNotificationCenterStore.getState().items.map((item) => [item.key, item.read]),
+    [
+      ['connection:2', true],
+      ['status-page:github', false],
+    ]
+  )
+})
+
+test('clear empties the list and every action is safe on an empty store', () => {
+  const { push, clear, markAllRead, markRead, close } = useNotificationCenterStore.getState()
+
+  markAllRead()
+  markRead('x')
+  close()
+  push(input())
+  clear()
+
+  assert.deepEqual(useNotificationCenterStore.getState().items, [])
+})
