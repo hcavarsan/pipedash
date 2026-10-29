@@ -1,7 +1,4 @@
-use std::collections::{
-    HashMap,
-    HashSet,
-};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,7 +37,6 @@ pub(crate) struct KomodoClient {
     retry_policy: RetryPolicy,
 }
 
-const MAX_LAST_RUN_PAGES: u32 = 5;
 const UPDATE_LOGS_TIMEOUT: Duration = Duration::from_secs(900);
 const MISSING_UPDATE: &str = "no update exists with given id";
 const ERROR_BODY_PREVIEW_CHARS: usize = 300;
@@ -90,24 +86,28 @@ impl KomodoClient {
     pub async fn latest_update_starts(
         &self, stack_ids: &[&str],
     ) -> PluginResult<HashMap<String, i64>> {
-        let mut pending: HashSet<&str> = stack_ids.iter().copied().collect();
         let mut latest = HashMap::new();
-        if pending.is_empty() {
-            return Ok(latest);
-        }
-        let query = json!({ "target.type": "Stack", "target.id": { "$in": stack_ids } });
-        for page in 0..MAX_LAST_RUN_PAGES {
-            let response = self.list_updates(query.clone(), page).await?;
+        loop {
+            let pending: Vec<&str> = stack_ids
+                .iter()
+                .copied()
+                .filter(|id| !latest.contains_key(*id))
+                .collect();
+            if pending.is_empty() {
+                return Ok(latest);
+            }
+            let query = json!({ "target.type": "Stack", "target.id": { "$in": pending } });
+            let response = self.list_updates(query, 0).await?;
+            let found = latest.len();
             for update in response.updates {
-                if pending.remove(update.target.id.as_str()) {
-                    latest.insert(update.target.id, update.start_ts);
+                if pending.contains(&update.target.id.as_str()) {
+                    latest.entry(update.target.id).or_insert(update.start_ts);
                 }
             }
-            if pending.is_empty() || response.next_page.is_none() {
-                break;
+            if response.next_page.is_none() || latest.len() == found {
+                return Ok(latest);
             }
         }
-        Ok(latest)
     }
 
     pub async fn updates_started_at(

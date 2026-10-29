@@ -374,6 +374,12 @@ mod tests {
     const RUNNING_START: i64 = NEWEST_START - 10_000_000;
     const RUNNING_UPDATES: usize = 150;
     const DOWN_START: i64 = NEWEST_START - 20_000_000;
+    const QUIET_STACKS: [&str; 4] = ["id-stopped", "id-created", "id-restarting", "id-unhealthy"];
+
+    fn quiet_start(index: usize) -> i64 {
+        NEWEST_START - 30_000_000 - index as i64 * 1_000_000
+    }
+
     const STATES: [&str; 11] = [
         "deploying",
         "running",
@@ -549,7 +555,11 @@ mod tests {
                 .map(|i| stack_update(stack_id, i, RUNNING_START - i as i64 * 1_000))
                 .collect(),
             "id-down" => vec![stack_update(stack_id, 0, DOWN_START)],
-            _ => Vec::new(),
+            _ => QUIET_STACKS
+                .iter()
+                .position(|quiet| *quiet == stack_id)
+                .map(|index| vec![stack_update(stack_id, 0, quiet_start(index))])
+                .unwrap_or_default(),
         }
     }
 
@@ -856,7 +866,7 @@ mod tests {
         assert_eq!(last_runs["stack-running"], Some(RUNNING_START));
         assert_eq!(last_runs["stack-down"], Some(DOWN_START));
         assert_eq!(last_runs["stack-paused"], None);
-        assert_eq!(pages, [0, 1]);
+        assert_eq!(pages, [0, 0]);
         assert_eq!(
             query,
             json!({
@@ -875,12 +885,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_paging_is_capped_when_a_stack_stays_unseen() {
-        let (last_runs, pages, _) = last_runs(&[("selected_items", "id-dead,id-down")]).await;
+    async fn quiet_stacks_next_to_a_busy_one_cost_a_fixed_number_of_lookups() {
+        let selected = ["id-dead", "id-down"]
+            .into_iter()
+            .chain(QUIET_STACKS)
+            .collect::<Vec<_>>()
+            .join(",");
+        let (last_runs, pages, _) = last_runs(&[("selected_items", &selected)]).await;
 
         assert_eq!(last_runs["stack-dead"], Some(BUSY_START));
-        assert_eq!(last_runs["stack-down"], None);
-        assert_eq!(pages, [0, 1, 2, 3, 4]);
+        assert_eq!(last_runs["stack-down"], Some(DOWN_START));
+        for (index, stack_id) in QUIET_STACKS.iter().enumerate() {
+            let name = stack_id.replacen("id-", "stack-", 1);
+            assert_eq!(last_runs[&name], Some(quiet_start(index)), "{name}");
+        }
+        assert_eq!(pages.len(), 2, "lookups sent: {pages:?}");
     }
 
     #[tokio::test]
