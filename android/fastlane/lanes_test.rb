@@ -46,7 +46,10 @@ class AndroidLanesTest < Minitest::Test
       scenario.fetch(:codes, {}).fetch(track, [])
     end
     @file.define_singleton_method(:upload_to_play_store) do |**options|
-      events << :upload
+      events << [:upload, options[:release_status]].compact
+      if scenario[:draft_app] && options[:release_status] == "completed"
+        FastlaneCore::UI.user_error!("Google Api Error: Invalid request - Only releases with status draft may be created on draft app.")
+      end
       scenario[:published] = options
       path = options[:metadata_path]
       scenario[:metadata_files] = Dir.glob("**/*", base: path).sort if path
@@ -70,16 +73,32 @@ class AndroidLanesTest < Minitest::Test
     @file.runner.lanes.fetch(:android).fetch(name).call(options)
   end
 
-  def test_beta_builds_the_next_version_code_and_uploads_only_the_bundle_to_internal
+  def test_beta_builds_the_next_version_code_and_uploads_only_the_bundle_to_closed_testing
     @scenario[:codes] = { "internal" => [1010, 2_026_010_520], "production" => [1015] }
 
     run_lane(:beta)
 
-    assert_equal [[:build, 1016], :upload], @events
+    assert_equal [[:build, 1016], [:upload, "completed"]], @events
     published = @scenario.fetch(:published)
-    assert_equal "internal", published.fetch(:track)
+    assert_equal "alpha", published.fetch(:track)
     assert_equal "test.aab", published.fetch(:aab)
     SKIPS.each { |skip| assert_equal true, published.fetch(skip) }
+  end
+
+  def test_beta_saves_a_draft_while_google_play_treats_the_app_as_a_draft
+    @scenario[:draft_app] = true
+
+    run_lane(:beta)
+
+    assert_equal [[:build, 1006], [:upload, "completed"], [:upload, "draft"]], @events
+    assert_equal "draft", @scenario.fetch(:published).fetch(:release_status)
+  end
+
+  def test_beta_does_not_hide_other_play_errors
+    @file.define_singleton_method(:upload_to_play_store) { |**_| FastlaneCore::UI.user_error!("Google Api Error: forbidden") }
+
+    error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:beta) }
+    assert_includes error.message, "forbidden"
   end
 
   def test_failed_export_blocks_both_publishing_lanes
@@ -107,7 +126,7 @@ class AndroidLanesTest < Minitest::Test
 
     run_lane(:release)
 
-    assert_equal [:github, [:build, 1012], :upload], @events
+    assert_equal [:github, [:build, 1012], [:upload, "completed"]], @events
     published = @scenario.fetch(:published)
     assert_equal "production", published.fetch(:track)
     assert_equal "completed", published.fetch(:release_status)
@@ -121,16 +140,16 @@ class AndroidLanesTest < Minitest::Test
 
   def test_screenshot_upload_never_builds_or_uploads_a_bundle
     error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:upload_screenshots) }
-    assert_includes error.message, "internal track has none"
+    assert_includes error.message, "closed testing track has none"
     assert_empty @events
 
-    @scenario[:codes] = { "internal" => [4, 9] }
+    @scenario[:codes] = { "alpha" => [1006, 1009], "internal" => [2_026_010_520] }
     run_lane(:upload_screenshots)
 
-    assert_equal [:upload], @events
+    assert_equal [[:upload]], @events
     published = @scenario.fetch(:published)
-    assert_equal "internal", published.fetch(:track)
-    assert_equal 9, published.fetch(:version_code)
+    assert_equal "alpha", published.fetch(:track)
+    assert_equal 1009, published.fetch(:version_code)
     assert_equal true, published.fetch(:skip_upload_aab)
     assert_equal true, published.fetch(:skip_upload_apk)
     assert_equal false, published.fetch(:skip_upload_images)

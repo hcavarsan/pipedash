@@ -20,6 +20,8 @@ RELEASE_TARGETS = %w[aarch64 armv7 x86_64].freeze
 RELEASE_ABIS = %w[arm64-v8a armeabi-v7a x86_64].freeze
 PAGE_ALIGNED_ABIS = %w[arm64-v8a x86_64].freeze
 TRACKS = %w[internal alpha beta production].freeze
+BETA_TRACK = "alpha"
+DRAFT_APP_ERROR = "Only releases with status draft may be created on draft app"
 
 def release_version
   JSON.parse(File.read(File.join(TAURI_DIR, "tauri.conf.json"))).fetch("version")
@@ -156,19 +158,27 @@ platform :android do
     build_signed_aab(version_code: Integer(options.fetch(:version_code, 1)))
   end
 
-  desc "Build and upload to the internal testing track"
+  desc "Build and upload to the closed testing track (as a draft while Google Play still treats the app as a draft)"
   lane :beta do
-    upload_to_play_store(
+    options = {
       package_name: APP_ID,
       json_key_data: play_key,
-      track: "internal",
+      track: BETA_TRACK,
       aab: build_signed_aab(version_code: next_version_code),
       release_status: "completed",
       skip_upload_metadata: true,
       skip_upload_changelogs: true,
       skip_upload_images: true,
       skip_upload_screenshots: true,
-    )
+    }
+    begin
+      upload_to_play_store(**options)
+    rescue FastlaneCore::Interface::FastlaneError => error
+      raise unless error.message.include?(DRAFT_APP_ERROR)
+
+      UI.important("Google Play still treats the app as a draft, so the closed test release is saved as a draft. Send it for review in the Play Console.")
+      upload_to_play_store(**options, release_status: "draft")
+    end
   end
 
   desc "Capture the app, then export the approved Play screenshots and feature graphic"
@@ -239,8 +249,8 @@ platform :android do
   desc "Replace the en-US images on the Play listing without publishing a build"
   lane :upload_screenshots do
     screenshots_path = prepare_screenshots
-    version_code = google_play_track_version_codes(package_name: APP_ID, track: "internal", json_key_data: play_key).max
-    UI.user_error!("supply attaches listing uploads to a release, and the internal track has none. Run beta first") unless version_code
+    version_code = google_play_track_version_codes(package_name: APP_ID, track: BETA_TRACK, json_key_data: play_key).max
+    UI.user_error!("supply attaches listing uploads to a release, and the closed testing track has none. Run beta first") unless version_code
     Dir.mktmpdir do |metadata_path|
       AndroidProject.assemble_metadata(
         source: File.join(FASTLANE_DIR, "metadata/android"),
@@ -250,7 +260,7 @@ platform :android do
       upload_to_play_store(
         package_name: APP_ID,
         json_key_data: play_key,
-        track: "internal",
+        track: BETA_TRACK,
         version_code: version_code,
         metadata_path: metadata_path,
         skip_upload_aab: true,

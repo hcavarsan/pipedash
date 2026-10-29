@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       lane:
-        description: "beta: internal testing; release: production; upload_screenshots: images only; data_safety: Data safety form; bundle: signed AAB for the first Console upload"
+        description: "beta: closed testing; release: production; upload_screenshots: images only; data_safety: Data safety form; bundle: signed AAB without upload"
         type: choice
         options:
           - beta
