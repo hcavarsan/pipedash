@@ -4223,6 +4223,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "pipedash-plugin-actions",
  "pipedash-plugin-api",
  "reqwest",
  "rustls",

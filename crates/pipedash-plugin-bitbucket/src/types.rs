@@ -128,19 +128,11 @@ pub struct PipelineStep {
     pub uuid: String,
     #[serde(default)]
     pub name: Option<String>,
-    pub state: PipelineStepState,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PipelineStepState {
-    pub name: String,
+    pub state: PipelineState,
     #[serde(default)]
-    pub stage: Option<PipelineStepStage>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PipelineStepStage {
-    pub name: String,
+    pub started_on: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub completed_on: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
