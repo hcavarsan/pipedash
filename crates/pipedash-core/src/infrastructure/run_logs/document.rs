@@ -50,7 +50,10 @@ use super::ingest::{
     INDEX_FILE,
     META_FILE,
 };
-use super::store::StoredDocMeta;
+use super::store::{
+    StoredDocMeta,
+    STORED_FORMAT,
+};
 use super::{
     BLOCK_CACHE_BUDGET_BYTES,
     BLOCK_MAX_RAW_BYTES,
@@ -210,7 +213,7 @@ impl Document {
     pub fn open(dir: &Path) -> Result<Self, DocError> {
         let meta: StoredDocMeta = serde_json::from_slice(&fs::read(dir.join(META_FILE))?)
             .map_err(|_| DocError::Corrupt)?;
-        if meta.format != 1 {
+        if meta.format != STORED_FORMAT {
             return Err(DocError::Corrupt);
         }
         let index = fs::read(dir.join(INDEX_FILE))?;

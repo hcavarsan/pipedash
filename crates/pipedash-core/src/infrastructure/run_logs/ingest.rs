@@ -35,6 +35,7 @@ use super::outline::{
 use super::store::{
     DocKey,
     StoredDocMeta,
+    STORED_FORMAT,
 };
 use super::{
     BLOCK_MAX_LINES,
@@ -337,7 +338,7 @@ impl State {
             .sync_all()?;
 
         let meta = StoredDocMeta {
-            format: 1,
+            format: STORED_FORMAT,
             key: self.key,
             revision: self.revision,
             complete: self.complete,
