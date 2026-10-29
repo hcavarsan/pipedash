@@ -2,22 +2,16 @@ package com.henrique.pipedash.plugin
 
 import android.app.Activity
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 
 object PrivacyCover {
-    private const val SAFETY_TIMEOUT_MS = 5000L
-
-    private val handler = Handler(Looper.getMainLooper())
     private var armed = false
     private var holdForFrontend = false
     private var awaitingFrontend = false
     private var foreground = true
     private var cover: View? = null
-    private val safetyRelease = Runnable { hide() }
 
     fun configure(activity: Activity, armed: Boolean, holdForFrontend: Boolean) {
         this.armed = armed
@@ -39,7 +33,6 @@ object PrivacyCover {
         if (!armed || cover != null) {
             return
         }
-        handler.removeCallbacks(safetyRelease)
         val view = View(activity)
         view.setBackgroundColor(if (isDarkTheme(activity)) 0xFF242424.toInt() else 0xFFFFFFFF.toInt())
         view.isClickable = true
@@ -54,11 +47,6 @@ object PrivacyCover {
 
     fun resumed() {
         foreground = true
-        if (cover == null) {
-            return
-        }
-        handler.removeCallbacks(safetyRelease)
-        handler.postDelayed(safetyRelease, SAFETY_TIMEOUT_MS)
         if (!awaitingFrontend) {
             hide()
         }
@@ -72,7 +60,6 @@ object PrivacyCover {
     }
 
     private fun hide() {
-        handler.removeCallbacks(safetyRelease)
         awaitingFrontend = false
         val view = cover ?: return
         cover = null

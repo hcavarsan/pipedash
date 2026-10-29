@@ -171,13 +171,10 @@ final class AppearanceController {
 final class PrivacyCoverController {
   static let shared = PrivacyCoverController()
 
-  private static let safetyTimeout: TimeInterval = 5
-
   private var armed = false
   private var holdForFrontend = false
   private var awaitingFrontend = false
   private var cover: UIView?
-  private var safetyRelease: DispatchWorkItem?
   private var started = false
 
   private init() {}
@@ -223,8 +220,6 @@ final class PrivacyCoverController {
 
   private func show() {
     guard armed, cover == nil, let window = hostWindow() else { return }
-    safetyRelease?.cancel()
-    safetyRelease = nil
 
     let view = UIView(frame: window.bounds)
     view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -237,8 +232,6 @@ final class PrivacyCoverController {
   }
 
   private func hide() {
-    safetyRelease?.cancel()
-    safetyRelease = nil
     awaitingFrontend = false
     guard let view = cover else { return }
     cover = nil
@@ -256,11 +249,6 @@ final class PrivacyCoverController {
   }
 
   private func didBecomeActive() {
-    guard cover != nil else { return }
-    safetyRelease?.cancel()
-    let work = DispatchWorkItem { [weak self] in self?.hide() }
-    safetyRelease = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + PrivacyCoverController.safetyTimeout, execute: work)
     if !awaitingFrontend {
       hide()
     }

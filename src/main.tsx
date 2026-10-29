@@ -32,10 +32,10 @@ ReactDOM.createRoot(root).render(
             <ModalsProvider>
               <ToastHost />
               <App />
-              <PrivacyCover />
               <NativeBridge />
             </ModalsProvider>
           </ErrorBoundary>
+          <PrivacyCover />
         </BrowserRouter>
       </AppMantineProvider>
 
