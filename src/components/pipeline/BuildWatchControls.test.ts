@@ -137,7 +137,8 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
   })
 
   // Import after the DOM and fake iOS bridge exist so platform caches initialize inside this isolated process.
-  const { act, cleanup, fireEvent, render, waitFor, within } = await import('@testing-library/react')
+  const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
+  const { userEvent } = await import('@testing-library/user-event')
   const { MantineProvider } = await import('@mantine/core')
   const { notifications } = await import('@mantine/notifications')
   const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
@@ -231,7 +232,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     render(
       createElement(
         MantineProvider,
-        null,
+        { env: 'test' },
         createElement(
           QueryClientProvider,
           { client },
@@ -275,15 +276,14 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     const gate = Promise.withResolvers<void>()
     startGate = gate.promise
     mount({ secondRun: true })
+    const user = userEvent.setup({ document })
     const buttons = await view().findAllByRole('button', { name: 'Watch run' })
     await waitFor(() => assert.ok(buttons.every((button) => button instanceof HTMLButtonElement && !button.disabled)))
     const [first, second] = buttons
     assert.ok(first && second)
-    act(() => {
-      fireEvent.click(first)
-      fireEvent.click(first)
-      fireEvent.click(second)
-    })
+    await user.click(first)
+    await user.click(first)
+    await user.click(second)
     await waitFor(() => assert.equal(calls.filter((call) => call.command === 'start_build_watch').length, 1))
     assert.deepEqual(calls.find((call) => call.command === 'start_build_watch')?.args, {
       pipelineId: snapshot.pipelineId,
@@ -299,12 +299,13 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
 
   test('stop ends monitoring without cancelling the provider and viewing keeps exact run identity', async () => {
     nativeStatus = { ...available(), watch: { ...snapshot } }
+    const user = userEvent.setup({ document })
     const opened = mount()
-    fireEvent.click(await view().findByRole('button', { name: /^Build #42/ }))
+    await user.click(await view().findByRole('button', { name: /^Build #42/ }))
     assert.deepEqual(opened, [[snapshot.pipelineId, 42]])
     const [stop] = view().getAllByRole('button', { name: 'Stop watching' })
     assert.ok(stop)
-    fireEvent.click(stop)
+    await user.click(stop)
     await view().findByText('Watch stopped')
     assert.equal(calls.filter((call) => call.command === 'stop_build_watch').length, 1)
     assert.equal(
@@ -337,13 +338,14 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
   test('supported iOS explains background monitoring availability and opens Settings without starting', async () => {
     nativeStatus = { ...available(), available: false, reason: 'Background monitoring is unavailable.' }
     mount()
+    const user = userEvent.setup({ document })
     await view().findByText(nativeStatus.reason ?? '')
     assert.equal(view().queryByText('Watch unavailable'), null)
     assert.ok(view().getAllByText(nativeStatus.reason ?? '').length > 0)
     const blocked = view().getByRole('button', { name: 'Watch run' })
     assert.ok(blocked instanceof HTMLButtonElement)
     assert.equal(blocked.disabled, true)
-    fireEvent.click(view().getByRole('button', { name: 'Open Settings' }))
+    await user.click(view().getByRole('button', { name: 'Open Settings' }))
     await waitFor(() =>
       assert.equal(
         calls.some((call) => call.command === 'native_open_settings'),
@@ -380,10 +382,11 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
   test('status errors remain visible and can be reconciled with an explicit refresh', async () => {
     failure = new Error('Native status unavailable')
     mount()
+    const user = userEvent.setup({ document })
     await view().findByText("Couldn't refresh Watch")
     assert.equal(view().queryByRole('button', { name: 'Watch run' }), null)
     failure = null
-    fireEvent.click(view().getByRole('button', { name: 'Refresh Watch' }))
+    await user.click(view().getByRole('button', { name: 'Refresh Watch' }))
     await view().findByRole('button', { name: 'Watch run' })
   })
 
@@ -403,10 +406,11 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     const notices = context.mock.method(notifications, 'show', () => 'watch-error')
     startFailure = new Error('Background execution is disabled')
     mount()
+    const user = userEvent.setup({ document })
     const button = await view().findByRole('button', { name: 'Watch run' })
     assert.ok(button instanceof HTMLButtonElement)
     await waitFor(() => assert.equal(button.disabled, false))
-    fireEvent.click(button)
+    await user.click(button)
     await waitFor(() => assert.equal(notices.mock.calls.length, 1))
     assert.equal(view().queryByRole('region', { name: 'Watching' }), null)
     await waitFor(() => assert.equal(button.disabled, false))
@@ -417,9 +421,10 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     nativeStatus = { ...available(), watch: { ...snapshot } }
     stopFailure = new Error('Native stop failed')
     mount()
+    const user = userEvent.setup({ document })
     const [stop] = await view().findAllByRole('button', { name: 'Stop watching' })
     assert.ok(stop)
-    fireEvent.click(stop)
+    await user.click(stop)
     await waitFor(() => assert.equal(notices.mock.calls.length, 1))
     assert.ok(view().getByRole('region', { name: 'Watching' }))
     assert.equal(view().queryByText('Watch stopped'), null)
@@ -429,16 +434,17 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     nativeStatus = { ...available(), watch: { ...snapshot } }
     pinnedInView = true
     const opened = mount({ page: '/pipelines' })
+    const user = userEvent.setup({ document })
     const section = await view().findByRole('region', { name: 'Watching' })
     const pinned = view().getByRole('region', { name: 'Pinned' })
     assert.ok(section.compareDocumentPosition(pinned) & Node.DOCUMENT_POSITION_FOLLOWING)
     assert.equal(within(section).queryByRole('alert'), null)
     assert.match(section.textContent ?? '', /Pending · GitHub · main/)
-    fireEvent.click(within(section).getByRole('button', { name: /^Build #42/ }))
+    await user.click(within(section).getByRole('button', { name: /^Build #42/ }))
     assert.deepEqual(opened, [[snapshot.pipelineId, 42]])
     assert.equal(within(section).queryByRole('button', { name: 'Stop watching' }), null)
-    fireEvent.click(within(section).getByRole('button', { name: 'Watched run actions' }))
-    fireEvent.click(await view().findByRole('menuitem', { name: 'Stop watching' }))
+    await user.click(within(section).getByRole('button', { name: 'Watched run actions' }))
+    await user.click(await view().findByRole('menuitem', { name: 'Stop watching' }))
     await within(section).findByText('Watch stopped')
     assert.equal(calls.filter((call) => call.command === 'stop_build_watch').length, 1)
     assert.equal(
@@ -471,12 +477,13 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
   test('completed watches stay accessible from the main list even while pipelines fail to load', async () => {
     nativeStatus = { ...available(), watch: { ...snapshot, monitoring: 'completed', status: 'success' } }
     const opened = mount({ page: '/pipelines', error: new Error('Pipelines unavailable') })
+    const user = userEvent.setup({ document })
     const section = await view().findByRole('region', { name: 'Watching' })
     assert.ok(within(section).getByText('Watch completed'))
-    fireEvent.click(within(section).getByRole('button', { name: /^Build #42/ }))
+    await user.click(within(section).getByRole('button', { name: /^Build #42/ }))
     assert.deepEqual(opened, [[snapshot.pipelineId, 42]])
     assert.equal(within(section).queryByRole('button', { name: 'Stop watching' }), null)
-    fireEvent.click(within(section).getByRole('button', { name: 'Watched run actions' }))
+    await user.click(within(section).getByRole('button', { name: 'Watched run actions' }))
     assert.ok(await view().findByRole('menuitem', { name: 'View run #42' }))
     assert.equal(view().queryByRole('menuitem', { name: 'Stop watching' }), null)
     assert.ok(view().getByText('Pipelines unavailable'))
@@ -485,6 +492,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
   test('refresh errors retain the watched run and allow recovery and stopping locally', async () => {
     nativeStatus = { ...available(), watch: { ...snapshot } }
     const opened = mount({ page: '/pipelines' })
+    const user = userEvent.setup({ document })
     await view().findByRole('region', { name: 'Watching' })
     await waitFor(() => assert.equal(client.isFetching(), 0))
     failure = new Error('Native status unavailable')
@@ -493,14 +501,14 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     })
     const section = view().getByRole('region', { name: 'Watching' })
     assert.ok(await within(section).findByRole('alert'))
-    fireEvent.click(within(section).getByRole('button', { name: /^Build #42/ }))
+    await user.click(within(section).getByRole('button', { name: /^Build #42/ }))
     assert.deepEqual(opened, [[snapshot.pipelineId, 42]])
     assert.ok(within(section).getByRole('button', { name: 'Watched run actions' }))
     failure = null
-    fireEvent.click(within(section).getByRole('button', { name: 'Refresh Watch' }))
+    await user.click(within(section).getByRole('button', { name: 'Refresh Watch' }))
     await waitFor(() => assert.ok(!within(section).queryByRole('alert')))
-    fireEvent.click(within(section).getByRole('button', { name: 'Watched run actions' }))
-    fireEvent.click(await view().findByRole('menuitem', { name: 'Stop watching' }))
+    await user.click(within(section).getByRole('button', { name: 'Watched run actions' }))
+    await user.click(await view().findByRole('menuitem', { name: 'Stop watching' }))
     await within(section).findByText('Watch stopped')
   })
 }

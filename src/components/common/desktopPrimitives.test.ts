@@ -6,7 +6,8 @@ import { createElement, Fragment, useRef } from 'react'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
-const { cleanup, fireEvent, render, waitFor, within } = await import('@testing-library/react')
+const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
+const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider, Menu, createTheme } = await import('@mantine/core')
 const { MemoryRouter, useNavigate } = await import('react-router-dom')
 const { ContextMenuHost, useContextMenu } = await import('./ContextMenu')
@@ -68,7 +69,8 @@ beforeEach(() => {
   selections = 0
 })
 
-test('search clears with Escape without closing the containing overlay', () => {
+test('search clears with Escape without closing the containing overlay', async () => {
+  const user = userEvent.setup({ document })
   const values: string[] = []
   const { rerender } = render(
     createElement(
@@ -82,9 +84,18 @@ test('search clears with Escape without closing the containing overlay', () => {
     )
   )
   const input = view().getByRole('textbox', { name: 'Search runs' })
+  const keydowns: Event[] = []
+  const record = (event: Event) => keydowns.push(event)
 
-  assert.ok(input.hasAttribute('data-search-input'))
-  assert.equal(fireEvent.keyDown(input, { key: 'Escape' }), false)
+  input.focus()
+  window.addEventListener('keydown', record, true)
+  try {
+    await user.keyboard('{Escape}')
+  } finally {
+    window.removeEventListener('keydown', record, true)
+  }
+  assert.equal(keydowns.length, 1)
+  assert.equal(keydowns[0]?.defaultPrevented, true)
   assert.deepEqual(values, [''])
   assert.ok(view().getByRole('button', { name: 'Clear search' }))
 
@@ -99,35 +110,46 @@ test('search clears with Escape without closing the containing overlay', () => {
 })
 
 test('context menu opens at the pointer, focuses the first enabled command and invokes it', async () => {
+  const user = userEvent.setup({ document })
   renderMenu()
-  fireEvent.contextMenu(view().getByRole('button', { name: 'Run' }), { clientX: 80, clientY: 100 })
-  const command = await view().findByRole('menuitem', { name: 'Open run' })
+  await user.pointer({
+    target: view().getByRole('button', { name: 'Run' }),
+    keys: '[MouseRight]',
+    coords: { clientX: 80, clientY: 100 },
+  })
+  const command = await view().findByRole('menuitem', { name: 'Open run', hidden: true })
 
   await waitFor(() => assert.equal(document.activeElement, command))
-  fireEvent.click(command)
+  await user.click(command)
   assert.equal(selections, 1)
   await waitFor(() => assert.equal(view().queryByRole('menu'), null))
 })
 
 test('context menu opens from the keyboard', async () => {
+  const user = userEvent.setup({ document })
   renderMenu()
-  fireEvent.keyDown(view().getByRole('button', { name: 'Run' }), { key: 'F10', shiftKey: true })
-  assert.ok(await view().findByRole('menu'))
+  view().getByRole('button', { name: 'Run' }).focus()
+  await user.keyboard('{Shift>}{F10}{/Shift}')
+  assert.ok(await view().findByRole('menu', { hidden: true }))
 })
 
 test('context menu closes when the page scrolls', async () => {
+  const user = userEvent.setup({ document })
   renderMenu()
-  fireEvent.contextMenu(view().getByRole('button', { name: 'Run' }))
-  assert.ok(await view().findByRole('menu'))
-  fireEvent.scroll(window)
+  await user.pointer({ target: view().getByRole('button', { name: 'Run' }), keys: '[MouseRight]' })
+  assert.ok(await view().findByRole('menu', { hidden: true }))
+  act(() => {
+    window.dispatchEvent(new Event('scroll'))
+  })
   await waitFor(() => assert.equal(view().queryByRole('menu'), null))
 })
 
 test('context menu closes when the route changes', async () => {
+  const user = userEvent.setup({ document })
   renderMenu()
-  fireEvent.contextMenu(view().getByRole('button', { name: 'Run' }))
-  assert.ok(await view().findByRole('menu'))
-  fireEvent.click(view().getByRole('button', { name: 'Settings' }))
+  await user.pointer({ target: view().getByRole('button', { name: 'Run' }), keys: '[MouseRight]' })
+  assert.ok(await view().findByRole('menu', { hidden: true }))
+  await user.click(view().getByRole('button', { name: 'Settings' }))
   await waitFor(() => assert.equal(view().queryByRole('menu'), null))
 })
 
@@ -147,16 +169,29 @@ function renderQuiet(entries: Array<{ label: string; disabled?: boolean; onClick
   )
 }
 
-test('context menu stays closed and keeps the native menu when there are no entries', () => {
-  renderQuiet([])
-  assert.equal(fireEvent.contextMenu(view().getByRole('button', { name: 'Quiet' })), true)
+async function assertNativeMenuKept() {
+  const user = userEvent.setup({ document })
+  const prevented: boolean[] = []
+  const record = (event: Event) => prevented.push(event.defaultPrevented)
+
+  document.addEventListener('contextmenu', record)
+  try {
+    await user.pointer({ target: view().getByRole('button', { name: 'Quiet' }), keys: '[MouseRight]' })
+  } finally {
+    document.removeEventListener('contextmenu', record)
+  }
+  assert.deepEqual(prevented, [false])
   assert.equal(view().queryByRole('menu'), null)
+}
+
+test('context menu stays closed and keeps the native menu when there are no entries', async () => {
+  renderQuiet([])
+  await assertNativeMenuKept()
 })
 
-test('context menu stays closed and keeps the native menu when every entry is disabled', () => {
+test('context menu stays closed and keeps the native menu when every entry is disabled', async () => {
   renderQuiet([{ label: 'Unavailable action', disabled: true, onClick: () => {} }])
-  assert.equal(fireEvent.contextMenu(view().getByRole('button', { name: 'Quiet' })), true)
-  assert.equal(view().queryByRole('menu'), null)
+  await assertNativeMenuKept()
 })
 
 test('search loading exposes a named searching status while the textbox stays accessible', () => {

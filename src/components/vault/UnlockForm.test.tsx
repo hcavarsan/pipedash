@@ -43,7 +43,7 @@ mockIPC(
   { shouldMockEvents: true }
 )
 
-const { act, cleanup, fireEvent, render, waitFor, within } = await import('@testing-library/react')
+const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
 const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
@@ -231,7 +231,11 @@ test('Enter while composing text does not move focus', async () => {
   render(ui({ onSuccess: () => undefined }))
   const password = await passwordField()
   password.focus()
-  fireEvent.keyDown(password, { key: 'Enter', isComposing: true })
+  await act(async () => {
+    password.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true })
+    )
+  })
 
   assert.equal(document.activeElement, password)
 })

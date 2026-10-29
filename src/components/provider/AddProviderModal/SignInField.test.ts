@@ -9,7 +9,8 @@ import type { SignInStart, SignInStatus } from '../../../types'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
-const { act, cleanup, fireEvent, render, waitFor, within } = await import('@testing-library/react')
+const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
+const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { apiService } = await import('../../../services')
@@ -75,7 +76,7 @@ test('closing the form while the sign-in is starting cancels the new flow', asyn
   notifyManager.setNotifyFunction((callback) => act(callback))
 
   const field = await renderField((reference) => changes.push(reference))
-  fireEvent.click(view().getByRole('button', { name: 'Sign in with SSO' }))
+  await userEvent.setup({ document }).click(view().getByRole('button', { name: 'Sign in with SSO' }))
   await act(async () => field.unmount())
   await act(async () => start.resolve(started('late-flow')))
 
@@ -97,7 +98,7 @@ test('closing the form before the first status arrives cancels the started flow'
   notifyManager.setNotifyFunction((callback) => act(callback))
 
   const field = await renderField((reference) => changes.push(reference))
-  fireEvent.click(view().getByRole('button', { name: 'Sign in with SSO' }))
+  await userEvent.setup({ document }).click(view().getByRole('button', { name: 'Sign in with SSO' }))
   await waitFor(() => assert.deepEqual(changes, ['fresh-flow']))
   await act(async () => field.unmount())
 
@@ -122,7 +123,7 @@ test('a failed status check keeps the started sign-in until the status loads', a
   notifyManager.setNotifyFunction((callback) => act(callback))
 
   const field = await renderField(() => undefined)
-  fireEvent.click(view().getByRole('button', { name: 'Sign in with SSO' }))
+  await userEvent.setup({ document }).click(view().getByRole('button', { name: 'Sign in with SSO' }))
 
   assert.ok(await view().findByText(/Server restarting/))
   assert.ok(view().getByRole('button', { name: 'Cancel' }))

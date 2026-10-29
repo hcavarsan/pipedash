@@ -31,7 +31,7 @@ mockIPC(
   { shouldMockEvents: true }
 )
 
-const { act, cleanup, fireEvent, render, waitFor, within } = await import('@testing-library/react')
+const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
 const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
@@ -116,6 +116,7 @@ function SearchPage() {
 }
 
 test('URL-backed searches keep input focus, while page and view changes focus the heading', async (context) => {
+  const user = userEvent.setup({ document })
   stubShell(context, async () => [])
   renderLayout()
 
@@ -125,8 +126,11 @@ test('URL-backed searches keep input focus, while page and view changes focus th
   assert.ok(input instanceof HTMLInputElement)
   input.focus()
 
-  for (const value of ['b', 'bu', 'build']) {
-    fireEvent.change(input, { target: { value } })
+  let typed = ''
+  for (const chunk of ['b', 'u', 'ild']) {
+    typed += chunk
+    const value = typed
+    await user.keyboard(chunk)
     await act(async () => {
       const { promise, resolve } = Promise.withResolvers<void>()
       requestAnimationFrame(() => resolve())
@@ -136,10 +140,10 @@ test('URL-backed searches keep input focus, while page and view changes focus th
     assert.ok(document.activeElement === input, 'Search updates must not move focus away from the input')
   }
 
-  fireEvent.click(view().getByRole('button', { name: 'Show pinned' }))
+  await user.click(view().getByRole('button', { name: 'Show pinned' }))
   await waitFor(() => assert.ok(document.activeElement === heading, 'Changing the view focuses the heading'))
   input.focus()
-  fireEvent.click(view().getByRole('button', { name: 'Open settings' }))
+  await user.click(view().getByRole('button', { name: 'Open settings' }))
   await waitFor(() => {
     assert.ok(
       document.activeElement === view().getByRole('heading', { name: 'Settings' }),
