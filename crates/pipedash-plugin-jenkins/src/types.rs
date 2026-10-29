@@ -47,7 +47,6 @@ pub(crate) struct Build {
     pub duration: i64,
     #[serde(rename = "fullDisplayName")]
     #[serde(default)]
-    #[allow(dead_code)]
     pub full_display_name: Option<String>,
     #[serde(default)]
     pub actions: Vec<BuildAction>,

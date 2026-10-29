@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use pipedash_plugin_api::*;
 
+use crate::log_dialect::JenkinsLogDialect;
 use crate::{
     client,
     config,
@@ -41,6 +42,24 @@ impl JenkinsPlugin {
         self.client
             .as_ref()
             .ok_or_else(|| PluginError::Internal("Plugin not initialized".to_string()))
+    }
+
+    fn job_path(pipeline_id: &str) -> PluginResult<&str> {
+        match pipeline_id.split("__").collect::<Vec<_>>().as_slice() {
+            [_, _, job_path] => Ok(*job_path),
+            _ => Err(PluginError::InvalidConfig(format!(
+                "Invalid pipeline ID format: {pipeline_id}"
+            ))),
+        }
+    }
+
+    fn build_number(node_id: &str) -> PluginResult<i64> {
+        Some(node_id)
+            .filter(|id| id.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|id| id.parse().ok())
+            .ok_or_else(|| {
+                PluginError::InvalidConfig(format!("Invalid Jenkins build number: {node_id}"))
+            })
     }
 }
 
@@ -226,6 +245,31 @@ impl Plugin for JenkinsPlugin {
         ))
     }
 
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let job_path = Self::job_path(run.pipeline_id)?;
+        let build = self
+            .client()?
+            .fetch_build_details(job_path, run.run_number)
+            .await?;
+
+        Ok(vec![mapper::build_to_log_node(&build, job_path)])
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let job_path = Self::job_path(run.pipeline_id)?;
+        let build_number = Self::build_number(node_id)?;
+
+        self.client()?
+            .stream_console_log(job_path, build_number, sink)
+            .await
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &JenkinsLogDialect
+    }
+
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String> {
         let parts: Vec<&str> = params.workflow_id.split("__").collect();
         if parts.len() != 3 {
@@ -400,6 +444,7 @@ mod tests {
     use super::*;
     use crate::test_support::{
         stub_server,
+        stub_server_with_head,
         Reply,
     };
 
@@ -550,5 +595,209 @@ mod tests {
 
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(requests, 2);
+    }
+
+    const BUILD_41: &str = r#"{"number":41,"url":"http://jenkins.example/job/team/job/app/41/","result":"SUCCESS","building":false,"timestamp":1761646800000,"duration":90000,"fullDisplayName":"team » app #41"}"#;
+    const BUILD_42: &str = r#"{"number":42,"url":"http://jenkins.example/job/team/job/app/42/","result":null,"building":true,"timestamp":1761647000000,"duration":0,"fullDisplayName":"team » app #42"}"#;
+    const CONSOLE_42: &str = "Started by user alice\n[Pipeline] Start of Pipeline\n[Pipeline] stage\n[Pipeline] { (Build)\n[Pipeline] sh\n+ make\nbuilding\n";
+
+    fn folder_job(path: &str) -> Reply {
+        let json = |body: &'static str| Reply {
+            status: "200 OK",
+            headers: "Content-Type: application/json\r\n",
+            body,
+        };
+        let missing = |status: &'static str| Reply {
+            status,
+            headers: "",
+            body: "gone",
+        };
+        match path.strip_prefix("/job/team/job/app/") {
+            Some(rest) if rest.starts_with("41/api/json") => json(BUILD_41),
+            Some(rest) if rest.starts_with("42/api/json") => json(BUILD_42),
+            Some("42/consoleText") => Reply {
+                status: "200 OK",
+                headers: "Content-Type: text/plain;charset=UTF-8\r\n",
+                body: CONSOLE_42,
+            },
+            Some("8/consoleText") => missing("410 Gone"),
+            _ => missing("404 Not Found"),
+        }
+    }
+
+    async fn folder_plugin(requests: Arc<AtomicUsize>) -> JenkinsPlugin {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let expected = format!(
+            "Basic {}",
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "alice:secret")
+        );
+        let server_url = stub_server_with_head(requests, Duration::ZERO, move |path, head| {
+            let authorized = head.lines().any(|line| {
+                line.to_ascii_lowercase().starts_with("authorization:") && line.ends_with(&expected)
+            });
+            if authorized {
+                folder_job(path)
+            } else {
+                Reply {
+                    status: "401 Unauthorized",
+                    headers: "",
+                    body: "denied",
+                }
+            }
+        })
+        .await;
+        let mut plugin = JenkinsPlugin::new();
+        plugin
+            .initialize(
+                1,
+                HashMap::from([
+                    ("server_url".to_string(), server_url),
+                    ("username".to_string(), "alice".to_string()),
+                    ("token".to_string(), "secret".to_string()),
+                ]),
+                None,
+            )
+            .unwrap();
+        plugin
+    }
+
+    fn build_of_folder_job(
+        run_number: i64, metadata: &HashMap<String, serde_json::Value>,
+    ) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: "jenkins__1__team/app",
+            run_number,
+            run_id: "jenkins-build-42",
+            metadata,
+        }
+    }
+
+    async fn read_console(
+        plugin: &JenkinsPlugin, run_number: i64, node_id: &str,
+    ) -> PluginResult<Vec<u8>> {
+        let metadata = HashMap::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin
+            .read_log(
+                build_of_folder_job(run_number, &metadata),
+                node_id,
+                &mut sink,
+            )
+            .await;
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        result.map(|()| bytes)
+    }
+
+    #[tokio::test]
+    async fn finished_and_running_builds_become_one_job_node_each() {
+        let plugin = folder_plugin(Arc::new(AtomicUsize::new(0))).await;
+        let metadata = HashMap::new();
+
+        let finished = plugin
+            .fetch_log_nodes(build_of_folder_job(41, &metadata))
+            .await
+            .unwrap();
+        let running = plugin
+            .fetch_log_nodes(build_of_folder_job(42, &metadata))
+            .await
+            .unwrap();
+
+        assert_eq!(finished.len(), 1);
+        let node = &finished[0];
+        assert_eq!(node.id, "41");
+        assert_eq!(node.parent_id, None);
+        assert_eq!(node.kind, LogNodeKind::Job);
+        assert_eq!(node.name, "team » app #41");
+        assert_eq!(node.status, PipelineStatus::Success);
+        assert_eq!(node.log, Some(LogAvailability::Ready));
+        assert_eq!(
+            node.web_url.as_deref(),
+            Some("http://jenkins.example/job/team/job/app/41/")
+        );
+        assert_eq!(
+            node.started_at.unwrap().timestamp_millis(),
+            1_761_646_800_000
+        );
+        assert_eq!(
+            node.finished_at.unwrap().timestamp_millis(),
+            1_761_646_890_000
+        );
+        assert_eq!(running.len(), 1);
+        let node = &running[0];
+        assert_eq!(node.id, "42");
+        assert_eq!(node.status, PipelineStatus::Running);
+        assert_eq!(node.log, Some(LogAvailability::Partial));
+        assert_eq!(node.finished_at, None);
+    }
+
+    #[tokio::test]
+    async fn build_that_does_not_exist_has_no_log_nodes() {
+        let plugin = folder_plugin(Arc::new(AtomicUsize::new(0))).await;
+        let metadata = HashMap::new();
+
+        let error = plugin
+            .fetch_log_nodes(build_of_folder_job(99, &metadata))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::PipelineNotFound(_)),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn console_text_of_a_job_in_a_folder_streams_with_basic_auth() {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let plugin = folder_plugin(requests.clone()).await;
+
+        let log = read_console(&plugin, 42, "42").await.unwrap();
+
+        assert_eq!(log, CONSOLE_42.as_bytes());
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn pruned_console_log_is_not_found() {
+        let plugin = folder_plugin(Arc::new(AtomicUsize::new(0))).await;
+
+        for build in ["7", "8"] {
+            let error = read_console(&plugin, 42, build).await.unwrap_err();
+            assert!(
+                matches!(&error, PluginError::PipelineNotFound(message) if message.contains("no longer available")),
+                "{build}: {error:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn build_numbers_outside_the_digit_alphabet_are_rejected_without_a_request() {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let plugin = folder_plugin(requests.clone()).await;
+
+        let rejected = [
+            "",
+            "../../api/json",
+            "42/consoleText",
+            "42?tree=x",
+            "4 2",
+            "-1",
+            "+1",
+            "٤٢",
+            "99999999999999999999",
+        ];
+        for node_id in rejected {
+            let error = read_console(&plugin, 42, node_id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{node_id}: {error:?}"
+            );
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
     }
 }
