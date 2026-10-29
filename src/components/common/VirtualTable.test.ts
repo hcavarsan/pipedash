@@ -136,3 +136,44 @@ test('select all picks only selectable rows and clears on the second click', asy
   await user.click(view().getByRole('checkbox', { name: 'Select all' }))
   assert.deepEqual(selections.at(-1), [])
 })
+
+test('rows taller than the estimate are measured so only the visible window renders', async () => {
+  const offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.hasAttribute('aria-rowindex') ? 100 : 0
+    },
+  })
+
+  try {
+    const records = Array.from({ length: 200 }, (_, index) => ({ id: `r${index}`, name: `Row ${index}` }))
+
+    render(
+      createElement(
+        MantineProvider,
+        null,
+        createElement(VirtualTable<{ id: string; name: string }>, {
+          records,
+          getKey: (row) => row.id,
+          height: 900,
+          rowHeight: 48,
+          label: 'Tall rows',
+          columns: [{ id: 'name', title: 'Name', render: (row) => row.name }],
+        })
+      )
+    )
+
+    assert.ok(await view().findByRole('cell', { name: 'Row 0' }))
+    await act(async () => undefined)
+
+    const rendered = document.querySelectorAll('tbody tr[aria-rowindex]').length
+    assert.ok(rendered < 25, `rendered ${rendered} rows for a 900px viewport of 100px rows`)
+  } finally {
+    if (offsetHeight) {
+      Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetHeight)
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, 'offsetHeight')
+    }
+  }
+})

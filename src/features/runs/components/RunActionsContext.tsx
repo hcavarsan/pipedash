@@ -75,16 +75,14 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
       return
     }
 
+    if (canRerunInPlace(pipeline)) {
+      await rerunRun.mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number })
+      refreshProvider(pipeline.provider_id)
+
+      return
+    }
+
     try {
-      if (canRerunInPlace(pipeline)) {
-        await rerunRun
-          .mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number })
-          .then(() => refreshProvider(pipeline.provider_id))
-          .catch(() => undefined)
-
-        return
-      }
-
       const runDetails = await queryClient.fetchQuery({
         queryKey: queryKeys.runs.detail(run.pipeline_id, run.run_number),
         queryFn: () => service.getWorkflowRunDetails(run.pipeline_id, run.run_number),
@@ -107,10 +105,8 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
       return
     }
 
-    await rerunFailedJobs
-      .mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number })
-      .then(() => refreshProvider(pipeline.provider_id))
-      .catch(() => undefined)
+    await rerunFailedJobs.mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number })
+    refreshProvider(pipeline.provider_id)
   }
 
   const cancel = async (run: PipelineRun): Promise<void> => {

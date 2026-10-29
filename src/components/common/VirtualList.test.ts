@@ -77,3 +77,31 @@ test('reaching the end of a short list asks for the next page', async () => {
   assert.ok(await view().findByText('Item 10'))
   await waitFor(() => assert.ok(ends > 0))
 })
+
+test('a list still at its end asks again after a page that added no rows', async () => {
+  let ends = 0
+  const onEndReached = () => {
+    ends += 1
+  }
+  const { rerender } = renderList(10, onEndReached)
+
+  assert.ok(await view().findByText('Item 10'))
+  await waitFor(() => assert.ok(ends > 0))
+  const before = ends
+
+  rerender(
+    createElement(
+      'div',
+      { style: { overflowY: 'auto', height: '900px' } },
+      createElement(VirtualList<string>, {
+        items: Array.from({ length: 10 }, (_, index) => `Item ${index + 1}`),
+        getKey: (item) => item,
+        estimateSize: 50,
+        renderItem: (item) => createElement('p', null, item),
+        onEndReached,
+      })
+    )
+  )
+
+  await waitFor(() => assert.ok(ends > before))
+})

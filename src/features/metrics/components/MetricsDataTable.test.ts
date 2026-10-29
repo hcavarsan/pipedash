@@ -8,8 +8,17 @@ import type { AggregatedMetrics } from '../../../types/domain'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
-const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
+const layout = {
+  clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
+  offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
+}
 Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 900 })
+Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+  configurable: true,
+  get(this: HTMLElement) {
+    return this.hasAttribute('aria-rowindex') ? 48 : 0
+  },
+})
 
 const { act, cleanup, render, within } = await import('@testing-library/react')
 const { userEvent } = await import('@testing-library/user-event')
@@ -38,10 +47,12 @@ afterEach(async () => {
 })
 
 after(async () => {
-  if (clientHeight) {
-    Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeight)
-  } else {
-    Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight')
+  for (const [name, descriptor] of Object.entries(layout)) {
+    if (descriptor) {
+      Object.defineProperty(HTMLElement.prototype, name, descriptor)
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, name)
+    }
   }
   await GlobalRegistrator.unregister()
 })

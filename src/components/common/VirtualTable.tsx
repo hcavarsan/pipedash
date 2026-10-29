@@ -199,6 +199,8 @@ export function VirtualTable<T>({
             return (
               <Table.Tr
                 key={row.key}
+                ref={virtualizer.measureElement}
+                data-index={row.index}
                 aria-rowindex={row.index + 2}
                 className={onRowClick ? 'interactive-surface row-clickable' : 'interactive-surface'}
                 style={{ height: rowHeight, verticalAlign: 'middle' }}

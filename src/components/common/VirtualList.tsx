@@ -84,7 +84,7 @@ export function VirtualList<T>({
     if (items.length > 0 && lastIndex >= items.length - END_THRESHOLD) {
       reachEnd()
     }
-  }, [lastIndex, items.length])
+  })
 
   return (
     <div ref={listRef} className={className} style={{ position: 'relative', height: virtualizer.getTotalSize() }}>
