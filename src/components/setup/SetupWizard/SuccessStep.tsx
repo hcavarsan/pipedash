@@ -1,6 +1,7 @@
 import { Button, Card, Code, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core'
 import { IconAlertTriangle, IconCheck, IconCircleCheckFilled } from '@tabler/icons-react'
-import { type ReactNode, useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
@@ -11,6 +12,7 @@ import { ErrorState } from '../../common/ErrorState'
 import { IosGroup, IosRow } from '../../ios/IosList'
 
 import type { SuccessStepProps } from './types'
+import { buildVaultExportCommand } from './vaultExportCommand'
 
 const LABEL_WIDTH = 130
 
@@ -21,28 +23,21 @@ export function SuccessStep({
   vaultPasswordFromEnv,
   onComplete,
 }: SuccessStepProps): ReactNode {
-  const [restarting, setRestarting] = useState(false)
   const onDevice = isMobilePlatform()
   const mobileShell = useMobileShell()
-  const [restartError, setRestartError] = useState<unknown>(null)
+  const restart = useMutation({
+    mutationFn: () => service.restartApp(),
+    onError: (error) => logger.error('SuccessStep', 'Failed to restart app', error),
+  })
+  const restarting = restart.isPending || restart.isSuccess
+  const restartError = restart.error
 
-  const envVarName = vaultStatus?.env_var_name || 'PIPEDASH_VAULT_PASSWORD'
-  const exportCommand = `export ${envVarName}="${state.vaultPassword}"`
+  const envVarName = vaultStatus.env_var_name || 'PIPEDASH_VAULT_PASSWORD'
+  const exportCommand = buildVaultExportCommand(envVarName, state.vaultPassword)
 
   const showPasswordReminder = !onDevice && !vaultPasswordFromEnv && state.vaultPassword
 
-  const handleRestart = async () => {
-    setRestarting(true)
-    setRestartError(null)
-
-    try {
-      await service.restartApp()
-    } catch (error) {
-      logger.error('SuccessStep', 'Failed to restart app', error)
-      setRestartError(error)
-      setRestarting(false)
-    }
-  }
+  const handleRestart = (): void => restart.mutate()
 
   const migratedCounts = migrationStats
     ? [
@@ -104,7 +99,7 @@ export function SuccessStep({
   return (
     <Stack gap="md" align="center" py="xl">
       <ThemeIcon size={56} variant="transparent" color="green">
-        <IconCheck size={28} />
+        <IconCheck size={28} aria-hidden />
       </ThemeIcon>
 
       <Text size="lg" fw={600}>
@@ -144,7 +139,7 @@ export function SuccessStep({
         >
           <Stack gap="sm">
             <Group gap="xs">
-              <IconAlertTriangle size={16} color="var(--mantine-color-orange-light-color)" />
+              <IconAlertTriangle size={16} color="var(--mantine-color-orange-light-color)" aria-hidden />
               <Text size="sm" fw={600}>
                 Required for next launch
               </Text>
@@ -161,10 +156,18 @@ export function SuccessStep({
               </Group>
 
               <Group gap="xs" wrap="nowrap" align="center">
-                <Code block fz="xs" p="xs" style={{ flex: 1, wordBreak: 'break-all' }}>
-                  {exportCommand}
-                </Code>
-                <CopyButton value={exportCommand} label="Copy export command" />
+                {exportCommand ? (
+                  <>
+                    <Code block fz="xs" p="xs" style={{ flex: 1, wordBreak: 'break-all' }}>
+                      {exportCommand}
+                    </Code>
+                    <CopyButton value={exportCommand} label="Copy export command" />
+                  </>
+                ) : (
+                  <Text size="xs" c="red">
+                    The variable name {envVarName} is not a valid shell variable name.
+                  </Text>
+                )}
               </Group>
 
               <Text size="xs" c="dimmed">

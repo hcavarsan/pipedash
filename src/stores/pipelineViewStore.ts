@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 
-interface ViewEditorState {
+export interface ViewEditorState {
   open: boolean
   viewId: string | null
   initialMembers: string[]

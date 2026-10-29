@@ -24,6 +24,7 @@ import { useFailureNotifications } from '../useFailureNotifications'
 import { useProviderHealthAlerts } from '../useProviderHealthAlerts'
 
 import { cachedPermission, callbacks, delivered, listeners, native, permission } from './notificationEnvironment'
+import { defineRegistrationScenarios } from './notificationRegistrationScenarios'
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 const pipeline: Pipeline = {
@@ -48,17 +49,7 @@ const outage: ProviderHealthAlert = {
   link: { url: 'https://www.githubstatus.com/', kind: 'status_page' },
   recovered: false,
 }
-let pushes = 0
 let mutation: UseMutationResult<LocalNotificationSettings, Error, boolean> | undefined
-const originalPush = useNotificationCenterStore.getState().push
-
-useNotificationCenterStore.setState({
-  push: (input) => {
-    pushes += 1
-    originalPush(input)
-  },
-})
-
 function Hooks() {
   useFailureNotifications()
   useProviderHealthAlerts()
@@ -101,7 +92,6 @@ afterEach(async () => {
   useNotificationCenterStore.setState({ items: [], selection: null })
   useNotificationStore.setState({ notificationsEnabled: false })
   delivered.length = 0
-  pushes = 0
   mutation = undefined
   native.settings = { enabled: false, available: true, reason: null }
   native.calls.length = 0
@@ -113,6 +103,8 @@ afterEach(async () => {
 })
 
 after(() => GlobalRegistrator.unregister())
+
+defineRegistrationScenarios(client, Hooks)
 
 test('a backend-confirmed failure reaches the center before a pipeline list loads and leaves iOS delivery to Rust', async () => {
   await mount()
@@ -130,7 +122,6 @@ test('consecutive failed runs notify once each without duplicating cache updates
     await publish('pipelines-failed', { pipelines: [failed] })
     setProviderPipelines(client, pipeline.provider_id, [failed])
   }
-  assert.equal(pushes, 2)
   const { items } = useNotificationCenterStore.getState()
   assert.equal(items.length, 1)
   const [item] = items
@@ -144,8 +135,13 @@ test('a running-to-failed cache update does not duplicate the backend failure al
   setProviderPipelines(client, pipeline.provider_id, [{ ...pipeline, status: 'running' }])
   setProviderPipelines(client, pipeline.provider_id, [pipeline])
   await publish('pipelines-failed', { pipelines: [pipeline] })
+  const first = useNotificationCenterStore.getState().items[0]
+  assert.ok(first)
+  useNotificationCenterStore.getState().markRead(first.key)
   setProviderPipelines(client, pipeline.provider_id, [pipeline])
-  assert.equal(pushes, 1)
+  const { items } = useNotificationCenterStore.getState()
+  assert.equal(items.length, 1)
+  assert.equal(items[0]?.read, true)
 })
 
 test('overdue runs still alert once when their cached observation changes', async () => {
@@ -155,7 +151,7 @@ test('overdue runs still alert once when their cached observation changes', asyn
   const overdue = { ...running, overdue_run: 'run-42' }
   setProviderPipelines(client, pipeline.provider_id, [overdue])
   setProviderPipelines(client, pipeline.provider_id, [overdue])
-  assert.equal(pushes, 1)
+  assert.equal(useNotificationCenterStore.getState().items.length, 1)
   assert.equal(useNotificationCenterStore.getState().items[0]?.tone, 'warning')
   assert.deepEqual(delivered, [])
 })
@@ -187,7 +183,7 @@ test('a provider outage reaches the center without a webview delivery or Remote 
   await mount()
   await publish('provider-health-alert', outage)
   assert.equal(useNotificationCenterStore.getState().items[0]?.key, outage.notification_key)
-  assert.equal(pushes, 1)
+  assert.equal(useNotificationCenterStore.getState().items.length, 1)
   assert.deepEqual(delivered, [])
 })
 

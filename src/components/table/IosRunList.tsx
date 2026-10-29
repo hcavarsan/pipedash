@@ -2,6 +2,8 @@ import { Button, Portal } from '@mantine/core'
 import { IconCheck, IconChevronRight } from '@tabler/icons-react'
 import { type ReactNode, useEffect, useId, useState } from 'react'
 
+import { useRowMenuLongPress } from '../../hooks/useLongPress'
+import { useNow } from '../../hooks/useNow'
 import { prefersReducedMotion } from '../../lib/motion'
 import { animateSpring } from '../../lib/spring'
 import { STATUS_META } from '../../theme/status'
@@ -10,11 +12,14 @@ import { formatDuration } from '../../utils/formatDuration'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusGlyph } from '../atoms/StatusBadge'
+import { VirtualList } from '../common/VirtualList'
 import { IosGroup } from '../ios/IosList'
-import { type SwipeAction, SwipeActions } from '../ios/SwipeActions'
-import { useRowMenuLongPress } from '../ios/useLongPress'
-
+import { SwipeActions } from '../ios/SwipeActions'
 import classes from './IosRunList.module.css'
+import { RunActionMenu } from './RunActionControls'
+import { useRunActions } from './RunActionsContext'
+import { swipeActionsOf } from './runActions'
+import { useRunActionItems } from './useRunActionItems'
 
 interface IosRunRowProps {
   run: PipelineRun
@@ -25,24 +30,13 @@ interface IosRunRowProps {
   selectable: boolean
   selected: boolean
   onToggle: () => void
-  onOpen: () => void
-  swipeActions: SwipeAction[]
-  menu: ReactNode
 }
 
-const IosRunRow = ({
-  run,
-  isFlux,
-  noun,
-  now,
-  selecting,
-  selectable,
-  selected,
-  onToggle,
-  onOpen,
-  swipeActions,
-  menu,
-}: IosRunRowProps) => {
+const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, onToggle }: IosRunRowProps) => {
+  const { openRun } = useRunActions()
+  const swipeActions = swipeActionsOf(useRunActionItems(run))
+  const onOpen = () => openRun(run)
+  const menu = <RunActionMenu run={run} />
   const hintId = useId()
   const pressRef = useRowMenuLongPress(!selecting)
   const name = isFlux ? String(run.metadata?.run_label ?? 'Reconciliation') : `#${run.run_number}`
@@ -124,34 +118,27 @@ const IosRunRow = ({
 
 interface IosRunListProps {
   runs: PipelineRun[]
-  isFlux: boolean
-  noun: string
   label: string
   onSelect?: (() => void) | undefined
   selecting: boolean
   selectedNumbers: number[]
   isSelectable: (run: PipelineRun) => boolean
   onToggle: (run: PipelineRun) => void
-  onOpen: (run: PipelineRun) => void
-  getSwipeActions: (run: PipelineRun) => SwipeAction[]
-  renderMenu: (run: PipelineRun) => ReactNode
+  onEndReached?: (() => void) | undefined
 }
 
 export const IosRunList = ({
   runs,
-  isFlux,
-  noun,
   label,
   onSelect,
   selecting,
   selectedNumbers,
   isSelectable,
   onToggle,
-  onOpen,
-  getSwipeActions,
-  renderMenu,
+  onEndReached,
 }: IosRunListProps): ReactNode => {
-  const now = Date.now()
+  const now = useNow(30_000)
+  const { isFlux, labels } = useRunActions()
 
   return (
     <IosGroup
@@ -165,26 +152,28 @@ export const IosRunList = ({
         )
       }
     >
-      {runs.map((run) => {
-        const selectable = selecting && isSelectable(run)
+      <VirtualList
+        items={runs}
+        getKey={(run) => String(run.run_number)}
+        estimateSize={64}
+        onEndReached={onEndReached}
+        renderItem={(run) => {
+          const selectable = selecting && isSelectable(run)
 
-        return (
-          <IosRunRow
-            key={run.run_number}
-            run={run}
-            isFlux={isFlux}
-            noun={noun}
-            now={now}
-            selecting={selecting}
-            selectable={selectable}
-            selected={selectable && selectedNumbers.includes(run.run_number)}
-            onToggle={() => onToggle(run)}
-            onOpen={() => onOpen(run)}
-            swipeActions={getSwipeActions(run)}
-            menu={renderMenu(run)}
-          />
-        )
-      })}
+          return (
+            <IosRunRow
+              run={run}
+              isFlux={isFlux}
+              noun={labels.run}
+              now={now}
+              selecting={selecting}
+              selectable={selectable}
+              selected={selectable && selectedNumbers.includes(run.run_number)}
+              onToggle={() => onToggle(run)}
+            />
+          )
+        }}
+      />
     </IosGroup>
   )
 }

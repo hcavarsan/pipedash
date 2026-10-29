@@ -5,6 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { useRef } from 'react'
 
 import { GC_TIMES, STALE_TIMES } from '@/lib/cacheConfig'
 import { logger } from '@/lib/logger'
@@ -13,11 +14,17 @@ import { service } from '@/services'
 import type { PipelineRun } from '@/types'
 import { displayErrorNotification, displaySuccessNotification } from '@/utils/errorDisplay'
 
+const CANCELLATION_WATCH_INTERVAL = 1000
+const CANCELLATION_WATCH_ATTEMPTS = 10
+
 export function useRunDetails(
   pipelineId: string,
   runNumber: number,
-  enabled: boolean = true
+  enabled: boolean = true,
+  cancellationWatch: boolean = false
 ): UseQueryResult<PipelineRun, Error> {
+  const watchStart = useRef<number | null>(null)
+
   return useQuery({
     queryKey: queryKeys.runs.detail(pipelineId, runNumber),
     queryFn: () => service.getWorkflowRunDetails(pipelineId, runNumber),
@@ -28,32 +35,26 @@ export function useRunDetails(
       const data = query.state.data
       const isRunning = data?.status === 'running' || data?.status === 'pending'
 
-      return isRunning ? 10000 : false
+      if (!isRunning || !cancellationWatch) {
+        watchStart.current = null
+      }
+
+      if (!isRunning) {
+        return false
+      }
+
+      if (cancellationWatch) {
+        watchStart.current ??= query.state.dataUpdateCount
+
+        if (query.state.dataUpdateCount - watchStart.current < CANCELLATION_WATCH_ATTEMPTS) {
+          return CANCELLATION_WATCH_INTERVAL
+        }
+      }
+
+      return 10000
     },
     refetchIntervalInBackground: false,
   })
-}
-
-async function pollForRunAvailability(pipelineId: string, runNumber: number, maxRetries: number = 5): Promise<void> {
-  let retries = maxRetries
-
-  while (retries > 0) {
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    try {
-      const runDetails = await service.getWorkflowRunDetails(pipelineId, runNumber)
-
-      if (runDetails?.status) {
-        return
-      }
-    } catch {
-      return
-    }
-
-    retries--
-  }
-
-  throw new Error('Run not available after polling')
 }
 
 export function useRerunWorkflow(): UseMutationResult<
@@ -86,10 +87,6 @@ export function useRerunWorkflow(): UseMutationResult<
         newRunNumber = parsed.run_number || parsed.build_number || parsed.number || 0
       } catch {
         logger.warn('useRerunWorkflow', 'Could not parse trigger response', result)
-      }
-
-      if (newRunNumber > 0) {
-        await pollForRunAvailability(pipelineId, newRunNumber, 5)
       }
 
       return { result, newRunNumber }

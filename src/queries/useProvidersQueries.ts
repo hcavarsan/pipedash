@@ -74,6 +74,7 @@ export function useAddProvider(): UseMutationResult<number, Error, ProviderConfi
       )
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
         title: 'Provider added',
@@ -108,8 +109,8 @@ export function useUpdateProvider(): UseMutationResult<
 
       const previousProviders = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
 
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
-        old.map((p) => (p.id === id ? { ...p, ...config } : p))
+      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old) =>
+        old?.map((p) => (p.id === id ? { ...p, name: config.name, refresh_interval: config.refresh_interval } : p))
       )
 
       return { previousProviders }
@@ -161,7 +162,7 @@ export function useRemoveProvider(): UseMutationResult<void, Error, number, unkn
       })
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
         title: 'Provider removed',
@@ -230,7 +231,7 @@ export function useImportProviders(): UseMutationResult<ProviderImportResult, Er
 
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
         title: result.added.length > 0 ? 'Providers imported' : 'No providers imported',
@@ -269,8 +270,8 @@ export function useUpdateProviderRefreshInterval(
 
       const previousProviders = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
 
-      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old = []) =>
-        old.map((p) => (p.id === id ? { ...p, refresh_interval: refreshInterval } : p))
+      queryClient.setQueryData<ProviderSummary[]>(queryKeys.providers.list(), (old) =>
+        old?.map((p) => (p.id === id ? { ...p, refresh_interval: refreshInterval } : p))
       )
 
       return { previousProviders }

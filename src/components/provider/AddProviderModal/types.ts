@@ -1,4 +1,4 @@
-import type { FeatureAvailability, PermissionStatus, PluginMetadata, ProviderConfig } from '../../../types'
+import type { PluginMetadata, ProviderConfig } from '../../../types'
 
 export type Step = 'credentials' | 'pipelines'
 
@@ -18,17 +18,8 @@ export interface FormState {
   selectedPipelines: Set<string>
   repositorySearch: string
 
-  submitting: boolean
   error: string | null
   fieldErrors: Record<string, string>
-}
-
-export interface PermissionState {
-  modalOpen: boolean
-  status: PermissionStatus | null
-  features: FeatureAvailability[]
-  checking: boolean
-  error: string | null
 }
 
 export type FormAction =
@@ -45,7 +36,6 @@ export type FormAction =
   | { type: 'SELECT_ALL_PIPELINES'; pipelineIds: string[] }
   | { type: 'DESELECT_PIPELINES'; pipelineIds: string[] }
   | { type: 'SET_REPOSITORY_SEARCH'; search: string }
-  | { type: 'SET_SUBMITTING'; submitting: boolean }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'SET_FIELD_ERROR'; key: string; error: string }
   | { type: 'CLEAR_FIELD_ERROR'; key: string }
@@ -53,14 +43,32 @@ export type FormAction =
   | { type: 'RESET' }
   | { type: 'INIT_EDIT_MODE'; plugin: PluginMetadata; provider: ProviderConfig & { id: number } }
 
-export interface AddProviderModalProps {
+export type AddProviderModalProps = {
   opened: boolean
   onClose: () => void
-  onAdd?: (config: ProviderConfig) => Promise<void>
-  onUpdate?: (id: number, config: ProviderConfig) => Promise<void>
-  editMode?: boolean
-  existingProvider?: ProviderConfig & { id: number }
+} & (
+  | {
+      editMode?: false
+      onAdd: (config: ProviderConfig) => Promise<void>
+      onUpdate?: never
+      existingProvider?: never
+    }
+  | {
+      editMode: true
+      onUpdate: (id: number, config: ProviderConfig) => Promise<void>
+      existingProvider: ProviderConfig & { id: number }
+      onAdd?: never
+    }
+)
+
+export type ProviderSubmitIntent = 'continue' | 'save-credentials' | 'save-selection'
+
+export interface ProviderFormActionState {
+  error: string | null
+  fieldErrors: Record<string, string>
 }
+
+export const initialActionState: ProviderFormActionState = { error: null, fieldErrors: {} }
 
 export const initialFormState: FormState = {
   step: 'credentials',
@@ -71,15 +79,6 @@ export const initialFormState: FormState = {
   selectedOrganization: '',
   selectedPipelines: new Set(),
   repositorySearch: '',
-  submitting: false,
   error: null,
   fieldErrors: {},
-}
-
-export const initialPermissionState: PermissionState = {
-  modalOpen: false,
-  status: null,
-  features: [],
-  checking: false,
-  error: null,
 }

@@ -53,3 +53,20 @@ test('withRetry still retries errors that shouldRetry accepts', async () => {
   assert.equal(result, 'ok')
   assert.equal(calls, 3)
 })
+
+test('retries until the attempt limit and rejects with the final error', async () => {
+  let calls = 0
+  const final = new Error('NetworkError last')
+
+  await assert.rejects(
+    withRetry(
+      async () => {
+        calls += 1
+        throw calls === 3 ? final : new Error('NetworkError again')
+      },
+      { maxAttempts: 3, delayMs: 0 }
+    ),
+    final
+  )
+  assert.equal(calls, 3)
+})

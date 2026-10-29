@@ -536,15 +536,20 @@ export interface PermissionCheckResult {
   features: FeatureAvailability[]
 }
 
-export interface WorkflowParameter {
+interface WorkflowParameterBase {
   name: string
   label: string | null
   description: string | null
-  type: 'string' | 'boolean' | 'choice' | 'number'
-  default?: string | number | boolean | null
-  options?: string[]
   required: boolean
 }
+
+export type WorkflowParameter = WorkflowParameterBase &
+  (
+    | { type: 'string'; default?: string | null; options?: never }
+    | { type: 'boolean'; default?: boolean | null; options?: never }
+    | { type: 'choice'; default?: string | null; options: string[] }
+    | { type: 'number'; default?: number | null; options?: never }
+  )
 
 export type MetricType = 'run_duration' | 'success_rate' | 'run_frequency'
 
@@ -729,10 +734,7 @@ export interface ConfigAnalysisResponse {
   stats?: MigrationStatsPreview
 }
 
-export type {
-  ModalBaseProps,
-  PipelineComponentProps,
-} from './components'
+export type { ModalBaseProps } from './components'
 export { toPipedashError } from './errors'
 
 export interface SetupStatus {

@@ -47,7 +47,7 @@ test('a list request that resolves after a status event does not overwrite it, a
     .fetchQuery({ queryKey: queryKeys.providers.list(), queryFn: () => delayed, staleTime: 0 })
     .catch(() => undefined)
 
-  await applyProviderStatus(queryClient, summary('fresh', 'major_outage'))
+  await applyProviderStatus(queryClient, summary('fresh', 'major_outage'), () => true)
   resolve([summary('stale response', 'operational')])
   await inFlight
 
@@ -57,4 +57,15 @@ test('a list request that resolves after a status event does not overwrite it, a
   assert.equal(first.name, 'fresh')
   assert.equal(first.health.level, 'major_outage')
   assert.equal(queryClient.getQueryData(queryKeys.providers.detail(1)), detail)
+})
+
+test('a status event whose subscription ended while cancelling leaves the list untouched', async () => {
+  const queryClient = new QueryClient()
+  queryClient.setQueryData(queryKeys.providers.list(), [summary('old', 'operational')])
+
+  await applyProviderStatus(queryClient, summary('fresh', 'major_outage'), () => false)
+
+  const [first] = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
+
+  assert.equal(first?.name, 'old')
 })

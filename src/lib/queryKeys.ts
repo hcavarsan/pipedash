@@ -30,10 +30,12 @@ export const queryKeys = {
 
   runs: {
     all: ['runs'] as const,
-    list: (pipelineId: string, page?: number) =>
+    list: (pipelineId: string, page?: number, pageSize?: number) =>
       page === undefined
         ? ([...queryKeys.runs.all, 'list', pipelineId] as const)
-        : ([...queryKeys.runs.all, 'list', pipelineId, { page }] as const),
+        : ([...queryKeys.runs.all, 'list', pipelineId, { page, pageSize }] as const),
+    infinite: (pipelineId: string, pageSize: number) =>
+      [...queryKeys.runs.all, 'list', pipelineId, 'infinite', { pageSize }] as const,
     detail: (pipelineId: string, runNumber: number) =>
       [...queryKeys.runs.all, 'detail', pipelineId, runNumber] as const,
     active: (pipelineId: string) => [...queryKeys.runs.all, 'active', pipelineId] as const,
@@ -70,6 +72,7 @@ export const queryKeys = {
     paths: () => [...queryKeys.storage.all, 'paths'] as const,
     configContent: () => [...queryKeys.storage.all, 'configContent'] as const,
     defaultDataDir: () => [...queryKeys.storage.all, 'defaultDataDir'] as const,
+    analysis: (content: string) => [...queryKeys.storage.all, 'analysis', content] as const,
   },
 
   cache: {

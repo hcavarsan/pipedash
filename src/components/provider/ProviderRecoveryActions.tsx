@@ -59,11 +59,9 @@ export function ProviderRecoveryActions({ providerId, recovery, onNavigate }: Pr
           Sign in again
         </Button>
       )}
-      {refresh.data && (
-        <Text size="xs" c="dimmed">
-          {describeRefreshResult(refresh.data)}
-        </Text>
-      )}
+      <Text size="xs" c="dimmed" role="status" aria-live="polite">
+        {refresh.data ? describeRefreshResult(refresh.data) : null}
+      </Text>
     </>
   )
 }

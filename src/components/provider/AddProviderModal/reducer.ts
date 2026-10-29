@@ -138,9 +138,6 @@ export function formReducer(state: FormState, action: FormAction): FormState {
     case 'SET_REPOSITORY_SEARCH':
       return { ...state, repositorySearch: action.search }
 
-    case 'SET_SUBMITTING':
-      return { ...state, submitting: action.submitting }
-
     case 'SET_ERROR':
       return { ...state, error: action.error }
 

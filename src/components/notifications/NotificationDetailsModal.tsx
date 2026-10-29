@@ -12,7 +12,7 @@ import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
 
 import { notificationIcon, notificationLabel, TONE_COLORS } from './labels'
-import { openLink } from './ProviderStatusModal'
+import { openNotificationLink } from './openNotificationLink'
 
 const LINK_LABELS = { incident: 'View incident', status_page: 'Open status page' } as const
 
@@ -66,7 +66,7 @@ export function NotificationDetailsModal(): ReactNode {
                     icon={<IconExternalLink size={18} aria-hidden />}
                     title={LINK_LABELS[notification.link.kind]}
                     chevron
-                    onClick={() => notification.link && openLink(notification.link.url)}
+                    onClick={() => notification.link && openNotificationLink(notification.link.url)}
                   />
                 )}
                 {notification.pipelineId && (
@@ -131,7 +131,7 @@ export function NotificationDetailsModal(): ReactNode {
                 size="compact-sm"
                 variant="default"
                 leftSection={<IconExternalLink size={14} aria-hidden />}
-                onClick={() => notification.link && openLink(notification.link.url)}
+                onClick={() => notification.link && openNotificationLink(notification.link.url)}
               >
                 {LINK_LABELS[notification.link.kind]}
               </Button>

@@ -5,7 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 
 import { useDebounce } from '../hooks/useDebounce'
 import { GC_TIMES } from '../lib/cacheConfig'
@@ -136,6 +136,17 @@ export function useRetryRunLog(): UseMutationResult<RunLogDocument, Error, RunLo
   })
 }
 
+export interface RunLogSearchIdentity {
+  text: string
+  regex: boolean
+  case_sensitive: boolean
+}
+
+export type RunLogSearchResult = UseQueryResult<LogSearchResult, Error> & {
+  requestedIdentity: RunLogSearchIdentity
+  effectiveIdentity: RunLogSearchIdentity
+}
+
 export function useRunLogSearch(
   pipelineId: string,
   runNumber: number,
@@ -143,15 +154,12 @@ export function useRunLogSearch(
   revision: number | undefined,
   sessionId: string,
   query: LogSearchQuery
-): UseQueryResult<LogSearchResult, Error> {
+): RunLogSearchResult {
   const text = useDebounce(query.text, SEARCH_DEBOUNCE_MS)
-  const effective = useMemo<LogSearchQuery>(
-    () => ({ text, regex: query.regex, case_sensitive: query.case_sensitive }),
-    [text, query.regex, query.case_sensitive]
-  )
+  const effective: LogSearchQuery = { text, regex: query.regex, case_sensitive: query.case_sensitive }
   const hasText = effective.text.length > 0
 
-  return useQuery<LogSearchResult>({
+  const result = useQuery<LogSearchResult>({
     queryKey: queryKeys.runLogs.search(pipelineId, runNumber, nodeId, revision ?? 0, effective),
     queryFn: ({ signal }) =>
       service.searchRunLog(pipelineId, runNumber, nodeId, revision ?? 0, sessionId, effective, signal),
@@ -168,4 +176,10 @@ export function useRunLogSearch(
         ? previous
         : undefined,
   })
+
+  return {
+    ...result,
+    requestedIdentity: { text: query.text, regex: query.regex, case_sensitive: query.case_sensitive },
+    effectiveIdentity: effective,
+  }
 }

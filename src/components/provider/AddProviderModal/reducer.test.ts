@@ -209,3 +209,80 @@ test('editing a provider with a stored sign-in starts in sign-in mode', () => {
   assert.equal(next.authMode, 'sign_in')
   assert.equal(next.configValues.sign_in, 'provider:3')
 })
+
+test('config updates leave the previous config, errors and selection untouched', () => {
+  const state = {
+    ...initialFormState,
+    selectedPlugin: fluxPlugin,
+    configValues: { namespaces: 'a', selected_items: 'x' },
+    fieldErrors: { namespaces: 'bad', token: 'missing' },
+    selectedPipelines: new Set(['x']),
+  }
+  const next = formReducer(state, { type: 'UPDATE_CONFIG', key: 'namespaces', value: 'b' })
+
+  assert.deepEqual(state.configValues, { namespaces: 'a', selected_items: 'x' })
+  assert.deepEqual(state.fieldErrors, { namespaces: 'bad', token: 'missing' })
+  assert.deepEqual([...state.selectedPipelines], ['x'])
+  assert.deepEqual(next.fieldErrors, { token: 'missing' })
+
+  const unchanged = formReducer(state, { type: 'UPDATE_CONFIG', key: 'namespaces', value: 'a' })
+
+  assert.equal(unchanged.configValues.selected_items, 'x')
+  assert.deepEqual([...unchanged.selectedPipelines], ['x'])
+})
+
+test('clearing a field error keeps the others and the previous object', () => {
+  const state = { ...initialFormState, fieldErrors: { a: '1', b: '2' } }
+  const next = formReducer(state, { type: 'CLEAR_FIELD_ERROR', key: 'a' })
+
+  assert.deepEqual(next.fieldErrors, { b: '2' })
+  assert.deepEqual(state.fieldErrors, { a: '1', b: '2' })
+})
+
+test('selecting a provider type applies schema defaults and clears stale selections', () => {
+  const plugin = {
+    ...fluxPlugin,
+    config_schema: {
+      fields: [
+        {
+          key: 'namespaces',
+          label: 'Namespaces',
+          description: null,
+          field_type: 'Text' as const,
+          required: false,
+          default_value: 'flux-system',
+          options: null,
+          validation_regex: null,
+          validation_message: null,
+        },
+      ],
+    },
+  }
+  const next = formReducer(
+    { ...initialFormState, selectedPipelines: new Set(['x']), fieldErrors: { a: 'b' } },
+    { type: 'SELECT_PLUGIN', plugin, isEditMode: false }
+  )
+
+  assert.deepEqual(next.configValues, { namespaces: 'flux-system' })
+  assert.equal(next.providerName, 'FluxCD')
+  assert.equal(next.selectedPipelines.size, 0)
+  assert.deepEqual(next.fieldErrors, {})
+})
+
+test('clearing the provider type and resetting return to an empty form', () => {
+  const filled = {
+    ...initialFormState,
+    selectedPlugin: fluxPlugin,
+    providerName: 'Prod',
+    configValues: { token: 'a' },
+    selectedPipelines: new Set(['x']),
+    step: 'pipelines' as const,
+  }
+  const cleared = formReducer(filled, { type: 'CLEAR_PLUGIN' })
+
+  assert.equal(cleared.selectedPlugin, null)
+  assert.equal(cleared.providerName, '')
+  assert.deepEqual(cleared.configValues, {})
+  assert.equal(cleared.selectedPipelines.size, 0)
+  assert.deepEqual(formReducer(filled, { type: 'RESET' }), initialFormState)
+})

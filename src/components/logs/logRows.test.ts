@@ -18,25 +18,29 @@ import {
   sectionAtLine,
 } from './logRows'
 
-let nextId = 0
+function createSectionFactory() {
+  let nextId = 0
 
-function section(partial: Partial<LogSection> & Pick<LogSection, 'kind' | 'start_line' | 'end_line'>): LogSection {
-  return {
-    id: nextId++,
-    parent: null,
-    node_id: null,
-    title: `s${nextId}`,
-    status: null,
-    duration_ms: null,
-    header_line: null,
-    error_count: 0,
-    open: false,
-    ...partial,
+  return function section(
+    partial: Partial<LogSection> & Pick<LogSection, 'kind' | 'start_line' | 'end_line'>
+  ): LogSection {
+    return {
+      id: nextId++,
+      parent: null,
+      node_id: null,
+      title: `s${nextId}`,
+      status: null,
+      duration_ms: null,
+      header_line: null,
+      error_count: 0,
+      open: false,
+      ...partial,
+    }
   }
 }
 
 function fixture() {
-  nextId = 0
+  const section = createSectionFactory()
   const build = section({ kind: 'step', title: 'Build', node_id: '1:1', start_line: 2, end_line: 12, open: true })
   const group = section({
     kind: 'group',
@@ -109,7 +113,8 @@ test('rowOfSection finds step headers even when lines share their start', () => 
 })
 
 test('empty logs produce no rows and a step without lines still has a header', () => {
-  nextId = 0
+  const section = createSectionFactory()
+
   assert.equal(buildRows({ line_count: 0, sections: [] }, new Set()).count, 0)
 
   const empty = section({ kind: 'step', start_line: 0, end_line: 0, open: true })
@@ -118,7 +123,7 @@ test('empty logs produce no rows and a step without lines still has a header', (
 })
 
 test('deeply nested groups do not overflow the stack', () => {
-  nextId = 0
+  const section = createSectionFactory()
   const sections: LogSection[] = []
 
   for (let depth = 0; depth < 20_000; depth += 1) {
@@ -158,14 +163,21 @@ test('sectionAtLine returns the step that contains the line', () => {
 })
 
 test('overridesFor keeps what the user chose across revisions', () => {
-  nextId = 0
+  const section = createSectionFactory()
   const before = section({ kind: 'step', title: 'Build', node_id: 'a', start_line: 0, end_line: 5, open: false })
   const same = section({ kind: 'group', title: 'Run', start_line: 1, end_line: 3, header_line: 0, open: false })
   const prevMeta = { sections: [before, same] }
 
-  nextId = 0
-  const failed = section({ kind: 'step', title: 'Build', node_id: 'a', start_line: 0, end_line: 9, open: true })
-  const sameAgain = section({ kind: 'group', title: 'Run', start_line: 1, end_line: 3, header_line: 0, open: false })
+  const nextRevision = createSectionFactory()
+  const failed = nextRevision({ kind: 'step', title: 'Build', node_id: 'a', start_line: 0, end_line: 9, open: true })
+  const sameAgain = nextRevision({
+    kind: 'group',
+    title: 'Run',
+    start_line: 1,
+    end_line: 3,
+    header_line: 0,
+    open: false,
+  })
   const next = overridesFor({ sections: [failed, sameAgain] }, prevMeta, new Set([before.id, same.id]))
 
   assert.equal(isOpen(failed, next), true)

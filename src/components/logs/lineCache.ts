@@ -77,9 +77,6 @@ export class LogLineCache {
     const entry = this.entries.get(key)
 
     if (entry) {
-      this.entries.delete(key)
-      this.entries.set(key, entry)
-
       return entry.line
     }
 
@@ -92,6 +89,15 @@ export class LogLineCache {
 
   need(owner: symbol, doc: DocRef, lines: readonly number[]): void {
     this.setNeeded(owner, { doc, lines })
+    for (const line of lines) {
+      const key = lineKey(doc, line)
+      const entry = this.entries.get(key)
+
+      if (entry) {
+        this.entries.delete(key)
+        this.entries.set(key, entry)
+      }
+    }
     this.plan(doc, lines)
   }
 
@@ -122,6 +128,9 @@ export class LogLineCache {
     }
     this.timers.clear()
     this.changed()
+    for (const owner of [...this.owners.values()]) {
+      this.plan(owner.doc, owner.lines)
+    }
   }
 
   private setNeeded(owner: symbol, next: Need | null): void {
@@ -264,7 +273,7 @@ export class LogLineCache {
         }
 
         if (page.lines.length === 0) {
-          break
+          throw new Error('The log ended before the requested lines were read')
         }
 
         for (const [index, wire] of page.lines.entries()) {
@@ -362,13 +371,27 @@ export function useLogLines(doc: DocRef | null, lines: readonly number[]): (line
 
   useSyncExternalStore(logLineCache.subscribe, logLineCache.version)
 
+  const pipelineId = doc?.pipelineId
+  const runNumber = doc?.runNumber
+  const nodeId = doc?.nodeId
+  const revision = doc?.revision
+  const lineCount = doc?.lineCount
+
   useEffect(() => {
-    if (doc) {
-      logLineCache.need(owner, doc, lines)
-    } else {
+    if (
+      pipelineId === undefined ||
+      runNumber === undefined ||
+      nodeId === undefined ||
+      revision === undefined ||
+      lineCount === undefined
+    ) {
       logLineCache.release(owner)
+
+      return
     }
-  }, [owner, doc, lines])
+
+    logLineCache.need(owner, { pipelineId, runNumber, nodeId, revision, lineCount }, lines)
+  }, [owner, pipelineId, runNumber, nodeId, revision, lineCount, lines])
 
   useEffect(() => () => logLineCache.release(owner), [owner])
 

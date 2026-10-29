@@ -1,4 +1,16 @@
-import { ActionIcon, Alert, Button, Card, Group, Menu, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
+import {
+  ActionIcon,
+  Alert,
+  Button,
+  Card,
+  Group,
+  Menu,
+  SimpleGrid,
+  Stack,
+  Text,
+  UnstyledButton,
+  VisuallyHidden,
+} from '@mantine/core'
 import { IconDots, IconEye } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
 
@@ -93,7 +105,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
     <Menu position="bottom">
       <Menu.Target>
         <ActionIcon size={44} data-row-menu aria-label="Watched run actions">
-          <IconDots size={22} />
+          <IconDots size={22} aria-hidden />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
@@ -172,10 +184,19 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
     </Alert>
   )
 
+  const live = (
+    <VisuallyHidden role="status">
+      {current
+        ? `${current.pipelineName} #${current.runNumber}: ${STATUS_META[current.status].label}${state ? `, ${state}` : ''}`
+        : ''}
+    </VisuallyHidden>
+  )
+
   return mobileShell ? (
     <IosGroup header="Watching">
       {row}
       {recovery}
+      {live}
     </IosGroup>
   ) : (
     <Stack gap="sm" component="section" aria-labelledby={titleId}>
@@ -191,6 +212,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
         </SimpleGrid>
       )}
       {recovery}
+      {live}
     </Stack>
   )
 }

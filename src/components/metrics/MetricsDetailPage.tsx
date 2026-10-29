@@ -1,11 +1,11 @@
 import { Button, Group, Loader, Menu, SegmentedControl, Stack, UnstyledButton } from '@mantine/core'
 import { IconDownload, IconFileTypeCsv, IconPhoto } from '@tabler/icons-react'
-import { toBlob } from 'html-to-image'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type UseMutationResult, useMutation } from '@tanstack/react-query'
+import { type ReactNode, type RefObject, useRef, useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useAggregatedMetrics } from '../../queries/useMetricsQueries'
-import type { AggregationPeriod, AggregationType, MetricType } from '../../types'
+import type { AggregatedMetrics, AggregationPeriod, AggregationType, MetricType } from '../../types'
 import { type DateRange, isDateRange } from '../../utils/dateRange'
 import { displayErrorNotification, displaySuccessNotification } from '../../utils/errorDisplay'
 import { formatDateTime } from '../../utils/formatDateTime'
@@ -16,7 +16,7 @@ import { LoadingState } from '../common/LoadingState'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup } from '../ios/IosList'
 
-import { MetricsChart } from './MetricsChart'
+import { LazyMetricsChart } from './LazyMetricsChart'
 import { MetricsDataTable } from './MetricsDataTable'
 import { MetricsEmptyState } from './MetricsEmptyState'
 import { MetricsPickerRow } from './MetricsPickerRow'
@@ -42,8 +42,9 @@ interface MetricsDetailPageProps {
   initialDateRange: DateRange
   initialAggregation: AggregationPeriod
   retentionDays: number
-  refreshTrigger?: number | undefined
 }
+
+type ExportFormat = 'png' | 'csv'
 
 const VALUE_UNITS: Record<MetricType, string> = {
   run_duration: 'seconds',
@@ -51,75 +52,32 @@ const VALUE_UNITS: Record<MetricType, string> = {
   run_frequency: 'runs',
 }
 
-export const MetricsDetailPage = ({
-  pipelineId,
-  pipelineName,
-  repository,
+interface ExportSource {
+  data: AggregatedMetrics | undefined
+  metricType: MetricType
+  fileBaseName: string
+  chartRef: RefObject<HTMLDivElement | null>
+}
+
+function useExportMetrics({
+  data,
   metricType,
-  initialDateRange,
-  initialAggregation,
-  retentionDays,
-  refreshTrigger,
-}: MetricsDetailPageProps): ReactNode => {
-  const { isMobile } = useIsMobile()
-  const mobileShell = useMobileShell()
-  const [dateRange, setDateRange] = useState<DateRange>(initialDateRange)
-  const [aggregationPeriod, setAggregationPeriod] = useState<AggregationPeriod>(initialAggregation)
-  const [aggregationType, setAggregationType] = useState<AggregationType>(getDefaultAggregationType(metricType))
-  const [selectedDataPointIndex, setSelectedDataPointIndex] = useState<number | null>(null)
-  const [exporting, setExporting] = useState<'png' | 'csv' | null>(null)
-  const chartRef = useRef<HTMLDivElement>(null)
+  fileBaseName,
+  chartRef,
+}: ExportSource): UseMutationResult<boolean, Error, ExportFormat> {
+  return useMutation({
+    mutationFn: async (format: ExportFormat) => {
+      if (!data) {
+        return false
+      }
 
-  const [prevMetricType, setPrevMetricType] = useState(metricType)
-
-  if (prevMetricType !== metricType) {
-    setPrevMetricType(metricType)
-    setAggregationType(getDefaultAggregationType(metricType))
-  }
-
-  const { startDate, endDate } = useMetricsWindow(dateRange)
-
-  const metricsQuery = useAggregatedMetrics({
-    metricType,
-    aggregationPeriod,
-    aggregationType,
-    pipelineId,
-    startDate,
-    endDate,
-  })
-  const { data, refetch } = metricsQuery
-
-  useEffect(() => {
-    if (refreshTrigger !== undefined && refreshTrigger > 0) {
-      refetch()
-    }
-  }, [refreshTrigger, refetch])
-
-  const [prevData, setPrevData] = useState(data)
-
-  if (prevData !== data) {
-    setPrevData(data)
-    setSelectedDataPointIndex(null)
-  }
-
-  const hasData = !!data && data.metrics.length > 0
-  const canExport = hasData && !metricsQuery.isFetching && exporting === null
-  const metricLabel = METRIC_CONFIG[metricType].label.toLowerCase()
-  const fileBaseName = `${pipelineName.replace(/[^a-z0-9]/gi, '_')}_${metricType}_${dateRange}`
-
-  const handleExport = async (format: 'png' | 'csv') => {
-    if (!canExport || !data) {
-      return
-    }
-
-    setExporting(format)
-    try {
       let content: string | Uint8Array<ArrayBuffer>
 
       if (format === 'png') {
         if (!chartRef.current) {
           throw new Error('The chart is not ready to export.')
         }
+        const { toBlob } = await import('html-to-image')
         const backgroundColor = window.getComputedStyle(document.body).backgroundColor
         const image = await toBlob(chartRef.current, { pixelRatio: 2, backgroundColor })
 
@@ -143,24 +101,75 @@ export const MetricsDetailPage = ({
         content = [headers, ...rows].map((row) => row.map(cell).join(',')).join('\n')
       }
 
-      const saved = await saveFile(`${fileBaseName}.${format}`, content, {
+      return saveFile(`${fileBaseName}.${format}`, content, {
         name: format === 'png' ? 'PNG Image' : 'CSV File',
         extension: format,
         mimeType: format === 'png' ? 'image/png' : 'text/csv',
       })
-
+    },
+    onSuccess: (saved, format) => {
       if (saved) {
         displaySuccessNotification(
           format === 'png' ? 'Chart exported as PNG' : 'Data exported as CSV',
           format === 'png' ? 'Chart exported' : 'Data exported'
         )
       }
-    } catch (error) {
+    },
+    onError: (error, format) => {
       displayErrorNotification(error, `Couldn't export ${format.toUpperCase()}`)
-    } finally {
-      setExporting(null)
-    }
+    },
+  })
+}
+
+export const MetricsDetailPage = ({
+  pipelineId,
+  pipelineName,
+  repository,
+  metricType,
+  initialDateRange,
+  initialAggregation,
+  retentionDays,
+}: MetricsDetailPageProps): ReactNode => {
+  const { isMobile } = useIsMobile()
+  const mobileShell = useMobileShell()
+  const [dateRange, setDateRange] = useState<DateRange>(initialDateRange)
+  const [aggregationPeriod, setAggregationPeriod] = useState<AggregationPeriod>(initialAggregation)
+  const [aggregationType, setAggregationType] = useState<AggregationType>(getDefaultAggregationType(metricType))
+  const [selectedDataPointIndex, setSelectedDataPointIndex] = useState<number | null>(null)
+  const chartRef = useRef<HTMLDivElement>(null)
+
+  const [prevMetricType, setPrevMetricType] = useState(metricType)
+
+  if (prevMetricType !== metricType) {
+    setPrevMetricType(metricType)
+    setAggregationType(getDefaultAggregationType(metricType))
   }
+
+  const { startDate, endDate } = useMetricsWindow(dateRange)
+
+  const metricsQuery = useAggregatedMetrics({
+    metricType,
+    aggregationPeriod,
+    aggregationType,
+    pipelineId,
+    startDate,
+    endDate,
+  })
+  const { data, refetch } = metricsQuery
+
+  const [prevData, setPrevData] = useState(data)
+
+  if (prevData !== data) {
+    setPrevData(data)
+    setSelectedDataPointIndex(null)
+  }
+
+  const fileBaseName = `${pipelineName.replace(/[^a-z0-9]/gi, '_')}_${metricType}_${dateRange}`
+  const exportMetrics = useExportMetrics({ data, metricType, fileBaseName, chartRef })
+  const exporting = exportMetrics.isPending
+  const hasData = !!data && data.metrics.length > 0
+  const canExport = hasData && !metricsQuery.isFetching && !exporting
+  const metricLabel = METRIC_CONFIG[metricType].label.toLowerCase()
 
   const renderBody = () => {
     if (metricsQuery.isError) {
@@ -192,7 +201,7 @@ export const MetricsDetailPage = ({
 
     return (
       <Stack gap={mobileShell ? 'lg' : isMobile ? 'sm' : 'md'}>
-        <MetricsChart
+        <LazyMetricsChart
           data={data}
           selectedIndex={selectedDataPointIndex}
           onDataPointClick={setSelectedDataPointIndex}
@@ -206,10 +215,10 @@ export const MetricsDetailPage = ({
 
   const exportMenuItems = (
     <Menu.Dropdown>
-      <Menu.Item leftSection={<IconPhoto size={16} />} onClick={() => handleExport('png')}>
+      <Menu.Item leftSection={<IconPhoto size={16} aria-hidden />} onClick={() => exportMetrics.mutate('png')}>
         Export as PNG
       </Menu.Item>
-      <Menu.Item leftSection={<IconFileTypeCsv size={16} />} onClick={() => handleExport('csv')}>
+      <Menu.Item leftSection={<IconFileTypeCsv size={16} aria-hidden />} onClick={() => exportMetrics.mutate('csv')}>
         Export as CSV
       </Menu.Item>
       <ActionSheetCancel />
@@ -227,7 +236,7 @@ export const MetricsDetailPage = ({
                 className={classes.exportButton}
                 disabled={!canExport}
                 aria-label="Export metrics"
-                aria-busy={exporting !== null}
+                aria-busy={exporting}
               >
                 {exporting ? <Loader size={18} /> : <IconDownload size={18} aria-hidden />}
                 {exporting ? 'Exporting…' : 'Export'}
@@ -295,9 +304,9 @@ export const MetricsDetailPage = ({
             <Button
               variant="default"
               size="xs"
-              leftSection={<IconDownload size={16} />}
+              leftSection={<IconDownload size={16} aria-hidden />}
               disabled={!canExport}
-              loading={exporting !== null}
+              loading={exporting}
             >
               Export
             </Button>

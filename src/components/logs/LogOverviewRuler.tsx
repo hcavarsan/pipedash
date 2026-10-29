@@ -40,6 +40,7 @@ export function LogOverviewRuler({
   const rootRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameRef = useRef<number | null>(null)
+  const queuedFor = useRef<{ lineCount: number; onSeek: (line: number) => void } | null>(null)
   const pointerY = useRef(0)
   const dragging = useRef(false)
   const [band, setBand] = useState({ first: 0, last: 0 })
@@ -63,10 +64,21 @@ export function LogOverviewRuler({
     return () => observer.disconnect()
   }, [])
 
+  useEffect(() => {
+    const queued = queuedFor.current
+
+    if (frameRef.current !== null && queued && (queued.lineCount !== lineCount || queued.onSeek !== onSeek)) {
+      cancelAnimationFrame(frameRef.current)
+      frameRef.current = null
+      queuedFor.current = null
+    }
+  }, [lineCount, onSeek])
+
   useEffect(
     () => () => {
       if (frameRef.current !== null) {
         cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
       }
     },
     []
@@ -116,8 +128,10 @@ export function LogOverviewRuler({
       return
     }
 
+    queuedFor.current = { lineCount, onSeek }
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = null
+      queuedFor.current = null
 
       const rect = rootRef.current?.getBoundingClientRect()
 

@@ -4,7 +4,7 @@ import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
-import type { Pipeline, ProviderSummary } from '../types'
+import type { Pipeline } from '../types'
 
 export function invalidateProviderPipelines(queryClient: QueryClient, providerId: number): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list({ providerId }), exact: true })
@@ -35,21 +35,10 @@ export function setProviderPipelines(queryClient: QueryClient, providerId: numbe
   ])
 }
 
-export function usePipelines(
-  providerId?: number,
-  options?: { enabled?: boolean; providers?: ProviderSummary[] }
-): UseQueryResult<Pipeline[], Error> {
-  const hasProviders = (options?.providers?.length ?? 0) > 0
-
+export function usePipelines(providerId?: number, options?: { enabled?: boolean }): UseQueryResult<Pipeline[], Error> {
   return useQuery({
     queryKey: queryKeys.pipelines.list({ providerId }),
     queryFn: async () => {
-      if (!hasProviders && providerId === undefined) {
-        logger.debug('usePipelines', 'Skipping fetch - no providers configured')
-
-        return []
-      }
-
       logger.debug('usePipelines', 'Fetching pipelines', { providerId: providerId ?? 'all' })
       const data = await service.getCachedPipelines(providerId)
 
@@ -59,6 +48,6 @@ export function usePipelines(
     },
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.SHORT,
-    enabled: (options?.enabled ?? true) && hasProviders,
+    enabled: options?.enabled ?? true,
   })
 }

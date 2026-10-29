@@ -19,6 +19,6 @@ export const RefreshButton = ({ pending, iconSize, onClick, ...props }: RefreshB
       }
     }}
   >
-    <IconRefresh size={iconSize} />
+    <IconRefresh size={iconSize} aria-hidden />
   </ActionIcon>
 )

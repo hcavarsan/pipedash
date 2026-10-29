@@ -26,6 +26,12 @@ export const native: NativeState = {
   calls: [],
   failure: null,
 }
+interface Registration {
+  mode: 'immediate' | 'reject' | 'deferred'
+  gates: Array<PromiseWithResolvers<unknown>>
+}
+
+export const registration: Registration = { mode: 'immediate', gates: [] }
 let nextCallback = 0
 
 Object.assign(window, {
@@ -40,11 +46,25 @@ Object.assign(window, {
     },
     invoke: async (command: string, args: Record<string, unknown> = {}) => {
       if (command === 'plugin:event|listen') {
+        if (registration.mode === 'reject') {
+          throw new Error('listen refused')
+        }
         listeners.set(String(args.event), Number(args.handler))
+        if (registration.mode === 'deferred') {
+          const gate = Promise.withResolvers<unknown>()
+          registration.gates.push(gate)
+
+          return gate.promise.then(() => args.handler)
+        }
+
         return args.handler
       }
       if (command === 'plugin:event|unlisten') {
-        listeners.delete(String(args.event))
+        const event = String(args.event)
+        if (listeners.get(event) === Number(args.eventId)) {
+          listeners.delete(event)
+        }
+        callbacks.delete(Number(args.eventId))
         return
       }
       if (command === 'plugin:notification|is_permission_granted') {

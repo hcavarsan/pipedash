@@ -1,8 +1,9 @@
 import { Box, Group, ScrollArea, Stack } from '@mantine/core'
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { PageHeader } from '../common/PageHeader'
+import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
 import { SettingsMobileTabs } from './SettingsMobileTabs'
 import { SETTINGS_SECTIONS, type SettingsSection, SettingsSidebar } from './SettingsSidebar'
 import { AboutSection } from './sections/AboutSection'
@@ -11,6 +12,7 @@ import { GeneralSection } from './sections/GeneralSection'
 import { MetricsSection } from './sections/MetricsSection'
 import { NotificationsSection } from './sections/NotificationsSection'
 import { ProvidersSection } from './sections/ProvidersSection'
+import { ProviderTransferActions } from './sections/ProviderTransferActions'
 import { StorageSection } from './sections/StorageSection'
 
 interface SettingsPageProps {
@@ -18,15 +20,12 @@ interface SettingsPageProps {
   onRefresh?: () => Promise<void>
 }
 
-type SectionContent = (
-  onRefresh?: () => Promise<void>,
-  onHeaderActionsChange?: (actions: React.ReactNode) => void
-) => React.ReactNode
+type SectionContent = (onRefresh?: () => Promise<void>) => ReactNode
 
 const SECTION_CONTENT: Record<SettingsSection, SectionContent> = {
   general: (onRefresh) => <GeneralSection onRefresh={onRefresh} />,
   notifications: () => <NotificationsSection />,
-  providers: (_onRefresh, onHeaderActionsChange) => <ProvidersSection onHeaderActionsChange={onHeaderActionsChange} />,
+  providers: () => <ProvidersSection />,
   metrics: () => <MetricsSection />,
   cache: (onRefresh) => <CacheSection onRefresh={onRefresh} />,
   storage: () => <StorageSection />,
@@ -36,7 +35,6 @@ const SECTION_CONTENT: Record<SettingsSection, SectionContent> = {
 export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const [headerActions, setHeaderActions] = useState<React.ReactNode>(null)
   const sectionTitle = SETTINGS_SECTIONS.find((section) => section.id === activeSection)?.label
 
   const content = (
@@ -48,10 +46,15 @@ export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): R
       >
         {!mobileShell && (
           <Box mb="lg">
-            <PageHeader title={sectionTitle} actions={headerActions} />
+            <PageHeader
+              title={sectionTitle}
+              actions={activeSection === 'providers' ? <ProviderTransferActions /> : null}
+            />
           </Box>
         )}
-        {SECTION_CONTENT[activeSection](onRefresh, setHeaderActions)}
+        <ErrorBoundary key={activeSection} scope="feature" name={sectionTitle ?? 'Settings'}>
+          {SECTION_CONTENT[activeSection](onRefresh)}
+        </ErrorBoundary>
       </Box>
     </ScrollArea>
   )

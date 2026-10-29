@@ -26,7 +26,7 @@ export function FormErrorDisplay({ title, globalError, onDismiss }: FormErrorDis
   return (
     <Alert
       ref={errorRef}
-      icon={<IconAlertCircle size={16} />}
+      icon={<IconAlertCircle size={16} aria-hidden />}
       title={title}
       color="red"
       variant="light"

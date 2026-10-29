@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { createElement } from 'react'
+
+import type { ProviderSummary } from '../../types'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' } })
@@ -30,17 +32,62 @@ mockIPC(
 )
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import('@testing-library/react')
+const { userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter, useLocation, useNavigate, useSearchParams } = await import('react-router-dom')
 const { AppLayout } = await import('./AppLayout')
-const { apiService, tauriService } = await import('../../services')
+const { service } = await import('../../services')
 const view = () => within(document.body)
-const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+const clients = new Set<InstanceType<typeof QueryClient>>()
+
+const newClient = () => {
+  const created = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+
+  clients.add(created)
+
+  return created
+}
+
+beforeEach(() => {
+  notifyManager.setNotifyFunction((callback) => act(callback))
+})
+
+afterEach(async () => {
+  await act(async () => cleanup())
+  notifyManager.setNotifyFunction((callback) => callback())
+  for (const created of clients) {
+    created.clear()
+  }
+  clients.clear()
+  window.innerWidth = 1400
+})
+
+const stubShell = (context: TestContext, listProviders: () => Promise<ProviderSummary[]>) => {
+  context.mock.method(service, 'listProviders', listProviders)
+  context.mock.method(service, 'getAvailablePlugins', async () => [])
+  context.mock.method(service, 'getVaultStatus', async () => ({
+    is_unlocked: true,
+    password_source: 'none',
+    backend: 'sqlite',
+    requires_password: false,
+  }))
+}
+
+const renderLayout = () =>
+  render(
+    createElement(
+      MantineProvider,
+      null,
+      createElement(
+        QueryClientProvider,
+        { client: newClient() },
+        createElement(MemoryRouter, { initialEntries: ['/pipelines'] }, createElement(SearchPage))
+      )
+    )
+  )
 
 after(async () => {
-  await act(async () => cleanup())
-  client.clear()
   notifyManager.setNotifyFunction((callback) => callback())
   await GlobalRegistrator.unregister()
 })
@@ -69,21 +116,8 @@ function SearchPage() {
 }
 
 test('URL-backed searches keep input focus, while page and view changes focus the heading', async (context) => {
-  context.mock.method(apiService, 'listProviders', tauriService.listProviders)
-  context.mock.method(apiService, 'getAvailablePlugins', tauriService.getAvailablePlugins)
-  context.mock.method(apiService, 'getVaultStatus', tauriService.getVaultStatus)
-  notifyManager.setNotifyFunction((callback) => act(callback))
-  render(
-    createElement(
-      MantineProvider,
-      null,
-      createElement(
-        QueryClientProvider,
-        { client },
-        createElement(MemoryRouter, { initialEntries: ['/pipelines'] }, createElement(SearchPage))
-      )
-    )
-  )
+  stubShell(context, async () => [])
+  renderLayout()
 
   const heading = view().getByRole('heading', { name: 'Pipelines' })
   await waitFor(() => assert.ok(document.activeElement === heading, 'Initial navigation focuses the heading'))
@@ -112,4 +146,46 @@ test('URL-backed searches keep input focus, while page and view changes focus th
       'Navigation focuses the new heading'
     )
   })
+})
+
+test('the sidebar shows a loading status while providers load', async (context) => {
+  stubShell(context, () => Promise.withResolvers<ProviderSummary[]>().promise)
+  renderLayout()
+
+  assert.ok(await view().findByText('Loading providers'))
+  assert.equal(view().queryByText('No providers yet'), null)
+})
+
+test('the sidebar reports a failed provider query and offers a retry', async (context) => {
+  stubShell(context, () => Promise.reject(new Error('providers unavailable')))
+  renderLayout()
+
+  assert.ok(await view().findByText("Couldn't load providers"))
+  assert.ok(view().getByText('providers unavailable'))
+  assert.ok(view().getByRole('button', { name: 'Retry' }))
+  assert.equal(view().queryByText('Loading providers'), null)
+})
+
+test('the sidebar explains that no providers exist yet', async (context) => {
+  stubShell(context, async () => [])
+  renderLayout()
+
+  assert.ok(await view().findByText('No providers yet'))
+  assert.equal(view().queryByText("Couldn't load providers"), null)
+})
+
+test('navigating on a narrow screen closes the open sidebar', async (context) => {
+  stubShell(context, async () => [])
+  window.innerWidth = 500
+  const user = userEvent.setup({ document })
+
+  renderLayout()
+
+  await user.click(await view().findByRole('button', { name: 'Expand sidebar' }))
+  assert.ok(view().getByRole('button', { name: 'Collapse sidebar' }))
+
+  await user.click(view().getByRole('button', { name: 'Open settings' }))
+
+  await waitFor(() => assert.ok(view().getByRole('button', { name: 'Expand sidebar' })))
+  assert.equal(view().queryByRole('button', { name: 'Collapse sidebar' }), null)
 })

@@ -12,7 +12,7 @@ import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
 
-import { AddProviderModal } from './AddProviderModal'
+import { AddProviderModal } from './AddProviderModal/index'
 
 export function useConfirmRemoveProvider(): (id: number, name: string) => void {
   const { mutateAsync: removeProvider } = useRemoveProvider()
@@ -68,12 +68,12 @@ export function ProviderModals(): ReactNode {
 
   const handleCloseAdd = () => {
     closeAddProviderModal()
-    refetchProviders()
+    void refetchProviders()
   }
 
   return (
     <>
-      <AddProviderModal opened={addProviderModal.open} onClose={handleCloseAdd} onAdd={handleAdd} />
+      {addProviderModal.open && <AddProviderModal opened onClose={handleCloseAdd} onAdd={handleAdd} />}
 
       <StandardModal
         opened={editProviderId !== null && !providerDetails}
@@ -85,7 +85,7 @@ export function ProviderModals(): ReactNode {
           <ErrorState
             title="Couldn't load provider"
             error={providerDetailsError}
-            onRetry={() => refetchProviderDetails()}
+            onRetry={() => void refetchProviderDetails()}
             retrying={fetchingProviderDetails}
           />
         ) : (
@@ -98,8 +98,8 @@ export function ProviderModals(): ReactNode {
           key={editProviderId}
           opened
           onClose={closeEditProviderModal}
-          onUpdate={handleUpdate}
           editMode
+          onUpdate={handleUpdate}
           existingProvider={providerDetails}
         />
       )}

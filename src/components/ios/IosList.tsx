@@ -2,9 +2,11 @@ import { IconChevronRight } from '@tabler/icons-react'
 import { type MouseEventHandler, type ReactNode, useId } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
+import { useRowMenuLongPress } from '../../hooks/useLongPress'
+
 import classes from './IosList.module.css'
-import { type SwipeAction, SwipeActions } from './SwipeActions'
-import { useRowMenuLongPress } from './useLongPress'
+import { SwipeActions } from './SwipeActions'
+import type { SwipeAction } from './swipeAction'
 
 interface IosGroupProps {
   header?: ReactNode
@@ -45,17 +47,14 @@ export function IosGroup({ header, headerAction, headingLevel = 2, footer, child
   )
 }
 
-interface IosRowProps {
+interface IosRowContentProps {
   title: ReactNode
   subtitle?: ReactNode
   icon?: ReactNode
   value?: ReactNode
   accessory?: ReactNode
-  to?: string
-  onClick?: MouseEventHandler<HTMLButtonElement>
   chevron?: boolean
   destructive?: boolean
-  disabled?: boolean
   selected?: boolean
   longPressMenu?: boolean
   ariaLabel?: string
@@ -63,32 +62,37 @@ interface IosRowProps {
   swipeActions?: SwipeAction[]
 }
 
-export function IosRow({
-  title,
-  subtitle,
-  icon,
-  value,
-  accessory,
-  to,
-  onClick,
-  chevron = Boolean(to),
-  destructive,
-  disabled,
-  selected,
-  longPressMenu,
-  ariaLabel,
-  invalid,
-  swipeActions,
-}: IosRowProps): ReactNode {
+type IosRowInteraction =
+  | { to: string; onClick?: never; disabled?: never }
+  | { to?: never; onClick: MouseEventHandler<HTMLButtonElement>; disabled?: boolean }
+  | { to?: never; onClick?: never; disabled?: never }
+
+type IosRowProps = IosRowContentProps & IosRowInteraction
+
+export function IosRow(props: IosRowProps): ReactNode {
+  const {
+    title,
+    subtitle,
+    icon,
+    value,
+    accessory,
+    chevron = Boolean(props.to),
+    destructive,
+    selected,
+    longPressMenu,
+    ariaLabel,
+    invalid,
+    swipeActions,
+  } = props
   const location = useLocation()
   const pressRef = useRowMenuLongPress(Boolean(longPressMenu))
-  const tappable = Boolean(to || onClick)
+  const tappable = Boolean(props.to || props.onClick)
   const shared = {
     className: classes.row,
     'data-icon': icon ? '' : undefined,
     'data-tappable': tappable ? '' : undefined,
     'data-destructive': destructive ? '' : undefined,
-    'data-disabled': disabled ? '' : undefined,
+    'data-disabled': props.disabled ? '' : undefined,
     'data-selected': selected ? '' : undefined,
     'aria-label': ariaLabel,
     'aria-invalid': invalid || undefined,
@@ -115,9 +119,9 @@ export function IosRow({
   )
 
   const render = (className: string | undefined, ref?: (element: HTMLElement | null) => void) =>
-    to ? (
+    props.to ? (
       <Link
-        to={to}
+        to={props.to}
         state={{ from: `${location.pathname}${location.search}` }}
         {...shared}
         aria-current={selected ? 'true' : undefined}
@@ -126,11 +130,11 @@ export function IosRow({
       >
         {content}
       </Link>
-    ) : onClick ? (
+    ) : props.onClick ? (
       <button
         type="button"
-        onClick={onClick}
-        disabled={disabled}
+        onClick={props.onClick}
+        disabled={props.disabled}
         {...shared}
         aria-pressed={selected}
         className={className}

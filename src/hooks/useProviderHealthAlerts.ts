@@ -15,6 +15,10 @@ export function useProviderHealthAlerts(): void {
 
     events
       .listen<HealthAlert>('provider-health-alert', (alert) => {
+        if (!active) {
+          return
+        }
+
         if (isTauri() && !navigator.onLine && alert.link === null) {
           return
         }

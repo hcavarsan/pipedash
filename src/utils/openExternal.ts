@@ -1,8 +1,14 @@
 import { service } from '../services'
 
-const HTTP_URL = /^https?:\/\//i
+export const isHttpUrl = (url: string): boolean => {
+  if (!URL.canParse(url)) {
+    return false
+  }
 
-export const isHttpUrl = (url: string): boolean => HTTP_URL.test(url)
+  const parsed = new URL(url)
+
+  return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== ''
+}
 
 export async function openExternal(url: string): Promise<boolean> {
   if (!isHttpUrl(url)) {

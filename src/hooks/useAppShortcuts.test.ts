@@ -6,7 +6,8 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 GlobalRegistrator.register({ width: 1400, height: 900 })
 after(() => GlobalRegistrator.unregister())
 
-const { act, cleanup, renderHook } = await import('@testing-library/react')
+const { cleanup, renderHook } = await import('@testing-library/react')
+const { userEvent } = await import('@testing-library/user-event')
 const { useAppShortcuts } = await import('./useAppShortcuts')
 
 beforeEach(() => {
@@ -14,15 +15,31 @@ beforeEach(() => {
   document.body.replaceChildren()
 })
 
-function press(key: string, mod = false) {
-  const event = new KeyboardEvent('keydown', { key, ctrlKey: mod, cancelable: true, bubbles: true })
-  act(() => {
-    document.documentElement.dispatchEvent(event)
-  })
-  return event
+let user = userEvent.setup({ document })
+
+beforeEach(() => {
+  user = userEvent.setup({ document })
+})
+
+async function press(keys: string) {
+  let prevented = false
+  const watch = (event: KeyboardEvent) => {
+    prevented = event.defaultPrevented
+  }
+
+  document.addEventListener('keydown', watch)
+  try {
+    await user.keyboard(keys)
+  } finally {
+    document.removeEventListener('keydown', watch)
+  }
+
+  return prevented
 }
 
-test('web commands share settings and sidebar actions without taking browser refresh or address shortcuts', () => {
+const mod = (key: string) => `{Control>}${key}{/Control}`
+
+test('web commands share settings and sidebar actions without taking browser refresh or address shortcuts', async () => {
   let settings = 0
   let sidebar = 0
   let refresh = 0
@@ -44,17 +61,17 @@ test('web commands share settings and sidebar actions without taking browser ref
     })
   )
 
-  press(',', true)
-  press('\\', true)
+  await press(mod(','))
+  await press(mod('\\'))
   assert.equal(settings, 1)
   assert.equal(sidebar, 1)
-  assert.equal(press('r', true).defaultPrevented, false)
-  assert.equal(press('l', true).defaultPrevented, false)
+  assert.equal(await press(mod('r')), false)
+  assert.equal(await press(mod('l')), false)
   assert.equal(refresh, 0)
   assert.equal(lock, 0)
 })
 
-test('slash and the search command focus the current page search', () => {
+test('slash and the search command focus the current page search', async () => {
   const main = document.createElement('main')
   const search = document.createElement('input')
   search.dataset.searchInput = ''
@@ -62,14 +79,14 @@ test('slash and the search command focus the current page search', () => {
   document.body.append(main)
   renderHook(() => useAppShortcuts({ onRefresh: () => {} }))
 
-  press('/')
+  await press('/')
   assert.equal(document.activeElement, search)
   search.blur()
-  press('k', true)
+  await press(mod('k'))
   assert.equal(document.activeElement, search)
 })
 
-test('typing a slash is left alone, but the search command works from another input', () => {
+test('typing a slash is left alone, but the search command works from another input', async () => {
   const main = document.createElement('main')
   const search = document.createElement('input')
   search.dataset.searchInput = ''
@@ -79,20 +96,13 @@ test('typing a slash is left alone, but the search command works from another in
   renderHook(() => useAppShortcuts({ onRefresh: () => {} }))
   other.focus()
 
-  const slash = new KeyboardEvent('keydown', { key: '/', cancelable: true, bubbles: true })
-  act(() => {
-    other.dispatchEvent(slash)
-  })
-  assert.equal(slash.defaultPrevented, false)
+  assert.equal(await press('/'), false)
   assert.equal(document.activeElement, other)
-  const searchCommand = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, cancelable: true, bubbles: true })
-  act(() => {
-    other.dispatchEvent(searchCommand)
-  })
+  await press(mod('k'))
   assert.equal(document.activeElement, search)
 })
 
-test('the settings command waits while a dialog is open, so unsaved edits are not dropped', () => {
+test('the settings command waits while a dialog is open, so unsaved edits are not dropped', async () => {
   let settings = 0
   const dialog = document.createElement('section')
   dialog.className = 'mantine-Modal-content'
@@ -106,9 +116,9 @@ test('the settings command waits while a dialog is open, so unsaved edits are no
     })
   )
 
-  press(',', true)
+  await press(mod(','))
   assert.equal(settings, 0)
   dialog.remove()
-  press(',', true)
+  await press(mod(','))
   assert.equal(settings, 1)
 })

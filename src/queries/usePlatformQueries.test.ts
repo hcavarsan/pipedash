@@ -20,17 +20,18 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
   const { notifications } = await import('@mantine/notifications')
   const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
   const { mockIPC } = await import('@tauri-apps/api/mocks')
-  const { act, cleanup, renderHook } = await import('@testing-library/react')
+  const { act, cleanup, renderHook, waitFor } = await import('@testing-library/react')
 
   const complete = { providers_removed: 1, caches_cleared: true, tokens_cleared: true, metrics_cleared: true }
   let response = { ...complete }
   let failure: Error | null = null
+  let gate: Promise<void> | null = null
   mockIPC((command) => {
     assert.equal(command, 'factory_reset')
     if (failure) {
       throw failure
     }
-    return response
+    return gate ? gate.then(() => response) : response
   })
   const { useNotificationStore } = await import('../stores/notificationStore')
   const { useFactoryReset } = await import('./usePlatformQueries')
@@ -42,6 +43,7 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
   beforeEach(() => {
     response = { ...complete }
     failure = null
+    gate = null
     localStorage.setItem('retained-settings', 'keep-until-complete')
     useNotificationStore.getState().setNotificationsEnabled(true)
   })
@@ -102,5 +104,22 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
     assert.equal(useNotificationStore.getState().notificationsEnabled, false)
     assert.equal(completed.mock.callCount(), 1)
     assert.equal(notices.mock.calls.at(0)?.arguments[0]?.color, 'green')
+  })
+
+  test('the reset stays pending and keeps preferences until the backend answers', async () => {
+    const release = Promise.withResolvers<void>()
+    gate = release.promise
+    const { result } = renderHook(useFactoryReset, { wrapper })
+    let finished: Promise<unknown> = Promise.resolve()
+
+    act(() => {
+      finished = result.current.mutateAsync()
+    })
+    await waitFor(() => assert.equal(result.current.isPending, true))
+    assert.equal(localStorage.getItem('retained-settings'), 'keep-until-complete')
+
+    release.resolve()
+    await act(async () => finished)
+    assert.equal(localStorage.getItem('retained-settings'), null)
   })
 }

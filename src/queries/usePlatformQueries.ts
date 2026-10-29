@@ -2,6 +2,8 @@ import { notifications } from '@mantine/notifications'
 import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { service } from '../services'
+import { useLogViewerPrefs } from '../stores/logViewerPrefsStore'
+import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 import { useNotificationStore } from '../stores/notificationStore'
 import { formatCount } from '../utils/formatCount'
 
@@ -29,6 +31,8 @@ export function useFactoryReset(): UseMutationResult<FactoryResetResult, Error, 
     onSuccess: (result) => {
       queryClient.clear()
       useNotificationStore.setState(useNotificationStore.getInitialState(), true)
+      useLogViewerPrefs.setState(useLogViewerPrefs.getInitialState(), true)
+      useNotificationCenterStore.setState({ items: [], selection: null })
       localStorage.clear()
 
       notifications.show({

@@ -1,6 +1,10 @@
 import type { MigrationResult, StorageConfigResponse } from '../../../types'
 
+import type { SetupFieldErrors } from './setupDraft'
+
 export type StorageBackend = 'sqlite' | 'postgres'
+
+export type WizardStep = 'storage' | 'transfer' | 'confirm' | 'success'
 
 export interface SetupState {
   backend: StorageBackend
@@ -26,9 +30,9 @@ export interface StorageStepProps {
   state: SetupState
   setState: (state: SetupState) => void
   currentConfig: StorageConfigResponse | null
-  vaultStatus: VaultPasswordStatus | null
+  vaultStatus: VaultPasswordStatus
   error: string | null
-  checkingVault: boolean
+  fieldErrors: SetupFieldErrors
 }
 
 export interface TransferStepProps {
@@ -43,13 +47,13 @@ export interface ConfirmStepProps {
   vaultPasswordFromEnv: boolean
   isMobile: boolean
   error: string | null
-  vaultStatus: VaultPasswordStatus | null
+  vaultStatus: VaultPasswordStatus
 }
 
 export interface SuccessStepProps {
   state: SetupState
   migrationStats: MigrationResult['stats'] | null
-  vaultStatus: VaultPasswordStatus | null
+  vaultStatus: VaultPasswordStatus
   vaultPasswordFromEnv: boolean
   onComplete: () => void
 }

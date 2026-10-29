@@ -77,7 +77,7 @@ export function AboutSection(): ReactNode {
               href={url}
               variant="default"
               justify="space-between"
-              rightSection={<IconExternalLink size={16} />}
+              rightSection={<IconExternalLink size={16} aria-hidden />}
               onClick={(event: React.MouseEvent) => {
                 event.preventDefault()
                 void openLink(label, url)

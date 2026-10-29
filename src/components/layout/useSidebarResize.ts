@@ -60,12 +60,20 @@ export const useSidebarResize = (resizable: boolean): SidebarResizeResult => {
     [spring]
   )
 
+  const [previousResizable, setPreviousResizable] = useState(resizable)
+
+  if (previousResizable !== resizable) {
+    setPreviousResizable(resizable)
+    if (!resizable) {
+      setResizing(false)
+      setPresentation(null)
+    }
+  }
+
   useEffect(() => {
     if (!resizable) {
       drag.current = null
       spring.grab()
-      setResizing(false)
-      setPresentation(null)
     }
   }, [resizable, spring])
 

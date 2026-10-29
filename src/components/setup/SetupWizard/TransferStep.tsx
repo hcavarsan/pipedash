@@ -39,8 +39,12 @@ export function TransferStep({ state, setState, error }: TransferStepProps): Rea
                 icon={option.icon}
                 title={option.title}
                 subtitle={option.subtitle}
-                ariaLabel={selected ? `${option.title}, selected` : option.title}
-                accessory={selected ? <IconCheck size={20} color="var(--mantine-color-blue-light-color)" /> : undefined}
+                selected={selected}
+                accessory={
+                  selected ? (
+                    <IconCheck size={20} color="var(--mantine-color-blue-light-color)" aria-hidden />
+                  ) : undefined
+                }
                 onClick={() => setState({ ...state, transferData: option.transfer })}
               />
             )
@@ -69,7 +73,7 @@ export function TransferStep({ state, setState, error }: TransferStepProps): Rea
               <Radio.Indicator />
               <Stack gap="3xs" style={{ flex: 1 }}>
                 <Group gap="xs" wrap="nowrap">
-                  <IconDatabase size={16} />
+                  <IconDatabase size={16} aria-hidden />
                   <Text size="sm" fw={500}>
                     Transfer data
                   </Text>
@@ -89,7 +93,7 @@ export function TransferStep({ state, setState, error }: TransferStepProps): Rea
               <Radio.Indicator />
               <Stack gap="3xs" style={{ flex: 1 }}>
                 <Group gap="xs" wrap="nowrap">
-                  <IconDatabaseOff size={16} />
+                  <IconDatabaseOff size={16} aria-hidden />
                   <Text size="sm" fw={500}>
                     Start fresh
                   </Text>
@@ -104,14 +108,18 @@ export function TransferStep({ state, setState, error }: TransferStepProps): Rea
       </Radio.Group>
 
       {!state.transferData && (
-        <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Switching without transferring data">
+        <Alert
+          icon={<IconAlertCircle size={16} aria-hidden />}
+          color="orange"
+          title="Switching without transferring data"
+        >
           Existing providers, saved credentials, and pipeline history will stay in the previous location and will not be
           available after switching. You will need to configure your providers again.
         </Alert>
       )}
 
       {error && (
-        <Alert icon={<IconAlertCircle size={16} />} color="red" title="Couldn't transfer data">
+        <Alert icon={<IconAlertCircle size={16} aria-hidden />} color="red" title="Couldn't transfer data">
           {error}
         </Alert>
       )}

@@ -1,3 +1,5 @@
+import { isRecord } from '../utils/isRecord'
+
 export type PipedashError =
   | { type: 'network'; message: string; statusCode?: number; cause?: unknown }
   | { type: 'auth'; message: string; cause?: unknown }
@@ -12,15 +14,32 @@ export type PipedashError =
   | { type: 'not_found'; message: string; resource?: string; cause?: unknown }
   | { type: 'unknown'; message: string; cause?: unknown }
 
+function optional(value: unknown, type: 'string' | 'number'): boolean {
+  return value === undefined || typeof value === type
+}
+
 export function isPipedashError(error: unknown): error is PipedashError {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'type' in error &&
-    'message' in error &&
-    typeof error.type === 'string' &&
-    typeof error.message === 'string'
-  )
+  if (!isRecord(error) || typeof error.message !== 'string') {
+    return false
+  }
+
+  switch (error.type) {
+    case 'network':
+      return optional(error.statusCode, 'number')
+    case 'timeout':
+      return optional(error.timeoutMs, 'number')
+    case 'not_found':
+      return optional(error.resource, 'string')
+    case 'auth':
+    case 'unknown':
+      return true
+    case 'validation':
+      return isRecord(error.fields)
+    case 'permission':
+      return Array.isArray(error.missingPermissions)
+    default:
+      return false
+  }
 }
 
 export function formatErrorMessage(error: unknown): string {

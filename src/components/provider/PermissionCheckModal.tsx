@@ -7,6 +7,8 @@ import type { FeatureAvailability, PermissionStatus, PluginMetadata } from '../.
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
+import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
+import { LiveStatus } from '../forms/LiveStatus'
 import { IosGroup, IosRow } from '../ios/IosList'
 
 import classes from './AddProviderModal/ShellForm.module.css'
@@ -99,6 +101,14 @@ export const PermissionCheckModal = ({
   error,
 }: PermissionCheckModalProps): ReactNode => {
   const mobileShell = useMobileShell()
+  const grantedCount = status?.permissions.filter((check) => check.granted).length ?? 0
+  const statusMessage = loading
+    ? 'Checking permissions'
+    : error
+      ? 'Permission check failed'
+      : status
+        ? `${grantedCount} of ${status.permissions.length} permissions granted`
+        : ''
   const shellTitle = metadata?.provider_type === 'fluxcd' ? 'Kubernetes permissions' : 'Token permissions'
   const modalTitle = (
     <Group justify="space-between" w="100%">
@@ -113,81 +123,91 @@ export const PermissionCheckModal = ({
 
   return (
     <StandardModal opened={opened} onClose={onClose} title={mobileShell ? shellTitle : modalTitle} size="md">
-      {loading ? (
-        <LoadingState variant="section" message="Checking permissions..." />
-      ) : error ? (
-        <ErrorState title="Couldn't check permissions" error={error} onRetry={onRetry} />
-      ) : status && mobileShell ? (
-        <ShellPermissions status={status} features={features} />
-      ) : status ? (
-        <Stack gap="sm">
-          {status.permissions.map((check) => {
-            const featuresForPermission = features.filter((f) =>
-              f.feature.required_permissions.includes(check.permission.name)
-            )
+      <LiveStatus message={statusMessage} />
+      <ErrorBoundary scope="feature" name="Provider permissions">
+        {loading ? (
+          <LoadingState variant="section" message="Checking permissions..." />
+        ) : error ? (
+          <ErrorState title="Couldn't check permissions" error={error} onRetry={onRetry} />
+        ) : status && mobileShell ? (
+          <ShellPermissions status={status} features={features} />
+        ) : status ? (
+          <Stack gap="sm">
+            {status.permissions.map((check) => {
+              const featuresForPermission = features.filter((f) =>
+                f.feature.required_permissions.includes(check.permission.name)
+              )
 
-            return (
-              <Card key={check.permission.name} p="md">
-                <Stack gap="sm">
-                  <Group justify="space-between" align="flex-start">
-                    <Group gap="xs">
-                      <Tooltip label={check.granted ? 'Permission granted' : 'Permission not granted'}>
-                        <ThemeIcon
-                          size="sm"
-                          variant="transparent"
-                          color={check.granted ? 'green' : 'red'}
-                          aria-label={check.granted ? 'Permission granted' : 'Permission not granted'}
-                        >
-                          {check.granted ? <IconCheck size={14} /> : <IconX size={14} />}
-                        </ThemeIcon>
-                      </Tooltip>
-                      <Code fz="sm">{check.permission.name}</Code>
+              return (
+                <Card key={check.permission.name} p="md">
+                  <Stack gap="sm">
+                    <Group justify="space-between" align="flex-start">
+                      <Group gap="xs">
+                        <Tooltip label={check.granted ? 'Permission granted' : 'Permission not granted'}>
+                          <ThemeIcon
+                            size="sm"
+                            variant="transparent"
+                            color={check.granted ? 'green' : 'red'}
+                            aria-label={check.granted ? 'Permission granted' : 'Permission not granted'}
+                          >
+                            {check.granted ? <IconCheck size={14} aria-hidden /> : <IconX size={14} aria-hidden />}
+                          </ThemeIcon>
+                        </Tooltip>
+                        <Code fz="sm">{check.permission.name}</Code>
+                      </Group>
+                      <Badge size="xs" variant="light" color="gray">
+                        {check.permission.required ? 'Required' : 'Optional'}
+                      </Badge>
                     </Group>
-                    <Badge size="xs" variant="light" color="gray">
-                      {check.permission.required ? 'Required' : 'Optional'}
-                    </Badge>
-                  </Group>
 
-                  <Text size="xs" c="dimmed">
-                    {formatPermissionDescription(check.permission.description)}
-                  </Text>
+                    <Text size="xs" c="dimmed">
+                      {formatPermissionDescription(check.permission.description)}
+                    </Text>
 
-                  {featuresForPermission.length > 0 && <Divider />}
+                    {featuresForPermission.length > 0 && <Divider />}
 
-                  {featuresForPermission.length > 0 && (
-                    <Box>
-                      <Text size="xs" fw={500} mb="3xs" c="dimmed">
-                        {check.granted ? 'With this you can:' : "Missing this means you can't:"}
-                      </Text>
-                      <Stack gap="3xs">
-                        {featuresForPermission.map((f) => (
-                          <Group key={f.feature.id} gap="2xs" wrap="nowrap">
-                            <Text size="xs" c="dimmed">
-                              •
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              {f.feature.name}
-                            </Text>
-                          </Group>
-                        ))}
-                      </Stack>
-                    </Box>
-                  )}
-                </Stack>
-              </Card>
-            )
-          })}
-        </Stack>
-      ) : (
-        <Alert icon={<IconAlertCircle size={16} />} color="gray" variant="light" title="Permission details unavailable">
-          <Stack gap="sm" align="flex-start">
-            <Text size="sm">Permission details could not be retrieved. These credentials have not been verified.</Text>
-            <Button size="xs" variant="default" leftSection={<IconRefresh size={14} />} onClick={onRetry}>
-              Retry
-            </Button>
+                    {featuresForPermission.length > 0 && (
+                      <Box>
+                        <Text size="xs" fw={500} mb="3xs" c="dimmed">
+                          {check.granted ? 'With this you can:' : "Missing this means you can't:"}
+                        </Text>
+                        <Stack gap="3xs">
+                          {featuresForPermission.map((f) => (
+                            <Group key={f.feature.id} gap="2xs" wrap="nowrap">
+                              <Text size="xs" c="dimmed">
+                                •
+                              </Text>
+                              <Text size="xs" c="dimmed">
+                                {f.feature.name}
+                              </Text>
+                            </Group>
+                          ))}
+                        </Stack>
+                      </Box>
+                    )}
+                  </Stack>
+                </Card>
+              )
+            })}
           </Stack>
-        </Alert>
-      )}
+        ) : (
+          <Alert
+            icon={<IconAlertCircle size={16} aria-hidden />}
+            color="gray"
+            variant="light"
+            title="Permission details unavailable"
+          >
+            <Stack gap="sm" align="flex-start">
+              <Text size="sm">
+                Permission details could not be retrieved. These credentials have not been verified.
+              </Text>
+              <Button size="xs" variant="default" leftSection={<IconRefresh size={14} aria-hidden />} onClick={onRetry}>
+                Retry
+              </Button>
+            </Stack>
+          </Alert>
+        )}
+      </ErrorBoundary>
     </StandardModal>
   )
 }

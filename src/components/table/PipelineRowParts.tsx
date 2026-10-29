@@ -30,18 +30,18 @@ import { ToneDot } from '../atoms/ToneDot'
 import type { ContextMenuItem } from '../common/ContextMenu'
 import { RefreshButton } from '../common/RefreshButton'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
-import type { SwipeAction } from '../ios/SwipeActions'
+import type { SwipeAction } from '../ios/swipeAction'
 
-interface SectionHeadingProps {
+type SectionExpansion = { onToggle: () => void; expanded: boolean } | { onToggle?: never; expanded?: never }
+
+type SectionHeadingProps = {
   id?: string | undefined
   icon: ReactNode
   label: string
   info?: ReactNode
   actions?: ReactNode
   count: number
-  expanded?: boolean | undefined
-  onToggle?: (() => void) | undefined
-}
+} & SectionExpansion
 
 export function SectionHeading({
   id,
@@ -105,23 +105,34 @@ export function SectionHeading({
   )
 }
 
-export interface TableRow {
+interface BaseTableRow {
   id: string
-  type: 'section' | 'workflow'
   name: string
   depth?: number | undefined
-  kind?: SectionMode | 'view' | undefined
-  expanded?: boolean | undefined
   organization?: string | undefined
-  pipelineCount?: number | undefined
-  providerIds?: Set<number>
-  providerLabel?: string
-  hasPendingFetch?: boolean
-  status?: PipelineStatus | null
-  lastRun?: string | null
-  pipeline?: ViewPipeline
-  pipelines?: ViewPipeline[]
+  providerIds: Set<number>
+  providerLabel?: string | undefined
+  lastRun?: string | null | undefined
 }
+
+export interface SectionRow extends BaseTableRow {
+  type: 'section'
+  kind: SectionMode | 'view'
+  expanded: boolean
+  pipelineCount: number
+  hasPendingFetch: boolean
+  pipelines: ViewPipeline[]
+}
+
+export interface WorkflowRow extends BaseTableRow {
+  type: 'workflow'
+  pipeline: ViewPipeline
+  status: PipelineStatus
+}
+
+export type TableRow = SectionRow | WorkflowRow
+
+export type SectionMenuTarget = Pick<SectionRow, 'type' | 'id' | 'name' | 'kind' | 'pipelines'>
 
 export function PipelineStatusBadge({
   pipeline,
@@ -161,7 +172,7 @@ export function PipelineStatusBadge({
 }
 
 export function RepositoryFetchIndicator({ row }: { row: TableRow }): ReactNode {
-  if (!row.hasPendingFetch) {
+  if (row.type !== 'section' || !row.hasPendingFetch) {
     return null
   }
 
@@ -192,7 +203,7 @@ export function FetchInfo({ providers }: { providers: ProviderSummary[] }): Reac
       aria-label="Fetch info"
       onClick={only && providers.length === 1 ? () => openProvider(only) : undefined}
     >
-      <IconInfoCircle size={16} />
+      <IconInfoCircle size={16} aria-hidden />
     </ActionIcon>
   )
   const icon = (
@@ -256,7 +267,7 @@ export function RowFetchInfo({
   row: TableRow
   getProvider: (providerId: number) => ProviderSummary | undefined
 }): ReactNode {
-  return <FetchInfo providers={Array.from(row.providerIds ?? [], getProvider).flatMap((p) => p ?? [])} />
+  return <FetchInfo providers={Array.from(row.providerIds, getProvider).flatMap((p) => p ?? [])} />
 }
 
 export interface PipelineActions {
@@ -283,7 +294,11 @@ export interface PipelineSelection {
 type WorkflowMenuItem = Extract<ContextMenuItem, { label: string }>
 
 export const triggerIcon = (pipeline: Pipeline): ReactNode =>
-  pipeline.provider_type === 'fluxcd' ? <IconRefresh size={16} /> : <IconPlayerPlayFilled size={16} />
+  pipeline.provider_type === 'fluxcd' ? (
+    <IconRefresh size={16} aria-hidden />
+  ) : (
+    <IconPlayerPlayFilled size={16} aria-hidden />
+  )
 
 export const repositoryRef = (sectionId: string): string => sectionId.slice('repo:'.length)
 
@@ -291,17 +306,17 @@ export const viewRef = (sectionId: string): string => sectionId.slice('view:'.le
 
 export const refreshItem = (providerIds: number[], actions: PipelineActions): WorkflowMenuItem => ({
   label: 'Refresh',
-  icon: <IconRefresh size={16} />,
+  icon: <IconRefresh size={16} aria-hidden />,
   disabled: actions.isRefreshing(providerIds),
   onClick: () => actions.onRefreshProviders(providerIds),
 })
 
-export const rowMenuItems = (row: TableRow, actions: PipelineActions): WorkflowMenuItem[] => {
+export const rowMenuItems = (row: WorkflowRow | SectionMenuTarget, actions: PipelineActions): WorkflowMenuItem[] => {
   if (row.type !== 'section') {
     return []
   }
 
-  const cancel = actions.cancelItem(row.name, row.pipelines ?? [])
+  const cancel = actions.cancelItem(row.name, row.pipelines)
   const items: WorkflowMenuItem[] =
     row.kind === 'repository'
       ? [actions.pinItem('repository', repositoryRef(row.id))]
@@ -309,7 +324,7 @@ export const rowMenuItems = (row: TableRow, actions: PipelineActions): WorkflowM
         ? [
             {
               label: 'Open view',
-              icon: <IconFolderOpen size={16} />,
+              icon: <IconFolderOpen size={16} aria-hidden />,
               onClick: () => actions.onOpenView(viewRef(row.id)),
             },
           ]
@@ -322,11 +337,19 @@ export function workflowMenuItems(pipeline: ViewPipeline, actions: PipelineActio
   const labels = getPipelineLabels(pipeline.provider_type)
   const { onViewMetrics, onRemoveFromView } = actions
   const items: WorkflowMenuItem[] = [
-    { label: labels.history, icon: <IconHistory size={16} />, onClick: () => actions.onViewHistory(pipeline) },
+    {
+      label: labels.history,
+      icon: <IconHistory size={16} aria-hidden />,
+      onClick: () => actions.onViewHistory(pipeline),
+    },
   ]
 
   if (onViewMetrics) {
-    items.push({ label: 'View metrics', icon: <IconChartLine size={16} />, onClick: () => onViewMetrics(pipeline) })
+    items.push({
+      label: 'View metrics',
+      icon: <IconChartLine size={16} aria-hidden />,
+      onClick: () => onViewMetrics(pipeline),
+    })
   }
 
   items.push(
@@ -339,23 +362,27 @@ export function workflowMenuItems(pipeline: ViewPipeline, actions: PipelineActio
     refreshItem([pipeline.provider_id], actions),
     {
       label: pipeline.pinned ? 'Unpin' : 'Pin',
-      icon: pipeline.pinned ? <IconPinFilled size={16} /> : <IconPin size={16} />,
+      icon: pipeline.pinned ? <IconPinFilled size={16} aria-hidden /> : <IconPin size={16} aria-hidden />,
       onClick: () => actions.onTogglePin(pipeline),
     },
-    { label: 'Add to view…', icon: <IconFolderPlus size={16} />, onClick: () => actions.onAddToView(pipeline) }
+    {
+      label: 'Add to view…',
+      icon: <IconFolderPlus size={16} aria-hidden />,
+      onClick: () => actions.onAddToView(pipeline),
+    }
   )
 
   if (onRemoveFromView) {
     items.push({
       label: actions.removeLabel ?? 'Remove from view',
-      icon: <IconFolderMinus size={16} />,
+      icon: <IconFolderMinus size={16} aria-hidden />,
       onClick: () => onRemoveFromView(pipeline),
     })
   }
 
   items.push({
     label: pipeline.hidden ? 'Unhide' : 'Hide',
-    icon: pipeline.hidden ? <IconEye size={16} /> : <IconEyeOff size={16} />,
+    icon: pipeline.hidden ? <IconEye size={16} aria-hidden /> : <IconEyeOff size={16} aria-hidden />,
     onClick: () => actions.onToggleHidden(pipeline),
   })
 
@@ -380,7 +407,7 @@ export function WorkflowActions({
       {onViewMetrics && (
         <Tooltip label={metricsLabel}>
           <ActionIcon aria-label={metricsLabel} onClick={() => onViewMetrics(pipeline)}>
-            <IconChartLine size={16} />
+            <IconChartLine size={16} aria-hidden />
           </ActionIcon>
         </Tooltip>
       )}
@@ -411,7 +438,7 @@ export function RowActionMenu({ name, items }: { name: string; items: WorkflowMe
     <Menu position="bottom">
       <Menu.Target>
         <ActionIcon data-row-menu aria-label={`Actions for ${name}`}>
-          <IconDots size={22} />
+          <IconDots size={22} aria-hidden />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>
@@ -480,7 +507,7 @@ export function WorkflowActionMenu({
     <Menu position="bottom">
       <Menu.Target>
         <ActionIcon data-row-menu aria-label={`Actions for ${pipeline.name}`}>
-          <IconDots size={22} />
+          <IconDots size={22} aria-hidden />
         </ActionIcon>
       </Menu.Target>
       <Menu.Dropdown>

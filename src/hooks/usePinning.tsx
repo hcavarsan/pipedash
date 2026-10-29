@@ -16,7 +16,7 @@ export function usePinning(): (kind: PinKind, ref: string) => PinMenuItem {
 
     return {
       label: `${pinned ? 'Unpin' : 'Pin'} ${kind}`,
-      icon: pinned ? <IconPinnedOff size={16} /> : <IconPin size={16} />,
+      icon: pinned ? <IconPinnedOff size={16} aria-hidden /> : <IconPin size={16} aria-hidden />,
       onClick: () => setPin({ kind, ref, pinned: !pinned }),
     }
   }

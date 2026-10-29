@@ -21,31 +21,29 @@ export function PhoneSearchField({
   const inputRef = useRef<HTMLInputElement>(null)
   const [active, setActive] = useState(false)
 
-  const cancel = () => {
+  const cancel = (): void => {
     onClear()
     inputRef.current?.blur()
     setActive(false)
   }
 
+  const submitSearch = (): void => {
+    if (onSubmit) {
+      onSubmit()
+
+      return
+    }
+
+    inputRef.current?.blur()
+  }
+
   return (
     <search className={classes.search}>
-      <form
-        className={classes.form}
-        onSubmit={(event) => {
-          event.preventDefault()
-
-          if (onSubmit) {
-            onSubmit()
-
-            return
-          }
-
-          inputRef.current?.blur()
-        }}
-      >
+      <form className={classes.form} action={submitSearch}>
         <div className={classes.field}>
           <IconSearch className={classes.icon} size="1.1em" aria-hidden />
           <input
+            name="search"
             ref={inputRef}
             type="search"
             className={classes.input}

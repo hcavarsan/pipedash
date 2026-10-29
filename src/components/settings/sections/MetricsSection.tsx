@@ -1,5 +1,5 @@
 import { Alert, Box, Card, Divider, NumberInput, Select, Stack, Switch, Text } from '@mantine/core'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, startTransition, useActionState, useId, useOptimistic, useRef, useState } from 'react'
 
 import { RETENTION_PRESETS, validateRetentionDays } from '../../../constants/metricsRetention'
 import { useMobileShell } from '../../../hooks/useIsMobile'
@@ -16,94 +16,138 @@ const RETENTION_DAYS = RETENTION_PRESETS.filter((option) => option.value !== 'cu
   Number(option.value)
 )
 
-const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
-  const updateGlobalMutation = useUpdateGlobalMetricsConfig()
+type RetentionMode = 'preset' | 'custom'
+
+interface RetentionActionState {
+  error: string | null
+  forDraft: string | null
+}
+
+const IDLE_STATE: RetentionActionState = { error: null, forDraft: null }
+
+const MetricsForm = ({ config }: { config: GlobalMetricsConfig }): ReactNode => {
+  const update = useUpdateGlobalMetricsConfig()
   const mobileShell = useMobileShell()
+  const formId = useId()
+  const formRef = useRef<HTMLFormElement>(null)
+  const confirmed = config.default_retention_days
+  const [optimisticEnabled, setOptimisticEnabled] = useOptimistic(config.enabled)
+  const [mode, setMode] = useState<RetentionMode>(() => (RETENTION_DAYS.includes(confirmed) ? 'preset' : 'custom'))
+  const [draft, setDraft] = useState<string | number | null>(null)
+  const [touched, setTouched] = useState(false)
+  const [commandError, setCommandError] = useState<string | null>(null)
 
-  const [metricsEnabled, setMetricsEnabled] = useState(config.enabled)
-  const [metricsRetention, setMetricsRetention] = useState(config.default_retention_days)
-  const [metricsRetentionMode, setMetricsRetentionMode] = useState<'preset' | 'custom'>(
-    RETENTION_DAYS.includes(config.default_retention_days) ? 'preset' : 'custom'
-  )
-  const [retentionDraft, setRetentionDraft] = useState<string | number>(config.default_retention_days)
-  const [retentionTouched, setRetentionTouched] = useState(false)
-  const [retentionError, setRetentionError] = useState<string | null>(null)
-  const [savedConfig, setSavedConfig] = useState(config)
+  const draftValue = draft ?? confirmed
+  const validationError = touched ? validateRetentionDays(draftValue) : null
 
-  if (config.enabled !== savedConfig.enabled || config.default_retention_days !== savedConfig.default_retention_days) {
-    setSavedConfig(config)
-    setMetricsEnabled(config.enabled)
-    if (Number(retentionDraft) === metricsRetention) {
-      setMetricsRetention(config.default_retention_days)
-      setRetentionDraft(config.default_retention_days)
-      setMetricsRetentionMode(RETENTION_DAYS.includes(config.default_retention_days) ? 'preset' : 'custom')
+  const [retentionState, retentionAction, savingRetention] = useActionState(async (): Promise<RetentionActionState> => {
+    const submitted = draftValue
+    const submittedKey = String(submitted)
+
+    setTouched(true)
+
+    const validation = validateRetentionDays(submitted)
+
+    if (validation) {
+      return { error: validation, forDraft: submittedKey }
     }
-  }
 
-  const saveRetentionDraft = async () => {
-    setRetentionTouched(true)
-    const validation = validateRetentionDays(retentionDraft)
-    setRetentionError(validation)
-    if (validation || Number(retentionDraft) === metricsRetention) {
+    const days = Number(submitted)
+
+    if (days === confirmed) {
+      return IDLE_STATE
+    }
+
+    try {
+      await update.mutateAsync({ enabled: config.enabled, retentionDays: days })
+      setCommandError(null)
+      setDraft((current) => (current !== null && String(current) === submittedKey ? null : current))
+
+      return IDLE_STATE
+    } catch (error) {
+      return {
+        error: errorMessage(error, 'Try saving the retention period again.'),
+        forDraft: submittedKey,
+      }
+    }
+  }, IDLE_STATE)
+
+  const isSaving = update.isPending || savingRetention
+  const actionError = retentionState.forDraft === String(draftValue) ? retentionState.error : null
+  const retentionError = validationError ?? actionError ?? commandError
+  const customMode = mode === 'custom'
+
+  const handleEnabledChange = (checked: boolean): void => {
+    if (isSaving) {
       return
     }
-    try {
-      await updateGlobalMutation.mutateAsync({ enabled: metricsEnabled, retentionDays: Number(retentionDraft) })
-      setMetricsRetention(Number(retentionDraft))
-    } catch (error) {
-      setRetentionDraft(metricsRetention)
-      setRetentionError(errorMessage(error, 'Try saving the retention period again.'))
-    }
-  }
 
-  const handleEnabledChange = async (checked: boolean) => {
-    setMetricsEnabled(checked)
-    try {
-      await updateGlobalMutation.mutateAsync({ enabled: checked, retentionDays: metricsRetention })
-    } catch (error) {
-      setMetricsEnabled(!checked)
-      setRetentionError(errorMessage(error, 'Try updating metrics settings again.'))
-    }
-  }
+    startTransition(async () => {
+      setOptimisticEnabled(checked)
+      setCommandError(null)
 
-  const handleRetentionChange = async (val: string | null) => {
-    if (val === 'custom') {
-      setMetricsRetentionMode('custom')
-    } else {
-      setMetricsRetentionMode('preset')
-      const retention = Number(val)
-      if (validateRetentionDays(retention)) {
-        return
-      }
       try {
-        await updateGlobalMutation.mutateAsync({ enabled: metricsEnabled, retentionDays: retention })
-        setMetricsRetention(retention)
-        setRetentionDraft(retention)
-        setRetentionError(null)
+        await update.mutateAsync({ enabled: checked, retentionDays: confirmed })
       } catch (error) {
-        setRetentionDraft(metricsRetention)
-        setRetentionError(errorMessage(error, 'Try saving the retention period again.'))
+        setCommandError(errorMessage(error, 'Try updating metrics settings again.'))
       }
+    })
+  }
+
+  const handleRetentionChange = (value: string | null): void => {
+    if (value === 'custom') {
+      setMode('custom')
+
+      return
+    }
+
+    setMode('preset')
+
+    const retention = Number(value)
+
+    if (isSaving || validateRetentionDays(retention)) {
+      return
+    }
+
+    startTransition(async () => {
+      try {
+        await update.mutateAsync({ enabled: config.enabled, retentionDays: retention })
+        setDraft(null)
+        setCommandError(null)
+      } catch (error) {
+        setCommandError(errorMessage(error, 'Try saving the retention period again.'))
+      }
+    })
+  }
+
+  const submitRetention = (): void => {
+    setTouched(true)
+
+    if (!isSaving) {
+      formRef.current?.requestSubmit()
     }
   }
 
-  const isSaving = updateGlobalMutation.isPending
+  const retentionValue = mode === 'preset' ? confirmed.toString() : 'custom'
 
   if (mobileShell) {
     return (
       <Stack gap="lg" pb="md">
+        <LiveStatus message={retentionError ?? ''} />
+        <form id={formId} ref={formRef} action={retentionAction} noValidate hidden />
+
         <IosGroup>
           <SwitchRow
             title="Enable metrics by default"
-            checked={metricsEnabled}
-            onChange={(e) => handleEnabledChange(e.currentTarget.checked)}
+            checked={optimisticEnabled}
+            onChange={(event) => handleEnabledChange(event.currentTarget.checked)}
             disabled={isSaving}
           />
         </IosGroup>
 
         <IosGroup
           footer={
-            retentionError ? (
+            retentionError && !customMode ? (
               <Text span inherit c="red" role="alert">
                 {retentionError}
               </Text>
@@ -116,29 +160,35 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
             {(id) => (
               <RowSelect
                 id={id}
-                value={metricsRetentionMode === 'preset' ? metricsRetention.toString() : 'custom'}
+                value={retentionValue}
                 onChange={handleRetentionChange}
                 data={RETENTION_PRESETS}
                 disabled={isSaving}
               />
             )}
           </FieldRow>
-          {metricsRetentionMode === 'custom' && (
+          {customMode && (
             <FieldRow title="Custom days">
               {(id) => (
                 <RowNumberInput
                   id={id}
-                  value={retentionDraft}
-                  onChange={(value) => {
-                    setRetentionDraft(value)
-                    if (retentionTouched) {
-                      setRetentionError(validateRetentionDays(value))
+                  form={formId}
+                  name="retention_days"
+                  value={draftValue}
+                  onChange={setDraft}
+                  onBlur={submitRetention}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      submitRetention()
                     }
                   }}
-                  onBlur={() => void saveRetentionDraft()}
-                  error={Boolean(retentionError)}
+                  error={retentionError ?? undefined}
                   min={1}
                   max={90}
+                  allowDecimal={false}
+                  clampBehavior="none"
+                  required
                   disabled={isSaving}
                 />
               )}
@@ -155,8 +205,8 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
         <LiveStatus message={retentionError ?? ''} />
         <Switch
           label="Enable metrics by default"
-          checked={metricsEnabled}
-          onChange={(e) => handleEnabledChange(e.currentTarget.checked)}
+          checked={optimisticEnabled}
+          onChange={(event) => handleEnabledChange(event.currentTarget.checked)}
           disabled={isSaving}
         />
 
@@ -164,39 +214,36 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
 
         <Select
           label="Retention period"
-          value={metricsRetentionMode === 'preset' ? metricsRetention.toString() : 'custom'}
+          value={retentionValue}
           onChange={handleRetentionChange}
           data={RETENTION_PRESETS}
           disabled={isSaving}
         />
 
-        {metricsRetentionMode === 'custom' && (
-          <NumberInput
-            label="Custom days"
-            value={retentionDraft}
-            onChange={(value) => {
-              setRetentionDraft(value)
-              if (retentionTouched) {
-                setRetentionError(validateRetentionDays(value))
-              }
-            }}
-            onBlur={() => {
-              void saveRetentionDraft()
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                event.currentTarget.blur()
-              }
-            }}
-            error={retentionError}
-            min={1}
-            max={90}
-            allowDecimal={false}
-            clampBehavior="none"
-          />
+        {customMode && (
+          <form id={formId} ref={formRef} action={retentionAction} noValidate>
+            <NumberInput
+              name="retention_days"
+              label="Custom days"
+              value={draftValue}
+              onChange={setDraft}
+              onBlur={submitRetention}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  submitRetention()
+                }
+              }}
+              error={retentionError ?? undefined}
+              min={1}
+              max={90}
+              allowDecimal={false}
+              clampBehavior="none"
+              required
+            />
+          </form>
         )}
-        {retentionError && metricsRetentionMode !== 'custom' && (
+        {retentionError && !customMode && (
           <Alert color="red" role="alert">
             {retentionError}
           </Alert>

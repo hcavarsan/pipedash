@@ -1,21 +1,25 @@
 import { Alert, Badge, Button, Card, Checkbox, Group, PasswordInput, Stack, Text } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
 
 import { useFormEnterNavigation } from '../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import type { MigrationOptions, MigrationPlan, MigrationStatsPreview } from '../../types'
+import { FormErrorDisplay } from '../common/FormErrorDisplay'
 import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
 
 import { FieldRow, SwitchRow } from './mobileParts'
 
 interface MigrationConfirmModalProps {
-  opened: boolean
   onClose: () => void
   migrationPlan: MigrationPlan
   stats?: MigrationStatsPreview | undefined
   onConfirm: (options: MigrationOptions) => Promise<void>
+}
+
+interface MigrationActionState {
+  error: string | null
 }
 
 const PASSWORD_ATTRIBUTES = {
@@ -27,7 +31,6 @@ const PASSWORD_ATTRIBUTES = {
 } as const
 
 export const MigrationConfirmModal = ({
-  opened,
   onClose,
   migrationPlan,
   stats,
@@ -38,40 +41,39 @@ export const MigrationConfirmModal = ({
   const formRef = useRef<HTMLFormElement>(null)
   useFormEnterNavigation(formRef)
   const passwordErrorId = useId()
-  const [loading, setLoading] = useState(false)
   const [password, setPassword] = useState('')
   const [migrateData, setMigrateData] = useState(true)
   const [passwordBlurred, setPasswordBlurred] = useState(false)
 
-  useEffect(() => {
-    if (!opened) {
-      setPassword('')
-      setMigrateData(true)
-      setPasswordBlurred(false)
-    }
-  }, [opened])
-
   const needsPassword = migrationPlan.migrate_tokens && migrateData
   const blocked = needsPassword && !password
 
-  const handleConfirm = async () => {
-    setPasswordBlurred(true)
-    if (loading || blocked) {
-      return
-    }
+  const [state, formAction, loading] = useActionState(
+    async (_previous: MigrationActionState, formData: FormData): Promise<MigrationActionState> => {
+      const submitted = formData.get('password')
+      const tokenPassword = typeof submitted === 'string' ? submitted : password
 
-    setLoading(true)
-    try {
-      await onConfirm({
-        migrate_tokens: migrateData,
-        migrate_cache: migrateData,
-        token_password: needsPassword && password ? password : undefined,
-        dry_run: false,
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
+      if (needsPassword && !tokenPassword) {
+        setPasswordBlurred(true)
+
+        return { error: null }
+      }
+
+      try {
+        await onConfirm({
+          migrate_tokens: migrateData,
+          migrate_cache: migrateData,
+          token_password: needsPassword && tokenPassword ? tokenPassword : undefined,
+          dry_run: false,
+        })
+
+        return { error: null }
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : 'Migration failed' }
+      }
+    },
+    { error: null }
+  )
 
   const summaryRows = [
     { label: 'Providers', value: stats?.providers_count },
@@ -130,6 +132,7 @@ export const MigrationConfirmModal = ({
             {(fieldId) => (
               <PasswordInput
                 id={fieldId}
+                name="password"
                 variant="unstyled"
                 aria-required
                 aria-invalid={!password}
@@ -151,7 +154,7 @@ export const MigrationConfirmModal = ({
 
   const desktopBody = (
     <Stack gap="md">
-      <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Important">
+      <Alert icon={<IconAlertCircle size={16} aria-hidden />} color="orange" title="Important">
         <Text size="sm">
           These configuration changes require migrating your data to the new storage backend. This process will move
           your providers, tokens, and cache to the new location.
@@ -184,6 +187,7 @@ export const MigrationConfirmModal = ({
 
       {needsPassword && (
         <PasswordInput
+          name="password"
           label="Vault password"
           description="Required to decrypt and migrate your encrypted tokens"
           placeholder="Enter your vault password"
@@ -201,24 +205,19 @@ export const MigrationConfirmModal = ({
 
   return (
     <StandardModal
-      opened={opened}
+      opened
       onClose={onClose}
       title="Migration required"
       loading={loading}
       footer={modalFooter}
-      primaryAction={{ label: 'Migrate', onClick: handleConfirm, loading, disabled: blocked }}
+      primaryAction={{ label: 'Migrate', onClick: () => formRef.current?.requestSubmit(), loading, disabled: blocked }}
       size="md"
     >
-      <form
-        id={formId}
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault()
-          void handleConfirm()
-        }}
-        ref={formRef}
-      >
-        {mobileShell ? shellBody : desktopBody}
+      <form id={formId} noValidate action={formAction} ref={formRef}>
+        <Stack gap="md">
+          <FormErrorDisplay title="Couldn't save configuration" globalError={state.error} />
+          {mobileShell ? shellBody : desktopBody}
+        </Stack>
       </form>
     </StandardModal>
   )

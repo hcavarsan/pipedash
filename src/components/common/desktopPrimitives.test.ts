@@ -131,6 +131,46 @@ test('context menu closes when the route changes', async () => {
   await waitFor(() => assert.equal(view().queryByRole('menu'), null))
 })
 
+function QuietTrigger({ entries }: { entries: Array<{ label: string; disabled?: boolean; onClick: () => void }> }) {
+  const contextMenu = useContextMenu()
+
+  return createElement('button', { type: 'button', ...contextMenu(() => entries) }, 'Quiet')
+}
+
+function renderQuiet(entries: Array<{ label: string; disabled?: boolean; onClick: () => void }>) {
+  return render(
+    createElement(
+      MantineProvider,
+      { theme: testTheme },
+      createElement(MemoryRouter, null, createElement(QuietTrigger, { entries }), createElement(ContextMenuHost))
+    )
+  )
+}
+
+test('context menu stays closed and keeps the native menu when there are no entries', () => {
+  renderQuiet([])
+  assert.equal(fireEvent.contextMenu(view().getByRole('button', { name: 'Quiet' })), true)
+  assert.equal(view().queryByRole('menu'), null)
+})
+
+test('context menu stays closed and keeps the native menu when every entry is disabled', () => {
+  renderQuiet([{ label: 'Unavailable action', disabled: true, onClick: () => {} }])
+  assert.equal(fireEvent.contextMenu(view().getByRole('button', { name: 'Quiet' })), true)
+  assert.equal(view().queryByRole('menu'), null)
+})
+
+test('search loading exposes a named searching status while the textbox stays accessible', () => {
+  render(
+    createElement(
+      MantineProvider,
+      null,
+      createElement(SearchInput, { value: 'build', onChange: () => {}, placeholder: 'Search runs', loading: true })
+    )
+  )
+  assert.ok(view().getByRole('status', { name: 'Searching…' }))
+  assert.ok(view().getByRole('textbox', { name: 'Search runs' }))
+})
+
 function EnterForm() {
   const formRef = useRef<HTMLFormElement>(null)
 

@@ -15,17 +15,25 @@ export function groupLogNodes(nodes: readonly RunLogNode[], failedFirst = false)
     }
 
     let stage: string | null = null
+    const seen = new Set<string>([node.id])
 
-    for (let parent = node.parent_id ? byId.get(node.parent_id) : undefined; parent; ) {
+    for (let parent = node.parent_id ? byId.get(node.parent_id) : undefined; parent && !seen.has(parent.id); ) {
       if (parent.kind === 'stage') {
         stage = parent.name
         break
       }
 
+      seen.add(parent.id)
       parent = parent.parent_id ? byId.get(parent.parent_id) : undefined
     }
 
-    groups.set(stage, [...(groups.get(stage) ?? []), node])
+    const members = groups.get(stage)
+
+    if (members) {
+      members.push(node)
+    } else {
+      groups.set(stage, [node])
+    }
   }
 
   return Array.from(groups, ([stage, members]) => ({

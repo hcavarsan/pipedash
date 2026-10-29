@@ -36,8 +36,20 @@ export function AppMantineProvider({ children }: { children: ReactNode }): React
   useAccessibilityPrefs()
 
   useLayoutEffect(() => {
-    document.documentElement.toggleAttribute('data-ios', mobileShell)
-    document.documentElement.style.removeProperty('background-color')
+    const root = document.documentElement
+    const hadIos = root.hasAttribute('data-ios')
+    const background = root.style.getPropertyValue('background-color')
+    const priority = root.style.getPropertyPriority('background-color')
+
+    root.toggleAttribute('data-ios', mobileShell)
+    root.style.removeProperty('background-color')
+
+    return () => {
+      root.toggleAttribute('data-ios', hadIos)
+      if (background) {
+        root.style.setProperty('background-color', background, priority)
+      }
+    }
   }, [mobileShell])
 
   return (

@@ -2,15 +2,17 @@ import { Loader } from '@mantine/core'
 import { IconCheck, IconChevronRight } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
 
+import { useRowMenuLongPress } from '../../hooks/useLongPress'
 import { useNow } from '../../hooks/useNow'
 import { STATUS_META } from '../../theme/status'
 import type { PipelineStatus, ProviderSummary } from '../../types'
 import { staleNote } from '../../utils/fetchInfo'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusGlyph } from '../atoms/StatusBadge'
+import { VirtualList } from '../common/VirtualList'
 import { IosGroup } from '../ios/IosList'
-import { type SwipeAction, SwipeActions } from '../ios/SwipeActions'
-import { useRowMenuLongPress } from '../ios/useLongPress'
+import { SwipeActions } from '../ios/SwipeActions'
+import type { SwipeAction } from '../ios/swipeAction'
 
 import classes from './IosPipelineList.module.css'
 import runClasses from './IosRunList.module.css'
@@ -144,6 +146,8 @@ const compactRelative = (value: string, now: number) => {
 export const relativeOrNever = (value: string | null | undefined, now: number): string =>
   value ? compactRelative(value, now) : 'Never'
 
+const ROW_ESTIMATE = 64
+
 interface IosPipelineListProps {
   header?: ReactNode
   headerAction?: ReactNode
@@ -153,6 +157,78 @@ interface IosPipelineListProps {
   actions: PipelineActions
   selection?: PipelineSelection | undefined
   onSelect?: (() => void) | undefined
+}
+
+type SectionTableRow = Extract<TableRow, { type: 'section' }>
+type WorkflowTableRow = Extract<TableRow, { type: 'workflow' }>
+
+interface SectionRowViewProps {
+  row: SectionTableRow
+  now: number
+  getProvider: (providerId: number) => ProviderSummary | undefined
+  onToggleRepo: (repoId: string) => void
+  actions: PipelineActions
+}
+
+function SectionRowView({ row, now, getProvider, onToggleRepo, actions }: SectionRowViewProps): ReactNode {
+  const isFluxGroup =
+    row.providerIds.size > 0 && Array.from(row.providerIds).every((id) => getProvider(id)?.provider_type === 'fluxcd')
+  const noun = isFluxGroup ? 'resource' : 'workflow'
+  const count = `${row.pipelineCount} ${noun}${row.pipelineCount === 1 ? '' : 's'}`
+
+  return (
+    <IosPipelineRow
+      title={row.name}
+      subtitle={Array.from(new Set([row.organization, row.providerLabel, count].filter(Boolean))).join(' · ')}
+      value={relativeOrNever(row.lastRun, now)}
+      expanded={row.expanded}
+      onClick={() => onToggleRepo(row.id)}
+      longPressMenu
+      trailing={
+        <span className={classes.spacer}>
+          <RowFetchInfo row={row} getProvider={getProvider} />
+          {row.hasPendingFetch && <Loader size="sm" aria-label="Fetching pipelines" />}
+          <RowActionMenu
+            name={row.name}
+            items={[refreshItem(Array.from(row.providerIds), actions), ...rowMenuItems(row, actions)]}
+          />
+        </span>
+      }
+    />
+  )
+}
+
+interface WorkflowRowViewProps {
+  row: WorkflowTableRow
+  now: number
+  getProvider: (providerId: number) => ProviderSummary | undefined
+  actions: PipelineActions
+  selection?: PipelineSelection | undefined
+}
+
+function WorkflowRowView({ row, now, getProvider, actions, selection }: WorkflowRowViewProps): ReactNode {
+  const { pipeline } = row
+  const isFlux = pipeline.provider_type === 'fluxcd'
+  const message = isFlux && pipeline.metadata?.message ? String(pipeline.metadata.message) : undefined
+  const provider = getProvider(pipeline.provider_id)
+
+  return (
+    <IosPipelineRow
+      depth={row.depth}
+      status={row.status}
+      statusText={getStatusLabel(pipeline)}
+      title={row.name}
+      subtitle={[row.organization, pipeline.branch].filter(Boolean).join(' · ')}
+      detail={[provider && staleNote(provider, now), message].filter(Boolean).join(' · ') || undefined}
+      value={relativeOrNever(row.lastRun, now)}
+      hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
+      longPressMenu
+      selected={selection ? selection.selected.has(pipeline.id) : undefined}
+      onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
+      swipeActions={workflowSwipeActions(pipeline, actions)}
+      trailing={<WorkflowActionMenu pipeline={pipeline} provider={provider} actions={actions} />}
+    />
+  )
 }
 
 export function IosPipelineList({
@@ -181,66 +257,24 @@ export function IosPipelineList({
         </>
       }
     >
-      {rows.map((row) => {
-        if (row.type === 'section') {
-          const isFluxGroup =
-            !!row.providerIds?.size &&
-            Array.from(row.providerIds).every((id) => getProvider(id)?.provider_type === 'fluxcd')
-          const noun = isFluxGroup ? 'resource' : 'workflow'
-          const count = `${row.pipelineCount} ${noun}${row.pipelineCount === 1 ? '' : 's'}`
-
-          return (
-            <IosPipelineRow
-              key={row.id}
-              title={row.name}
-              subtitle={Array.from(new Set([row.organization, row.providerLabel, count].filter(Boolean))).join(' · ')}
-              value={relativeOrNever(row.lastRun, now)}
-              expanded={row.expanded}
-              onClick={() => onToggleRepo(row.id)}
-              longPressMenu
-              trailing={
-                <span className={classes.spacer}>
-                  <RowFetchInfo row={row} getProvider={getProvider} />
-                  {row.hasPendingFetch && <Loader size="sm" aria-label="Fetching pipelines" />}
-                  <RowActionMenu
-                    name={row.name}
-                    items={[refreshItem(Array.from(row.providerIds ?? []), actions), ...rowMenuItems(row, actions)]}
-                  />
-                </span>
-              }
+      <VirtualList
+        items={rows}
+        getKey={(row) => row.id}
+        estimateSize={ROW_ESTIMATE}
+        renderItem={(row) =>
+          row.type === 'section' ? (
+            <SectionRowView
+              row={row}
+              now={now}
+              getProvider={getProvider}
+              onToggleRepo={onToggleRepo}
+              actions={actions}
             />
+          ) : (
+            <WorkflowRowView row={row} now={now} getProvider={getProvider} actions={actions} selection={selection} />
           )
         }
-
-        const { pipeline } = row
-
-        if (!pipeline) {
-          return null
-        }
-
-        const isFlux = pipeline.provider_type === 'fluxcd'
-        const message = isFlux && pipeline.metadata?.message ? String(pipeline.metadata.message) : undefined
-        const provider = getProvider(pipeline.provider_id)
-
-        return (
-          <IosPipelineRow
-            key={row.id}
-            depth={row.depth}
-            status={row.status}
-            statusText={getStatusLabel(pipeline)}
-            title={row.name}
-            subtitle={[row.organization, pipeline.branch].filter(Boolean).join(' · ')}
-            detail={[provider && staleNote(provider, now), message].filter(Boolean).join(' · ') || undefined}
-            value={relativeOrNever(row.lastRun, now)}
-            hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
-            longPressMenu
-            selected={selection ? selection.selected.has(pipeline.id) : undefined}
-            onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
-            swipeActions={workflowSwipeActions(pipeline, actions)}
-            trailing={<WorkflowActionMenu pipeline={pipeline} provider={provider} actions={actions} />}
-          />
-        )
-      })}
+      />
     </IosGroup>
   )
 }

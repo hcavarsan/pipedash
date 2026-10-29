@@ -1,20 +1,10 @@
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react'
 
-import { haptic } from '../../lib/haptics'
+import { createLongPress, guardLongPressClick } from '../components/ios/longPress'
+import { haptic } from '../lib/haptics'
+import { openRowMenu } from '../utils/rowMenu'
 
-import { createLongPress, guardLongPressClick } from './longPress'
-
-export function openRowMenu(row: HTMLElement): boolean {
-  const target = row.querySelector<HTMLElement>('[data-row-menu]')
-
-  if (!target || target.matches(':disabled, [aria-disabled="true"]')) {
-    return false
-  }
-
-  target.click()
-
-  return true
-}
+const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])'
 
 export function useLongPress(
   onLongPress: (row: HTMLElement) => boolean,
@@ -56,11 +46,22 @@ export function useLongPress(
       removeClickGuard = guardLongPressClick(document, pointerId)
     })
 
-    const abort = () => {
-      press.cancel()
+    const clear = () => {
       element.removeAttribute('data-pressing')
       activePointer = null
       document.removeEventListener('scroll', onScroll, { capture: true })
+      document.removeEventListener('pointerup', onUp, { capture: true })
+      document.removeEventListener('pointercancel', onCancel, { capture: true })
+    }
+
+    const abort = () => {
+      press.cancel()
+      clear()
+    }
+
+    const release = () => {
+      press.end()
+      clear()
     }
 
     const onScroll = (event: Event) => {
@@ -69,11 +70,16 @@ export function useLongPress(
       }
     }
 
-    const release = () => {
-      press.end()
-      element.removeAttribute('data-pressing')
-      activePointer = null
-      document.removeEventListener('scroll', onScroll, { capture: true })
+    const onUp = (event: PointerEvent) => {
+      if (event.pointerId === activePointer) {
+        release()
+      }
+    }
+
+    const onCancel = (event: PointerEvent) => {
+      if (event.pointerId === activePointer) {
+        abort()
+      }
     }
 
     const onDown = (event: PointerEvent) => {
@@ -85,6 +91,8 @@ export function useLongPress(
       element.setAttribute('data-pressing', '')
       press.start(event.clientX, event.clientY)
       document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+      document.addEventListener('pointerup', onUp, { capture: true })
+      document.addEventListener('pointercancel', onCancel, { capture: true })
     }
 
     const onMove = (event: PointerEvent) => {
@@ -94,28 +102,24 @@ export function useLongPress(
     }
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      const nested = event.target instanceof Element && event.target.closest(EDITABLE)
+
+      if (!nested && (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && open()) {
         event.preventDefault()
-        open()
       }
     }
 
     element.addEventListener('pointerdown', onDown, { passive: true })
     element.addEventListener('pointermove', onMove, { passive: true })
-    element.addEventListener('pointerup', release, { passive: true })
-    element.addEventListener('pointercancel', abort, { passive: true })
     element.addEventListener('keydown', onKey)
 
     return () => {
       press.cancel()
       removeClickGuard?.()
-      element.removeAttribute('data-pressing')
       element.removeEventListener('pointerdown', onDown)
       element.removeEventListener('pointermove', onMove)
-      element.removeEventListener('pointerup', release)
-      element.removeEventListener('pointercancel', abort)
       element.removeEventListener('keydown', onKey)
-      document.removeEventListener('scroll', onScroll, { capture: true })
+      clear()
     }
   }, [element, enabled])
 

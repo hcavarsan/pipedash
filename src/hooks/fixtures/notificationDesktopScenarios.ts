@@ -16,6 +16,7 @@ import { useFailureNotifications } from '../useFailureNotifications'
 import { useProviderHealthAlerts } from '../useProviderHealthAlerts'
 
 import { callbacks, delivered, listeners, native, permission } from './notificationEnvironment'
+import { defineRegistrationScenarios } from './notificationRegistrationScenarios'
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 const pipeline: Pipeline = {
@@ -78,6 +79,8 @@ afterEach(async () => {
 })
 
 after(() => GlobalRegistrator.unregister())
+
+defineRegistrationScenarios(client, Screen)
 
 test('one flag delivers a backend-confirmed failure to the desktop and the center', async () => {
   await mount(true)

@@ -119,6 +119,7 @@ export function useAggregatedMetrics(params: {
       queryParams.aggregationType,
       queryParams.startDate,
       queryParams.endDate,
+      queryParams.limit,
     ],
     queryFn: () =>
       service.queryAggregatedMetrics(
@@ -158,9 +159,11 @@ export function useUpdateGlobalMetricsConfig(): UseMutationResult<
     mutationFn: ({ enabled, retentionDays }: { enabled: boolean; retentionDays: number }) =>
       service.updateGlobalMetricsConfig(enabled, retentionDays),
 
-    onSuccess: () => {
+    onSuccess: (_data, { enabled, retentionDays }) => {
+      queryClient.setQueryData<GlobalMetricsConfig>(queryKeys.metrics.globalConfig(), (config) =>
+        config ? { ...config, enabled, default_retention_days: retentionDays } : config
+      )
       void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.globalConfig() })
-
       void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
 
       notifications.show({

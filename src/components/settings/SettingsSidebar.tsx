@@ -12,13 +12,13 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 export const SETTINGS_SECTIONS = [
-  { id: 'general', label: 'General', icon: <IconSettings size={16} /> },
-  { id: 'notifications', label: 'Notifications', icon: <IconBell size={16} /> },
-  { id: 'providers', label: 'Providers', icon: <IconPlug size={16} /> },
-  { id: 'metrics', label: 'Metrics', icon: <IconChartBar size={16} /> },
-  { id: 'cache', label: 'Cache', icon: <IconDatabase size={16} /> },
-  { id: 'storage', label: 'Storage', icon: <IconFolder size={16} /> },
-  { id: 'about', label: 'About', icon: <IconInfoCircle size={16} /> },
+  { id: 'general', label: 'General', icon: <IconSettings size={16} aria-hidden /> },
+  { id: 'notifications', label: 'Notifications', icon: <IconBell size={16} aria-hidden /> },
+  { id: 'providers', label: 'Providers', icon: <IconPlug size={16} aria-hidden /> },
+  { id: 'metrics', label: 'Metrics', icon: <IconChartBar size={16} aria-hidden /> },
+  { id: 'cache', label: 'Cache', icon: <IconDatabase size={16} aria-hidden /> },
+  { id: 'storage', label: 'Storage', icon: <IconFolder size={16} aria-hidden /> },
+  { id: 'about', label: 'About', icon: <IconInfoCircle size={16} aria-hidden /> },
 ] as const
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]['id']

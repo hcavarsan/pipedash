@@ -59,7 +59,7 @@ export function UnlockRoute(): ReactNode {
           <Stack gap="xl">
             <Stack gap="md" align="center">
               <AppLogo size={{ base: 48, sm: 56 }} alt="Pipedash" />
-              <Title order={2} ta="center">
+              <Title order={1} size="h2" ta="center">
                 {requiresPassword ? 'Unlock vault' : 'Unlock Pipedash'}
               </Title>
             </Stack>

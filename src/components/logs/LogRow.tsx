@@ -13,22 +13,33 @@ import { type Highlight, segmentsFor } from './segments'
 
 export type MatchTriple = [line: number, start: number, end: number]
 
-export interface LogRowProps {
-  kind: 'line' | 'step'
-  line: number
-  data: LineState
-  section: LogSection | null
-  open: boolean
+type LogRowCommonProps = {
   styleClasses: readonly string[]
   gutterCh: number
   timestamps: boolean
-  selected: boolean
-  matches: readonly MatchTriple[] | undefined
-  current: MatchTriple | null
   onToggle: (sectionId: number) => void
-  onSelect: (line: number, extend: boolean) => void
-  onFullLine: (line: number) => void
 }
+
+export type LogRowProps = LogRowCommonProps &
+  (
+    | {
+        kind: 'step'
+        section: LogSection
+        open: boolean
+      }
+    | {
+        kind: 'line'
+        line: number
+        data: LineState
+        section: LogSection | null
+        open: boolean
+        selected: boolean
+        matches: readonly MatchTriple[] | undefined
+        current: MatchTriple | null
+        onSelect: (line: number, extend: boolean) => void
+        onFullLine: (line: number) => void
+      }
+  )
 
 const FG: Record<AnsiColor, string | null | undefined> = {
   black: classes.fgBlack,
@@ -82,7 +93,15 @@ const KIND_CLASS = {
   command: classes.command,
 } as const
 
-function StepHeader({ section, open, onToggle }: Pick<LogRowProps, 'open' | 'onToggle'> & { section: LogSection }) {
+function StepHeader({
+  section,
+  open,
+  onToggle,
+}: {
+  section: LogSection
+  open: boolean
+  onToggle: (sectionId: number) => void
+}): ReactNode {
   const Chevron = open ? IconChevronDown : IconChevronRight
 
   return (
@@ -171,17 +190,15 @@ function LineText({
 }
 
 export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
-  const { kind, line, data, section, open, selected, gutterCh, timestamps, onToggle, onSelect, onFullLine } = props
-
-  if (kind === 'step') {
-    return section ? <StepHeader section={section} open={open} onToggle={onToggle} /> : null
+  if (props.kind === 'step') {
+    return <StepHeader section={props.section} open={props.open} onToggle={props.onToggle} />
   }
 
+  const { line, data, section, open, selected, gutterCh, timestamps, onToggle, onSelect, onFullLine } = props
   const loaded = typeof data === 'object' ? data : null
   const lineKind = loaded?.kind
   const Glyph = lineKind === 'error' ? IconCircleX : lineKind === 'warning' ? IconAlertTriangle : null
   const kindClass = lineKind && isOneOf(typedKeys(KIND_CLASS), lineKind) ? KIND_CLASS[lineKind] : null
-
   return (
     <div
       className={join(classes.row, kindClass, selected && classes.selected)}
@@ -217,6 +234,8 @@ export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
             {open ? <IconChevronDown size={14} aria-hidden /> : <IconChevronRight size={14} aria-hidden />}
           </button>
         )}
+        {data === 'loading' && <span className={classes.dim}>Loading…</span>}
+        {data === 'error' && <span className={classes.fgRed}>Couldn't load this line</span>}
         {loaded && (
           <LineText
             text={loaded.text}

@@ -36,6 +36,7 @@ export function RequireAuth({ children }: RequireAuthProps): ReactNode {
     if (mobileShell) {
       return (
         <StatusScreen
+          headingOrder={1}
           icon={
             <ThemeIcon variant="transparent" color="red" size={48}>
               <IconAlertCircle size={40} aria-hidden />

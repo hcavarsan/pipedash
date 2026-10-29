@@ -36,6 +36,7 @@ interface SheetDrag {
   scrollers: HTMLElement[]
   expandable: boolean
   active: boolean
+  disposed: boolean
   heights: number[]
   top: number
   floor: number
@@ -55,6 +56,7 @@ interface Settling {
 }
 
 const settling = new WeakMap<HTMLElement, Settling>()
+const live = new Set<SheetDrag>()
 let candidate: SheetDrag | null = null
 
 function lastOverlay(): HTMLElement | null {
@@ -133,6 +135,7 @@ function begin({ target }: GestureStart): SheetDrag | null {
     scrollers,
     expandable: detents.length > 1 && sheet.dataset.detent !== 'large',
     active: false,
+    disposed: false,
     heights: [],
     top: 0,
     floor: Number.POSITIVE_INFINITY,
@@ -164,6 +167,8 @@ function measureHeights({ sheet, modal }: SheetDrag): number[] {
 
 function activate(drag: SheetDrag, dy: number) {
   const { sheet } = drag
+
+  live.add(drag)
   const prior = settling.get(sheet)
 
   if (prior) {
@@ -250,6 +255,7 @@ function cleanup(drag: SheetDrag) {
   }
 
   settling.delete(sheet)
+  live.delete(drag)
 }
 
 function commit(drag: SheetDrag, stop: number) {
@@ -306,7 +312,11 @@ async function dismiss(drag: SheetDrag, velocity: number) {
   if (prefersReducedMotion()) {
     const fade = sheet.animate({ opacity: [1, 0] }, { duration: FADE_MS, fill: 'forwards' })
 
-    await fade.finished
+    await fade.finished.catch(() => undefined)
+
+    if (drag.disposed) {
+      return
+    }
 
     if (await handle.closeNow()) {
       cleanup(drag)
@@ -319,6 +329,10 @@ async function dismiss(drag: SheetDrag, velocity: number) {
   }
 
   if (!(await glide(drag, drag.top + DISMISS_CLEARANCE, velocity).finished)) {
+    return
+  }
+
+  if (drag.disposed) {
     return
   }
 
@@ -355,7 +369,8 @@ export function useSheetDrag(active: boolean): void {
       return
     }
 
-    return trackTouches<SheetDrag>(document, {
+    let disposed = false
+    const stopTracking = trackTouches<SheetDrag>(document, {
       axis: 'y',
       retry: true,
       begin,
@@ -372,8 +387,28 @@ export function useSheetDrag(active: boolean): void {
         void release(drag, vy)
       },
       cancel: (drag) => {
-        void settleTo(drag, restStop(drag), 0)
+        if (!disposed) {
+          void settleTo(drag, restStop(drag), 0)
+        }
       },
     })
+
+    return () => {
+      disposed = true
+      stopTracking()
+
+      for (const drag of live) {
+        drag.disposed = true
+        settling.get(drag.sheet)?.spring.stop()
+
+        for (const animation of drag.sheet.getAnimations()) {
+          animation.cancel()
+        }
+
+        cleanup(drag)
+      }
+
+      live.clear()
+    }
   }, [active])
 }

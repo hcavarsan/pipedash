@@ -13,7 +13,7 @@ import {
   VisuallyHidden,
 } from '@mantine/core'
 import { IconAlertTriangle, IconBell, IconBellCheck, IconCheck, IconExclamationCircle } from '@tabler/icons-react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
@@ -30,11 +30,18 @@ import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { providerAttention } from '../../utils/providerAttention'
 import { ProviderIcon } from '../atoms/ProviderIcon'
 import { EmptyState } from '../common/EmptyState'
+import { LoadingState } from '../common/LoadingState'
+import { ErrorBoundary } from '../ErrorBoundary'
 import { IosGroup, IosRow } from '../ios/IosList'
 
 import { notificationIcon, notificationLabel, TONE_COLORS } from './labels'
-import { NotificationDetailsModal } from './NotificationDetailsModal'
-import { ProviderStatusModal } from './ProviderStatusModal'
+
+const NotificationDetailsModal = lazy(() =>
+  import('./NotificationDetailsModal').then((m) => ({ default: m.NotificationDetailsModal }))
+)
+const ProviderStatusModal = lazy(() =>
+  import('./ProviderStatusModal').then((m) => ({ default: m.ProviderStatusModal }))
+)
 
 const DOT_COLORS: Array<[CenterNotificationTone, string]> = [
   ['danger', 'red'],
@@ -96,6 +103,7 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 export function NotificationHost(): ReactNode {
+  const selectionType = useNotificationCenterStore((state) => state.selection?.type)
   const { data: providers } = useProviders()
   const [announcement, setAnnouncement] = useState('')
   const previousLevels = useRef<Map<number, HealthLevel> | null>(null)
@@ -129,8 +137,20 @@ export function NotificationHost(): ReactNode {
   return (
     <>
       <VisuallyHidden role="status">{announcement}</VisuallyHidden>
-      <NotificationDetailsModal />
-      <ProviderStatusModal />
+      {selectionType === 'notification' && (
+        <ErrorBoundary scope="feature" name="Notification details">
+          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+            <NotificationDetailsModal />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {selectionType === 'provider' && (
+        <ErrorBoundary scope="feature" name="Provider status">
+          <Suspense fallback={<LoadingState message="Loading dialog..." />}>
+            <ProviderStatusModal />
+          </Suspense>
+        </ErrorBoundary>
+      )}
     </>
   )
 }
@@ -424,7 +444,7 @@ export function NotificationCenter(): ReactNode {
         <Popover.Target>
           <Tooltip label={label} position="bottom" disabled={opened}>
             <ActionIcon size="lg" aria-label={label} onClick={() => toggle(!opened)}>
-              <IconBell size={20} />
+              <IconBell size={20} aria-hidden />
             </ActionIcon>
           </Tooltip>
         </Popover.Target>

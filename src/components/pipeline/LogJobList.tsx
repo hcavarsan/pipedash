@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import type { RunLogNode } from '../../types/logs'
 import { formatDuration } from '../../utils/formatDuration'
 import { StatusIcon } from '../atoms/StatusBadge'
+import { VirtualList } from '../common/VirtualList'
 
 interface LogJobListProps {
   nodes: readonly RunLogNode[]
@@ -14,15 +15,16 @@ interface LogJobListProps {
 export const LogJobList = ({ nodes, selectedId, onSelect }: LogJobListProps): ReactNode => (
   <ScrollArea w={260} flex="none" style={{ borderRight: '1px solid var(--mantine-color-default-border)' }}>
     <Box component="nav" aria-label="Jobs" p="xs">
-      {nodes
-        .filter((node) => node.navigable)
-        .map((node) => {
+      <VirtualList
+        items={nodes.filter((node) => node.navigable)}
+        getKey={(node) => node.id}
+        estimateSize={36}
+        renderItem={(node) => {
           const indent = `calc(${node.depth} * var(--mantine-spacing-md))`
 
           if (node.log === null) {
             return (
               <Text
-                key={node.id}
                 size="xs"
                 fw={600}
                 c="dimmed"
@@ -40,7 +42,6 @@ export const LogJobList = ({ nodes, selectedId, onSelect }: LogJobListProps): Re
 
           return (
             <UnstyledButton
-              key={node.id}
               className="interactive-surface"
               w="100%"
               px="xs"
@@ -62,7 +63,8 @@ export const LogJobList = ({ nodes, selectedId, onSelect }: LogJobListProps): Re
               </Group>
             </UnstyledButton>
           )
-        })}
+        }}
+      />
     </Box>
   </ScrollArea>
 )

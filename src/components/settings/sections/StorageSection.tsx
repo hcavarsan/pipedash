@@ -19,6 +19,8 @@ import { isMobilePlatform } from '../../../utils/platform'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
+import { ErrorBoundary } from '../../ErrorBoundary/ErrorBoundary'
+import { LiveStatus } from '../../forms/LiveStatus'
 import { IosGroup, IosRow } from '../../ios/IosList'
 import { SetupWizard } from '../../setup/SetupWizard'
 import { AppLockCard } from '../AppLockCard'
@@ -42,37 +44,39 @@ export const StorageSection = (): ReactNode => {
     refetch: refetchStoragePaths,
     isRefetching: isRefetchingPaths,
   } = useStoragePaths()
-  const { refetch: loadConfigContent } = useConfigContent()
+  const { data: configContent, refetch: loadConfigContent } = useConfigContent()
   const testConnectionMutation = useTestStorageConnection()
 
   const { data: vaultStatus } = useVaultStatus()
   const lockVaultMutation = useLockVault()
   const canLockVault = vaultStatus && lockMeansSomething(vaultStatus) && vaultStatus.is_unlocked
 
-  const handleLockVault = () => lockVaultMutation.mutate()
-
   const [setupWizardOpen, setSetupWizardOpen] = useState(false)
   const [configEditorOpen, setConfigEditorOpen] = useState(false)
-  const [configContent, setConfigContent] = useState<string>('')
-  const [connectionStatus, setConnectionStatus] = useState<'success' | 'error' | null>(null)
-  const [connectionMessage, setConnectionMessage] = useState<string>('')
 
-  const handleSetupComplete = () => {
+  const { data: connectionResult, error: connectionError, isPending: testingConnection } = testConnectionMutation
+  const connectionStatus = connectionResult
+    ? connectionResult.success
+      ? 'success'
+      : 'error'
+    : connectionError
+      ? 'error'
+      : null
+  const connectionMessage = connectionResult
+    ? connectionResult.message || (connectionResult.success ? 'Connection successful' : 'Connection failed')
+    : (connectionError?.message ?? '')
+
+  const handleSetupComplete = (): void => {
     setSetupWizardOpen(false)
-    refetchStoragePaths()
-    refetchStorageConfig()
+    void refetchStoragePaths()
+    void refetchStorageConfig()
   }
 
-  const handleSetupClose = () => {
-    setSetupWizardOpen(false)
-  }
-
-  const openConfigEditor = async () => {
+  const openConfigEditor = async (): Promise<void> => {
     try {
       const result = await loadConfigContent()
 
       if (result.data) {
-        setConfigContent(result.data.content)
         setConfigEditorOpen(true)
       } else {
         throw result.error ?? new Error('The config file returned no content')
@@ -87,39 +91,27 @@ export const StorageSection = (): ReactNode => {
     }
   }
 
-  const handleConfigSaved = () => {
-    refetchStorageConfig()
-    refetchStoragePaths()
+  const handleConfigSaved = (): void => {
+    void refetchStorageConfig()
+    void refetchStoragePaths()
   }
 
-  const testConnection = async () => {
-    if (!storageConfig) {
-      return
-    }
-
-    setConnectionStatus(null)
-
-    try {
-      const result = await testConnectionMutation.mutateAsync(storageConfig.config)
-
-      setConnectionStatus(result.success ? 'success' : 'error')
-      setConnectionMessage(result.message || (result.success ? 'Connection successful' : 'Connection failed'))
-    } catch (error) {
-      setConnectionStatus('error')
-      setConnectionMessage(error instanceof Error ? error.message : 'Failed to test connection')
+  const testConnection = (): void => {
+    if (storageConfig) {
+      testConnectionMutation.mutate(storageConfig.config)
     }
   }
 
   const backend = storageConfig?.config.storage.backend
   const isPostgres = backend === 'postgres'
 
-  const renderContent = () => {
+  const renderContent = (): ReactNode => {
     if (isStorageError) {
       return (
         <ErrorState
           title="Couldn't load storage configuration"
           error={storageError}
-          onRetry={() => refetchStorageConfig()}
+          onRetry={() => void refetchStorageConfig()}
           retrying={isRefetchingStorage}
         />
       )
@@ -134,11 +126,24 @@ export const StorageSection = (): ReactNode => {
         <EmptyState
           title="No storage configuration found"
           description="Pipedash couldn't find a config file in its data directory. Configure storage to create one."
-          icon={<IconSettings size={24} />}
+          icon={<IconSettings size={24} aria-hidden />}
           action={<Button onClick={() => setSetupWizardOpen(true)}>Configure storage</Button>}
         />
       )
     }
+
+    const pathsPanel = storagePathsError ? (
+      <ErrorState
+        title="Couldn't load storage paths"
+        error={storagePathsError}
+        onRetry={() => void refetchStoragePaths()}
+        retrying={isRefetchingPaths}
+      />
+    ) : storagePaths ? (
+      <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
+    ) : (
+      <LoadingState message="Loading storage paths..." />
+    )
 
     if (mobileShell) {
       return (
@@ -156,18 +161,7 @@ export const StorageSection = (): ReactNode => {
             <IosRow title="Cache backend" value={isPostgres ? STORAGE_BACKEND_LABELS.postgres : 'Local filesystem'} />
           </IosGroup>
 
-          {storagePathsError ? (
-            <ErrorState
-              title="Couldn't load storage paths"
-              error={storagePathsError}
-              onRetry={() => refetchStoragePaths()}
-              retrying={isRefetchingPaths}
-            />
-          ) : storagePaths ? (
-            <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
-          ) : (
-            <LoadingState message="Loading storage paths..." />
-          )}
+          {pathsPanel}
 
           <IosGroup
             footer={
@@ -181,15 +175,15 @@ export const StorageSection = (): ReactNode => {
             <IosRow
               title="Test connection"
               onClick={testConnection}
-              disabled={testConnectionMutation.isPending}
-              accessory={testConnectionMutation.isPending ? <Loader size={18} /> : undefined}
+              disabled={testingConnection}
+              accessory={testingConnection ? <Loader size={18} aria-hidden /> : undefined}
             />
             {canLockVault && (
               <IosRow
                 title="Lock vault"
-                onClick={handleLockVault}
+                onClick={() => lockVaultMutation.mutate()}
                 disabled={lockVaultMutation.isPending}
-                accessory={lockVaultMutation.isPending ? <Loader size={18} /> : undefined}
+                accessory={lockVaultMutation.isPending ? <Loader size={18} aria-hidden /> : undefined}
               />
             )}
           </IosGroup>
@@ -232,29 +226,18 @@ export const StorageSection = (): ReactNode => {
           </SimpleGrid>
         </Card>
 
-        {storagePathsError ? (
-          <ErrorState
-            title="Couldn't load storage paths"
-            error={storagePathsError}
-            onRetry={() => refetchStoragePaths()}
-            retrying={isRefetchingPaths}
-          />
-        ) : storagePaths ? (
-          <StoragePathsDisplay paths={storagePaths} config={storageConfig.config} onEditConfig={openConfigEditor} />
-        ) : (
-          <LoadingState message="Loading storage paths..." />
-        )}
+        {pathsPanel}
 
         <Card padding="md">
           <Stack gap="sm">
             {connectionStatus === 'success' && (
-              <Alert icon={<IconCheck size={16} />} color="green" variant="light">
+              <Alert icon={<IconCheck size={16} aria-hidden />} color="green" variant="light">
                 {connectionMessage}
               </Alert>
             )}
 
             {connectionStatus === 'error' && (
-              <Alert icon={<IconAlertCircle size={16} />} color="red" variant="light">
+              <Alert icon={<IconAlertCircle size={16} aria-hidden />} color="red" variant="light">
                 {connectionMessage}
               </Alert>
             )}
@@ -263,9 +246,9 @@ export const StorageSection = (): ReactNode => {
               <Button
                 variant="light"
                 color="gray"
-                leftSection={<IconCloudUpload size={16} />}
+                leftSection={<IconCloudUpload size={16} aria-hidden />}
                 onClick={testConnection}
-                loading={testConnectionMutation.isPending}
+                loading={testingConnection}
               >
                 Test connection
               </Button>
@@ -273,7 +256,7 @@ export const StorageSection = (): ReactNode => {
                 <Button
                   variant="light"
                   color="gray"
-                  leftSection={<IconSettings size={16} />}
+                  leftSection={<IconSettings size={16} aria-hidden />}
                   onClick={() => setSetupWizardOpen(true)}
                 >
                   Configure storage
@@ -283,8 +266,8 @@ export const StorageSection = (): ReactNode => {
                 <Button
                   variant="light"
                   color="gray"
-                  leftSection={<IconLock size={16} />}
-                  onClick={handleLockVault}
+                  leftSection={<IconLock size={16} aria-hidden />}
+                  onClick={() => lockVaultMutation.mutate()}
                   loading={lockVaultMutation.isPending}
                 >
                   Lock vault
@@ -305,6 +288,8 @@ export const StorageSection = (): ReactNode => {
 
   return (
     <Box>
+      <LiveStatus message={testingConnection ? '' : connectionMessage} />
+
       {renderContent()}
 
       {isMobilePlatform() && (
@@ -313,14 +298,22 @@ export const StorageSection = (): ReactNode => {
         </Box>
       )}
 
-      <SetupWizard opened={setupWizardOpen} onComplete={handleSetupComplete} onClose={handleSetupClose} />
+      <ErrorBoundary scope="feature" name="Storage setup" resetKeys={[setupWizardOpen]}>
+        <SetupWizard
+          opened={setupWizardOpen}
+          onComplete={handleSetupComplete}
+          onClose={() => setSetupWizardOpen(false)}
+        />
+      </ErrorBoundary>
 
-      <ConfigEditorModal
-        opened={configEditorOpen}
-        onClose={() => setConfigEditorOpen(false)}
-        initialContent={configContent}
-        onSaved={handleConfigSaved}
-      />
+      {configEditorOpen && configContent && (
+        <ConfigEditorModal
+          key={configContent.content}
+          onClose={() => setConfigEditorOpen(false)}
+          initialContent={configContent.content}
+          onSaved={handleConfigSaved}
+        />
+      )}
     </Box>
   )
 }

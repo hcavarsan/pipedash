@@ -8,19 +8,16 @@ import { useProviders } from '../../queries/useProvidersQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { HEALTH_META } from '../../theme/status'
 import type { ComponentHealth, Incident, Maintenance, ProviderSummary } from '../../types'
-import { displayErrorNotification } from '../../utils/errorDisplay'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
-import { openExternal } from '../../utils/openExternal'
 import { fetchHint, providerAttention, scheduleNote } from '../../utils/providerAttention'
 import { ProviderIcon } from '../atoms/ProviderIcon'
 import { StandardModal } from '../common/StandardModal'
+import { LiveStatus } from '../forms/LiveStatus'
 import { IosGroup, IosRow } from '../ios/IosList'
 import { ProviderRecoveryActions } from '../provider/ProviderRecoveryActions'
 
-export const openLink = (url: string): void => {
-  openExternal(url).catch((error: unknown) => displayErrorNotification(error, "Couldn't open link"))
-}
+import { openNotificationLink } from './openNotificationLink'
 
 const maintenanceWindow = ({ starts_at, ends_at }: Maintenance): string | null => {
   if (starts_at && ends_at) {
@@ -62,7 +59,7 @@ function LinkedName({ name, url, source }: { name: string; url: string | null; s
       c="inherit"
       underline="always"
       aria-label={`View ${name} on ${source}`}
-      onClick={() => openLink(url)}
+      onClick={() => openNotificationLink(url)}
     >
       {name}
     </Anchor>
@@ -144,7 +141,7 @@ function ServiceStatus({ provider, now }: { provider: ProviderSummary; now: numb
           variant="subtle"
           color="gray"
           leftSection={<IconExternalLink size={14} aria-hidden />}
-          onClick={() => openLink(page.url)}
+          onClick={() => openNotificationLink(page.url)}
         >
           Open status page
         </Button>
@@ -276,7 +273,7 @@ function ShellIncidentRow({ incident, now }: { incident: Incident; now: number }
         </>
       }
       chevron={Boolean(url)}
-      {...(url ? { onClick: () => openLink(url) } : {})}
+      {...(url ? { onClick: () => openNotificationLink(url) } : {})}
     />
   )
 }
@@ -290,7 +287,7 @@ function ShellMaintenanceRow({ item }: { item: Maintenance }) {
       title={item.name}
       subtitle={meta.filter(Boolean).join(' · ')}
       chevron={Boolean(url)}
-      {...(url ? { onClick: () => openLink(url) } : {})}
+      {...(url ? { onClick: () => openNotificationLink(url) } : {})}
     />
   )
 }
@@ -328,7 +325,7 @@ function ShellProviderStatus({ provider, now, onNavigate }: ShellProviderStatusP
             icon={<IconExternalLink size={18} aria-hidden />}
             title="Open status page"
             chevron
-            onClick={() => openLink(page.url)}
+            onClick={() => openNotificationLink(page.url)}
           />
         </IosGroup>
       ) : (
@@ -383,6 +380,16 @@ function ShellProviderStatus({ provider, now, onNavigate }: ShellProviderStatusP
   )
 }
 
+const CONNECTION_SUMMARY: Record<ProviderSummary['last_fetch_status'], string> = {
+  success: 'connection working',
+  error: 'last fetch failed',
+  never: 'not fetched yet',
+}
+
+function statusSummary(provider: ProviderSummary, headline: string | null | undefined): string {
+  return `${provider.name}: ${headline ?? 'No problems affecting your pipelines'}. ${CONNECTION_SUMMARY[provider.last_fetch_status]}.`
+}
+
 export function ProviderStatusModal(): ReactNode {
   const selection = useNotificationCenterStore((state) => state.selection)
   const close = useNotificationCenterStore((state) => state.close)
@@ -410,6 +417,7 @@ export function ProviderStatusModal(): ReactNode {
       >
         {provider && (
           <Stack gap={24}>
+            <LiveStatus message={statusSummary(provider, attention?.headline)} />
             <Text size="sm" c="dimmed">
               {attention?.headline ?? 'No problems affecting your pipelines'}
             </Text>
@@ -441,6 +449,7 @@ export function ProviderStatusModal(): ReactNode {
     >
       {provider && (
         <Stack gap="md">
+          <LiveStatus message={statusSummary(provider, attention?.headline)} />
           <Section
             title={provider.health.status_page ? `${provider.health.status_page.name} status` : 'Service status'}
           >

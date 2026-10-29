@@ -16,7 +16,7 @@
     "taze": "taze major -I",
     "taze:minor": "taze minor -w",
     "knip": "knip",
-    "test": "tsc -p tsconfig.test.json && bun test src"
+    "test": "tsc -p tsconfig.test.json && bun test --isolate src"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

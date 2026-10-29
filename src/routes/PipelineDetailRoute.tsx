@@ -1,66 +1,52 @@
 import { Button } from '@mantine/core'
-import { type ReactNode, useCallback, useEffect } from 'react'
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import type { ReactNode } from 'react'
+import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 
 import { EmptyState } from '../components/common/EmptyState'
 import { PageContainer } from '../components/common/PageContainer'
 import { PageHeader } from '../components/common/PageHeader'
 import { ErrorBoundary } from '../components/ErrorBoundary'
+import { RunActionsProvider } from '../components/table/RunActionsContext'
 import { type DetailTab, RunHistoryPage } from '../components/table/RunHistoryPage'
 import { useMobileShell } from '../hooks/useIsMobile'
-import { usePlugins } from '../queries/usePluginsQueries'
-import type { Pipeline, PipelineComponentProps } from '../types'
-import { getReconcileBlockReason } from '../utils/pipelinePresentation'
-import { getPluginByType } from '../utils/pluginHelpers'
+import type { Pipeline } from '../types'
 
-interface PipelineDetailRouteProps extends Omit<PipelineComponentProps, 'pipeline'> {
+interface PipelineDetailRouteProps {
   pipelines: Pipeline[]
+  loading: boolean
+  onBack: () => void
 }
 
-export function PipelineDetailRoute({
-  pipelines,
-  loading,
-  onBack,
-  onViewRun,
-  onRerun,
-  onCancel,
-  onReview,
-  onRerunFailedJobs,
-}: PipelineDetailRouteProps): ReactNode {
+export function PipelineDetailRoute({ pipelines, loading, onBack }: PipelineDetailRouteProps): ReactNode {
   const { pipelineId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { state } = useLocation()
-  const navigate = useNavigate()
-  const { data: plugins } = usePlugins()
+  const { state, pathname } = useLocation()
   const mobileShell = useMobileShell()
 
   const rawTab = searchParams.get('tab')
   const tab: DetailTab = rawTab === 'metrics' ? 'metrics' : 'history'
 
-  const setTab = useCallback(
-    (next: DetailTab) => {
-      setSearchParams(
-        (prev) => {
-          const params = new URLSearchParams(prev)
+  const setTab = (next: DetailTab): void => {
+    setSearchParams(
+      (previous) => {
+        const params = new URLSearchParams(previous)
 
-          if (next === 'metrics') {
-            params.set('tab', 'metrics')
-          } else {
-            params.delete('tab')
-          }
+        if (next === 'metrics') {
+          params.set('tab', 'metrics')
+        } else {
+          params.delete('tab')
+        }
 
-          return params
-        },
-        { replace: true, state }
-      )
-    },
-    [setSearchParams, state]
-  )
+        return params
+      },
+      { replace: true, state }
+    )
+  }
 
-  const actualPipeline = pipelines.find((p) => p.id === pipelineId) || null
+  const actualPipeline = pipelines.find((pipeline) => pipeline.id === pipelineId) ?? null
 
   const pipeline: Pipeline | null =
-    actualPipeline ||
+    actualPipeline ??
     (loading && pipelineId
       ? {
           id: pipelineId,
@@ -76,27 +62,18 @@ export function PipelineDetailRoute({
         }
       : null)
 
-  const handleBack = () => {
-    if (onBack) {
-      onBack()
-    } else {
-      void navigate('/pipelines')
-    }
+  if (rawTab !== null && rawTab !== 'metrics') {
+    const params = new URLSearchParams(searchParams)
+    params.delete('tab')
+
+    return <Navigate replace state={state} to={{ pathname, search: params.toString() }} />
   }
 
-  useEffect(() => {
-    if (mobileShell && !loading && !actualPipeline) {
-      void navigate('/pipelines', { replace: true })
+  if (!loading && !actualPipeline) {
+    if (mobileShell) {
+      return <Navigate to="/pipelines" replace />
     }
-  }, [mobileShell, loading, actualPipeline, navigate])
 
-  useEffect(() => {
-    if (rawTab !== null && rawTab !== 'metrics') {
-      setTab('history')
-    }
-  }, [rawTab, setTab])
-
-  if (!mobileShell && !loading && !actualPipeline) {
     return (
       <PageContainer>
         <PageHeader title="Pipeline unavailable" />
@@ -104,7 +81,7 @@ export function PipelineDetailRoute({
           title="Couldn't find this pipeline"
           description="It may have been removed or excluded from its provider. Return to Pipelines to choose another."
           action={
-            <Button variant="default" onClick={handleBack}>
+            <Button variant="default" onClick={onBack}>
               Back to Pipelines
             </Button>
           }
@@ -114,23 +91,16 @@ export function PipelineDetailRoute({
   }
 
   return (
-    <ErrorBoundary name="Pipeline history">
-      <RunHistoryPage
-        pipeline={pipeline}
-        tab={tab}
-        onTabChange={setTab}
-        onBack={handleBack}
-        onViewRun={onViewRun || (() => undefined)}
-        onRerun={actualPipeline && getReconcileBlockReason(actualPipeline) ? undefined : onRerun}
-        onCancel={
-          actualPipeline && getPluginByType(plugins, actualPipeline.provider_type)?.capabilities.cancel
-            ? onCancel
-            : undefined
-        }
-        onReview={onReview}
-        onRerunFailedJobs={onRerunFailedJobs}
-        isLoadingPipeline={loading && !actualPipeline}
-      />
+    <ErrorBoundary scope="feature" name="Pipeline history" resetKeys={[pipelineId]}>
+      <RunActionsProvider key={pipelineId} pipeline={actualPipeline}>
+        <RunHistoryPage
+          pipeline={pipeline}
+          tab={tab}
+          onTabChange={setTab}
+          onBack={onBack}
+          isLoadingPipeline={loading && !actualPipeline}
+        />
+      </RunActionsProvider>
     </ErrorBoundary>
   )
 }

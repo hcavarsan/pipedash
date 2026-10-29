@@ -60,3 +60,22 @@ test('search height is measured again after its layout changes', () => {
 
   assert.equal(reveals.closed()?.full, 80)
 })
+
+test('stopping a reveal in flight leaves the row exactly as the stop found it', async () => {
+  const { root, element } = mount()
+  const reveals = createSearchReveal(() => root)
+  const reveal = reveals.closed()
+
+  assert.ok(reveal)
+  const settling = reveals.settle(reveal, true, 0, SPRING_DEFAULT)
+
+  reveals.stop()
+  const height = element.style.height
+  const opacity = reveal.bar.style.opacity
+
+  await settling
+
+  assert.equal(element.hasAttribute('data-open'), false)
+  assert.equal(element.style.height, height)
+  assert.equal(reveal.bar.style.opacity, opacity)
+})

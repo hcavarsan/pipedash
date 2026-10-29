@@ -1,7 +1,10 @@
 import { notifications } from '@mantine/notifications'
 import {
+  type InfiniteData,
+  type UseInfiniteQueryResult,
   type UseMutationResult,
   type UseQueryResult,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -24,13 +27,33 @@ function notifyCancellationRequested(message: string) {
   notifications.show({ title: 'Cancellation requested', message, color: 'gray' })
 }
 
-export function useRunHistory(pipelineId: string, page = 1, pageSize = 20): UseQueryResult<PaginatedRunHistory, Error> {
+export function useRunHistory(
+  pipelineId: string,
+  page = 1,
+  pageSize = 20,
+  enabled = true
+): UseQueryResult<PaginatedRunHistory, Error> {
   return useQuery<PaginatedRunHistory>({
-    queryKey: queryKeys.runs.list(pipelineId, page),
+    queryKey: queryKeys.runs.list(pipelineId, page, pageSize),
     queryFn: () => service.fetchRunHistory(pipelineId, page, pageSize),
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.MEDIUM,
     placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === pipelineId ? previous : undefined),
+    enabled: enabled && !!pipelineId,
+  })
+}
+
+export function useRunHistoryInfinite(
+  pipelineId: string,
+  pageSize: number = PAGE_SIZES.RUN_HISTORY
+): UseInfiniteQueryResult<InfiniteData<PaginatedRunHistory, number>, Error> {
+  return useInfiniteQuery({
+    queryKey: queryKeys.runs.infinite(pipelineId, pageSize),
+    queryFn: ({ pageParam }) => service.fetchRunHistory(pipelineId, pageParam, pageSize),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, _pages, lastPageParam) => (lastPage.has_more ? lastPageParam + 1 : undefined),
+    staleTime: STALE_TIMES.FAST_CHANGING,
+    gcTime: GC_TIMES.MEDIUM,
     enabled: !!pipelineId,
   })
 }
@@ -51,7 +74,7 @@ export function useUnfinishedRuns(pipelines: Pipeline[], enabled: boolean): UseU
         pipelines,
         (pipelineId, page) =>
           queryClient.fetchQuery({
-            queryKey: queryKeys.runs.list(pipelineId, page),
+            queryKey: queryKeys.runs.list(pipelineId, page, PAGE_SIZES.RUN_HISTORY),
             queryFn: () => service.fetchRunHistory(pipelineId, page, PAGE_SIZES.RUN_HISTORY),
             staleTime: 0,
           }),
@@ -149,6 +172,11 @@ export function useSaveTablePreferences(): UseMutationResult<
           queryKeys.tablePreferences.detail(context.providerId, context.tableId),
           context.previousPreferences
         )
+      } else if (context) {
+        queryClient.removeQueries({
+          queryKey: queryKeys.tablePreferences.detail(context.providerId, context.tableId),
+          exact: true,
+        })
       }
 
       notifications.show({
@@ -168,34 +196,6 @@ export function useSaveTablePreferences(): UseMutationResult<
         message: 'Table preferences updated successfully',
         color: 'green',
         autoClose: 2000,
-      })
-    },
-  })
-}
-
-export function useClearRunHistoryCache(): UseMutationResult<void, Error, string, unknown> {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (pipelineId: string) => service.clearRunHistoryCache(pipelineId),
-
-    onSuccess: (_data, pipelineId) => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.runs.list(pipelineId),
-      })
-
-      notifications.show({
-        title: 'Cache cleared',
-        message: 'Run history cache cleared successfully',
-        color: 'green',
-      })
-    },
-
-    onError: (error: Error) => {
-      notifications.show({
-        title: "Couldn't clear cache",
-        message: errorMessage(error, 'Try clearing the run history cache again.'),
-        color: 'red',
       })
     },
   })

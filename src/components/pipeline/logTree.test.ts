@@ -44,3 +44,35 @@ test('jobs group under their nearest stage and failed jobs can lead', () => {
     ['a', 'b']
   )
 })
+
+test('empty input, orphan parents and duplicate stage names group predictably', () => {
+  assert.deepEqual(groupLogNodes([]), [])
+  const nodes = [
+    node('s1', { kind: 'stage', log: null, name: 'build' }),
+    node('s2', { kind: 'stage', log: null, name: 'build' }),
+    node('a', { parent_id: 's1' }),
+    node('b', { parent_id: 's2' }),
+    node('orphan', { parent_id: 'missing' }),
+  ]
+
+  assert.deepEqual(
+    groupLogNodes(nodes).map((group) => [group.stage, group.nodes.map((n) => n.id)]),
+    [
+      ['build', ['a', 'b']],
+      [null, ['orphan']],
+    ]
+  )
+})
+
+test('cyclic parent chains terminate and leave the job ungrouped', () => {
+  const nodes = [
+    node('self', { parent_id: 'self', kind: 'step' }),
+    node('x', { parent_id: 'y', kind: 'step' }),
+    node('y', { parent_id: 'x', kind: 'step' }),
+  ]
+
+  assert.deepEqual(
+    groupLogNodes(nodes).map((group) => [group.stage, group.nodes.map((n) => n.id)]),
+    [[null, ['self', 'x', 'y']]]
+  )
+})

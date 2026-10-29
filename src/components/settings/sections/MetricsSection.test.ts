@@ -1,61 +1,74 @@
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { after, afterEach, type TestContext, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import type { UserEvent } from '@testing-library/user-event'
 import { createElement } from 'react'
+import { installRequestSubmitShim } from '../../../testing/requestSubmitShim'
+
+import type { GlobalMetricsConfig } from '../../../types'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
-let config = { enabled: true, default_retention_days: 7, updated_at: '2026-10-25T00:00:00Z' }
-let reads = 0
-let saveArgs: Record<string, unknown> | undefined
-const { promise: pendingSave, resolve: finishSave } = Promise.withResolvers<void>()
-
-Object.assign(window, {
-  __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
-  __TAURI_INTERNALS__: {
-    invoke: async (command: string, args?: Record<string, unknown>) => {
-      switch (command) {
-        case 'get_global_metrics_config':
-          reads += 1
-          return config
-        case 'update_global_metrics_config':
-          saveArgs = args
-          await pendingSave
-          config = {
-            ...config,
-            enabled: Boolean(args?.enabled),
-            default_retention_days: Number(args?.defaultRetentionDays),
-          }
-          return
-        default:
-          throw new Error(`Unexpected command: ${command}`)
-      }
-    },
-  },
-})
-
-const { act, cleanup, fireEvent, render, waitFor, within } = await import('@testing-library/react')
+const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
+const { default: userEvent } = await import('@testing-library/user-event')
 const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { notifications } = await import('@mantine/notifications')
 const { MetricsSection } = await import('./MetricsSection')
-const { queryKeys } = await import('../../../lib/queryKeys')
-const { apiService, tauriService } = await import('../../../services')
+const { apiService } = await import('../../../services')
 const view = () => within(document.body)
-const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+const restoreRequestSubmit = installRequestSubmitShim()
+let client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+
+afterEach(async () => {
+  await act(async () => cleanup())
+  notifications.clean()
+  client.clear()
+  client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+})
 
 after(async () => {
-  await act(async () => cleanup())
-  client.clear()
-  notifications.clean()
+  restoreRequestSubmit()
   notifyManager.setNotifyFunction((callback) => callback())
   await GlobalRegistrator.unregister()
 })
 
-test('saving metrics retention preserves a newer draft when the saved config refetches', async (context) => {
-  context.mock.method(apiService, 'getGlobalMetricsConfig', tauriService.getGlobalMetricsConfig)
-  context.mock.method(apiService, 'updateGlobalMetricsConfig', tauriService.updateGlobalMetricsConfig)
+interface SaveCall {
+  enabled: boolean
+  retentionDays: number
+}
+
+interface Backend {
+  config: GlobalMetricsConfig
+  saves: SaveCall[]
+  gates: PromiseWithResolvers<void>[]
+  failNext: boolean
+}
+
+const mockBackend = (context: TestContext): Backend => {
+  const backend: Backend = {
+    config: { enabled: true, default_retention_days: 7, updated_at: '2026-10-25T00:00:00Z' },
+    saves: [],
+    gates: [],
+    failNext: false,
+  }
+  context.mock.method(apiService, 'getGlobalMetricsConfig', async () => ({ ...backend.config }))
+  context.mock.method(apiService, 'updateGlobalMetricsConfig', async (enabled: boolean, retentionDays: number) => {
+    backend.saves.push({ enabled, retentionDays })
+    const gate = backend.gates.shift()
+    await gate?.promise
+    if (backend.failNext) {
+      backend.failNext = false
+      throw new Error('Backend unavailable')
+    }
+    backend.config = { ...backend.config, enabled, default_retention_days: retentionDays }
+  })
+
+  return backend
+}
+
+const renderMetrics = async (): Promise<void> => {
   notifyManager.setNotifyFunction((callback) => act(callback))
   await act(async () => {
     render(
@@ -66,25 +79,101 @@ test('saving metrics retention preserves a newer draft when the saved config ref
       )
     )
   })
+}
 
-  fireEvent.click(await view().findByRole('combobox', { name: 'Retention period' }))
-  fireEvent.click(await view().findByText('Custom'))
-  const days = view().getByRole('textbox', { name: 'Custom days' })
+const openCustomDays = async (user: UserEvent): Promise<HTMLInputElement> => {
+  await user.click(await view().findByRole('combobox', { name: 'Retention period' }))
+  await user.click(await view().findByRole('option', { name: /^custom$/i, hidden: true }))
+  const days = await view().findByRole('textbox', { name: /custom days/i })
   assert.ok(days instanceof HTMLInputElement)
 
-  fireEvent.change(days, { target: { value: '30' } })
-  fireEvent.blur(days)
-  await waitFor(() => assert.deepEqual(saveArgs, { enabled: true, defaultRetentionDays: 30 }))
-  fireEvent.change(days, { target: { value: '45' } })
+  return days
+}
+
+test('saving custom retention keeps a newer draft and the next submission sends it', async (context) => {
+  const user = userEvent.setup({ document })
+  const backend = mockBackend(context)
+  const gate = Promise.withResolvers<void>()
+  backend.gates.push(gate)
+  await renderMetrics()
+  const days = await openCustomDays(user)
+
+  await user.clear(days)
+  await user.type(days, '30')
+  await user.tab()
+  await waitFor(() => assert.deepEqual(backend.saves, [{ enabled: true, retentionDays: 30 }]))
+
+  await user.clear(days)
+  await user.type(days, '45')
   assert.equal(days.value, '45')
 
-  await act(async () => finishSave())
-  await waitFor(() => {
-    assert.equal(reads, 2)
-    assert.equal(client.isFetching({ queryKey: queryKeys.metrics.globalConfig() }), 0)
-    assert.equal(client.getQueryData<typeof config>(queryKeys.metrics.globalConfig())?.default_retention_days, 30)
-    const current = view().getByRole('textbox', { name: 'Custom days' })
-    assert.ok(current instanceof HTMLInputElement)
-    assert.equal(current.value, '45')
-  })
+  await act(async () => gate.resolve())
+  await waitFor(() => assert.equal(backend.config.default_retention_days, 30))
+  assert.equal(days.value, '45')
+
+  await user.tab()
+  await user.click(days)
+  await user.tab()
+  await waitFor(() => assert.deepEqual(backend.saves.at(-1), { enabled: true, retentionDays: 45 }))
+})
+
+test('a failed retention save does not overwrite a newer draft', async (context) => {
+  const user = userEvent.setup({ document })
+  const backend = mockBackend(context)
+  const gate = Promise.withResolvers<void>()
+  backend.gates.push(gate)
+  backend.failNext = true
+  await renderMetrics()
+  const days = await openCustomDays(user)
+
+  await user.clear(days)
+  await user.type(days, '30')
+  await user.tab()
+  await waitFor(() => assert.equal(backend.saves.length, 1))
+
+  await user.clear(days)
+  await user.type(days, '45')
+  await act(async () => gate.resolve())
+
+  await waitFor(() => assert.equal(backend.saves.length, 1))
+  await waitFor(() => assert.equal(days.value, '45'))
+  assert.equal(backend.config.default_retention_days, 7)
+})
+
+test('custom retention outside 1 to 90 is not saved', async (context) => {
+  const user = userEvent.setup({ document })
+  const backend = mockBackend(context)
+  await renderMetrics()
+  const days = await openCustomDays(user)
+
+  for (const value of ['0', '91']) {
+    await user.clear(days)
+    await user.type(days, value)
+    await user.tab()
+    await waitFor(() => assert.equal(days.getAttribute('aria-invalid'), 'true'))
+  }
+
+  await user.clear(days)
+  await user.tab()
+  await waitFor(() => assert.equal(days.getAttribute('aria-invalid'), 'true'))
+  assert.deepEqual(backend.saves, [])
+})
+
+test('turning metrics off shows the new value at once and restores it when saving fails', async (context) => {
+  const user = userEvent.setup({ document })
+  const backend = mockBackend(context)
+  const gate = Promise.withResolvers<void>()
+  backend.gates.push(gate)
+  backend.failNext = true
+  await renderMetrics()
+  const toggle = await view().findByRole('switch', { name: 'Enable metrics by default' })
+  assert.ok(toggle instanceof HTMLInputElement)
+  assert.equal(toggle.checked, true)
+
+  await user.click(toggle)
+  await waitFor(() => assert.equal(toggle.checked, false))
+  await act(async () => gate.resolve())
+
+  await waitFor(() => assert.equal(toggle.checked, true))
+  assert.deepEqual(backend.saves, [{ enabled: false, retentionDays: 7 }])
 })

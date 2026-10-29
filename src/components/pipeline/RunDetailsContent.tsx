@@ -1,0 +1,104 @@
+import { Alert, Stack, Text } from '@mantine/core'
+import { IconRefresh } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
+
+import { TYPOGRAPHY } from '../../theme/typography'
+import type { PipelineRun } from '../../types'
+import { StatusBadge } from '../atoms/StatusBadge'
+import { ErrorState } from '../common/ErrorState'
+import { LoadingState } from '../common/LoadingState'
+import { BuildWatchControls } from './BuildWatchControls'
+import { RunDetailFields, useDetailRows } from './RunDetailFields'
+
+interface RunDetailsContentProps {
+  pipelineId: string
+  runNumber: number
+  providerId: number | undefined
+  run: PipelineRun | undefined
+  error: Error | null
+  loading: boolean
+  fetching: boolean
+  isFlux: boolean
+  isMobile: boolean
+  mobileShell: boolean
+  cancellationRequested: boolean
+  onRetry: () => void
+  children?: ReactNode
+}
+
+export function RunDetailsContent({
+  runNumber,
+  error,
+  loading,
+  fetching,
+  run,
+  onRetry,
+  ...rest
+}: RunDetailsContentProps): ReactNode {
+  if (error) {
+    return <ErrorState title={`Couldn't load run #${runNumber}`} error={error} onRetry={onRetry} retrying={fetching} />
+  }
+
+  if (loading || !run) {
+    return <LoadingState message="Loading run details..." />
+  }
+
+  return <LoadedRunDetails run={run} runNumber={runNumber} {...rest} />
+}
+
+type LoadedProps = Omit<RunDetailsContentProps, 'error' | 'loading' | 'fetching' | 'run' | 'onRetry'> & {
+  run: PipelineRun
+}
+
+function LoadedRunDetails({
+  pipelineId,
+  runNumber,
+  providerId,
+  run,
+  isFlux,
+  isMobile,
+  mobileShell,
+  cancellationRequested,
+  children,
+}: LoadedProps): ReactNode {
+  const rows = useDetailRows(providerId, run)
+  const isRunning = run.status === 'running' || run.status === 'pending'
+
+  const notices = (
+    <>
+      <BuildWatchControls pipelineId={pipelineId} runNumber={runNumber} status={run.status} />
+      {run.metadata?.archived === true && (
+        <Alert color="gray" title="Cached reconciliation">
+          Flux no longer retains this entry. These details come from Pipedash's cache and will disappear if the cache is
+          cleared.
+        </Alert>
+      )}
+      {isRunning &&
+        (mobileShell ? (
+          <Alert
+            color="blue"
+            icon={<IconRefresh size={16} aria-hidden />}
+            title={isFlux ? 'Reconciliation in progress' : 'Run in progress'}
+          >
+            <Text size={TYPOGRAPHY.HELPER_TEXT.size}>Details refresh automatically every 10 seconds.</Text>
+          </Alert>
+        ) : (
+          <Alert color="gray" title={<StatusBadge status={run.status} />}>
+            <Text size={TYPOGRAPHY.HELPER_TEXT.size} role="status">
+              {cancellationRequested
+                ? 'Cancellation requested. Waiting for the provider to confirm the final status.'
+                : 'Details refresh automatically every 10 seconds.'}
+            </Text>
+          </Alert>
+        ))}
+    </>
+  )
+
+  return (
+    <Stack gap={mobileShell ? 'lg' : isMobile ? 'xs' : 'md'}>
+      {notices}
+      <RunDetailFields rows={rows} run={run} mobileShell={mobileShell} isMobile={isMobile} />
+      {children}
+    </Stack>
+  )
+}

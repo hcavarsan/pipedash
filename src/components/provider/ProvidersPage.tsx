@@ -2,6 +2,7 @@ import { ActionIcon, Button, Menu, Stack } from '@mantine/core'
 import { IconDots, IconEdit, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
+import { useRowMenuLongPress } from '../../hooks/useLongPress'
 import { useProviders } from '../../queries/useProvidersQueries'
 import { useProviderStore } from '../../stores/providerStore'
 import type { ProviderSummary } from '../../types'
@@ -12,8 +13,7 @@ import { LoadingState } from '../common/LoadingState'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup, IosRow } from '../ios/IosList'
 import { SwipeActions } from '../ios/SwipeActions'
-import { useRowMenuLongPress } from '../ios/useLongPress'
-import { ProviderAvatar, ProviderStatusLine } from '../layout/Navbar'
+import { ProviderAvatar, ProviderStatusLine } from '../layout/ProviderPresentation'
 
 import { useConfirmRemoveProvider } from './ProviderModals'
 import classes from './ProvidersPage.module.css'
@@ -46,15 +46,15 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
         <Menu position="bottom-end" withinPortal>
           <Menu.Target>
             <ActionIcon className={classes.actions} size={44} data-row-menu aria-label={`Actions for ${provider.name}`}>
-              <IconDots size={20} />
+              <IconDots size={20} aria-hidden />
             </ActionIcon>
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Label>{provider.name}</Menu.Label>
-            <Menu.Item leftSection={<IconEdit size={16} />} onClick={onEdit}>
+            <Menu.Item leftSection={<IconEdit size={16} aria-hidden />} onClick={onEdit}>
               Edit
             </Menu.Item>
-            <Menu.Item color="red" leftSection={<IconTrash size={16} />} onClick={onRemove}>
+            <Menu.Item color="red" leftSection={<IconTrash size={16} aria-hidden />} onClick={onRemove}>
               Remove
             </Menu.Item>
             <ActionSheetCancel />
@@ -82,7 +82,7 @@ export function ProvidersPage(): ReactNode {
         title="Couldn't load providers"
         error={error}
         hint="Check your connection and provider credentials."
-        onRetry={() => refetch()}
+        onRetry={() => void refetch()}
         retrying={isRefetching}
       />
     )

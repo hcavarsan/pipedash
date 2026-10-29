@@ -17,6 +17,40 @@ button.tile:active {
   box-shadow: inset 0 0 0 999px var(--ios-fill);
 }
 
+.compactCard {
+  position: relative;
+}
+
+.expandButton {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+
+.expandButton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--ios-radius-grouped, 0);
+}
+
+.expandButton:active::after {
+  background: var(--ios-fill);
+}
+
+.aboveOverlay {
+  position: relative;
+  z-index: 1;
+}
+
+.passThrough {
+  pointer-events: none;
+}
+
+.passThrough :is(button, a) {
+  pointer-events: auto;
+}
+
 .tileHead {
   display: flex;
   align-items: flex-start;

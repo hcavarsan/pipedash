@@ -119,20 +119,20 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
           placeholder="Search logs"
           maxLength={1000}
           value={query}
-          error={Boolean(searchError)}
+          error={searchError || false}
           leftSection={<IconSearch size={14} aria-hidden />}
           rightSectionWidth={56}
           rightSection={
             <Group gap={0} wrap="nowrap">
               <ToolbarButton
                 label="Match case"
-                icon={<IconLetterCase size={16} />}
+                icon={<IconLetterCase size={16} aria-hidden />}
                 pressed={props.caseSensitive}
                 onClick={() => props.onCaseSensitiveChange(!props.caseSensitive)}
               />
               <ToolbarButton
                 label="Use regular expression"
-                icon={<IconRegex size={16} />}
+                icon={<IconRegex size={16} aria-hidden />}
                 pressed={props.regex}
                 onClick={() => props.onRegexChange(!props.regex)}
               />
@@ -141,28 +141,28 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
           onChange={(event) => props.onQueryChange(event.currentTarget.value)}
           onKeyDown={onKeyDown}
         />
-        {(searchError || counter) && (
-          <Text size="xs" c={searchError ? 'red' : 'dimmed'} style={{ whiteSpace: 'nowrap' }}>
-            {searchError ?? counter}
+        {counter && (
+          <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+            {counter}
           </Text>
         )}
         <ToolbarButton
           label="Previous match"
           shortcut="shift+mod+G"
-          icon={<IconChevronUp size={16} />}
+          icon={<IconChevronUp size={16} aria-hidden />}
           disabled={noMatches}
           onClick={props.onPrevMatch}
         />
         <ToolbarButton
           label="Next match"
           shortcut="mod+G"
-          icon={<IconChevronDown size={16} />}
+          icon={<IconChevronDown size={16} aria-hidden />}
           disabled={noMatches}
           onClick={props.onNextMatch}
         />
         <ToolbarButton
           label="Show matching lines only"
-          icon={<IconFilter size={16} />}
+          icon={<IconFilter size={16} aria-hidden />}
           pressed={filter === 'matches'}
           disabled={noMatches && filter !== 'matches'}
           onClick={() => props.onFilterChange(filter === 'matches' ? 'none' : 'matches')}
@@ -177,14 +177,14 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
           <ToolbarButton
             label={noErrors ? 'No error lines found' : 'Previous error'}
             shortcut={noErrors ? undefined : 'shift+F8'}
-            icon={<IconArrowUp size={16} />}
+            icon={<IconArrowUp size={16} aria-hidden />}
             disabled={noErrors}
             onClick={props.onPrevError}
           />
           <ToolbarButton
             label={noErrors ? 'No error lines found' : 'Next error'}
             shortcut={noErrors ? undefined : 'F8'}
-            icon={<IconArrowDown size={16} />}
+            icon={<IconArrowDown size={16} aria-hidden />}
             disabled={noErrors}
             onClick={props.onNextError}
           />
@@ -194,7 +194,7 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
             label={
               props.copied ? 'Copied' : `Copy ${props.selectionCount} ${props.selectionCount === 1 ? 'line' : 'lines'}`
             }
-            icon={props.copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+            icon={props.copied ? <IconCheck size={16} aria-hidden /> : <IconCopy size={16} aria-hidden />}
             onClick={props.onCopySelection}
           />
         )}
@@ -202,7 +202,7 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
           <Menu.Target>
             <Tooltip label="Log options">
               <ActionIcon aria-label="Log options">
-                <IconDots size={16} />
+                <IconDots size={16} aria-hidden />
               </ActionIcon>
             </Tooltip>
           </Menu.Target>
@@ -211,7 +211,7 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
               role="menuitemcheckbox"
               aria-checked={props.wrap}
               closeMenuOnClick={false}
-              rightSection={props.wrap ? <IconCheck size={14} /> : null}
+              rightSection={props.wrap ? <IconCheck size={14} aria-hidden /> : null}
               onClick={() => props.onWrapChange(!props.wrap)}
             >
               Wrap lines
@@ -220,7 +220,7 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
               role="menuitemcheckbox"
               aria-checked={props.timestamps}
               closeMenuOnClick={false}
-              rightSection={props.timestamps ? <IconCheck size={14} /> : null}
+              rightSection={props.timestamps ? <IconCheck size={14} aria-hidden /> : null}
               onClick={() => props.onTimestampsChange(!props.timestamps)}
             >
               Show timestamps
@@ -230,17 +230,21 @@ export function LogToolbar(props: LogToolbarProps): ReactNode {
               aria-checked={filter === 'errors'}
               disabled={noErrors && filter !== 'errors'}
               closeMenuOnClick={false}
-              rightSection={filter === 'errors' ? <IconCheck size={14} /> : null}
+              rightSection={filter === 'errors' ? <IconCheck size={14} aria-hidden /> : null}
               onClick={() => props.onFilterChange(filter === 'errors' ? 'none' : 'errors')}
             >
               Show error lines only
             </Menu.Item>
             <Menu.Divider />
-            <Menu.Item leftSection={<IconDownload size={14} />} disabled={props.downloading} onClick={props.onDownload}>
+            <Menu.Item
+              leftSection={<IconDownload size={14} aria-hidden />}
+              disabled={props.downloading}
+              onClick={props.onDownload}
+            >
               Download log
             </Menu.Item>
             {props.jobUrl && (
-              <Menu.Item leftSection={<IconExternalLink size={14} />} onClick={props.onOpenJob}>
+              <Menu.Item leftSection={<IconExternalLink size={14} aria-hidden />} onClick={props.onOpenJob}>
                 Open job in {props.providerName}
               </Menu.Item>
             )}

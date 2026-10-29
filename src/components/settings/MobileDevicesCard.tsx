@@ -85,7 +85,7 @@ export function MobileDevicesCard(): ReactNode {
         </Stack>
 
         {!data.relay_configured && (
-          <Alert icon={<IconInfoCircle size={16} />} color="gray" variant="light">
+          <Alert icon={<IconInfoCircle size={16} aria-hidden />} color="gray" variant="light">
             This server has no push relay. Set push.relay_url in the config file or PIPEDASH_PUSH_RELAY_URL, then
             restart it.
           </Alert>

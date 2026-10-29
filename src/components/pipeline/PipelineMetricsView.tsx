@@ -1,16 +1,16 @@
 import { Button, Grid, Group, SegmentedControl, Select, Stack } from '@mantine/core'
 import { IconAdjustments, IconChartLine } from '@tabler/icons-react'
-import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useMetricsEventListeners } from '../../hooks/useMetricsEventListeners'
 import { useMetricsFilters } from '../../hooks/useUrlState'
-import { logger } from '../../lib/logger'
 import {
   useAggregatedMetrics,
   useInvalidatePipelineMetrics,
   usePipelineMetricsConfig,
 } from '../../queries/useMetricsQueries'
+import { useRunHistory } from '../../queries/useRunHistoryQueries'
 import { service } from '../../services'
 import type { AggregationPeriod, MetricType } from '../../types'
 import { type DateRange, isDateRange } from '../../utils/dateRange'
@@ -19,6 +19,7 @@ import { EmptyState } from '../common/EmptyState'
 import { ErrorState } from '../common/ErrorState'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
+import { ErrorBoundary } from '../ErrorBoundary'
 import { IosGroup, IosRow } from '../ios/IosList'
 import { CompactMetricsCard } from '../metrics/CompactMetricsCard'
 import { MetricsConfigModal } from '../metrics/MetricsConfigModal'
@@ -40,15 +41,9 @@ interface PipelineMetricsViewProps {
   pipelineId: string
   pipelineName: string
   repository?: string | undefined
-  refreshTrigger?: number | undefined
 }
 
-export const PipelineMetricsView = ({
-  pipelineId,
-  pipelineName,
-  repository,
-  refreshTrigger,
-}: PipelineMetricsViewProps): ReactNode => {
+export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: PipelineMetricsViewProps): ReactNode => {
   const mobileShell = useMobileShell()
   const { filters, setFilter } = useMetricsFilters()
   const dateRange: DateRange = isDateRange(filters.dateRange) ? filters.dateRange : '24h'
@@ -91,23 +86,7 @@ export const PipelineMetricsView = ({
 
   const refetchAll = useInvalidatePipelineMetrics(pipelineId)
 
-  useEffect(() => {
-    if (refreshTrigger !== undefined && refreshTrigger > 0 && isMetricsEnabled) {
-      void refetchAll()
-    }
-  }, [refreshTrigger, isMetricsEnabled, refetchAll])
-
-  const hasTriggeredCollectionRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    if (isMetricsEnabled && hasTriggeredCollectionRef.current !== pipelineId) {
-      hasTriggeredCollectionRef.current = pipelineId
-
-      service.fetchRunHistory(pipelineId, 1, 50).catch((error) => {
-        logger.warn('PipelineMetricsView', 'Failed to trigger metrics collection', error)
-      })
-    }
-  }, [pipelineId, isMetricsEnabled])
+  useRunHistory(pipelineId, 1, 50, isMetricsEnabled)
 
   const handleConfigSaved = async () => {
     const { data: freshConfig } = await refetchConfig()
@@ -120,9 +99,9 @@ export const PipelineMetricsView = ({
     }
   }
 
-  const handleConfigChanged = useCallback(() => {
+  const handleConfigChanged = () => {
     void refetchConfig().then(refetchAll)
-  }, [refetchConfig, refetchAll])
+  }
 
   useMetricsEventListeners({
     pipelineId,
@@ -167,13 +146,15 @@ export const PipelineMetricsView = ({
     }
 
     const renderCard = (type: MetricType) => (
-      <CompactMetricsCard
-        metricType={type}
-        data={metricQueries[type].data}
-        title={buildChartTitle(type, getDefaultAggregationType(type), aggregationPeriod, dateRange)}
-        loading={metricQueries[type].isPending}
-        onExpand={() => handleExpandMetric(type)}
-      />
+      <ErrorBoundary scope="feature" name={METRIC_CONFIG[type].label}>
+        <CompactMetricsCard
+          metricType={type}
+          data={metricQueries[type].data}
+          title={buildChartTitle(type, getDefaultAggregationType(type), aggregationPeriod, dateRange)}
+          loading={metricQueries[type].isPending}
+          onExpand={() => handleExpandMetric(type)}
+        />
+      </ErrorBoundary>
     )
 
     if (mobileShell) {
@@ -216,11 +197,15 @@ export const PipelineMetricsView = ({
     if (!isMetricsEnabled) {
       return (
         <EmptyState
-          icon={<IconChartLine size={24} />}
+          icon={<IconChartLine size={24} aria-hidden />}
           title="Metrics are turned off for this pipeline"
           description="Turn on metrics collection to track run duration, success rate, and run frequency over time."
           action={
-            <Button size="sm" leftSection={<IconAdjustments size={16} />} onClick={() => setConfigModalOpened(true)}>
+            <Button
+              size="sm"
+              leftSection={<IconAdjustments size={16} aria-hidden />}
+              onClick={() => setConfigModalOpened(true)}
+            >
               Enable metrics
             </Button>
           }
@@ -254,7 +239,7 @@ export const PipelineMetricsView = ({
           <IosGroup footer={`Metrics are kept for ${formatCount(retentionDays, 'day')}.`}>
             <IosRow
               title="Configure metrics"
-              icon={<IconAdjustments size={18} />}
+              icon={<IconAdjustments size={18} aria-hidden />}
               chevron
               onClick={() => setConfigModalOpened(true)}
             />
@@ -287,7 +272,7 @@ export const PipelineMetricsView = ({
           <Button
             size="sm"
             variant="default"
-            leftSection={<IconAdjustments size={16} />}
+            leftSection={<IconAdjustments size={16} aria-hidden />}
             onClick={() => setConfigModalOpened(true)}
           >
             Configure metrics
@@ -313,19 +298,21 @@ export const PipelineMetricsView = ({
             : `${METRIC_CONFIG[selectedMetricType].label} · ${repository ? `${repository} / ` : ''}${pipelineName}`
         }
       >
-        <MetricsDetailPage
-          pipelineId={pipelineId}
-          pipelineName={pipelineName}
-          repository={repository}
-          metricType={selectedMetricType}
-          initialDateRange={dateRange}
-          initialAggregation={aggregationPeriod}
-          retentionDays={retentionDays}
-          refreshTrigger={refreshTrigger}
-        />
+        <ErrorBoundary scope="feature" name="Metric details" resetKeys={[selectedMetricType]}>
+          <MetricsDetailPage
+            pipelineId={pipelineId}
+            pipelineName={pipelineName}
+            repository={repository}
+            metricType={selectedMetricType}
+            initialDateRange={dateRange}
+            initialAggregation={aggregationPeriod}
+            retentionDays={retentionDays}
+          />
+        </ErrorBoundary>
       </StandardModal>
 
       <MetricsConfigModal
+        scope="pipeline"
         opened={configModalOpened}
         onClose={() => setConfigModalOpened(false)}
         onConfigChange={handleConfigSaved}

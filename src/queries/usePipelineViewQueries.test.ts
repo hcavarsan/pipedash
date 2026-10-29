@@ -72,4 +72,40 @@ if (process.env.PIPEDASH_LEGACY_MARKS_TEST !== '1') {
     assert.notEqual(localStorage.getItem('pipedash-pinned-pipelines'), null)
     assert.notEqual(localStorage.getItem('pipedash-hidden-pipelines'), null)
   })
+
+  test('does not call the backend while disabled and imports once when enabled later', async () => {
+    const { rerender } = renderHook(({ enabled }) => useLegacyPipelineMarksImport(enabled), {
+      wrapper,
+      initialProps: { enabled: false },
+    })
+
+    assert.equal(calls.length, 0)
+    assert.notEqual(localStorage.getItem('pipedash-pinned-pipelines'), null)
+
+    rerender({ enabled: true })
+    await waitFor(() => assert.equal(calls.length, 1))
+    rerender({ enabled: false })
+    rerender({ enabled: true })
+
+    assert.equal(calls.length, 1)
+  })
+
+  test('missing, empty or malformed legacy data makes no request and is cleaned up', async () => {
+    localStorage.setItem('pipedash-pinned-pipelines', '{not json')
+    localStorage.setItem('pipedash-hidden-pipelines', JSON.stringify({ state: { hiddenKeys: [] } }))
+    renderHook(() => useLegacyPipelineMarksImport(true), { wrapper })
+
+    await waitFor(() => assert.equal(localStorage.getItem('pipedash-pinned-pipelines'), null))
+    assert.equal(localStorage.getItem('pipedash-hidden-pipelines'), null)
+    assert.equal(calls.length, 0)
+  })
+
+  test('rerendering after a successful import does not import again', async () => {
+    const { rerender } = renderHook(() => useLegacyPipelineMarksImport(true), { wrapper })
+    await waitFor(() => assert.equal(localStorage.getItem('pipedash-pinned-pipelines'), null))
+
+    rerender()
+
+    assert.equal(calls.length, 1)
+  })
 }

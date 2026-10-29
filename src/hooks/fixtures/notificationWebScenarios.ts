@@ -7,14 +7,13 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
-
-import { useEventSync } from '../../lib/eventSync'
 import { queryKeys } from '../../lib/queryKeys'
 import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { wsClient } from '../../services'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../stores/notificationStore'
 import type { Pipeline } from '../../types'
+import { useEventSync } from '../useEventSync'
 import { useFailureNotifications } from '../useFailureNotifications'
 
 import { delivered, Socket } from './notificationWebEnvironment'
@@ -33,11 +32,23 @@ const baseline: Pipeline = {
   last_updated: '2026-10-26T12:01:00Z',
 }
 let backend: Pipeline[] = []
+let failNext = false
+let gate: PromiseWithResolvers<void> | null = null
 
 function Screen() {
   useFailureNotifications()
   useEventSync()
-  useQuery({ queryKey: queryKeys.pipelines.list(), queryFn: async () => backend })
+  useQuery({
+    queryKey: queryKeys.pipelines.list(),
+    queryFn: async () => {
+      await gate?.promise
+      if (failNext) {
+        throw new Error('backend unavailable')
+      }
+
+      return backend
+    },
+  })
   return null
 }
 
@@ -61,6 +72,8 @@ afterEach(async () => {
   useNotificationCenterStore.setState({ items: [], selection: null })
   Socket.instances.length = 0
   delivered.length = 0
+  failNext = false
+  gate = null
 })
 
 after(() => GlobalRegistrator.unregister())
@@ -130,4 +143,38 @@ test('reconnection recovery stays in the center when notifications are off', asy
   Socket.instances.at(-1)?.open()
   await waitFor(() => assert.equal(useNotificationCenterStore.getState().items[0]?.pipelineId, baseline.id))
   assert.deepEqual(delivered, [])
+})
+
+test('a failed reconnect refetch stays silent and the next successful one still recovers the failure', async (context) => {
+  context.mock.method(console, 'error', () => undefined)
+  await mount(baseline)
+  wsClient.disconnect()
+  backend = [{ ...baseline, status: 'failed' }]
+  failNext = true
+  wsClient.manualReconnect()
+  Socket.instances.at(-1)?.open()
+  await waitFor(() => assert.equal(client.getQueryState(queryKeys.pipelines.list())?.status, 'error'))
+  assert.deepEqual(delivered, [])
+
+  failNext = false
+  wsClient.disconnect()
+  wsClient.manualReconnect()
+  Socket.instances.at(-1)?.open()
+  await waitFor(() => assert.equal(delivered.length, 1))
+  assert.equal(useNotificationCenterStore.getState().items.length, 1)
+})
+
+test('a slow initial list does not announce an already failed pipeline when it arrives', async () => {
+  backend = [{ ...baseline, status: 'failed' }]
+  useNotificationStore.setState({ notificationsEnabled: true })
+  gate = Promise.withResolvers<void>()
+  await act(async () => {
+    render(createElement(QueryClientProvider, { client }, createElement(Screen)))
+  })
+  assert.deepEqual(delivered, [])
+
+  gate.resolve()
+  await waitFor(() => assert.deepEqual(client.getQueryData(queryKeys.pipelines.list()), backend))
+  assert.deepEqual(delivered, [])
+  assert.deepEqual(useNotificationCenterStore.getState().items, [])
 })

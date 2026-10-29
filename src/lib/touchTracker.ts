@@ -51,11 +51,20 @@ export function trackTouches<Context>(target: TrackerTarget, options: TrackerOpt
   let session: Session<Context> | null = null
   let waiting = false
   let pointerId: number | null = null
+  let captured: { element: Element; id: number } | null = null
+
+  const releaseCapture = () => {
+    if (captured?.element.hasPointerCapture(captured.id)) {
+      captured.element.releasePointerCapture(captured.id)
+    }
+    captured = null
+  }
 
   const abort = () => {
     if (session?.phase === 'active') {
       options.cancel?.(session.context)
     }
+    releaseCapture()
     session = null
     waiting = false
     pointerId = null
@@ -82,6 +91,10 @@ export function trackTouches<Context>(target: TrackerTarget, options: TrackerOpt
   }
 
   const start = (element: Element | null, point: Point) => {
+    if (session?.phase === 'active') {
+      options.cancel?.(session.context)
+    }
+    releaseCapture()
     session = null
     waiting = !open(element, point) && options.retry === true
   }
@@ -142,6 +155,7 @@ export function trackTouches<Context>(target: TrackerTarget, options: TrackerOpt
     session = null
     waiting = false
     pointerId = null
+    captured = null
 
     if (current?.phase !== 'active') {
       return
@@ -208,6 +222,7 @@ export function trackTouches<Context>(target: TrackerTarget, options: TrackerOpt
     advance(event.target instanceof Element ? event.target : null, pointerPoint(event), () => {
       if (event.target instanceof Element && !event.target.hasPointerCapture(event.pointerId)) {
         event.target.setPointerCapture(event.pointerId)
+        captured = { element: event.target, id: event.pointerId }
       }
       event.preventDefault()
     })
@@ -236,6 +251,7 @@ export function trackTouches<Context>(target: TrackerTarget, options: TrackerOpt
   target.addEventListener('lostpointercapture', onPointerCancel, { passive: true })
 
   return () => {
+    abort()
     target.removeEventListener('touchstart', onTouchStart)
     target.removeEventListener('touchmove', onTouchMove)
     target.removeEventListener('touchend', onTouchEnd)

@@ -7,7 +7,7 @@ import { LazyRoute } from './components/common/LazyRoute'
 import { PageContainer } from './components/common/PageContainer'
 import { PageHeader } from './components/common/PageHeader'
 import { useMobileShell } from './hooks/useIsMobile'
-import type { Pipeline, PipelineRun, ProviderSummary, ReviewDecision } from './types'
+import type { Pipeline, ProviderSummary } from './types'
 
 const UnifiedPipelinesView = lazy(() =>
   import('./components/table/UnifiedPipelinesView').then((m) => ({
@@ -46,10 +46,6 @@ interface AppRoutesProps {
   error: unknown
   onRetry: () => Promise<void>
   onBack: () => void
-  onRerun: (pipeline: Pipeline, run: PipelineRun) => void
-  onCancel: (pipeline: Pipeline, run: PipelineRun) => Promise<void>
-  onReview: (pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => Promise<void>
-  onRerunFailedJobs: (pipeline: Pipeline, run: PipelineRun) => Promise<void>
   onViewHistory: (pipeline: Pipeline) => void
   onViewMetrics: (pipeline: Pipeline) => void
   onViewRun: (pipelineId: string, runNumber: number) => void
@@ -67,10 +63,6 @@ export function AppRoutes({
   onViewRun,
   onTrigger,
   onBack,
-  onRerun,
-  onCancel,
-  onReview,
-  onRerunFailedJobs,
 }: AppRoutesProps): ReactNode {
   const navigate = useNavigate()
   const mobileShell = useMobileShell()
@@ -103,16 +95,7 @@ export function AppRoutes({
         path="/pipelines/:pipelineId"
         element={
           <LazyRoute>
-            <PipelineDetailRoute
-              pipelines={pipelines}
-              loading={loading}
-              onBack={onBack}
-              onViewRun={onViewRun}
-              onRerun={onRerun}
-              onCancel={onCancel}
-              onReview={onReview}
-              onRerunFailedJobs={onRerunFailedJobs}
-            />
+            <PipelineDetailRoute pipelines={pipelines} loading={loading} onBack={onBack} />
           </LazyRoute>
         }
       />

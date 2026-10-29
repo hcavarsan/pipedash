@@ -1,5 +1,6 @@
 import { notifications } from '@mantine/notifications'
 import {
+  type QueryClient,
   type UseMutationResult,
   type UseQueryResult,
   useMutation,
@@ -244,5 +245,45 @@ export function useExecuteMigration(): UseMutationResult<
         color: 'red',
       })
     },
+  })
+}
+
+function invalidateAfterConfigWrite(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+}
+
+export function useSaveConfigContent(): UseMutationResult<void, Error, string, unknown> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (content: string) => service.saveConfigContent(content),
+    onSuccess: () => invalidateAfterConfigWrite(queryClient),
+  })
+}
+
+export function useMigrateAndSaveConfig(): UseMutationResult<
+  MigrationResult,
+  Error,
+  { plan: MigrationPlan; options: MigrationOptions; content: string },
+  unknown
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ plan, options, content }) => {
+      const result = await service.executeMigration(plan, options)
+
+      if (!result.success) {
+        throw new Error(result.errors?.join(', ') || 'Migration completed with errors')
+      }
+
+      await service.saveConfigContent(content)
+
+      return result
+    },
+    onSuccess: () => invalidateAfterConfigWrite(queryClient),
   })
 }

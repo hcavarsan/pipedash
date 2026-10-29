@@ -14,6 +14,7 @@ import {
   systemNotificationsSupported,
 } from '@/utils/systemNotifications'
 
+import { ErrorBoundary } from '../../ErrorBoundary/ErrorBoundary'
 import { IosGroup } from '../../ios/IosList'
 import { MobileDevicesCard } from '../MobileDevicesCard'
 import { SwitchRow } from '../mobileParts'
@@ -49,10 +50,11 @@ export function NotificationsSection(): ReactNode {
   const setLocalEnabled = useSetLocalNotifications()
   const notificationsSupported = systemNotificationsSupported()
   const [blocked, setBlocked] = useState(() => 'Notification' in window && Notification.permission === 'denied')
-  const [busy, setBusy] = useState(false)
+  const [requestingPermission, setRequestingPermission] = useState(false)
 
   const enabled = notificationsSupported && (ios ? settings.data?.enabled === true : storeEnabled)
-  const disabled = !notificationsSupported || busy || (ios && settings.data === undefined)
+  const saving = requestingPermission || setLocalEnabled.isPending
+  const disabled = !notificationsSupported || saving || (ios && settings.data === undefined)
   const description = ios ? IOS_DESCRIPTION : DESCRIPTION
   let note: string | undefined
   if (!notificationsSupported) {
@@ -63,43 +65,56 @@ export function NotificationsSection(): ReactNode {
     note = settings.data.reason ?? undefined
   }
 
-  const handleToggle = async (next: boolean) => {
-    if (busy) {
+  const requestPermission = async (): Promise<boolean> => {
+    setRequestingPermission(true)
+    try {
+      if (ios && !(await confirmBackgroundAccess())) {
+        return false
+      }
+
+      if (!(await requestSystemNotificationPermission())) {
+        setBlocked(true)
+        displayWarningNotification(notificationProblem('blocked'), 'Notifications blocked')
+
+        return false
+      }
+
+      setBlocked(false)
+
+      return true
+    } finally {
+      setRequestingPermission(false)
+    }
+  }
+
+  const handleToggle = async (next: boolean): Promise<void> => {
+    if (saving || (next && !(await requestPermission()))) {
       return
     }
 
-    setBusy(true)
-    try {
-      if (next) {
-        if (ios && !(await confirmBackgroundAccess())) {
-          return
-        }
+    if (!ios) {
+      setStoreEnabled(next)
 
-        if (!(await requestSystemNotificationPermission())) {
-          setBlocked(true)
-          displayWarningNotification(notificationProblem('blocked'), 'Notifications blocked')
+      return
+    }
 
-          return
-        }
+    const result = await setLocalEnabled.mutateAsync(next).catch(() => null)
 
-        setBlocked(false)
-      }
-
-      if (!ios) {
-        setStoreEnabled(next)
-
-        return
-      }
-
-      const result = await setLocalEnabled.mutateAsync(next).catch(() => null)
-
-      if (next && result && !result.enabled) {
-        displayWarningNotification(result.reason ?? "Notifications couldn't be turned on.", 'Notifications are off')
-      }
-    } finally {
-      setBusy(false)
+    if (next && result && !result.enabled) {
+      displayWarningNotification(result.reason ?? "Notifications couldn't be turned on.", 'Notifications are off')
     }
   }
+
+  const pushCard = isMobilePlatform() && (
+    <ErrorBoundary scope="feature" name="Push notifications">
+      <PushNotificationsCard />
+    </ErrorBoundary>
+  )
+  const devicesCard = !isTauri() && (
+    <ErrorBoundary scope="feature" name="Mobile devices">
+      <MobileDevicesCard />
+    </ErrorBoundary>
+  )
 
   if (mobileShell) {
     return (
@@ -120,8 +135,8 @@ export function NotificationsSection(): ReactNode {
           </IosGroup>
         )}
 
-        {isMobilePlatform() && <PushNotificationsCard />}
-        {!isTauri() && <MobileDevicesCard />}
+        {pushCard}
+        {devicesCard}
       </Stack>
     )
   }
@@ -138,8 +153,8 @@ export function NotificationsSection(): ReactNode {
         />
       </Card>
 
-      {isMobilePlatform() && <PushNotificationsCard />}
-      {!isTauri() && <MobileDevicesCard />}
+      {pushCard}
+      {devicesCard}
     </Stack>
   )
 }

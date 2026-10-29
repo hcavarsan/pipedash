@@ -71,7 +71,7 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
       ? null
       : {
           label: 'Cancel running…',
-          icon: <IconSquare size={16} />,
+          icon: <IconSquare size={16} aria-hidden />,
           color: 'red',
           onClick: () => {
             setScope({ label, pipelines })
@@ -92,7 +92,7 @@ interface ProviderCancelItemsResult {
 }
 
 export function useProviderCancelItems(providers: ProviderSummary[]): ProviderCancelItemsResult {
-  const { data: pipelines = [] } = usePipelines(undefined, { providers })
+  const { data: pipelines = [] } = usePipelines(undefined, { enabled: providers.length > 0 })
   const { cancelItem, dialog } = useCancelActiveRuns()
 
   const providerItems = (provider: ProviderSummary): CancelItem[] => {

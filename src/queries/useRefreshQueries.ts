@@ -1,6 +1,5 @@
 import { notifications } from '@mantine/notifications'
-import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
+import { type UseMutationResult, useMutation, useMutationState, useQueryClient } from '@tanstack/react-query'
 
 import { queryKeys } from '../lib/queryKeys'
 import { isTauri, service } from '../services'
@@ -12,8 +11,11 @@ const REFRESH_TOAST_MS = 5000
 
 const desktopOffline = () => isTauri() && !navigator.onLine
 
+const REFRESH_PROVIDER_KEY = ['providers', 'refresh'] as const
+
 export function useRefreshProvider(): UseMutationResult<RefreshResult, Error, number, unknown> {
   return useMutation({
+    mutationKey: REFRESH_PROVIDER_KEY,
     mutationFn: (providerId: number) => service.refreshProvider(providerId),
   })
 }
@@ -26,41 +28,42 @@ interface RefreshProvidersResult {
 export function useRefreshProviders(): RefreshProvidersResult {
   const queryClient = useQueryClient()
   const { mutateAsync: refreshProvider } = useRefreshProvider()
-  const [refreshing, setRefreshing] = useState<ReadonlySet<number>>(new Set())
+  const pendingIds = useMutationState({
+    filters: { mutationKey: REFRESH_PROVIDER_KEY, status: 'pending' },
+    select: (mutation) => mutation.state.variables,
+  })
+  const refreshing: ReadonlySet<number> = new Set(pendingIds.filter((id): id is number => typeof id === 'number'))
 
-  const refresh = useCallback(
-    async (providerIds: number[]) => {
-      const ids = providerIds.filter((id) => !refreshing.has(id))
+  const refresh = async (providerIds: number[]): Promise<void> => {
+    const ids = providerIds.filter((id) => !refreshing.has(id))
 
-      if (ids.length === 0) {
-        return
+    if (ids.length === 0) {
+      return
+    }
+
+    const settled = await Promise.allSettled(ids.map((id) => refreshProvider(id)))
+
+    if (!desktopOffline()) {
+      const results = settled.flatMap((entry) => (entry.status === 'fulfilled' ? [entry.value] : []))
+      const failed = settled.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected')
+
+      if (results.length > 0) {
+        const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
+        const { message, color } = summarizeRefresh(results, providers)
+
+        notifications.show({ message, color, autoClose: REFRESH_TOAST_MS })
       }
 
-      setRefreshing((current) => new Set([...current, ...ids]))
-
-      try {
-        const results = await Promise.all(ids.map((id) => refreshProvider(id)))
-
-        if (!desktopOffline()) {
-          const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
-          const { message, color } = summarizeRefresh(results, providers)
-
-          notifications.show({ message, color, autoClose: REFRESH_TOAST_MS })
-        }
-      } catch (error) {
-        if (!desktopOffline()) {
-          displayErrorNotification(error, "Couldn't refresh")
-        }
-      } finally {
-        setRefreshing((current) => new Set([...current].filter((id) => !ids.includes(id))))
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
-          queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
-        ])
+      if (failed) {
+        displayErrorNotification(failed.reason, "Couldn't refresh")
       }
-    },
-    [queryClient, refreshProvider, refreshing]
-  )
+    }
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
+    ])
+  }
 
   return { refresh, refreshing }
 }

@@ -55,7 +55,7 @@ export function useContextMenu(): (items: () => ContextMenuItem[]) => {
 
       const entries = items()
 
-      if (!entries.some((item) => !('divider' in item))) {
+      if (!entries.some((item) => 'label' in item && !item.disabled)) {
         return
       }
 

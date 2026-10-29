@@ -1,10 +1,12 @@
 import { Button, Group, Radio, Stack, Text } from '@mantine/core'
 import { IconCheck } from '@tabler/icons-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import type { Pipeline, PipelineRun } from '../../types'
+import { errorMessage } from '../../utils/errorDisplay'
 import { buildRerunSummary, canRerunFailedOnly, type RerunMode, type RerunSummaryField } from '../../utils/rerunSummary'
+import { FormErrorDisplay } from '../common/FormErrorDisplay'
 import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
 
@@ -52,6 +54,10 @@ const ShellRows = ({ rows, header }: { rows: RerunSummaryField[]; header?: strin
   </IosGroup>
 )
 
+interface RerunActionState {
+  error: string | null
+}
+
 export const RerunConfirmModal = ({
   run,
   pipeline,
@@ -61,8 +67,9 @@ export const RerunConfirmModal = ({
 }: RerunConfirmModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
+  const formId = useId()
+  const formRef = useRef<HTMLFormElement>(null)
   const [choice, setChoice] = useState<RerunMode | null>(null)
-  const [pending, setPending] = useState(false)
 
   const failedOffered = run !== null && canRerunFailedOnly(run)
   const mode: RerunMode = choice ?? (failedOffered ? 'failed' : 'all')
@@ -74,22 +81,27 @@ export const RerunConfirmModal = ({
     onClose()
   }
 
-  const confirm = async () => {
-    setPending(true)
-    try {
-      await onConfirm(mode)
-    } finally {
-      setPending(false)
+  const [state, formAction, pending] = useActionState(
+    async (): Promise<RerunActionState> => {
+      try {
+        await onConfirm(mode)
+      } catch (error: unknown) {
+        return { error: errorMessage(error, 'Try the rerun again.') }
+      }
+
       close()
-    }
-  }
+
+      return { error: null }
+    },
+    { error: null }
+  )
 
   const footer = (requestClose: () => void) => (
     <Group justify="flex-end" gap="sm" grow={isMobile}>
       <Button variant="default" size="sm" onClick={requestClose} disabled={pending}>
         Cancel
       </Button>
-      <Button size="sm" onClick={confirm} loading={pending}>
+      <Button size="sm" type="submit" form={formId} loading={pending}>
         {MODE_COPY[mode].confirm}
       </Button>
     </Group>
@@ -126,8 +138,8 @@ export const RerunConfirmModal = ({
         </Stack>
       )}
       {modes.length > 0 ? (
-        <Radio.Group<RerunMode> value={mode} onChange={(value) => setChoice(value)}>
-          <Stack gap="xs">
+        <Radio.Group<RerunMode> name="mode" label="Jobs to rerun" value={mode} onChange={(value) => setChoice(value)}>
+          <Stack gap="xs" mt="xs">
             {modes.map((value) => (
               <Radio
                 key={value}
@@ -155,9 +167,14 @@ export const RerunConfirmModal = ({
       title={mobileShell ? 'Confirm re-run' : `Re-run: ${pipeline?.name ?? ''}`}
       loading={pending}
       footer={footer}
-      primaryAction={{ label: 'Re-run', onClick: confirm, loading: pending }}
+      primaryAction={{ label: 'Re-run', onClick: () => formRef.current?.requestSubmit(), loading: pending }}
     >
-      {mobileShell ? shellBody : desktopBody}
+      <form ref={formRef} id={formId} action={formAction}>
+        <Stack gap="md">
+          {mobileShell ? shellBody : desktopBody}
+          <FormErrorDisplay title="Couldn't re-run" globalError={state.error} />
+        </Stack>
+      </form>
     </StandardModal>
   )
 }

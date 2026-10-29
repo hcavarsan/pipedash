@@ -89,10 +89,15 @@ export function NativeBridge(): ReactNode {
       return
     }
 
-    const drain = () => {
+    let active = true
+    const drain = (): void => {
       mobileService
         .takePendingIntent()
-        .then((intent) => intent && handleIntent(navigate, intent))
+        .then((intent) => {
+          if (active && intent) {
+            handleIntent(navigate, intent)
+          }
+        })
         .catch((error: unknown) => logger.warn('NativeBridge', "Couldn't read the pending intent", error))
     }
 
@@ -101,6 +106,7 @@ export function NativeBridge(): ReactNode {
     const stopTaps = listenNative(STATUS_BAR_TAP_EVENT, scrollActiveToTop)
 
     return () => {
+      active = false
       stopIntents()
       stopTaps()
     }

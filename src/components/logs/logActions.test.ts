@@ -10,6 +10,7 @@ import {
   collectLines,
   errorCounter,
   exportFileName,
+  IncompleteLogCopyError,
   newSessionId,
 } from './logActions'
 
@@ -69,8 +70,32 @@ test('too many characters fail while paging', async () => {
   await assert.rejects(collectLines(0, 5, source([big, big, big, big, big])), CopyTooLargeError)
 })
 
-test('an empty page ends the loop', async () => {
-  assert.equal(await collectLines(0, 10, source(['a', 'b'])), 'a\nb')
+test('an empty page before the range is read rejects instead of copying a partial result', async () => {
+  await assert.rejects(collectLines(0, 10, source(['a', 'b'])), IncompleteLogCopyError)
+})
+
+test('an empty range returns an empty string without a request', async () => {
+  const calls: Array<[number, number]> = []
+
+  assert.equal(await collectLines(4, 4, source(['a'], calls)), '')
+  assert.equal(calls.length, 0)
+})
+
+test('a rejected page is propagated', async () => {
+  const failing = async (): Promise<LogLinesPage> => {
+    throw new Error('network down')
+  }
+
+  await assert.rejects(collectLines(0, 3, failing), /network down/)
+})
+
+test('a truncated line rejects instead of being copied as complete', async () => {
+  const page = async (start: number): Promise<LogLinesPage> => ({
+    start,
+    lines: [{ text: 'cut', omitted: 12 }],
+  })
+
+  await assert.rejects(collectLines(0, 1, page), CopyTooLargeError)
 })
 
 test('session ids are 32 hex characters and do not need randomUUID', () => {

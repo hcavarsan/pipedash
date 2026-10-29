@@ -60,3 +60,42 @@ export function validateSignIn(
 
   return status?.state === 'completed' ? null : 'Finish signing in to continue'
 }
+
+interface CredentialsDraft {
+  providerName: string
+  fields: ConfigField[]
+  authMode: AuthMode
+  configValues: Record<string, string>
+  signInStatus: SignInStatus | undefined
+}
+
+export function validateProviderCredentials({
+  providerName,
+  fields,
+  authMode,
+  configValues,
+  signInStatus,
+}: CredentialsDraft): Record<string, string> {
+  const errors: Record<string, string> = {}
+  const nameError = validateProviderName(providerName)
+
+  if (nameError) {
+    errors.providerName = nameError
+  }
+
+  for (const field of activeConfigFields(fields, authMode)) {
+    const fieldError = validateConfigField(field, configValues[field.key] || '')
+
+    if (fieldError) {
+      errors[field.key] = fieldError
+    }
+  }
+
+  const signInError = validateSignIn(authMode, configValues, signInStatus)
+
+  if (signInError) {
+    errors[SIGN_IN_KEY] = signInError
+  }
+
+  return errors
+}

@@ -279,3 +279,33 @@ test('never has more requests in flight than the concurrency limit', async () =>
   assert.equal(peak, 3)
   assert.equal(Object.keys(runs).length, 10)
 })
+
+test('no pipelines means no fetches and no progress', async () => {
+  const calls: string[] = []
+  const progress: number[] = []
+
+  const found = await findUnfinishedRuns([], pagesFor({}, calls), 4, (done) => progress.push(done))
+
+  assert.deepEqual(found, { runs: {}, failed: [] })
+  assert.deepEqual(calls, [])
+  assert.deepEqual(progress, [])
+})
+
+test('an already aborted search fetches nothing', async () => {
+  const calls: string[] = []
+  const progress: number[] = []
+  const controller = new AbortController()
+  controller.abort()
+
+  const found = await findUnfinishedRuns(
+    [pipeline('a')],
+    pagesFor({ a: [pageOf([run(1)], false)] }, calls),
+    4,
+    (done) => progress.push(done),
+    controller.signal
+  )
+
+  assert.deepEqual(found, { runs: {}, failed: [] })
+  assert.deepEqual(calls, [])
+  assert.deepEqual(progress, [])
+})

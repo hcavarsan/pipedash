@@ -2,7 +2,6 @@ import {
   Button,
   Card,
   Divider,
-  Group,
   Input,
   Loader,
   type MantineColorScheme,
@@ -11,12 +10,11 @@ import {
   Stack,
   Switch,
   Text,
-  TextInput,
   useMantineColorScheme,
 } from '@mantine/core'
 import { IconTrash } from '@tabler/icons-react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type ReactNode, useState } from 'react'
 
 import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
@@ -26,14 +24,16 @@ import { service } from '@/services'
 import type { GeneralConfig } from '@/types'
 import { displayErrorNotification } from '@/utils/errorDisplay'
 import { isOneOf } from '@/utils/isOneOf'
-import { isHttpUrl } from '@/utils/openExternal'
 import { getPlatformOverride, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
 
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
+import { LiveStatus } from '../../forms/LiveStatus'
 import { IosGroup, IosRow } from '../../ios/IosList'
-import { AccentText, FieldRow, RowSelect, RowTextInput, SwitchRow } from '../mobileParts'
+import { FieldRow, RowSelect, SwitchRow } from '../mobileParts'
 import { useFactoryResetConfirm } from '../useFactoryResetConfirm'
+
+import { ProxySettingsForm } from './ProxySettingsForm'
 
 interface GeneralSectionProps {
   onRefresh?: (() => Promise<void>) | undefined
@@ -56,23 +56,21 @@ const PLATFORM_OPTIONS: { value: PlatformChoice; label: string }[] = [
   { value: 'linux', label: 'Linux' },
 ]
 
-const PROXY_DESCRIPTION =
-  "Sends provider requests through this HTTP proxy, except Tekton and Flux. Leave it empty to connect directly or through HTTPS_PROXY. Proxies that need a password aren't supported."
-
 export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
   const mobileShell = useMobileShell()
-  const [platformOverride, setPlatformOverrideState] = useState<string | null>(null)
-  const [currentPlatform, setCurrentPlatform] = useState<string>('linux')
+  const queryClient = useQueryClient()
+  const [platformOverride, setPlatformOverrideState] = useState(getPlatformOverride)
+  const platformQuery = useQuery({ queryKey: queryKeys.platform.current(), queryFn: platform })
+  const currentPlatform = platformQuery.data ?? 'linux'
   const { colorScheme, setColorScheme } = useMantineColorScheme()
   const { confirmReset, isResetting } = useFactoryResetConfirm(async () => {
     setPlatformOverrideState(null)
+    void queryClient.invalidateQueries({ queryKey: queryKeys.platform.current() })
     await onRefresh?.()
   })
 
-  const queryClient = useQueryClient()
   const storageConfig = useStorageConfig()
   const general = storageConfig.data?.config.general
-  const [proxyDraft, setProxyDraft] = useState<string | null>(null)
   const generalMutation = useMutation({
     mutationFn: (update: GeneralConfig) => service.updateGeneralSettings(update),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.storage.config() }),
@@ -81,12 +79,10 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
       displayErrorNotification(error, "Couldn't save general settings")
     },
   })
-  const saveGeneral = (change: Partial<GeneralConfig>, onSuccess?: () => void) => {
-    if (!general) {
-      return
+  const setStatusPages = (checked: boolean): void => {
+    if (general) {
+      generalMutation.mutate({ ...general, status_pages_enabled: checked })
     }
-
-    generalMutation.mutate({ ...general, ...change }, onSuccess ? { onSuccess } : undefined)
   }
   const statusPagesChecked = generalMutation.isPending
     ? generalMutation.variables.status_pages_enabled
@@ -97,14 +93,14 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
     <ErrorState
       title="Couldn't load provider status page setting"
       error={storageConfig.error ?? 'The storage configuration did not include general settings.'}
-      onRetry={() => storageConfig.refetch()}
+      onRetry={() => void storageConfig.refetch()}
       retrying={storageConfig.isRefetching}
     />
   ) : mobileShell ? (
     <SwitchRow
       title="Check provider status pages"
       checked={statusPagesChecked}
-      onChange={(e) => saveGeneral({ status_pages_enabled: e.currentTarget.checked })}
+      onChange={(event) => setStatusPages(event.currentTarget.checked)}
       disabled={generalMutation.isPending}
     />
   ) : (
@@ -112,46 +108,31 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
       label="Check provider status pages"
       description="Reads the public status page of each provider, or the one you configured. No credentials are sent."
       checked={statusPagesChecked}
-      onChange={(e) => saveGeneral({ status_pages_enabled: e.currentTarget.checked })}
+      onChange={(event) => setStatusPages(event.currentTarget.checked)}
       disabled={generalMutation.isPending}
     />
   )
 
-  const savedProxy = general?.proxy_url ?? ''
-  const proxyValue = proxyDraft ?? savedProxy
-  const proxyTrimmed = proxyValue.trim()
-  const proxyError =
-    proxyTrimmed && !isHttpUrl(proxyTrimmed) ? 'Enter a URL that starts with http:// or https://' : undefined
-  const canSaveProxy = !!general && !generalMutation.isPending && !proxyError && proxyTrimmed !== savedProxy
-  const saveProxy = () => {
-    if (canSaveProxy) {
-      saveGeneral({ proxy_url: proxyTrimmed }, () => setProxyDraft(null))
-    }
-  }
+  const proxyForm = general && (
+    <ProxySettingsForm
+      savedProxy={general.proxy_url ?? ''}
+      mobileShell={mobileShell}
+      pending={generalMutation.isPending}
+      onSave={(proxyUrl) => generalMutation.mutateAsync({ ...general, proxy_url: proxyUrl })}
+    />
+  )
 
-  useEffect(() => {
-    const loadPlatform = async () => {
-      const override = getPlatformOverride()
-
-      setPlatformOverrideState(override)
-      const detectedPlatform = await platform()
-
-      setCurrentPlatform(detectedPlatform)
-    }
-
-    loadPlatform().catch((error: unknown) => {
-      logger.error('GeneralSection', 'Failed to detect platform', error)
-    })
-  }, [])
-
-  const handlePlatformChange = (value: PlatformChoice | null) => {
+  const handlePlatformChange = (value: PlatformChoice | null): void => {
     setPlatformOverride(value || null)
-    setPlatformOverrideState(value)
+    setPlatformOverrideState(value || null)
+    void queryClient.invalidateQueries({ queryKey: queryKeys.platform.current() })
   }
 
   if (mobileShell) {
     return (
       <Stack gap="lg" pb="md">
+        <LiveStatus message={isResetting ? 'Resetting application data' : ''} />
+
         <IosGroup footer="Choose Dark, Light, or follow your system setting.">
           <FieldRow title="Theme">
             {(id) => (
@@ -169,41 +150,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
           {statusPagesControl}
         </IosGroup>
 
-        {general && (
-          <>
-            <IosGroup footer={proxyError ?? PROXY_DESCRIPTION}>
-              <FieldRow title="Proxy URL">
-                {(id) => (
-                  <RowTextInput
-                    id={id}
-                    placeholder="None"
-                    type="url"
-                    inputMode="url"
-                    autoComplete="off"
-                    enterKeyHint="done"
-                    value={proxyValue}
-                    onChange={(e) => setProxyDraft(e.currentTarget.value)}
-                    disabled={generalMutation.isPending}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault()
-                        saveProxy()
-                      }
-                    }}
-                  />
-                )}
-              </FieldRow>
-            </IosGroup>
-
-            <IosGroup>
-              <IosRow
-                title={<AccentText>{generalMutation.isPending ? 'Saving...' : 'Save proxy'}</AccentText>}
-                disabled={!canSaveProxy}
-                onClick={saveProxy}
-              />
-            </IosGroup>
-          </>
-        )}
+        {proxyForm}
 
         <IosGroup footer="Permanently delete all application data">
           <IosRow
@@ -211,7 +158,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
             destructive
             disabled={isResetting}
             onClick={confirmReset}
-            accessory={isResetting ? <Loader size={18} color="red" /> : undefined}
+            accessory={isResetting ? <Loader size={18} color="red" aria-hidden /> : undefined}
           />
         </IosGroup>
       </Stack>
@@ -220,6 +167,8 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
 
   return (
     <Stack gap="md">
+      <LiveStatus message={isResetting ? 'Resetting application data' : ''} />
+
       <Card padding="md">
         <Stack gap="md">
           <Input.Wrapper label="Theme" description="Choose Dark, Light, or follow your system setting.">
@@ -252,39 +201,10 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
 
           {statusPagesControl}
 
-          {general && (
+          {proxyForm && (
             <>
               <Divider />
-
-              <form
-                noValidate
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  saveProxy()
-                }}
-              >
-                <Stack gap="xs">
-                  <TextInput
-                    label="Proxy URL"
-                    description={PROXY_DESCRIPTION}
-                    placeholder="http://proxy.example.com:3128"
-                    type="url"
-                    inputMode="url"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    value={proxyValue}
-                    onChange={(e) => setProxyDraft(e.currentTarget.value)}
-                    error={proxyError}
-                    disabled={generalMutation.isPending}
-                  />
-                  <Group justify="flex-end">
-                    <Button type="submit" size="xs" disabled={!canSaveProxy} loading={generalMutation.isPending}>
-                      Save proxy
-                    </Button>
-                  </Group>
-                </Stack>
-              </form>
+              {proxyForm}
             </>
           )}
         </Stack>
@@ -304,7 +224,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
           <Divider />
 
           <Button
-            leftSection={<IconTrash size={16} />}
+            leftSection={<IconTrash size={16} aria-hidden />}
             variant="light"
             color="red"
             fullWidth

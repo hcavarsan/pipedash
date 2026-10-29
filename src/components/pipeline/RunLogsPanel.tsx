@@ -78,6 +78,8 @@ export const RunLogsPanel = ({
             aria-label="Job"
             data={selectData}
             value={node.id}
+            limit={50}
+            searchable
             allowDeselect={false}
             onChange={(value) => setSelectedId(value)}
           />

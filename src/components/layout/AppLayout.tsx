@@ -6,6 +6,7 @@ import { useLocation } from 'react-router-dom'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
 
+import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
 import { NotificationHost } from '../notifications/NotificationCenter'
 import { ProviderModals } from '../provider/ProviderModals'
 import { PipelineViewModals } from '../table/PipelineViewModals'
@@ -182,7 +183,9 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps): ReactNo
 
         {!mobileShell && (
           <AppShell.Navbar>
-            <Navbar compact={compact} />
+            <ErrorBoundary scope="feature" name="Sidebar">
+              <Navbar compact={compact} />
+            </ErrorBoundary>
             {resizable && <Box className="sidebar-resize-handle" {...sidebar.handleProps} />}
           </AppShell.Navbar>
         )}
@@ -196,9 +199,15 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps): ReactNo
         </AppShell.Main>
 
         {mobileShell && <MobileTabBar />}
-        <ProviderModals />
-        <PipelineViewModals />
-        <NotificationHost />
+        <ErrorBoundary scope="feature" name="Provider dialogs">
+          <ProviderModals />
+        </ErrorBoundary>
+        <ErrorBoundary scope="feature" name="Pipeline view dialogs">
+          <PipelineViewModals />
+        </ErrorBoundary>
+        <ErrorBoundary scope="feature" name="Notifications">
+          <NotificationHost />
+        </ErrorBoundary>
       </AppShell>
     </>
   )

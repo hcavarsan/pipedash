@@ -1,14 +1,13 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { logger } from '../lib/logger'
+import { applyProviderStatus } from '../lib/providerStatusSync'
+import { queryKeys } from '../lib/queryKeys'
 import { invalidateProviderPipelines, setProviderPipelines } from '../queries/usePipelinesQueries'
 import { events, wsClient } from '../services'
 import { useAuthStore } from '../stores/authStore'
 import type { EventPayloadMap } from '../types/events'
-
-import { logger } from './logger'
-import { applyProviderStatus } from './providerStatusSync'
-import { queryKeys } from './queryKeys'
 
 const BATCH_WINDOW_MS = 300
 
@@ -74,9 +73,17 @@ export function useEventSync(): void {
     async function register<T>(name: string, handler: (payload: T) => void | Promise<void>) {
       try {
         const unlisten = await events.listen<T>(name, (payload) => {
-          void Promise.resolve(handler(payload)).catch((error: unknown) => {
+          if (!mounted) {
+            return
+          }
+
+          try {
+            void Promise.resolve(handler(payload)).catch((error: unknown) => {
+              logger.error('EventSync', `Handler for ${name} failed`, error)
+            })
+          } catch (error) {
             logger.error('EventSync', `Handler for ${name} failed`, error)
-          })
+          }
         })
 
         if (mounted) {
@@ -134,7 +141,7 @@ export function useEventSync(): void {
         return
       }
       logger.debug('EventSync', 'provider-status-updated', { providerId: payload.provider.id })
-      await applyProviderStatus(queryClient, payload.provider)
+      await applyProviderStatus(queryClient, payload.provider, () => mounted)
     })
 
     void register<EventPayloadMap['providers-changed']>('providers-changed', () => {
@@ -168,6 +175,11 @@ export function useEventSync(): void {
         queryKey: queryKeys.pipelines.list({ providerId: payload.providerId }),
         exact: true,
       })
+
+      if (!mounted) {
+        return
+      }
+
       setProviderPipelines(queryClient, payload.providerId, payload.pipelines)
 
       logger.debug('EventSync', 'pipelines-updated: Cache updated', {
@@ -229,20 +241,36 @@ export function useEventSync(): void {
 
       await queryClient.cancelQueries()
 
+      if (!mounted) {
+        return
+      }
+
       await queryClient.invalidateQueries({
         queryKey: queryKeys.vault.all,
         refetchType: 'active',
       })
+
+      if (!mounted) {
+        return
+      }
 
       await queryClient.invalidateQueries({
         queryKey: queryKeys.providers.all,
         refetchType: 'active',
       })
 
+      if (!mounted) {
+        return
+      }
+
       await queryClient.invalidateQueries({
         queryKey: queryKeys.pipelines.all,
         refetchType: 'active',
       })
+
+      if (!mounted) {
+        return
+      }
 
       void queryClient.invalidateQueries({
         queryKey: queryKeys.storage.all,
@@ -263,6 +291,11 @@ export function useEventSync(): void {
 
       useAuthStore.getState().clearToken()
       await queryClient.cancelQueries()
+
+      if (!mounted) {
+        return
+      }
+
       await queryClient.invalidateQueries({ queryKey: queryKeys.vault.all, refetchType: 'active' })
     })
 
@@ -272,6 +305,7 @@ export function useEventSync(): void {
 
       clearTimeout(batchTimeout.current)
       batchTimeout.current = undefined
+      batchedInvalidations.current = { providerIds: new Set(), invalidateAll: false, timestamp: Date.now() }
 
       for (const fn of cleanupFns) {
         try {

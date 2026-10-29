@@ -106,3 +106,26 @@ test('select mode survives a refreshed page of the same view', () => {
   rerender({ view: 'all', page: pageOf('a', 'b') })
   assert.equal(result.current.selecting, true)
 })
+
+test('an unloaded page selects nothing and a page that disappears drops its selection', () => {
+  const unloaded = (): PipelineViewPage | undefined => undefined
+  const initialProps = { page: unloaded() }
+  const { result, rerender } = renderHook(
+    ({ page }: { page: PipelineViewPage | undefined }) => usePipelineSelection('all', page),
+    { initialProps }
+  )
+  assert.equal(result.current.selectedPipelines.length, 0)
+
+  rerender({ page: pageOf('a', 'b') })
+  act(() => result.current.toggle(pipeline('a')))
+  assert.deepEqual(
+    result.current.selectedPipelines.map((p) => p.id),
+    ['a']
+  )
+
+  rerender({ page: undefined })
+  assert.equal(result.current.selectedPipelines.length, 0)
+
+  rerender({ page: pageOf('a', 'b') })
+  assert.equal(result.current.selectedPipelines.length, 0)
+})

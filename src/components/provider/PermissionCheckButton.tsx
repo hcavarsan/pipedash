@@ -27,7 +27,7 @@ export const PermissionCheckButton = ({
           chevron={!loading}
           accessory={loading ? <Loader size="sm" aria-label="Checking permissions" /> : undefined}
           onClick={onClick}
-          disabled={disabled}
+          disabled={disabled || loading}
         />
       </IosGroup>
     )
@@ -38,9 +38,9 @@ export const PermissionCheckButton = ({
       variant="default"
       size="sm"
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled || loading}
       loading={loading}
-      leftSection={<IconShieldCheck size={16} />}
+      leftSection={<IconShieldCheck size={16} aria-hidden />}
     >
       Check permissions
     </Button>

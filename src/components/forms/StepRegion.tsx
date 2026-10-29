@@ -24,7 +24,11 @@ export function StepRegion({
 }: StepRegionProps): ReactNode {
   const regionRef = useRef<HTMLDivElement>(null)
   const previous = useRef(stepKey)
-  const [announcement, setAnnouncement] = useState('')
+  const [announced, setAnnounced] = useState({ stepKey, announcement: '' })
+
+  if (announced.stepKey !== stepKey) {
+    setAnnounced({ stepKey, announcement: `${position}: ${title}` })
+  }
 
   useEffect(() => {
     if (previous.current === stepKey) {
@@ -33,8 +37,7 @@ export function StepRegion({
 
     previous.current = stepKey
     regionRef.current?.querySelector<HTMLElement>('[data-step-heading]')?.focus()
-    setAnnouncement(`${position}: ${title}`)
-  }, [stepKey, position, title])
+  }, [stepKey])
 
   return (
     <div ref={regionRef} className={className} style={style}>
@@ -46,7 +49,7 @@ export function StepRegion({
         </VisuallyHidden>
       )}
       {children}
-      <LiveStatus message={announcement} />
+      <LiveStatus message={announced.announcement} />
     </div>
   )
 }

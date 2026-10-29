@@ -33,6 +33,7 @@ export function ConfigErrorScreen({ errors, onRetry, retrying }: ConfigErrorScre
           </ThemeIcon>
         }
         title="Configuration file has errors"
+        headingOrder={1}
         message={errors.join(', ') || 'Unknown error'}
         hint={hint}
         minHeight="100dvh"

@@ -71,3 +71,12 @@ test('describes a single result for the retry action', () => {
   assert.equal(describeRefreshResult(result(1, { state: 'failed', kind: 'auth', message: 'bad token' })), 'bad token')
   assert.equal(describeRefreshResult(result(1, { state: 'failed', kind: 'timeout' })), 'timed out')
 })
+
+test('an empty refresh reports zero providers refreshed', () => {
+  assert.deepEqual(summarizeRefresh([], []), { message: 'Refreshed 0 providers', color: 'green' })
+})
+
+test('describes pending and removed providers for the retry action', () => {
+  assert.equal(describeRefreshResult(result(1, { state: 'pending' })), 'Still checking')
+  assert.equal(describeRefreshResult(result(1, { state: 'not_found' })), 'Provider no longer exists')
+})

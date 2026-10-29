@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
@@ -114,6 +114,14 @@ const readyMeta: LogDocumentMeta = {
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children)
 
+beforeEach(() => {
+  client.clear()
+})
+
+afterEach(async () => {
+  await act(async () => cleanup())
+})
+
 after(async () => {
   await act(async () => cleanup())
   client.clear()
@@ -150,4 +158,92 @@ test('a pending job becomes ready after the 10 s refetch without reselection', a
   await act(async () => advance(1))
   await waitFor(() => assert.equal(result.current.data?.state, 'ready'))
   assert.equal(opens.mock.callCount(), 2)
+})
+
+type Handler = (payload: { pipelineId: string; runNumber: number; nodeId: string; receivedBytes?: number }) => void
+
+function captureListeners(context: TestContext, defer?: Promise<void>) {
+  const handlers = new Map<string, Handler>()
+  const unlisten = context.mock.fn(() => undefined)
+  context.mock.method(events, 'listen', async (name: string, handler: Handler) => {
+    handlers.set(name, handler)
+    await defer
+
+    return unlisten
+  })
+
+  return { handlers, unlisten }
+}
+
+function stubOpen(context: TestContext, impl: () => Promise<RunLogDocument>) {
+  const opens = context.mock.fn(impl)
+  context.mock.method(apiService, 'openRunLog', opens)
+  context.mock.method(tauriService, 'openRunLog', opens)
+
+  return opens
+}
+
+const target = { pipelineId: 'github__1__o/r/w', runNumber: 7, nodeId: '99' }
+
+test('a failed open exposes the error', async (context) => {
+  captureListeners(context)
+  const opens = stubOpen(context, async () => {
+    throw new Error('log unavailable')
+  })
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { result } = renderHook(() => useRunLogDocument(target.pipelineId, 7, '99', true), { wrapper })
+
+  await waitFor(() => assert.equal(opens.mock.callCount(), 1))
+  await act(async () => advance(1000))
+  await waitFor(() => assert.equal(result.current.isError, true))
+})
+
+test('progress events update a loading document and an empty ready document is accepted', async (context) => {
+  const { handlers } = captureListeners(context)
+  let current: RunLogDocument = { state: 'loading', received_bytes: 1 }
+  stubOpen(context, async () => current)
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { result } = renderHook(() => useRunLogDocument(target.pipelineId, 7, '99', true), { wrapper })
+  await waitFor(() => assert.equal(result.current.data?.state, 'loading'))
+
+  await act(async () => handlers.get('run-log-progress')?.({ ...target, receivedBytes: 4096 }))
+  await waitFor(() => assert.deepEqual(result.current.data, { state: 'loading', received_bytes: 4096 }))
+
+  current = { state: 'ready', ...readyMeta, line_count: 0, text_bytes: 0 }
+  await act(async () => handlers.get('run-log-ready')?.(target))
+  await waitFor(() => assert.equal(result.current.data?.state, 'ready'))
+})
+
+test('events for another target are ignored after switching targets', async (context) => {
+  const { handlers } = captureListeners(context)
+  const opens = stubOpen(context, async () => ({ state: 'loading', received_bytes: 1 }))
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { result, rerender } = renderHook(({ node }) => useRunLogDocument(target.pipelineId, 7, node, true), {
+    wrapper,
+    initialProps: { node: '99' },
+  })
+  await waitFor(() => assert.equal(result.current.data?.state, 'loading'))
+  rerender({ node: '100' })
+  await waitFor(() => assert.equal(opens.mock.callCount(), 2))
+  await waitFor(() => assert.equal(result.current.data?.state, 'loading'))
+
+  await act(async () => handlers.get('run-log-progress')?.({ ...target, receivedBytes: 9999 }))
+
+  assert.deepEqual(result.current.data, { state: 'loading', received_bytes: 1 })
+})
+
+test('listeners that register after unmount are released', async (context) => {
+  const gate = Promise.withResolvers<void>()
+  const { unlisten } = captureListeners(context, gate.promise)
+  stubOpen(context, async () => ({ state: 'pending' }))
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { unmount } = renderHook(() => useRunLogDocument(target.pipelineId, 7, '99', true), { wrapper })
+  unmount()
+  gate.resolve()
+
+  await waitFor(() => assert.equal(unlisten.mock.callCount(), 3))
 })

@@ -30,12 +30,27 @@ const doc = (lineCount = 3_000_000): DocRef => ({
   lineCount,
 })
 
-const settle = async () => {
-  for (let i = 0; i < 30; i += 1) {
-    await Promise.resolve()
-  }
+const flush = () => {
+  const { promise, resolve } = Promise.withResolvers<void>()
+
+  setImmediate(resolve)
+
+  return promise
 }
 
+async function waitFor(check: () => void): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      check()
+
+      return
+    } catch {
+      await flush()
+    }
+  }
+
+  check()
+}
 const textOf = (state: LineState) => (typeof state === 'object' ? state.text : state)
 
 const pageOf = (start: number, count: number, text: (n: number) => string): LogLinesPage => ({
@@ -43,7 +58,11 @@ const pageOf = (start: number, count: number, text: (n: number) => string): LogL
   lines: Array.from({ length: count }, (_, i) => ({ text: text(start + i) })),
 })
 
-function gatedReader(context: TestContext, text: (n: number) => string = (n) => `line ${n}`) {
+function gatedReader(
+  context: TestContext,
+  text: (n: number) => string = (n) => `line ${n}`,
+  emptyCalls: ReadonlySet<number> = new Set()
+) {
   const calls: Call[] = []
   let inFlight = 0
   let peak = 0
@@ -53,6 +72,7 @@ function gatedReader(context: TestContext, text: (n: number) => string = (n) => 
     'readRunLogLines',
     async (_p: string, _r: number, _n: string, _rev: number, start: number, count: number) => {
       const gate = Promise.withResolvers<void>()
+      const index = calls.length
 
       calls.push({ start, count, release: gate.resolve, fail: gate.reject })
       inFlight += 1
@@ -63,7 +83,7 @@ function gatedReader(context: TestContext, text: (n: number) => string = (n) => 
         inFlight -= 1
       }
 
-      return pageOf(start, count, text)
+      return emptyCalls.has(index) ? { start, lines: [] } : pageOf(start, count, text)
     }
   )
 
@@ -75,7 +95,7 @@ test('rows at both ends of a 3M-line log request only the lines around them', as
   const cache = new LogLineCache()
 
   cache.need(Symbol('a'), doc(), [1, 2_999_999])
-  await settle()
+  await waitFor(() => assert.equal(reader.calls.length, 2))
 
   assert.deepEqual(
     reader.calls.map(({ start, count }) => [start, count]),
@@ -88,9 +108,8 @@ test('rows at both ends of a 3M-line log request only the lines around them', as
   for (const call of reader.calls) {
     call.release()
   }
-  await settle()
+  await waitFor(() => assert.equal(textOf(cache.line(doc(), 2_999_999)), 'line 2999999'))
   assert.deepEqual(cache.line(doc(), 1), { text: 'line 1', kind: 'plain', ts: null, spans: [], omitted: 0 })
-  assert.equal(textOf(cache.line(doc(), 2_999_999)), 'line 2999999')
 })
 
 test('at most two requests are in flight and the rest wait their turn', async (context) => {
@@ -98,17 +117,18 @@ test('at most two requests are in flight and the rest wait their turn', async (c
   const cache = new LogLineCache()
 
   cache.need(Symbol('a'), doc(), [0, 1000, 2000, 3000, 4000])
-  await settle()
-  assert.equal(reader.calls.length, 2)
+  await waitFor(() => assert.equal(reader.calls.length, 2))
 
   for (let i = 0; i < 5; i += 1) {
-    reader.calls[i]?.release()
-    await settle()
+    const call = reader.calls[i]
+
+    assert.ok(call)
+    call.release()
+    await waitFor(() => assert.equal(reader.calls.length, Math.min(i + 3, 5)))
   }
 
-  assert.equal(reader.calls.length, 5)
+  await waitFor(() => assert.equal(textOf(cache.line(doc(), 4000)), 'line 4000'))
   assert.equal(reader.peak(), 2)
-  assert.equal(textOf(cache.line(doc(), 4000)), 'line 4000')
 })
 
 test('queued requests that nobody needs any more are dropped', async (context) => {
@@ -117,10 +137,10 @@ test('queued requests that nobody needs any more are dropped', async (context) =
   const owner = Symbol('a')
 
   cache.need(owner, doc(), [0, 1000, 2000])
-  await settle()
+  await waitFor(() => assert.equal(reader.calls.length, 1))
   cache.need(owner, doc(), [2000])
   reader.calls[0]?.release()
-  await settle()
+  await waitFor(() => assert.equal(reader.calls.length, 2))
 
   assert.deepEqual(
     reader.calls.map(({ start }) => start),
@@ -134,9 +154,9 @@ test('the byte budget holds with long lines while needed lines stay', async (con
   const cache = new LogLineCache(10_000)
 
   cache.need(Symbol('a'), doc(100), [10, 11, 12])
-  await settle()
+  await waitFor(() => assert.equal(reader.calls.length, 1))
   reader.calls[0]?.release()
-  await settle()
+  await waitFor(() => assert.equal(typeof cache.line(doc(100), 10), 'object'))
 
   const kept = Array.from({ length: 64 }, (_, n) => cache.line(doc(100), n)).filter(
     (state) => typeof state === 'object'
@@ -151,14 +171,85 @@ test('the byte budget holds with long lines while needed lines stay', async (con
 test('a response that lands after clear() is discarded', async (context) => {
   const reader = gatedReader(context)
   const cache = new LogLineCache()
+  const owner = Symbol('a')
 
-  cache.need(Symbol('a'), doc(), [0])
-  await settle()
+  cache.need(owner, doc(), [0])
+  await waitFor(() => assert.equal(reader.calls.length, 1))
+  cache.release(owner)
   cache.clear()
   reader.calls[0]?.release()
-  await settle()
+  await flush()
 
   assert.equal(cache.line(doc(), 0), undefined)
+})
+
+test('clear() reloads the lines an active owner still needs', async (context) => {
+  const reader = gatedReader(context)
+  const cache = new LogLineCache()
+
+  cache.need(Symbol('a'), doc(), [0])
+  await waitFor(() => assert.equal(reader.calls.length, 1))
+  reader.calls[0]?.release()
+  await waitFor(() => assert.equal(typeof cache.line(doc(), 0), 'object'))
+
+  cache.clear()
+  await waitFor(() => assert.equal(reader.calls.length, 2))
+  assert.equal(cache.line(doc(), 0), 'loading')
+
+  reader.calls[1]?.release()
+  await waitFor(() => assert.equal(textOf(cache.line(doc(), 0)), 'line 0'))
+})
+
+test('a stale response after clear() does not fill the lines being reloaded', async (context) => {
+  const reader = gatedReader(context)
+  const cache = new LogLineCache()
+
+  cache.need(Symbol('a'), doc(), [0])
+  await waitFor(() => assert.equal(reader.calls.length, 1))
+  cache.clear()
+  await waitFor(() => assert.equal(reader.calls.length, 2))
+  reader.calls[0]?.release()
+  await flush()
+
+  assert.equal(cache.line(doc(), 0), 'loading')
+})
+
+test('an empty page before the range is read leaves the lines retryable', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  const reader = gatedReader(context, undefined, new Set([0]))
+  const cache = new LogLineCache()
+
+  cache.need(Symbol('a'), doc(), [5])
+  await waitFor(() => assert.equal(reader.calls.length, 1))
+  reader.calls[0]?.release()
+  await waitFor(() => assert.equal(cache.line(doc(), 5), 'error'))
+
+  context.mock.timers.tick(5000)
+  assert.equal(reader.calls.length, 2)
+  reader.calls[1]?.release()
+  await waitFor(() => assert.equal(textOf(cache.line(doc(), 5)), 'line 5'))
+  cache.clear()
+})
+
+test('reading a line does not change which lines are evicted first', async (context) => {
+  const reader = gatedReader(context, () => 'x'.repeat(1000))
+  const cache = new LogLineCache(4500)
+  const first = Symbol('a')
+
+  cache.need(first, doc(3), [0])
+  await waitFor(() => assert.equal(reader.calls.length, 1))
+  reader.calls[0]?.release()
+  await waitFor(() => assert.equal(typeof cache.line(doc(3), 2), 'object'))
+  cache.release(first)
+
+  cache.line(doc(3), 0)
+  cache.need(Symbol('b'), doc(3), [1])
+  await waitFor(() => assert.equal(reader.calls.length, 2))
+  reader.calls[1]?.release()
+  await waitFor(() => assert.equal(typeof cache.line(doc(3), 1), 'object'))
+
+  assert.equal(cache.line(doc(3), 0), undefined)
+  assert.equal(typeof cache.line(doc(3), 2), 'object')
 })
 
 test('a failed request is retried after 5 s while still needed, and not once released', async (context) => {
@@ -168,24 +259,21 @@ test('a failed request is retried after 5 s while still needed, and not once rel
   const owner = Symbol('a')
 
   cache.need(owner, doc(), [5])
-  await settle()
+  await waitFor(() => assert.equal(reader.calls.length, 1))
   reader.calls[0]?.fail(new Error('boom'))
-  await settle()
-  assert.equal(cache.line(doc(), 5), 'error')
+  await waitFor(() => assert.equal(cache.line(doc(), 5), 'error'))
 
   context.mock.timers.tick(4999)
-  await settle()
   assert.equal(reader.calls.length, 1)
   context.mock.timers.tick(1)
-  await settle()
   assert.equal(reader.calls.length, 2)
   assert.equal(cache.line(doc(), 5), 'loading')
 
   reader.calls[1]?.fail(new Error('boom'))
-  await settle()
+  await waitFor(() => assert.equal(cache.line(doc(), 5), 'error'))
   cache.release(owner)
   context.mock.timers.tick(5000)
-  await settle()
+  await flush()
   assert.equal(reader.calls.length, 2)
 })
 
@@ -197,16 +285,14 @@ test('a NOT_FOUND error notifies onRevisionGone and other codes do not', async (
 
   cache.onRevisionGone((ref) => gone.push(ref))
   cache.need(Symbol('a'), doc(), [0])
-  await settle()
+  await waitFor(() => assert.equal(reader.calls.length, 1))
   reader.calls[0]?.fail(Object.assign(new Error('This log revision is no longer available'), { code: 'INTERNAL' }))
-  await settle()
+  await waitFor(() => assert.equal(cache.line(doc(), 0), 'error'))
   assert.deepEqual(gone, [])
   context.mock.timers.tick(5000)
-  await settle()
+  assert.equal(reader.calls.length, 2)
   reader.calls[1]?.fail(Object.assign(new Error('x'), { code: 'NOT_FOUND' }))
-  await settle()
-
-  assert.deepEqual(gone, [doc()])
+  await waitFor(() => assert.deepEqual(gone, [doc()]))
   cache.clear()
 })
 
@@ -218,10 +304,8 @@ test('a command error shaped as { error, code } also counts', async (context) =>
 
   cache.onRevisionGone((ref) => gone.push(ref))
   cache.need(Symbol('a'), doc(), [0])
-  await settle()
+  await waitFor(() => assert.equal(reader.calls.length, 1))
   reader.calls[0]?.fail({ error: 'gone', code: 'NOT_FOUND' })
-  await settle()
-
-  assert.deepEqual(gone, [doc()])
+  await waitFor(() => assert.deepEqual(gone, [doc()]))
   cache.clear()
 })

@@ -43,6 +43,8 @@ class WebSocketClient {
   private reconnectDelay = 1000
   private isConnecting = false
   private shouldReconnect = true
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private unsubscribeAuth: (() => void) | null = null
   // Prevents reconnection after auth failures exceed threshold
   private isLockedOut = false
   // Track rapid disconnect cycles to detect server rejecting connections
@@ -56,12 +58,12 @@ class WebSocketClient {
   }
 
   private setupTokenChangeListener(): void {
-    if (isTauriMode()) {
+    if (isTauriMode() || this.unsubscribeAuth) {
       return
     }
 
     // Subscribe to auth state changes - only react to actual transitions
-    useAuthStore.subscribe(
+    this.unsubscribeAuth = useAuthStore.subscribe(
       (state) => state.token !== null,
       (isAuthenticated, wasAuthenticated) => {
         // User just authenticated (unlocked vault)
@@ -97,6 +99,7 @@ class WebSocketClient {
       return
     }
 
+    this.setupTokenChangeListener()
     this.isConnecting = true
     this.shouldReconnect = true
 
@@ -209,15 +212,26 @@ class WebSocketClient {
 
     logger.debug('WebSocket', `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
 
-    setTimeout(() => {
+    this.clearReconnectTimer()
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+
       if (this.shouldReconnect) {
         this.connect()
       }
     }, delay)
   }
 
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+  }
+
   disconnect(): void {
     this.shouldReconnect = false
+    this.clearReconnectTimer()
     if (this.ws) {
       this.ws.close()
       this.ws = null
@@ -226,6 +240,8 @@ class WebSocketClient {
 
   dispose(): void {
     this.disconnect()
+    this.unsubscribeAuth?.()
+    this.unsubscribeAuth = null
     this.events = new EventTarget()
     this.listenerCounts.clear()
   }
@@ -285,6 +301,7 @@ class WebSocketClient {
   }
 
   manualReconnect(): void {
+    this.clearReconnectTimer()
     this.isLockedOut = false
     this.rapidDisconnectCount = 0
     this.reconnectAttempts = 0

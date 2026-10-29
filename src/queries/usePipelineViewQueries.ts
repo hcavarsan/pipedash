@@ -1,6 +1,7 @@
 import { notifications } from '@mantine/notifications'
 import {
   type QueryClient,
+  type QueryKey,
   type UseMutationResult,
   type UseQueryResult,
   useMutation,
@@ -56,6 +57,23 @@ function updatePagePipeline(queryClient: QueryClient, id: string, patch: Partial
     pinned: apply(page.pinned),
     sections: page.sections.map((section) => ({ ...section, pipelines: apply(section.pipelines) })),
   }))
+}
+
+type PageSnapshots = Array<[QueryKey, PipelineViewPage | undefined]>
+
+interface DisplaySnapshots {
+  pages: PageSnapshots
+  views: PipelineView[] | undefined
+}
+
+function snapshotPages(queryClient: QueryClient): PageSnapshots {
+  return queryClient.getQueriesData<PipelineViewPage>({ queryKey: queryKeys.pipelines.pages() })
+}
+
+function restorePages(queryClient: QueryClient, snapshots: PageSnapshots | undefined) {
+  for (const [key, page] of snapshots ?? []) {
+    queryClient.setQueryData(key, page)
+  }
 }
 
 export function usePipelineViews(enabled = true): UseQueryResult<PipelineView[], Error> {
@@ -126,7 +144,7 @@ export function useUpdatePipelineView(): UseMutationResult<
   PipelineView,
   Error,
   { id: string; patch: ViewPatch },
-  void
+  DisplaySnapshots | undefined
 > {
   const queryClient = useQueryClient()
 
@@ -136,21 +154,34 @@ export function useUpdatePipelineView(): UseMutationResult<
       const { display } = patch
 
       if (!display || patch.name !== undefined || patch.rules !== undefined || patch.members !== undefined) {
-        return
+        return undefined
       }
 
       const setDisplay = (view: PipelineView): PipelineView => (view.id === id ? { ...view, display } : view)
 
       await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.pages() })
+      const snapshots: DisplaySnapshots = {
+        pages: snapshotPages(queryClient),
+        views: queryClient.getQueryData<PipelineView[]>(queryKeys.pipelines.views()),
+      }
       updatePages(queryClient, (page) => ({ ...page, view: setDisplay(page.view) }))
       queryClient.setQueryData<PipelineView[]>(queryKeys.pipelines.views(), (views) => views?.map(setDisplay))
+
+      return snapshots
     },
     onSuccess: (view, { patch }) => {
       if (patch.name !== undefined || patch.rules !== undefined || patch.members !== undefined) {
         notifications.show({ title: 'View saved', message: view.name, color: 'green' })
       }
     },
-    onError: (error: Error) => notifyError("Couldn't save view", error, 'Try saving the view again.'),
+    onError: (error: Error, _variables, snapshots) => {
+      if (snapshots) {
+        restorePages(queryClient, snapshots.pages)
+        queryClient.setQueryData(queryKeys.pipelines.views(), snapshots.views)
+      }
+
+      notifyError("Couldn't save view", error, 'Try saving the view again.')
+    },
     onSettled: () => invalidateViews(queryClient),
   })
 }
@@ -235,30 +266,42 @@ export function useSetViewMembership(): UseMutationResult<
   })
 }
 
-export function useTogglePin(): UseMutationResult<void, Error, ViewPipeline, void> {
+export function useTogglePin(): UseMutationResult<void, Error, ViewPipeline, PageSnapshots> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (pipeline: ViewPipeline) => service.setPipelineViewMembership('pinned', pipeline.id, !pipeline.pinned),
     onMutate: async (pipeline) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.pages() })
+      const snapshots = snapshotPages(queryClient)
       updatePagePipeline(queryClient, pipeline.id, { pinned: !pipeline.pinned })
+
+      return snapshots
     },
-    onError: (error: Error) => notifyError("Couldn't update pin", error, 'Try pinning the workflow again.'),
+    onError: (error: Error, _pipeline, snapshots) => {
+      restorePages(queryClient, snapshots)
+      notifyError("Couldn't update pin", error, 'Try pinning the workflow again.')
+    },
     onSettled: () => invalidateViews(queryClient),
   })
 }
 
-export function useToggleHidden(): UseMutationResult<void, Error, ViewPipeline, void> {
+export function useToggleHidden(): UseMutationResult<void, Error, ViewPipeline, PageSnapshots> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (pipeline: ViewPipeline) => service.setPipelineHidden(pipeline.id, !pipeline.hidden),
     onMutate: async (pipeline) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.pages() })
+      const snapshots = snapshotPages(queryClient)
       updatePagePipeline(queryClient, pipeline.id, { hidden: !pipeline.hidden })
+
+      return snapshots
     },
-    onError: (error: Error) => notifyError("Couldn't update hidden pipelines", error, 'Try hiding the workflow again.'),
+    onError: (error: Error, _pipeline, snapshots) => {
+      restorePages(queryClient, snapshots)
+      notifyError("Couldn't update hidden pipelines", error, 'Try hiding the workflow again.')
+    },
     onSettled: () => invalidateViews(queryClient),
   })
 }

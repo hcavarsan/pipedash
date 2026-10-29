@@ -1,5 +1,5 @@
 import { Button, Group, Stack, Text } from '@mantine/core'
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, useActionState, useId, useMemo } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
@@ -14,13 +14,19 @@ import {
   countRuns,
   unfinishedPipelines,
 } from '../../utils/cancelActiveRuns'
+import { errorMessage } from '../../utils/errorDisplay'
 import { formatCount } from '../../utils/formatCount'
-import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { getPluginByType, getPluginDisplayName } from '../../utils/pluginHelpers'
-import { StatusBadge } from '../atoms/StatusBadge'
+import { FormErrorDisplay } from '../common/FormErrorDisplay'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
-import { IosGroup, IosRow } from '../ios/IosList'
+import { LiveStatus } from '../forms/LiveStatus'
+
+import { CancelRunTargets } from './CancelRunTargets'
+
+interface CancelActionState {
+  error: string | null
+}
 
 export interface CancelScope {
   label: string
@@ -39,7 +45,7 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
   const mobileShell = useMobileShell()
   const now = useNow(30_000)
   const { data: plugins } = usePlugins()
-  const [pending, setPending] = useState(false)
+  const formId = useId()
 
   const { candidates, skippedNote } = useMemo(() => {
     const cancelCapable = (pipeline: Pipeline) =>
@@ -67,93 +73,56 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
   }, [scope, plugins])
   const search = useUnfinishedRuns(candidates, opened)
   const loading = search.isFetching
-  const unreadable = search.data?.failed.map((pipeline) => pipeline.name) ?? []
-  const groups = buildCancelGroups(candidates, search.data?.runs ?? {}, (pipeline) => ({
-    name: getPluginDisplayName(plugins, pipeline.provider_type),
-    canCancel: Boolean(getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel),
-  }))
+  const unreadable = search.data?.failed.map((entry) => entry.name) ?? []
+  const groups = useMemo(
+    () =>
+      buildCancelGroups(candidates, search.data?.runs ?? {}, (pipeline) => ({
+        name: getPluginDisplayName(plugins, pipeline.provider_type),
+        canCancel: Boolean(getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel),
+      })),
+    [candidates, search.data, plugins]
+  )
   const targets = cancellableGroups(groups)
   const where = (group: CancelGroup) =>
     actionTarget(group.pipeline, group.runs)
-      .filter(({ label }) => label !== 'Pipeline' && label !== 'Branch')
-      .map(({ label, value }) => `${label}: ${value}`)
+      .filter(({ label: field }) => field !== 'Pipeline' && field !== 'Branch')
+      .map(({ label: field, value }) => `${field}: ${value}`)
       .join(' · ')
   const count = countRuns(targets)
   const label = scope?.label ?? ''
   const ready = !loading && count > 0
 
-  const confirm = async () => {
-    setPending(true)
+  const [state, formAction, isPending] = useActionState(
+    async (): Promise<CancelActionState> => {
+      try {
+        await onConfirm(targets)
+      } catch (error) {
+        return { error: errorMessage(error, "Couldn't cancel the runs. Check them in your provider and try again.") }
+      }
 
-    try {
-      await onConfirm(targets)
-    } finally {
-      setPending(false)
       onClose()
-    }
-  }
+
+      return { error: null }
+    },
+    { error: null }
+  )
+
+  const status = loading
+    ? `Looking for running runs… (${search.progress} of ${formatCount(candidates.length, 'pipeline')})`
+    : `${formatCount(count, 'run')} can be cancelled.${unreadable.length > 0 ? ` Couldn't load runs for ${formatCount(unreadable.length, 'pipeline')}.` : ''}`
 
   const footer = ready
     ? (requestClose: () => void) => (
         <Group justify="flex-end" gap="sm" grow={isMobile || mobileShell}>
-          <Button variant="default" size="sm" onClick={requestClose} disabled={pending}>
+          <Button type="button" variant="default" size="sm" onClick={requestClose} disabled={isPending}>
             Keep running
           </Button>
-          <Button color="red" size="sm" onClick={confirm} loading={pending}>
+          <Button type="submit" form={formId} color="red" size="sm" loading={isPending}>
             Cancel {formatCount(count, 'run')}
           </Button>
         </Group>
       )
     : undefined
-
-  const shellBody = groups.map((group) => (
-    <IosGroup key={group.pipeline.id} header={`${group.pipeline.name} · ${group.name}`} footer={where(group)}>
-      {group.runs.map((run) => (
-        <IosRow
-          key={run.run_number}
-          title={`#${run.run_number}${run.branch ? ` · ${run.branch}` : ''}`}
-          subtitle={`Started ${formatRelativeTime(run.started_at, now)}`}
-          value={<StatusBadge status={run.status} />}
-        />
-      ))}
-    </IosGroup>
-  ))
-
-  const desktopBody = groups.map((group) => (
-    <Stack key={group.pipeline.id} gap="xs">
-      <Group justify="space-between" wrap="nowrap" gap="md">
-        <Text size="sm" fw={600} truncate>
-          {group.pipeline.name}
-        </Text>
-        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
-          {group.name}
-        </Text>
-      </Group>
-      <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
-        {where(group)}
-      </Text>
-      {group.runs.map((run) => (
-        <Group key={run.run_number} justify="space-between" wrap="nowrap" gap="md">
-          <Group gap="sm" wrap="nowrap" miw={0}>
-            <Text size="sm" fw={500}>
-              #{run.run_number}
-            </Text>
-            {run.branch && (
-              <Text size="sm" c="dimmed" truncate>
-                {run.branch}
-              </Text>
-            )}
-          </Group>
-          <Group gap="sm" wrap="nowrap" style={{ flexShrink: 0 }}>
-            <StatusBadge status={run.status} />
-            <Text size="xs" c="dimmed">
-              {formatRelativeTime(run.started_at, now)}
-            </Text>
-          </Group>
-        </Group>
-      ))}
-    </Stack>
-  ))
 
   return (
     <StandardModal
@@ -161,31 +130,37 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
       onClose={onClose}
       size="md"
       title={ready ? `Cancel ${formatCount(count, 'run')} in ${label}` : `Cancel running in ${label}`}
-      loading={pending}
+      loading={isPending}
       footer={footer}
     >
+      <LiveStatus message={status} />
       {loading ? (
         <LoadingState
           variant="compact"
           message={`Looking for running runs… (${search.progress} of ${formatCount(candidates.length, 'pipeline')})`}
         />
       ) : (
-        <Stack gap={mobileShell ? 'lg' : 'md'}>
-          {groups.length === 0 && unreadable.length === 0 && (
-            <Text size="sm">{skippedNote ? `No runs to cancel in ${label}.` : `Nothing is running in ${label}.`}</Text>
-          )}
-          {mobileShell ? shellBody : desktopBody}
-          {unreadable.length > 0 && (
-            <Text size="xs" c="red">
-              Couldn't load runs for {unreadable.join(', ')}.
-            </Text>
-          )}
-          {skippedNote && (
-            <Text size="xs" c="orange">
-              {skippedNote}
-            </Text>
-          )}
-        </Stack>
+        <form id={formId} action={formAction}>
+          <Stack gap={mobileShell ? 'lg' : 'md'}>
+            <FormErrorDisplay title="Couldn't cancel runs" globalError={state.error} />
+            {groups.length === 0 && unreadable.length === 0 && (
+              <Text size="sm">
+                {skippedNote ? `No runs to cancel in ${label}.` : `Nothing is running in ${label}.`}
+              </Text>
+            )}
+            <CancelRunTargets groups={groups} now={now} shell={mobileShell} where={where} />
+            {unreadable.length > 0 && (
+              <Text size="xs" c="red">
+                Couldn't load runs for {unreadable.join(', ')}.
+              </Text>
+            )}
+            {skippedNote && (
+              <Text size="xs" c="orange">
+                {skippedNote}
+              </Text>
+            )}
+          </Stack>
+        </form>
       )}
     </StandardModal>
   )

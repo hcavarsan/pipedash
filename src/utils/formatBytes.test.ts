@@ -14,3 +14,9 @@ test('formats bytes in 1024 steps with one decimal from KB up', () => {
   assert.equal(formatBytes(2048 * 1024 ** 3), '2048.0 GB')
   assert.equal(formatBytes(-5), '0 B')
 })
+
+test('non-finite sizes render as zero bytes', () => {
+  for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    assert.equal(formatBytes(value), '0 B')
+  }
+})

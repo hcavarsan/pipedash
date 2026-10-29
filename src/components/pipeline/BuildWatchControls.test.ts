@@ -262,6 +262,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     startGate = null
     nativeChange = undefined
     callbacks.clear()
+    nextCallback = 0
     os.platform = 'ios'
   })
 

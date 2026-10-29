@@ -34,6 +34,17 @@
     "enabled": true,
     "rules": {
       "preset": "recommended",
+      "complexity": {
+        "noExcessiveLinesPerFunction": { "level": "error", "options": { "maxLines": 300 } }
+      },
+      "a11y": {
+        "noNoninteractiveElementInteractions": "error",
+        "noStaticElementInteractions": "error",
+        "useSemanticElements": "error",
+        "useKeyWithClickEvents": "error",
+        "noPositiveTabindex": "error",
+        "useAltText": "error"
+      },
       "style": {
         "useBlockStatements": "error",
         "useConst": "error",

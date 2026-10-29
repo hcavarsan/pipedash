@@ -9,6 +9,7 @@ import { IosGroup, IosRow } from '../../ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../settings/storageLabels'
 
 import type { ConfirmStepProps } from './types'
+import { buildVaultExportCommand } from './vaultExportCommand'
 
 const LABEL_WIDTH = 130
 
@@ -43,8 +44,8 @@ export function ConfirmStep({
     return `.../${segments.slice(-2).join('/')}`
   }
 
-  const envVarName = vaultStatus?.env_var_name || 'PIPEDASH_VAULT_PASSWORD'
-  const exportCommand = `export ${envVarName}="${state.vaultPassword}"`
+  const envVarName = vaultStatus.env_var_name || 'PIPEDASH_VAULT_PASSWORD'
+  const exportCommand = buildVaultExportCommand(envVarName, state.vaultPassword)
   const showEnvVarSection = !vaultPasswordFromEnv && state.vaultPassword
 
   if (mobileShell) {
@@ -139,7 +140,7 @@ export function ConfirmStep({
                   Vault password
                 </Text>
                 <Group gap="3xs" wrap="nowrap">
-                  <IconCheck size={14} color="var(--mantine-color-green-light-color)" />
+                  <IconCheck size={14} color="var(--mantine-color-green-light-color)" aria-hidden />
                   <Text size="sm" c="green">
                     Set
                   </Text>
@@ -172,23 +173,31 @@ export function ConfirmStep({
             </Text>
 
             <Group gap="xs" wrap="nowrap" align="center">
-              <Code block fz="xs" p="xs" style={{ flex: 1, wordBreak: 'break-all' }}>
-                {exportCommand}
-              </Code>
-              <CopyButton value={exportCommand} label="Copy export command" />
+              {exportCommand ? (
+                <>
+                  <Code block fz="xs" p="xs" style={{ flex: 1, wordBreak: 'break-all' }}>
+                    {exportCommand}
+                  </Code>
+                  <CopyButton value={exportCommand} label="Copy export command" />
+                </>
+              ) : (
+                <Text size="xs" c="red">
+                  The variable name {envVarName} is not a valid shell variable name.
+                </Text>
+              )}
             </Group>
           </Stack>
         </Card>
       )}
 
       {showTransferStep && !state.transferData && (
-        <Alert icon={<IconAlertCircle size={16} />} color="orange" variant="light">
+        <Alert icon={<IconAlertCircle size={16} aria-hidden />} color="orange" variant="light">
           <Text size="xs">Your existing providers and credentials will not be transferred.</Text>
         </Alert>
       )}
 
       {error && (
-        <Alert icon={<IconAlertCircle size={16} />} color="red" title="Couldn't save storage settings">
+        <Alert icon={<IconAlertCircle size={16} aria-hidden />} color="red" title="Couldn't save storage settings">
           {error}
         </Alert>
       )}

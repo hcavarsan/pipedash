@@ -3,7 +3,14 @@ import { test } from 'node:test'
 
 import type { ConfigField } from '../../../types'
 
-import { activeConfigFields, mapProviderFieldErrors, validateSignIn } from './validation'
+import {
+  activeConfigFields,
+  mapProviderFieldErrors,
+  validateConfigField,
+  validateProviderCredentials,
+  validateProviderName,
+  validateSignIn,
+} from './validation'
 
 test('provider validation maps names and config fields to visible credential fields', () => {
   const errors = {
@@ -50,4 +57,49 @@ test('sign-in mode drops the token field and needs a completed sign-in', () => {
   assert.equal(validateSignIn('sign_in', { sign_in: 'abc' }, { state: 'pending' }), 'Finish signing in to continue')
   assert.equal(validateSignIn('sign_in', { sign_in: 'abc' }, { state: 'completed', account: null }), null)
   assert.equal(validateSignIn('token', {}, undefined), null)
+})
+
+test('config fields: whitespace fails when required and empty passes when optional', () => {
+  const required = { ...configField('token'), required: true }
+
+  assert.equal(validateConfigField(required, '   '), 'token is required')
+  assert.equal(validateConfigField(configField('note'), ''), null)
+})
+
+test('config fields: regex mismatch uses the custom message, then the fallback', () => {
+  const field = { ...configField('url'), validation_regex: '^https://' }
+
+  assert.equal(validateConfigField(field, 'https://a.example'), null)
+  assert.equal(validateConfigField(field, 'http://a.example'), 'Invalid format for url')
+  assert.equal(validateConfigField({ ...field, validation_message: 'Use https' }, 'x'), 'Use https')
+})
+
+test('provider name must have non-whitespace content', () => {
+  assert.equal(validateProviderName('  '), 'Provider name is required')
+  assert.equal(validateProviderName('GitHub'), null)
+})
+
+test('credentials draft collects name, field and sign-in errors together', () => {
+  const fields = [{ ...configField('token'), required: true }]
+
+  assert.deepEqual(
+    validateProviderCredentials({
+      providerName: '',
+      fields,
+      authMode: 'token',
+      configValues: {},
+      signInStatus: undefined,
+    }),
+    { providerName: 'Provider name is required', token: 'token is required' }
+  )
+  assert.deepEqual(
+    validateProviderCredentials({
+      providerName: 'A',
+      fields,
+      authMode: 'sign_in',
+      configValues: {},
+      signInStatus: undefined,
+    }),
+    { sign_in: 'Sign in to continue' }
+  )
 })

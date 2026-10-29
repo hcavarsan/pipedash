@@ -38,13 +38,13 @@ export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', action
           {onBack && (
             <Tooltip label={backLabel}>
               <ActionIcon size={isMobile ? 'sm' : 'md'} onClick={onBack} aria-label={backLabel}>
-                <IconArrowLeft size={16} />
+                <IconArrowLeft size={16} aria-hidden />
               </ActionIcon>
             </Tooltip>
           )}
           <Stack gap="4xs" flex={1} miw={0}>
             <Title
-              order={2}
+              order={1}
               fw={600}
               size={isMobile ? 'h5' : 'h4'}
               lineClamp={1}

@@ -27,7 +27,7 @@ export const MetricsEmptyState = ({
 
   return (
     <EmptyState
-      icon={<IconChartLine size={24} />}
+      icon={<IconChartLine size={24} aria-hidden />}
       title="No runs in this time range"
       description={`No runs were recorded for this pipeline in ${getDateRangeLabel(range).toLowerCase()}. Metrics are collected as runs finish.`}
       action={
@@ -39,7 +39,7 @@ export const MetricsEmptyState = ({
           <Button
             variant="default"
             size="sm"
-            leftSection={<IconRefresh size={16} />}
+            leftSection={<IconRefresh size={16} aria-hidden />}
             loading={refreshing}
             onClick={onRefresh}
           >

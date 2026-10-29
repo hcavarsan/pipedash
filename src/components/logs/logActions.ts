@@ -15,6 +15,12 @@ export class CopyTooLargeError extends Error {
   }
 }
 
+export class IncompleteLogCopyError extends Error {
+  constructor() {
+    super('The log ended before the selection was copied. Try again.')
+  }
+}
+
 const slug = (value: string) => value.replace(/[^A-Za-z0-9._-]+/g, '-')
 
 export function exportFileName(pipelineName: string, runNumber: number, nodeName: string): string {
@@ -40,10 +46,14 @@ export async function collectLines(
     const page = await fetchPage(next, Math.min(COPY_PAGE_LINES, to - next))
 
     if (page.lines.length === 0) {
-      break
+      throw new IncompleteLogCopyError()
     }
 
     for (const line of page.lines) {
+      if ((line.omitted ?? 0) > 0) {
+        throw new CopyTooLargeError()
+      }
+
       units += line.text.length + 1
 
       if (units > COPY_MAX_UNITS) {

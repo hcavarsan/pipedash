@@ -176,7 +176,7 @@ export function MobileHeader(): ReactNode {
 
   const lock = canLock ? (
     <ActionIcon aria-label="Lock Pipedash" loading={lockMutation.isPending} onClick={() => lockMutation.mutate()}>
-      <IconLock size={22} />
+      <IconLock size={22} aria-hidden />
     </ActionIcon>
   ) : null
 
@@ -192,7 +192,7 @@ export function MobileHeader(): ReactNode {
       )}
       {tab === 'providers' && (
         <ActionIcon color="blue" aria-label="Add provider" onClick={openAddProviderModal}>
-          <IconPlus size={24} />
+          <IconPlus size={24} aria-hidden />
         </ActionIcon>
       )}
     </>

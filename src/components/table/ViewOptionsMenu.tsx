@@ -84,7 +84,7 @@ export function ViewOptionsMenu({ view, groupTitle, onChange, onExpandAll, hidde
             {display.sort !== 'manual' && <DirectionIcon size={14} aria-hidden />}
           </UnstyledButton>
         ) : (
-          <Button variant="default" size="sm" leftSection={<IconAdjustmentsHorizontal size={16} />}>
+          <Button variant="default" size="sm" leftSection={<IconAdjustmentsHorizontal size={16} aria-hidden />}>
             View options
           </Button>
         )}

@@ -22,7 +22,7 @@ export const useFactoryResetConfirm = (onReset?: () => Promise<void> | void): Fa
       ) : (
         <Group gap="xs">
           <ThemeIcon color="red" variant="transparent" size="md">
-            <IconAlertTriangle size={16} />
+            <IconAlertTriangle size={16} aria-hidden />
           </ThemeIcon>
           <Text fw={600}>Factory reset</Text>
         </Group>

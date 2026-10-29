@@ -39,15 +39,15 @@ export const PushDeviceRow = ({
           <Menu position="bottom-end">
             <Menu.Target>
               <ActionIcon data-row-menu aria-label={`Actions for ${title}`} loading={testing || removing}>
-                <IconDots size={20} />
+                <IconDots size={20} aria-hidden />
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
               <Menu.Label>{title}</Menu.Label>
-              <Menu.Item leftSection={<IconSend size={18} />} onClick={onTest}>
+              <Menu.Item leftSection={<IconSend size={18} aria-hidden />} onClick={onTest}>
                 Send test push
               </Menu.Item>
-              <Menu.Item color="red" leftSection={<IconTrash size={18} />} onClick={onRemove}>
+              <Menu.Item color="red" leftSection={<IconTrash size={18} aria-hidden />} onClick={onRemove}>
                 Remove
               </Menu.Item>
               <ActionSheetCancel />
@@ -72,12 +72,12 @@ export const PushDeviceRow = ({
       <Group gap="3xs" wrap="nowrap" style={{ flexShrink: 0 }}>
         <Tooltip label={testLabel}>
           <ActionIcon size="lg" aria-label={testLabel} loading={testing} onClick={onTest}>
-            <IconSend size={16} />
+            <IconSend size={16} aria-hidden />
           </ActionIcon>
         </Tooltip>
         <Tooltip label={removeLabel}>
           <ActionIcon size="lg" aria-label={removeLabel} loading={removing} onClick={onRemove}>
-            <IconTrash size={16} />
+            <IconTrash size={16} aria-hidden />
           </ActionIcon>
         </Tooltip>
       </Group>

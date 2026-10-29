@@ -1,5 +1,5 @@
 import { VisuallyHidden } from '@mantine/core'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 export function LiveStatus({ message }: { message: string }): ReactNode {
   return (
@@ -9,18 +9,21 @@ export function LiveStatus({ message }: { message: string }): ReactNode {
   )
 }
 
-export function useErrorAnnouncement(errors: Record<string, string | undefined>): string {
-  const previous = useRef<Record<string, string | undefined>>({})
-  const [message, setMessage] = useState('')
+interface AnnouncementState {
+  errors: Record<string, string | undefined>
+  message: string
+}
 
-  useEffect(() => {
+export function useErrorAnnouncement(errors: Record<string, string | undefined>): string {
+  const [state, setState] = useState<AnnouncementState>({ errors: {}, message: '' })
+
+  if (state.errors !== errors) {
     const fresh = Object.entries(errors)
-      .filter(([key, text]) => text && previous.current[key] !== text)
+      .filter(([key, text]) => text && state.errors[key] !== text)
       .map(([, text]) => text)
 
-    previous.current = errors
-    setMessage(fresh.join('. '))
-  }, [errors])
+    setState({ errors, message: fresh.join('. ') })
+  }
 
-  return message
+  return state.message
 }

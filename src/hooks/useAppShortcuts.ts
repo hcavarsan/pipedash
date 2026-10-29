@@ -1,6 +1,6 @@
 import { type HotkeyItem, useHotkeys } from '@mantine/hooks'
 import { listen } from '@tauri-apps/api/event'
-import { useEffect } from 'react'
+import { useEffect, useEffectEvent } from 'react'
 import { logger } from '../lib/logger'
 import { dialogOpen } from '../lib/overlays'
 import { APP_COMMANDS } from '../lib/shortcuts'
@@ -67,35 +67,45 @@ export function useAppShortcuts({ onSettings, onSidebar, onRefresh, onLock }: Ap
     true
   )
 
+  const onMenuCommand = useEffectEvent((payload: string) => {
+    switch (payload) {
+      case APP_COMMANDS.search:
+        focusSearch()
+        break
+      case APP_COMMANDS.settings:
+        whenNoDialog(onSettings)
+        break
+      case APP_COMMANDS.sidebar:
+        onSidebar?.()
+        break
+      case APP_COMMANDS.refresh:
+        onRefresh()
+        break
+      case APP_COMMANDS.lock:
+        onLock?.()
+        break
+    }
+  })
+
   useEffect(() => {
     if (!desktop) {
       return
     }
+
+    let active = true
     const subscription = listen<string>('menu-command', ({ payload }) => {
-      switch (payload) {
-        case APP_COMMANDS.search:
-          focusSearch()
-          break
-        case APP_COMMANDS.settings:
-          whenNoDialog(onSettings)
-          break
-        case APP_COMMANDS.sidebar:
-          onSidebar?.()
-          break
-        case APP_COMMANDS.refresh:
-          onRefresh()
-          break
-        case APP_COMMANDS.lock:
-          onLock?.()
-          break
+      if (active) {
+        onMenuCommand(payload)
       }
     }).catch((error: unknown) => {
       logger.error('Shortcuts', 'Could not register native menu commands', error)
+
       return null
     })
 
     return () => {
+      active = false
       void subscription.then((unlisten) => unlisten?.())
     }
-  }, [desktop, onSettings, onSidebar, onRefresh, onLock])
+  }, [desktop])
 }

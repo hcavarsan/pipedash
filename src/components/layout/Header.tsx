@@ -1,4 +1,4 @@
-import { ActionIcon, Box, Divider, Group, Kbd, Title, Tooltip, UnstyledButton } from '@mantine/core'
+import { ActionIcon, Box, Divider, Group, Kbd, Text, Tooltip, UnstyledButton } from '@mantine/core'
 import {
   IconArrowLeft,
   IconLayoutSidebarLeftCollapse,
@@ -7,7 +7,7 @@ import {
   IconLockOpen,
   IconSettings,
 } from '@tabler/icons-react'
-import React, { type ReactNode, useCallback, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { useAppShortcuts } from '../../hooks/useAppShortcuts'
@@ -31,7 +31,7 @@ interface HeaderProps {
   onOpenSettings?: (() => void) | undefined
 }
 
-export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpenSettings }: HeaderProps): ReactNode => {
+export function Header({ onToggleNavbar, navbarOpened = false, onOpenSettings }: HeaderProps): ReactNode {
   useRefresh()
   const refreshAll = useRefreshAll()
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null)
@@ -67,17 +67,17 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
     }
   }, [])
 
-  const handleLockVault = useCallback(() => {
+  const handleLockVault = (): void => {
     if (canLock && !lockMutation.isPending) {
       lockMutation.mutate()
     }
-  }, [canLock, lockMutation])
+  }
 
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = (): void => {
     if (!refreshAll.isPending) {
       refreshAll.mutate()
     }
-  }, [refreshAll])
+  }
 
   useAppShortcuts({
     onSettings: onOpenSettings,
@@ -103,7 +103,11 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
   const sidebarToggle = onToggleNavbar && (
     <Tooltip label={commandTooltip(sidebarLabel, 'mod+\\')} position="bottom">
       <ActionIcon onClick={onToggleNavbar} size="lg" aria-label={sidebarLabel}>
-        {navbarOpened ? <IconLayoutSidebarLeftCollapse size={20} /> : <IconLayoutSidebarLeftExpand size={20} />}
+        {navbarOpened ? (
+          <IconLayoutSidebarLeftCollapse size={20} aria-hidden />
+        ) : (
+          <IconLayoutSidebarLeftExpand size={20} aria-hidden />
+        )}
       </ActionIcon>
     </Tooltip>
   )
@@ -132,9 +136,9 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
             <UnstyledButton component={Link} to="/pipelines" aria-label="Pipedash home" className="interactive-surface">
               <Group gap="xs" wrap="nowrap">
                 <AppLogo size={isMobile ? 26 : 28} />
-                <Title order={3} fw={600} lh={1}>
+                <Text fw={600} lh={1} fz="var(--mantine-h3-font-size)">
                   Pipedash
-                </Title>
+                </Text>
               </Group>
             </UnstyledButton>
 
@@ -159,7 +163,7 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
                   disabled={!canLock}
                   aria-label={lockLabel}
                 >
-                  {isVaultUnlocked ? <IconLockOpen size={20} /> : <IconLock size={20} />}
+                  {isVaultUnlocked ? <IconLockOpen size={20} aria-hidden /> : <IconLock size={20} aria-hidden />}
                 </ActionIcon>
               </Tooltip>
             )}
@@ -179,7 +183,7 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
             {onOpenSettings && (
               <Tooltip label={commandTooltip(settingsLabel, 'mod+,')} position="bottom">
                 <ActionIcon size="lg" onClick={onOpenSettings} aria-label={settingsLabel}>
-                  {settingsOpen ? <IconArrowLeft size={20} /> : <IconSettings size={20} />}
+                  {settingsOpen ? <IconArrowLeft size={20} aria-hidden /> : <IconSettings size={20} aria-hidden />}
                 </ActionIcon>
               </Tooltip>
             )}
@@ -195,4 +199,4 @@ export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpen
       </Group>
     </>
   )
-})
+}
