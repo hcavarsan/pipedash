@@ -50,7 +50,17 @@ export const reorderSlots = (order: string[], next: string[]) => {
   const moved = new Set(next)
   let index = 0
 
-  return order.map((id) => (moved.has(id) ? next[index++] : id))
+  return order.map((id) => {
+    const replacement = next[index]
+
+    if (moved.has(id) && replacement !== undefined) {
+      index += 1
+
+      return replacement
+    }
+
+    return id
+  })
 }
 
 export type DirectMembers = Record<string, string[]>

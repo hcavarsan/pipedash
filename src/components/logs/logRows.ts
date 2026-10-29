@@ -34,7 +34,13 @@ const lastKeyAtMost = (segments: readonly Segment[], line: number): number => {
   while (low < high) {
     const mid = (low + high) >>> 1
 
-    if (keyOf(segments[mid]) <= line) {
+    const segment = segments[mid]
+
+    if (segment === undefined) {
+      break
+    }
+
+    if (keyOf(segment) <= line) {
       low = mid + 1
     } else {
       high = mid
@@ -51,7 +57,13 @@ const lastRowAtMost = (segments: readonly Segment[], row: number): number => {
   while (low < high) {
     const mid = (low + high) >>> 1
 
-    if (segments[mid].row <= row) {
+    const segment = segments[mid]
+
+    if (segment === undefined) {
+      break
+    }
+
+    if (segment.row <= row) {
       low = mid + 1
     } else {
       high = mid
@@ -96,7 +108,11 @@ export function buildRows(meta: RowMeta, overrides: ReadonlySet<number>): RowMod
   const stack: Frame[] = [{ list: children.get(null) ?? [], next: 0, cursor: 0, to: meta.line_count }]
 
   while (stack.length > 0) {
-    const frame = stack[stack.length - 1]
+    const frame = stack.at(-1)
+
+    if (!frame) {
+      break
+    }
 
     if (frame.next >= frame.list.length) {
       emit(frame.cursor, frame.to)
@@ -104,7 +120,14 @@ export function buildRows(meta: RowMeta, overrides: ReadonlySet<number>): RowMod
       continue
     }
 
-    const section = frame.list[frame.next++]
+    const section = frame.list[frame.next]
+
+    frame.next += 1
+
+    if (section === undefined) {
+      continue
+    }
+
     const isGroup = section.kind === 'group'
     const begin = isGroup ? (section.header_line ?? section.start_line) : section.start_line
 
@@ -137,7 +160,7 @@ export function buildRows(meta: RowMeta, overrides: ReadonlySet<number>): RowMod
 }
 
 export function filterRows(lines: readonly number[]): RowModel {
-  const ascending = lines.every((line, index) => index === 0 || line >= lines[index - 1])
+  const ascending = lines.every((line, index) => index === 0 || line >= (lines[index - 1] ?? line))
   const sorted = ascending ? lines : [...lines].sort((a, b) => a - b)
   const segments: Segment[] = []
   let count = 0
@@ -170,6 +193,10 @@ export function rowAt(model: RowModel, row: number): RowItem | null {
   }
 
   const segment = model.segments[lastRowAtMost(model.segments, row)]
+
+  if (!segment) {
+    return null
+  }
 
   return segment.kind === 'step'
     ? { kind: 'step', section: segment.section }
@@ -209,15 +236,25 @@ export function rowOfSection(model: RowModel, section: LogSection): number | nul
   while (low < high) {
     const mid = (low + high) >>> 1
 
-    if (keyOf(segments[mid]) < section.start_line) {
+    const segment = segments[mid]
+
+    if (segment === undefined) {
+      break
+    }
+
+    if (keyOf(segment) < section.start_line) {
       low = mid + 1
     } else {
       high = mid
     }
   }
 
-  for (let index = low; index < segments.length && keyOf(segments[index]) === section.start_line; index += 1) {
+  for (let index = low; index < segments.length; index += 1) {
     const segment = segments[index]
+
+    if (segment === undefined || keyOf(segment) !== section.start_line) {
+      break
+    }
 
     if (segment.kind === 'step' && (segment.section.node_id ?? segment.section.title) === wanted) {
       return segment.row
@@ -269,7 +306,13 @@ export function sectionAtLine(meta: Pick<LogDocumentMeta, 'sections'>, line: num
   while (low < high) {
     const mid = (low + high) >>> 1
 
-    if (steps[mid].start_line <= line) {
+    const step = steps[mid]
+
+    if (step === undefined) {
+      break
+    }
+
+    if (step.start_line <= line) {
       low = mid + 1
     } else {
       high = mid
@@ -309,15 +352,18 @@ export function overridesFor(
   const prevKeys = sectionKeys(prevMeta.sections)
 
   prevMeta.sections.forEach((section, index) => {
-    if (prevOverrides.has(section.id)) {
-      previous.set(prevKeys[index], section)
+    const key = prevKeys[index]
+
+    if (key !== undefined && prevOverrides.has(section.id)) {
+      previous.set(key, section)
     }
   })
 
   const keys = sectionKeys(meta.sections)
 
   meta.sections.forEach((section, index) => {
-    const before = previous.get(keys[index])
+    const key = keys[index]
+    const before = key === undefined ? undefined : previous.get(key)
 
     if (before && section.open === before.open) {
       result.add(section.id)

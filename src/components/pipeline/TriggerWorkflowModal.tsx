@@ -21,8 +21,8 @@ interface TriggerWorkflowModalProps {
   opened: boolean
   onClose: () => void
   pipeline: Pipeline
-  onSuccess?: (pipelineId: string, runNumber: number) => void
-  initialInputs?: Record<string, unknown>
+  onSuccess?: ((pipelineId: string, runNumber: number) => void) | undefined
+  initialInputs?: Record<string, unknown> | undefined
 }
 
 const buildInitialParamValues = (params: WorkflowParameter[], inputs?: Record<string, unknown>) => {

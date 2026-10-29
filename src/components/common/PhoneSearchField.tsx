@@ -5,10 +5,10 @@ import classes from './PhoneSearchField.module.css'
 
 interface PhoneSearchFieldProps {
   value: string
-  placeholder?: string
+  placeholder?: string | undefined
   onChange: (value: string) => void
   onClear: () => void
-  onSubmit?: () => void
+  onSubmit?: (() => void) | undefined
 }
 
 export function PhoneSearchField({

@@ -52,9 +52,11 @@ export function PushNotificationsCard() {
   const canPair = status.relay_configured && !denied
   const canSubmit = isHttpUrl(serverUrl.trim()) && apiToken.length > 0
 
-  const handlePair = () =>
+  const handlePair = () => {
+    const trimmedLabel = label.trim()
+
     pair.mutate(
-      { serverUrl: serverUrl.trim(), apiToken, label: label.trim() || undefined },
+      { serverUrl: serverUrl.trim(), apiToken, ...(trimmedLabel ? { label: trimmedLabel } : {}) },
       {
         onSuccess: () => {
           setServerUrl('')
@@ -64,6 +66,7 @@ export function PushNotificationsCard() {
         },
       }
     )
+  }
 
   if (mobileShell) {
     const description =

@@ -50,7 +50,13 @@ export function useRerunWorkflow() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ pipelineId, inputs }: { pipelineId: string; inputs?: Record<string, unknown> }) => {
+    mutationFn: async ({
+      pipelineId,
+      inputs,
+    }: {
+      pipelineId: string
+      inputs?: Record<string, unknown> | undefined
+    }) => {
       const result = await service.triggerPipeline({
         workflow_id: pipelineId,
         inputs,

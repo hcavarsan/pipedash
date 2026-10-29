@@ -27,20 +27,20 @@ import {
 } from './PipelineRowParts'
 
 interface IosPipelineRowProps {
-  status?: PipelineStatus | null
-  statusText?: string
+  status?: PipelineStatus | null | undefined
+  statusText?: string | undefined
   title: string
   subtitle: string
-  detail?: string
-  value?: string
-  depth?: number
-  expanded?: boolean
-  hint?: string
+  detail?: string | undefined
+  value?: string | undefined
+  depth?: number | undefined
+  expanded?: boolean | undefined
+  hint?: string | undefined
   onClick: () => void
   trailing?: ReactNode
-  swipeActions?: SwipeAction[]
-  longPressMenu?: boolean
-  selected?: boolean
+  swipeActions?: SwipeAction[] | undefined
+  longPressMenu?: boolean | undefined
+  selected?: boolean | undefined
 }
 
 export function IosPipelineRow({
@@ -151,8 +151,8 @@ interface IosPipelineListProps {
   getProvider: (providerId: number) => ProviderSummary | undefined
   onToggleRepo: (repoId: string) => void
   actions: PipelineActions
-  selection?: PipelineSelection
-  onSelect?: () => void
+  selection?: PipelineSelection | undefined
+  onSelect?: (() => void) | undefined
 }
 
 export function IosPipelineList({

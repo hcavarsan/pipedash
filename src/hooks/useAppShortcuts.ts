@@ -7,10 +7,10 @@ import { APP_COMMANDS } from '../lib/shortcuts'
 import { isDesktopTauri } from '../utils/platform'
 
 interface AppShortcuts {
-  onSettings?: () => void
-  onSidebar?: () => void
+  onSettings?: (() => void) | undefined
+  onSidebar?: (() => void) | undefined
   onRefresh: () => void
-  onLock?: () => void
+  onLock?: (() => void) | undefined
 }
 
 function focusSearch() {

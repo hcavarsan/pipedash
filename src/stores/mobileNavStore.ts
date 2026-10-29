@@ -49,7 +49,7 @@ export function rememberScroll(scrolls: Record<string, number>, key: string, top
 
   const keys = Object.keys(next)
 
-  return keys.length > SCROLL_LIMIT ? Object.fromEntries(keys.slice(-SCROLL_LIMIT).map((k) => [k, next[k]])) : next
+  return keys.length > SCROLL_LIMIT ? Object.fromEntries(Object.entries(next).slice(-SCROLL_LIMIT)) : next
 }
 
 interface MobileNavState {

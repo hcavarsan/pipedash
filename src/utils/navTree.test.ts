@@ -20,8 +20,10 @@ const names = (nodes: NavNode[]): unknown[] =>
 
 test('sub-views nest under their parent view', () => {
   assert.deepEqual(names(buildViewNodes(views)), [{ Production: ['Web', { Europe: ['Berlin'] }] }, 'Staging'])
+  const [production] = buildViewNodes(views)
+  assert.ok(production)
   assert.deepEqual(
-    buildViewNodes(views)[0].children.map((node) => node.key),
+    production.children.map((node) => node.key),
     ['view:web', 'view:eu']
   )
 })

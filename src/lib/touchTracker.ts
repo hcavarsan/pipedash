@@ -122,7 +122,13 @@ export function trackTouches<Context>(target: Document | HTMLElement, options: T
     prevent()
     session.last = drag
     session.samples.push(point)
-    while (session.samples.length > 2 && point.t - session.samples[0].t > VELOCITY_WINDOW_MS) {
+    while (session.samples.length > 2) {
+      const oldest = session.samples[0]
+
+      if (!oldest || point.t - oldest.t <= VELOCITY_WINDOW_MS) {
+        break
+      }
+
       session.samples.shift()
     }
     options.move(session.context, drag)
@@ -150,25 +156,29 @@ export function trackTouches<Context>(target: Document | HTMLElement, options: T
   const onTouchStart = (event: Event) => {
     const touchEvent = event as TouchEvent
 
-    if (touchEvent.touches.length !== 1) {
+    const touch = touchEvent.touches[0]
+
+    if (touchEvent.touches.length !== 1 || !touch) {
       abort()
 
       return
     }
 
-    start(event.target instanceof Element ? event.target : null, touchPoint(touchEvent.touches[0]))
+    start(event.target instanceof Element ? event.target : null, touchPoint(touch))
   }
 
   const onTouchMove = (event: Event) => {
     const touchEvent = event as TouchEvent
 
-    if (touchEvent.touches.length !== 1) {
+    const touch = touchEvent.touches[0]
+
+    if (touchEvent.touches.length !== 1 || !touch) {
       abort()
 
       return
     }
 
-    advance(event.target instanceof Element ? event.target : null, touchPoint(touchEvent.touches[0]), () => {
+    advance(event.target instanceof Element ? event.target : null, touchPoint(touch), () => {
       if (touchEvent.cancelable) {
         touchEvent.preventDefault()
       }

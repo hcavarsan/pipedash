@@ -126,8 +126,11 @@ test('consecutive failed runs notify once each without duplicating cache updates
     setProviderPipelines(client, pipeline.provider_id, [failed])
   }
   assert.equal(pushes, 2)
-  assert.equal(useNotificationCenterStore.getState().items.length, 1)
-  assert.equal(useNotificationCenterStore.getState().items[0].read, false)
+  const { items } = useNotificationCenterStore.getState()
+  assert.equal(items.length, 1)
+  const [item] = items
+  assert.ok(item)
+  assert.equal(item.read, false)
   assert.deepEqual(delivered, [])
 })
 

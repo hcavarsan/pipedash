@@ -25,7 +25,7 @@ interface SignInFieldProps {
   providerType: string
   configValues: Record<string, string>
   ready: boolean
-  error?: string
+  error?: string | undefined
   disabled: boolean
   shell: boolean
   onChange: (reference: string | null) => void
@@ -142,7 +142,7 @@ export function SignInField({
 
   const pasteInput = (
     <TextInput
-      variant={shell ? 'unstyled' : undefined}
+      {...(shell ? { variant: 'unstyled' } : {})}
       label={shell ? undefined : PASTE_LABEL}
       description={shell ? undefined : PASTE_DESCRIPTION}
       aria-label={PASTE_LABEL}

@@ -39,8 +39,8 @@ import {
 interface PipelineMetricsViewProps {
   pipelineId: string
   pipelineName: string
-  repository?: string
-  refreshTrigger?: number
+  repository?: string | undefined
+  refreshTrigger?: number | undefined
 }
 
 export const PipelineMetricsView = ({

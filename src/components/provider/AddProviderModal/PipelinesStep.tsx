@@ -81,8 +81,10 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
   const allPipelines = useMemo(() => pipelinesData?.pages[pipelinesData.pages.length - 1] || null, [pipelinesData])
 
   useEffect(() => {
-    if (availableOrganizations.length === 1 && !selectedOrganization) {
-      dispatch({ type: 'SET_ORGANIZATION', organization: availableOrganizations[0].id })
+    const [onlyOrganization] = availableOrganizations
+
+    if (availableOrganizations.length === 1 && onlyOrganization && !selectedOrganization) {
+      dispatch({ type: 'SET_ORGANIZATION', organization: onlyOrganization.id })
     }
   }, [availableOrganizations, selectedOrganization, dispatch])
 
@@ -425,8 +427,8 @@ function PipelinesTable({ pipelines, selectedPipelines, onToggle, onSelectAll, l
         <Tooltip label={pipeline[key] || '—'} openDelay={500}>
           <Text
             size="sm"
-            fw={key === 'name' ? 500 : undefined}
-            c={key === 'description' ? 'dimmed' : undefined}
+            {...(key === 'name' ? { fw: 500 } : {})}
+            {...(key === 'description' ? { c: 'dimmed' } : {})}
             truncate="end"
           >
             {pipeline[key] || '—'}

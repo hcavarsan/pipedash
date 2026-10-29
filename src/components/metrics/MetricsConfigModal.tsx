@@ -81,7 +81,7 @@ export const MetricsConfigModal = ({
 
   const handleFlush = () => {
     openConfirm({
-      zIndex: mobileShell ? 400 : undefined,
+      ...(mobileShell ? { zIndex: 400 } : {}),
       title: 'Delete metrics',
       children: (
         <Text size="sm">
@@ -129,7 +129,7 @@ export const MetricsConfigModal = ({
     }
 
     openConfirm({
-      zIndex: mobileShell ? 400 : undefined,
+      ...(mobileShell ? { zIndex: 400 } : {}),
       title: 'Disable metrics',
       children: (
         <Text size="sm">

@@ -33,14 +33,14 @@ import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import type { SwipeAction } from '../ios/SwipeActions'
 
 interface SectionHeadingProps {
-  id?: string
+  id?: string | undefined
   icon: ReactNode
   label: string
   info?: ReactNode
   actions?: ReactNode
   count: number
-  expanded?: boolean
-  onToggle?: () => void
+  expanded?: boolean | undefined
+  onToggle?: (() => void) | undefined
 }
 
 export function SectionHeading({ id, icon, label, info, actions, count, expanded, onToggle }: SectionHeadingProps) {
@@ -100,11 +100,11 @@ export interface TableRow {
   id: string
   type: 'section' | 'workflow'
   name: string
-  depth?: number
-  kind?: SectionMode | 'view'
-  expanded?: boolean
-  organization?: string
-  pipelineCount?: number
+  depth?: number | undefined
+  kind?: SectionMode | 'view' | undefined
+  expanded?: boolean | undefined
+  organization?: string | undefined
+  pipelineCount?: number | undefined
   providerIds?: Set<number>
   providerLabel?: string
   hasPendingFetch?: boolean
@@ -181,7 +181,7 @@ export function FetchInfo({ providers }: { providers: ProviderSummary[] }) {
       c={TONE_META[worst].color}
       size="sm"
       aria-label="Fetch info"
-      onClick={providers.length === 1 ? () => openProvider(only) : undefined}
+      onClick={only && providers.length === 1 ? () => openProvider(only) : undefined}
     >
       <IconInfoCircle size={16} />
     </ActionIcon>
@@ -254,10 +254,10 @@ export interface PipelineActions {
   onTogglePin: (p: ViewPipeline) => void
   onToggleHidden: (p: ViewPipeline) => void
   onAddToView: (p: ViewPipeline) => void
-  onRemoveFromView?: (p: ViewPipeline) => void
-  removeLabel?: string
+  onRemoveFromView?: ((p: ViewPipeline) => void) | undefined
+  removeLabel?: string | undefined
   onTrigger: (p: Pipeline) => void
-  onViewMetrics?: (p: Pipeline) => void
+  onViewMetrics?: ((p: Pipeline) => void) | undefined
   onViewHistory: (p: Pipeline) => void
   onOpenView: (viewId: string) => void
   onRefreshProviders: (providerIds: number[]) => void
@@ -372,9 +372,7 @@ export function WorkflowActions({ pipeline, actions }: { pipeline: ViewPipeline;
       <Tooltip label={triggerLabel}>
         <ActionIcon
           aria-label={triggerLabel}
-          aria-disabled={blockedReason ? true : undefined}
-          aria-describedby={blockedReason ? reasonId : undefined}
-          data-disabled={blockedReason ? true : undefined}
+          {...(blockedReason ? { 'aria-disabled': true, 'aria-describedby': reasonId, 'data-disabled': true } : {})}
           onClick={() => {
             if (!blockedReason) {
               actions.onTrigger(pipeline)
@@ -406,8 +404,8 @@ export function RowActionMenu({ name, items }: { name: string; items: WorkflowMe
           <Menu.Item
             key={item.label}
             leftSection={item.icon}
-            color={item.color}
-            disabled={item.disabled}
+            {...(item.color === undefined ? {} : { color: item.color })}
+            disabled={item.disabled ?? false}
             onClick={item.onClick}
           >
             {item.label}
@@ -455,7 +453,7 @@ export function WorkflowActionMenu({
   actions,
 }: {
   pipeline: ViewPipeline
-  provider?: ProviderSummary
+  provider?: ProviderSummary | undefined
   actions: PipelineActions
 }) {
   const openNotifications = useNotificationCenterStore((state) => state.open)
@@ -474,7 +472,7 @@ export function WorkflowActionMenu({
         <Menu.Label>{pipeline.name}</Menu.Label>
         {blockedReason && <Menu.Label>{blockedReason}</Menu.Label>}
         {items.map((action) => (
-          <Menu.Item key={action.label} disabled={action.disabled} onClick={action.onClick}>
+          <Menu.Item key={action.label} disabled={action.disabled ?? false} onClick={action.onClick}>
             {action.label}
           </Menu.Item>
         ))}

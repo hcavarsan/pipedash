@@ -130,22 +130,22 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
       )}
       <AppShell
         header={{ height: mobileShell ? 'calc(44px + var(--safe-top))' : 'calc(70px + var(--safe-top))' }}
-        navbar={
-          mobileShell
-            ? undefined
-            : {
+        {...(mobileShell
+          ? {}
+          : {
+              navbar: {
                 width: { base: 280, sm: sidebar.navbarWidth },
                 breakpoint: 'sm',
                 collapsed: { mobile: !mobileOpened, desktop: isSettingsPage },
-              }
-        }
+              },
+            })}
         mod={{
           'sidebar-resizing': sidebar.resizing,
           'sidebar-instant': sidebar.instant,
           'mobile-shell': mobileShell,
         }}
         padding={{ base: 'xs', sm: 'md' }}
-        style={mobileShell ? ({ '--tab-bar-reserve': tabBarReserve } as CSSProperties) : undefined}
+        {...(mobileShell ? { style: { '--tab-bar-reserve': tabBarReserve } as CSSProperties } : {})}
         styles={{
           header: mobileShell
             ? {
@@ -156,7 +156,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
                 WebkitBackdropFilter: 'none',
                 transition: 'none',
               }
-            : undefined,
+            : {},
           main: {
             minHeight: 'unset',
             background: 'var(--mantine-color-body)',

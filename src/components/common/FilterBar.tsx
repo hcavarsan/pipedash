@@ -72,9 +72,9 @@ interface FilterSelectProps {
   data: { value: string; label: string }[]
   value: string | null
   onChange: (value: string | null) => void
-  searchable?: boolean
+  searchable?: boolean | undefined
   leftSection?: React.ReactNode
-  clearable?: boolean
+  clearable?: boolean | undefined
 }
 
 export const FilterSelect = ({
@@ -92,7 +92,7 @@ export const FilterSelect = ({
     data={data}
     value={value}
     onChange={onChange}
-    searchable={searchable}
+    searchable={searchable ?? false}
     rightSection={
       value && clearable ? (
         <Tooltip label={`Clear ${label.toLowerCase()} filter`}>
@@ -108,10 +108,10 @@ export const FilterSelect = ({
             <IconX size={14} />
           </ActionIcon>
         </Tooltip>
-      ) : undefined
+      ) : null
     }
-    rightSectionPointerEvents={value && clearable ? 'all' : undefined}
     leftSection={leftSection}
+    {...(value && clearable ? { rightSectionPointerEvents: 'all' as const } : {})}
     miw={130}
     flex={1}
     maw="100%"

@@ -56,7 +56,7 @@ export interface LogToolbarProps {
 
 interface ToolbarButtonProps {
   label: string
-  shortcut?: string
+  shortcut?: string | undefined
   icon: ReactNode
   onClick: () => void
   disabled?: boolean
@@ -73,11 +73,9 @@ function ToolbarButton({ label, shortcut, icon, onClick, disabled, pressed, load
         variant={pressed ? 'light' : 'subtle'}
         color={pressed ? 'blue' : 'gray'}
         aria-label={text}
-        aria-pressed={pressed}
-        aria-disabled={disabled || undefined}
-        data-disabled={disabled || undefined}
-        loading={loading}
-        onClick={disabled ? undefined : onClick}
+        loading={loading ?? false}
+        {...(pressed === undefined ? {} : { 'aria-pressed': pressed })}
+        {...(disabled ? { 'aria-disabled': true, 'data-disabled': true } : { onClick })}
       >
         {icon}
       </ActionIcon>

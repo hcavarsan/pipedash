@@ -5,8 +5,8 @@ import type { PipelineStatus } from '../../../types'
 
 interface StatusBadgeProps {
   status: PipelineStatus
-  label?: string
-  size?: 'sm' | 'md'
+  label?: string | undefined
+  size?: 'sm' | 'md' | undefined
 }
 
 export const StatusBadge = ({ status, label: customLabel, size = 'sm' }: StatusBadgeProps) => {

@@ -553,7 +553,7 @@ export const UnifiedPipelinesView = ({
               key={action.label}
               size="xs"
               variant="light"
-              color={action.color}
+              {...(action.color === undefined ? {} : { color: action.color })}
               leftSection={action.icon}
               disabled={selectedPipelines.length === 0}
               onClick={action.onClick}
@@ -583,7 +583,11 @@ export const UnifiedPipelinesView = ({
         <Menu.Dropdown>
           <Menu.Label>{`${selectedPipelines.length} selected`}</Menu.Label>
           {selectionActions.map((action) => (
-            <Menu.Item key={action.label} color={action.color} onClick={action.onClick}>
+            <Menu.Item
+              key={action.label}
+              {...(action.color === undefined ? {} : { color: action.color })}
+              onClick={action.onClick}
+            >
               {action.label}
             </Menu.Item>
           ))}
@@ -905,9 +909,9 @@ export const UnifiedPipelinesView = ({
                       <UnstyledButton
                         className="item-primary"
                         w="100%"
-                        pl={indent}
+                        {...(indent === undefined ? {} : { pl: indent })}
                         onClick={() => toggleSection(row.id)}
-                        aria-expanded={row.expanded}
+                        {...(row.expanded === undefined ? {} : { 'aria-expanded': row.expanded })}
                       >
                         <Group gap="xs" wrap="nowrap" style={{ overflow: 'hidden', maxWidth: '100%' }}>
                           {row.expanded ? (
@@ -941,7 +945,7 @@ export const UnifiedPipelinesView = ({
                     <UnstyledButton
                       className="item-primary"
                       w="100%"
-                      pl={indent}
+                      {...(indent === undefined ? {} : { pl: indent })}
                       onClick={() => onViewHistory(pipeline)}
                       aria-label={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()} for ${row.name}`}
                     >

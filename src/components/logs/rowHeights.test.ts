@@ -11,11 +11,16 @@ function naiveIndexAt(heights: number[], y: number): number {
   let top = 0
 
   for (let index = 0; index < heights.length; index += 1) {
-    if (y < top + heights[index]) {
+    const height = heights[index]
+    if (height === undefined) {
+      break
+    }
+
+    if (y < top + height) {
       return index
     }
 
-    top += heights[index]
+    top += height
   }
 
   return heights.length - 1
@@ -36,7 +41,7 @@ test('prefix, total and indexAt match a naive array under random updates', () =>
 
   for (const size of [1, 2, 3, 7, 64, 1000]) {
     const naive = Array.from({ length: size }, () => 10 + Math.floor(random() * 90))
-    const tree = new RowHeights(size, (index) => naive[index])
+    const tree = new RowHeights(size, (index) => naive[index] ?? 0)
 
     for (let step = 0; step < 300; step += 1) {
       const index = Math.floor(random() * size)

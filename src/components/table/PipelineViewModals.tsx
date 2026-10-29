@@ -490,7 +490,7 @@ function AddToViewModal() {
       opened={pipelines !== null}
       onClose={closeAddToView}
       size="md"
-      title={`Add ${shown.length === 1 ? shown[0].name : `${shown.length} pipelines`} to views`}
+      title={`Add ${shown.length === 1 ? (shown[0]?.name ?? '') : `${shown.length} pipelines`} to views`}
       footer={
         <Group justify="space-between" gap="sm">
           <Button variant="default" size="sm" leftSection={<IconPlus size={16} />} onClick={newView}>
@@ -562,7 +562,7 @@ function ManageViewList({
   }
 
   return (
-    <Stack gap="4xs" pl={parentId === null ? undefined : 'lg'}>
+    <Stack gap="4xs" {...(parentId === null ? {} : { pl: 'lg' })}>
       <SortableList
         items={siblings}
         getId={(g) => g.id}

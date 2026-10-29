@@ -23,11 +23,11 @@ export function StepHeading({ title, subtitle }: StepHeadingProps) {
 }
 
 interface ShellFieldProps {
-  id?: string
-  label?: string
-  required?: boolean
-  description?: string | null
-  error?: string | null
+  id?: string | undefined
+  label?: string | undefined
+  required?: boolean | undefined
+  description?: string | null | undefined
+  error?: string | null | undefined
   children: ReactNode
 }
 

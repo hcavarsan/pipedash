@@ -374,7 +374,7 @@ export function AddProviderModal({
       closable={!permission.modalOpen}
       footer={footer}
       primaryAction={primaryAction}
-      backAction={backAction}
+      {...(backAction ? { backAction } : {})}
       contentPadding={false}
       size="lg"
       fullHeight

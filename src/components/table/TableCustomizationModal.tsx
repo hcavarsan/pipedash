@@ -125,27 +125,35 @@ export function TableCustomizationModal({
   }
 
   const handleMoveUp = (index: number) => {
-    if (index === 0 || !columnItems[index].moveable) {
+    const current = columnItems[index]
+
+    if (index === 0 || !current?.moveable) {
       return
     }
 
     const newItems = [...columnItems]
     const [item] = newItems.splice(index, 1)
 
-    newItems.splice(index - 1, 0, item)
-    setColumnItems(newItems)
+    if (item) {
+      newItems.splice(index - 1, 0, item)
+      setColumnItems(newItems)
+    }
   }
 
   const handleMoveDown = (index: number) => {
-    if (index === columnItems.length - 1 || !columnItems[index].moveable) {
+    const current = columnItems[index]
+
+    if (index === columnItems.length - 1 || !current?.moveable) {
       return
     }
 
     const newItems = [...columnItems]
     const [item] = newItems.splice(index, 1)
 
-    newItems.splice(index + 1, 0, item)
-    setColumnItems(newItems)
+    if (item) {
+      newItems.splice(index + 1, 0, item)
+      setColumnItems(newItems)
+    }
   }
 
   const handleApply = () => {

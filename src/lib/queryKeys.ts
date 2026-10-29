@@ -18,7 +18,8 @@ export const queryKeys = {
 
   pipelines: {
     all: ['pipelines'] as const,
-    list: (filters?: { providerId?: number }) => [...queryKeys.pipelines.all, 'list', filters ?? {}] as const,
+    list: (filters?: { providerId?: number | undefined }) =>
+      [...queryKeys.pipelines.all, 'list', filters ?? {}] as const,
     detail: (id: string) => [...queryKeys.pipelines.all, 'detail', id] as const,
     views: () => [...queryKeys.pipelines.all, 'views'] as const,
     pages: () => [...queryKeys.pipelines.all, 'page'] as const,
@@ -43,7 +44,7 @@ export const queryKeys = {
     all: ['metrics'] as const,
     globalConfig: () => [...queryKeys.metrics.all, 'config', 'global'] as const,
     pipelineConfig: (pipelineId: string) => [...queryKeys.metrics.all, 'config', 'pipeline', pipelineId] as const,
-    aggregated: (params: { metricType: string; aggregationPeriod: string; pipelineId?: string }) =>
+    aggregated: (params: { metricType: string; aggregationPeriod: string; pipelineId?: string | undefined }) =>
       [...queryKeys.metrics.all, 'aggregated', params] as const,
     stats: () => [...queryKeys.metrics.all, 'stats'] as const,
   },

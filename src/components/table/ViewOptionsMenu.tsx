@@ -12,8 +12,8 @@ interface ViewOptionsMenuProps {
   view: PipelineView
   groupTitle: string
   onChange: (display: ViewDisplay) => void
-  onExpandAll?: (open: boolean) => void
-  hidden?: { value: boolean; count: number; onChange: (value: boolean) => void }
+  onExpandAll?: ((open: boolean) => void) | undefined
+  hidden?: { value: boolean; count: number; onChange: (value: boolean) => void } | undefined
 }
 
 interface Option<K extends keyof ViewDisplay> {
@@ -64,7 +64,10 @@ export function ViewOptionsMenu({ view, groupTitle, onChange, onExpandAll, hidde
     ...(mobileShell ? [] : [{ key: 'layout' as const, label: 'Layout', options: layouts }]),
   ]
   const displayGroups = view.capabilities.edit_display ? views : []
-  const currentSort = sorts.find((option) => option.value === display.sort) ?? sorts[1]
+  const currentSort: Option<'sort'> = sorts.find((option) => option.value === display.sort) ?? {
+    value: 'name',
+    label: 'Name',
+  }
   const ascending = display.direction === 'asc'
   const DirectionIcon = ascending ? IconArrowUp : IconArrowDown
 

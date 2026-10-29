@@ -38,11 +38,11 @@ interface MetricsDetailPageProps {
   pipelineId: string
   pipelineName: string
   metricType: MetricType
-  repository?: string
+  repository?: string | undefined
   initialDateRange: DateRange
   initialAggregation: AggregationPeriod
   retentionDays: number
-  refreshTrigger?: number
+  refreshTrigger?: number | undefined
 }
 
 const VALUE_UNITS: Record<MetricType, string> = {

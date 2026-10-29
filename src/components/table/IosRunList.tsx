@@ -127,7 +127,7 @@ interface IosRunListProps {
   isFlux: boolean
   noun: string
   label: string
-  onSelect?: () => void
+  onSelect?: (() => void) | undefined
   selecting: boolean
   selectedNumbers: number[]
   isSelectable: (run: PipelineRun) => boolean

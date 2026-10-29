@@ -251,7 +251,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
       if (!currentConfig) {
         await createInitialConfigMutation.mutateAsync({
           config: newConfig,
-          vaultPassword: needsVaultPassword ? state.vaultPassword : undefined,
+          ...(needsVaultPassword ? { vaultPassword: state.vaultPassword } : {}),
         })
 
         if (compact) {
@@ -522,8 +522,8 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
             size="lg"
             fullWidth
             onClick={shellAction.onClick}
-            loading={shellAction.loading}
-            disabled={shellAction.disabled}
+            loading={shellAction.loading ?? false}
+            disabled={shellAction.disabled ?? false}
           >
             {shellAction.label}
           </Button>
@@ -605,8 +605,8 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
         size="lg"
         fullHeight
         loading={saving}
-        primaryAction={shellAction}
-        backAction={canGoBack ? { label: 'Back', onClick: goBack } : undefined}
+        {...(shellAction ? { primaryAction: shellAction } : {})}
+        {...(canGoBack ? { backAction: { label: 'Back', onClick: goBack } } : {})}
       >
         {body}
       </StandardModal>

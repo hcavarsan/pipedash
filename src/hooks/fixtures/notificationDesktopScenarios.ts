@@ -83,9 +83,12 @@ test('one flag delivers a backend-confirmed failure to the desktop and the cente
   await mount(true)
   await publish('pipelines-failed', { pipelines: [pipeline] })
   const [item] = useNotificationCenterStore.getState().items
-  assert.equal(item?.pipelineId, pipeline.id)
+  assert.ok(item)
+  assert.equal(item.pipelineId, pipeline.id)
   await waitFor(() => assert.equal(delivered.length, 1))
-  assert.deepEqual([delivered[0].title, delivered[0].body], [item.title, item.body])
+  const [first] = delivered
+  assert.ok(first)
+  assert.deepEqual([first.title, first.body], [item.title, item.body])
   assert.equal(item.body, 'owner/repo · github')
 })
 
@@ -93,9 +96,12 @@ test('the same flag delivers a provider outage', async () => {
   await mount(true)
   await publish('provider-health-alert', outage)
   const [item] = useNotificationCenterStore.getState().items
-  assert.equal(item?.key, outage.notification_key)
+  assert.ok(item)
+  assert.equal(item.key, outage.notification_key)
   await waitFor(() => assert.equal(delivered.length, 1))
-  assert.deepEqual([delivered[0].title, delivered[0].body], [item.title, item.body])
+  const [first] = delivered
+  assert.ok(first)
+  assert.deepEqual([first.title, first.body], [item.title, item.body])
 })
 
 test('with notifications off failures and outages stay in the center only', async () => {

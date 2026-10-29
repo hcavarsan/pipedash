@@ -86,12 +86,12 @@ export function usePipelineMetricsConfig(pipelineId: string) {
 export function useAggregatedMetrics(params: {
   metricType: MetricType
   aggregationPeriod: AggregationPeriod
-  aggregationType?: AggregationType
-  pipelineId?: string
-  startDate?: string
-  endDate?: string
-  limit?: number
-  enabled?: boolean
+  aggregationType?: AggregationType | undefined
+  pipelineId?: string | undefined
+  startDate?: string | undefined
+  endDate?: string | undefined
+  limit?: number | undefined
+  enabled?: boolean | undefined
 }) {
   const { enabled = true, ...queryParams } = params
 

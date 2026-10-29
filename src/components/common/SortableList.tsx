@@ -26,7 +26,7 @@ export interface SortableDragProps {
   style: CSSProperties
   attributes: DraggableAttributes
   listeners: DraggableSyntheticListeners
-  handleProps?: DraggableAttributes & { ref: (node: HTMLElement | null) => void }
+  handleProps?: (DraggableAttributes & { ref: (node: HTMLElement | null) => void }) | undefined
   isDragging: boolean
 }
 
@@ -92,11 +92,15 @@ export function SortableList<T>({ items, getId, onReorder, orientation, handle, 
         items={ids}
         strategy={orientation === 'horizontal' ? horizontalListSortingStrategy : verticalListSortingStrategy}
       >
-        {items.map((item, index) => (
-          <SortableItem key={ids[index]} id={ids[index]} item={item} handle={handle}>
-            {children}
-          </SortableItem>
-        ))}
+        {items.map((item) => {
+          const id = getId(item)
+
+          return (
+            <SortableItem key={id} id={id} item={item} handle={handle}>
+              {children}
+            </SortableItem>
+          )
+        })}
       </SortableContext>
     </DndContext>
   )

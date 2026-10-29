@@ -24,7 +24,7 @@ export function buildColumnsFromSchema(
       accessor: def.id as keyof PipelineRun,
       title: def.label,
       sortable: def.sortable,
-      width: def.width ?? undefined,
+      ...(def.width == null ? {} : { width: def.width }),
       textAlign: RIGHT_ALIGNED_TYPES.includes(def.data_type) ? 'right' : 'left',
       resizable: true,
       toggleable: false,

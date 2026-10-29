@@ -124,13 +124,13 @@ interface TreeRowProps {
   depth: number
   label: string
   icon: ReactNode
-  to?: string
+  to?: string | undefined
   active: boolean
   description?: ReactNode
-  expandable?: boolean
-  open?: boolean
-  onToggle?: () => void
-  menu?: MenuProps
+  expandable?: boolean | undefined
+  open?: boolean | undefined
+  onToggle?: (() => void) | undefined
+  menu?: MenuProps | undefined
   actions?: ReactNode
 }
 
@@ -185,7 +185,13 @@ const TreeRow = ({
       {to ? (
         <NavLink {...row} active={active} aria-current={active ? 'page' : undefined} component={Link} to={to} />
       ) : (
-        <NavLink {...row} component="button" type="button" aria-expanded={open} onClick={onToggle} />
+        <NavLink
+          {...row}
+          component="button"
+          type="button"
+          aria-expanded={open}
+          {...(onToggle ? { onClick: onToggle } : {})}
+        />
       )}
       {actions}
     </Group>

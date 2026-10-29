@@ -130,7 +130,7 @@ export const getMetricStats = ({ metrics, metric_type }: AggregatedMetrics): Met
 
   return {
     average: values.reduce((sum, value) => sum + value, 0) / values.length,
-    latest: values[values.length - 1],
+    latest: values.at(-1) ?? null,
     max: Math.max(...values),
     observed: values.length,
     total: metrics.length,

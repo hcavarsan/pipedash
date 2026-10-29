@@ -164,7 +164,7 @@ const ProviderStatusRows = ({
 }
 
 interface ProvidersSectionProps {
-  onHeaderActionsChange?: (actions: ReactNode) => void
+  onHeaderActionsChange?: ((actions: ReactNode) => void) | undefined
 }
 
 export const ProvidersSection = ({ onHeaderActionsChange }: ProvidersSectionProps) => {

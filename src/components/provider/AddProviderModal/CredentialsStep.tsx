@@ -56,9 +56,9 @@ interface CredentialsStepProps {
   formRef: RefObject<HTMLFormElement | null>
   formId: string
   onSubmit: () => void
-  permissionRow?: ReactNode
-  secondaryRow?: ReactNode
-  scopeNote?: string
+  permissionRow?: ReactNode | undefined
+  secondaryRow?: ReactNode | undefined
+  scopeNote?: string | undefined
 }
 
 export function CredentialsStep({
@@ -444,7 +444,7 @@ export function CredentialsStep({
                   icon={<ProviderIcon name={selectedPlugin.name} icon={selectedPlugin.icon} size={30} />}
                   title={selectedPlugin.name}
                   chevron={!editMode}
-                  onClick={editMode ? undefined : () => handlePluginSelect(null)}
+                  {...(editMode ? {} : { onClick: () => handlePluginSelect(null) })}
                   disabled={submitting}
                 />
               </IosGroup>

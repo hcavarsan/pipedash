@@ -19,7 +19,7 @@ export function detentHeights(detents: readonly SheetDetent[], available: number
 }
 
 export function stopPositions(heights: number[], dismissible: boolean): number[] {
-  const top = heights[heights.length - 1]
+  const top = heights.at(-1) ?? 0
   const stops = heights.map((height) => top - height).reverse()
 
   return dismissible ? [...stops, top] : stops
@@ -34,13 +34,16 @@ export function displayPosition(raw: number, top: number, floor: number): number
 }
 
 export function sheetFrame(position: number, heights: number[]): SheetFrame {
-  const height = heights[heights.length - 1] - position
+  const [low = 0] = heights
+  const height = (heights.at(-1) ?? 0) - position
 
-  return height >= heights[0] ? { height, offset: 0 } : { height: heights[0], offset: heights[0] - height }
+  return height >= low ? { height, offset: 0 } : { height: low, offset: low - height }
 }
 
 export function scrimLevel({ offset }: SheetFrame, heights: number[]): number {
-  return clamp(1 - offset / heights[0], 0, 1)
+  const [low = 0] = heights
+
+  return clamp(1 - offset / low, 0, 1)
 }
 
 export function expandLevel(height: number, heights: number[]): number | null {
@@ -48,5 +51,7 @@ export function expandLevel(height: number, heights: number[]): number | null {
     return null
   }
 
-  return clamp((height - heights[0]) / (heights[heights.length - 1] - heights[0]), 0, 1)
+  const [low = 0] = heights
+
+  return clamp((height - low) / ((heights.at(-1) ?? 0) - low), 0, 1)
 }

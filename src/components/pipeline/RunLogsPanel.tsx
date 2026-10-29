@@ -34,9 +34,10 @@ export const RunLogsPanel = ({
   const selectData = useMemo(() => {
     const groups = groupLogNodes(tree?.nodes ?? [])
     const items = (nodes: RunLogNode[]) => nodes.map((n) => ({ value: n.id, label: n.name }))
+    const [first] = groups
 
-    return groups.length === 1 && groups[0].stage === null
-      ? items(groups[0].nodes)
+    return groups.length === 1 && first && first.stage === null
+      ? items(first.nodes)
       : groups.map((group) => ({ group: group.stage ?? 'Jobs', items: items(group.nodes) }))
   }, [tree])
 

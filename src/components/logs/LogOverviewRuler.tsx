@@ -152,9 +152,11 @@ export const LogOverviewRuler = forwardRef<LogRulerHandle, LogOverviewRulerProps
       End: lineCount - 1,
     }
 
-    if (event.key in target && lineCount > 0) {
+    const seek = target[event.key]
+
+    if (seek !== undefined && lineCount > 0) {
       event.preventDefault()
-      onSeek(Math.min(Math.max(target[event.key], 0), lineCount - 1))
+      onSeek(Math.min(Math.max(seek, 0), lineCount - 1))
     }
   }
 

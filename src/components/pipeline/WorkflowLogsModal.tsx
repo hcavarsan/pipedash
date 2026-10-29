@@ -57,16 +57,16 @@ interface WorkflowLogsModalProps {
   onClose: () => void
   pipelineId: string
   runNumber: number
-  providerId?: number
-  providerType?: string
+  providerId?: number | undefined
+  providerType?: string | undefined
   pipeline: Pipeline | undefined
   canViewLogs: boolean
   canTrigger: boolean
-  triggerBlockedReason?: string
+  triggerBlockedReason?: string | undefined
   canCancel: boolean
-  rerunInPlace?: boolean
-  onRerunSuccess?: (pipelineId: string, newRunNumber: number) => void
-  onCancelSuccess?: () => void
+  rerunInPlace?: boolean | undefined
+  onRerunSuccess?: ((pipelineId: string, newRunNumber: number) => void) | undefined
+  onCancelSuccess?: (() => void) | undefined
 }
 
 interface DetailField {

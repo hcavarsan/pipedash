@@ -35,7 +35,7 @@ import { AccentText, FieldRow, RowSelect, RowTextInput, SwitchRow } from '../mob
 import { useFactoryResetConfirm } from '../useFactoryResetConfirm'
 
 interface GeneralSectionProps {
-  onRefresh?: () => Promise<void>
+  onRefresh?: (() => Promise<void>) | undefined
 }
 
 const THEME_OPTIONS = [
@@ -74,7 +74,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
       return
     }
 
-    generalMutation.mutate({ ...general, ...change }, { onSuccess })
+    generalMutation.mutate({ ...general, ...change }, onSuccess ? { onSuccess } : undefined)
   }
   const statusPagesChecked = generalMutation.isPending
     ? generalMutation.variables.status_pages_enabled

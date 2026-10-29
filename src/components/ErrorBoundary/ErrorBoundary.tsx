@@ -12,7 +12,7 @@ type Scope = 'app' | 'route' | 'feature'
 interface ErrorBoundaryProps {
   children: ReactNode
   scope?: Scope
-  name?: string
+  name?: string | undefined
 }
 
 interface ErrorBoundaryState {
@@ -34,7 +34,7 @@ const SCOPE_TITLE: Record<Scope, string> = {
 
 interface BoundaryFallbackProps {
   scope: Scope
-  name?: string
+  name?: string | undefined
   error: Error
   componentStack: string | null
   onRetry: () => void

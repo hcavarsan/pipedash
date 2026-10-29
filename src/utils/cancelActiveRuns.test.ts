@@ -134,7 +134,13 @@ const pagesFor =
   async (pipelineId: string, page: number) => {
     calls.push(`${pipelineId}:${page}`)
 
-    return pages[pipelineId][page - 1]
+    const found = pages[pipelineId]?.[page - 1]
+
+    if (!found) {
+      throw new Error(`no page ${page} for ${pipelineId}`)
+    }
+
+    return found
   }
 
 test('finds an older running run when the newest run finished', async () => {
@@ -143,7 +149,7 @@ test('finds an older running run when the newest run finished', async () => {
   const { runs, failed } = await findUnfinishedRuns([pipeline('a', { status: 'success' })], fetchPage)
 
   assert.deepEqual(
-    runs.a.map((item) => item.run_number),
+    runs.a?.map((item) => item.run_number),
     [2]
   )
   assert.deepEqual(failed, [])
@@ -165,7 +171,7 @@ test('follows the next page while the last one had unfinished runs and has_more'
 
   assert.deepEqual(calls, ['a:1', 'a:2'])
   assert.deepEqual(
-    runs.a.map((item) => item.run_number),
+    runs.a?.map((item) => item.run_number),
     [5, 3]
   )
 })
@@ -187,7 +193,7 @@ test('stops after a page without unfinished runs even when more pages exist', as
 
   assert.deepEqual(calls, ['a:1', 'a:2'])
   assert.deepEqual(
-    runs.a.map((item) => item.run_number),
+    runs.a?.map((item) => item.run_number),
     [5]
   )
 })
@@ -227,7 +233,7 @@ test('runs found before a later page fails are kept and the pipeline is reported
   const result = await findUnfinishedRuns([pipeline('a')], fetchPage)
 
   assert.deepEqual(
-    result.runs.a.map((item) => item.run_number),
+    result.runs.a?.map((item) => item.run_number),
     [5]
   )
   assert.deepEqual(
@@ -250,7 +256,7 @@ test('stops requesting pages and pipelines once the search is aborted', async ()
 
   assert.deepEqual(calls, ['a:1'])
   assert.deepEqual(
-    result.runs.a.map((item) => item.run_number),
+    result.runs.a?.map((item) => item.run_number),
     [1]
   )
 })

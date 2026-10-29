@@ -37,8 +37,10 @@ test('jobs group under their nearest stage and failed jobs can lead', () => {
       [null, ['lone']],
     ]
   )
+  const [first] = groupLogNodes(nodes)
+  assert.ok(first)
   assert.deepEqual(
-    groupLogNodes(nodes)[0].nodes.map((n) => n.id),
+    first.nodes.map((n) => n.id),
     ['a', 'b']
   )
 })

@@ -30,6 +30,14 @@ const views = [
 
 const ids = (list: PipelineView[]) => list.map((v) => v.id)
 
+const pick = (id: string): PipelineView => {
+  const found = views.find((v) => v.id === id)
+
+  assert.ok(found)
+
+  return found
+}
+
 test('depth, ancestors and root follow the parent chain', () => {
   assert.equal(viewDepth(views, 'a'), 1)
   assert.equal(viewDepth(views, 'a1x'), 3)
@@ -40,17 +48,17 @@ test('depth, ancestors and root follow the parent chain', () => {
 })
 
 test('flattenViewTree returns pre-order even when the list order was disturbed', () => {
-  const shuffled = [views[1], views[5], views[2], views[3], views[4]]
+  const shuffled = [pick('a'), pick('b'), pick('a1'), pick('a1x'), pick('a2')]
 
   assert.deepEqual(ids(flattenViewTree(shuffled)), ['a', 'a1', 'a1x', 'a2', 'b'])
 })
 
 test('only custom views shallower than the maximum depth accept sub-views', () => {
-  assert.equal(canAddSubView(views, views[1]), true)
-  assert.equal(canAddSubView(views, views[2]), true)
-  assert.equal(canAddSubView(views, views[3]), false)
-  assert.equal(canAddSubView(views, views[0]), false)
-  assert.equal(canAddSubView(views, views[6]), false)
+  assert.equal(canAddSubView(views, pick('a')), true)
+  assert.equal(canAddSubView(views, pick('a1')), true)
+  assert.equal(canAddSubView(views, pick('a1x')), false)
+  assert.equal(canAddSubView(views, pick('all')), false)
+  assert.equal(canAddSubView(views, pick('cfg')), false)
 })
 
 test('a new view can sit under custom views of depth 1 or 2', () => {

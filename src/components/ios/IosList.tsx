@@ -114,7 +114,7 @@ export function IosRow({
     </>
   )
 
-  const render = (className: string, ref?: (element: HTMLElement | null) => void) =>
+  const render = (className: string | undefined, ref?: (element: HTMLElement | null) => void) =>
     to ? (
       <Link
         to={to}

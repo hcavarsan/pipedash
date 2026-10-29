@@ -43,28 +43,28 @@ interface ChartPoint {
 }
 
 interface CustomTooltipProps {
-  label?: string | number
-  payload?: readonly { payload?: ChartPoint }[]
+  label?: string | number | undefined
+  payload?: readonly { payload?: ChartPoint | undefined }[] | undefined
   metricType: MetricType
 }
 
 interface CustomDotProps {
-  cx?: number
-  cy?: number
-  payload?: ChartPoint
+  cx?: number | undefined
+  cy?: number | undefined
+  payload?: ChartPoint | undefined
   color: string
-  onSelect?: (index: number) => void
-  small?: boolean
-  shell?: boolean
+  onSelect?: ((index: number) => void) | undefined
+  small?: boolean | undefined
+  shell?: boolean | undefined
 }
 
 interface BarShapeProps {
-  fill?: string
-  x?: number
-  y?: number
-  width?: number
-  height?: number
-  payload?: ChartPoint
+  fill?: string | undefined
+  x?: number | undefined
+  y?: number | undefined
+  width?: number | undefined
+  height?: number | undefined
+  payload?: ChartPoint | undefined
 }
 
 const DATE_FORMATS: Record<AggregationPeriod, Intl.DateTimeFormatOptions> = {

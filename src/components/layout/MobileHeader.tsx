@@ -25,7 +25,7 @@ interface LayerProps {
   depth: 'deeper' | 'shallower'
   live: boolean
   layout: BarLayout
-  backTo?: string
+  backTo?: string | undefined
   canLock: boolean
   lock: ReactNode
   actions: ReactNode

@@ -8,11 +8,11 @@ import { useMobileShell } from '../../hooks/useIsMobile'
 export type ContextMenuItem =
   | {
       label: string
-      icon?: ReactNode
+      icon?: ReactNode | undefined
       onClick: () => void
-      color?: 'red'
-      disabled?: boolean
-      shortcut?: string
+      color?: 'red' | undefined
+      disabled?: boolean | undefined
+      shortcut?: string | undefined
     }
   | { divider: true }
 
@@ -138,11 +138,11 @@ export function ContextMenuHost() {
                   <Text size="xs" c="dimmed">
                     {item.shortcut}
                   </Text>
-                ) : undefined
+                ) : null
               }
-              color={item.color}
-              disabled={item.disabled}
-              data-autofocus={item === firstItem || undefined}
+              disabled={item.disabled ?? false}
+              {...(item.color === undefined ? {} : { color: item.color })}
+              {...(item === firstItem ? { 'data-autofocus': true } : {})}
               onClick={item.onClick}
             >
               {item.label}

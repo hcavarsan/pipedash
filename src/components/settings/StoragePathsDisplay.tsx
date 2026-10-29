@@ -25,7 +25,7 @@ interface PathRowProps {
   path: string
   kind: 'file' | 'directory'
   canOpen: boolean
-  onEdit?: () => void
+  onEdit?: (() => void) | undefined
 }
 
 const PathRow = ({ label, path, kind, canOpen, onEdit }: PathRowProps) => {

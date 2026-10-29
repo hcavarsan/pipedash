@@ -83,8 +83,10 @@ if (process.env.PIPEDASH_EXPORT_TEST !== '1') {
     await waitFor(() => assert.equal(exports.length, 1))
     assert.equal(button.disabled, true)
     assert.equal(button.getAttribute('aria-busy'), 'true')
-    assert.equal(exports[0].fileName, 'Build_run_duration_24h.csv')
-    assert.match(new TextDecoder().decode(new Uint8Array(exports[0].contents)), /"Value \(seconds\)"/)
+    const [exported] = exports
+    assert.ok(exported)
+    assert.equal(exported.fileName, 'Build_run_duration_24h.csv')
+    assert.match(new TextDecoder().decode(new Uint8Array(exported.contents)), /"Value \(seconds\)"/)
     fireEvent.click(button)
     assert.equal(exports.length, 1)
     assert.equal(notices.mock.callCount(), 0)

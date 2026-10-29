@@ -101,8 +101,10 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
 
         setAnalysis(result)
 
-        if (!result.valid && result.errors.length > 0) {
-          setValidationError(result.errors[0].message)
+        const [firstError] = result.errors
+
+        if (!result.valid && firstError) {
+          setValidationError(firstError.message)
         } else if (validationError && result.valid) {
           setValidationError(null)
         }
@@ -175,7 +177,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
 
     if (mobileShell && currentAnalysis.warnings.length > 0) {
       openConfirm({
-        zIndex: mobileShell ? 400 : undefined,
+        zIndex: 400,
         title: 'Configuration warnings',
         children: (
           <Stack gap="xs">

@@ -18,7 +18,7 @@ import { IosGroup, IosRow } from '../../ios/IosList'
 import { AccentText } from '../mobileParts'
 
 interface CacheSectionProps {
-  onRefresh?: () => Promise<void>
+  onRefresh?: (() => Promise<void>) | undefined
 }
 
 type CacheType = 'pipelines' | 'run_history' | 'workflow_params' | 'run_logs' | 'all'

@@ -93,15 +93,15 @@ interface RunHistoryPageProps {
   pipeline: Pipeline | null
   onBack: () => void
   onViewRun: (pipelineId: string, runNumber: number) => void
-  onRerun?: (pipeline: Pipeline, run: PipelineRun) => void
-  onCancel?: (pipeline: Pipeline, run: PipelineRun) => Promise<void>
-  onReview?: (pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => Promise<void>
-  onRerunFailedJobs?: (pipeline: Pipeline, run: PipelineRun) => Promise<void>
-  refreshTrigger?: number
-  onLoadingChange?: (loading: boolean) => void
+  onRerun?: ((pipeline: Pipeline, run: PipelineRun) => void) | undefined
+  onCancel?: ((pipeline: Pipeline, run: PipelineRun) => Promise<void>) | undefined
+  onReview?: ((pipeline: Pipeline, run: PipelineRun, decision: ReviewDecision) => Promise<void>) | undefined
+  onRerunFailedJobs?: ((pipeline: Pipeline, run: PipelineRun) => Promise<void>) | undefined
+  refreshTrigger?: number | undefined
+  onLoadingChange?: ((loading: boolean) => void) | undefined
   tab: DetailTab
   onTabChange: (tab: DetailTab) => void
-  isLoadingPipeline?: boolean
+  isLoadingPipeline?: boolean | undefined
 }
 
 interface RunFieldProps {
@@ -649,8 +649,7 @@ export const RunHistoryPage = ({
             size="sm"
             leftSection={triggerIcon(pipeline)}
             onClick={openTrigger}
-            aria-disabled={triggerBlockedReason ? true : undefined}
-            data-disabled={triggerBlockedReason ? true : undefined}
+            {...(triggerBlockedReason ? { 'aria-disabled': true, 'data-disabled': true } : {})}
           >
             {labels.trigger}
           </Button>
@@ -1123,12 +1122,7 @@ export const RunHistoryPage = ({
         </IosGroup>
       )}
       {pipeline?.metadata?.history_scope === 'bounded_reconciliation' && (
-        <Text
-          size={mobileShell ? 'xs' : 'sm'}
-          c="dimmed"
-          mb={mobileShell ? undefined : 'sm'}
-          px={mobileShell ? 'md' : undefined}
-        >
+        <Text size={mobileShell ? 'xs' : 'sm'} c="dimmed" {...(mobileShell ? { px: 'md' } : { mb: 'sm' })}>
           FluxCD retains a limited reconciliation history. Repeated reconciliations may be grouped, and older entries
           may be unavailable.
         </Text>

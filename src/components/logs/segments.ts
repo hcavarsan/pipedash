@@ -59,7 +59,11 @@ export function segmentsFor(text: string, spans: readonly LogSpan[], highlights:
     const start = points[index]
     const end = points[index + 1]
 
-    while (spanIndex < spans.length && spans[spanIndex][1] <= start) {
+    if (start === undefined || end === undefined) {
+      break
+    }
+
+    while (spanIndex < spans.length && (spans[spanIndex]?.[1] ?? Infinity) <= start) {
       spanIndex += 1
     }
 

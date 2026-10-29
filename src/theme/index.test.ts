@@ -19,5 +19,8 @@ test('filled primary buttons retain white text with AA contrast in both schemes'
 })
 
 test('icon-only buttons default to the transparent subtle gray treatment', () => {
-  assert.deepEqual(desktopTheme.components.ActionIcon.defaultProps, { variant: 'subtle', color: 'gray' })
+  const { ActionIcon } = desktopTheme.components
+
+  assert.ok(ActionIcon)
+  assert.deepEqual(ActionIcon.defaultProps, { variant: 'subtle', color: 'gray' })
 })

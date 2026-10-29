@@ -63,9 +63,9 @@ import { DEFAULT_RETRY_CONFIG, withRetry } from '../utils/retryLogic'
 const API_BASE = import.meta.env.VITE_API_URL || withBasePath('/api/v1')
 
 interface RequestOptions {
-  timeoutMs?: number
-  retry?: boolean
-  signal?: AbortSignal
+  timeoutMs?: number | undefined
+  retry?: boolean | undefined
+  signal?: AbortSignal | undefined
 }
 
 const RUN_LOG_SEARCH_TIMEOUT_MS = 60000
@@ -76,7 +76,7 @@ const runLogPath = (pipelineId: string, runNumber: number, nodeId?: string): str
   return nodeId === undefined ? base : `${base}/${encodeURIComponent(nodeId)}`
 }
 
-const parseErrorBody = (body: string): { code?: string; message?: string } => {
+const parseErrorBody = (body: string): { code?: string | undefined; message?: string | undefined } => {
   try {
     const parsed: unknown = JSON.parse(body)
     const message =
@@ -111,7 +111,7 @@ const getTimeoutFor = (method: string, path: string): number => {
     }
   }
 
-  return OPERATION_TIMEOUTS.default
+  return OPERATION_TIMEOUTS.default ?? API_TIMEOUTS.DEFAULT
 }
 
 class ApiClient {
@@ -163,7 +163,7 @@ class ApiClient {
           {
             method,
             headers,
-            body: body ? JSON.stringify(body) : undefined,
+            ...(body ? { body: JSON.stringify(body) } : {}),
           },
           options.timeoutMs ?? getTimeoutFor(method, path),
           options.signal

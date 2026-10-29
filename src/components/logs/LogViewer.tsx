@@ -433,9 +433,12 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
           const anchor = anchorLine()
           const found = result.matches.findIndex((match) => match[0] >= anchor)
           const index = found === -1 ? 0 : found
+          const target = result.matches[index]
 
-          setCurrentIdx(index)
-          goToLine(result.matches[index][0])
+          if (target) {
+            setCurrentIdx(index)
+            goToLine(target[0])
+          }
         }
       } else {
         setCurrentIdx((index) => (index !== null && index < result.matches.length ? index : null))
@@ -457,7 +460,11 @@ const ReadyViewer = forwardRef<LogViewerHandle, LogViewerProps & { meta: LogDocu
       const target =
         direction > 0
           ? (errors.find((line) => line > reference) ?? errors[0])
-          : (errors.findLast((line) => line < reference) ?? errors[errors.length - 1])
+          : (errors.findLast((line) => line < reference) ?? errors.at(-1))
+
+      if (target === undefined) {
+        return
+      }
 
       lastError.current = target
       setSelection({ anchor: target, from: target, to: target })

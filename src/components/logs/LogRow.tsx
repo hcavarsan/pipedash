@@ -28,7 +28,7 @@ export interface LogRowProps {
   onFullLine: (line: number) => void
 }
 
-const FG: Record<AnsiColor, string | null> = {
+const FG: Record<AnsiColor, string | null | undefined> = {
   black: classes.fgBlack,
   red: classes.fgRed,
   green: classes.fgGreen,
@@ -39,7 +39,7 @@ const FG: Record<AnsiColor, string | null> = {
   white: null,
 }
 
-const BG: Record<AnsiColor, string> = {
+const BG: Record<AnsiColor, string | undefined> = {
   black: classes.bgBlack,
   red: classes.bgRed,
   green: classes.bgGreen,

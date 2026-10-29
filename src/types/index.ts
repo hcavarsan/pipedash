@@ -158,11 +158,11 @@ export type DateRangeValue = 'today' | '24h' | '7d' | '30d' | '60d' | '90d'
 
 export interface PipelineViewQuery {
   view: ViewRef
-  provider_id?: number
-  search?: string
-  statuses?: PipelineStatus[]
-  organization?: string
-  date_range?: DateRangeValue
+  provider_id?: number | undefined
+  search?: string | undefined
+  statuses?: PipelineStatus[] | undefined
+  organization?: string | undefined
+  date_range?: DateRangeValue | undefined
   show_hidden: boolean
   utc_offset_minutes: number
 }
@@ -388,7 +388,7 @@ export interface ProviderImportResult {
 
 export interface TriggerParams {
   workflow_id: string
-  inputs?: Record<string, unknown>
+  inputs?: Record<string, unknown> | undefined
 }
 
 interface PluginCapabilities {
@@ -683,7 +683,7 @@ export interface MigrationPlan {
 export interface MigrationOptions {
   migrate_tokens: boolean
   migrate_cache: boolean
-  token_password?: string
+  token_password?: string | undefined
   dry_run: boolean
 }
 
@@ -795,9 +795,9 @@ export interface ExportFileResult {
 
 export interface NotificationTarget {
   key: string
-  pipelineId?: string
-  providerId?: number
-  runNumber?: number
+  pipelineId?: string | undefined
+  providerId?: number | undefined
+  runNumber?: number | undefined
 }
 
 export type NativeIntent =

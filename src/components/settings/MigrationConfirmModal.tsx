@@ -14,7 +14,7 @@ interface MigrationConfirmModalProps {
   opened: boolean
   onClose: () => void
   migrationPlan: MigrationPlan
-  stats?: MigrationStatsPreview
+  stats?: MigrationStatsPreview | undefined
   onConfirm: (options: MigrationOptions) => Promise<void>
 }
 

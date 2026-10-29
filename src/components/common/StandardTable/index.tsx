@@ -20,16 +20,21 @@ export function StandardTable<T>(props: DataTableProps<T>) {
         {...props}
         withTableBorder={false}
         rowClassName={props.onRowClick ? 'interactive-surface row-clickable' : 'interactive-surface'}
-        onRowClick={
-          props.onRowClick &&
-          ((params) => {
-            const target = params.event.target as Element
+        {...(props.onRowClick
+          ? {
+              onRowClick: (params) => {
+                const target = params.event.target
 
-            if (params.event.currentTarget.contains(target) && !target.closest(INTERACTIVE_TARGET)) {
-              props.onRowClick?.(params)
+                if (
+                  target instanceof Element &&
+                  params.event.currentTarget.contains(target) &&
+                  !target.closest(INTERACTIVE_TARGET)
+                ) {
+                  props.onRowClick?.(params)
+                }
+              },
             }
-          })
-        }
+          : {})}
         withColumnBorders={false}
         scrollAreaProps={{
           type: 'auto',

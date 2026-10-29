@@ -6,8 +6,8 @@ import { scrollBehavior } from '../../lib/motion'
 
 interface FormErrorDisplayProps {
   title: string
-  globalError?: string | null
-  onDismiss?: () => void
+  globalError?: string | null | undefined
+  onDismiss?: (() => void) | undefined
 }
 
 export function FormErrorDisplay({ title, globalError, onDismiss }: FormErrorDisplayProps) {
@@ -32,7 +32,7 @@ export function FormErrorDisplay({ title, globalError, onDismiss }: FormErrorDis
       variant="light"
       withCloseButton={!!onDismiss}
       closeButtonLabel="Dismiss error"
-      onClose={onDismiss}
+      {...(onDismiss ? { onClose: onDismiss } : {})}
     >
       {globalError}
     </Alert>

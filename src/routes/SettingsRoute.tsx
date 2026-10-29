@@ -5,7 +5,7 @@ import { isSettingsSection } from '../components/settings/SettingsSidebar'
 import { useMobileShell } from '../hooks/useIsMobile'
 
 interface SettingsRouteProps {
-  onRefresh?: () => Promise<void>
+  onRefresh?: (() => Promise<void>) | undefined
 }
 
 export function SettingsRoute({ onRefresh }: SettingsRouteProps) {
@@ -20,5 +20,5 @@ export function SettingsRoute({ onRefresh }: SettingsRouteProps) {
     return <Navigate to="/settings/general" replace />
   }
 
-  return <SettingsPage activeSection={section} onRefresh={onRefresh} />
+  return <SettingsPage activeSection={section} {...(onRefresh === undefined ? {} : { onRefresh })} />
 }

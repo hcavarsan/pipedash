@@ -333,19 +333,19 @@ function ShellNotificationList() {
                 }
                 chevron
                 onClick={() => open({ type: 'notification', key: item.key })}
-                swipeActions={
-                  item.read
-                    ? undefined
-                    : [
+                {...(item.read
+                  ? {}
+                  : {
+                      swipeActions: [
                         {
                           key: 'read',
                           label: 'Mark read',
-                          tone: 'blue',
+                          tone: 'blue' as const,
                           primary: true,
                           onSelect: () => markRead(item.key),
                         },
-                      ]
-                }
+                      ],
+                    })}
               />
             )
           })}

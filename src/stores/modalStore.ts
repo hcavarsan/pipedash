@@ -4,7 +4,7 @@ import { devtools } from 'zustand/middleware'
 interface TriggerModalState {
   open: boolean
   pipelineId: string | null
-  initialInputs?: Record<string, unknown>
+  initialInputs?: Record<string, unknown> | undefined
 }
 
 interface LogsModalState {

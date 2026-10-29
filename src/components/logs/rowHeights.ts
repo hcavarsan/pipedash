@@ -20,7 +20,7 @@ export class RowHeights {
       const parent = node + (node & -node)
 
       if (parent <= size) {
-        this.tree[parent] += this.tree[node]
+        this.tree[parent] = (this.tree[parent] ?? 0) + (this.tree[node] ?? 0)
       }
     }
 
@@ -34,11 +34,11 @@ export class RowHeights {
   }
 
   get(index: number): number {
-    return this.values[index]
+    return this.values[index] ?? 0
   }
 
   set(index: number, height: number): void {
-    const delta = height - this.values[index]
+    const delta = height - (this.values[index] ?? 0)
 
     if (delta === 0) {
       return
@@ -47,7 +47,7 @@ export class RowHeights {
     this.values[index] = height
 
     for (let node = index + 1; node <= this.size; node += node & -node) {
-      this.tree[node] += delta
+      this.tree[node] = (this.tree[node] ?? 0) + delta
     }
   }
 
@@ -55,7 +55,7 @@ export class RowHeights {
     let sum = 0
 
     for (let node = Math.min(index, this.size); node > 0; node -= node & -node) {
-      sum += this.tree[node]
+      sum += this.tree[node] ?? 0
     }
 
     return sum
@@ -80,9 +80,11 @@ export class RowHeights {
     for (let step = this.top; step > 0; step >>= 1) {
       const next = position + step
 
-      if (next <= this.size && this.tree[next] <= remaining) {
+      const value = this.tree[next] ?? 0
+
+      if (next <= this.size && value <= remaining) {
         position = next
-        remaining -= this.tree[next]
+        remaining -= value
       }
     }
 

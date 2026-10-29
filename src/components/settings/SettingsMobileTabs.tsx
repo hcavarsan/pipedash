@@ -27,7 +27,7 @@ export const SettingsMobileTabs = ({ activeSection }: { activeSection: SettingsS
             px="sm"
             flex="1 0 auto"
             c={active ? 'blue' : 'dimmed'}
-            bg={active ? 'var(--mantine-color-blue-light)' : undefined}
+            {...(active ? { bg: 'var(--mantine-color-blue-light)' } : {})}
           >
             <Stack gap="4xs" align="center">
               {section.icon}

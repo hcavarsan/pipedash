@@ -74,7 +74,7 @@ function ComponentRow({ component }: { component: ComponentHealth }) {
 
   return (
     <Group justify="space-between" gap="md" wrap="nowrap">
-      <Text size="sm" c={healthy ? 'dimmed' : undefined} fw={healthy ? undefined : 500} truncate>
+      <Text size="sm" {...(healthy ? { c: 'dimmed' } : { fw: 500 })} truncate>
         {component.name}
       </Text>
       <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
@@ -276,7 +276,7 @@ function ShellIncidentRow({ incident, now }: { incident: Incident; now: number }
         </>
       }
       chevron={Boolean(url)}
-      onClick={url ? () => openLink(url) : undefined}
+      {...(url ? { onClick: () => openLink(url) } : {})}
     />
   )
 }
@@ -290,7 +290,7 @@ function ShellMaintenanceRow({ item }: { item: Maintenance }) {
       title={item.name}
       subtitle={meta.filter(Boolean).join(' · ')}
       chevron={Boolean(url)}
-      onClick={url ? () => openLink(url) : undefined}
+      {...(url ? { onClick: () => openLink(url) } : {})}
     />
   )
 }

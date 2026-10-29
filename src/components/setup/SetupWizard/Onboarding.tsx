@@ -5,7 +5,7 @@ import { AppLogo } from '../../atoms/AppLogo'
 import classes from './Onboarding.module.css'
 
 interface OnboardingProps {
-  title?: string
+  title?: string | undefined
   footer?: ReactNode
   children: ReactNode
 }

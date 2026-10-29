@@ -74,8 +74,9 @@ const TAURI_COMMAND_TIMEOUTS: Record<string, number> = {
   preview_provider_pipelines: 60000,
   fetch_provider_organizations: 60000,
   add_provider: 120000,
-  default: 45000,
 }
+
+const DEFAULT_COMMAND_TIMEOUT = 45000
 
 async function invokeWithTimeout<T>(
   cmd: string,
@@ -83,7 +84,7 @@ async function invokeWithTimeout<T>(
   customTimeout?: number,
   enableRetry = true
 ): Promise<T> {
-  const timeout = customTimeout ?? TAURI_COMMAND_TIMEOUTS[cmd] ?? TAURI_COMMAND_TIMEOUTS.default
+  const timeout = customTimeout ?? TAURI_COMMAND_TIMEOUTS[cmd] ?? DEFAULT_COMMAND_TIMEOUT
 
   const executeCommand = async () => {
     try {

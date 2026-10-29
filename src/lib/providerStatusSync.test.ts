@@ -51,9 +51,10 @@ test('a list request that resolves after a status event does not overwrite it, a
   resolve([summary('stale response', 'operational')])
   await inFlight
 
-  const list = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
+  const [first] = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list()) ?? []
 
-  assert.equal(list?.[0].name, 'fresh')
-  assert.equal(list?.[0].health.level, 'major_outage')
+  assert.ok(first)
+  assert.equal(first.name, 'fresh')
+  assert.equal(first.health.level, 'major_outage')
   assert.equal(queryClient.getQueryData(queryKeys.providers.detail(1)), detail)
 })

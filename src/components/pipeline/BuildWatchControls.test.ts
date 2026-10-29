@@ -41,7 +41,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
   let stopFailure: Error | null = null
   let startGate: Promise<void> | null = null
   let nativeChange: (() => void) | undefined
-  const calls: Array<{ command: string; args?: Record<string, unknown> }> = []
+  const calls: Array<{ command: string; args?: Record<string, unknown> | undefined }> = []
   const os = { platform: 'ios' }
   const callbacks = new Map<number, (event: unknown) => void>()
   let nextCallback = 0
@@ -207,7 +207,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
               path: '/pipelines',
               element: createElement(UnifiedPipelinesView, {
                 providers: [provider],
-                loading: options.loading,
+                loading: options.loading ?? false,
                 error: options.error,
                 onRetry: () => {},
                 onTrigger: () => {},
@@ -278,10 +278,12 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     mount({ secondRun: true })
     const buttons = await view().findAllByRole('button', { name: 'Watch run' })
     await waitFor(() => assert.ok(buttons.every((button) => !(button as HTMLButtonElement).disabled)))
+    const [first, second] = buttons
+    assert.ok(first && second)
     act(() => {
-      fireEvent.click(buttons[0])
-      fireEvent.click(buttons[0])
-      fireEvent.click(buttons[1])
+      fireEvent.click(first)
+      fireEvent.click(first)
+      fireEvent.click(second)
     })
     await waitFor(() => assert.equal(calls.filter((call) => call.command === 'start_build_watch').length, 1))
     assert.deepEqual(calls.find((call) => call.command === 'start_build_watch')?.args, {
@@ -299,7 +301,9 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     const opened = mount()
     fireEvent.click(await view().findByRole('button', { name: /^Build #42/ }))
     assert.deepEqual(opened, [[snapshot.pipelineId, 42]])
-    fireEvent.click(view().getAllByRole('button', { name: 'Stop watching' })[0])
+    const [stop] = view().getAllByRole('button', { name: 'Stop watching' })
+    assert.ok(stop)
+    fireEvent.click(stop)
     await view().findByText('Watch stopped')
     assert.equal(calls.filter((call) => call.command === 'stop_build_watch').length, 1)
     assert.equal(
@@ -409,7 +413,9 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     nativeStatus = { ...available(), watch: { ...snapshot } }
     stopFailure = new Error('Native stop failed')
     mount()
-    fireEvent.click((await view().findAllByRole('button', { name: 'Stop watching' }))[0])
+    const [stop] = await view().findAllByRole('button', { name: 'Stop watching' })
+    assert.ok(stop)
+    fireEvent.click(stop)
     await waitFor(() => assert.equal(notices.mock.calls.length, 1))
     assert.ok(view().getByRole('region', { name: 'Watching' }))
     assert.equal(view().queryByText('Watch stopped'), null)

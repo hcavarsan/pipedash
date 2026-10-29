@@ -77,7 +77,7 @@ export function errorCounter(errorLines: readonly number[], errorTotal: number, 
   while (line !== null && low < high) {
     const mid = (low + high) >>> 1
 
-    if (errorLines[mid] < line) {
+    if ((errorLines[mid] ?? Infinity) < line) {
       low = mid + 1
     } else {
       high = mid

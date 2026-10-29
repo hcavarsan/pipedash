@@ -24,7 +24,7 @@ interface MobilePipelineCardsProps {
   getProvider: (providerId: number) => ProviderSummary | undefined
   onToggleRepo: (repoId: string) => void
   actions: PipelineActions
-  selection?: PipelineSelection
+  selection?: PipelineSelection | undefined
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -117,7 +117,12 @@ export function MobilePipelineCards({ rows, getProvider, onToggleRepo, actions, 
         }
 
         return (
-          <Card key={row.id} padding="xs" ml={indent} className="interactive-surface stretched">
+          <Card
+            key={row.id}
+            padding="xs"
+            {...(indent === undefined ? {} : { ml: indent })}
+            className="interactive-surface stretched"
+          >
             <Stack gap="xs">
               <UnstyledButton
                 className="item-primary"

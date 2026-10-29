@@ -101,7 +101,7 @@ export function ConfirmStep({
                 <Text size="sm" c="dimmed" miw={LABEL_WIDTH} style={{ flexShrink: 0 }}>
                   Connection
                 </Text>
-                <Text size="xs" ff={summarizeConnection(state.postgresUrl) ? 'monospace' : undefined} truncate>
+                <Text size="xs" {...(summarizeConnection(state.postgresUrl) ? { ff: 'monospace' } : {})} truncate>
                   {summarizeConnection(state.postgresUrl) ?? 'Unavailable'}
                 </Text>
               </Group>
@@ -114,7 +114,7 @@ export function ConfirmStep({
                 </Text>
                 <Group gap="3xs" wrap="nowrap" miw={0}>
                   <Tooltip label={state.dataDir} multiline maw={300}>
-                    <Text size="xs" ff={state.dataDir ? 'monospace' : undefined} truncate maw={isMobile ? 140 : 180}>
+                    <Text size="xs" {...(state.dataDir ? { ff: 'monospace' } : {})} truncate maw={isMobile ? 140 : 180}>
                       {truncatePath(state.dataDir) || 'Default'}
                     </Text>
                   </Tooltip>

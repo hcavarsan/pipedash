@@ -108,7 +108,7 @@ function begin({ target }: GestureStart): SheetDrag | null {
     return null
   }
 
-  const modal = sheet.classList.contains(iosClasses.sheetContent)
+  const modal = iosClasses.sheetContent !== undefined && sheet.classList.contains(iosClasses.sheetContent)
   const handle = modal ? (sheetHandle(sheet) ?? closeButtonHandle(sheet)) : floatingHandle
 
   if (!handle) {
@@ -166,18 +166,18 @@ function activate(drag: SheetDrag, dy: number) {
 
   if (prior) {
     drag.heights = prior.heights
-    drag.top = prior.heights[prior.heights.length - 1]
+    drag.top = prior.heights.at(-1) ?? 0
     drag.base = prior.spring.value
     prior.spring.stop()
     settling.delete(sheet)
   } else {
     drag.heights = measureHeights(drag)
-    drag.top = drag.heights[drag.heights.length - 1]
+    drag.top = drag.heights.at(-1) ?? 0
     drag.base = drag.top - Math.round(sheet.getBoundingClientRect().height)
   }
 
   drag.dismissible = !sheet.hasAttribute('data-locked')
-  drag.floor = drag.dismissible ? Number.POSITIVE_INFINITY : drag.top - drag.heights[0]
+  drag.floor = drag.dismissible ? Number.POSITIVE_INFINITY : drag.top - (drag.heights[0] ?? 0)
   drag.anchor = dy
   drag.current = drag.base
   drag.overlay = lastOverlay()

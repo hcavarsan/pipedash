@@ -17,9 +17,9 @@ type ModalSize = 'md' | 'lg' | 'xl' | 'full'
 export interface ModalAction {
   label: string
   onClick: () => void
-  loading?: boolean
-  disabled?: boolean
-  destructive?: boolean
+  loading?: boolean | undefined
+  disabled?: boolean | undefined
+  destructive?: boolean | undefined
 }
 
 interface StandardModalProps extends ModalBaseProps {
@@ -52,10 +52,10 @@ const columnStyle = { display: 'flex', flexDirection: 'column', minHeight: 0, ov
 interface HeaderButtonProps {
   children: ReactNode
   onClick: () => void
-  strong?: boolean
-  destructive?: boolean
-  disabled?: boolean
-  loading?: boolean
+  strong?: boolean | undefined
+  destructive?: boolean | undefined
+  disabled?: boolean | undefined
+  loading?: boolean | undefined
 }
 
 const HeaderButton = ({ children, onClick, strong, destructive, disabled, loading }: HeaderButtonProps) => (
@@ -174,12 +174,11 @@ export const StandardModal = ({
       ) : (
         <ScrollArea
           type={mobileShell ? 'scroll' : 'auto'}
-          scrollbarSize={mobileShell ? 3 : undefined}
-          scrollHideDelay={mobileShell ? 200 : undefined}
+          {...(mobileShell ? { scrollbarSize: 3, scrollHideDelay: 200 } : {})}
           style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
           styles={{ viewport: { flex: 1, minHeight: 0, height: 'auto' } }}
         >
-          <Box p={padding} pb={bottomInset}>
+          <Box p={padding} {...(bottomInset === undefined ? {} : { pb: bottomInset })}>
             {children}
           </Box>
         </ScrollArea>

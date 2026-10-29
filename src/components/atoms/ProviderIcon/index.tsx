@@ -8,13 +8,13 @@ interface ProviderIconProps {
   name: string
   icon: string | null
   size: number
-  badge?: { color: string; label: string }
+  badge?: { color: string; label: string } | undefined
 }
 
 const initials = (name: string) => {
-  const words = name.match(/[\p{L}\p{N}]+/gu) ?? ['?']
+  const [first = '?', second] = name.match(/[\p{L}\p{N}]+/gu) ?? []
 
-  return (words.length > 1 ? `${words[0][0]}${words[1][0]}` : words[0].slice(0, 2)).toUpperCase()
+  return (second ? `${first.charAt(0)}${second.charAt(0)}` : first.slice(0, 2)).toUpperCase()
 }
 
 export const ProviderIcon = ({ name, icon, size, badge }: ProviderIconProps) => {

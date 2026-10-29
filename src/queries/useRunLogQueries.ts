@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo } from 'react'
 
 import { useDebounce } from '../hooks/useDebounce'
@@ -7,7 +7,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { events, service } from '../services'
 import type { EventPayloadMap } from '../types/events'
-import type { LogSearchQuery, RunLogDocument } from '../types/logs'
+import type { LogSearchQuery, LogSearchResult, RunLogDocument } from '../types/logs'
 
 const TREE_REFETCH_MS = 10_000
 const TREE_COMPLETE_STALE_MS = 60_000
@@ -136,7 +136,7 @@ export function useRunLogSearch(
   )
   const hasText = effective.text.length > 0
 
-  return useQuery({
+  return useQuery<LogSearchResult>({
     queryKey: queryKeys.runLogs.search(pipelineId, runNumber, nodeId, revision ?? 0, effective),
     queryFn: ({ signal }) =>
       service.searchRunLog(pipelineId, runNumber, nodeId, revision ?? 0, sessionId, effective, signal),
@@ -144,6 +144,13 @@ export function useRunLogSearch(
     retry: false,
     staleTime: Infinity,
     gcTime: GC_TIMES.SHORT,
-    placeholderData: hasText ? keepPreviousData : undefined,
+    placeholderData: (previous, previousQuery) =>
+      hasText &&
+      previousQuery?.queryKey[2] === pipelineId &&
+      previousQuery.queryKey[3] === runNumber &&
+      previousQuery.queryKey[4] === nodeId &&
+      previousQuery.queryKey[5] === revision
+        ? previous
+        : undefined,
   })
 }

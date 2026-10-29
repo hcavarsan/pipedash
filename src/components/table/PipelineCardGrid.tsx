@@ -23,12 +23,12 @@ import {
 } from './PipelineRowParts'
 
 interface PipelineCardGridProps {
-  header?: string
+  header?: string | undefined
   headerAction?: ReactNode
   pipelines: ViewPipeline[]
   getProvider: (providerId: number) => ProviderSummary | undefined
   actions: PipelineActions
-  selection?: PipelineSelection
+  selection?: PipelineSelection | undefined
 }
 
 export function PipelineCardGrid({

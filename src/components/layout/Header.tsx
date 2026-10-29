@@ -26,9 +26,9 @@ import { WindowControls } from '../common/WindowControls'
 import { NotificationCenter } from '../notifications/NotificationCenter'
 
 interface HeaderProps {
-  onToggleNavbar?: () => void
-  navbarOpened?: boolean
-  onOpenSettings?: () => void
+  onToggleNavbar?: (() => void) | undefined
+  navbarOpened?: boolean | undefined
+  onOpenSettings?: (() => void) | undefined
 }
 
 export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpenSettings }: HeaderProps) => {

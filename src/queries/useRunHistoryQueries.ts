@@ -1,5 +1,5 @@
 import { notifications } from '@mantine/notifications'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
 import { confirmBody } from '../components/common/ActionTargetRows'
@@ -7,7 +7,7 @@ import { PAGE_SIZES } from '../constants/pagination'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
-import type { Pipeline, PipelineRun, ReviewDecision } from '../types'
+import type { PaginatedRunHistory, Pipeline, PipelineRun, ReviewDecision } from '../types'
 import { actionTarget, type TargetPipeline } from '../utils/actionTarget'
 import { findUnfinishedRuns } from '../utils/cancelActiveRuns'
 import { openConfirm } from '../utils/confirm'
@@ -19,12 +19,12 @@ function notifyCancellationRequested(message: string) {
 }
 
 export function useRunHistory(pipelineId: string, page = 1, pageSize = 20) {
-  return useQuery({
+  return useQuery<PaginatedRunHistory>({
     queryKey: queryKeys.runs.list(pipelineId, page),
     queryFn: () => service.fetchRunHistory(pipelineId, page, pageSize),
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.MEDIUM,
-    placeholderData: keepPreviousData,
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === pipelineId ? previous : undefined),
     enabled: !!pipelineId,
   })
 }
@@ -210,8 +210,8 @@ export function useCancelRun() {
   const cancel = async (variables: {
     pipelineId: string
     runNumber: number
-    pipeline?: TargetPipeline
-    run?: Pick<PipelineRun, 'branch' | 'inputs'>
+    pipeline?: TargetPipeline | undefined
+    run?: Pick<PipelineRun, 'branch' | 'inputs'> | undefined
   }) => {
     const { promise, resolve } = Promise.withResolvers<boolean>()
     openConfirm({
@@ -359,8 +359,8 @@ export function useCancelRuns() {
       )
 
       return {
-        cancelled: runNumbers.filter((_, index) => results[index].status === 'fulfilled'),
-        failed: runNumbers.filter((_, index) => results[index].status === 'rejected'),
+        cancelled: runNumbers.filter((_, index) => results[index]?.status === 'fulfilled'),
+        failed: runNumbers.filter((_, index) => results[index]?.status === 'rejected'),
       }
     },
 
