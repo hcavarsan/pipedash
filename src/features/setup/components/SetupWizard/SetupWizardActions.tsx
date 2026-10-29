@@ -41,6 +41,7 @@ export function DesktopFooter({
       )}
       {primary && (
         <Button
+          key={primary.submit ? 'submit' : 'next'}
           size="sm"
           fullWidth={fullWidth}
           loading={isPending}

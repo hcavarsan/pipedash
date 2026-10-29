@@ -1,6 +1,6 @@
 import { Button, Checkbox, Group, Stack } from '@mantine/core'
 import { IconFolder, IconPlus } from '@tabler/icons-react'
-import { useQueryClient } from '@tanstack/react-query'
+import { notifyManager, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, startTransition, useOptimistic, useState, useSyncExternalStore } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { StandardModal } from '../../../components/common/StandardModal'
@@ -34,7 +34,7 @@ function useViewPipelines(ids: string[]): ViewPipeline[] {
   const cache = queryClient.getQueryCache()
 
   useSyncExternalStore(
-    (notify) => cache.subscribe(notify),
+    (notify) => cache.subscribe(notifyManager.batchCalls(notify)),
     () =>
       cache
         .findAll({ queryKey: queryKeys.pipelines.pages() })
