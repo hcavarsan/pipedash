@@ -1,9 +1,11 @@
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
     redact_url,
+    LogSink,
     PaginatedResponse,
     PaginationParams,
     PluginError,
@@ -199,24 +201,66 @@ impl BitbucketClient {
     pub async fn list_steps(
         &self, workspace: &str, repo_slug: &str, pipeline_uuid: &str,
     ) -> PluginResult<Vec<PipelineStep>> {
-        let uuid_with_braces = if pipeline_uuid.starts_with('{') {
-            pipeline_uuid.to_string()
-        } else {
-            format!("{{{}}}", pipeline_uuid)
-        };
-        let encoded_uuid = urlencoding::encode(&uuid_with_braces);
+        let mut steps = Vec::new();
+        let mut next_url = Some(format!(
+            "{}/repositories/{}/{}/pipelines/{}/steps?pagelen=100",
+            self.api_url,
+            workspace,
+            repo_slug,
+            Self::encoded_uuid(pipeline_uuid)
+        ));
+        const MAX_PAGES: usize = 10;
+        let mut page_count = 0;
 
-        self.retry_policy
-            .retry(|| async {
-                let url = format!(
-                    "{}/repositories/{}/{}/pipelines/{}/steps",
-                    self.api_url, workspace, repo_slug, encoded_uuid
-                );
-                let paginated: BitbucketPaginatedResponse<PipelineStep> =
-                    self.get_json(&url).await?;
-                Ok(paginated.values)
+        while let Some(url) = next_url.take() {
+            if page_count >= MAX_PAGES {
+                break;
+            }
+
+            let paginated: BitbucketPaginatedResponse<PipelineStep> = self
+                .retry_policy
+                .retry(|| async { self.get_json(&url).await })
+                .await?;
+
+            steps.extend(paginated.values);
+            next_url = paginated.next;
+            page_count += 1;
+        }
+
+        Ok(steps)
+    }
+
+    pub async fn stream_step_log(
+        &self, workspace: &str, repo_slug: &str, pipeline_uuid: &str, step_uuid: &str,
+        sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let url = Self::parse_url(&format!(
+            "{}/repositories/{}/{}/pipelines/{}/steps/{}/log",
+            self.api_url,
+            workspace,
+            repo_slug,
+            Self::encoded_uuid(pipeline_uuid),
+            Self::encoded_uuid(step_uuid)
+        ))?;
+
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .get(url.clone())
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                    .timeout(Duration::from_secs(900))
+                    .send()
             })
-            .await
+            .await?;
+
+        if matches!(response.status().as_u16(), 404 | 410) {
+            return Err(PluginError::PipelineNotFound(format!(
+                "Log of step {step_uuid} is no longer available"
+            )));
+        }
+
+        sink.pipe(check_response(response).await?).await
     }
 
     pub async fn trigger_pipeline(
@@ -243,16 +287,12 @@ impl BitbucketClient {
     pub async fn stop_pipeline(
         &self, workspace: &str, repo_slug: &str, pipeline_uuid: &str,
     ) -> PluginResult<()> {
-        let uuid_with_braces = if pipeline_uuid.starts_with('{') {
-            pipeline_uuid.to_string()
-        } else {
-            format!("{{{}}}", pipeline_uuid)
-        };
-        let encoded_uuid = urlencoding::encode(&uuid_with_braces);
-
         let url = Self::parse_url(&format!(
             "{}/repositories/{}/{}/pipelines/{}/stopPipeline",
-            self.api_url, workspace, repo_slug, encoded_uuid
+            self.api_url,
+            workspace,
+            repo_slug,
+            Self::encoded_uuid(pipeline_uuid)
         ))?;
         let response = self
             .retry_policy
@@ -283,6 +323,14 @@ impl BitbucketClient {
     fn parse_url(url: &str) -> PluginResult<Url> {
         Url::parse(url)
             .map_err(|e| PluginError::InvalidConfig(format!("Invalid Bitbucket URL: {e}")))
+    }
+
+    fn encoded_uuid(uuid: &str) -> String {
+        if uuid.starts_with('{') {
+            urlencoding::encode(uuid).into_owned()
+        } else {
+            urlencoding::encode(&format!("{{{uuid}}}")).into_owned()
+        }
     }
 
     async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> PluginResult<T> {
