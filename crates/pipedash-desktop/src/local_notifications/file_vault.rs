@@ -31,6 +31,21 @@ pub(super) struct FileVault {
     cipher: Aes256Gcm,
 }
 
+pub(super) struct Exclusive {
+    vault: FileVault,
+    _lock: File,
+}
+
+impl Exclusive {
+    pub fn get(&self, account: &str) -> io::Result<Option<String>> {
+        self.vault.read(account)
+    }
+
+    pub fn set(&self, account: &str, value: &str) -> io::Result<()> {
+        self.vault.write(account, value)
+    }
+}
+
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.to_owned())
 }
@@ -84,6 +99,14 @@ impl FileVault {
         }
         self.write(account, value)?;
         Ok(true)
+    }
+
+    pub fn exclusive(self) -> io::Result<Exclusive> {
+        let lock = self.lock()?;
+        Ok(Exclusive {
+            vault: self,
+            _lock: lock,
+        })
     }
 
     fn lock(&self) -> io::Result<File> {
@@ -286,5 +309,27 @@ mod tests {
         }
         let vault = FileVault::new(dir.path().to_path_buf(), [7; 32]);
         assert_eq!(vault.get("counter").unwrap().as_deref(), Some("400"));
+    }
+
+    #[test]
+    fn an_exclusive_session_holds_off_stale_compare_and_set() {
+        let dir = tempfile::tempdir().unwrap();
+        vault(dir.path(), 3).set("state", "start").unwrap();
+        let seen = vault(dir.path(), 3).generation().unwrap();
+        let session = vault(dir.path(), 3).exclusive().unwrap();
+        let path = dir.path().to_path_buf();
+        let contender = thread::spawn(move || {
+            FileVault::new(path, [3; 32]).set_if_generation("state", "background", seen)
+        });
+        thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!contender.is_finished());
+        assert_eq!(session.get("state").unwrap().as_deref(), Some("start"));
+        session.set("state", "app").unwrap();
+        drop(session);
+        assert!(!contender.join().unwrap().unwrap());
+        assert_eq!(
+            vault(dir.path(), 3).get("state").unwrap().as_deref(),
+            Some("app")
+        );
     }
 }

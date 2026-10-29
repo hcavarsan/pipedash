@@ -340,7 +340,11 @@ pub async fn sync_from_core<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         return Ok(());
     }
     storage(move || store::save_authorization(&authorization)).await?;
-    update_observations(|observations| observations.retain_providers(&ids)).await?;
+    observe(app, |observations| {
+        observations.retain_providers(&ids);
+        Vec::new()
+    })
+    .await?;
     drop(guard);
     Ok(())
 }
@@ -453,38 +457,36 @@ async fn process_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) -> Res
     if let Some(authorization) = authorization {
         storage(move || store::save_authorization(&authorization)).await?;
     }
-    let notices = update_observations(|observations| {
+    observe(app, |observations| {
         if let Some(ids) = &kept {
             observations.retain_providers(ids);
         }
         observations.observe_event(event)
     })
     .await?;
-    deliver(app, notices).await?;
     drop(guard);
     state.revision.fetch_add(1, Ordering::AcqRel);
     Ok(())
 }
 
 #[cfg(all(target_os = "android", not(test)))]
-async fn update_observations<T>(mut change: impl FnMut(&mut NotificationState) -> T) -> Result<T> {
-    loop {
-        let generation = storage(store::generation).await?;
-        let mut observations = storage(store::observations).await?;
-        let changed = change(&mut observations);
-        if storage(move || store::save_observations_if_unchanged(&observations, generation)).await?
-        {
-            return Ok(changed);
-        }
-    }
+async fn observe<R: Runtime>(
+    app: &AppHandle<R>, change: impl FnOnce(&mut NotificationState) -> Vec<LocalNotification>,
+) -> Result<()> {
+    let (lock, mut observations) = storage(store::lock_observations).await?;
+    let notices = change(&mut observations);
+    deliver(app, notices).await?;
+    storage(move || lock.save(&observations)).await
 }
 
 #[cfg(not(all(target_os = "android", not(test))))]
-async fn update_observations<T>(change: impl FnOnce(&mut NotificationState) -> T) -> Result<T> {
+async fn observe<R: Runtime>(
+    app: &AppHandle<R>, change: impl FnOnce(&mut NotificationState) -> Vec<LocalNotification>,
+) -> Result<()> {
     let mut observations = storage(store::observations).await?;
-    let changed = change(&mut observations);
-    storage(move || store::save_observations(&observations)).await?;
-    Ok(changed)
+    let notices = change(&mut observations);
+    deliver(app, notices).await?;
+    storage(move || store::save_observations(&observations)).await
 }
 
 async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {

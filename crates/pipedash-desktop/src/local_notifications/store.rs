@@ -78,6 +78,35 @@ pub(super) fn save_observations_if_unchanged(
     vault::set_if_generation(OBSERVATIONS, &data, generation)
 }
 
+#[cfg(all(target_os = "android", not(test)))]
+pub(super) struct ObservationsLock(super::file_vault::Exclusive);
+
+#[cfg(all(target_os = "android", not(test)))]
+pub(super) fn lock_observations() -> Result<(ObservationsLock, NotificationState)> {
+    let session = vault::exclusive()?;
+    let observations = session
+        .get(OBSERVATIONS)
+        .map_err(|_| error("Saved background notification data could not be read"))?
+        .map(|value| {
+            serde_json::from_str(&value)
+                .map_err(|_| error("Saved background notification data could not be read"))
+        })
+        .transpose()?
+        .unwrap_or_default();
+    Ok((ObservationsLock(session), observations))
+}
+
+#[cfg(all(target_os = "android", not(test)))]
+impl ObservationsLock {
+    pub(super) fn save(self, value: &NotificationState) -> Result<()> {
+        let data = serde_json::to_string(value)
+            .map_err(|_| error("Background notification data could not be encoded"))?;
+        self.0
+            .set(OBSERVATIONS, &data)
+            .map_err(|_| error("Background notification credentials could not be saved"))
+    }
+}
+
 #[cfg(all(target_os = "ios", not(test)))]
 mod vault {
     use super::{
@@ -215,6 +244,13 @@ mod vault {
                 .map_err(|_| error("Background notification credentials could not be saved")),
             None => Ok(false),
         }
+    }
+
+    pub(super) fn exclusive() -> Result<super::super::file_vault::Exclusive> {
+        open(true)?
+            .ok_or_else(|| error("Background notification credentials are unavailable"))?
+            .exclusive()
+            .map_err(|_| error("Background notification storage is unavailable"))
     }
 }
 
