@@ -17,10 +17,11 @@ DEMO_ADMIN_PASSWORD=<random>
 DEMO_READER_PASSWORD=<random>
 COMPOSE_PROFILES=public
 TUNNEL_TOKEN=<Cloudflare tunnel token>
-ANALYTICS_SNIPPET='<script defer src="..."></script>'
+ANALYTICS_SNIPPET='<script defer src="https://analytics.example.com/script.js"></script>'
+ANALYTICS_ORIGIN=https://analytics.example.com
 ```
 
-Route the tunnel's public hostname to `http://gateway:8080`. `ANALYTICS_SNIPPET` is optional and is added to every page.
+Route the tunnel's public hostname to `http://gateway:8080`. `ANALYTICS_SNIPPET` is optional and is added to every page. The gateway sends a strict Content Security Policy, so set `ANALYTICS_ORIGIN` to the origin the snippet loads from and reports to, or the browser blocks it.
 
 Until a release includes demo mode, build the image first:
 

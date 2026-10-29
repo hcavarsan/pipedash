@@ -269,15 +269,25 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: nginx:1.31-alpine
+    image: nginx:1.31.8-alpine
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     environment:
       ANALYTICS_SNIPPET: ${ANALYTICS_SNIPPET:-}
+      ANALYTICS_ORIGIN: ${ANALYTICS_ORIGIN:-}
     volumes:
       - ./gateway:/etc/nginx/templates:ro
+    tmpfs:
+      - /etc/nginx/conf.d:uid=101,gid=101
+      - /var/cache/nginx:uid=101,gid=101
+      - /run:uid=101,gid=101
     ports:
       - "127.0.0.1:${PIPEDASH_PORT:-8080}:8080"
     networks: [edge, apis]
     mem_limit: 64m
+    pids_limit: 64
     depends_on:
       - pipedash
     restart: unless-stopped

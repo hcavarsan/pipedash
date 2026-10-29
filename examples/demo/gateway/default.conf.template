@@ -8,10 +8,59 @@ map $http_x_forwarded_proto $forwarded_proto {
     "" $scheme;
 }
 
+map $forwarded_proto $ws_scheme {
+    https wss;
+    default ws;
+}
+
+map $http_host $ws_origin {
+    "~^[A-Za-z0-9.-]+(:[0-9]+)?$" "$ws_scheme://$http_host";
+    default "";
+}
+
+set_real_ip_from 10.0.0.0/8;
+set_real_ip_from 172.16.0.0/12;
+set_real_ip_from 192.168.0.0/16;
+real_ip_header CF-Connecting-IP;
+
+limit_req_zone $binary_remote_addr zone=per_ip:10m rate=20r/s;
+limit_conn_zone $binary_remote_addr zone=conn_per_ip:10m;
+
 server {
     listen 8080;
     resolver 127.0.0.11 valid=10s ipv6=off;
     set $pipedash http://pipedash:8080;
+
+    server_tokens off;
+    client_max_body_size 1m;
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+    keepalive_timeout 30s;
+    send_timeout 30s;
+
+    limit_req zone=per_ip burst=100 nodelay;
+    limit_req_status 429;
+    limit_conn conn_per_ip 50;
+    limit_conn_status 429;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header Content-Security-Policy "default-src 'none'; script-src 'self' ${ANALYTICS_ORIGIN}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' $ws_origin ${ANALYTICS_ORIGIN}; manifest-src 'self'; worker-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "same-origin" always;
+    add_header Permissions-Policy "accelerometer=(), autoplay=(), browsing-topics=(), camera=(), display-capture=(), encrypted-media=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), payment=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), usb=(), xr-spatial-tracking=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Embedder-Policy "credentialless" always;
+    add_header Cross-Origin-Resource-Policy "same-origin" always;
+    add_header X-Permitted-Cross-Domain-Policies "none" always;
+
+    if ($request_method !~ ^(GET|HEAD|POST|PUT|DELETE)$) {
+        return 405;
+    }
+
+    location ~ /\.(?!well-known/) {
+        return 404;
+    }
 
     location / {
         proxy_pass $pipedash;
@@ -21,6 +70,7 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_set_header Accept-Encoding "";
+        proxy_hide_header X-Powered-By;
         proxy_read_timeout 1h;
         sub_filter '</head>' '${ANALYTICS_SNIPPET}</head>';
         sub_filter_once on;
