@@ -107,7 +107,7 @@ fn create_config_schema() -> ConfigSchema {
             key: "namespaces".to_string(),
             label: "Namespaces".to_string(),
             description: Some(
-                "Comma-separated list of namespaces to monitor (e.g., 'default,prod,staging'). Required when namespace mode is 'custom'. Leave empty when mode is 'all' to auto-discover. Each namespace must be a valid Kubernetes namespace name (lowercase alphanumeric, hyphens, max 63 chars)."
+                "Comma-separated list of namespaces to monitor (e.g., 'default,prod,staging'). Required when namespace mode is 'custom'. Leave empty when mode is 'all' to auto-discover. Each namespace must be a valid Kubernetes namespace name (lowercase alphanumeric, hyphens, max 63 chars). Run logs need 'get' permission on pods and pods/log in each monitored namespace."
                     .to_string(),
             ),
             field_type: ConfigFieldType::Text,
@@ -151,7 +151,7 @@ fn create_capabilities() -> PluginCapabilities {
         queues: false,
         custom_tables: false,
         retains_run_history: false,
-        logs: false,
+        logs: true,
         sign_in: false,
     }
 }
