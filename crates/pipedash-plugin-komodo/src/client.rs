@@ -3,10 +3,15 @@ use std::collections::{
     HashSet,
 };
 use std::sync::Arc;
+use std::time::Duration;
 
 use pipedash_plugin_api::{
     check_response,
+    from_status,
     map_send_error,
+    redact_url,
+    retry_after,
+    truncate_chars,
     PluginError,
     PluginResult,
     RetryPolicy,
@@ -23,6 +28,7 @@ use crate::types::{
     StackListItem,
     Update,
     UpdateListItem,
+    UpdateLogs,
     VersionResponse,
 };
 
@@ -35,6 +41,9 @@ pub(crate) struct KomodoClient {
 }
 
 const MAX_LAST_RUN_PAGES: u32 = 5;
+const UPDATE_LOGS_TIMEOUT: Duration = Duration::from_secs(900);
+const MISSING_UPDATE: &str = "no update exists with given id";
+const ERROR_BODY_PREVIEW_CHARS: usize = 300;
 
 impl KomodoClient {
     pub fn new(
@@ -111,6 +120,42 @@ impl KomodoClient {
 
     pub async fn update(&self, update_id: &str) -> PluginResult<Update> {
         self.read("GetUpdate", json!({ "id": update_id })).await
+    }
+
+    pub async fn update_logs(&self, update_id: &str) -> PluginResult<UpdateLogs> {
+        let url = self.url("read")?;
+        let params = json!({ "id": update_id });
+        self.retry_policy
+            .retry(|| async {
+                let response = self
+                    .request(&url, "GetUpdate", &params)
+                    .timeout(UPDATE_LOGS_TIMEOUT)
+                    .send()
+                    .await
+                    .map_err(|e| map_send_error(e, &url))?;
+                if response.status() != reqwest::StatusCode::INTERNAL_SERVER_ERROR {
+                    return parse_json(check_response(response).await?, "GetUpdate").await;
+                }
+                let wait = retry_after(response.headers(), chrono::Utc::now());
+                let body = response.text().await.map_err(|e| map_send_error(e, &url))?;
+                if serde_json::from_str::<Value>(&body)
+                    .is_ok_and(|error| error["error"] == MISSING_UPDATE)
+                {
+                    return Err(PluginError::PipelineNotFound(format!(
+                        "Update {update_id} no longer exists"
+                    )));
+                }
+                Err(from_status(
+                    500,
+                    format!(
+                        "500 from {}: {}",
+                        redact_url(&url),
+                        truncate_chars(body.trim(), ERROR_BODY_PREVIEW_CHARS)
+                    ),
+                    wait,
+                ))
+            })
+            .await
     }
 
     pub async fn deploy_stack(&self, stack_id: &str) -> PluginResult<Update> {

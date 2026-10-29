@@ -6,6 +6,9 @@ use chrono::{
 };
 use pipedash_plugin_api::{
     AvailablePipeline,
+    LogAvailability,
+    LogNode,
+    LogNodeKind,
     Pipeline,
     PipelineRun,
     PipelineStatus,
@@ -20,6 +23,7 @@ use crate::types::{
     StackListItem,
     Update,
     UpdateListItem,
+    UpdateLogs,
 };
 
 pub(crate) fn map_stack_state(state: &str) -> PipelineStatus {
@@ -52,6 +56,10 @@ pub(crate) fn run_url(server_url: &str, stack_id: &str, update_id: &str) -> Stri
 
 fn timestamp(millis: i64) -> DateTime<Utc> {
     DateTime::from_timestamp_millis(millis).unwrap_or_default()
+}
+
+fn optional_timestamp(millis: i64) -> Option<DateTime<Utc>> {
+    DateTime::from_timestamp_millis(millis).filter(|_| millis > 0)
 }
 
 fn repository(stack: &StackListItem) -> String {
@@ -167,6 +175,43 @@ pub(crate) fn map_run(
         inputs: None,
         metadata,
     }
+}
+
+pub(crate) fn map_log_nodes(update: &UpdateLogs, web_url: &str) -> Vec<LogNode> {
+    let last = update.logs.len().saturating_sub(1);
+    update
+        .logs
+        .iter()
+        .enumerate()
+        .map(|(index, log)| {
+            let open = update.status == "InProgress" && index == last;
+            let started_at = optional_timestamp(log.start_ts);
+            let name = match log.stage.trim() {
+                "" => format!("Stage {}", index + 1),
+                stage => stage.to_string(),
+            };
+            LogNode {
+                id: index.to_string(),
+                parent_id: None,
+                kind: LogNodeKind::Job,
+                name,
+                status: map_update_status(
+                    if open { "InProgress" } else { "Complete" },
+                    log.success,
+                ),
+                started_at,
+                finished_at: started_at
+                    .and(optional_timestamp(log.end_ts))
+                    .filter(|_| !open),
+                log: Some(if open {
+                    LogAvailability::Partial
+                } else {
+                    LogAvailability::Ready
+                }),
+                web_url: Some(web_url.to_string()),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -421,5 +466,97 @@ mod tests {
         assert_eq!(object.id.unwrap().into_string(), "66u1");
         assert_eq!(plain.id.unwrap().into_string(), "66u2");
         assert!(missing.id.is_none());
+    }
+
+    const STAGES: &str = r#"[
+        {"stage": "Clone Repo", "command": "git clone", "stdout": "ok", "stderr": "", "success": true, "start_ts": 1761660000000, "end_ts": 1761660002000},
+        {"stage": "Compose Up", "command": "docker compose up -d", "stdout": "", "stderr": "boom", "success": false, "start_ts": 1761660002000, "end_ts": 1761660009500}
+    ]"#;
+
+    fn log_nodes(status: &str, stages: &str) -> Vec<LogNode> {
+        let update: UpdateLogs =
+            serde_json::from_str(&format!(r#"{{"status": "{status}", "logs": {stages}}}"#))
+                .unwrap();
+        map_log_nodes(&update, "https://komodo.test/updates/66u1")
+    }
+
+    #[test]
+    fn every_update_status_maps_stages_to_a_status_and_availability() {
+        let finished = [
+            (PipelineStatus::Success, LogAvailability::Ready),
+            (PipelineStatus::Failed, LogAvailability::Ready),
+        ];
+        let in_progress = [
+            (PipelineStatus::Success, LogAvailability::Ready),
+            (PipelineStatus::Running, LogAvailability::Partial),
+        ];
+        let cases = [
+            ("Complete", finished),
+            ("Queued", finished),
+            ("something_new", finished),
+            ("", finished),
+            ("InProgress", in_progress),
+        ];
+        for (update_status, expected) in cases {
+            let nodes = log_nodes(update_status, STAGES);
+            let actual: Vec<_> = nodes
+                .iter()
+                .map(|node| (node.status, node.log.unwrap()))
+                .collect();
+            assert_eq!(actual, expected, "{update_status:?}");
+        }
+    }
+
+    #[test]
+    fn stages_become_job_nodes_named_after_the_stage_with_their_own_times() {
+        let nodes = log_nodes("Complete", STAGES);
+
+        assert_eq!(
+            nodes
+                .iter()
+                .map(|node| (node.id.as_str(), node.name.as_str(), node.kind))
+                .collect::<Vec<_>>(),
+            [
+                ("0", "Clone Repo", LogNodeKind::Job),
+                ("1", "Compose Up", LogNodeKind::Job)
+            ]
+        );
+        assert!(nodes.iter().all(|node| node.parent_id.is_none()));
+        assert!(nodes
+            .iter()
+            .all(|node| node.web_url.as_deref() == Some("https://komodo.test/updates/66u1")));
+        let millis = |at: Option<DateTime<Utc>>| at.map(|at| at.timestamp_millis());
+        assert_eq!(millis(nodes[0].started_at), Some(1761660000000));
+        assert_eq!(millis(nodes[0].finished_at), Some(1761660002000));
+        assert_eq!(millis(nodes[1].started_at), Some(1761660002000));
+        assert_eq!(millis(nodes[1].finished_at), Some(1761660009500));
+    }
+
+    #[test]
+    fn the_open_stage_of_a_running_update_has_no_end_time() {
+        let nodes = log_nodes("InProgress", STAGES);
+
+        assert!(nodes[0].finished_at.is_some());
+        assert!(nodes[1].started_at.is_some());
+        assert_eq!(nodes[1].finished_at, None);
+    }
+
+    #[test]
+    fn unnamed_stages_and_missing_times_get_plain_fallbacks() {
+        let nodes = log_nodes(
+            "Complete",
+            r#"[{"stage": " ", "success": true}, {"stage": "Compose Down", "success": true}]"#,
+        );
+
+        assert_eq!(nodes[0].name, "Stage 1");
+        assert_eq!(nodes[1].name, "Compose Down");
+        assert_eq!(nodes[0].started_at, None);
+        assert_eq!(nodes[0].finished_at, None);
+    }
+
+    #[test]
+    fn an_update_without_logs_has_no_nodes() {
+        assert!(log_nodes("Queued", "[]").is_empty());
+        assert!(log_nodes("InProgress", "[]").is_empty());
     }
 }
