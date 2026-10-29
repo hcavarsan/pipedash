@@ -64,7 +64,6 @@ const API_BASE = import.meta.env.VITE_API_URL || withBasePath('/api/v1')
 
 interface RequestOptions {
   timeoutMs?: number | undefined
-  retry?: boolean | undefined
   signal?: AbortSignal | undefined
 }
 
@@ -90,7 +89,7 @@ const parseErrorBody = (body: string): { code?: string | undefined; message?: st
   }
 }
 
-const REFRESH_REQUEST: RequestOptions = { timeoutMs: REFRESH_TIMEOUT_MS, retry: false }
+const REFRESH_REQUEST: RequestOptions = { timeoutMs: REFRESH_TIMEOUT_MS }
 
 const OPERATION_TIMEOUTS: Record<string, number> = {
   '/factory-reset': API_TIMEOUTS.EXTENDED,
@@ -191,7 +190,7 @@ class ApiClient {
       },
       {
         ...DEFAULT_RETRY_CONFIG,
-        maxAttempts: options.retry === false ? 1 : DEFAULT_RETRY_CONFIG.maxAttempts,
+        maxAttempts: method === 'GET' ? DEFAULT_RETRY_CONFIG.maxAttempts : 1,
         shouldRetry: (error: Error) => {
           const status = getHttpStatus(error) ?? 0
           const isNetworkError = error instanceof TypeError
@@ -351,7 +350,7 @@ class ApiClient {
     const tab = window.open('', '_blank')
 
     try {
-      const start = await this.post<SignInStart>('/sign-in', { provider_type: providerType, config }, { retry: false })
+      const start = await this.post<SignInStart>('/sign-in', { provider_type: providerType, config })
 
       if (tab) {
         tab.opener = null
@@ -370,11 +369,7 @@ class ApiClient {
   }
 
   async completeSignIn(id: string, redirectUrl: string): Promise<SignInStatus> {
-    return this.post<SignInStatus>(
-      `/sign-in/${encodeURIComponent(id)}/complete`,
-      { redirect_url: redirectUrl },
-      { retry: false }
-    )
+    return this.post<SignInStatus>(`/sign-in/${encodeURIComponent(id)}/complete`, { redirect_url: redirectUrl })
   }
 
   async cancelSignIn(id: string): Promise<void> {
@@ -535,12 +530,12 @@ class ApiClient {
       'POST',
       `${runLogPath(pipelineId, runNumber, nodeId)}/search?revision=${revision}&session=${encodeURIComponent(sessionId)}`,
       query,
-      { timeoutMs: RUN_LOG_SEARCH_TIMEOUT_MS, retry: false, signal }
+      { timeoutMs: RUN_LOG_SEARCH_TIMEOUT_MS, signal }
     )
   }
 
   async clearRunLogsCache(): Promise<void> {
-    await this.requestVoid('DELETE', '/cache/run-logs', undefined, { retry: false })
+    await this.requestVoid('DELETE', '/cache/run-logs')
   }
 
   async exportRunLog(
@@ -552,8 +547,10 @@ class ApiClient {
   ): Promise<boolean> {
     const { ticket } = await this.post<{ ticket: string }>(
       `${runLogPath(pipelineId, runNumber, nodeId)}/download-ticket`,
-      { revision, file_name: fileName },
-      { retry: false }
+      {
+        revision,
+        file_name: fileName,
+      }
     )
     const link = document.createElement('a')
 
