@@ -4,11 +4,13 @@ use std::sync::{
     Arc,
     OnceLock,
 };
+use std::time::Duration;
 
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
     redact_url,
+    LogSink,
     Organization,
     PaginatedResponse,
     PaginationParams,
@@ -25,6 +27,8 @@ use reqwest::{
 use serde::de::DeserializeOwned;
 
 use crate::types::{
+    Job,
+    JobList,
     Repository,
     Run,
     RunList,
@@ -37,6 +41,9 @@ use crate::types::{
 const RUNS_PAGE_SIZE: usize = 50;
 const MAX_RUN_PAGES: usize = 10;
 const ORGS_PAGE_SIZE: usize = 50;
+const JOBS_PAGE_SIZE: usize = 50;
+const LOG_TIMEOUT: Duration = Duration::from_secs(900);
+const MIN_RUN_LOGS_VERSION: &str = "1.25";
 
 pub(crate) struct GiteaClient {
     http_client: Arc<reqwest::Client>,
@@ -203,6 +210,59 @@ impl GiteaClient {
             )
             .await?;
         Ok(list.workflow_runs)
+    }
+
+    pub async fn list_run_jobs(
+        &self, owner: &str, repo: &str, run_id: i64,
+    ) -> PluginResult<Vec<Job>> {
+        let path = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/jobs");
+        let mut jobs = Vec::new();
+        for page in 1.. {
+            let list: JobList = self
+                .get(
+                    &path,
+                    &[
+                        ("page", page.to_string()),
+                        ("limit", JOBS_PAGE_SIZE.to_string()),
+                    ],
+                )
+                .await
+                .map_err(|error| match error {
+                    PluginError::PipelineNotFound(_) => PluginError::NotSupported(format!(
+                        "Gitea answered 404 for the jobs of run {run_id}. Run logs need Gitea {MIN_RUN_LOGS_VERSION} or newer"
+                    )),
+                    error => error,
+                })?;
+            if list.jobs.is_empty() {
+                break;
+            }
+            jobs.extend(list.jobs);
+            if list.total_count.is_some_and(|total| jobs.len() >= total) {
+                break;
+            }
+        }
+        Ok(jobs)
+    }
+
+    pub async fn stream_job_log(
+        &self, owner: &str, repo: &str, job_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let path = format!("/repos/{owner}/{repo}/actions/jobs/{job_id}/logs");
+        let url = self.url(&path, &[])?;
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.request(Method::GET, &url).timeout(LOG_TIMEOUT).send()
+            })
+            .await?;
+
+        if matches!(response.status().as_u16(), 404 | 410) {
+            return Err(PluginError::PipelineNotFound(format!(
+                "Logs for job {job_id} are no longer available"
+            )));
+        }
+
+        sink.pipe(check_response(response).await?).await
     }
 
     pub async fn raw_file(&self, owner: &str, repo: &str, path: &str) -> PluginResult<String> {

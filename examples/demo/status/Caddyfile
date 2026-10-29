@@ -1,0 +1,17 @@
+{
+	local_certs
+	skip_install_trust
+	auto_https disable_redirects
+}
+
+status.gitea.demo, status.jenkins.demo, status.argocd.demo {
+	tls internal
+	request_header -If-None-Match
+	request_header -If-Modified-Since
+	rewrite /api/v2/summary.json /{host}.json
+	root * /srv
+	templates {
+		mime application/json
+	}
+	file_server
+}
