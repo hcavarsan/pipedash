@@ -295,6 +295,7 @@ impl JenkinsClient {
             repository: repository_field,
             branch: None,
             workflow_file: None,
+            resource_state: None,
             metadata: HashMap::new(),
         })
     }

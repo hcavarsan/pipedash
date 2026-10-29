@@ -126,6 +126,7 @@ pub(crate) fn pipeline(provider_id: i64, name: &str, status: PipelineStatus) -> 
         repository: "acme/app".to_string(),
         branch: None,
         workflow_file: None,
+        resource_state: None,
         metadata: HashMap::new(),
         overdue_run: None,
     }

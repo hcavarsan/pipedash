@@ -220,7 +220,7 @@ fn snapshot(
         PipelineStatus::Pending => BuildWatchRunStatus::Pending,
         PipelineStatus::Running => BuildWatchRunStatus::Running,
         PipelineStatus::Success => BuildWatchRunStatus::Success,
-        PipelineStatus::Failed => BuildWatchRunStatus::Failed,
+        PipelineStatus::Failed | PipelineStatus::Degraded => BuildWatchRunStatus::Failed,
         PipelineStatus::Cancelled => BuildWatchRunStatus::Cancelled,
         PipelineStatus::Skipped => BuildWatchRunStatus::Skipped,
     };
@@ -547,6 +547,7 @@ mod tests {
             repository: "owner/repo".to_string(),
             branch: None,
             workflow_file: None,
+            resource_state: None,
             metadata: HashMap::new(),
             overdue_run: None,
         };

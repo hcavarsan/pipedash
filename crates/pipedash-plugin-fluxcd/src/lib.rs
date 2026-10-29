@@ -8,6 +8,7 @@ mod metadata;
 mod plugin;
 mod schema;
 mod types;
+mod workloads;
 
 pub use plugin::FluxcdPlugin;
 

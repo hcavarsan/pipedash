@@ -30,3 +30,25 @@ subjects:
   - kind: ServiceAccount
     name: pipedash-readonly
     namespace: pipedash-examples
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pipedash-readonly-workloads
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pipedash-readonly-workloads
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pipedash-readonly-workloads
+subjects:
+  - kind: ServiceAccount
+    name: pipedash-readonly
+    namespace: pipedash-examples

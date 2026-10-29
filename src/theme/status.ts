@@ -15,11 +15,12 @@ import {
 import type { HealthLevel, PipelineStatus } from '../types/domain'
 import { typedKeys } from '../utils/typedKeys'
 
-type StatusTone = 'success' | 'failed' | 'running' | 'pending' | 'neutral'
+type StatusTone = 'success' | 'failed' | 'degraded' | 'running' | 'pending' | 'neutral'
 
 export const STATUS_META: Record<PipelineStatus, { label: string; tone: StatusTone; icon: Icon }> = {
   success: { label: 'Success', tone: 'success', icon: IconCircleCheckFilled },
   failed: { label: 'Failed', tone: 'failed', icon: IconCircleXFilled },
+  degraded: { label: 'Degraded', tone: 'degraded', icon: IconAlertTriangle },
   running: { label: 'Running', tone: 'running', icon: IconCircleCaretRightFilled },
   pending: { label: 'Pending', tone: 'pending', icon: IconClockFilled },
   cancelled: { label: 'Cancelled', tone: 'neutral', icon: IconCircleRectangleFilled },

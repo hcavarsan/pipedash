@@ -12,6 +12,7 @@ use pipedash_plugin_api::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    ResourceState,
 };
 use serde_json::{
     json,
@@ -20,20 +21,49 @@ use serde_json::{
 
 use crate::config;
 use crate::types::{
+    StackInfo,
     StackListItem,
     Update,
     UpdateListItem,
     UpdateLogs,
 };
 
-pub(crate) fn map_stack_state(state: &str) -> PipelineStatus {
-    match state {
-        "running" => PipelineStatus::Success,
-        "deploying" | "removing" => PipelineStatus::Running,
-        "restarting" | "unhealthy" | "dead" => PipelineStatus::Failed,
-        "paused" | "stopped" | "down" => PipelineStatus::Cancelled,
-        _ => PipelineStatus::Pending,
+pub(crate) fn map_stack_state(info: &StackInfo) -> (PipelineStatus, ResourceState) {
+    let (status, label) = match info.state.as_str() {
+        "running" => (PipelineStatus::Success, "Up"),
+        "deploying" => (PipelineStatus::Running, "Deploying"),
+        "removing" => (PipelineStatus::Running, "Removing"),
+        "restarting" => (PipelineStatus::Degraded, "Restarting"),
+        "unhealthy" => (PipelineStatus::Degraded, "Unhealthy"),
+        "dead" => (PipelineStatus::Failed, "Dead"),
+        "paused" => (PipelineStatus::Cancelled, "Paused"),
+        "stopped" => (PipelineStatus::Cancelled, "Stopped"),
+        "down" => (PipelineStatus::Cancelled, "Down"),
+        "created" => (PipelineStatus::Pending, "Created"),
+        _ => (PipelineStatus::Pending, "Unknown"),
+    };
+    let message = state_explanation(info);
+    (status, ResourceState::new(label, Some(&message)))
+}
+
+fn state_explanation(info: &StackInfo) -> String {
+    if info.state == "running" {
+        return String::new();
     }
+    let mut parts = Vec::new();
+    if info.project_missing {
+        parts.push("Project is missing on the host".to_string());
+    }
+    if !info.missing_files.is_empty() {
+        parts.push(format!("Missing files: {}", info.missing_files.join(", ")));
+    }
+    parts.extend(
+        info.status
+            .iter()
+            .filter(|status| !status.is_empty())
+            .cloned(),
+    );
+    parts.join("; ")
 }
 
 pub(crate) fn map_update_status(status: &str, success: bool) -> PipelineStatus {
@@ -73,9 +103,9 @@ pub(crate) fn map_pipeline(
     stack: &StackListItem, provider_id: i64, last_update_start: Option<i64>,
 ) -> Pipeline {
     let info = &stack.info;
+    let (status, resource_state) = map_stack_state(info);
     let mut metadata = HashMap::from([
         ("stack_id".to_string(), json!(stack.id)),
-        ("state".to_string(), json!(info.state)),
         (
             "update_available".to_string(),
             json!(info.update_available()),
@@ -105,12 +135,13 @@ pub(crate) fn map_pipeline(
         provider_id,
         provider_type: "komodo".to_string(),
         name: stack.name.clone(),
-        status: map_stack_state(&info.state),
+        status,
         last_run: last_update_start.map(timestamp),
         last_updated: Utc::now(),
         repository: repository(stack),
         branch,
         workflow_file: None,
+        resource_state: Some(resource_state),
         metadata,
     }
 }
@@ -255,26 +286,79 @@ mod tests {
         }
     }"#;
 
+    fn info(json: Value) -> StackInfo {
+        serde_json::from_value(json).unwrap()
+    }
+
     #[test]
-    fn stack_states_become_pipeline_statuses() {
+    fn stack_states_become_pipeline_statuses_and_labels() {
         let expected = [
-            ("deploying", PipelineStatus::Running),
-            ("running", PipelineStatus::Success),
-            ("paused", PipelineStatus::Cancelled),
-            ("stopped", PipelineStatus::Cancelled),
-            ("created", PipelineStatus::Pending),
-            ("restarting", PipelineStatus::Failed),
-            ("dead", PipelineStatus::Failed),
-            ("removing", PipelineStatus::Running),
-            ("unhealthy", PipelineStatus::Failed),
-            ("down", PipelineStatus::Cancelled),
-            ("unknown", PipelineStatus::Pending),
-            ("something_new", PipelineStatus::Pending),
-            ("", PipelineStatus::Pending),
+            ("running", PipelineStatus::Success, "Up"),
+            ("deploying", PipelineStatus::Running, "Deploying"),
+            ("removing", PipelineStatus::Running, "Removing"),
+            ("restarting", PipelineStatus::Degraded, "Restarting"),
+            ("unhealthy", PipelineStatus::Degraded, "Unhealthy"),
+            ("dead", PipelineStatus::Failed, "Dead"),
+            ("paused", PipelineStatus::Cancelled, "Paused"),
+            ("stopped", PipelineStatus::Cancelled, "Stopped"),
+            ("down", PipelineStatus::Cancelled, "Down"),
+            ("created", PipelineStatus::Pending, "Created"),
+            ("unknown", PipelineStatus::Pending, "Unknown"),
+            ("something_new", PipelineStatus::Pending, "Unknown"),
+            ("", PipelineStatus::Pending, "Unknown"),
         ];
-        for (state, status) in expected {
-            assert_eq!(map_stack_state(state), status, "{state}");
+        for (state, status, label) in expected {
+            let (actual, resource_state) = map_stack_state(&info(json!({"state": state})));
+            assert_eq!(actual, status, "{state}");
+            assert_eq!(resource_state.label, label, "{state}");
+            assert_eq!(resource_state.message, None, "{state}");
         }
+    }
+
+    #[test]
+    fn unhealthy_state_is_explained_by_docker_status_and_missing_files() {
+        let (status, resource_state) = map_stack_state(&info(json!({
+            "state": "unhealthy", "status": "unhealthy(1)",
+            "project_missing": true, "missing_files": ["compose.yaml", ".env"]
+        })));
+
+        assert_eq!(status, PipelineStatus::Degraded);
+        assert_eq!(
+            resource_state,
+            ResourceState::new(
+                "Unhealthy",
+                Some("Project is missing on the host; Missing files: compose.yaml, .env; unhealthy(1)")
+            )
+        );
+    }
+
+    #[test]
+    fn restarting_state_carries_the_docker_status() {
+        let (status, resource_state) = map_stack_state(&info(
+            json!({"state": "restarting", "status": "restarting(1)"}),
+        ));
+
+        assert_eq!(status, PipelineStatus::Degraded);
+        assert_eq!(
+            resource_state,
+            ResourceState::new("Restarting", Some("restarting(1)"))
+        );
+    }
+
+    #[test]
+    fn running_state_has_no_message_even_with_a_docker_status() {
+        let (_, resource_state) = map_stack_state(&info(json!({
+            "state": "running", "status": "running(2)", "missing_files": ["extra.yaml"]
+        })));
+
+        assert_eq!(resource_state, ResourceState::new("Up", None));
+    }
+
+    #[test]
+    fn blank_docker_status_adds_no_message() {
+        let (_, resource_state) = map_stack_state(&info(json!({"state": "stopped", "status": ""})));
+
+        assert_eq!(resource_state.message, None);
     }
 
     #[test]
@@ -313,7 +397,11 @@ mod tests {
             Some(1761660000123)
         );
         assert_eq!(pipeline.metadata["server"], json!("prod-1"));
-        assert_eq!(pipeline.metadata["state"], json!("running"));
+        assert!(!pipeline.metadata.contains_key("state"));
+        assert_eq!(
+            pipeline.resource_state,
+            Some(ResourceState::new("Up", None))
+        );
         assert_eq!(pipeline.metadata["update_available"], json!(true));
         assert_eq!(pipeline.metadata["service_count"], json!(2));
         assert_eq!(pipeline.metadata["repo"], json!("acme/web"));
@@ -331,6 +419,13 @@ mod tests {
         let pipeline = map_pipeline(&stack(V1_STACK), 3, None);
 
         assert_eq!(pipeline.status, PipelineStatus::Cancelled);
+        assert_eq!(
+            pipeline.resource_state,
+            Some(ResourceState::new(
+                "Down",
+                Some("Missing files: compose.yaml")
+            ))
+        );
         assert_eq!(pipeline.last_run, None);
         assert_eq!(pipeline.repository, "66s1/files");
         assert_eq!(pipeline.branch, None);

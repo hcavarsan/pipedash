@@ -538,6 +538,7 @@ impl GitHubClient {
                         repository: repo_full_name.clone(),
                         branch: latest_run.map(|run| run.head_branch.clone()),
                         workflow_file: Some(workflow.path),
+                        resource_state: None,
                         metadata,
                     };
 

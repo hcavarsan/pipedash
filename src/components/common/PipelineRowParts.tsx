@@ -23,7 +23,7 @@ import { useNotificationCenterStore } from '../../stores/notificationCenterStore
 import type { PinKind, Pipeline, PipelineStatus, ProviderSummary, SectionMode, ViewPipeline } from '../../types/domain'
 import { dataAge, describeFetch, providerTone, TONE_META, worstTone } from '../../utils/fetchInfo'
 import { formatDateTime } from '../../utils/formatDateTime'
-import { getPipelineLabels, getStatusLabel, getTriggerBlockReason } from '../../utils/pipelinePresentation'
+import { getPipelineLabels, getPipelineStatusLabel, getTriggerBlockReason } from '../../utils/pipelinePresentation'
 import { providerAttention } from '../../utils/providerAttention'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
@@ -143,8 +143,7 @@ export function PipelineStatusBadge({
   const now = useNow(30_000)
   const age = provider && dataAge(provider, now)
   const lastActivity = `Last activity: ${pipeline.last_run ? formatDateTime(pipeline.last_run) : 'Never'}`
-  const activity =
-    pipeline.provider_type === 'fluxcd' ? String(pipeline.metadata?.message ?? lastActivity) : lastActivity
+  const activity = pipeline.resource_state?.message ?? lastActivity
   return (
     <Tooltip
       multiline
@@ -158,7 +157,7 @@ export function PipelineStatusBadge({
       }
     >
       <Group component="span" gap={4} wrap="nowrap" display="inline-flex" data-raised>
-        <StatusBadge status={pipeline.status} label={getStatusLabel(pipeline)} />
+        <StatusBadge status={pipeline.status} label={getPipelineStatusLabel(pipeline)} />
         {age && age.tone !== 'fresh' && (
           <>
             <ToneDot tone={age.tone} />

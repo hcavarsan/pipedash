@@ -23,13 +23,16 @@ fn create_pipelines_table() -> schema::TableDefinition {
     );
     update_available.data_type = schema::ColumnDataType::Boolean;
     let leading = [
-        metadata_column(
-            "state",
-            "State",
-            "Komodo stack state (running, stopped, unhealthy, down, ...)",
-            schema::CellRenderer::Badge,
-            true,
-        ),
+        schema::ColumnDefinition {
+            field_path: "resource_state.label".to_string(),
+            ..metadata_column(
+                "state",
+                "State",
+                "Live state of the Komodo stack (Up, Stopped, Unhealthy, Down, ...)",
+                schema::CellRenderer::Badge,
+                true,
+            )
+        },
         metadata_column(
             "server",
             "Server",
@@ -170,7 +173,7 @@ mod tests {
             .find(|c| c.id == "update_available")
             .unwrap();
 
-        assert_eq!(state.field_path, "metadata.state");
+        assert_eq!(state.field_path, "resource_state.label");
         assert_eq!(update.field_path, "metadata.update_available");
         assert_eq!(update.data_type, schema::ColumnDataType::Boolean);
     }

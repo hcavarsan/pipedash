@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use futures::{
+    stream,
+    StreamExt,
+};
 use pipedash_plugin_api::*;
 use tracing::{
     debug,
@@ -17,9 +21,11 @@ use crate::{
     mapper,
     metadata,
     sign_in,
+    types,
 };
 
 const DEFAULT_PAGE_SIZE: usize = 1000;
+const RESOURCE_TREE_CONCURRENCY: usize = 8;
 
 pub struct ArgocdPlugin {
     metadata: PluginMetadata,
@@ -91,6 +97,23 @@ impl ArgocdPlugin {
             }
         }
         Ok(())
+    }
+
+    async fn pipeline_with_live_state(
+        client: &client::ArgocdClient, app: &types::Application, provider_id: i64, server_url: &str,
+    ) -> Pipeline {
+        let mut pipeline = mapper::map_application_to_pipeline(app, provider_id, server_url);
+        if mapper::needs_resource_tree(app) {
+            match client.resource_tree(&app.metadata.name).await {
+                Ok(tree) => mapper::degrade_from_tree(&mut pipeline, &tree),
+                Err(error) => warn!(
+                    app = %app.metadata.name,
+                    %error,
+                    "Resource tree unavailable, keeping provider-reported state"
+                ),
+            }
+        }
+        pipeline
     }
 }
 
@@ -408,10 +431,14 @@ impl Plugin for ArgocdPlugin {
             "Applications after all filters"
         );
 
-        let pipelines: Vec<Pipeline> = filtered_apps
+        let live_states: Vec<_> = filtered_apps
             .iter()
-            .map(|app| mapper::map_application_to_pipeline(app, provider_id, server_url))
+            .map(|app| Self::pipeline_with_live_state(client, app, provider_id, server_url))
             .collect();
+        let pipelines: Vec<Pipeline> = stream::iter(live_states)
+            .buffered(RESOURCE_TREE_CONCURRENCY)
+            .collect()
+            .await;
 
         debug!(
             pipeline_count = pipelines.len(),
@@ -760,6 +787,24 @@ mod tests {
         {"version":"v1","kind":"Pod","namespace":"web","name":"web-7f9c-def","uid":"p2","health":{"status":"Healthy"}},
         {"version":"v1","kind":"Pod","namespace":"web","name":"web-7f9c-abc","uid":"p1","health":{"status":"Degraded"}}]}"#;
 
+    const CRASH_TREE: &str = r#"{"nodes":[
+        {"group":"apps","version":"v1","kind":"Deployment","namespace":"web","name":"crash","uid":"d1","health":{"status":"Progressing"}},
+        {"version":"v1","kind":"Pod","namespace":"web","name":"web-7f9c-def","uid":"p2","health":{"status":"Healthy"}},
+        {"version":"v1","kind":"Pod","namespace":"web","name":"web-7f9c-abc","uid":"p1","health":{"status":"Degraded","message":"back-off 40s restarting failed container=app"}},
+        {"version":"v1","kind":"Pod","namespace":"web","name":"web-7f9c-ghi","uid":"p3","health":{"status":"Degraded","message":"Back-off pulling image"}}]}"#;
+
+    const ROLLOUT_TREE: &str = r#"{"nodes":[
+        {"group":"apps","version":"v1","kind":"Deployment","namespace":"web","name":"rollout","uid":"d1","health":{"status":"Progressing"}},
+        {"version":"v1","kind":"Pod","namespace":"web","name":"rollout-1","uid":"p1","health":{"status":"Progressing"}}]}"#;
+
+    fn listed_app(name: &str, health: &str) -> serde_json::Value {
+        serde_json::json!({
+            "metadata": {"name": name, "namespace": "argocd"},
+            "spec": {"source": {"repoURL": "https://github.com/acme/web"}, "destination": {"namespace": "web"}, "project": "default"},
+            "status": {"sync": {"status": "Synced"}, "health": {"status": health, "message": format!("{name} is {health}")}},
+        })
+    }
+
     const APP_EVENTS: &str = r#"{"metadata":{},"items":[
         {"type":"Warning","reason":"OperationCompleted","message":"Sync operation to def456 failed","count":1,"firstTimestamp":"2026-10-27T10:00:42Z","lastTimestamp":"2026-10-27T10:00:42Z"},
         {"type":"Normal","reason":"OperationStarted","message":"Initiated automated sync to 'def456'","firstTimestamp":"2026-10-27T10:00:00Z","lastTimestamp":"2026-10-27T10:00:00Z","eventTime":null}]}"#;
@@ -807,6 +852,25 @@ mod tests {
             "/api/v1/settings" => ok(r#"{"url":"","dexConfig":{"connectors":[{"name":"GitHub","type":"github","id":"github"}]}}"#),
             "/api/v1/applications/web" => ok(APP),
             "/api/v1/applications/web/resource-tree" => ok(TREE),
+            "/api/v1/applications" => ok(&serde_json::json!({"items": [
+                listed_app("crash", "Progressing"),
+                listed_app("rollout", "Progressing"),
+                listed_app("ready", "Healthy"),
+                listed_app("forbidden", "Progressing"),
+                listed_app("broken", "Degraded"),
+            ]})
+            .to_string()),
+            "/api/v1/applications/crash/resource-tree" => ok(CRASH_TREE),
+            "/api/v1/applications/rollout/resource-tree" => ok(ROLLOUT_TREE),
+            "/api/v1/applications/forbidden/resource-tree" => (
+                "403 Forbidden",
+                r#"{"error":"permission denied: applications, get, default/forbidden","code":7,"message":"permission denied: applications, get, default/forbidden"}"#
+                    .to_string(),
+            ),
+            "/api/v1/applications/broken/resource-tree" => (
+                "500 Internal Server Error",
+                r#"{"message":"boom"}"#.to_string(),
+            ),
             "/api/v1/applications/web/events" if query.is_empty() => ok(APP_EVENTS),
             "/api/v1/applications/web/events" if has("resourceName=web-7f9c-abc") => {
                 ok(POD_EVENTS)
@@ -905,6 +969,97 @@ mod tests {
         assert_eq!(client.issuer, format!("{server_url}/api/dex"));
         assert_eq!(client.label, "GitHub");
         assert_eq!(*requests.lock().await, ["/api/v1/settings"]);
+    }
+
+    async fn fetch_states() -> (HashMap<String, Pipeline>, Vec<String>) {
+        let (plugin, requests) = stub_plugin().await;
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+        let requests = requests.lock().await.clone();
+        (
+            pipelines
+                .into_iter()
+                .map(|pipeline| (pipeline.name.clone(), pipeline))
+                .collect(),
+            requests,
+        )
+    }
+
+    fn state_of(pipeline: &Pipeline) -> (PipelineStatus, &str, Option<&str>) {
+        let state = pipeline.resource_state.as_ref().unwrap();
+        (
+            pipeline.status,
+            state.label.as_str(),
+            state.message.as_deref(),
+        )
+    }
+
+    #[tokio::test]
+    async fn progressing_app_with_crash_looping_pod_is_degraded() {
+        let (pipelines, _) = fetch_states().await;
+
+        assert_eq!(
+            state_of(&pipelines["crash"]),
+            (
+                PipelineStatus::Degraded,
+                "Degraded",
+                Some(
+                    "Pod web/web-7f9c-abc: back-off 40s restarting failed container=app (+1 more)"
+                )
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn progressing_app_with_healthy_tree_stays_progressing() {
+        let (pipelines, _) = fetch_states().await;
+
+        assert_eq!(
+            state_of(&pipelines["rollout"]),
+            (
+                PipelineStatus::Running,
+                "Progressing",
+                Some("rollout is Progressing")
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn healthy_app_costs_no_resource_tree_request() {
+        let (pipelines, requests) = fetch_states().await;
+
+        assert_eq!(
+            state_of(&pipelines["ready"]),
+            (PipelineStatus::Success, "Synced", Some("ready is Healthy"))
+        );
+        assert!(requests.iter().all(|target| !target.contains("/ready")));
+        for unhealthy in ["crash", "rollout", "forbidden", "broken"] {
+            let tree = format!("/api/v1/applications/{unhealthy}/resource-tree");
+            assert!(requests.contains(&tree), "{unhealthy}");
+        }
+    }
+
+    #[tokio::test]
+    async fn failing_resource_tree_keeps_the_provider_state() {
+        let (pipelines, requests) = fetch_states().await;
+
+        assert_eq!(
+            state_of(&pipelines["forbidden"]),
+            (
+                PipelineStatus::Running,
+                "Progressing",
+                Some("forbidden is Progressing")
+            )
+        );
+        assert_eq!(
+            state_of(&pipelines["broken"]),
+            (
+                PipelineStatus::Degraded,
+                "Degraded",
+                Some("broken is Degraded")
+            )
+        );
+        let forbidden = "/api/v1/applications/forbidden/resource-tree";
+        assert_eq!(requests.iter().filter(|t| *t == forbidden).count(), 1);
     }
 
     const PIPELINE_ID: &str = "argocd__1__argocd__web";

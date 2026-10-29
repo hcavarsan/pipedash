@@ -14,6 +14,7 @@ use serde::{
 pub enum PipelineStatus {
     Success,
     Failed,
+    Degraded,
     Running,
     Pending,
     Cancelled,
@@ -36,6 +37,25 @@ pub struct AvailablePipeline {
     pub repository: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceState {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+impl ResourceState {
+    pub fn new(label: impl Into<String>, message: Option<&str>) -> Self {
+        Self {
+            label: label.into(),
+            message: message
+                .map(str::trim)
+                .filter(|message| !message.is_empty())
+                .map(str::to_string),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: String,
@@ -48,6 +68,8 @@ pub struct Pipeline {
     pub repository: String,
     pub branch: Option<String>,
     pub workflow_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_state: Option<ResourceState>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, serde_json::Value>,
 }

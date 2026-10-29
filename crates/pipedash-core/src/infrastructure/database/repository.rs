@@ -624,7 +624,7 @@ impl Repository {
     ) -> DomainResult<Vec<Pipeline>> {
         if let Some(pid) = provider_id {
             let sql = format!(
-                "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json
+                "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json, resource_state_json
                 FROM pipelines_cache
                 WHERE provider_id = {}
                 ORDER BY last_updated DESC",
@@ -649,7 +649,7 @@ impl Repository {
                 }
             }
         } else {
-            let sql = "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json
+            let sql = "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json, resource_state_json
                 FROM pipelines_cache
                 ORDER BY last_updated DESC";
             match &self.cache_pool {
@@ -1252,11 +1252,11 @@ impl Repository {
             let is_pg = is_postgres;
             async move {
                 let select_sql = if is_pg {
-                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json
+                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json, resource_state_json
                     FROM pipelines_cache
                     WHERE provider_id = $1"
                 } else {
-                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json
+                    "SELECT id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, provider_type, metadata_json, resource_state_json
                     FROM pipelines_cache
                     WHERE provider_id = ?"
                 };
@@ -1264,23 +1264,25 @@ impl Repository {
                 let update_sql = if is_pg {
                     "UPDATE pipelines_cache
                      SET provider_id = $1, name = $2, status = $3, repository = $4, branch = $5,
-                         workflow_file = $6, last_run = $7, last_updated = $8, metadata_json = $9, provider_type = $10
-                     WHERE id = $11"
+                         workflow_file = $6, last_run = $7, last_updated = $8, metadata_json = $9, provider_type = $10,
+                         resource_state_json = $11
+                     WHERE id = $12"
                 } else {
                     "UPDATE pipelines_cache
                      SET provider_id = ?, name = ?, status = ?, repository = ?, branch = ?,
-                         workflow_file = ?, last_run = ?, last_updated = ?, metadata_json = ?, provider_type = ?
+                         workflow_file = ?, last_run = ?, last_updated = ?, metadata_json = ?, provider_type = ?,
+                         resource_state_json = ?
                      WHERE id = ?"
                 };
 
                 let insert_sql = if is_pg {
                     "INSERT INTO pipelines_cache
-                     (id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, metadata_json, provider_type)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+                     (id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, metadata_json, provider_type, resource_state_json)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
                 } else {
                     "INSERT INTO pipelines_cache
-                     (id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, metadata_json, provider_type)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                     (id, provider_id, name, status, repository, branch, workflow_file, last_run, last_updated, metadata_json, provider_type, resource_state_json)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 };
 
                 let delete_sql = if is_pg {
@@ -1320,6 +1322,7 @@ impl Repository {
                                     || old.branch != pipeline.branch
                                     || old.workflow_file != pipeline.workflow_file
                                     || old.metadata != pipeline.metadata
+                                    || old.resource_state != pipeline.resource_state
                                 {
                                     sqlx::query(update_sql)
                                         .bind(provider_id)
@@ -1332,6 +1335,7 @@ impl Repository {
                                         .bind(Utc::now().to_rfc3339())
                                         .bind(serde_json::to_string(&pipeline.metadata).map_err(|e| DomainError::DatabaseError(e.to_string()))?)
                                         .bind(&pipeline.provider_type)
+                                        .bind(resource_state_json(pipeline)?)
                                         .bind(&pipeline.id)
                                         .execute(&mut *tx)
                                         .await
@@ -1350,6 +1354,7 @@ impl Repository {
                                     .bind(Utc::now().to_rfc3339())
                                     .bind(serde_json::to_string(&pipeline.metadata).map_err(|e| DomainError::DatabaseError(e.to_string()))?)
                                     .bind(&pipeline.provider_type)
+                                    .bind(resource_state_json(pipeline)?)
                                     .execute(&mut *tx)
                                     .await
                                     .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
@@ -1390,12 +1395,13 @@ impl Repository {
                             let now = Utc::now();
                             if let Some(old) = existing.get(&pipeline.id) {
                                 if old.status != pipeline.status || old.last_run != pipeline.last_run || old.name != pipeline.name || old.provider_id != provider_id || old.provider_type != pipeline.provider_type
-                                    || old.repository != pipeline.repository || old.branch != pipeline.branch || old.workflow_file != pipeline.workflow_file || old.metadata != pipeline.metadata {
+                                    || old.repository != pipeline.repository || old.branch != pipeline.branch || old.workflow_file != pipeline.workflow_file || old.metadata != pipeline.metadata
+                                    || old.resource_state != pipeline.resource_state {
                                     sqlx::query(update_sql)
                                         .bind(provider_id).bind(&pipeline.name).bind(pipeline.status.as_str()).bind(&pipeline.repository).bind(&pipeline.branch)
                                         .bind(&pipeline.workflow_file).bind(pipeline.last_run).bind(now)
                                         .bind(serde_json::to_string(&pipeline.metadata).map_err(|e| DomainError::DatabaseError(e.to_string()))?)
-                                        .bind(&pipeline.provider_type).bind(&pipeline.id)
+                                        .bind(&pipeline.provider_type).bind(resource_state_json(pipeline)?).bind(&pipeline.id)
                                         .execute(&mut *tx).await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                                 }
                             } else {
@@ -1403,7 +1409,7 @@ impl Repository {
                                     .bind(&pipeline.id).bind(provider_id).bind(&pipeline.name).bind(pipeline.status.as_str()).bind(&pipeline.repository).bind(&pipeline.branch)
                                     .bind(&pipeline.workflow_file).bind(pipeline.last_run).bind(now)
                                     .bind(serde_json::to_string(&pipeline.metadata).map_err(|e| DomainError::DatabaseError(e.to_string()))?)
-                                    .bind(&pipeline.provider_type)
+                                    .bind(&pipeline.provider_type).bind(resource_state_json(pipeline)?)
                                     .execute(&mut *tx).await.map_err(|e| DomainError::DatabaseError(e.to_string()))?;
                             }
                         }
@@ -1776,6 +1782,14 @@ impl Repository {
         let metadata = serde_json::from_str(&metadata_json).map_err(|error| {
             DomainError::DatabaseError(format!("Invalid pipeline metadata: {error}"))
         })?;
+        let resource_state = row
+            .try_get::<Option<String>, _>(11)
+            .map_err(|error| DomainError::DatabaseError(error.to_string()))?
+            .map(|json| serde_json::from_str(&json))
+            .transpose()
+            .map_err(|error| {
+                DomainError::DatabaseError(format!("Invalid pipeline resource state: {error}"))
+            })?;
 
         Ok(Pipeline {
             id,
@@ -1788,10 +1802,20 @@ impl Repository {
             repository,
             branch,
             workflow_file,
+            resource_state,
             metadata,
             overdue_run: None,
         })
     }
+}
+
+fn resource_state_json(pipeline: &Pipeline) -> DomainResult<Option<String>> {
+    pipeline
+        .resource_state
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| DomainError::DatabaseError(error.to_string()))
 }
 
 #[cfg(test)]
@@ -1799,6 +1823,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::domain::ResourceState;
     use crate::infrastructure::{
         MemoryTokenStore,
         PipedashConfig,
@@ -1844,7 +1869,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pipeline_cache_preserves_metadata_and_metadata_only_updates() {
+    async fn pipeline_cache_keeps_resource_state_and_stores_state_only_changes() {
         let dir = tempfile::tempdir().unwrap();
         let (manager, repository) = test_repository(&dir).await;
         let provider_id = manager
@@ -1862,30 +1887,52 @@ mod tests {
             .unwrap();
         let mut pipeline: Pipeline = serde_json::from_value(json!({
             "id": "fluxcd__1__Kustomization__apps__web", "provider_id": provider_id,
-            "provider_type": "fluxcd", "name": "Kustomization/web", "status": "success",
+            "provider_type": "fluxcd", "name": "Kustomization/web", "status": "running",
             "repository": "apps/source", "last_updated": "2026-10-21T00:00:00Z",
-            "metadata": { "uid": "resource-1", "status_label": "Ready", "message": "Applied revision a" }
-        })).unwrap();
+            "resource_state": { "label": "Reconciling", "message": "Applying revision a" },
+            "metadata": { "uid": "resource-1" }
+        }))
+        .unwrap();
+        let mut stateless = pipeline.clone();
+        stateless.id = "fluxcd__1__Kustomization__apps__api".to_string();
+        stateless.resource_state = None;
 
         repository
-            .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
+            .update_pipelines_cache(provider_id, &[pipeline.clone(), stateless])
             .await
             .unwrap();
         let first = repository
             .get_cached_pipelines(Some(provider_id))
             .await
             .unwrap();
-        assert_eq!(first[0].metadata, pipeline.metadata);
+        let stored = |pipelines: &[Pipeline], id: &str| {
+            pipelines
+                .iter()
+                .find(|candidate| candidate.id == id)
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(
+            stored(&first, &pipeline.id).resource_state,
+            pipeline.resource_state
+        );
+        assert_eq!(stored(&first, &pipeline.id).metadata, pipeline.metadata);
+        assert_eq!(
+            stored(&first, "fluxcd__1__Kustomization__apps__api").resource_state,
+            None
+        );
 
-        pipeline
-            .metadata
-            .insert("message".to_string(), json!("Applied revision b"));
+        pipeline.resource_state = Some(ResourceState::new(
+            "Reconciling",
+            Some("Applying revision b"),
+        ));
         repository
             .update_pipelines_cache(provider_id, std::slice::from_ref(&pipeline))
             .await
             .unwrap();
         let changed = repository.get_cached_pipelines(None).await.unwrap();
-        assert_eq!(changed[0].metadata, pipeline.metadata);
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].resource_state, pipeline.resource_state);
         assert_eq!(changed[0].status, pipeline.status);
     }
 

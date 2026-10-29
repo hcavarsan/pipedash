@@ -143,6 +143,12 @@ test('a running-to-failed cache update does not duplicate the backend failure al
   assert.equal(items[0]?.read, true)
 })
 
+test('a backend degraded alert uses degraded wording', async () => {
+  await mount()
+  await publish('pipelines-failed', { pipelines: [{ ...pipeline, status: 'degraded' }] })
+  assert.equal(useNotificationCenterStore.getState().items[0]?.title, `${pipeline.name} is degraded`)
+})
+
 test('overdue runs still alert once when their cached observation changes', async () => {
   await mount()
   const running: Pipeline = { ...pipeline, status: 'running', overdue_run: null }

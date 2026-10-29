@@ -15,6 +15,7 @@ use pipedash_plugin_api::{
     PipelineStatus,
     PluginError,
     PluginResult,
+    ResourceState,
 };
 use serde_json::Value;
 
@@ -117,6 +118,7 @@ pub(crate) fn status_label(status: PipelineStatus) -> &'static str {
     match status {
         PipelineStatus::Success => "Ready",
         PipelineStatus::Failed => "Not ready",
+        PipelineStatus::Degraded => "Degraded",
         PipelineStatus::Running => "Reconciling",
         PipelineStatus::Pending => "Pending",
         PipelineStatus::Skipped => "Suspended",
@@ -281,15 +283,12 @@ fn workflow_file(resource: &FluxResource) -> Option<String> {
     }
 }
 
-fn state_metadata(resource: &FluxResource, status: PipelineStatus) -> Metadata {
-    let (reason, message) = headline(resource, status);
+fn state_metadata(resource: &FluxResource, reason: String) -> Metadata {
     let ready = condition(resource, "Ready");
     let mut metadata = Metadata::new();
-    put(&mut metadata, "status_label", Some(status_label(status)));
     put(&mut metadata, "suspended", Some(is_suspended(resource)));
     put(&mut metadata, "stale", Some(is_stale(resource)));
     put(&mut metadata, "reason", Some(reason));
-    put(&mut metadata, "message", Some(message));
     put(
         &mut metadata,
         "ready_status",
@@ -664,8 +663,11 @@ fn snapshot_run(
         .map(split_revision)
         .unwrap_or_default();
 
+    let (reason, message) = headline(resource, status);
     let mut metadata = base_metadata(resource);
-    metadata.extend(state_metadata(resource, status));
+    metadata.extend(state_metadata(resource, reason));
+    put(&mut metadata, "status_label", Some(status_label(status)));
+    put(&mut metadata, "message", Some(message));
     put(&mut metadata, "record_source", Some(RECORD_SNAPSHOT));
     put(&mut metadata, "time_source", Some(time_source));
     put(&mut metadata, "run_label", Some("Current state"));
@@ -773,13 +775,27 @@ pub(crate) fn build_runs(
     Ok(runs)
 }
 
-pub(crate) fn map_pipeline(resource: &FluxResource, provider_id: i64) -> Pipeline {
-    let status = current_status(resource);
+pub(crate) fn map_pipeline(
+    resource: &FluxResource, provider_id: i64, workload_issues: &[String],
+) -> Pipeline {
+    let flux_status = current_status(resource);
+    let (reason, flux_message) = headline(resource, flux_status);
+    let degraded = match (flux_status, workload_issues.split_first()) {
+        (PipelineStatus::Success, Some((first, []))) => Some(first.clone()),
+        (PipelineStatus::Success, Some((first, rest))) => {
+            Some(format!("{first} (+{} more)", rest.len()))
+        }
+        _ => None,
+    };
+    let (status, message) = match degraded {
+        Some(message) => (PipelineStatus::Degraded, message),
+        None => (flux_status, flux_message),
+    };
     let (branch, _) = current_revision(resource)
         .map(split_revision)
         .unwrap_or_default();
     let mut metadata = base_metadata(resource);
-    metadata.extend(state_metadata(resource, status));
+    metadata.extend(state_metadata(resource, reason));
 
     Pipeline {
         id: target_of(resource).pipeline_id(provider_id),
@@ -804,6 +820,7 @@ pub(crate) fn map_pipeline(resource: &FluxResource, provider_id: i64) -> Pipelin
         repository: repository(resource),
         branch: branch.map(str::to_string),
         workflow_file: workflow_file(resource),
+        resource_state: Some(ResourceState::new(status_label(status), Some(&message))),
         metadata,
     }
 }
@@ -1354,14 +1371,23 @@ mod tests {
             json!({ "path": "./kustomize", "suspend": true, "sourceRef": { "kind": "GitRepository", "name": "podinfo" } }),
             json!({}),
         );
-        let pipeline = map_pipeline(&resource, 9);
+        let pipeline = map_pipeline(&resource, 9, &[]);
 
         assert_eq!(pipeline.id, "fluxcd__9__Kustomization__ci__app");
         assert_eq!(pipeline.name, "Kustomization/app");
         assert_eq!(pipeline.repository, "ci/podinfo");
         assert_eq!(pipeline.status, PipelineStatus::Skipped);
         assert_eq!(pipeline.metadata["suspended"], json!(true));
-        assert_eq!(pipeline.metadata["status_label"], json!("Suspended"));
+        assert_eq!(
+            pipeline.resource_state,
+            Some(ResourceState::new(
+                "Suspended",
+                Some("spec.suspend is true; Flux is not reconciling this resource")
+            ))
+        );
+        assert!(!pipeline.metadata.contains_key("status_label"));
+        assert!(!pipeline.metadata.contains_key("message"));
+        assert_eq!(pipeline.metadata["reason"], json!("Suspended"));
         assert_eq!(
             pipeline.metadata["source_ref"],
             json!("GitRepository/ci/podinfo")
@@ -1370,6 +1396,74 @@ mod tests {
             pipeline.metadata["history_scope"],
             json!("bounded_reconciliation")
         );
+    }
+
+    fn ready(status: &str) -> FluxResource {
+        kustomization(json!({
+            "observedGeneration": 2,
+            "conditions": [cond("Ready", status, "ReconciliationSucceeded", 2, CREATED)],
+        }))
+    }
+
+    #[test]
+    fn workload_issues_degrade_only_a_ready_resource_and_summarize_extras() {
+        let issues = vec![
+            "Deployment apps/web: 1 of 3 replicas ready".to_string(),
+            "StatefulSet apps/db: 0 of 1 replicas ready".to_string(),
+            "DaemonSet apps/agent: 2 of 5 pods ready".to_string(),
+        ];
+
+        let degraded = map_pipeline(&ready("True"), 1, &issues[..1]);
+        assert_eq!(degraded.status, PipelineStatus::Degraded);
+        assert_eq!(
+            degraded.resource_state,
+            Some(ResourceState::new(
+                "Degraded",
+                Some("Deployment apps/web: 1 of 3 replicas ready")
+            ))
+        );
+        assert_eq!(
+            degraded.metadata["reason"],
+            json!("ReconciliationSucceeded")
+        );
+
+        let several = map_pipeline(&ready("True"), 1, &issues);
+        assert_eq!(
+            several.resource_state.unwrap().message.as_deref(),
+            Some("Deployment apps/web: 1 of 3 replicas ready (+2 more)")
+        );
+
+        for (status, expected, label) in [
+            ("False", PipelineStatus::Failed, "Not ready"),
+            ("Unknown", PipelineStatus::Running, "Reconciling"),
+        ] {
+            let pipeline = map_pipeline(&ready(status), 1, &issues);
+            assert_eq!(pipeline.status, expected);
+            assert_eq!(pipeline.resource_state.unwrap().label, label);
+        }
+
+        let healthy = map_pipeline(&ready("True"), 1, &[]);
+        assert_eq!(healthy.status, PipelineStatus::Success);
+        assert_eq!(
+            healthy.resource_state,
+            Some(ResourceState::new(
+                "Ready",
+                Some("Ready True ReconciliationSucceeded")
+            ))
+        );
+    }
+
+    #[test]
+    fn snapshot_run_keeps_label_and_message_in_run_metadata() {
+        let runs = build_runs(&ready("False"), 1).unwrap();
+
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].metadata["status_label"], json!("Not ready"));
+        assert_eq!(
+            runs[0].metadata["message"],
+            json!("Ready False ReconciliationSucceeded")
+        );
+        assert_eq!(runs[0].metadata["reason"], json!("ReconciliationSucceeded"));
     }
 
     #[test]

@@ -236,6 +236,7 @@ mod tests {
             repository: format!("acme/{name}"),
             branch: None,
             workflow_file: None,
+            resource_state: None,
             metadata: Default::default(),
             overdue_run: None,
         }

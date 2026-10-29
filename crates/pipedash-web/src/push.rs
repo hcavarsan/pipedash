@@ -33,6 +33,7 @@ const RELAY_TIMEOUT: Duration = Duration::from_secs(10);
 const RUN_LOOKUP_TIMEOUT: Duration = Duration::from_secs(10);
 const RUN_LOOKUP_LIMIT: usize = 3;
 const FAILED_SUFFIX: &str = " failed";
+const DEGRADED_SUFFIX: &str = " is degraded";
 const MAX_TITLE_CHARS: usize = 120;
 const MAX_BODY_CHARS: usize = 400;
 
@@ -96,16 +97,24 @@ fn failure_alert(pipeline: &Pipeline, provider: &str, run: Option<&PipelineRun>)
         Some(provider.to_owned()),
         branch.map(str::to_owned),
         run.map(|run| format!("#{}", run.run_number)),
+        pipeline
+            .resource_state
+            .as_ref()
+            .and_then(|state| state.message.clone()),
     ]
     .into_iter()
     .flatten()
     .collect::<Vec<_>>()
     .join(" · ");
+    let suffix = match pipeline.status {
+        PipelineStatus::Degraded => DEGRADED_SUFFIX,
+        _ => FAILED_SUFFIX,
+    };
 
     Alert {
         title: format!(
-            "{}{FAILED_SUFFIX}",
-            truncate(&pipeline.name, MAX_TITLE_CHARS - FAILED_SUFFIX.len())
+            "{}{suffix}",
+            truncate(&pipeline.name, MAX_TITLE_CHARS - suffix.len())
         ),
         body: truncate(&details, MAX_BODY_CHARS),
         thread_id: Some(pipeline.id.clone()),
@@ -233,7 +242,10 @@ impl PushServices {
             Ok(Some(config)) => config.name,
             _ => pipeline.provider_type.clone(),
         };
-        let run = self.failed_run(pipeline).await;
+        let run = match pipeline.status {
+            PipelineStatus::Failed => self.failed_run(pipeline).await,
+            _ => None,
+        };
 
         failure_alert(pipeline, &provider, run.as_ref())
     }
@@ -369,6 +381,25 @@ mod tests {
         assert!(alert.title.ends_with("… failed"));
         assert_eq!(alert.body.chars().count(), MAX_BODY_CHARS);
         assert_eq!(truncate("short", 10), "short");
+    }
+
+    #[test]
+    fn a_degraded_pipeline_says_so_and_explains_why() {
+        let mut degraded = pipeline("web", None);
+        degraded.status = PipelineStatus::Degraded;
+        degraded.resource_state = Some(pipedash_core::domain::ResourceState::new(
+            "Degraded",
+            Some("Pod web/web-7f9c: back-off restarting failed container"),
+        ));
+
+        let alert = failure_alert(&degraded, "Argo CD", None);
+
+        assert_eq!(alert.title, "web is degraded");
+        assert_eq!(
+            alert.body,
+            "Argo CD · Pod web/web-7f9c: back-off restarting failed container"
+        );
+        assert_eq!(alert.run_number, None);
     }
 
     #[test]

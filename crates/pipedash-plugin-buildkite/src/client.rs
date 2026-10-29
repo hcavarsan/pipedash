@@ -163,6 +163,7 @@ impl BuildkiteClient {
                 }
             }),
             workflow_file: None,
+            resource_state: None,
             metadata,
         })
     }

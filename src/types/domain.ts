@@ -1,6 +1,11 @@
 import type { ProviderTone } from '../utils/fetchInfo'
 
-export type PipelineStatus = 'success' | 'failed' | 'running' | 'pending' | 'cancelled' | 'skipped'
+export type PipelineStatus = 'success' | 'failed' | 'degraded' | 'running' | 'pending' | 'cancelled' | 'skipped'
+
+export interface ResourceState {
+  label: string
+  message?: string
+}
 
 export interface BuildWatchSnapshot {
   sessionId: string
@@ -60,6 +65,7 @@ export interface Pipeline {
   workflow_file: string | null
   metadata?: Record<string, unknown>
   overdue_run?: string | null
+  resource_state?: ResourceState
 }
 
 export type ViewRef = string

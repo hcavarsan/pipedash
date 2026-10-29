@@ -59,6 +59,7 @@ pub(crate) fn map_pipeline(
         repository: repository_normalized,
         branch,
         workflow_file: None,
+        resource_state: None,
         metadata,
     }
 }

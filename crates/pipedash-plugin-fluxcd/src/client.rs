@@ -48,6 +48,10 @@ use crate::{
         FluxResource,
         Kind,
     },
+    workloads::{
+        self,
+        WorkloadKind,
+    },
 };
 
 const PAGE_LIMIT: u32 = 500;
@@ -333,6 +337,25 @@ impl FluxClient {
         Ok(())
     }
 
+    async fn list_all(
+        &self, request: &Request, mut params: ListParams, context: &str,
+    ) -> PluginResult<Vec<Value>> {
+        let mut items = Vec::new();
+
+        loop {
+            let page: ObjectList = self.exec(request.list(&params), context).await?;
+            items.extend(page.items);
+            match page
+                .metadata
+                .continue_token
+                .filter(|token| !token.is_empty())
+            {
+                Some(next) => params.continue_token = Some(next),
+                None => return Ok(items),
+            }
+        }
+    }
+
     pub async fn events(&self, target: &Target) -> PluginResult<Vec<Event>> {
         let request = Request::new(format!("/api/v1/namespaces/{}/events", target.namespace));
         let selector = format!(
@@ -340,25 +363,32 @@ impl FluxClient {
             target.kind, target.name, target.namespace
         );
         let context = format!("list events of {target}");
-        let mut events = Vec::new();
-        let mut params = ListParams::default().limit(PAGE_LIMIT).fields(&selector);
+        let params = ListParams::default().limit(PAGE_LIMIT).fields(&selector);
 
-        loop {
-            let page: ObjectList = self.exec(request.list(&params), &context).await?;
-            for item in page.items {
-                events.push(serde_json::from_value(item).map_err(|error| {
-                    PluginError::SerializationError(format!("{context}: {error}"))
-                })?);
-            }
-            match page
-                .metadata
-                .continue_token
-                .filter(|token| !token.is_empty())
-            {
-                Some(next) => params.continue_token = Some(next),
-                None => return Ok(events),
-            }
-        }
+        self.list_all(&request, params, &context)
+            .await?
+            .into_iter()
+            .map(|item| {
+                serde_json::from_value(item)
+                    .map_err(|error| PluginError::SerializationError(format!("{context}: {error}")))
+            })
+            .collect()
+    }
+
+    pub async fn unhealthy_workloads(
+        &self, owner: Kind, kind: WorkloadKind,
+    ) -> PluginResult<Vec<(Target, String)>> {
+        let request = Request::new(kind.collection_path());
+        let params = ListParams::default()
+            .limit(PAGE_LIMIT)
+            .labels(&workloads::owner_selector(owner));
+        let context = format!("list {}s managed by {owner}s", kind.as_str());
+
+        self.list_all(&request, params, &context)
+            .await?
+            .into_iter()
+            .filter_map(|item| workloads::finding(kind, owner, item).transpose())
+            .collect()
     }
 
     pub async fn deployment(&self, namespace: &str, name: &str) -> PluginResult<Deployment> {

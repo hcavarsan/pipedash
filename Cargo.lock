@@ -4229,6 +4229,7 @@ version = "0.6.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "futures",
  "pipedash-plugin-api",
  "reqwest",
  "rustls",

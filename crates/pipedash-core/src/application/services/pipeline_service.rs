@@ -318,7 +318,7 @@ impl PipelineService {
                 .map(|pipeline| pipeline.id.clone()),
         );
 
-        let failed = newly_failed(&old_by_id, &pipelines);
+        let failed = needing_attention(&old_by_id, &pipelines);
 
         Ok(Applied {
             pipelines,
@@ -1101,12 +1101,12 @@ fn provider_id_of(pipeline_id: &str) -> Option<i64> {
     pipeline_id.split("__").nth(1)?.parse().ok()
 }
 
-fn newly_failed(old: &HashMap<&str, &Pipeline>, new: &[Pipeline]) -> Vec<Pipeline> {
+fn needing_attention(old: &HashMap<&str, &Pipeline>, new: &[Pipeline]) -> Vec<Pipeline> {
     new.iter()
-        .filter(|pipeline| pipeline.status == PipelineStatus::Failed)
+        .filter(|pipeline| pipeline.status.needs_attention())
         .filter(|pipeline| {
             old.get(pipeline.id.as_str()).is_some_and(|previous| {
-                previous.status != PipelineStatus::Failed || previous.last_run != pipeline.last_run
+                previous.status != pipeline.status || previous.last_run != pipeline.last_run
             })
         })
         .cloned()
@@ -1258,7 +1258,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_run_that_newly_fails_counts_as_a_failure() {
+    fn only_a_pipeline_that_newly_fails_or_degrades_needs_attention() {
         let at = |minutes: i64| Some(Utc::now() + chrono::Duration::minutes(minutes));
         let make = |status, last_run| {
             let mut pipeline = pipeline(1, "web", status);
@@ -1272,7 +1272,7 @@ mod tests {
             let old_by_id: HashMap<&str, &Pipeline> =
                 old.iter().map(|p| (p.id.as_str(), p)).collect();
 
-            newly_failed(&old_by_id, &[new]).len()
+            needing_attention(&old_by_id, &[new]).len()
         };
 
         assert_eq!(
@@ -1315,6 +1315,27 @@ mod tests {
             failures(
                 Some(make(PipelineStatus::Success, first_run)),
                 make(PipelineStatus::Cancelled, second_run)
+            ),
+            0
+        );
+        assert_eq!(
+            failures(
+                Some(make(PipelineStatus::Success, first_run)),
+                make(PipelineStatus::Degraded, first_run)
+            ),
+            1
+        );
+        assert_eq!(
+            failures(
+                Some(make(PipelineStatus::Degraded, first_run)),
+                make(PipelineStatus::Failed, first_run)
+            ),
+            1
+        );
+        assert_eq!(
+            failures(
+                Some(make(PipelineStatus::Degraded, first_run)),
+                make(PipelineStatus::Degraded, first_run)
             ),
             0
         );

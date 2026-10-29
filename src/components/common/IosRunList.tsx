@@ -12,7 +12,7 @@ import { animateSpring } from '../../lib/spring'
 import { STATUS_META } from '../../theme/status'
 import type { PipelineRun } from '../../types/domain'
 import { formatDuration } from '../../utils/formatDuration'
-import { getStatusLabel } from '../../utils/pipelinePresentation'
+import { getRunStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import { IosGroup } from '../ios/IosList'
 import { SwipeActions } from '../ios/SwipeActions'
@@ -46,7 +46,7 @@ const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, on
     run.duration_seconds !== null && formatDuration(run.duration_seconds),
   ]
   const subtitle = [...timing, ...(isFlux ? [message] : [run.branch, run.actor])].filter(Boolean).join(' · ')
-  const statusLabel = getStatusLabel(run) ?? STATUS_META[run.status].label
+  const statusLabel = getRunStatusLabel(run) ?? STATUS_META[run.status].label
   const swipeable = !selecting && swipeActions.length > 0
 
   const body = (

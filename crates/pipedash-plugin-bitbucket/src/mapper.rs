@@ -103,6 +103,7 @@ pub(crate) fn map_pipeline(
         repository: repo.full_name.clone(),
         branch,
         workflow_file: Some("bitbucket-pipelines.yml".to_string()),
+        resource_state: None,
         metadata,
     }
 }

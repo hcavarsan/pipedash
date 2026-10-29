@@ -98,6 +98,7 @@ impl PluginAdapter {
             repository: plugin_pipeline.repository,
             branch: plugin_pipeline.branch,
             workflow_file: plugin_pipeline.workflow_file,
+            resource_state: plugin_pipeline.resource_state,
             metadata: plugin_pipeline.metadata,
             overdue_run: None,
         }
@@ -109,6 +110,9 @@ impl PluginAdapter {
         match status {
             pipedash_plugin_api::PipelineStatus::Success => crate::domain::PipelineStatus::Success,
             pipedash_plugin_api::PipelineStatus::Failed => crate::domain::PipelineStatus::Failed,
+            pipedash_plugin_api::PipelineStatus::Degraded => {
+                crate::domain::PipelineStatus::Degraded
+            }
             pipedash_plugin_api::PipelineStatus::Running => crate::domain::PipelineStatus::Running,
             pipedash_plugin_api::PipelineStatus::Pending => crate::domain::PipelineStatus::Pending,
             pipedash_plugin_api::PipelineStatus::Cancelled => {

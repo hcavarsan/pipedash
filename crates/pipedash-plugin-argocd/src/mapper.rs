@@ -6,6 +6,7 @@ use pipedash_plugin_api::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    ResourceState,
 };
 
 use crate::{
@@ -13,28 +14,123 @@ use crate::{
     types,
 };
 
-pub(crate) fn map_status(
-    sync_status: &str, health_status: &str, operation_phase: Option<&str>,
-) -> PipelineStatus {
-    if let Some(phase) = operation_phase {
-        match phase {
-            "Running" | "Terminating" => return PipelineStatus::Running,
-            "Failed" | "Error" => return PipelineStatus::Failed,
-            _ => {} // Fall through to health status check
+fn operation_outcome(operation: &types::OperationState) -> Option<(PipelineStatus, &'static str)> {
+    match operation.phase.as_str() {
+        "Running" => Some((PipelineStatus::Running, "Syncing")),
+        "Terminating" => Some((PipelineStatus::Running, "Terminating")),
+        "Failed" | "Error" => Some((PipelineStatus::Failed, "Sync failed")),
+        _ => None,
+    }
+}
+
+fn or_unknown(value: &str) -> &str {
+    if value.is_empty() {
+        "Unknown"
+    } else {
+        value
+    }
+}
+
+pub(crate) fn map_state(app: &types::Application) -> (PipelineStatus, ResourceState) {
+    if let Some(operation) = &app.status.operation_state {
+        if let Some((status, label)) = operation_outcome(operation) {
+            return (
+                status,
+                ResourceState::new(label, operation.message.as_deref()),
+            );
         }
     }
 
-    match health_status {
-        "Degraded" | "Missing" => PipelineStatus::Failed,
-        "Suspended" => PipelineStatus::Cancelled,
-        "Progressing" => PipelineStatus::Running,
-        "Healthy" => match sync_status {
-            "Synced" => PipelineStatus::Success,
-            "OutOfSync" => PipelineStatus::Pending,
-            _ => PipelineStatus::Pending,
-        },
-        _ => PipelineStatus::Pending,
+    let (status, label) = match (
+        app.status.health.status.as_str(),
+        app.status.sync.status.as_str(),
+    ) {
+        ("Degraded", _) => (PipelineStatus::Degraded, "Degraded"),
+        ("Missing", _) => (PipelineStatus::Failed, "Missing"),
+        ("Suspended", _) => (PipelineStatus::Cancelled, "Suspended"),
+        ("Progressing", _) => (PipelineStatus::Running, "Progressing"),
+        ("Healthy", "Synced") => (PipelineStatus::Success, "Synced"),
+        ("Healthy", "OutOfSync") => (PipelineStatus::Pending, "Out of sync"),
+        ("Healthy" | "", sync) => (PipelineStatus::Pending, or_unknown(sync)),
+        (health, _) => (PipelineStatus::Pending, health),
+    };
+    (
+        status,
+        ResourceState::new(label, app.status.health.message.as_deref()),
+    )
+}
+
+pub(crate) fn needs_resource_tree(app: &types::Application) -> bool {
+    app.status
+        .operation_state
+        .as_ref()
+        .is_none_or(|operation| operation_outcome(operation).is_none())
+        && matches!(
+            app.status.health.status.as_str(),
+            "Progressing" | "Degraded" | "Unknown"
+        )
+}
+
+pub(crate) fn degrade_from_tree(pipeline: &mut Pipeline, tree: &types::ApplicationTree) {
+    let degraded: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.health
+                .as_ref()
+                .is_some_and(|health| health.status == "Degraded")
+        })
+        .collect();
+    let Some(first) = degraded.iter().min_by_key(|node| node.kind != "Pod") else {
+        return;
+    };
+
+    let mut message = if first.namespace.is_empty() {
+        format!("{} {}", first.kind, first.name)
+    } else {
+        format!("{} {}/{}", first.kind, first.namespace, first.name)
+    };
+    if let Some(detail) = node_detail(first) {
+        message = format!("{message}: {detail}");
     }
+    if degraded.len() > 1 {
+        message = format!("{message} (+{} more)", degraded.len() - 1);
+    }
+
+    pipeline.status = PipelineStatus::Degraded;
+    pipeline.resource_state = Some(ResourceState::new("Degraded", Some(&message)));
+}
+
+fn node_detail(node: &types::ResourceNode) -> Option<String> {
+    if let Some(message) = node
+        .health
+        .as_ref()
+        .and_then(|health| health.message.as_deref())
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+    {
+        return Some(message.to_string());
+    }
+
+    let info = |name: &str| {
+        node.info
+            .iter()
+            .find(|item| item.name == name)
+            .map(|item| item.value.trim())
+            .filter(|value| !value.is_empty())
+    };
+    let parts: Vec<String> = [
+        info("Status Reason").map(str::to_string),
+        info("Containers").map(|ready| format!("{ready} containers ready")),
+        info("Restart Count")
+            .filter(|count| *count != "0")
+            .map(|count| format!("{count} restarts")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    (!parts.is_empty()).then(|| parts.join(", "))
 }
 
 pub(crate) fn operation_status(phase: &str) -> PipelineStatus {
@@ -63,17 +159,7 @@ pub(crate) fn map_application_to_pipeline(
         .clone()
         .unwrap_or_else(|| "argocd".to_string());
 
-    let operation_phase = app
-        .status
-        .operation_state
-        .as_ref()
-        .map(|op| op.phase.as_str());
-
-    let status = map_status(
-        &app.status.sync.status,
-        &app.status.health.status,
-        operation_phase,
-    );
+    let (status, resource_state) = map_state(app);
 
     let last_run = app
         .status
@@ -215,6 +301,7 @@ pub(crate) fn map_application_to_pipeline(
         repository,
         branch: source.target_revision.clone(),
         workflow_file: source.path.clone(),
+        resource_state: Some(resource_state),
         metadata,
     }
 }
@@ -518,5 +605,256 @@ mod tests {
             available.description.as_deref(),
             Some("Project: default | Path: deploy | Target: HEAD | Namespace: - | Cluster: in-cluster")
         );
+    }
+
+    fn state_app(
+        sync: &str, health: &str, health_message: Option<&str>,
+        operation: Option<(&str, Option<&str>)>,
+    ) -> types::Application {
+        let operation = operation.map(|(phase, message)| {
+            serde_json::json!({"phase": phase, "message": message, "startedAt": "2026-10-27T10:00:00Z"})
+        });
+        serde_json::from_value(serde_json::json!({
+            "metadata": {"name": "web", "namespace": "argocd"},
+            "spec": {"source": {"repoURL": "https://github.com/acme/web"}, "destination": {"namespace": "web"}, "project": "default"},
+            "status": {
+                "sync": {"status": sync},
+                "health": {"status": health, "message": health_message},
+                "operationState": operation,
+            },
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn state_follows_operation_then_health_then_sync() {
+        let cases = [
+            (
+                "Synced",
+                "Healthy",
+                Some("Running"),
+                PipelineStatus::Running,
+                "Syncing",
+            ),
+            (
+                "Synced",
+                "Healthy",
+                Some("Terminating"),
+                PipelineStatus::Running,
+                "Terminating",
+            ),
+            (
+                "Synced",
+                "Healthy",
+                Some("Failed"),
+                PipelineStatus::Failed,
+                "Sync failed",
+            ),
+            (
+                "Synced",
+                "Healthy",
+                Some("Error"),
+                PipelineStatus::Failed,
+                "Sync failed",
+            ),
+            (
+                "Synced",
+                "Healthy",
+                Some("Succeeded"),
+                PipelineStatus::Success,
+                "Synced",
+            ),
+            (
+                "OutOfSync",
+                "Degraded",
+                None,
+                PipelineStatus::Degraded,
+                "Degraded",
+            ),
+            ("Synced", "Missing", None, PipelineStatus::Failed, "Missing"),
+            (
+                "Synced",
+                "Suspended",
+                None,
+                PipelineStatus::Cancelled,
+                "Suspended",
+            ),
+            (
+                "Synced",
+                "Progressing",
+                None,
+                PipelineStatus::Running,
+                "Progressing",
+            ),
+            ("Synced", "Healthy", None, PipelineStatus::Success, "Synced"),
+            (
+                "OutOfSync",
+                "Healthy",
+                None,
+                PipelineStatus::Pending,
+                "Out of sync",
+            ),
+            (
+                "Unknown",
+                "Healthy",
+                None,
+                PipelineStatus::Pending,
+                "Unknown",
+            ),
+            (
+                "Synced",
+                "Unknown",
+                None,
+                PipelineStatus::Pending,
+                "Unknown",
+            ),
+            ("OutOfSync", "", None, PipelineStatus::Pending, "OutOfSync"),
+            ("", "", None, PipelineStatus::Pending, "Unknown"),
+            ("Synced", "Custom", None, PipelineStatus::Pending, "Custom"),
+        ];
+
+        for (sync, health, phase, status, label) in cases {
+            let app = state_app(sync, health, None, phase.map(|phase| (phase, None)));
+            let (actual, state) = map_state(&app);
+            assert_eq!(
+                (actual, state.label.as_str()),
+                (status, label),
+                "{sync}/{health}/{phase:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn state_message_comes_from_the_operation_or_the_health() {
+        let syncing = state_app(
+            "Synced",
+            "Progressing",
+            Some("waiting for rollout"),
+            Some(("Running", Some("one or more tasks are running"))),
+        );
+        assert_eq!(
+            map_state(&syncing).1,
+            ResourceState::new("Syncing", Some("one or more tasks are running"))
+        );
+
+        let degraded = state_app("Synced", "Degraded", Some("  deployment web failed "), None);
+        assert_eq!(
+            map_state(&degraded).1,
+            ResourceState::new("Degraded", Some("deployment web failed"))
+        );
+
+        let quiet = state_app("Synced", "Healthy", Some(""), None);
+        assert_eq!(map_state(&quiet).1.message, None);
+
+        let pipeline = map_application_to_pipeline(&syncing, 1, "https://argocd.acme.dev");
+        assert_eq!(pipeline.status, PipelineStatus::Running);
+        assert_eq!(pipeline.resource_state.unwrap().label, "Syncing");
+    }
+
+    #[test]
+    fn resource_tree_is_only_needed_for_unhealthy_idle_apps() {
+        let cases = [
+            ("Synced", "Healthy", None, false),
+            ("Synced", "Progressing", None, true),
+            ("Synced", "Degraded", None, true),
+            ("Synced", "Unknown", None, true),
+            ("Synced", "Suspended", None, false),
+            ("Synced", "Missing", None, false),
+            ("Synced", "Progressing", Some("Running"), false),
+            ("Synced", "Progressing", Some("Terminating"), false),
+            ("Synced", "Degraded", Some("Failed"), false),
+            ("Synced", "Progressing", Some("Succeeded"), true),
+        ];
+
+        for (sync, health, phase, needed) in cases {
+            let app = state_app(sync, health, None, phase.map(|phase| (phase, None)));
+            assert_eq!(needs_resource_tree(&app), needed, "{health}/{phase:?}");
+        }
+    }
+
+    fn tree(nodes: &str) -> types::ApplicationTree {
+        serde_json::from_str(&format!(r#"{{"nodes":{nodes}}}"#)).unwrap()
+    }
+
+    fn progressing_pipeline() -> Pipeline {
+        let app = state_app("Synced", "Progressing", Some("waiting"), None);
+        map_application_to_pipeline(&app, 1, "https://argocd.acme.dev")
+    }
+
+    #[test]
+    fn degraded_pod_names_itself_and_counts_the_rest() {
+        let mut pipeline = progressing_pipeline();
+        degrade_from_tree(
+            &mut pipeline,
+            &tree(
+                r#"[
+                {"kind":"Deployment","namespace":"web","name":"web","health":{"status":"Degraded","message":"not progressing"}},
+                {"kind":"Pod","namespace":"web","name":"web-ok","health":{"status":"Healthy"}},
+                {"kind":"Pod","namespace":"web","name":"web-7f9c-abc","health":{"status":"Degraded","message":"back-off 40s restarting failed container=app"}},
+                {"kind":"Pod","namespace":"web","name":"web-7f9c-def","health":{"status":"Degraded"}},
+                {"kind":"Service","namespace":"web","name":"web"}]"#,
+            ),
+        );
+
+        assert_eq!(pipeline.status, PipelineStatus::Degraded);
+        assert_eq!(
+            pipeline.resource_state,
+            Some(ResourceState::new(
+                "Degraded",
+                Some(
+                    "Pod web/web-7f9c-abc: back-off 40s restarting failed container=app (+2 more)"
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn degraded_non_pod_without_message_or_namespace() {
+        let mut pipeline = progressing_pipeline();
+        degrade_from_tree(
+            &mut pipeline,
+            &tree(r#"[{"kind":"ClusterRole","name":"web","health":{"status":"Degraded"}}]"#),
+        );
+
+        assert_eq!(
+            pipeline.resource_state,
+            Some(ResourceState::new("Degraded", Some("ClusterRole web")))
+        );
+    }
+
+    #[test]
+    fn degraded_pod_without_health_message_is_explained_by_its_info() {
+        let mut pipeline = progressing_pipeline();
+        degrade_from_tree(
+            &mut pipeline,
+            &tree(
+                r#"[{"kind":"Pod","namespace":"web","name":"web-5884","health":{"status":"Degraded"},
+                "info":[{"name":"Status Reason","value":"CrashLoopBackOff"},{"name":"Node","value":"kind"},
+                {"name":"Containers","value":"0/1"},{"name":"Restart Count","value":"4"}]}]"#,
+            ),
+        );
+
+        assert_eq!(
+            pipeline.resource_state,
+            Some(ResourceState::new(
+                "Degraded",
+                Some("Pod web/web-5884: CrashLoopBackOff, 0/1 containers ready, 4 restarts")
+            ))
+        );
+    }
+
+    #[test]
+    fn tree_without_degraded_nodes_keeps_the_provider_state() {
+        let mut pipeline = progressing_pipeline();
+        let before = pipeline.resource_state.clone();
+        degrade_from_tree(
+            &mut pipeline,
+            &tree(
+                r#"[{"kind":"Pod","namespace":"web","name":"web-1","health":{"status":"Progressing"}},{"kind":"Pod","name":"web-2"}]"#,
+            ),
+        );
+
+        assert_eq!(pipeline.status, PipelineStatus::Running);
+        assert_eq!(pipeline.resource_state, before);
     }
 }
