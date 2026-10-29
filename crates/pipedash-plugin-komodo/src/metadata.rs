@@ -38,7 +38,7 @@ fn create_config_schema() -> ConfigSchema {
             label: "API Key".to_string(),
             description: Some(
                 "Komodo API key, created under Profile > API Keys. Needs read access to the \
-                 stacks and execute access to deploy them"
+                 stacks, which also covers their update logs, and execute access to deploy them"
                     .to_string(),
             ),
             field_type: ConfigFieldType::Text,
@@ -86,7 +86,7 @@ fn create_capabilities() -> PluginCapabilities {
         queues: false,
         custom_tables: false,
         retains_run_history: false,
-        logs: false,
+        logs: true,
         sign_in: false,
     }
 }

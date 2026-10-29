@@ -15,12 +15,14 @@ use tracing::{
 use crate::{
     client,
     config,
+    log_dialect,
     mapper,
     metadata,
     types,
 };
 
 const DEFAULT_PAGE_SIZE: usize = 100;
+const LOG_CHUNK_BYTES: usize = 64 * 1024;
 
 pub struct KomodoPlugin {
     metadata: PluginMetadata,
@@ -56,6 +58,60 @@ impl KomodoPlugin {
     fn provider_id(&self) -> PluginResult<i64> {
         self.provider_id
             .ok_or_else(|| PluginError::Internal("Provider ID not set".to_string()))
+    }
+
+    async fn update_started_at(
+        &self, stack_id: &str, run_number: i64,
+    ) -> PluginResult<types::UpdateListItem> {
+        let mut matching = self
+            .client()?
+            .updates_started_at(stack_id, run_number)
+            .await?;
+        if matching.len() > 1 {
+            return Err(PluginError::ApiError(format!(
+                "{} updates of stack {stack_id} share run number {run_number}; refusing to pick one",
+                matching.len()
+            )));
+        }
+        matching.pop().ok_or_else(|| {
+            PluginError::PipelineNotFound(format!(
+                "Update {run_number} not found for stack {stack_id}"
+            ))
+        })
+    }
+
+    async fn run_update_logs(
+        &self, run: &RunRef<'_>, stack_id: &str,
+    ) -> PluginResult<(String, types::UpdateLogs)> {
+        let update_id = match run
+            .metadata
+            .get("update_id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
+            Some(id) => id.to_string(),
+            None => self.update_started_at(stack_id, run.run_number).await?.id,
+        };
+        let logs = self.client()?.update_logs(&update_id).await?;
+        Ok((update_id, logs))
+    }
+
+    fn stage_index(node_id: &str) -> PluginResult<usize> {
+        Some(node_id)
+            .filter(|id| id.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|id| id.parse().ok())
+            .ok_or_else(|| PluginError::InvalidConfig(format!("Invalid log node ID: {node_id}")))
+    }
+
+    async fn write_stage(log: &types::UpdateLog, sink: &mut LogSink) -> PluginResult<()> {
+        let mut chunk = Vec::new();
+        for (marker, line) in log_dialect::stage_lines(log) {
+            log_dialect::push_line(&mut chunk, marker, line);
+            if chunk.len() >= LOG_CHUNK_BYTES {
+                sink.write(std::mem::take(&mut chunk).into()).await?;
+            }
+        }
+        sink.write(chunk.into()).await
     }
 }
 
@@ -229,18 +285,7 @@ impl Plugin for KomodoPlugin {
         let (_, stack_id) = config::parse_pipeline_id(pipeline_id)?;
         let client = self.client()?;
 
-        let mut matching = client.updates_started_at(stack_id, run_number).await?;
-        if matching.len() > 1 {
-            return Err(PluginError::ApiError(format!(
-                "{} updates of stack {stack_id} share run number {run_number}; refusing to pick one",
-                matching.len()
-            )));
-        }
-        let item = matching.pop().ok_or_else(|| {
-            PluginError::PipelineNotFound(format!(
-                "Update {run_number} not found for stack {stack_id}"
-            ))
-        })?;
+        let item = self.update_started_at(stack_id, run_number).await?;
         let detail = if item.id.is_empty() {
             None
         } else {
@@ -254,6 +299,33 @@ impl Plugin for KomodoPlugin {
             &item,
             detail.as_ref(),
         ))
+    }
+
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let (_, stack_id) = config::parse_pipeline_id(run.pipeline_id)?;
+        let (update_id, update) = self.run_update_logs(&run, stack_id).await?;
+
+        Ok(mapper::map_log_nodes(
+            &update,
+            &mapper::run_url(&self.server_url, stack_id, &update_id),
+        ))
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let index = Self::stage_index(node_id)?;
+        let (_, stack_id) = config::parse_pipeline_id(run.pipeline_id)?;
+        let (_, update) = self.run_update_logs(&run, stack_id).await?;
+        let log = update.logs.get(index).ok_or_else(|| {
+            PluginError::InvalidConfig(format!("Update has no log stage {index}"))
+        })?;
+
+        Self::write_stage(log, sink).await
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &log_dialect::KomodoLogDialect
     }
 
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String> {
@@ -296,6 +368,7 @@ mod tests {
     const NEWEST_START: i64 = 1_761_660_000_000;
     const UPDATE_COUNT: usize = 250;
     const UPDATES_PER_PAGE: usize = 100;
+    const LONG_OUTPUT_LINES: usize = 20_000;
     const BUSY_START: i64 = NEWEST_START - 5_000_000;
     const BUSY_UPDATES: usize = 650;
     const RUNNING_START: i64 = NEWEST_START - 10_000_000;
@@ -373,11 +446,85 @@ mod tests {
             "_id": {"$oid": format!("u{index:03}")},
             "operation": if index % 2 == 0 { "DeployStack" } else { "StartStack" },
             "start_ts": update_start(index), "success": index % 5 != 0, "operator": "usr1",
-            "target": {"type": "Stack", "id": "stk1"}, "logs": [],
+            "target": {"type": "Stack", "id": "stk1"}, "logs": update_logs(index),
             "end_ts": if index == 0 { Value::Null } else { json!(update_start(index) + 42_500) },
             "status": if index == 0 { "InProgress" } else { "Complete" },
             "commit_hash": "abc1234"
         })
+    }
+
+    fn stage(
+        name: &str, command: &str, stdout: &str, stderr: &str, success: bool, range: (i64, i64),
+    ) -> Value {
+        json!({
+            "stage": name, "command": command, "stdout": stdout, "stderr": stderr,
+            "success": success, "start_ts": range.0, "end_ts": range.1
+        })
+    }
+
+    fn update_logs(index: usize) -> Value {
+        let start = update_start(index);
+        match index {
+            0 => json!([
+                stage(
+                    "Clone Repo",
+                    "git clone acme/web",
+                    "cloned",
+                    "",
+                    true,
+                    (start, start + 1_000)
+                ),
+                stage(
+                    "Compose Up",
+                    "docker compose up -d",
+                    "pulling",
+                    "",
+                    true,
+                    (start + 1_000, start + 2_000)
+                ),
+            ]),
+            1 => json!([stage(
+                "Compose Up",
+                "docker compose up -d",
+                "started",
+                "Network web_default  Created",
+                true,
+                (start, start + 1_500)
+            )]),
+            5 => json!([
+                stage(
+                    "Clone Repo",
+                    "git clone acme/web",
+                    "cloned",
+                    "",
+                    true,
+                    (start, start + 1_000)
+                ),
+                stage(
+                    "Compose Up",
+                    "docker compose up -d",
+                    "Pulling 10%\rPulling 100%\nContainer web-app-1  Starting\n",
+                    "Error response from daemon: port is already allocated\nfailed to start web",
+                    false,
+                    (start + 1_000, start + 9_500)
+                ),
+            ]),
+            7 => json!([stage(
+                "Compose Pull",
+                "",
+                &long_output(),
+                "",
+                true,
+                (start, start + 3_000)
+            )]),
+            _ => json!([]),
+        }
+    }
+
+    fn long_output() -> String {
+        (0..LONG_OUTPUT_LINES)
+            .map(|line| format!("line {line:05}\n"))
+            .collect()
     }
 
     fn stack_update(stack_id: &str, index: usize, start_ts: i64) -> Value {
@@ -468,12 +615,15 @@ mod tests {
                 params["page"].as_u64().unwrap_or_default() as usize,
             ),
             ("/read", "GetUpdate") => {
-                let index = params["id"]
-                    .as_str()
-                    .and_then(|id| id.strip_prefix('u'))
-                    .and_then(|index| index.parse().ok());
-                match index {
-                    Some(index) if index < UPDATE_COUNT => (200, full_update(index)),
+                let id = params["id"].as_str().unwrap_or_default();
+                let index = id.strip_prefix('u').and_then(|index| index.parse().ok());
+                match (id, index) {
+                    ("u-gone", _) => (
+                        500,
+                        json!({"error": "no update exists with given id", "trace": ["failed to query to db"]}),
+                    ),
+                    ("u-down", _) => (503, json!({"error": "database is down", "trace": []})),
+                    (_, Some(index)) if index < UPDATE_COUNT => (200, full_update(index)),
                     _ => (404, json!({"error": "update not found", "trace": []})),
                 }
             }
@@ -981,6 +1131,374 @@ mod tests {
         assert!(
             matches!(forbidden, PluginError::PermissionDenied(_)),
             "{forbidden}"
+        );
+    }
+
+    fn update_metadata(update_id: &str) -> HashMap<String, Value> {
+        HashMap::from([("update_id".to_string(), json!(update_id))])
+    }
+
+    fn log_run(metadata: &HashMap<String, Value>, run_number: i64) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: PIPELINE,
+            run_number,
+            run_id: "komodo__1__stk1__run",
+            metadata,
+        }
+    }
+
+    async fn read_chunks(
+        plugin: &KomodoPlugin, run: RunRef<'_>, node_id: &str,
+    ) -> PluginResult<Vec<Vec<u8>>> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        let mut sink = LogSink::new(tx);
+        let result = plugin.read_log(run, node_id, &mut sink).await;
+        drop(sink);
+        let mut chunks = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            chunks.push(chunk.to_vec());
+        }
+        result.map(|()| chunks)
+    }
+
+    async fn read_stage(
+        plugin: &KomodoPlugin, run: RunRef<'_>, node_id: &str,
+    ) -> PluginResult<Vec<u8>> {
+        read_chunks(plugin, run, node_id)
+            .await
+            .map(|chunks| chunks.concat())
+    }
+
+    fn parsed(plugin: &KomodoPlugin, text: &[u8]) -> Vec<(LineMarker, String)> {
+        let dialect = plugin.log_dialect();
+        text.strip_suffix(b"\n")
+            .into_iter()
+            .flat_map(|text| text.split(|b| *b == b'\n'))
+            .map(|line| {
+                let visible = line
+                    .rsplit(|b| *b == b'\r')
+                    .find(|segment| !segment.is_empty())
+                    .unwrap_or_default();
+                let parsed = dialect.parse(visible);
+                (
+                    parsed.marker,
+                    String::from_utf8_lossy(parsed.body).into_owned(),
+                )
+            })
+            .collect()
+    }
+
+    fn text(marker: LineMarker, body: &str) -> (LineMarker, String) {
+        (marker, body.to_string())
+    }
+
+    #[tokio::test]
+    async fn finished_update_stages_become_job_nodes_read_by_update_id() {
+        let (plugin, server_url, requests) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u005");
+
+        let nodes = plugin
+            .fetch_log_nodes(log_run(&metadata, update_start(5)))
+            .await
+            .unwrap();
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_str(),
+                    node.name.as_str(),
+                    node.kind,
+                    node.status,
+                    node.log,
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (
+                    "0",
+                    "Clone Repo",
+                    LogNodeKind::Job,
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "1",
+                    "Compose Up",
+                    LogNodeKind::Job,
+                    PipelineStatus::Failed,
+                    Some(LogAvailability::Ready)
+                ),
+            ]
+        );
+        let millis = |at: Option<chrono::DateTime<chrono::Utc>>| at.map(|at| at.timestamp_millis());
+        assert_eq!(millis(nodes[1].started_at), Some(update_start(5) + 1_000));
+        assert_eq!(millis(nodes[1].finished_at), Some(update_start(5) + 9_500));
+        assert_eq!(
+            nodes[1].web_url.as_deref(),
+            Some(format!("{server_url}/updates/u005").as_str())
+        );
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].path, "/read");
+        assert_eq!(
+            requests[0].body,
+            json!({"type": "GetUpdate", "params": {"id": "u005"}})
+        );
+    }
+
+    #[tokio::test]
+    async fn the_last_stage_of_a_running_update_is_partial_and_open() {
+        let (plugin, _, _) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u000");
+
+        let nodes = plugin
+            .fetch_log_nodes(log_run(&metadata, NEWEST_START))
+            .await
+            .unwrap();
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| (node.status, node.log, node.finished_at.is_some()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (PipelineStatus::Success, Some(LogAvailability::Ready), true),
+                (
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Partial),
+                    false
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn runs_without_an_update_id_are_found_by_their_start_time() {
+        let (plugin, _, requests) = stub_plugin(&[]).await;
+        let without_id = HashMap::new();
+        let empty_id = update_metadata("");
+
+        for metadata in [&without_id, &empty_id] {
+            let nodes = plugin
+                .fetch_log_nodes(log_run(metadata, update_start(5)))
+                .await
+                .unwrap();
+            assert_eq!(nodes.len(), 2);
+        }
+        let stage = read_stage(&plugin, log_run(&without_id, update_start(1)), "0")
+            .await
+            .unwrap();
+
+        assert!(stage.starts_with(b"$ docker compose up -d\n"));
+        let lookups = bodies(&requests, "ListUpdates").await;
+        assert_eq!(lookups.len(), 3);
+        assert_eq!(
+            lookups[0]["params"]["query"],
+            json!({"target.type": "Stack", "target.id": "stk1", "start_ts": update_start(5)})
+        );
+        let reads: Vec<_> = bodies(&requests, "GetUpdate")
+            .await
+            .iter()
+            .map(|body| body["params"]["id"].clone())
+            .collect();
+        assert_eq!(reads, [json!("u005"), json!("u005"), json!("u001")]);
+    }
+
+    #[tokio::test]
+    async fn an_unmatched_or_ambiguous_start_time_fails_before_the_update_is_read() {
+        let (plugin, _, requests) = stub_plugin(&[]).await;
+        let metadata = HashMap::new();
+        let ambiguous = RunRef {
+            pipeline_id: "komodo__1__dup",
+            run_number: 7,
+            run_id: "komodo__1__dup__d1",
+            metadata: &metadata,
+        };
+
+        let unknown = plugin
+            .fetch_log_nodes(log_run(&metadata, 12_345))
+            .await
+            .unwrap_err();
+        let shared = plugin.fetch_log_nodes(ambiguous).await.unwrap_err();
+
+        assert!(
+            matches!(unknown, PluginError::PipelineNotFound(_)),
+            "{unknown}"
+        );
+        assert!(
+            matches!(&shared, PluginError::ApiError(m) if m.contains("share run number")),
+            "{shared}"
+        );
+        assert!(bodies(&requests, "GetUpdate").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_failed_stage_reads_as_command_then_stdout_then_stderr_errors() {
+        let (plugin, _, _) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u005");
+
+        let stage = read_stage(&plugin, log_run(&metadata, update_start(5)), "1")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            String::from_utf8(stage.clone()).unwrap(),
+            "$ docker compose up -d\n\
+             . Pulling 10%\r. Pulling 100%\n\
+             . Container web-app-1  Starting\n\
+             ! Error response from daemon: port is already allocated\n\
+             ! failed to start web\n"
+        );
+        assert_eq!(
+            parsed(&plugin, &stage),
+            [
+                text(LineMarker::Command, "$ docker compose up -d"),
+                text(LineMarker::Plain, "Pulling 100%"),
+                text(LineMarker::Plain, "Container web-app-1  Starting"),
+                text(
+                    LineMarker::Error,
+                    "Error response from daemon: port is already allocated"
+                ),
+                text(LineMarker::Error, "failed to start web"),
+            ]
+        );
+        let first = read_stage(&plugin, log_run(&metadata, update_start(5)), "0")
+            .await
+            .unwrap();
+        assert_eq!(
+            parsed(&plugin, &first),
+            [
+                text(LineMarker::Command, "$ git clone acme/web"),
+                text(LineMarker::Plain, "cloned"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn stderr_of_a_successful_stage_reads_as_a_warning() {
+        let (plugin, _, _) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u001");
+
+        let stage = read_stage(&plugin, log_run(&metadata, update_start(1)), "0")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            parsed(&plugin, &stage),
+            [
+                text(LineMarker::Command, "$ docker compose up -d"),
+                text(LineMarker::Plain, "started"),
+                text(LineMarker::Warning, "Network web_default  Created"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn long_stage_text_is_written_in_chunks_without_losing_a_line() {
+        let (plugin, _, _) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u007");
+
+        let chunks = read_chunks(&plugin, log_run(&metadata, update_start(7)), "0")
+            .await
+            .unwrap();
+
+        assert!(chunks.len() >= 3, "{} chunks", chunks.len());
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.len() < 2 * LOG_CHUNK_BYTES && chunk.ends_with(b"\n")));
+        let expected: String = (0..LONG_OUTPUT_LINES)
+            .map(|line| format!(". line {line:05}\n"))
+            .collect();
+        assert_eq!(chunks.concat(), expected.into_bytes());
+    }
+
+    #[tokio::test]
+    async fn node_ids_that_are_not_stage_numbers_are_rejected_without_a_request() {
+        let (plugin, _, requests) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u005");
+
+        let rejected = [
+            "",
+            "-1",
+            "+1",
+            "1.0",
+            "1 ",
+            " 1",
+            "abc",
+            "1/../../execute",
+            "1?x=1",
+            "٤",
+            "99999999999999999999",
+        ];
+        for node_id in rejected {
+            let error = read_stage(&plugin, log_run(&metadata, update_start(5)), node_id)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{node_id:?}"
+            );
+        }
+        let foreign = RunRef {
+            pipeline_id: "argocd__1__web",
+            run_number: 1,
+            run_id: "argocd-sync",
+            metadata: &metadata,
+        };
+        assert!(matches!(
+            plugin.fetch_log_nodes(foreign).await,
+            Err(PluginError::InvalidConfig(_))
+        ));
+        assert!(requests.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_stage_number_beyond_the_update_is_rejected_after_reading_it_once() {
+        let (plugin, _, requests) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u005");
+
+        for node_id in ["2", "7", "18446744073709551615"] {
+            let error = read_stage(&plugin, log_run(&metadata, update_start(5)), node_id)
+                .await
+                .unwrap_err();
+            assert!(matches!(error, PluginError::InvalidConfig(_)), "{node_id}");
+        }
+
+        assert_eq!(bodies(&requests, "GetUpdate").await.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn an_update_komodo_no_longer_has_is_not_found_and_other_failures_are_not() {
+        let (plugin, _, _) = stub_plugin(&[]).await;
+
+        for update_id in ["u999", "u-gone"] {
+            let metadata = update_metadata(update_id);
+            let nodes = plugin
+                .fetch_log_nodes(log_run(&metadata, 1))
+                .await
+                .unwrap_err();
+            let stage = read_stage(&plugin, log_run(&metadata, 1), "0")
+                .await
+                .unwrap_err();
+            for error in [nodes, stage] {
+                assert!(
+                    matches!(error, PluginError::PipelineNotFound(_)),
+                    "{update_id}: {error}"
+                );
+            }
+        }
+        let metadata = update_metadata("u-down");
+        let down = plugin
+            .fetch_log_nodes(log_run(&metadata, 1))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(down, PluginError::ServiceUnavailable { .. }),
+            "{down}"
         );
     }
 

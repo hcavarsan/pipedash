@@ -3,6 +3,7 @@ use std::collections::{
     HashSet,
 };
 use std::sync::Arc;
+use std::time::Duration;
 
 use pipedash_plugin_api::{
     check_response,
@@ -23,6 +24,7 @@ use crate::types::{
     StackListItem,
     Update,
     UpdateListItem,
+    UpdateLogs,
     VersionResponse,
 };
 
@@ -35,6 +37,8 @@ pub(crate) struct KomodoClient {
 }
 
 const MAX_LAST_RUN_PAGES: u32 = 5;
+const UPDATE_LOGS_TIMEOUT: Duration = Duration::from_secs(900);
+const MISSING_UPDATE: &str = "no update exists with given id";
 
 impl KomodoClient {
     pub fn new(
@@ -113,6 +117,21 @@ impl KomodoClient {
         self.read("GetUpdate", json!({ "id": update_id })).await
     }
 
+    pub async fn update_logs(&self, update_id: &str) -> PluginResult<UpdateLogs> {
+        self.send_read(
+            "GetUpdate",
+            json!({ "id": update_id }),
+            Some(UPDATE_LOGS_TIMEOUT),
+        )
+        .await
+        .map_err(|error| match error {
+            PluginError::ServiceUnavailable { message, .. } if message.contains(MISSING_UPDATE) => {
+                PluginError::PipelineNotFound(format!("Update {update_id} no longer exists"))
+            }
+            other => other,
+        })
+    }
+
     pub async fn deploy_stack(&self, stack_id: &str) -> PluginResult<Update> {
         let url = self.url("execute")?;
         let params = json!({ "stack": stack_id });
@@ -131,14 +150,20 @@ impl KomodoClient {
     async fn read<T: DeserializeOwned>(
         &self, request_type: &str, params: Value,
     ) -> PluginResult<T> {
+        self.send_read(request_type, params, None).await
+    }
+
+    async fn send_read<T: DeserializeOwned>(
+        &self, request_type: &str, params: Value, timeout: Option<Duration>,
+    ) -> PluginResult<T> {
         let url = self.url("read")?;
         self.retry_policy
             .retry(|| async {
-                let response = self
-                    .request(&url, request_type, &params)
-                    .send()
-                    .await
-                    .map_err(|e| map_send_error(e, &url))?;
+                let mut request = self.request(&url, request_type, &params);
+                if let Some(timeout) = timeout {
+                    request = request.timeout(timeout);
+                }
+                let response = request.send().await.map_err(|e| map_send_error(e, &url))?;
                 parse_json(check_response(response).await?, request_type).await
             })
             .await
