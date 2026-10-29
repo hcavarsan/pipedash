@@ -59,14 +59,6 @@ pub(crate) fn log_nodes(run: &PipelineRun) -> Vec<LogNode> {
         log: Some(log),
         web_url: None,
     };
-    let settled = matches!(run.status, PipelineStatus::Success | PipelineStatus::Failed)
-        && !mapper::describes_current_state(run);
-    let availability = if settled {
-        LogAvailability::Ready
-    } else {
-        LogAvailability::Partial
-    };
-
     vec![
         LogNode {
             started_at: Some(run.started_at),
@@ -75,7 +67,7 @@ pub(crate) fn log_nodes(run: &PipelineRun) -> Vec<LogNode> {
                 RECONCILIATION_NODE,
                 "Reconciliation",
                 run.status,
-                availability,
+                LogAvailability::Partial,
             )
         },
         node(

@@ -2244,7 +2244,7 @@ mod tests {
                     "reconciliation".to_string(),
                     LogNodeKind::Job,
                     PipelineStatus::Failed,
-                    Some(LogAvailability::Ready)
+                    Some(LogAvailability::Partial)
                 ),
                 (
                     "object-events".to_string(),
