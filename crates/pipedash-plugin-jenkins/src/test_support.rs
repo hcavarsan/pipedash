@@ -49,11 +49,22 @@ async fn read_request(stream: &mut TcpStream) -> Option<String> {
 pub(crate) async fn stub_server(
     requests: Arc<AtomicUsize>, delay: Duration, reply: fn(&str) -> Reply,
 ) -> String {
+    stub_server_with_head(requests, delay, move |path, _| reply(path)).await
+}
+
+pub(crate) async fn stub_server_with_head<F>(
+    requests: Arc<AtomicUsize>, delay: Duration, reply: F,
+) -> String
+where
+    F: Fn(&str, &str) -> Reply + Send + Sync + 'static,
+{
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    let reply = Arc::new(reply);
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let requests = requests.clone();
+            let reply = reply.clone();
             tokio::spawn(async move {
                 let Some(head) = read_request(&mut stream).await else {
                     return;
@@ -64,7 +75,7 @@ pub(crate) async fn stub_server(
                     .next()
                     .and_then(|line| line.split_whitespace().nth(1))
                     .unwrap_or("/");
-                let reply = reply(path);
+                let reply = (*reply)(path, &head);
                 tokio::time::sleep(delay).await;
                 let response = format!(
                     "HTTP/1.1 {}\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",

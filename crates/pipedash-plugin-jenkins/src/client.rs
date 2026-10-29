@@ -6,6 +6,7 @@ use pipedash_plugin_api::{
     check_response,
     map_send_error,
     AvailablePipeline,
+    LogSink,
     Pipeline,
     PluginError,
     PluginResult,
@@ -180,6 +181,35 @@ impl JenkinsClient {
         self.get_json(&url, Some(Duration::from_secs(30))).await
     }
 
+    pub async fn stream_console_log(
+        &self, job_path: &str, build_number: i64, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let encoded_path = config::encode_job_name(job_path);
+        let url = parse_url(&format!(
+            "{}/job/{}/{}/consoleText",
+            self.server_url, encoded_path, build_number
+        ))?;
+
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .get(url.clone())
+                    .header(reqwest::header::AUTHORIZATION, &self.auth_header)
+                    .timeout(Duration::from_secs(900))
+                    .send()
+            })
+            .await?;
+
+        if matches!(response.status().as_u16(), 404 | 410) {
+            return Err(PluginError::PipelineNotFound(format!(
+                "Console log of build #{build_number} is no longer available"
+            )));
+        }
+
+        sink.pipe(check_response(response).await?).await
+    }
+
     pub async fn trigger_build(
         &self, job_path: &str, form_data: Vec<(String, String)>,
     ) -> PluginResult<()> {
@@ -236,11 +266,7 @@ impl JenkinsClient {
                 .await?;
             tracing::debug!(elapsed = ?build_start.elapsed(), "Fetched Jenkins build details");
 
-            let build_status = if build.building {
-                pipedash_plugin_api::PipelineStatus::Running
-            } else {
-                mapper::map_jenkins_result(build.result.as_deref())
-            };
+            let build_status = mapper::build_status(&build);
             let build_time = chrono::DateTime::from_timestamp_millis(build.timestamp)
                 .map(|dt| dt.with_timezone(&Utc));
             (build_status, build_time)

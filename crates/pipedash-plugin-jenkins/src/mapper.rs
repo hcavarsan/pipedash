@@ -3,8 +3,14 @@ use std::collections::{
     HashSet,
 };
 
-use chrono::Utc;
+use chrono::{
+    DateTime,
+    Utc,
+};
 use pipedash_plugin_api::{
+    LogAvailability,
+    LogNode,
+    LogNodeKind,
     PipelineRun,
     PipelineStatus,
     WorkflowParameter,
@@ -25,14 +31,64 @@ pub(crate) fn map_jenkins_result(result: Option<&str>) -> PipelineStatus {
     }
 }
 
-pub(crate) fn build_to_pipeline_run(
-    build: types::Build, pipeline_id: &str, server_url: &str, encoded_path: &str,
-) -> PipelineRun {
-    let status = if build.building {
+pub(crate) fn build_status(build: &types::Build) -> PipelineStatus {
+    if build.building {
         PipelineStatus::Running
     } else {
         map_jenkins_result(build.result.as_deref())
+    }
+}
+
+fn build_name(build: &types::Build, job_path: &str) -> String {
+    match build
+        .full_display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => name.to_string(),
+        None => format!(
+            "{} #{}",
+            job_path.rsplit('/').next().unwrap_or(job_path),
+            build.number
+        ),
+    }
+}
+
+pub(crate) fn build_to_log_node(build: &types::Build, job_path: &str) -> LogNode {
+    let status = build_status(build);
+    let started_at =
+        DateTime::from_timestamp_millis(build.timestamp).filter(|_| build.timestamp > 0);
+    let finished_at = if build.building {
+        None
+    } else {
+        started_at.and(DateTime::from_timestamp_millis(
+            build.timestamp + build.duration,
+        ))
     };
+    let log = match status {
+        PipelineStatus::Running => LogAvailability::Partial,
+        PipelineStatus::Pending => LogAvailability::Pending,
+        _ => LogAvailability::Ready,
+    };
+
+    LogNode {
+        id: build.number.to_string(),
+        parent_id: None,
+        kind: LogNodeKind::Job,
+        name: build_name(build, job_path),
+        status,
+        started_at,
+        finished_at,
+        log: Some(log),
+        web_url: build.url.clone(),
+    }
+}
+
+pub(crate) fn build_to_pipeline_run(
+    build: types::Build, pipeline_id: &str, server_url: &str, encoded_path: &str,
+) -> PipelineRun {
+    let status = build_status(&build);
 
     let started_at = chrono::DateTime::from_timestamp_millis(build.timestamp)
         .map(|dt| dt.with_timezone(&Utc))
@@ -233,5 +289,81 @@ mod tests {
             PipelineStatus::Cancelled
         );
         assert_eq!(map_jenkins_result(None), PipelineStatus::Running);
+    }
+
+    fn log_node(json: &str, job_path: &str) -> LogNode {
+        build_to_log_node(&serde_json::from_str(json).unwrap(), job_path)
+    }
+
+    #[test]
+    fn every_build_result_maps_to_a_status_and_log_availability() {
+        let cases = [
+            (
+                r#""result":"SUCCESS","building":false"#,
+                PipelineStatus::Success,
+                LogAvailability::Ready,
+            ),
+            (
+                r#""result":"FAILURE","building":false"#,
+                PipelineStatus::Failed,
+                LogAvailability::Ready,
+            ),
+            (
+                r#""result":"UNSTABLE","building":false"#,
+                PipelineStatus::Failed,
+                LogAvailability::Ready,
+            ),
+            (
+                r#""result":"ABORTED","building":false"#,
+                PipelineStatus::Cancelled,
+                LogAvailability::Ready,
+            ),
+            (
+                r#""result":"NOT_BUILT","building":false"#,
+                PipelineStatus::Skipped,
+                LogAvailability::Ready,
+            ),
+            (
+                r#""result":null,"building":true"#,
+                PipelineStatus::Running,
+                LogAvailability::Partial,
+            ),
+            (
+                r#""result":"SUCCESS","building":true"#,
+                PipelineStatus::Running,
+                LogAvailability::Partial,
+            ),
+            (
+                r#""result":"SOMETHING_NEW","building":false"#,
+                PipelineStatus::Pending,
+                LogAvailability::Pending,
+            ),
+        ];
+        for (fields, status, log) in cases {
+            let node = log_node(&format!(r#"{{"number":3,{fields}}}"#), "app");
+            assert_eq!(node.status, status, "{fields}");
+            assert_eq!(node.log, Some(log), "{fields}");
+            assert_eq!(node.id, "3");
+            assert_eq!(node.kind, LogNodeKind::Job);
+        }
+    }
+
+    #[test]
+    fn log_node_is_named_after_the_build_or_the_job() {
+        let full = r#"{"number":3,"fullDisplayName":"team » app #3"}"#;
+        let blank = r#"{"number":3,"fullDisplayName":"  "}"#;
+        let absent = r#"{"number":3}"#;
+
+        assert_eq!(log_node(full, "team/app").name, "team » app #3");
+        assert_eq!(log_node(blank, "team/app").name, "app #3");
+        assert_eq!(log_node(absent, "app").name, "app #3");
+    }
+
+    #[test]
+    fn build_without_a_start_time_has_no_times() {
+        let node = log_node(r#"{"number":3,"result":"SUCCESS","duration":5000}"#, "app");
+
+        assert_eq!(node.started_at, None);
+        assert_eq!(node.finished_at, None);
     }
 }
