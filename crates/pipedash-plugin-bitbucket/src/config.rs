@@ -28,6 +28,26 @@ pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, String, String)>
     Ok((provider_id, workspace, repo_slug))
 }
 
+pub(crate) fn check_step_uuid(id: &str) -> PluginResult<()> {
+    let is_uuid = id
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+        .is_some_and(|uuid| {
+            uuid.len() == 36
+                && uuid.bytes().enumerate().all(|(index, byte)| match index {
+                    8 | 13 | 18 | 23 => byte == b'-',
+                    _ => byte.is_ascii_hexdigit(),
+                })
+        });
+    if is_uuid {
+        Ok(())
+    } else {
+        Err(PluginError::InvalidConfig(format!(
+            "Invalid Bitbucket step ID: {id}"
+        )))
+    }
+}
+
 pub(crate) fn parse_selected_items(config: &HashMap<String, String>) -> Option<Vec<String>> {
     config.get("selected_items").map(|items| {
         items
