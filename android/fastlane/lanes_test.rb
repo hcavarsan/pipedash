@@ -71,11 +71,11 @@ class AndroidLanesTest < Minitest::Test
   end
 
   def test_beta_builds_the_next_version_code_and_uploads_only_the_bundle_to_internal
-    @scenario[:codes] = { "internal" => [3], "production" => [7] }
+    @scenario[:codes] = { "internal" => [1010, 2_026_010_520], "production" => [1015] }
 
     run_lane(:beta)
 
-    assert_equal [[:build, 8], :upload], @events
+    assert_equal [[:build, 1016], :upload], @events
     published = @scenario.fetch(:published)
     assert_equal "internal", published.fetch(:track)
     assert_equal "test.aab", published.fetch(:aab)
@@ -102,16 +102,16 @@ class AndroidLanesTest < Minitest::Test
   end
 
   def test_release_clips_whats_new_and_publishes_to_production
-    @scenario[:codes] = { "alpha" => [11] }
+    @scenario[:codes] = { "alpha" => [1011] }
     @scenario[:release_body] = "### Added\n\n#{(1..40).map { |n| "- Item number #{n} with some words" }.join("\n")}\n"
 
     run_lane(:release)
 
-    assert_equal [:github, [:build, 12], :upload], @events
+    assert_equal [:github, [:build, 1012], :upload], @events
     published = @scenario.fetch(:published)
     assert_equal "production", published.fetch(:track)
     assert_equal "completed", published.fetch(:release_status)
-    changelog = @scenario.fetch(:changelog).fetch("en-US/changelogs/12.txt")
+    changelog = @scenario.fetch(:changelog).fetch("en-US/changelogs/1012.txt")
     assert_operator changelog.length, :<=, 500
     assert changelog.end_with?("\n…")
     assert_includes @scenario.fetch(:metadata_files), "en-US/images/icon.png"

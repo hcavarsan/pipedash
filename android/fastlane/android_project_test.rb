@@ -84,9 +84,10 @@ class AndroidProjectTest < Minitest::Test
     refute AndroidProject.page_aligned?("Program Headers:\n  GNU_STACK 0x0 0x0 0x0 0x0 0x0 RW 0x10\n")
   end
 
-  def test_next_version_code
-    assert_equal 1, AndroidProject.next_version_code([])
-    assert_equal 8, AndroidProject.next_version_code([3, 7])
+  def test_next_version_code_continues_the_sequential_codes
+    assert_equal 1006, AndroidProject.next_version_code([])
+    assert_equal 1006, AndroidProject.next_version_code([1001, 2_026_010_519, 2_026_010_520])
+    assert_equal 1021, AndroidProject.next_version_code([1010, 1020, 2_026_010_520])
   end
 
   def test_metadata_keeps_the_icon_and_gets_a_changelog
