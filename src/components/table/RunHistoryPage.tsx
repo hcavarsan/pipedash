@@ -32,17 +32,18 @@ import {
   IconUser,
   IconX,
 } from '@tabler/icons-react'
+import { useMutationState } from '@tanstack/react-query'
 import type { DataTableSortStatus } from 'mantine-datatable'
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PAGE_SIZES } from '../../constants/pagination'
-import { usePlugins } from '../../contexts/PluginContext'
 import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTableColumns } from '../../hooks/useTableColumns'
 import { useRunHistoryFilters } from '../../hooks/useUrlState'
 import { logger } from '../../lib/logger'
 import { useBuildWatch } from '../../queries/useBuildWatchQueries'
+import { usePlugins } from '../../queries/usePluginsQueries'
 import {
   useClearRunHistoryCache,
   useRunHistory,
@@ -52,7 +53,6 @@ import {
 import { useTableDefinition } from '../../queries/useTableSchemaQueries'
 import { events } from '../../services'
 import { useModalStore } from '../../stores/modalStore'
-import { usePullToRefresh } from '../../stores/pullRefreshStore'
 import { STATUS_META } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../types'
@@ -60,6 +60,7 @@ import { getDateRangeStart } from '../../utils/dateRange'
 import { formatCount } from '../../utils/formatCount'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { formatDuration } from '../../utils/formatDuration'
+import { isRecord } from '../../utils/isRecord'
 import { getValueByPath } from '../../utils/objectPath'
 import {
   canRerunInPlace,
@@ -68,6 +69,7 @@ import {
   getStatusOptions,
   getTriggerBlockReason,
 } from '../../utils/pipelinePresentation'
+import { getPluginDisplayName } from '../../utils/pluginHelpers'
 import type { RerunMode } from '../../utils/rerunSummary'
 import { TableCells } from '../../utils/tableCells'
 import { StatusBadge } from '../atoms/StatusBadge'
@@ -82,6 +84,7 @@ import { StandardTable } from '../common/StandardTable'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup, IosRow } from '../ios/IosList'
 import type { SwipeAction } from '../ios/SwipeActions'
+import { PullToRefresh } from '../layout/PullRefreshContext'
 import { PipelineMetricsView } from '../pipeline/PipelineMetricsView'
 import { RerunConfirmModal } from '../pipeline/RerunConfirmModal'
 
@@ -122,6 +125,10 @@ const RunField = ({ icon, label, children }: RunFieldProps) => (
   </Box>
 )
 
+function isRerunning(variables: unknown[], pipelineId: string, runNumber: number): boolean {
+  return variables.some((v) => isRecord(v) && v.pipelineId === pipelineId && v.runNumber === runNumber)
+}
+
 export function RunHistoryPage({
   pipeline,
   onBack,
@@ -139,7 +146,7 @@ export function RunHistoryPage({
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const buildWatch = useBuildWatch()
-  const { getPluginDisplayName } = usePlugins()
+  const { data: plugins } = usePlugins()
   const watching = buildWatch.data?.watch?.monitoring === 'watching'
   const watchDisabled =
     buildWatch.busy || buildWatch.isFetching || buildWatch.isError || !buildWatch.data?.available || watching
@@ -192,8 +199,6 @@ export function RunHistoryPage({
     error: runsError,
     refetch: refetchRuns,
   } = useRunHistory(pipeline?.id || '', page, PAGE_SIZE)
-
-  usePullToRefresh(mobileShell ? () => refetchRuns() : null)
 
   const { data: tablePreferences, isLoading: preferencesLoading } = useTablePreferences(
     pipeline?.provider_id ?? 0,
@@ -345,7 +350,10 @@ export function RunHistoryPage({
     }
   }
 
-  const rerunLoading = useModalStore((s) => s.rerunLoading)
+  const rerunningVariables = useMutationState({
+    filters: { mutationKey: ['runs', 'rerun'], status: 'pending' },
+    select: (mutation) => mutation.state.variables,
+  })
 
   const getRunActions = useCallback(
     (run: PipelineRun, withDetails: boolean) => {
@@ -412,8 +420,7 @@ export function RunHistoryPage({
         })
       } else if (!active && onRerun) {
         const busy =
-          (rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number) ||
-          rerunningFailedRunNumber === run.run_number
+          isRerunning(rerunningVariables, pipeline.id, run.run_number) || rerunningFailedRunNumber === run.run_number
         actions.push({
           label: isFlux ? `Reconcile ${pipeline.name}` : `Rerun run #${run.run_number}`,
           icon: <IconPlayerPlay size={16} />,
@@ -441,7 +448,7 @@ export function RunHistoryPage({
       handleCancelRun,
       onRerun,
       requestRerun,
-      rerunLoading,
+      rerunningVariables,
       isFlux,
       rerunningFailedRunNumber,
       labels.run,
@@ -513,7 +520,7 @@ export function RunHistoryPage({
           onSelect: () => handleCancelRun(pipeline, run),
         })
       }
-    } else if (onRerun && !(rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number)) {
+    } else if (onRerun && !isRerunning(rerunningVariables, pipeline.id, run.run_number)) {
       actions.push({
         key: 'rerun',
         label: isFlux ? 'Reconcile' : 'Rerun',
@@ -538,7 +545,7 @@ export function RunHistoryPage({
       cancellingRunNumber === run.run_number ||
       reviewingRunNumber === run.run_number ||
       rerunningFailedRunNumber === run.run_number ||
-      (rerunLoading?.pipelineId === pipeline.id && rerunLoading.runNumber === run.run_number)
+      isRerunning(rerunningVariables, pipeline.id, run.run_number)
 
     return (
       <Menu position="bottom-end">
@@ -1041,48 +1048,46 @@ export function RunHistoryPage({
     }
 
     return (
-      <>
-        <StandardTable<PipelineRun>
-          records={sortedRuns}
-          onRowClick={({ record }) => onViewRun(currentPipeline.id, record.run_number)}
-          customRowAttributes={(record) => {
-            const menu = runMenu(record)
+      <StandardTable<PipelineRun>
+        records={sortedRuns}
+        onRowClick={({ record }) => onViewRun(currentPipeline.id, record.run_number)}
+        customRowAttributes={(record) => {
+          const menu = runMenu(record)
 
-            return {
-              tabIndex: 0,
-              'aria-label': `Open ${labels.run} #${record.run_number}`,
-              onContextMenu: menu.onContextMenu,
-              onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
-                menu.onKeyDown(event)
-                if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
-                  event.preventDefault()
-                  onViewRun(currentPipeline.id, record.run_number)
-                }
-              },
-            }
-          }}
-          columns={columns}
-          {...(onCancel && {
-            selectedRecords: selectedRuns,
-            onSelectedRecordsChange: selectRuns,
-            isRecordSelectable: isRunCancellable,
-          })}
-          sortStatus={sortStatus}
-          onSortStatusChange={setSortOverride}
-          fetching={pageLoading}
-          totalRecords={effectiveTotalRecords}
-          recordsPerPage={PAGE_SIZE}
-          page={page}
-          onPageChange={(p) => setFilter('page', p)}
-          paginationText={({ from, to }) =>
-            pageLoading
-              ? 'Loading...'
-              : isComplete
-                ? `Showing ${from}-${to} of ${formatCount(totalCount, labels.run)}`
-                : `Showing ${from}-${to} ${labels.runs}`
+          return {
+            tabIndex: 0,
+            'aria-label': `Open ${labels.run} #${record.run_number}`,
+            onContextMenu: menu.onContextMenu,
+            onKeyDown: (event: KeyboardEvent<HTMLTableRowElement>) => {
+              menu.onKeyDown(event)
+              if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault()
+                onViewRun(currentPipeline.id, record.run_number)
+              }
+            },
           }
-        />
-      </>
+        }}
+        columns={columns}
+        {...(onCancel && {
+          selectedRecords: selectedRuns,
+          onSelectedRecordsChange: selectRuns,
+          isRecordSelectable: isRunCancellable,
+        })}
+        sortStatus={sortStatus}
+        onSortStatusChange={setSortOverride}
+        fetching={pageLoading}
+        totalRecords={effectiveTotalRecords}
+        recordsPerPage={PAGE_SIZE}
+        page={page}
+        onPageChange={(p) => setFilter('page', p)}
+        paginationText={({ from, to }) =>
+          pageLoading
+            ? 'Loading...'
+            : isComplete
+              ? `Showing ${from}-${to} of ${formatCount(totalCount, labels.run)}`
+              : `Showing ${from}-${to} ${labels.runs}`
+        }
+      />
     )
   }
 
@@ -1090,6 +1095,7 @@ export function RunHistoryPage({
 
   return (
     <PageContainer>
+      {mobileShell && <PullToRefresh refresh={() => refetchRuns()} />}
       <PageHeader
         title={
           !isLoadingPipeline && pipeline?.name ? pipeline.name : <Skeleton height="1.5rem" width="min(250px, 60vw)" />
@@ -1260,7 +1266,7 @@ export function RunHistoryPage({
       <RerunConfirmModal
         run={rerunTarget}
         pipeline={pipeline ?? undefined}
-        providerName={pipeline ? getPluginDisplayName(pipeline.provider_type) : ''}
+        providerName={pipeline ? getPluginDisplayName(plugins, pipeline.provider_type) : ''}
         onClose={() => setRerunTarget(null)}
         onConfirm={confirmRerun}
       />

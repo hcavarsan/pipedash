@@ -1,13 +1,12 @@
 import { Button, Center, ThemeIcon } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
-import { type ReactNode, useEffect } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import type { ReactNode } from 'react'
+import { Navigate, useLocation } from 'react-router-dom'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useVaultStatus } from '../../queries/useVaultQueries'
 import { isTauri } from '../../services'
 import { useAuthStore } from '../../stores/authStore'
-import { useMobileNavStore } from '../../stores/mobileNavStore'
 import { formatErrorMessage } from '../../types/errors'
 import { needsUnlock as vaultNeedsUnlock } from '../../utils/appLock'
 import { ErrorState } from '../common/ErrorState'
@@ -21,27 +20,13 @@ interface RequireAuthProps {
 
 export function RequireAuth({ children }: RequireAuthProps): ReactNode {
   const location = useLocation()
-  const navigate = useNavigate()
 
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
-  const setReturnPath = useAuthStore((s) => s.setReturnPath)
+  const isAuthenticated = useAuthStore((s) => s.token !== null)
 
   const { data: vaultStatus, isLoading: isLoadingVault, isError, error, refetch, isRefetching } = useVaultStatus()
   const mobileShell = useMobileShell()
-  const hold = useMobileNavStore((s) => s.hold)
 
   const needsUnlock = vaultStatus ? vaultNeedsUnlock(vaultStatus, isTauri(), isAuthenticated) : false
-
-  useEffect(() => {
-    if (!isLoadingVault && needsUnlock) {
-      // Save current location for redirect after unlock
-      const currentPath = location.pathname + location.search
-
-      setReturnPath(currentPath)
-      hold({ path: currentPath, from: fromOf(location.state) })
-      void navigate('/unlock', { replace: true })
-    }
-  }, [isLoadingVault, needsUnlock, location, setReturnPath, hold, navigate])
 
   if (isLoadingVault) {
     return <LoadingState variant="page" message="Checking vault status" />
@@ -79,9 +64,14 @@ export function RequireAuth({ children }: RequireAuthProps): ReactNode {
     )
   }
 
-  // If needs unlock, show nothing (redirect in progress)
   if (needsUnlock) {
-    return null
+    return (
+      <Navigate
+        replace
+        to="/unlock"
+        state={{ returnTo: location.pathname + location.search, from: fromOf(location.state) }}
+      />
+    )
   }
 
   return <>{children}</>

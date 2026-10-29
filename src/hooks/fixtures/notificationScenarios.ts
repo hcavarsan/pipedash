@@ -10,7 +10,11 @@ import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
 
 import { queryKeys } from '../../lib/queryKeys'
-import { useLocalNotificationsLifecycle, useSetLocalNotifications } from '../../queries/useLocalNotificationQueries'
+import {
+  useLocalNotificationSettings,
+  useLocalNotificationsLifecycle,
+  useSetLocalNotifications,
+} from '../../queries/useLocalNotificationQueries'
 import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../stores/notificationStore'
@@ -63,6 +67,7 @@ function Hooks() {
 
 function Lifecycle() {
   useLocalNotificationsLifecycle()
+  useLocalNotificationSettings()
   mutation = useSetLocalNotifications()
   return null
 }
@@ -204,20 +209,24 @@ test('revoking iOS permission overrides the webview permission cache', async () 
   assert.deepEqual(delivered, [])
 })
 
-test('a legacy enabled preference never provisions background access and the store follows the backend', async () => {
+test('a legacy enabled preference never provisions background access and the query follows the backend', async () => {
   useNotificationStore.setState({ notificationsEnabled: true })
   await mountLifecycle()
-  await waitFor(() => assert.equal(useNotificationStore.getState().notificationsEnabled, false))
+  await waitFor(() =>
+    assert.equal(client.getQueryData<{ enabled: boolean }>(queryKeys.localNotifications.settings())?.enabled, false)
+  )
   assert.deepEqual(
     native.calls.map((call) => call.command),
     ['get_local_notification_settings']
   )
 })
 
-test('a backend that already has notifications on turns the store on', async () => {
+test('a backend that already has notifications on reports them on', async () => {
   native.settings = { enabled: true, available: true, reason: null }
   await mountLifecycle()
-  await waitFor(() => assert.equal(useNotificationStore.getState().notificationsEnabled, true))
+  await waitFor(() =>
+    assert.equal(client.getQueryData<{ enabled: boolean }>(queryKeys.localNotifications.settings())?.enabled, true)
+  )
 })
 
 test('returning to the foreground adopts a change made outside the app', async () => {
@@ -248,7 +257,7 @@ test('enabling sends the explicit command and records the backend answer', async
   assert.deepEqual(native.calls.find((call) => call.command === 'set_local_notifications_enabled')?.args, {
     enabled: true,
   })
-  assert.equal(useNotificationStore.getState().notificationsEnabled, true)
+  assert.equal(client.getQueryData<{ enabled: boolean }>(queryKeys.localNotifications.settings())?.enabled, true)
 })
 
 test('a failed enable reports the error and never turns notifications on', async (context) => {
@@ -260,6 +269,5 @@ test('a failed enable reports the error and never turns notifications on', async
     await mutation?.mutateAsync(true).catch(() => undefined)
   })
   assert.equal(shown.mock.callCount(), 1)
-  assert.equal(useNotificationStore.getState().notificationsEnabled, false)
   assert.equal(client.getQueryData<{ enabled: boolean }>(queryKeys.localNotifications.settings())?.enabled, false)
 })

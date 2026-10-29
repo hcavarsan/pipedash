@@ -21,11 +21,6 @@ export interface BarTransition {
   other: BarSnapshot
 }
 
-export interface HeldLocation {
-  path: string
-  from: string | null
-}
-
 const SCROLL_LIMIT = 40
 
 export function rememberRoute(tabs: TabRoutes, tab: MobileTab, route: TabRoute): TabRoutes {
@@ -61,9 +56,6 @@ interface MobileNavState {
   rememberScroll: (key: string, top: number) => void
   transition: BarTransition | null
   setTransition: (transition: BarTransition | null) => void
-  held: HeldLocation | null
-  hold: (held: HeldLocation | null) => void
-  takeHeld: (path: string) => string | null
 }
 
 export const useMobileNavStore = create<MobileNavState>()((set, get) => ({
@@ -81,15 +73,6 @@ export const useMobileNavStore = create<MobileNavState>()((set, get) => ({
   rememberScroll: (key, top) => set({ scrolls: rememberScroll(get().scrolls, key, top) }),
   transition: null,
   setTransition: (transition) => set({ transition }),
-  held: null,
-  hold: (held) => set({ held }),
-  takeHeld: (path) => {
-    const { held } = get()
-
-    set({ held: null })
-
-    return held?.path === path ? held.from : null
-  },
 }))
 
 export function useMobileTitle(title: string | null | undefined): void {

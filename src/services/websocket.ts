@@ -62,7 +62,7 @@ class WebSocketClient {
 
     // Subscribe to auth state changes - only react to actual transitions
     useAuthStore.subscribe(
-      (state) => state.isAuthenticated,
+      (state) => state.token !== null,
       (isAuthenticated, wasAuthenticated) => {
         // User just authenticated (unlocked vault)
         if (isAuthenticated && !wasAuthenticated) {

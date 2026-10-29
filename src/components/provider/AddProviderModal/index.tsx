@@ -3,11 +3,11 @@ import { IconCheck, IconKey, IconList } from '@tabler/icons-react'
 import { type ReactNode, useCallback, useEffect, useId, useMemo, useReducer, useRef } from 'react'
 
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../../constants/credentials'
-import { usePlugins } from '../../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
+import { usePlugins } from '../../../queries/usePluginsQueries'
 import { useSignInStatus } from '../../../queries/useSignInQueries'
 import { iosClasses } from '../../../theme/ios'
-import type { ProviderConfig } from '../../../types'
+import type { PluginMetadata, ProviderConfig } from '../../../types'
 import { isValidationError, toPipedashError } from '../../../types/errors'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { useFocusFirstInvalid } from '../../../utils/formFocus'
@@ -33,6 +33,8 @@ import {
   validateSignIn,
 } from './validation'
 
+const NO_PLUGINS: PluginMetadata[] = []
+
 export function AddProviderModal({
   opened,
   onClose,
@@ -43,7 +45,8 @@ export function AddProviderModal({
 }: AddProviderModalProps): ReactNode {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const { plugins, loading: pluginsLoading } = usePlugins()
+  const { data: pluginsData, isLoading: pluginsLoading } = usePlugins()
+  const plugins = pluginsData ?? NO_PLUGINS
 
   const [state, dispatch] = useReducer(formReducer, initialFormState)
   const { step, selectedPlugin, providerName, authMode, configValues, selectedPipelines, submitting, error } = state

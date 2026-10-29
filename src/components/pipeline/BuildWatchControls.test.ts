@@ -145,7 +145,6 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
   const { MemoryRouter, Route, Routes } = await import('react-router-dom')
   const { UnifiedPipelinesView } = await import('../table/UnifiedPipelinesView')
   const { queryKeys } = await import('../../lib/queryKeys')
-  const { PluginProvider } = await import('../../contexts/PluginContext')
   const { BuildWatchControls, BuildWatchSection } = await import('./BuildWatchControls')
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   const view = () => within(document.body)
@@ -201,25 +200,21 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     const onViewRun = (id: string, number: number) => opened.push([id, number])
     const content = options.page
       ? createElement(
-          PluginProvider,
+          Routes,
           null,
-          createElement(
-            Routes,
-            null,
-            createElement(Route, {
-              path: '/pipelines',
-              element: createElement(UnifiedPipelinesView, {
-                providers: [provider],
-                loading: options.loading ?? false,
-                error: options.error,
-                onRetry: () => {},
-                onTrigger: () => {},
-                onViewHistory: () => {},
-                onViewRun,
-              }),
+          createElement(Route, {
+            path: '/pipelines',
+            element: createElement(UnifiedPipelinesView, {
+              providers: [provider],
+              loading: options.loading ?? false,
+              error: options.error,
+              onRetry: () => {},
+              onTrigger: () => {},
+              onViewHistory: () => {},
+              onViewRun,
             }),
-            createElement(Route, { path: '*', element: createElement('div', null, 'Other page') })
-          )
+          }),
+          createElement(Route, { path: '*', element: createElement('div', null, 'Other page') })
         )
       : createElement(
           Fragment,

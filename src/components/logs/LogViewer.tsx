@@ -239,7 +239,10 @@ function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
   const queryClient = useQueryClient()
   const clipboard = useClipboard({ timeout: 2000 })
   const contextMenu = useContextMenu()
-  const prefs = useLogViewerPrefs()
+  const wrap = useLogViewerPrefs((s) => s.wrap)
+  const timestamps = useLogViewerPrefs((s) => s.timestamps)
+  const setWrap = useLogViewerPrefs((s) => s.setWrap)
+  const setTimestamps = useLogViewerPrefs((s) => s.setTimestamps)
   const sessionId = useMemo(() => newSessionId(), [])
   const bodyRef = useRef<LogBodyHandle>(null)
   const rulerRef = useRef<LogRulerHandle>(null)
@@ -689,8 +692,8 @@ function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
       groups={filter === 'none' ? groups : NO_GROUPS}
       styleClasses={styleClasses}
       getLine={getLine}
-      wrap={prefs.wrap}
-      timestamps={prefs.timestamps}
+      wrap={wrap}
+      timestamps={timestamps}
       stickyHeaders={filter === 'none'}
       selection={selection}
       matchIndex={matchIndex}
@@ -765,10 +768,10 @@ function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
           errorTotal={meta.error_total}
           onNextError={() => stepError(1)}
           onPrevError={() => stepError(-1)}
-          wrap={prefs.wrap}
-          onWrapChange={prefs.setWrap}
-          timestamps={prefs.timestamps}
-          onTimestampsChange={prefs.setTimestamps}
+          wrap={wrap}
+          onWrapChange={setWrap}
+          timestamps={timestamps}
+          onTimestampsChange={setTimestamps}
           selectionCount={selectionCount}
           onCopySelection={copySelection}
           copied={clipboard.copied}
@@ -849,17 +852,17 @@ function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
               <Menu.Dropdown>
                 <Menu.Item
                   role="menuitemcheckbox"
-                  aria-checked={prefs.wrap}
-                  rightSection={prefs.wrap ? <IconCheck size={14} /> : null}
-                  onClick={() => prefs.setWrap(!prefs.wrap)}
+                  aria-checked={wrap}
+                  rightSection={wrap ? <IconCheck size={14} /> : null}
+                  onClick={() => setWrap(!wrap)}
                 >
                   Wrap lines
                 </Menu.Item>
                 <Menu.Item
                   role="menuitemcheckbox"
-                  aria-checked={prefs.timestamps}
-                  rightSection={prefs.timestamps ? <IconCheck size={14} /> : null}
-                  onClick={() => prefs.setTimestamps(!prefs.timestamps)}
+                  aria-checked={timestamps}
+                  rightSection={timestamps ? <IconCheck size={14} /> : null}
+                  onClick={() => setTimestamps(!timestamps)}
                 >
                   Show timestamps
                 </Menu.Item>

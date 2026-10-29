@@ -1,9 +1,9 @@
 import { Button, Group, Stack, Text } from '@mantine/core'
 import { type ReactNode, useMemo, useState } from 'react'
 
-import { usePlugins } from '../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
+import { usePlugins } from '../../queries/usePluginsQueries'
 import { useUnfinishedRuns } from '../../queries/useRunHistoryQueries'
 import type { Pipeline } from '../../types'
 import { actionTarget } from '../../utils/actionTarget'
@@ -16,6 +16,7 @@ import {
 } from '../../utils/cancelActiveRuns'
 import { formatCount } from '../../utils/formatCount'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
+import { getPluginByType, getPluginDisplayName } from '../../utils/pluginHelpers'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
@@ -37,17 +38,18 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const now = useNow(30_000)
-  const { getPluginByType, getPluginDisplayName } = usePlugins()
+  const { data: plugins } = usePlugins()
   const [pending, setPending] = useState(false)
 
   const { candidates, skippedNote } = useMemo(() => {
-    const cancelCapable = (pipeline: Pipeline) => Boolean(getPluginByType(pipeline.provider_type)?.capabilities.cancel)
+    const cancelCapable = (pipeline: Pipeline) =>
+      Boolean(getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel)
     const pipelines = scope?.pipelines ?? []
     const skipped = new Map<string, number>()
 
     for (const pipeline of unfinishedPipelines(pipelines)) {
       if (!cancelCapable(pipeline)) {
-        const name = getPluginDisplayName(pipeline.provider_type)
+        const name = getPluginDisplayName(plugins, pipeline.provider_type)
 
         skipped.set(name, (skipped.get(name) ?? 0) + 1)
       }
@@ -62,13 +64,13 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
         )
         .join(' '),
     }
-  }, [scope, getPluginByType, getPluginDisplayName])
+  }, [scope, plugins])
   const search = useUnfinishedRuns(candidates, opened)
   const loading = search.isFetching
   const unreadable = search.data?.failed.map((pipeline) => pipeline.name) ?? []
   const groups = buildCancelGroups(candidates, search.data?.runs ?? {}, (pipeline) => ({
-    name: getPluginDisplayName(pipeline.provider_type),
-    canCancel: Boolean(getPluginByType(pipeline.provider_type)?.capabilities.cancel),
+    name: getPluginDisplayName(plugins, pipeline.provider_type),
+    canCancel: Boolean(getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel),
   }))
   const targets = cancellableGroups(groups)
   const where = (group: CancelGroup) =>

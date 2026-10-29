@@ -7,10 +7,11 @@ import { PageContainer } from '../components/common/PageContainer'
 import { PageHeader } from '../components/common/PageHeader'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { type DetailTab, RunHistoryPage } from '../components/table/RunHistoryPage'
-import { usePlugins } from '../contexts/PluginContext'
 import { useMobileShell } from '../hooks/useIsMobile'
+import { usePlugins } from '../queries/usePluginsQueries'
 import type { Pipeline, PipelineComponentProps } from '../types'
 import { getReconcileBlockReason } from '../utils/pipelinePresentation'
+import { getPluginByType } from '../utils/pluginHelpers'
 
 interface PipelineDetailRouteProps extends Omit<PipelineComponentProps, 'pipeline'> {
   pipelines: Pipeline[]
@@ -30,7 +31,7 @@ export function PipelineDetailRoute({
   const [searchParams, setSearchParams] = useSearchParams()
   const { state } = useLocation()
   const navigate = useNavigate()
-  const { getPluginByType } = usePlugins()
+  const { data: plugins } = usePlugins()
   const mobileShell = useMobileShell()
 
   const rawTab = searchParams.get('tab')
@@ -122,7 +123,9 @@ export function PipelineDetailRoute({
         onViewRun={onViewRun || (() => undefined)}
         onRerun={actualPipeline && getReconcileBlockReason(actualPipeline) ? undefined : onRerun}
         onCancel={
-          actualPipeline && getPluginByType(actualPipeline.provider_type)?.capabilities.cancel ? onCancel : undefined
+          actualPipeline && getPluginByType(plugins, actualPipeline.provider_type)?.capabilities.cancel
+            ? onCancel
+            : undefined
         }
         onReview={onReview}
         onRerunFailedJobs={onRerunFailedJobs}

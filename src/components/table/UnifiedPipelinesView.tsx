@@ -20,13 +20,18 @@ import {
   IconRefresh,
 } from '@tabler/icons-react'
 import type { DataTableSortStatus } from 'mantine-datatable'
-import { Fragment, type ReactNode, useCallback, useId, useMemo } from 'react'
+import { Fragment, type ReactNode, useCallback, useId, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { useCancelActiveRuns } from '../../hooks/useCancelActiveRuns'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { usePinning } from '../../hooks/usePinning'
-import { usePipelineExpansion } from '../../hooks/usePipelineExpansion'
+import {
+  type ExpansionMap,
+  readExpansion,
+  usePipelineExpansion,
+  writeExpansion,
+} from '../../hooks/usePipelineExpansion'
 import { usePipelineSelection } from '../../hooks/usePipelineSelection'
 import { usePipelineFilters, usePipelineViewQuery } from '../../hooks/useUrlState'
 import {
@@ -212,7 +217,7 @@ export function UnifiedPipelinesView({
   const actions: PipelineActions = {
     onTogglePin: (p) => togglePin(p),
     onToggleHidden: (p) => toggleHidden(p),
-    onAddToView: (p) => usePipelineViewStore.getState().openAddToView([p]),
+    onAddToView: (p) => usePipelineViewStore.getState().openAddToView([p.id]),
     onRemoveFromView:
       view && canRemove ? (p) => setMembership({ id: view.id, pipelineIds: [p.id], member: false }) : undefined,
     removeLabel: view && canRemove ? `Remove from ${view.name}` : undefined,
@@ -237,7 +242,18 @@ export function UnifiedPipelinesView({
   }
 
   const filtersActive = page?.filters_active ?? false
-  const { isOpen, toggle: toggleOpen, setAll } = usePipelineExpansion(query.view, JSON.stringify(query), filtersActive)
+  const [expanded, setExpandedMap] = useState<ExpansionMap>(readExpansion)
+  const saveExpanded = (expansionView: string, changes: Record<string, boolean>) => {
+    const next = { ...expanded, [expansionView]: { ...expanded[expansionView], ...changes } }
+
+    setExpandedMap(next)
+    writeExpansion(next)
+  }
+  const {
+    isOpen,
+    toggle: toggleOpen,
+    setAll,
+  } = usePipelineExpansion(query.view, expanded, saveExpanded, JSON.stringify(query), filtersActive)
   const getProvider = useCallback(
     (providerId: number): ProviderSummary | undefined => {
       return providers.find((p) => p.id === providerId)
@@ -527,7 +543,7 @@ export function UnifiedPipelinesView({
     {
       label: 'Add to view…',
       icon: <IconFolder size={14} />,
-      onClick: () => usePipelineViewStore.getState().openAddToView(selectedPipelines),
+      onClick: () => usePipelineViewStore.getState().openAddToView(selectedIds),
     },
     ...(canRemove
       ? [

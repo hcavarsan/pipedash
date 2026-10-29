@@ -358,6 +358,7 @@ export function useRerunRun(): UseMutationResult<void, Error, { pipelineId: stri
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: ['runs', 'rerun'],
     mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
       service.rerunRun(pipelineId, runNumber),
 

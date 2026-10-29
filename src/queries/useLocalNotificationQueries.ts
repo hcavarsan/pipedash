@@ -9,7 +9,6 @@ import { useEffect } from 'react'
 
 import { queryKeys } from '../lib/queryKeys'
 import { mobileService } from '../services/mobile'
-import { useNotificationStore } from '../stores/notificationStore'
 import type { LocalNotificationSettings } from '../types'
 import { displayErrorNotification } from '../utils/errorDisplay'
 import { isIosPlatform } from '../utils/platform'
@@ -35,7 +34,6 @@ export function useSetLocalNotifications(): UseMutationResult<LocalNotificationS
     onMutate: () => queryClient.cancelQueries({ queryKey: queryKeys.localNotifications.settings() }),
     onSuccess: (settings) => {
       queryClient.setQueryData(queryKeys.localNotifications.settings(), settings)
-      useNotificationStore.getState().setNotificationsEnabled(settings.enabled)
     },
     onError: (error, enabled) =>
       displayErrorNotification(error, enabled ? "Couldn't turn on notifications" : "Couldn't turn off notifications"),
@@ -45,15 +43,6 @@ export function useSetLocalNotifications(): UseMutationResult<LocalNotificationS
 
 export function useLocalNotificationsLifecycle(): void {
   const queryClient = useQueryClient()
-  const { data } = useLocalNotificationSettings()
-  const enabled = data?.enabled
-
-  useEffect(() => {
-    if (enabled !== undefined) {
-      useNotificationStore.getState().setNotificationsEnabled(enabled)
-    }
-  }, [enabled])
-
   useEffect(() => {
     if (!isIosPlatform()) {
       return

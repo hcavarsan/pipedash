@@ -1,27 +1,15 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 
-interface TriggerModalState {
-  open: boolean
-  pipelineId: string | null
-  initialInputs?: Record<string, unknown> | undefined
-}
+export type TriggerModalState =
+  | { open: false }
+  | { open: true; pipelineId: string; initialInputs: Record<string, unknown> | undefined }
 
-interface LogsModalState {
-  open: boolean
-  pipelineId: string | null
-  runNumber: number | null
-}
-
-interface RerunLoadingState {
-  pipelineId: string
-  runNumber: number
-}
+export type LogsModalState = { open: false } | { open: true; pipelineId: string; runNumber: number }
 
 interface ModalStoreState {
   triggerModal: TriggerModalState
   logsModal: LogsModalState
-  rerunLoading: RerunLoadingState | null
 }
 
 interface ModalStoreActions {
@@ -29,24 +17,13 @@ interface ModalStoreActions {
   closeTriggerModal: () => void
   openLogsModal: (pipelineId: string, runNumber: number) => void
   closeLogsModal: () => void
-  setRerunLoading: (pipelineId: string, runNumber: number) => void
-  clearRerunLoading: () => void
 }
 
 type ModalStore = ModalStoreState & ModalStoreActions
 
 const initialState: ModalStoreState = {
-  triggerModal: {
-    open: false,
-    pipelineId: null,
-    initialInputs: undefined,
-  },
-  logsModal: {
-    open: false,
-    pipelineId: null,
-    runNumber: null,
-  },
-  rerunLoading: null,
+  triggerModal: { open: false },
+  logsModal: { open: false },
 }
 
 export const useModalStore = create<ModalStore>()(
@@ -59,30 +36,14 @@ export const useModalStore = create<ModalStore>()(
           triggerModal: { open: true, pipelineId, initialInputs },
         }),
 
-      closeTriggerModal: () =>
-        set({
-          triggerModal: { open: false, pipelineId: null, initialInputs: undefined },
-        }),
+      closeTriggerModal: () => set({ triggerModal: { open: false } }),
 
       openLogsModal: (pipelineId, runNumber) =>
         set({
           logsModal: { open: true, pipelineId, runNumber },
         }),
 
-      closeLogsModal: () =>
-        set({
-          logsModal: { open: false, pipelineId: null, runNumber: null },
-        }),
-
-      setRerunLoading: (pipelineId, runNumber) =>
-        set({
-          rerunLoading: { pipelineId, runNumber },
-        }),
-
-      clearRerunLoading: () =>
-        set({
-          rerunLoading: null,
-        }),
+      closeLogsModal: () => set({ logsModal: { open: false } }),
     }),
     { name: 'ModalStore' }
   )

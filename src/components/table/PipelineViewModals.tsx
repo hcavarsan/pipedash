@@ -15,11 +15,13 @@ import {
   UnstyledButton,
 } from '@mantine/core'
 import { IconFolder, IconGripVertical, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
+import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, type ReactNode, useCallback, useId, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
+import { queryKeys } from '../../lib/queryKeys'
 import {
   useCreatePipelineView,
   useDeletePipelineView,
@@ -35,6 +37,7 @@ import { STATUS_OPTIONS } from '../../theme/status'
 import type {
   PipelineStatus,
   PipelineView,
+  PipelineViewPage,
   ViewDisplay,
   ViewLayout,
   ViewPatch,
@@ -437,24 +440,56 @@ function ViewEditorModal() {
   )
 }
 
+function resolvePipelines(queryClient: QueryClient, ids: string[]): ViewPipeline[] {
+  const wanted = new Set(ids)
+  const found = new Map<string, ViewPipeline>()
+
+  for (const [, page] of queryClient.getQueriesData<PipelineViewPage>({ queryKey: queryKeys.pipelines.pages() })) {
+    if (!page) {
+      continue
+    }
+
+    const all = [
+      ...page.pinned,
+      ...page.pinned_blocks.flatMap((b) => b.pipelines),
+      ...page.sections.flatMap((s) => s.pipelines),
+    ]
+
+    for (const pipeline of all) {
+      if (wanted.has(pipeline.id)) {
+        found.set(pipeline.id, pipeline)
+      }
+    }
+  }
+
+  return ids.flatMap((id) => {
+    const pipeline = found.get(id)
+
+    return pipeline ? [pipeline] : []
+  })
+}
+
 function AddToViewModal() {
-  const pipelines = usePipelineViewStore((s) => s.addToView)
+  const queryClient = useQueryClient()
+  const ids = usePipelineViewStore((s) => s.addToViewIds)
   const closeAddToView = usePipelineViewStore((s) => s.closeAddToView)
   const openEditor = usePipelineViewStore((s) => s.openEditor)
-  const { data: views = [] } = usePipelineViews(pipelines !== null)
+  const { data: views = [] } = usePipelineViews(ids !== null)
   const { mutate: setMembership } = useSetViewMembership()
   const customViews = flattenViewTree(views.filter((g) => g.kind === 'custom'))
 
-  const [loadedFor, setLoadedFor] = useState<ViewPipeline[] | null>(null)
+  const [loadedFor, setLoadedFor] = useState<string[] | null>(null)
   const [members, setMembers] = useState<DirectMembers>({})
-  const [shown, setShown] = useState<ViewPipeline[]>(pipelines ?? [])
+  const [shown, setShown] = useState<ViewPipeline[]>([])
 
-  if (pipelines !== loadedFor) {
-    setLoadedFor(pipelines)
+  if (ids !== loadedFor) {
+    setLoadedFor(ids)
 
-    if (pipelines) {
-      setShown(pipelines)
-      setMembers(directMembers(pipelines))
+    if (ids) {
+      const resolved = resolvePipelines(queryClient, ids)
+
+      setShown(resolved)
+      setMembers(directMembers(resolved))
     }
   }
 
@@ -486,7 +521,7 @@ function AddToViewModal() {
 
   return (
     <StandardModal
-      opened={pipelines !== null}
+      opened={ids !== null}
       onClose={closeAddToView}
       size="md"
       title={`Add ${shown.length === 1 ? (shown[0]?.name ?? '') : `${shown.length} pipelines`} to views`}

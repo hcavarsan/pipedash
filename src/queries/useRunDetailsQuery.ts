@@ -65,6 +65,7 @@ export function useRerunWorkflow(): UseMutationResult<
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: ['runs', 'rerun'],
     mutationFn: async ({
       pipelineId,
       inputs,

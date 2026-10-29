@@ -1,3 +1,5 @@
+import 'mantine-datatable/styles.layer.css'
+
 import { Box } from '@mantine/core'
 import { DataTable, type DataTableProps } from 'mantine-datatable'
 import type { ReactNode } from 'react'

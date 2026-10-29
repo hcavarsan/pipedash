@@ -8,8 +8,6 @@ const NOTIFICATION_DEBOUNCE_MS = 500
 
 interface AuthStoreState {
   token: string | null
-  isAuthenticated: boolean
-  returnPath: string | null
   consecutiveFailures: number
   lastNotificationTime: number | null
 }
@@ -17,8 +15,6 @@ interface AuthStoreState {
 interface AuthStoreActions {
   setToken: (token: string) => void
   clearToken: () => void
-  setReturnPath: (path: string | null) => void
-  consumeReturnPath: () => string | null
   incrementFailure: () => boolean
   resetFailures: () => void
 }
@@ -31,8 +27,6 @@ const getInitialToken = (): string | null => {
 
 const initialState: AuthStoreState = {
   token: getInitialToken(),
-  isAuthenticated: !!getInitialToken(),
-  returnPath: null,
   consecutiveFailures: 0,
   lastNotificationTime: null,
 }
@@ -46,7 +40,6 @@ export const useAuthStore = create<AuthStore>()(
         localStorage.setItem(STORAGE_KEY, token)
         set({
           token,
-          isAuthenticated: true,
           consecutiveFailures: 0,
         })
       },
@@ -55,19 +48,8 @@ export const useAuthStore = create<AuthStore>()(
         localStorage.removeItem(STORAGE_KEY)
         set({
           token: null,
-          isAuthenticated: false,
           consecutiveFailures: 0,
         })
-      },
-
-      setReturnPath: (path) => set({ returnPath: path }),
-
-      consumeReturnPath: () => {
-        const { returnPath } = get()
-
-        set({ returnPath: null })
-
-        return returnPath
       },
 
       incrementFailure: () => {

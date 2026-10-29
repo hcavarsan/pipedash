@@ -5,9 +5,9 @@ import { type ReactNode, useState } from 'react'
 
 import type { ContextMenuItem } from '../components/common/ContextMenu'
 import { CancelActiveRunsModal, type CancelScope } from '../components/pipeline/CancelActiveRunsModal'
-import { usePlugins } from '../contexts/PluginContext'
 import { queryKeys } from '../lib/queryKeys'
 import { usePipelines } from '../queries/usePipelinesQueries'
+import { usePlugins } from '../queries/usePluginsQueries'
 import { useRefreshProvider } from '../queries/useRefreshQueries'
 import { service } from '../services'
 import type { Pipeline, ProviderSummary } from '../types'
@@ -18,6 +18,7 @@ import {
   unfinishedPipelines,
 } from '../utils/cancelActiveRuns'
 import { errorMessage } from '../utils/errorDisplay'
+import { getPluginByType } from '../utils/pluginHelpers'
 
 type CancelItem = Extract<ContextMenuItem, { label: string }>
 
@@ -28,7 +29,7 @@ interface CancelActiveRunsResult {
 
 export function useCancelActiveRuns(): CancelActiveRunsResult {
   const queryClient = useQueryClient()
-  const { getPluginByType } = usePlugins()
+  const { data: plugins } = usePlugins()
   const { mutate: refreshProvider } = useRefreshProvider()
   const [scope, setScope] = useState<CancelScope | null>(null)
   const [opened, setOpened] = useState(false)
@@ -66,7 +67,7 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
 
   const cancelItem = (label: string, pipelines: Pipeline[]): CancelItem | null =>
     unfinishedPipelines(pipelines).length === 0 &&
-    !pipelines.some((pipeline) => getPluginByType(pipeline.provider_type)?.capabilities.cancel)
+    !pipelines.some((pipeline) => getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel)
       ? null
       : {
           label: 'Cancel running…',

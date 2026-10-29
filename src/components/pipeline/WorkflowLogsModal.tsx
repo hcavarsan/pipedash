@@ -16,10 +16,9 @@ import {
 import { useClipboard } from '@mantine/hooks'
 import { IconCopy, IconExternalLink, IconPlayerPlay, IconRefresh, IconShare2, IconSquare } from '@tabler/icons-react'
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-
-import { usePlugins } from '../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { logger } from '../../lib/logger'
+import { usePlugins } from '../../queries/usePluginsQueries'
 import { useRerunWorkflow, useRunDetails } from '../../queries/useRunDetailsQuery'
 import { useCancelRun, useRerunFailedJobs, useRerunRun } from '../../queries/useRunHistoryQueries'
 import { useRunLogTree } from '../../queries/useRunLogQueries'
@@ -36,6 +35,7 @@ import { getValueByPath } from '../../utils/objectPath'
 import { isHttpUrl, openExternal } from '../../utils/openExternal'
 import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
 import { isMobilePlatform } from '../../utils/platform'
+import { getPluginDisplayName } from '../../utils/pluginHelpers'
 import type { RerunMode } from '../../utils/rerunSummary'
 import { CopyButton } from '../atoms/CopyButton'
 import { StatusBadge, StatusIcon } from '../atoms/StatusBadge'
@@ -115,8 +115,8 @@ export const WorkflowLogsModal = ({
   const abortRef = useRef(false)
   const labels = getPipelineLabels(providerType)
   const isFlux = providerType === 'fluxcd'
-  const { getPluginDisplayName } = usePlugins()
-  const providerName = providerType ? getPluginDisplayName(providerType) : 'provider'
+  const { data: plugins } = usePlugins()
+  const providerName = providerType ? getPluginDisplayName(plugins, providerType) : 'provider'
   const [tab, setTab] = useState<'logs' | 'details'>('logs')
   const [logNodeId, setLogNodeId] = useState<string | null>(null)
   const viewerRef = useRef<LogViewerHandle>(null)

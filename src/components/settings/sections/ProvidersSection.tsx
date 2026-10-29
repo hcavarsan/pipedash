@@ -16,10 +16,9 @@ import {
 import { notifications } from '@mantine/notifications'
 import { IconDownload, IconEdit, IconExternalLink, IconSettings, IconTrash, IconUpload } from '@tabler/icons-react'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
-
-import { usePlugins } from '../../../contexts/PluginContext'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
+import { usePlugins } from '../../../queries/usePluginsQueries'
 import {
   useExportProviders,
   useImportProviders,
@@ -35,6 +34,7 @@ import { formatCount } from '../../../utils/formatCount'
 import { formatDateTime, formatTime } from '../../../utils/formatDateTime'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 import { openExternal } from '../../../utils/openExternal'
+import { getPluginDisplayName } from '../../../utils/pluginHelpers'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
@@ -169,7 +169,7 @@ interface ProvidersSectionProps {
 
 export const ProvidersSection = ({ onHeaderActionsChange }: ProvidersSectionProps): ReactNode => {
   const mobileShell = useMobileShell()
-  const { getPluginDisplayName } = usePlugins()
+  const { data: plugins } = usePlugins()
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const handleEdit = useProviderStore((s) => s.requestEditProvider)
   const handleRemove = useConfirmRemoveProvider()
@@ -331,7 +331,7 @@ export const ProvidersSection = ({ onHeaderActionsChange }: ProvidersSectionProp
                   <IosRow
                     title={provider.name}
                     subtitle={[
-                      getPluginDisplayName(provider.provider_type),
+                      getPluginDisplayName(plugins, provider.provider_type),
                       formatCount(provider.pipeline_count, 'pipeline'),
                     ].join(' · ')}
                   />
@@ -507,7 +507,7 @@ export const ProvidersSection = ({ onHeaderActionsChange }: ProvidersSectionProp
                       <Text size="xs" c="dimmed">
                         Type
                       </Text>
-                      <Text size="sm">{getPluginDisplayName(provider.provider_type)}</Text>
+                      <Text size="sm">{getPluginDisplayName(plugins, provider.provider_type)}</Text>
                     </Stack>
 
                     <Stack gap="3xs">

@@ -9,11 +9,11 @@ import { SPRING_DEFAULT, SPRING_MOMENTUM } from '../../lib/spring'
 import { trackTouches } from '../../lib/touchTracker'
 import { useRefreshAll } from '../../queries/useRefreshQueries'
 import { type BarSnapshot, useMobileNavStore } from '../../stores/mobileNavStore'
-import { usePullRefreshStore } from '../../stores/pullRefreshStore'
 import { MobileLargeTitle } from './MobileLargeTitle'
 import classes from './MobilePage.module.css'
 import { fromOf, type MobileTab, mobileChrome, routeKey, splitLocation } from './mobileChrome'
 import { edgeOffset, scrollEdge, swipeProgress, titleCollapse, transitionKind } from './navigation'
+import { PullRefreshContext, usePullRefreshState } from './PullRefreshContext'
 import { createSearchReveal, type Reveal } from './searchReveal'
 import { captureSnapshot, mountSnapshot, snapshotCollapse, updateSnapshot } from './snapshots'
 import { createSpringValue } from './springValue'
@@ -54,7 +54,7 @@ export function MobilePage({ children }: { children: ReactNode }): ReactNode {
   const key = routeKey(pathname, search, state)
   const backTarget = chrome.back
   const goBack = useGoBack()
-  const registered = usePullRefreshStore((s) => s.handler)
+  const { registered, registry } = usePullRefreshState()
   const refreshAll = useRefreshAll()
 
   const hostRef = useRef<HTMLDivElement>(null)
@@ -642,7 +642,7 @@ export function MobilePage({ children }: { children: ReactNode }): ReactNode {
   )
 
   return (
-    <>
+    <PullRefreshContext value={registry}>
       <div className={classes.spinner} ref={spinnerRef} style={{ '--pull-hold': `${PULL_HOLD}px` }} aria-hidden>
         {SPOKES.map((index) => (
           <span key={index} className={classes.spoke} style={{ '--i': index }} />
@@ -661,6 +661,6 @@ export function MobilePage({ children }: { children: ReactNode }): ReactNode {
         <div className={classes.dim} aria-hidden />
         <div className={classes.overlay} ref={overlayRef} aria-hidden inert />
       </div>
-    </>
+    </PullRefreshContext>
   )
 }

@@ -1,5 +1,5 @@
 import { Text } from '@mantine/core'
-import { type ReactNode, useCallback, useEffect } from 'react'
+import { type ReactNode, useCallback } from 'react'
 
 import { logger } from '../../lib/logger'
 import { useProviderDetails } from '../../queries/useProviderDetailsQuery'
@@ -43,10 +43,8 @@ export function useConfirmRemoveProvider(): (id: number, name: string) => void {
 
 export function ProviderModals(): ReactNode {
   const addProviderModal = useProviderStore((s) => s.addProviderModal)
-  const editProviderModal = useProviderStore((s) => s.editProviderModal)
-  const editRequestId = useProviderStore((s) => s.editRequestId)
+  const editProviderId = useProviderStore((s) => s.editProviderId)
   const closeAddProviderModal = useProviderStore((s) => s.closeAddProviderModal)
-  const openEditProviderModal = useProviderStore((s) => s.openEditProviderModal)
   const closeEditProviderModal = useProviderStore((s) => s.closeEditProviderModal)
 
   const { refetch: refetchProviders } = useProviders()
@@ -58,13 +56,7 @@ export function ProviderModals(): ReactNode {
     isError: providerDetailsFailed,
     isFetching: fetchingProviderDetails,
     refetch: refetchProviderDetails,
-  } = useProviderDetails(editRequestId)
-
-  useEffect(() => {
-    if (providerDetails && editRequestId !== null) {
-      openEditProviderModal(providerDetails)
-    }
-  }, [providerDetails, editRequestId, openEditProviderModal])
+  } = useProviderDetails(editProviderId)
 
   const handleAdd = async (config: ProviderConfig) => {
     await addProvider(config)
@@ -83,7 +75,12 @@ export function ProviderModals(): ReactNode {
     <>
       <AddProviderModal opened={addProviderModal.open} onClose={handleCloseAdd} onAdd={handleAdd} />
 
-      <StandardModal opened={editRequestId !== null} onClose={closeEditProviderModal} title="Edit provider" size="md">
+      <StandardModal
+        opened={editProviderId !== null && !providerDetails}
+        onClose={closeEditProviderModal}
+        title="Edit provider"
+        size="md"
+      >
         {providerDetailsFailed ? (
           <ErrorState
             title="Couldn't load provider"
@@ -96,13 +93,14 @@ export function ProviderModals(): ReactNode {
         )}
       </StandardModal>
 
-      {editProviderModal.provider && (
+      {providerDetails && editProviderId !== null && (
         <AddProviderModal
-          opened={editProviderModal.open}
+          key={editProviderId}
+          opened
           onClose={closeEditProviderModal}
           onUpdate={handleUpdate}
           editMode
-          existingProvider={editProviderModal.provider}
+          existingProvider={providerDetails}
         />
       )}
     </>

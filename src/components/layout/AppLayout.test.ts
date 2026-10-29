@@ -33,7 +33,6 @@ const { act, cleanup, fireEvent, render, waitFor, within } = await import('@test
 const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter, useLocation, useNavigate, useSearchParams } = await import('react-router-dom')
-const { PluginProvider } = await import('../../contexts/PluginContext')
 const { AppLayout } = await import('./AppLayout')
 const { apiService, tauriService } = await import('../../services')
 const view = () => within(document.body)
@@ -81,11 +80,7 @@ test('URL-backed searches keep input focus, while page and view changes focus th
       createElement(
         QueryClientProvider,
         { client },
-        createElement(
-          PluginProvider,
-          null,
-          createElement(MemoryRouter, { initialEntries: ['/pipelines'] }, createElement(SearchPage))
-        )
+        createElement(MemoryRouter, { initialEntries: ['/pipelines'] }, createElement(SearchPage))
       )
     )
   )

@@ -1,8 +1,6 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 
-import type { ViewPipeline } from '../types'
-
 interface ViewEditorState {
   open: boolean
   viewId: string | null
@@ -12,14 +10,14 @@ interface ViewEditorState {
 
 interface PipelineViewStoreState {
   editor: ViewEditorState
-  addToView: ViewPipeline[] | null
+  addToViewIds: string[] | null
   manageOpen: boolean
 }
 
 interface PipelineViewStoreActions {
   openEditor: (viewId: string | null, initialMembers?: string[], parent?: string | null) => void
   closeEditor: () => void
-  openAddToView: (pipelines: ViewPipeline[]) => void
+  openAddToView: (ids: string[]) => void
   closeAddToView: () => void
   openManage: () => void
   closeManage: () => void
@@ -29,7 +27,7 @@ type PipelineViewStore = PipelineViewStoreState & PipelineViewStoreActions
 
 const initialState: PipelineViewStoreState = {
   editor: { open: false, viewId: null, initialMembers: [], parent: null },
-  addToView: null,
+  addToViewIds: null,
   manageOpen: false,
 }
 
@@ -43,9 +41,9 @@ export const usePipelineViewStore = create<PipelineViewStore>()(
 
       closeEditor: () => set({ editor: { open: false, viewId: null, initialMembers: [], parent: null } }),
 
-      openAddToView: (pipelines) => set({ addToView: pipelines }),
+      openAddToView: (ids) => set({ addToViewIds: ids }),
 
-      closeAddToView: () => set({ addToView: null }),
+      closeAddToView: () => set({ addToViewIds: null }),
 
       openManage: () => set({ manageOpen: true }),
 
