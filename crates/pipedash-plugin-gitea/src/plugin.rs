@@ -10,6 +10,7 @@ use pipedash_plugin_actions::{
 };
 use pipedash_plugin_api::*;
 
+use crate::log_dialect::GiteaLogDialect;
 use crate::{
     client,
     config,
@@ -218,6 +219,43 @@ impl Plugin for GiteaPlugin {
         Ok(mapper::map_run(&run, pipeline_id, id.owner))
     }
 
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let id = config::parse_pipeline_id(run.pipeline_id)?;
+        let run_id = run
+            .metadata
+            .get("run_id")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or_else(|| {
+                PluginError::InvalidConfig(format!("Run #{} has no Gitea run ID", run.run_number))
+            })?;
+
+        let jobs = self
+            .client()?
+            .list_run_jobs(id.owner, id.repo, run_id)
+            .await?;
+
+        Ok(mapper::jobs_to_log_nodes(&jobs))
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let id = config::parse_pipeline_id(run.pipeline_id)?;
+        if node_id.is_empty() || !node_id.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid Gitea job ID: {node_id}"
+            )));
+        }
+
+        self.client()?
+            .stream_job_log(id.owner, id.repo, node_id, sink)
+            .await
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &GiteaLogDialect
+    }
+
     async fn fetch_workflow_parameters(
         &self, workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {
@@ -270,6 +308,11 @@ impl Plugin for GiteaPlugin {
 
 #[cfg(all(test, not(target_os = "ios")))]
 mod tests {
+    use std::sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    };
+
     use tokio::io::{
         AsyncReadExt,
         AsyncWriteExt,
@@ -295,8 +338,59 @@ mod tests {
         ((page - 1) * limit).min(total)..(page * limit).min(total)
     }
 
+    const JOB_LOG: &str = "2026-10-28T10:00:01.1000000Z ::group::Set up job\n\
+                           2026-10-28T10:00:02.2000000Z cloning into /workspace\n\
+                           2026-10-28T10:00:03.3000000Z ::endgroup::\n";
+
+    fn stub_jobs(page: usize) -> serde_json::Value {
+        let step = |number: i64, name: &str, status: &str, conclusion: &str| {
+            let completed_at = if status == "completed" {
+                format!("2026-10-28T10:00:0{}Z", number + 2)
+            } else {
+                "1970-01-01T00:00:00Z".to_string()
+            };
+            serde_json::json!({
+                "name": name, "number": number, "status": status, "conclusion": conclusion,
+                "started_at": format!("2026-10-28T10:00:0{}Z", number + 1),
+                "completed_at": completed_at
+            })
+        };
+        let job = |id: i64, name: &str, status: &str, conclusion: &str, started: &str| {
+            serde_json::json!({
+                "id": id, "name": name, "status": status, "conclusion": conclusion,
+                "html_url": format!("http://g/claude/smoke__ci/actions/runs/7/jobs/{}", id - 101),
+                "started_at": started, "completed_at": "1970-01-01T00:00:00Z",
+                "steps": null
+            })
+        };
+        let unset = "1970-01-01T00:00:00Z";
+        let mut build = job(101, "build", "completed", "success", "2026-10-28T10:00:00Z");
+        build["steps"] = serde_json::json!([
+            step(0, "Set up job", "completed", "success"),
+            step(1, "Run tests", "completed", "success")
+        ]);
+        let mut lint = job(102, "lint", "in_progress", "", "2026-10-28T10:00:00Z");
+        lint["steps"] = serde_json::json!([step(0, "Set up job", "in_progress", "")]);
+        let jobs = match page {
+            1 => vec![build, lint],
+            2 => vec![
+                job(103, "deploy", "queued", "", unset),
+                job(104, "publish", "completed", "skipped", unset),
+            ],
+            _ => Vec::new(),
+        };
+        serde_json::json!({"jobs": jobs, "total_count": 4})
+    }
+
     async fn stub_gitea() -> (GiteaPlugin, tokio::task::JoinHandle<()>) {
+        let (plugin, server, _) = stub_gitea_counting().await;
+        (plugin, server)
+    }
+
+    async fn stub_gitea_counting() -> (GiteaPlugin, tokio::task::JoinHandle<()>, Arc<AtomicUsize>) {
         let _ = rustls::crypto::ring::default_provider().install_default();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counter = requests.clone();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
@@ -312,6 +406,7 @@ mod tests {
                     request.extend_from_slice(&buffer[..count]);
                 }
                 let request = String::from_utf8(request).unwrap();
+                counter.fetch_add(1, Ordering::SeqCst);
                 let mut head = request.split_whitespace();
                 let method = head.next().unwrap();
                 let url =
@@ -391,6 +486,23 @@ mod tests {
                     ("GET", "/api/v1/repos/claude/smoke__ci/raw/.gitea/workflows/build__test.yaml") => {
                         (200, serde_json::json!("on:\n  workflow_dispatch:\n    inputs:\n      greeting:\n        description: Greeting\n        default: hi\n"))
                     }
+                    ("GET", "/api/v1/repos/claude/smoke__ci/actions/runs/7/jobs") => {
+                        let page = url
+                            .query_pairs()
+                            .find(|(key, _)| key == "page")
+                            .map(|(_, value)| value.parse().unwrap())
+                            .unwrap();
+                        (200, stub_jobs(page))
+                    }
+                    ("GET", "/api/v1/repos/claude/smoke__ci/actions/jobs/101/logs") => {
+                        (200, serde_json::json!(JOB_LOG))
+                    }
+                    ("GET", "/api/v1/repos/claude/smoke__ci/actions/jobs/104/logs") => {
+                        (404, serde_json::json!({"message": "job not started"}))
+                    }
+                    ("GET", "/api/v1/repos/claude/old/actions/runs/7/jobs") => {
+                        (404, serde_json::json!({"message": "not found"}))
+                    }
                     (method, path) => panic!("Unexpected stub request: {method} {path}"),
                 };
                 let body = match body {
@@ -419,7 +531,7 @@ mod tests {
                 None,
             )
             .unwrap();
-        (plugin, server)
+        (plugin, server, requests)
     }
 
     #[tokio::test]
@@ -605,5 +717,219 @@ mod tests {
 
         assert_eq!(orgs.len(), STUB_ORGS + 1);
         assert_eq!(orgs.last().unwrap().name, format!("o{}", STUB_ORGS - 1));
+    }
+
+    fn run_metadata() -> HashMap<String, serde_json::Value> {
+        HashMap::from([("run_id".to_string(), serde_json::json!(7))])
+    }
+
+    fn run_7<'a>(
+        pipeline_id: &'a str, metadata: &'a HashMap<String, serde_json::Value>,
+    ) -> RunRef<'a> {
+        RunRef {
+            pipeline_id,
+            run_number: 3,
+            run_id: "gitea-run-7",
+            metadata,
+        }
+    }
+
+    const SMOKE_PIPELINE: &str = "gitea__1__claude/smoke__ci/build__test.yaml";
+
+    async fn read(plugin: &GiteaPlugin, node_id: &str) -> PluginResult<Vec<u8>> {
+        let metadata = run_metadata();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin
+            .read_log(run_7(SMOKE_PIPELINE, &metadata), node_id, &mut sink)
+            .await;
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        result.map(|()| bytes)
+    }
+
+    #[tokio::test]
+    async fn run_jobs_and_steps_become_log_nodes_across_pages() {
+        let (plugin, server, requests) = stub_gitea_counting().await;
+        let metadata = run_metadata();
+
+        let nodes = plugin
+            .fetch_log_nodes(run_7(SMOKE_PIPELINE, &metadata))
+            .await
+            .unwrap();
+        server.abort();
+
+        let shape: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_str(),
+                    node.parent_id.as_deref(),
+                    node.kind,
+                    node.status,
+                    node.log,
+                )
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                (
+                    "101",
+                    None,
+                    LogNodeKind::Job,
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "101:0",
+                    Some("101"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Success,
+                    None
+                ),
+                (
+                    "101:1",
+                    Some("101"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Success,
+                    None
+                ),
+                (
+                    "102",
+                    None,
+                    LogNodeKind::Job,
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Partial)
+                ),
+                (
+                    "102:0",
+                    Some("102"),
+                    LogNodeKind::Step,
+                    PipelineStatus::Running,
+                    None
+                ),
+                (
+                    "103",
+                    None,
+                    LogNodeKind::Job,
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Pending)
+                ),
+                ("104", None, LogNodeKind::Job, PipelineStatus::Skipped, None),
+            ]
+        );
+        assert_eq!(nodes[0].name, "build");
+        assert_eq!(nodes[2].name, "Run tests");
+        assert_eq!(
+            nodes[0].web_url.as_deref(),
+            Some("http://g/claude/smoke__ci/actions/runs/7/jobs/0")
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn job_log_streams_the_text_gitea_stores() {
+        let (plugin, server) = stub_gitea().await;
+
+        let bytes = read(&plugin, "101").await.unwrap();
+        server.abort();
+
+        assert_eq!(bytes, JOB_LOG.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn stored_log_lines_reach_the_dialect_as_sections() {
+        let (plugin, server) = stub_gitea().await;
+
+        let bytes = read(&plugin, "101").await.unwrap();
+        server.abort();
+
+        let markers: Vec<_> = bytes
+            .split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| plugin.log_dialect().parse(line).marker)
+            .collect();
+        assert_eq!(
+            markers,
+            [
+                LineMarker::GroupStart,
+                LineMarker::Plain,
+                LineMarker::GroupEnd
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn job_that_never_started_has_no_log() {
+        let (plugin, server) = stub_gitea().await;
+
+        let error = read(&plugin, "104").await.unwrap_err();
+        server.abort();
+
+        assert!(
+            matches!(error, PluginError::PipelineNotFound(_)),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn node_ids_that_are_not_job_numbers_are_rejected_without_a_request() {
+        let (plugin, server, requests) = stub_gitea_counting().await;
+
+        for node_id in [
+            "",
+            "101:1",
+            "../runs/7",
+            "101/logs",
+            "x?y=1",
+            "+101",
+            "-1",
+            "1 2",
+        ] {
+            let error = read(&plugin, node_id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{node_id}: {error:?}"
+            );
+        }
+        server.abort();
+
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn run_without_a_gitea_run_id_is_rejected_without_a_request() {
+        let (plugin, server, requests) = stub_gitea_counting().await;
+        let metadata = HashMap::new();
+
+        let error = plugin
+            .fetch_log_nodes(run_7(SMOKE_PIPELINE, &metadata))
+            .await
+            .unwrap_err();
+        server.abort();
+
+        assert!(matches!(error, PluginError::InvalidConfig(_)), "{error:?}");
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn gitea_without_the_jobs_route_reports_the_minimum_version() {
+        let (plugin, server) = stub_gitea().await;
+        let metadata = run_metadata();
+
+        let error = plugin
+            .fetch_log_nodes(run_7("gitea__1__claude/old/ci.yaml", &metadata))
+            .await
+            .unwrap_err();
+        server.abort();
+
+        let PluginError::NotSupported(message) = error else {
+            panic!("expected NotSupported, got {error:?}");
+        };
+        assert!(message.contains("Gitea 1.25 or newer"), "{message}");
     }
 }

@@ -10,11 +10,11 @@ if ! gitea_cli admin user list | grep -qw acme; then
     --email acme@example.com --admin --must-change-password=false
 fi
 
-if [ ! -s /shared/gitea-token ]; then
+if [ ! -s /credentials/gitea-token ]; then
   token=$(gitea_cli admin user generate-access-token --username acme \
     --token-name "pipedash-$(date +%s)" \
     --scopes read:user,read:organization,read:repository --raw)
-  printf '%s' "$token" > /shared/gitea-token
+  printf '%s' "$token" > /credentials/gitea-token
 fi
 
 if [ ! -s /shared/runner-token ]; then

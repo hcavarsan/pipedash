@@ -1,0 +1,20 @@
+{{- $outage := eq (mod (div (now).Unix 600) 3) 0 -}}
+{
+  "components": [
+    {"id": "actions", "name": "Actions runners", "status": "{{ if $outage }}partial_outage{{ else }}operational{{ end }}"},
+    {"id": "git", "name": "Git operations", "status": "operational"},
+    {"id": "web", "name": "Web UI", "status": "operational"}
+  ],
+  "incidents": [
+    {{- if $outage }}
+    {
+      "id": "delayed-actions",
+      "name": "Delayed Actions jobs",
+      "status": "identified",
+      "impact": "major",
+      "components": [{"id": "actions"}],
+      "incident_updates": [{"body": "Jobs wait longer than usual for a runner. We are adding capacity."}]
+    }
+    {{- end }}
+  ]
+}

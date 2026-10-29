@@ -52,7 +52,15 @@ spec:
                 - -c
                 - |
                   set -eu
+                  window=$(( $(date +%s) / 600 ))
                   for pipeline in build integration-tests deploy; do
+                    state=
+                    if [ "$pipeline" = build ] && [ $(( window % 4 )) -eq 3 ]; then
+                      state="  status: Cancelled"
+                    fi
+                    if [ "$pipeline" = deploy ] && [ $(( window % 2 )) -eq 1 ]; then
+                      state="  status: PipelineRunPending"
+                    fi
                     kubectl create -n acme-ci -f - <<EOF
                   apiVersion: tekton.dev/v1
                   kind: PipelineRun
@@ -63,6 +71,7 @@ spec:
                   spec:
                     pipelineRef:
                       name: $pipeline
+                  $state
                   EOF
                     runs=$(kubectl get pipelineruns -n acme-ci -l tekton.dev/pipeline=$pipeline \
                       --sort-by=.metadata.creationTimestamp -o name)

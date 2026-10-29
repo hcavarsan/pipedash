@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use pipedash_plugin_api::*;
 
+use crate::log_dialect::GitlabLogDialect;
 use crate::{
     client,
     config,
@@ -327,6 +328,35 @@ impl Plugin for GitLabPlugin {
             provider_id,
             namespace.as_deref(),
         ))
+    }
+
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let (_, project_id) = config::parse_pipeline_id(run.pipeline_id)?;
+        let jobs = self
+            .client()?
+            .get_pipeline_jobs(project_id, run.run_number)
+            .await?;
+
+        Ok(mapper::jobs_to_log_nodes(&jobs))
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        if node_id.is_empty() || !node_id.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid GitLab job ID: {node_id}"
+            )));
+        }
+        let (_, project_id) = config::parse_pipeline_id(run.pipeline_id)?;
+
+        self.client()?
+            .stream_job_log(project_id, node_id, sink)
+            .await
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &GitlabLogDialect
     }
 
     async fn fetch_workflow_parameters(
@@ -746,5 +776,287 @@ mod tests {
         assert_eq!(numbers(&all), (1..=150).rev().collect::<Vec<_>>());
         assert_eq!(numbers(&some), (31..=150).rev().collect::<Vec<_>>());
         assert_eq!(numbers(&latest), vec![150]);
+    }
+
+    type Requests = std::sync::Arc<tokio::sync::Mutex<Vec<String>>>;
+
+    const PIPELINE_JOBS: &str = r#"[
+        {"id":41,"name":"compile","stage":"build","status":"success","started_at":"2026-10-27T10:05:00Z","finished_at":"2026-10-27T10:06:00Z","web_url":"https://gitlab.example/team/app/-/jobs/41"},
+        {"id":40,"name":"unit","stage":"test","status":"running","started_at":"2026-10-27T10:06:10Z","finished_at":null,"web_url":"https://gitlab.example/team/app/-/jobs/40"},
+        {"id":14,"name":"docs","stage":"deploy","status":"skipped","started_at":null,"finished_at":null,"web_url":"https://gitlab.example/team/app/-/jobs/14"},
+        {"id":13,"name":"ship","stage":"deploy","status":"manual","started_at":null,"finished_at":null,"web_url":"https://gitlab.example/team/app/-/jobs/13"},
+        {"id":12,"name":"lint","stage":"test","status":"success","started_at":"2026-10-27T10:01:00Z","finished_at":"2026-10-27T10:02:00Z","web_url":"https://gitlab.example/team/app/-/jobs/12"},
+        {"id":11,"name":"unit","stage":"test","status":"failed","started_at":"2026-10-27T10:01:00Z","finished_at":"2026-10-27T10:03:00Z","web_url":"https://gitlab.example/team/app/-/jobs/11"},
+        {"id":10,"name":"compile","stage":"build","status":"failed","started_at":"2026-10-27T10:00:00Z","finished_at":"2026-10-27T10:00:30Z","web_url":"https://gitlab.example/team/app/-/jobs/10"}
+    ]"#;
+
+    const JOB_TRACE: &[u8] = b"Running with gitlab-runner 17.0.0\n\
+        section_start:1700000000:step_script\r\x1b[0K\x1b[36;1mExecuting step_script\x1b[0;m\n\
+        $ make test\n\
+        section_end:1700000007:step_script\r\x1b[0K\n";
+
+    async fn stub_jobs_and_trace() -> (GitLabPlugin, Requests, tokio::task::JoinHandle<()>) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let requests = Requests::default();
+        let seen = requests.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let count = stream.read(&mut buffer).await.unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                seen.lock().await.push(request.clone());
+                let target = request.split_whitespace().nth(1).unwrap();
+                let url = reqwest::Url::parse(&format!("http://{addr}{target}")).unwrap();
+                let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
+                let mut next_page = String::new();
+                let (status, content_type, body) = match url.path() {
+                    "/api/v4/projects/200/pipelines/77/jobs" => {
+                        let jobs: Vec<serde_json::Value> =
+                            serde_json::from_str(PIPELINE_JOBS).unwrap();
+                        let page = query["page"].parse::<usize>().unwrap();
+                        let page_size = query["per_page"].parse::<usize>().unwrap().min(2);
+                        if page * page_size < jobs.len() {
+                            next_page = (page + 1).to_string();
+                        }
+                        let items: Vec<_> = jobs
+                            .into_iter()
+                            .skip((page - 1) * page_size)
+                            .take(page_size)
+                            .collect();
+                        (
+                            "200 OK",
+                            "application/json",
+                            serde_json::Value::Array(items).to_string().into_bytes(),
+                        )
+                    }
+                    "/api/v4/projects/200/jobs/41/trace" => {
+                        ("200 OK", "text/plain", JOB_TRACE.to_vec())
+                    }
+                    _ => (
+                        "404 Not Found",
+                        "application/json",
+                        br#"{"message":"404 Not found"}"#.to_vec(),
+                    ),
+                };
+                let head = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nX-Next-Page: {next_page}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(head.as_bytes()).await.unwrap();
+                stream.write_all(&body).await.unwrap();
+            }
+        });
+        let mut plugin = GitLabPlugin::new();
+        plugin
+            .initialize(
+                1,
+                HashMap::from([
+                    ("base_url".to_string(), format!("http://{addr}")),
+                    ("token".to_string(), "stub-token".to_string()),
+                ]),
+                None,
+            )
+            .unwrap();
+        (plugin, requests, server)
+    }
+
+    fn run_77(metadata: &HashMap<String, serde_json::Value>) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: "gitlab__1__200",
+            run_number: 77,
+            run_id: "gitlab__1__200_77",
+            metadata,
+        }
+    }
+
+    async fn read_job(plugin: &GitLabPlugin, node_id: &str) -> PluginResult<Vec<u8>> {
+        let metadata = HashMap::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin.read_log(run_77(&metadata), node_id, &mut sink).await;
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        result.map(|()| bytes)
+    }
+
+    async fn targets(requests: &Requests) -> Vec<String> {
+        requests
+            .lock()
+            .await
+            .iter()
+            .map(|request| request.split_whitespace().nth(1).unwrap().to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn pipeline_jobs_become_stages_holding_their_latest_jobs() {
+        let (plugin, requests, server) = stub_jobs_and_trace().await;
+        let metadata = HashMap::new();
+
+        let nodes = plugin.fetch_log_nodes(run_77(&metadata)).await.unwrap();
+        server.abort();
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_str(),
+                    node.parent_id.as_deref(),
+                    node.kind,
+                    node.name.as_str(),
+                    node.status,
+                    node.log,
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (
+                    "stage:build",
+                    None,
+                    LogNodeKind::Stage,
+                    "build",
+                    PipelineStatus::Success,
+                    None
+                ),
+                (
+                    "41",
+                    Some("stage:build"),
+                    LogNodeKind::Job,
+                    "compile",
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "stage:test",
+                    None,
+                    LogNodeKind::Stage,
+                    "test",
+                    PipelineStatus::Running,
+                    None
+                ),
+                (
+                    "40",
+                    Some("stage:test"),
+                    LogNodeKind::Job,
+                    "unit",
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Partial)
+                ),
+                (
+                    "12",
+                    Some("stage:test"),
+                    LogNodeKind::Job,
+                    "lint",
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "stage:deploy",
+                    None,
+                    LogNodeKind::Stage,
+                    "deploy",
+                    PipelineStatus::Pending,
+                    None
+                ),
+                (
+                    "13",
+                    Some("stage:deploy"),
+                    LogNodeKind::Job,
+                    "ship",
+                    PipelineStatus::Pending,
+                    Some(LogAvailability::Pending)
+                ),
+                (
+                    "14",
+                    Some("stage:deploy"),
+                    LogNodeKind::Job,
+                    "docs",
+                    PipelineStatus::Skipped,
+                    None
+                ),
+            ]
+        );
+        assert_eq!(
+            nodes[1].web_url.as_deref(),
+            Some("https://gitlab.example/team/app/-/jobs/41")
+        );
+        assert_eq!(
+            targets(&requests).await,
+            (1..=4)
+                .map(|page| format!(
+                    "/api/v4/projects/200/pipelines/77/jobs?per_page=100&include_retried=true&page={page}"
+                ))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn job_trace_streams_the_raw_text() {
+        let (plugin, requests, server) = stub_jobs_and_trace().await;
+
+        let trace = read_job(&plugin, "41").await.unwrap();
+        server.abort();
+
+        assert_eq!(trace, JOB_TRACE);
+        assert_eq!(
+            targets(&requests).await,
+            ["/api/v4/projects/200/jobs/41/trace"]
+        );
+        assert!(requests.lock().await[0]
+            .to_lowercase()
+            .contains("private-token: stub-token"));
+    }
+
+    #[tokio::test]
+    async fn missing_job_trace_is_not_found() {
+        let (plugin, _, server) = stub_jobs_and_trace().await;
+
+        let error = read_job(&plugin, "999").await.unwrap_err();
+        server.abort();
+
+        assert!(
+            matches!(error, PluginError::PipelineNotFound(_)),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn job_ids_that_are_not_numbers_are_rejected_without_a_request() {
+        let (plugin, requests, server) = stub_jobs_and_trace().await;
+
+        for node_id in [
+            "",
+            "../../jobs/41",
+            "41/trace",
+            "41?x=1",
+            "-41",
+            "4 1",
+            "stage:test",
+            "４１",
+        ] {
+            let error = read_job(&plugin, node_id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{node_id}: {error:?}"
+            );
+        }
+        server.abort();
+
+        assert!(requests.lock().await.is_empty());
     }
 }

@@ -53,7 +53,7 @@ async function mount(notificationsEnabled: boolean) {
   await act(async () => {
     render(createElement(QueryClientProvider, { client }, createElement(Screen)))
   })
-  await waitFor(() => assert.ok(listeners.has('provider-health-alert')))
+  await waitFor(() => assert.ok(listeners.has('provider-health-alert') && listeners.has('pipelines-failed')))
 }
 
 async function publish(name: string, payload: unknown) {
