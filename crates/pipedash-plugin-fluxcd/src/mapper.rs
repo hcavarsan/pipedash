@@ -695,6 +695,11 @@ fn covers_current(resource: &FluxResource, newest: &Candidate, current: Pipeline
     }
 }
 
+pub(crate) fn describes_current_state(run: &PipelineRun) -> bool {
+    run.metadata.get("record_source").and_then(Value::as_str) == Some(RECORD_SNAPSHOT)
+        || run.metadata.contains_key("message_source")
+}
+
 pub(crate) fn build_runs(
     resource: &FluxResource, provider_id: i64,
 ) -> PluginResult<Vec<PipelineRun>> {
