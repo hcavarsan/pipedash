@@ -31,15 +31,39 @@ until kubectl apply -f /seed/manifests/; do
   sleep 10
 done
 
-if [ ! -s /shared/argocd-token ]; then
+if [ ! -s /credentials/argocd-token ]; then
   password=$(kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d)
   session=$(curl -fsS http://k3s:30080/api/v1/session -H 'Content-Type: application/json' \
     -d "{\"username\":\"admin\",\"password\":\"$password\"}" | jq -er .token)
   token=$(curl -fsS -X POST http://k3s:30080/api/v1/account/pipedash/token \
     -H "Authorization: Bearer $session" -H 'Content-Type: application/json' \
     -d '{"name":"pipedash"}' | jq -er .token)
-  printf '%s' "$token" > /shared/argocd-token
+  printf '%s' "$token" > /credentials/argocd-token
 fi
+
+until token=$(kubectl get secret pipedash-reader -n pipedash -o jsonpath='{.data.token}' | base64 -d) &&
+  [ -n "$token" ]; do
+  sleep 2
+done
+cat > /credentials/kubeconfig <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+  - name: k3s
+    cluster:
+      server: https://k3s:6443
+      certificate-authority-data: $(kubectl config view --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
+users:
+  - name: pipedash-reader
+    user:
+      token: $token
+contexts:
+  - name: pipedash
+    context:
+      cluster: k3s
+      user: pipedash-reader
+current-context: pipedash
+EOF
 
 if [ -z "$(kubectl get pipelineruns -n acme-ci -o name)" ]; then
   kubectl create job demo-activity-seed --from=cronjob/demo-activity -n acme-ci

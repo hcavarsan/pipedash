@@ -1,12 +1,3 @@
-[general]
-metrics_enabled = true
-default_refresh_interval = 30
-status_pages_enabled = false
-
-[server]
-bind_addr = "0.0.0.0:8080"
-cors_allow_all = false
-
 [storage]
 backend = "postgres"
 vault_password = "${DEMO_VAULT_PASSWORD}"
@@ -18,57 +9,54 @@ connection_string = "${PIPEDASH_POSTGRES_URL}"
 name = "Gitea"
 type = "gitea"
 token = "${GITEA_TOKEN}"
-refresh_interval = 30
 
 [providers.gitea.config]
 base_url = "http://gitea:3000"
 selected_items = "acme/web,acme/api,acme/mobile"
+status_page_url = "https://status.gitea.demo"
 
 [providers.jenkins]
 name = "Jenkins"
 type = "jenkins"
 token = "${JENKINS_PASSWORD}"
-refresh_interval = 30
 
 [providers.jenkins.config]
 server_url = "http://jenkins:8080"
 username = "pipedash"
-selected_items = "acme/build,acme/integration-tests,acme/deploy,acme/nightly-e2e"
+selected_items = "acme/build,acme/integration-tests,acme/deploy,acme/nightly-e2e,acme/smoke-tests"
+status_page_url = "https://status.jenkins.demo"
 
 [providers.argocd]
 name = "Argo CD"
 type = "argocd"
 token = "${ARGOCD_TOKEN}"
-refresh_interval = 30
 
 [providers.argocd.config]
 server_url = "http://k3s:30080"
 selected_items = "web,worker,broken"
+status_page_url = "https://status.argocd.demo"
 
 [providers.tekton]
 name = "Tekton"
 type = "tekton"
-refresh_interval = 30
 
 [providers.tekton.config]
-kubeconfig_path = "/shared/kubeconfig"
+kubeconfig_path = "/credentials/kubeconfig"
 namespace_mode = "custom"
 namespaces = "acme-ci"
 
 [providers.fluxcd]
 name = "Flux"
 type = "fluxcd"
-refresh_interval = 30
 
 [providers.fluxcd.config]
-kubeconfig = "/shared/kubeconfig"
+kubeconfig = "/credentials/kubeconfig"
 namespaces = "acme-flux"
 
 [providers.komodo]
 name = "Komodo"
 type = "komodo"
 token = "${KOMODO_API_SECRET}"
-refresh_interval = 30
 
 [providers.komodo.config]
 server_url = "http://komodo:9120"
