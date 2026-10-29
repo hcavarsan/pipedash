@@ -1,3 +1,5 @@
+#[cfg(target_os = "android")]
+mod android;
 mod app_lock;
 mod build_watch;
 mod commands;
@@ -325,6 +327,14 @@ pub fn run() {
         tracing::error!("Failed to initialize the credential store: {}", e);
     }
 
+    #[cfg(target_os = "android")]
+    if let Err(e) = android::init_tls() {
+        tracing::error!(
+            "Failed to initialize the Android certificate verifier: {}",
+            e
+        );
+    }
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -395,6 +405,11 @@ pub fn run() {
                     Ok(false) => {}
                     Err(e) => tracing::error!("Failed to update storage location: {}", e),
                 }
+                #[cfg(target_os = "android")]
+                if let Ok(cache) = app.path().app_cache_dir() {
+                    let _ = std::fs::create_dir_all(&cache);
+                    std::env::set_var("TMPDIR", &cache);
+                }
             }
 
             let setup_complete = config_path.exists();
@@ -406,6 +421,8 @@ pub fn run() {
             app.manage(MaybeCoreContext::default());
             app.manage(app_lock);
             native::sync_privacy_cover(app.handle(), lock_settings);
+            #[cfg(target_os = "android")]
+            local_notifications::set_storage_dir(&app_data_dir);
             local_notifications::register(app.handle())?;
 
             if !setup_complete {

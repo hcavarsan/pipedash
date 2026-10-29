@@ -6,6 +6,7 @@ require_relative "required_reason_apis"
 require_relative "ios_project"
 require_relative "app_review_demo"
 require_relative "store_text"
+require_relative "store_version"
 
 default_platform(:ios)
 
@@ -29,11 +30,9 @@ def release_version
 end
 
 def ios_version(version = release_version)
-  core = version.split(/[-+]/, 2).first
-  parts = core.split(".")
-  UI.user_error!("Unsupported version #{version}: expected MAJOR.MINOR.PATCH") unless parts.length == 3
-  major, minor, patch = parts.map { |part| Integer(part, 10) }
-  "#{major + 1}.#{minor}.#{patch}"
+  StoreVersion.for(version)
+rescue ArgumentError => error
+  UI.user_error!(error.message)
 end
 
 def tauri(*args)

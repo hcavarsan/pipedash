@@ -17,12 +17,11 @@ export function AppLockCard(): ReactNode {
   }
 
   const label = biometryLabel(appLock.biometry)
+  const description = appLock.biometry_available
+    ? `Ask for ${label} before Pipedash shows your pipelines and tokens.`
+    : `${label.charAt(0).toUpperCase()}${label.slice(1)} isn't set up on this device. Pipedash asks for your device passcode instead.`
 
   if (mobileShell) {
-    const description = appLock.biometry_available
-      ? `Ask for ${label} before Pipedash shows your pipelines and tokens.`
-      : `${label} isn't set up on this device. Pipedash asks for your device passcode instead.`
-
     return (
       <IosGroup header="Security" footer={description}>
         <SwitchRow
@@ -56,11 +55,7 @@ export function AppLockCard(): ReactNode {
 
         <Switch
           label={`Require ${label}`}
-          description={
-            appLock.biometry_available
-              ? `Ask for ${label} before Pipedash shows your pipelines and tokens.`
-              : `${label} isn't set up on this device. Pipedash asks for your device passcode instead.`
-          }
+          description={description}
           checked={appLock.enabled}
           disabled={setAppLock.isPending}
           onChange={(e) =>

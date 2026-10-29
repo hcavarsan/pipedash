@@ -18,6 +18,8 @@ use tauri::{
     Manager,
     State,
 };
+#[cfg(target_os = "android")]
+use tauri_plugin_pipedash_native::PipedashNativeExt;
 
 use crate::commands::{
     load_config_from_dir,
@@ -355,6 +357,15 @@ pub async fn lock_session(app: &AppHandle) {
 
 #[cfg_attr(not(mobile), allow(dead_code))]
 async fn lock_on_resume(app: &AppHandle) {
+    #[cfg(target_os = "android")]
+    if app
+        .pipedash_native()
+        .resumed_in_app()
+        .await
+        .unwrap_or(false)
+    {
+        return;
+    }
     let core_loaded = app.state::<MaybeCoreContext>().0.read().await.is_some();
     if app
         .state::<AppLockState>()

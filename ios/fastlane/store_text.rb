@@ -2,11 +2,12 @@ module StoreText
   class Error < StandardError; end
 
   WHATS_NEW_LIMIT = 4000
+  PLAY_WHATS_NEW_LIMIT = 500
   PROMOTIONAL_LIMIT = 170
   DROPPED_ITEMS = /\A(bump version|update changelog)\b/i
 
   # The file for the iOS version wins; otherwise the GitHub release of the tag.
-  def self.whats_new(version:, tag:, dir:)
+  def self.whats_new(version:, tag:, dir:, limit: WHATS_NEW_LIMIT)
     path = File.join(dir, "#{version}.txt")
     text = if File.exist?(path)
              File.read(path).strip
@@ -19,7 +20,7 @@ module StoreText
            end
     raise Error, "What's New for #{version} is empty. Add text to #{path}" if text.empty?
 
-    text.length > WHATS_NEW_LIMIT ? clip(text) : text
+    text.length > limit ? clip(text, limit) : text
   end
 
   def self.promotional_text(version:, dir:)
@@ -72,13 +73,14 @@ module StoreText
         .rstrip
   end
 
-  def self.clip(text)
+  def self.clip(text, limit = WHATS_NEW_LIMIT)
     kept = []
     text.lines.each do |line|
-      break if (kept.join + line).rstrip.length > WHATS_NEW_LIMIT - 2
+      break if (kept.join + line).rstrip.length > limit - 2
 
       kept << line
     end
+    kept = [text[0, limit - 2]] if kept.empty?
     "#{kept.join.rstrip}\n…"
   end
 end

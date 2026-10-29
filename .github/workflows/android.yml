@@ -1,0 +1,94 @@
+name: Android
+run-name: Android ${{ inputs.lane || 'beta' }}
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "beta: internal testing; release: production; upload_screenshots: images only; data_safety: Data safety form; bundle: signed AAB for the first Console upload"
+        type: choice
+        options:
+          - beta
+          - release
+          - upload_screenshots
+          - data_safety
+          - bundle
+        default: beta
+      beta_ref:
+        description: "Branch to build for beta; leave blank to use the selected workflow ref"
+        type: string
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: Build and upload Android app
+    runs-on: ubuntu-24.04
+    environment: google-play
+    permissions:
+      contents: read
+    steps:
+      - name: Reject beta ref for other lanes
+        if: ${{ inputs.beta_ref != '' && (inputs.lane || 'beta') != 'beta' }}
+        run: |
+          echo "::error::beta_ref is only supported by the beta lane"
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.beta_ref || github.ref }}
+
+      - name: Set up Android build
+        uses: $/.github/actions/setup-android
+        with:
+          rust-targets: aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
+      - name: Write upload keystore
+        if: ${{ !contains(fromJSON('["upload_screenshots", "data_safety"]'), inputs.lane || 'beta') }}
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/upload.jks"
+          printf '%s' "$ANDROID_KEYSTORE" | base64 -d > "$RUNNER_TEMP/upload.jks"
+
+      - name: Run Fastlane
+        env:
+          LANE: ${{ inputs.lane || 'beta' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          ANDROID_UPLOAD_KEYSTORE: ${{ runner.temp }}/upload.jks
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: android
+        run: bundle exec fastlane android "$LANE"
+
+      - name: Upload first-upload bundle
+        if: ${{ inputs.lane == 'bundle' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-first-upload
+          path: crates/pipedash-desktop/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Play screenshots
+        if: ${{ always() && (inputs.lane == 'release' || inputs.lane == 'upload_screenshots') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-play-screenshots
+          path: |
+            android/fastlane/screenshots
+            ios/app-store-screenshots/exports
+          if-no-files-found: warn
+          retention-days: 14

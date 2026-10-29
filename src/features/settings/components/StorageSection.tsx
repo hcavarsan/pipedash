@@ -21,7 +21,7 @@ import { useLockVault, useVaultStatus } from '../../../queries/useVaultQueries'
 import { isTauri } from '../../../services/isTauri'
 import { formatErrorMessage } from '../../../types/errors'
 import { lockMeansSomething } from '../../../utils/appLock'
-import { isMobilePlatform } from '../../../utils/platform'
+import { isMobilePlatform, secureStoreLabel } from '../../../utils/platform'
 import { SetupWizard } from '../../setup/components/SetupWizard/SetupWizard'
 import { AppLockCard } from '../../vault/components/AppLockCard'
 import { ConfigEditorModal } from './ConfigEditorModal'
@@ -153,7 +153,7 @@ export const StorageSection = (): ReactNode => {
               title="Credentials"
               value={
                 vaultStatus?.password_source === 'keyring'
-                  ? 'Device Keychain'
+                  ? secureStoreLabel()
                   : `Encrypted in ${STORAGE_BACKEND_LABELS[backend]}`
               }
             />

@@ -1,0 +1,2 @@
+-keep, includedescriptorclasses class org.rustls.platformverifier.** { *; }
+-keep class com.henrique.pipedash.plugin.** { *; }

@@ -1,0 +1,277 @@
+require "fileutils"
+require "json"
+require "shellwords"
+require "tmpdir"
+require_relative "android_project"
+require_relative "../../ios/fastlane/store_text"
+require_relative "../../ios/fastlane/store_version"
+
+default_platform(:android)
+
+APP_ID = AndroidProject::APP_ID
+ROOT = File.expand_path("../..", __dir__)
+TAURI_DIR = File.join(ROOT, "crates/pipedash-desktop")
+ANDROID_DIR = File.join(TAURI_DIR, "gen/android")
+FASTLANE_DIR = File.join(ROOT, "android/fastlane")
+AAB = File.join(ANDROID_DIR, "app/build/outputs/bundle/universalRelease/app-universal-release.aab")
+DATA_SAFETY = File.join(FASTLANE_DIR, "data_safety.csv")
+DEBUG_APK = File.join(ANDROID_DIR, "app/build/outputs/apk/universal/debug/app-universal-debug.apk")
+RELEASE_TARGETS = %w[aarch64 armv7 x86_64].freeze
+RELEASE_ABIS = %w[arm64-v8a armeabi-v7a x86_64].freeze
+PAGE_ALIGNED_ABIS = %w[arm64-v8a x86_64].freeze
+TRACKS = %w[internal alpha beta production].freeze
+
+def release_version
+  JSON.parse(File.read(File.join(TAURI_DIR, "tauri.conf.json"))).fetch("version")
+end
+
+def store_version(version = release_version)
+  StoreVersion.for(version)
+rescue ArgumentError => error
+  UI.user_error!(error.message)
+end
+
+def tauri(*args)
+  Dir.chdir(ROOT) { sh("bun", "run", "tauri", *args) }
+end
+
+def play_key
+  ENV.fetch("PLAY_SERVICE_ACCOUNT_JSON")
+end
+
+def readelf
+  File.join(ENV.fetch("NDK_HOME"), "toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf")
+end
+
+def adb
+  File.join(ENV.fetch("ANDROID_HOME"), "platform-tools/adb")
+end
+
+def build_aab(version_code:, targets:)
+  config = AndroidProject.config(version: store_version, version_code: version_code)
+  tauri("android", "build", "--aab", "--ci", *targets.flat_map { |target| ["--target", target] }, "--config", config)
+  UI.user_error!("No AAB found at #{AAB}") unless File.exist?(AAB)
+end
+
+def sign_aab(aab:)
+  sh("jarsigner", "-keystore", ENV.fetch("ANDROID_UPLOAD_KEYSTORE"),
+     "-storepass:env", "ANDROID_UPLOAD_KEYSTORE_PASSWORD", "-keypass:env", "ANDROID_UPLOAD_KEY_PASSWORD",
+     "-sigalg", "SHA256withRSA", "-digestalg", "SHA-256", aab, ENV.fetch("ANDROID_UPLOAD_KEY_ALIAS"))
+end
+
+def build_signed_aab(version_code:)
+  prepare_project
+  build_aab(version_code: version_code, targets: RELEASE_TARGETS)
+  sign_aab(aab: AAB)
+  verify_aab(aab: AAB, version_code: version_code, abis: RELEASE_ABIS, signed: true)
+  AAB
+end
+
+def next_version_code
+  AndroidProject.next_version_code(
+    TRACKS.flat_map { |track| google_play_track_version_codes(package_name: APP_ID, track: track, json_key_data: play_key) },
+  )
+end
+
+platform :android do
+  desc "Generate the Android project with the app launcher icons"
+  lane :prepare_project do
+    tauri("android", "init", "--ci")
+    FileUtils.cp_r(File.join(TAURI_DIR, "icons/android/."), File.join(ANDROID_DIR, "app/src/main/res"))
+  end
+
+  desc "Check that an AAB meets the Google Play requirements this project depends on"
+  lane :verify_aab do |options|
+    aab = options.fetch(:aab)
+    begin
+      manifest = sh("java", "-jar", ENV.fetch("BUNDLETOOL_JAR"), "dump", "manifest", "--bundle", aab, log: false)
+      AndroidProject.verify_manifest!(manifest, version_name: store_version, version_code: options.fetch(:version_code))
+    rescue ArgumentError => error
+      UI.user_error!(error.message)
+    end
+
+    Dir.mktmpdir do |dir|
+      sh("unzip", "-q", aab, "base/lib/*", "-d", dir)
+      found = Dir.children(File.join(dir, "base/lib")).sort
+      expected = options.fetch(:abis).sort
+      UI.user_error!("The AAB has ABIs #{found.join(", ")}, expected #{expected.join(", ")}") unless found == expected
+      Dir[File.join(dir, "base/lib/{#{PAGE_ALIGNED_ABIS.join(",")}}/*.so")].each do |library|
+        unless AndroidProject.page_aligned?(sh(readelf, "-lW", library, log: false))
+          UI.user_error!("#{library.delete_prefix("#{dir}/")} is not aligned to 16 KB pages")
+        end
+      end
+    end
+
+    if options[:signed] && !sh("jarsigner", "-verify", aab, log: false).include?("jar verified.")
+      UI.user_error!("The AAB is not signed")
+    end
+    UI.success("#{File.basename(aab)} passed the Google Play checks")
+  end
+
+  desc "Run the native plugin unit tests, build an unsigned AAB and run the Google Play checks (pull requests)"
+  lane :check do
+    prepare_project
+    build_aab(version_code: 1, targets: ["aarch64"])
+    sh(File.join(ANDROID_DIR, "gradlew"), "-p", ANDROID_DIR, ":tauri-plugin-pipedash-native:testDebugUnitTest")
+    verify_aab(aab: AAB, version_code: 1, abis: ["arm64-v8a"], signed: false)
+  end
+
+  desc "Build a debug APK for the x86_64 emulator"
+  lane :debug_apk do
+    prepare_project
+    tauri("android", "build", "--apk", "--debug", "--ci", "--target", "x86_64")
+    UI.user_error!("No APK found at #{DEBUG_APK}") unless File.exist?(DEBUG_APK)
+    DEBUG_APK
+  end
+
+  desc "Install the APK on the running emulator, launch it, open a deep link and save the screen and log"
+  lane :smoke do |options|
+    apk = File.expand_path(options.fetch(:apk, DEBUG_APK))
+    out_dir = File.expand_path(options.fetch(:output))
+    FileUtils.mkdir_p(out_dir)
+    alive = -> { !sh(adb, "shell", "pidof #{APP_ID} || true", log: false).strip.empty? }
+
+    sh(adb, "install", "-r", apk)
+    sh(adb, "shell", "am", "start", "-W", "-n", "#{APP_ID}/.MainActivity")
+    sleep(20)
+    running = alive.call
+    sh("#{adb.shellescape} exec-out screencap -p > #{File.join(out_dir, "android.png").shellescape}")
+    sh(adb, "shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", "pipedash://settings")
+    sleep(3)
+    running &&= alive.call
+    log = sh(adb, "logcat", "-d", log: false)
+    File.write(File.join(out_dir, "logcat.txt"), log)
+    UI.user_error!("#{APP_ID} stopped after launch or deep link") unless running
+    UI.user_error!("The app crashed: see logcat.txt") if log.include?("FATAL EXCEPTION") || log.include?("panicked at")
+  end
+
+  desc "Build a signed AAB for the first manual upload in the Play Console"
+  lane :bundle do |options|
+    build_signed_aab(version_code: Integer(options.fetch(:version_code, 1)))
+  end
+
+  desc "Build and upload to the internal testing track"
+  lane :beta do
+    upload_to_play_store(
+      package_name: APP_ID,
+      json_key_data: play_key,
+      track: "internal",
+      aab: build_signed_aab(version_code: next_version_code),
+      release_status: "completed",
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+
+  desc "Capture the app, then export the approved Play screenshots and feature graphic"
+  lane :prepare_screenshots do
+    Dir.chdir(File.join(ROOT, "ios/app-store-screenshots")) do
+      sh("bun", "install", "--frozen-lockfile")
+      sh("bun", "x", "--no-install", "playwright", "install", "chromium") if ENV["CHROMIUM_PATH"].to_s.empty?
+      sh("bun", "run", "capture")
+      sh("bun", "run", "build")
+      sh("bun", "run", "export:play")
+    end
+    screenshots_path = File.join(FASTLANE_DIR, "screenshots")
+    unless Dir.exist?(screenshots_path) && Dir.children(screenshots_path) == ["en-US"]
+      UI.user_error!("Screenshot upload must contain only en-US in #{screenshots_path}")
+    end
+    screenshots_path
+  end
+
+  desc "Build, upload and publish to production with store text and images"
+  lane :release do
+    screenshots_path = prepare_screenshots
+    begin
+      whats_new = StoreText.whats_new(
+        version: store_version,
+        tag: "v#{release_version}",
+        dir: File.join(FASTLANE_DIR, "release_notes"),
+        limit: StoreText::PLAY_WHATS_NEW_LIMIT,
+      ) do |path|
+        github_api(
+          server_url: "https://api.github.com",
+          api_bearer: ENV["GITHUB_TOKEN"],
+          http_method: "GET",
+          path: path,
+          secure: true,
+          error_handlers: { "*" => proc { |_response| } },
+        )
+      end
+    rescue StoreText::Error => error
+      UI.user_error!(error.message)
+    end
+
+    version_code = next_version_code
+    aab = build_signed_aab(version_code: version_code)
+    Dir.mktmpdir do |metadata_path|
+      AndroidProject.assemble_metadata(
+        source: File.join(FASTLANE_DIR, "metadata/android"),
+        images: File.join(screenshots_path, "en-US/images"),
+        into: metadata_path,
+        changelog: whats_new,
+        version_code: version_code,
+      )
+      upload_to_play_store(
+        package_name: APP_ID,
+        json_key_data: play_key,
+        track: "production",
+        aab: aab,
+        release_status: "completed",
+        metadata_path: metadata_path,
+        skip_upload_metadata: false,
+        skip_upload_changelogs: false,
+        skip_upload_images: false,
+        skip_upload_screenshots: false,
+        sync_image_upload: true,
+      )
+    end
+  end
+
+  desc "Replace the en-US images on the Play listing without publishing a build"
+  lane :upload_screenshots do
+    screenshots_path = prepare_screenshots
+    version_code = google_play_track_version_codes(package_name: APP_ID, track: "internal", json_key_data: play_key).max
+    UI.user_error!("supply attaches listing uploads to a release, and the internal track has none. Run beta first") unless version_code
+    Dir.mktmpdir do |metadata_path|
+      AndroidProject.assemble_metadata(
+        source: File.join(FASTLANE_DIR, "metadata/android"),
+        images: File.join(screenshots_path, "en-US/images"),
+        into: metadata_path,
+      )
+      upload_to_play_store(
+        package_name: APP_ID,
+        json_key_data: play_key,
+        track: "internal",
+        version_code: version_code,
+        metadata_path: metadata_path,
+        skip_upload_aab: true,
+        skip_upload_apk: true,
+        skip_upload_metadata: true,
+        skip_upload_changelogs: true,
+        skip_upload_images: false,
+        skip_upload_screenshots: false,
+        sync_image_upload: true,
+      )
+    end
+  end
+
+  desc "Send android/fastlane/data_safety.csv as the Data safety form"
+  lane :data_safety do
+    require "google/apis/androidpublisher_v3"
+    service = Google::Apis::AndroidpublisherV3::AndroidPublisherService.new
+    service.authorization = Google::Auth::ServiceAccountCredentials.make_creds(
+      json_key_io: StringIO.new(play_key),
+      scope: Google::Apis::AndroidpublisherV3::AUTH_ANDROIDPUBLISHER,
+    )
+    request = Google::Apis::AndroidpublisherV3::SafetyLabelsUpdateRequest.new(safety_labels: File.read(DATA_SAFETY))
+    begin
+      service.data_application_safety(APP_ID, request)
+    rescue Google::Apis::Error => error
+      UI.user_error!("Google Play rejected the Data safety form: #{error.message}")
+    end
+    UI.success("Data safety form updated from #{File.basename(DATA_SAFETY)}")
+  end
+end

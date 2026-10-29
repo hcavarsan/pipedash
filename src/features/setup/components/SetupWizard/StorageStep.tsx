@@ -6,7 +6,7 @@ import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../../../constants/storageLabels'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
 import { isTauri } from '../../../../services/isTauri'
-import { isMobilePlatform } from '../../../../utils/platform'
+import { isAndroidPlatform, isMobilePlatform, secureStoreLabel } from '../../../../utils/platform'
 import { typedKeys } from '../../../../utils/typedKeys'
 
 import { validateSetupDraft } from './setupDraft'
@@ -61,10 +61,10 @@ export function StorageStep({
         <Stack gap="md">
           <IosGroup
             header="On-device storage"
-            footer="Your data stays in a private database on this device. Provider tokens are kept in the Keychain, so there is no vault password to set."
+            footer={`Your data stays in a private database on this device. Provider tokens are kept in ${isAndroidPlatform() ? 'the Android Keystore' : 'the Keychain'}, so there is no vault password to set.`}
           >
             <IosRow title="Database" value={STORAGE_BACKEND_LABELS.sqlite} />
-            <IosRow title="Provider tokens" value="Device Keychain" />
+            <IosRow title="Provider tokens" value={secureStoreLabel()} />
           </IosGroup>
 
           {error && (
@@ -84,8 +84,9 @@ export function StorageStep({
               On-device storage
             </Text>
             <Text size="xs" c="dimmed">
-              Pipedash keeps its data in a SQLite database in the app's own storage. Provider tokens stay in the device
-              Keychain, so there is no vault password to set.
+              Pipedash keeps its data in a SQLite database in the app's own storage. Provider tokens stay in{' '}
+              {isAndroidPlatform() ? 'the Android Keystore' : 'the device Keychain'}, so there is no vault password to
+              set.
             </Text>
           </Stack>
         </Card>

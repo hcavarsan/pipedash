@@ -1,3 +1,7 @@
+#[cfg(any(target_os = "android", test))]
+mod file_vault;
+#[cfg(target_os = "android")]
+mod headless;
 mod store;
 
 use std::collections::HashSet;
@@ -46,6 +50,17 @@ const REFRESH_BUDGET: Duration = Duration::from_secs(23);
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(26);
 
 type Result<T, E = ErrorResponse> = std::result::Result<T, E>;
+
+#[cfg(target_os = "android")]
+pub(crate) use headless::{
+    cancel as cancel_headless,
+    run as refresh_headless,
+};
+
+#[cfg(target_os = "android")]
+pub fn set_storage_dir(app_data_dir: &std::path::Path) {
+    store::set_dir(app_data_dir.join("background-notifications"));
+}
 
 #[derive(Default)]
 pub struct LocalNotificationsState {
@@ -201,11 +216,13 @@ pub async fn set_local_notifications_enabled(
     if !enabled {
         return disable(&app).await;
     }
-    if !cfg!(target_os = "ios") {
-        return Err(error("Background notifications require iOS"));
+    if !cfg!(mobile) {
+        return Err(error(
+            "Background notifications require the Pipedash mobile app",
+        ));
     }
     if !permission_granted(&app).await? {
-        return Err(error("Allow notifications for Pipedash in iOS Settings"));
+        return Err(error("Allow notifications for Pipedash in Settings"));
     }
     if state.enabled.load(Ordering::Acquire) {
         return app
@@ -251,7 +268,7 @@ pub async fn set_local_notifications_enabled(
         }
         _ => {
             storage(store::clear).await?;
-            Err(error("iOS could not enable notifications"))
+            Err(error("The system could not enable notifications"))
         }
     }
 }
@@ -265,19 +282,19 @@ async fn disable<R: Runtime>(app: &AppHandle<R>) -> Result<LocalNotificationSett
         .configure_local_notifications(false)
         .await;
     let _observations = state.observations.lock().await;
-    let cleared = if cfg!(target_os = "ios") {
+    let cleared = if cfg!(mobile) {
         storage(store::clear).await
     } else {
         Ok(())
     };
-    let settings =
-        configured.map_err(|_| error("iOS could not cancel background notification checks"))?;
+    let settings = configured
+        .map_err(|_| error("The system could not cancel background notification checks"))?;
     cleared?;
     Ok(settings)
 }
 
 pub async fn reset<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
-    if !cfg!(target_os = "ios") {
+    if !cfg!(mobile) {
         return Ok(());
     }
     initialize(app).await?;
@@ -288,7 +305,7 @@ pub async fn reset<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
 }
 
 pub async fn sync_from_core<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
-    if !cfg!(target_os = "ios") {
+    if !cfg!(mobile) {
         return Ok(());
     }
     initialize(app).await?;
@@ -322,18 +339,18 @@ pub async fn sync_from_core<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     if state.authorization_revision.load(Ordering::Acquire) != authorization_revision {
         return Ok(());
     }
-    storage(move || {
-        let _guard = guard;
-        let mut observations = store::observations()?;
+    storage(move || store::save_authorization(&authorization)).await?;
+    observe(app, |observations| {
         observations.retain_providers(&ids);
-        store::save_authorization(&authorization)?;
-        store::save_observations(&observations)
+        Vec::new()
     })
-    .await
+    .await?;
+    drop(guard);
+    Ok(())
 }
 
 pub fn schedule_sync<R: Runtime>(app: &AppHandle<R>) {
-    if !cfg!(target_os = "ios") {
+    if !cfg!(mobile) {
         return;
     }
     let app = app.clone();
@@ -377,7 +394,7 @@ async fn deliver<R: Runtime>(app: &AppHandle<R>, notices: Vec<LocalNotification>
 }
 
 pub async fn on_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) {
-    if !cfg!(target_os = "ios") {
+    if !cfg!(mobile) {
         return;
     }
     if matches!(
@@ -418,7 +435,6 @@ async fn process_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) -> Res
     if !state.enabled.load(Ordering::Acquire) {
         return Ok(());
     }
-    let mut observations = storage(store::observations).await?;
     let authorization = if let CoreEvent::ProviderRemoved { provider, .. } = event {
         state.invalidate();
         let mut authorization = storage(store::authorization).await?;
@@ -426,29 +442,51 @@ async fn process_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) -> Res
             authorization
                 .providers
                 .retain(|entry| entry.id != Some(provider.id));
-            let ids = authorization
-                .providers
-                .iter()
-                .filter_map(|entry| entry.id)
-                .collect();
-            observations.retain_providers(&ids);
         }
         authorization
     } else {
         None
     };
-    let notices = observations.observe_event(event);
-    deliver(app, notices).await?;
-    storage(move || {
-        let _guard = guard;
-        if let Some(authorization) = authorization {
-            store::save_authorization(&authorization)?;
+    let kept: Option<HashSet<i64>> = authorization.as_ref().map(|authorization| {
+        authorization
+            .providers
+            .iter()
+            .filter_map(|entry| entry.id)
+            .collect()
+    });
+    if let Some(authorization) = authorization {
+        storage(move || store::save_authorization(&authorization)).await?;
+    }
+    observe(app, |observations| {
+        if let Some(ids) = &kept {
+            observations.retain_providers(ids);
         }
-        store::save_observations(&observations)
+        observations.observe_event(event)
     })
     .await?;
+    drop(guard);
     state.revision.fetch_add(1, Ordering::AcqRel);
     Ok(())
+}
+
+#[cfg(all(target_os = "android", not(test)))]
+async fn observe<R: Runtime>(
+    app: &AppHandle<R>, change: impl FnOnce(&mut NotificationState) -> Vec<LocalNotification>,
+) -> Result<()> {
+    let (lock, mut observations) = storage(store::lock_observations).await?;
+    let notices = change(&mut observations);
+    deliver(app, notices).await?;
+    storage(move || lock.save(&observations)).await
+}
+
+#[cfg(not(all(target_os = "android", not(test))))]
+async fn observe<R: Runtime>(
+    app: &AppHandle<R>, change: impl FnOnce(&mut NotificationState) -> Vec<LocalNotification>,
+) -> Result<()> {
+    let mut observations = storage(store::observations).await?;
+    let notices = change(&mut observations);
+    deliver(app, notices).await?;
+    storage(move || store::save_observations(&observations)).await
 }
 
 async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
@@ -514,7 +552,7 @@ async fn run_refresh<R: Runtime>(
 }
 
 pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    if !cfg!(target_os = "ios") {
+    if !cfg!(mobile) {
         return Ok(());
     }
     let handle = app.clone();

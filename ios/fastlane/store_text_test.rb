@@ -91,6 +91,24 @@ class StoreTextTest < Minitest::Test
     assert text.lines[-2].start_with?("- Item number")
   end
 
+  def test_play_limit_cuts_at_a_line_within_500_characters
+    body = (1..400).map { |n| "- Item number #{n} with some words" }.join("\n")
+    text = StoreText.whats_new(version: "1.5.0", tag: "v0.5.0", dir: @dir, limit: StoreText::PLAY_WHATS_NEW_LIMIT) do |_path|
+      { status: 200, json: { "body" => body } }
+    end
+    assert_operator text.length, :<=, 500
+    assert text.end_with?("\n…")
+    assert text.lines[-2].start_with?("- Item number")
+  end
+
+  def test_play_limit_keeps_a_first_line_longer_than_the_limit
+    File.write(File.join(@dir, "1.5.0.txt"), "#{"word " * 150}\nSecond line")
+    text = StoreText.whats_new(version: "1.5.0", tag: "v0.5.0", dir: @dir, limit: StoreText::PLAY_WHATS_NEW_LIMIT)
+    assert_operator text.length, :<=, 500
+    assert text.start_with?("word word")
+    assert text.end_with?("\n…")
+  end
+
   def test_promotional_text_is_optional_and_limited
     assert_nil StoreText.promotional_text(version: "1.5.0", dir: @dir)
 

@@ -27,7 +27,7 @@ const BACKUP_KDF_SALT: &[u8] = b"pipedash-backup-salt-v1";
 pub struct KeyringTokenStore {
     keyring_lock: Arc<Mutex<()>>,
     token_cache: Arc<Mutex<Option<HashMap<String, String>>>>,
-    #[cfg(all(test, not(target_os = "ios")))]
+    #[cfg(all(test, not(any(target_os = "ios", target_os = "android"))))]
     entries: HashMap<String, Entry>,
 }
 
@@ -42,7 +42,7 @@ impl KeyringTokenStore {
         Self {
             keyring_lock: Arc::new(Mutex::new(())),
             token_cache: Arc::new(Mutex::new(None)),
-            #[cfg(all(test, not(target_os = "ios")))]
+            #[cfg(all(test, not(any(target_os = "ios", target_os = "android"))))]
             entries: HashMap::new(),
         }
     }
@@ -50,7 +50,7 @@ impl KeyringTokenStore {
     fn with_entry<T>(
         &self, user: &str, operation: impl FnOnce(&Entry) -> crate::credential::Result<T>,
     ) -> crate::credential::Result<T> {
-        #[cfg(all(test, not(target_os = "ios")))]
+        #[cfg(all(test, not(any(target_os = "ios", target_os = "android"))))]
         if !self.entries.is_empty() {
             return operation(
                 self.entries
@@ -287,7 +287,7 @@ pub fn create_keyring_token_store() -> Arc<dyn TokenStore> {
     Arc::new(KeyringTokenStore::new())
 }
 
-#[cfg(all(test, not(target_os = "ios")))]
+#[cfg(all(test, not(any(target_os = "ios", target_os = "android"))))]
 mod tests {
     use keyring_core::mock::Cred;
 

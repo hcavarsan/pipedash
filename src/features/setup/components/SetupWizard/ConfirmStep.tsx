@@ -5,7 +5,7 @@ import { CopyButton } from '../../../../components/atoms/CopyButton'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../../../constants/storageLabels'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
-import { isMobilePlatform } from '../../../../utils/platform'
+import { isMobilePlatform, secureStoreLabel } from '../../../../utils/platform'
 
 import type { ConfirmStepProps } from './types'
 import { buildVaultExportCommand } from './vaultExportCommand'
@@ -64,7 +64,7 @@ export function ConfirmStep({
           {state.backend === 'postgres' && (
             <IosRow title="Connection" value={summarizeConnection(state.postgresUrl) ?? 'Unavailable'} />
           )}
-          <IosRow title="Credentials" value="Device Keychain" />
+          <IosRow title="Credentials" value={secureStoreLabel()} />
           {showTransferStep && (
             <IosRow title="Data migration" value={state.transferData ? 'Transfer data' : 'Fresh start'} />
           )}
@@ -129,7 +129,7 @@ export function ConfirmStep({
                 Credentials
               </Text>
               <Text size="sm" fw={500}>
-                {onDevice ? 'Device Keychain' : 'Encrypted storage'}
+                {onDevice ? secureStoreLabel() : 'Encrypted storage'}
               </Text>
             </Group>
 

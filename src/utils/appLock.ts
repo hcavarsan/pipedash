@@ -1,15 +1,17 @@
 import type { Biometry, VaultStatusResponse } from '../types/domain'
 
+import { isAndroidPlatform } from './platform'
+
 type LockState = Pick<VaultStatusResponse, 'is_unlocked' | 'requires_password' | 'app_lock'>
 
-export const biometryLabel = (biometry: Biometry | undefined): string => {
+export const biometryLabel = (biometry: Biometry | undefined, android = isAndroidPlatform()): string => {
   switch (biometry) {
     case 'faceId':
-      return 'Face ID'
+      return android ? 'face unlock' : 'Face ID'
     case 'touchId':
-      return 'Touch ID'
+      return android ? 'fingerprint' : 'Touch ID'
     default:
-      return 'device passcode'
+      return android ? 'screen lock' : 'device passcode'
   }
 }
 

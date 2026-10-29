@@ -70,3 +70,11 @@ DeveloperID_*
 /ios/*.xcarchive/
 /ios/*.xcresult/
 /ios/**/Preview.html
+
+# Generated Google Play screenshots
+/android/fastlane/screenshots/
+/android/fastlane/report.xml
+/android/fastlane/README.md
+/android/.bundle/
+/android/vendor/bundle/
+/android/*.aab

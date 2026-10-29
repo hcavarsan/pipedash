@@ -432,7 +432,240 @@
         ]
       }
     ],
-    "android": [],
+    "android": [
+      {
+        "id": "android-01",
+        "layout": "hero",
+        "label": {
+          "en": "PIPEDASH / CI & CD"
+        },
+        "headline": {
+          "en": "Every pipeline,\n*one place.*"
+        },
+        "screenshot": "/screenshots/android/phone/{locale}/01.png",
+        "transforms": {
+          "caption": {
+            "x": 72,
+            "y": 130,
+            "width": 936,
+            "height": 400,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 225,
+            "y": 560,
+            "width": 630,
+            "height": 1365,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-02",
+        "layout": "device-bottom",
+        "label": {
+          "en": "01 / RUN HISTORY"
+        },
+        "headline": {
+          "en": "Spot the failure.\n*In seconds.*"
+        },
+        "screenshot": "/screenshots/android/phone/{locale}/02.png",
+        "transforms": {
+          "caption": {
+            "x": 72,
+            "y": 130,
+            "width": 936,
+            "height": 400,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 225,
+            "y": 560,
+            "width": 630,
+            "height": 1365,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-03",
+        "layout": "device-top",
+        "label": {
+          "en": "02 / RUN DETAILS"
+        },
+        "headline": {
+          "en": "Every run.\n*Every detail.*"
+        },
+        "screenshot": "/screenshots/android/phone/{locale}/03.png",
+        "transforms": {
+          "caption": {
+            "x": 72,
+            "y": 1410,
+            "width": 936,
+            "height": 400,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 235,
+            "y": 70,
+            "width": 610,
+            "height": 1321.67,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-04",
+        "layout": "hero",
+        "label": {
+          "en": "03 / JOB LOGS"
+        },
+        "headline": {
+          "en": "Read the logs.\n*Find the error.*"
+        },
+        "screenshot": "/screenshots/android/phone/{locale}/04.png",
+        "transforms": {
+          "caption": {
+            "x": 72,
+            "y": 130,
+            "width": 936,
+            "height": 400,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 225,
+            "y": 560,
+            "width": 630,
+            "height": 1365,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-05",
+        "layout": "device-bottom",
+        "label": {
+          "en": "04 / RUN WORKFLOWS"
+        },
+        "headline": {
+          "en": "Run workflows.\n*From anywhere.*"
+        },
+        "screenshot": "/screenshots/android/phone/{locale}/05.png",
+        "transforms": {
+          "caption": {
+            "x": 72,
+            "y": 130,
+            "width": 936,
+            "height": 400,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 225,
+            "y": 560,
+            "width": 630,
+            "height": 1365,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-06",
+        "layout": "device-top",
+        "label": {
+          "en": "05 / METRICS"
+        },
+        "headline": {
+          "en": "Build health.\n*Over time.*"
+        },
+        "screenshot": "/screenshots/android/phone/{locale}/06.png",
+        "transforms": {
+          "caption": {
+            "x": 72,
+            "y": 1410,
+            "width": 936,
+            "height": 400,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 235,
+            "y": 70,
+            "width": 610,
+            "height": 1321.67,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-07",
+        "layout": "hero",
+        "label": {
+          "en": "06 / STATUS PAGES"
+        },
+        "headline": {
+          "en": "Provider status.\n*In context.*"
+        },
+        "screenshot": "/screenshots/android/phone/{locale}/07.png",
+        "transforms": {
+          "caption": {
+            "x": 72,
+            "y": 130,
+            "width": 936,
+            "height": 400,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 225,
+            "y": 560,
+            "width": 630,
+            "height": 1365,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-08",
+        "layout": "device-bottom",
+        "label": {
+          "en": "07 / NOTIFICATIONS"
+        },
+        "headline": {
+          "en": "Outage alerts.\n*In one inbox.*"
+        },
+        "screenshot": "/screenshots/android/phone/{locale}/08.png",
+        "transforms": {
+          "caption": {
+            "x": 72,
+            "y": 130,
+            "width": 936,
+            "height": 400,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 225,
+            "y": 560,
+            "width": 630,
+            "height": 1365,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      }
+    ],
     "ipad": [
       {
         "id": "ipad-01",
@@ -888,8 +1121,253 @@
     "carplay": [],
     "mac": [],
     "android-7": [],
-    "android-10": [],
-    "feature-graphic": [],
+    "android-10": [
+      {
+        "id": "android-10-01",
+        "layout": "hero",
+        "label": {
+          "en": "PIPEDASH / CI & CD"
+        },
+        "headline": {
+          "en": "Every pipeline,\n*one place.*"
+        },
+        "screenshot": "/screenshots/android/tablet/{locale}/01.png",
+        "transforms": {
+          "caption": {
+            "x": 107,
+            "y": 190,
+            "width": 1386,
+            "height": 540,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 240,
+            "y": 770,
+            "width": 1120,
+            "height": 1792,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-10-02",
+        "layout": "device-bottom",
+        "label": {
+          "en": "01 / RUN HISTORY"
+        },
+        "headline": {
+          "en": "Spot the failure.\n*In seconds.*"
+        },
+        "screenshot": "/screenshots/android/tablet/{locale}/02.png",
+        "transforms": {
+          "caption": {
+            "x": 107,
+            "y": 190,
+            "width": 1386,
+            "height": 540,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 240,
+            "y": 770,
+            "width": 1120,
+            "height": 1792,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-10-03",
+        "layout": "device-top",
+        "label": {
+          "en": "02 / RUN DETAILS"
+        },
+        "headline": {
+          "en": "Every run.\n*Every detail.*"
+        },
+        "screenshot": "/screenshots/android/tablet/{locale}/03.png",
+        "transforms": {
+          "caption": {
+            "x": 107,
+            "y": 1900,
+            "width": 1386,
+            "height": 540,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 240,
+            "y": 70,
+            "width": 1120,
+            "height": 1792,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-10-04",
+        "layout": "hero",
+        "label": {
+          "en": "03 / JOB LOGS"
+        },
+        "headline": {
+          "en": "Read the logs.\n*Find the error.*"
+        },
+        "screenshot": "/screenshots/android/tablet/{locale}/04.png",
+        "transforms": {
+          "caption": {
+            "x": 107,
+            "y": 190,
+            "width": 1386,
+            "height": 540,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 240,
+            "y": 770,
+            "width": 1120,
+            "height": 1792,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-10-05",
+        "layout": "device-bottom",
+        "label": {
+          "en": "04 / RUN WORKFLOWS"
+        },
+        "headline": {
+          "en": "Run workflows.\n*From anywhere.*"
+        },
+        "screenshot": "/screenshots/android/tablet/{locale}/05.png",
+        "transforms": {
+          "caption": {
+            "x": 107,
+            "y": 190,
+            "width": 1386,
+            "height": 540,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 240,
+            "y": 770,
+            "width": 1120,
+            "height": 1792,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-10-06",
+        "layout": "device-top",
+        "label": {
+          "en": "05 / METRICS"
+        },
+        "headline": {
+          "en": "Build health.\n*Over time.*"
+        },
+        "screenshot": "/screenshots/android/tablet/{locale}/06.png",
+        "transforms": {
+          "caption": {
+            "x": 107,
+            "y": 1900,
+            "width": 1386,
+            "height": 540,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 240,
+            "y": 70,
+            "width": 1120,
+            "height": 1792,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-10-07",
+        "layout": "hero",
+        "label": {
+          "en": "06 / STATUS PAGES"
+        },
+        "headline": {
+          "en": "Provider status.\n*In context.*"
+        },
+        "screenshot": "/screenshots/android/tablet/{locale}/07.png",
+        "transforms": {
+          "caption": {
+            "x": 107,
+            "y": 190,
+            "width": 1386,
+            "height": 540,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 240,
+            "y": 770,
+            "width": 1120,
+            "height": 1792,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      },
+      {
+        "id": "android-10-08",
+        "layout": "device-bottom",
+        "label": {
+          "en": "07 / NOTIFICATIONS"
+        },
+        "headline": {
+          "en": "Outage alerts.\n*In one inbox.*"
+        },
+        "screenshot": "/screenshots/android/tablet/{locale}/08.png",
+        "transforms": {
+          "caption": {
+            "x": 107,
+            "y": 190,
+            "width": 1386,
+            "height": 540,
+            "rotation": 0,
+            "zIndex": 4
+          },
+          "device": {
+            "x": 240,
+            "y": 770,
+            "width": 1120,
+            "height": 1792,
+            "rotation": 0,
+            "zIndex": 3
+          }
+        }
+      }
+    ],
+    "feature-graphic": [
+      {
+        "id": "feature-graphic-01",
+        "layout": "feature-graphic",
+        "label": {
+          "en": "PIPEDASH / CI & CD"
+        },
+        "headline": {
+          "en": "Every pipeline,\none place."
+        },
+        "screenshot": ""
+      }
+    ],
     "duo-outer": [],
     "duo-outer-landscape": [],
     "duo-inner": [],

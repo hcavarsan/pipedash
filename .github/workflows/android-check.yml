@@ -1,0 +1,98 @@
+name: Android check
+on:
+  pull_request:
+    paths:
+      - ".github/actions/setup-android/**"
+      - ".github/workflows/android-check.yml"
+      - "crates/**"
+      - "src/**"
+      - "android/**"
+      - "ios/**"
+      - "index.html"
+      - "package.json"
+      - "bun.lock"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  play-checks:
+    name: Unsigned AAB and Google Play checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Android build
+        uses: $/.github/actions/setup-android
+        with:
+          rust-targets: aarch64-linux-android
+
+      - name: Test Android release helpers and publishing guards
+        working-directory: android
+        run: bundle exec ruby -e 'Dir["fastlane/*_test.rb"].sort.each { |file| require_relative file }'
+
+      - name: Test screenshot exporter
+        working-directory: ios/app-store-screenshots
+        run: bun install --frozen-lockfile && bun run test
+
+      - name: Build and check
+        working-directory: android
+        run: bundle exec fastlane android check
+
+  emulator:
+    name: Launch on Android emulator
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Android build
+        uses: $/.github/actions/setup-android
+        with:
+          rust-targets: x86_64-linux-android
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build debug APK
+        working-directory: android
+        run: bundle exec fastlane android debug_apk
+
+      - name: Launch and take screenshots
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          working-directory: android
+          script: bundle exec fastlane android smoke output:$RUNNER_TEMP/android-smoke
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-emulator-screenshots
+          path: ${{ runner.temp }}/android-smoke
+          if-no-files-found: warn
+          retention-days: 14

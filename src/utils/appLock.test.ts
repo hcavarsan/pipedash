@@ -48,8 +48,11 @@ test('the privacy cover clears on visibility return, including a cancelled nativ
 })
 
 test('biometric labels', () => {
-  assert.equal(biometryLabel('faceId'), 'Face ID')
-  assert.equal(biometryLabel('touchId'), 'Touch ID')
-  assert.equal(biometryLabel('none'), 'device passcode')
-  assert.equal(biometryLabel(undefined), 'device passcode')
+  assert.equal(biometryLabel('faceId', false), 'Face ID')
+  assert.equal(biometryLabel('touchId', false), 'Touch ID')
+  assert.equal(biometryLabel('none', false), 'device passcode')
+  assert.equal(biometryLabel(undefined, false), 'device passcode')
+  assert.equal(biometryLabel('faceId', true), 'face unlock')
+  assert.equal(biometryLabel('touchId', true), 'fingerprint')
+  assert.equal(biometryLabel('none', true), 'screen lock')
 })

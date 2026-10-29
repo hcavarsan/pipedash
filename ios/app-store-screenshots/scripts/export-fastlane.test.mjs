@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { deflateSync } from 'node:zlib'
 import JSZip from 'jszip'
-import { validateBundle, validateProject } from './export-fastlane.mjs'
+import { stores, validateBundle, validateProject } from './export-fastlane.mjs'
 
 function chunk(type, data = Buffer.alloc(0)) {
   const body = Buffer.concat([Buffer.from(type), data])
@@ -34,6 +34,7 @@ function png(width = 1320, height = 2868, color = 2) {
 
 const image = png()
 const prefix = 'ios/iphone/1320x2868/en/'
+const iphone = stores.apple.targets.iphone
 const slides = [{ layout: 'hero' }, { layout: 'no-device' }]
 async function bundle(entries) {
   const zip = new JSZip()
@@ -47,7 +48,7 @@ test('selects only the largest size and preserves deck order', async () => {
     ['ios/iphone/1284x2778/en/01-hero.png', image],
     [`${prefix}01-hero.png`, image],
   ])
-  assert.deepEqual((await validateBundle(zip, 'iphone', slides)).map(file => file.name), ['01-iphone.png', '02-iphone.png'])
+  assert.deepEqual((await validateBundle(zip, 'iphone', slides, iphone)).map(file => file.name), ['01-iphone.png', '02-iphone.png'])
 })
 
 test('rejects incomplete, extra, and out-of-order target-size members', async () => {
@@ -56,20 +57,20 @@ test('rejects incomplete, extra, and out-of-order target-size members', async ()
     [[`${prefix}01-hero.png`, image], [`${prefix}02-no-device.png`, image], [`${prefix}03-hero.png`, image]],
     [[`${prefix}01-no-device.png`, image], [`${prefix}02-hero.png`, image]],
     [[`${prefix}01-hero.png`, image], [`${prefix}01-no-device.png`, image]],
-  ]) await assert.rejects(validateBundle(await bundle(entries), 'iphone', slides), /incomplete|duplicate|order/)
+  ]) await assert.rejects(validateBundle(await bundle(entries), 'iphone', slides, iphone), /incomplete|duplicate|order/)
 })
 
 test('rejects corrupt ZIPs, truncated PNGs, wrong dimensions, and non-RGB images', async () => {
-  await assert.rejects(validateBundle(Buffer.from('not a zip'), 'iphone', slides))
+  await assert.rejects(validateBundle(Buffer.from('not a zip'), 'iphone', slides, iphone))
   for (const bytes of [image.subarray(0, image.length - 1), png(1319), png(1320, 2868, 6)]) {
     const zip = await bundle([[`${prefix}01-hero.png`, bytes]])
-    await assert.rejects(validateBundle(zip, 'iphone', [slides[0]]), /truncated|width|opaque RGB/)
+    await assert.rejects(validateBundle(zip, 'iphone', [slides[0]], iphone), /truncated|width|opaque RGB/)
   }
 })
 
 test('rejects unsafe member paths and unsupported bundle locales', async () => {
   for (const name of [`../${prefix}01-hero.png`, `${prefix.replace('/en/', '/../en/')}01-hero.png`, `${prefix.replace('/en/', '/de/')}01-hero.png`]) {
-    await assert.rejects(validateBundle(await bundle([[name, image]]), 'iphone', [slides[0]]), /Unsafe|Unexpected/)
+    await assert.rejects(validateBundle(await bundle([[name, image]]), 'iphone', [slides[0]], iphone), /Unsafe|Unexpected/)
   }
 })
 
@@ -81,4 +82,19 @@ test('rejects unsupported locales and decks outside App Store limits before laun
   for (const deck of [[], Array.from({ length: 11 }, () => slides[0])]) {
     assert.throws(() => validateProject({ ...project, slidesByDevice: { ...project.slidesByDevice, ipad: deck } }), /1–10 slides/)
   }
+})
+
+test('exports Play images under the Play folders and rejects Apple bundles', async () => {
+  const phone = stores.play.targets.android
+  const play = await bundle([['android/android/1080x1920/en/01-hero.png', png(1080, 1920)], ['android/android/1080x1920/en/02-no-device.png', png(1080, 1920)]])
+  assert.deepEqual((await validateBundle(play, 'android', slides, phone)).map(file => file.name), ['images/phoneScreenshots/01.png', 'images/phoneScreenshots/02.png'])
+  const graphic = await bundle([['android/feature-graphic/1024x500/en/01-feature-graphic.png', png(1024, 500)]])
+  assert.deepEqual((await validateBundle(graphic, 'feature-graphic', [{ layout: 'feature-graphic' }], stores.play.targets['feature-graphic'])).map(file => file.name), ['images/featureGraphic.png'])
+  await assert.rejects(validateBundle(await bundle([[`${prefix}01-hero.png`, image]]), 'android', [slides[0]], phone), /Unexpected/)
+})
+
+test('requires 2–8 Play phone screenshots', () => {
+  const project = { locales: ['en'], locale: 'en', device: 'android', orientation: 'portrait', slidesByDevice: { android: slides, 'android-10': slides, 'feature-graphic': [slides[0]] } }
+  validateProject(project, stores.play.targets)
+  assert.throws(() => validateProject({ ...project, slidesByDevice: { ...project.slidesByDevice, android: [slides[0]] } }, stores.play.targets), /2–8 slides/)
 })
