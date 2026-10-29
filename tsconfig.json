@@ -25,6 +25,6 @@
     }
   },
   "include": ["./src/**/*"],
-  "exclude": ["node_modules", "crates", "dist", "target", "src/**/*.test.ts"],
+  "exclude": ["node_modules", "crates", "dist", "target", "src/**/*.test.ts", "src/**/*.test.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

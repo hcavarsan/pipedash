@@ -4,6 +4,6 @@
     "types": ["node", "vite/client"],
     "composite": false
   },
-  "include": ["src/**/*.test.ts", "src/**/*.d.ts"],
+  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.d.ts"],
   "exclude": ["node_modules", "crates", "dist", "target"]
 }

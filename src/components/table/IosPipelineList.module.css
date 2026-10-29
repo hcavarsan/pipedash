@@ -16,7 +16,8 @@
   overflow: hidden;
 }
 
-.row + .row::before {
+.row + .row::before,
+[data-virtual-item]:not([data-first]) > .row::before {
   content: "";
   position: absolute;
   top: 0;

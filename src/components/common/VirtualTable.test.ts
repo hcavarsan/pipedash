@@ -1,0 +1,138 @@
+import assert from 'node:assert/strict'
+import { after, afterEach, test } from 'node:test'
+
+import { GlobalRegistrator } from '@happy-dom/global-registrator'
+import { createElement, type ReactNode, useState } from 'react'
+
+import type { VirtualTableSort } from './VirtualTable'
+
+GlobalRegistrator.register({ width: 1400, height: 900 })
+
+const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
+Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 900 })
+
+const { act, cleanup, render, within } = await import('@testing-library/react')
+const { userEvent } = await import('@testing-library/user-event')
+const { MantineProvider } = await import('@mantine/core')
+const { VirtualTable } = await import('./VirtualTable')
+
+interface Row {
+  id: string
+  name: string
+  locked: boolean
+}
+
+const ROWS: Row[] = [
+  { id: 'a', name: 'Alpha', locked: false },
+  { id: 'b', name: 'Beta', locked: true },
+  { id: 'c', name: 'Gamma', locked: false },
+]
+
+const view = () => within(document.body)
+
+afterEach(async () => {
+  await act(async () => cleanup())
+})
+
+after(async () => {
+  if (clientHeight) {
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeight)
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight')
+  }
+  await GlobalRegistrator.unregister()
+})
+
+interface HarnessProps {
+  onRowClick: (row: Row) => void
+  onSelect: (keys: Set<string>) => void
+}
+
+function Harness({ onRowClick, onSelect }: HarnessProps): ReactNode {
+  const [sort, setSort] = useState<VirtualTableSort>({ columnId: 'name', direction: 'asc' })
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+
+  return createElement(
+    MantineProvider,
+    null,
+    createElement(VirtualTable<Row>, {
+      records: ROWS,
+      getKey: (row) => row.id,
+      height: 400,
+      rowHeight: 48,
+      label: 'Rows',
+      sort,
+      onSortChange: setSort,
+      onRowClick,
+      selection: {
+        selectedKeys: selected,
+        isSelectable: (row) => !row.locked,
+        onChange: (keys) => {
+          setSelected(keys)
+          onSelect(keys)
+        },
+        label: (row) => `Select ${row.name}`,
+      },
+      columns: [
+        { id: 'name', title: 'Name', sortable: true, render: (row) => row.name },
+        {
+          id: 'actions',
+          title: 'Actions',
+          render: (row) => createElement('button', { type: 'button' }, `Open ${row.name}`),
+        },
+      ],
+    })
+  )
+}
+
+function renderHarness() {
+  const clicks: string[] = []
+  const selections: string[][] = []
+
+  render(
+    createElement(Harness, {
+      onRowClick: (row) => clicks.push(row.id),
+      onSelect: (keys) => selections.push([...keys].sort()),
+    })
+  )
+
+  return { clicks, selections }
+}
+
+test('a sortable header toggles between ascending and descending', async () => {
+  const user = userEvent.setup({ document })
+  renderHarness()
+
+  const header = view().getByRole('columnheader', { name: /Name/ })
+  assert.equal(header.getAttribute('aria-sort'), 'ascending')
+
+  await user.click(within(header).getByRole('button'))
+  assert.equal(header.getAttribute('aria-sort'), 'descending')
+
+  await user.click(within(header).getByRole('button'))
+  assert.equal(header.getAttribute('aria-sort'), 'ascending')
+})
+
+test('clicking a row opens it, clicking a control inside the row does not', async () => {
+  const user = userEvent.setup({ document })
+  const { clicks } = renderHarness()
+
+  await user.click(await view().findByRole('cell', { name: 'Alpha' }))
+  assert.deepEqual(clicks, ['a'])
+
+  await user.click(view().getByRole('button', { name: 'Open Gamma' }))
+  assert.deepEqual(clicks, ['a'])
+})
+
+test('select all picks only selectable rows and clears on the second click', async () => {
+  const user = userEvent.setup({ document })
+  const { selections } = renderHarness()
+
+  assert.equal(view().queryByRole('checkbox', { name: 'Select Beta' }), null)
+
+  await user.click(view().getByRole('checkbox', { name: 'Select all' }))
+  assert.deepEqual(selections.at(-1), ['a', 'c'])
+
+  await user.click(view().getByRole('checkbox', { name: 'Select all' }))
+  assert.deepEqual(selections.at(-1), [])
+})
