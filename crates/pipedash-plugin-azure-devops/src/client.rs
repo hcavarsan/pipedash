@@ -1,9 +1,11 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
     redact_url,
+    LogSink,
     PluginError,
     PluginResult,
     RetryPolicy,
@@ -29,12 +31,14 @@ use crate::types::{
     DefinitionDetail,
     ListResponse,
     Project,
+    Timeline,
 };
 
 const API_VERSION: &str = "7.0";
 const CONTINUATION_HEADER: &str = "x-ms-continuationtoken";
 const PAGE_SIZE: usize = 100;
 const MAX_PAGES: usize = 100;
+const LOG_TIMEOUT: Duration = Duration::from_secs(900);
 
 pub(crate) struct AzureDevOpsClient {
     http_client: Arc<reqwest::Client>,
@@ -116,6 +120,34 @@ impl AzureDevOpsClient {
         Ok(build)
     }
 
+    pub async fn get_timeline(&self, project: &str, build_id: i64) -> PluginResult<Timeline> {
+        let path = format!("_apis/build/builds/{build_id}/timeline");
+        let (timeline, _) = self.get_json(Some(project), &path, &[]).await?;
+        Ok(timeline)
+    }
+
+    pub async fn stream_build_log(
+        &self, project: &str, build_id: i64, log_id: i64, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let path = format!("_apis/build/builds/{build_id}/logs/{log_id}");
+        let url = self.url(Some(project), &path, &[])?;
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.authorized(Method::GET, &url)
+                    .header(ACCEPT, "text/plain")
+                    .timeout(LOG_TIMEOUT)
+                    .send()
+            })
+            .await?;
+        if matches!(response.status(), StatusCode::NOT_FOUND | StatusCode::GONE) {
+            return Err(PluginError::PipelineNotFound(format!(
+                "Log {log_id} of build {build_id} is no longer available"
+            )));
+        }
+        sink.pipe(signed_in(response).await?).await
+    }
+
     pub async fn queue_build(&self, project: &str, body: &Value) -> PluginResult<Build> {
         let response = self
             .send_json(Method::POST, project, "_apis/build/builds", body)
@@ -150,10 +182,14 @@ impl AzureDevOpsClient {
         Ok(url)
     }
 
-    fn request(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
+    fn authorized(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
         self.http_client
             .request(method, url.clone())
             .basic_auth("", Some(&self.token))
+    }
+
+    fn request(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
+        self.authorized(method, url)
             .header(ACCEPT, "application/json")
     }
 
