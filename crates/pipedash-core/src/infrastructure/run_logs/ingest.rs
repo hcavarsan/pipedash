@@ -251,7 +251,9 @@ impl State {
         match parsed.marker {
             LineMarker::GroupEnd => {
                 self.outline.group_end(self.line_count, ts);
-                return Ok(Flow::Continue);
+                if parsed.body.trim_ascii().is_empty() {
+                    return Ok(Flow::Continue);
+                }
             }
             LineMarker::OpenSection => {
                 self.render(parsed.body);
@@ -529,7 +531,7 @@ mod tests {
                 row(
                     "Cleaning up project directory and file based variables",
                     11,
-                    13,
+                    12,
                     true
                 ),
             ]
@@ -537,6 +539,30 @@ mod tests {
         assert_eq!(lines.len(), 13);
         assert!(lines[12].ends_with("Job succeeded"));
         assert!(lines.iter().all(|line| !line.contains("section_")));
+    }
+
+    #[test]
+    fn gitlab_text_after_a_section_end_follows_the_section() {
+        let (sections, lines) = ingest_gitlab(concat!(
+            "section_start:1700000000:build[collapsed=true]\r\x1b[0KBuild\n",
+            "compiling\n",
+            "section_end:1700000010:build\r\x1b[0KDone\n",
+            "after the section\n",
+        ));
+
+        assert_eq!(
+            sections,
+            vec![("Build".to_string(), None, Some(0), 2, false)]
+        );
+        assert_eq!(
+            lines,
+            vec![
+                "2023-11-14T22:13:20.000Z Build",
+                "compiling",
+                "2023-11-14T22:13:30.000Z Done",
+                "after the section",
+            ]
+        );
     }
 
     #[test]

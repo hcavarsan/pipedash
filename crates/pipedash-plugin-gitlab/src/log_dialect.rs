@@ -57,18 +57,10 @@ impl LogDialect for GitlabLogDialect {
         let Some(unix) = ended else {
             return plain;
         };
-        let timestamp = header_time.or_else(|| from_unix(unix));
-        if is_blank(body) {
-            return ParsedLine {
-                timestamp,
-                marker: LineMarker::GroupEnd,
-                body: &[],
-            };
-        }
         ParsedLine {
-            timestamp,
-            marker: LineMarker::Plain,
-            body,
+            timestamp: header_time.or_else(|| from_unix(unix)),
+            marker: LineMarker::GroupEnd,
+            body: if is_blank(body) { &[] } else { body },
         }
     }
 }
@@ -281,11 +273,11 @@ mod tests {
     }
 
     #[test]
-    fn text_after_a_section_end_stays_a_line() {
+    fn text_after_a_section_end_closes_the_section_and_stays_a_line() {
         let parsed = parse(
             b"section_end:1700000010:cleanup_file_variables\r\x1b[0K\x1b[32;1mJob succeeded\x1b[0;m",
         );
-        assert_eq!(parsed.marker, LineMarker::Plain);
+        assert_eq!(parsed.marker, LineMarker::GroupEnd);
         assert_eq!(parsed.body, b"\x1b[32;1mJob succeeded\x1b[0;m");
     }
 

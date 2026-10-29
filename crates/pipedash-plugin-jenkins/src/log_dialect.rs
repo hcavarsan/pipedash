@@ -31,7 +31,7 @@ impl LogDialect for JenkinsLogDialect {
 
 fn classify_step<'a>(line: &'a [u8], step: &'a [u8]) -> (LineMarker, &'a [u8]) {
     if step == STAGE_END {
-        (LineMarker::GroupEnd, step)
+        (LineMarker::GroupEnd, &[])
     } else if step == SHELL_STEP {
         (LineMarker::Command, line)
     } else if let Some(name) = stage_name(step) {
