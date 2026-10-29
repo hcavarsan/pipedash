@@ -212,17 +212,26 @@ impl Document {
     }
 }
 
+pub(crate) type Lookup = (Kind, WorkloadKind);
+
 pub(crate) struct Finding {
     pub owner: Target,
     pub workload: String,
     pub message: String,
+    kind: WorkloadKind,
     settled: bool,
     min_ready: Duration,
 }
 
+impl Finding {
+    fn lookup(&self) -> Lookup {
+        (self.owner.kind, self.kind)
+    }
+}
+
 pub(crate) struct UnhealthyWorkloads {
     grace: Duration,
-    since: HashMap<String, Instant>,
+    since: HashMap<String, (Lookup, Instant)>,
 }
 
 impl Default for UnhealthyWorkloads {
@@ -239,13 +248,24 @@ impl UnhealthyWorkloads {
         }
     }
 
-    pub(crate) fn lasting(&mut self, findings: Vec<Finding>, now: Instant) -> Vec<Finding> {
+    pub(crate) fn lasting(
+        &mut self, findings: Vec<Finding>, failed: &[Lookup], now: Instant,
+    ) -> Vec<Finding> {
         let previous = std::mem::take(&mut self.since);
+        self.since.extend(
+            previous
+                .iter()
+                .filter(|(_, (lookup, _))| failed.contains(lookup))
+                .map(|(workload, seen)| (workload.clone(), *seen)),
+        );
         findings
             .into_iter()
             .filter(|finding| {
-                let first = previous.get(&finding.workload).copied().unwrap_or(now);
-                self.since.insert(finding.workload.clone(), first);
+                let first = previous
+                    .get(&finding.workload)
+                    .map_or(now, |(_, first)| *first);
+                self.since
+                    .insert(finding.workload.clone(), (finding.lookup(), first));
                 finding.settled || now.duration_since(first) >= self.grace + finding.min_ready
             })
             .collect()
@@ -282,6 +302,7 @@ pub(crate) fn finding(
         },
         message: format!("{workload}: {}", issue.detail),
         workload,
+        kind,
         settled: issue.settled,
         min_ready: Duration::from_secs(document.spec.min_ready_seconds),
     }))
@@ -486,13 +507,17 @@ mod tests {
         let mut tracker = UnhealthyWorkloads::default();
 
         assert!(tracker
-            .lasting(vec![warming_daemon_set(0)], start)
+            .lasting(vec![warming_daemon_set(0)], &[], start)
             .is_empty());
         assert!(tracker
-            .lasting(vec![warming_daemon_set(0)], start + Duration::from_secs(90))
+            .lasting(
+                vec![warming_daemon_set(0)],
+                &[],
+                start + Duration::from_secs(90)
+            )
             .is_empty());
         assert_eq!(
-            messages(tracker.lasting(vec![warming_daemon_set(0)], start + UNSETTLED_GRACE)),
+            messages(tracker.lasting(vec![warming_daemon_set(0)], &[], start + UNSETTLED_GRACE)),
             ["DaemonSet apps/web: 2 of 3 pods available"]
         );
     }
@@ -501,15 +526,16 @@ mod tests {
     fn min_ready_seconds_extend_the_wait_before_reporting() {
         let start = Instant::now();
         let mut tracker = UnhealthyWorkloads::default();
-        tracker.lasting(vec![warming_daemon_set(300)], start);
+        tracker.lasting(vec![warming_daemon_set(300)], &[], start);
 
         assert!(tracker
-            .lasting(vec![warming_daemon_set(300)], start + UNSETTLED_GRACE)
+            .lasting(vec![warming_daemon_set(300)], &[], start + UNSETTLED_GRACE)
             .is_empty());
         assert_eq!(
             tracker
                 .lasting(
                     vec![warming_daemon_set(300)],
+                    &[],
                     start + UNSETTLED_GRACE + Duration::from_secs(300),
                 )
                 .len(),
@@ -521,11 +547,46 @@ mod tests {
     fn recovering_restarts_the_wait() {
         let start = Instant::now();
         let mut tracker = UnhealthyWorkloads::default();
-        tracker.lasting(vec![warming_daemon_set(0)], start);
-        tracker.lasting(Vec::new(), start + Duration::from_secs(60));
+        tracker.lasting(vec![warming_daemon_set(0)], &[], start);
+        tracker.lasting(Vec::new(), &[], start + Duration::from_secs(60));
 
         assert!(tracker
-            .lasting(vec![warming_daemon_set(0)], start + UNSETTLED_GRACE)
+            .lasting(vec![warming_daemon_set(0)], &[], start + UNSETTLED_GRACE)
+            .is_empty());
+    }
+
+    #[test]
+    fn a_failed_list_keeps_the_wait_of_the_workloads_it_would_have_returned() {
+        let start = Instant::now();
+        let mut tracker = UnhealthyWorkloads::default();
+        tracker.lasting(vec![warming_daemon_set(0)], &[], start);
+
+        tracker.lasting(
+            Vec::new(),
+            &[(Kind::Kustomization, WorkloadKind::DaemonSet)],
+            start + Duration::from_secs(60),
+        );
+
+        assert_eq!(
+            messages(tracker.lasting(vec![warming_daemon_set(0)], &[], start + UNSETTLED_GRACE)),
+            ["DaemonSet apps/web: 2 of 3 pods available"]
+        );
+    }
+
+    #[test]
+    fn a_failure_of_another_list_does_not_keep_a_recovered_workload() {
+        let start = Instant::now();
+        let mut tracker = UnhealthyWorkloads::default();
+        tracker.lasting(vec![warming_daemon_set(0)], &[], start);
+
+        tracker.lasting(
+            Vec::new(),
+            &[(Kind::Kustomization, WorkloadKind::Deployment)],
+            start + Duration::from_secs(60),
+        );
+
+        assert!(tracker
+            .lasting(vec![warming_daemon_set(0)], &[], start + UNSETTLED_GRACE)
             .is_empty());
     }
 
@@ -543,7 +604,7 @@ mod tests {
 
         assert_eq!(
             UnhealthyWorkloads::default()
-                .lasting(vec![deadline], Instant::now())
+                .lasting(vec![deadline], &[], Instant::now())
                 .len(),
             1
         );

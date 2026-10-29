@@ -68,6 +68,7 @@ use crate::{
         Kind,
     },
     workloads::{
+        Lookup,
         UnhealthyWorkloads,
         WorkloadKind,
     },
@@ -331,30 +332,35 @@ impl FluxcdPlugin {
             .filter(|resource| mapper::current_status(resource) == PipelineStatus::Success)
             .map(|resource| resource.kind)
             .collect();
-        let lookups: Vec<(Kind, WorkloadKind)> = owners
+        let lookups: Vec<Lookup> = owners
             .into_iter()
             .flat_map(|owner| WorkloadKind::ALL.map(|kind| (owner, kind)))
             .collect();
 
-        let findings = stream::iter(lookups)
-            .map(|(owner, kind)| async move {
-                client
-                    .unhealthy_workloads(owner, kind)
-                    .await
-                    .unwrap_or_else(|error| {
-                        tracing::debug!(%error, "Workload health unavailable; keeping the Flux-reported state");
-                        Vec::new()
-                    })
-            })
-            .buffer_unordered(CONCURRENCY)
-            .collect::<Vec<_>>()
-            .await;
-        let findings = findings.into_iter().flatten().collect();
+        let results =
+            stream::iter(lookups)
+                .map(|lookup| async move {
+                    (lookup, client.unhealthy_workloads(lookup.0, lookup.1).await)
+                })
+                .buffer_unordered(CONCURRENCY)
+                .collect::<Vec<_>>()
+                .await;
+        let mut findings = Vec::new();
+        let mut failed = Vec::new();
+        for (lookup, result) in results {
+            match result {
+                Ok(found) => findings.extend(found),
+                Err(error) => {
+                    tracing::debug!(%error, "Workload health unavailable; keeping the Flux-reported state");
+                    failed.push(lookup);
+                }
+            }
+        }
         let lasting = self
             .unhealthy
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .lasting(findings, std::time::Instant::now());
+            .lasting(findings, &failed, std::time::Instant::now());
         let mut issues: HashMap<Target, Vec<String>> = HashMap::new();
         for finding in lasting {
             issues
