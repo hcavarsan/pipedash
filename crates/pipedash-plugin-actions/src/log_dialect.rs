@@ -48,6 +48,10 @@ impl LogDialect for ActionsLogDialect {
             _ => false,
         }
     }
+
+    fn infers_errors(&self) -> bool {
+        false
+    }
 }
 
 fn split_timestamp(line: &[u8]) -> (Option<DateTime<Utc>>, &[u8]) {

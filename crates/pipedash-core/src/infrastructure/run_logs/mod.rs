@@ -1,6 +1,7 @@
 mod ansi;
 mod block;
 mod document;
+mod failure;
 mod ingest;
 mod outline;
 #[cfg(test)]

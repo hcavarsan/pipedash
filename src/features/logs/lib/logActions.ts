@@ -76,9 +76,14 @@ export function newSessionId(): string {
 }
 
 // `errorLines` is sorted and may be capped below `errorTotal`, so positions past the cap read as the count.
-export function errorCounter(errorLines: readonly number[], errorTotal: number, line: number | null): string {
+export function errorCounter(
+  errorLines: readonly number[],
+  errorTotal: number,
+  line: number | null,
+  failed = false
+): string {
   if (errorTotal === 0) {
-    return 'No errors'
+    return failed ? 'Failed, no error lines' : 'No errors'
   }
 
   let low = 0

@@ -35,6 +35,8 @@ test('the error counter shows the position of the selected error line, otherwise
   const lines = [3, 9, 20]
 
   assert.equal(errorCounter([], 0, null), 'No errors')
+  assert.equal(errorCounter([], 0, null, true), 'Failed, no error lines')
+  assert.equal(errorCounter(lines, 3, null, true), '3 errors')
   assert.equal(errorCounter(lines, 3, null), '3 errors')
   assert.equal(errorCounter([4], 1, null), '1 error')
   assert.equal(errorCounter(lines, 3, 3), 'Error 1 of 3')

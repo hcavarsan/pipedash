@@ -27,6 +27,7 @@ use super::block::{
     BlockRef,
     BlockWriter,
 };
+use super::failure;
 use super::outline::{
     Outline,
     StepBound,
@@ -138,6 +139,7 @@ struct State {
     complete: bool,
     dir: PathBuf,
     dialect: &'static dyn LogDialect,
+    infer_errors: bool,
     max_doc_text_bytes: u64,
     styles: StyleTable,
     outline: Outline,
@@ -200,6 +202,7 @@ impl State {
             complete: ingester.complete,
             dir: ingester.dir,
             dialect: ingester.dialect,
+            infer_errors: ingester.dialect.infers_errors(),
             max_doc_text_bytes: ingester.limits.max_doc_text_bytes,
             styles: StyleTable::default(),
             blocks: BufWriter::with_capacity(BLOCKS_BUFFER_BYTES, blocks),
@@ -269,7 +272,12 @@ impl State {
             self.truncated = true;
             return Ok(Flow::Stop);
         }
-        let kind = kind_of(parsed.marker);
+        let kind = match kind_of(parsed.marker) {
+            LineKind::Plain if self.infer_errors && failure::is_error(&self.text) => {
+                LineKind::Error
+            }
+            kind => kind,
+        };
         let step_start = self.dialect.is_step_start(&parsed);
         self.outline
             .line(self.line_count, kind, ts, &self.text, step_start)?;
@@ -362,8 +370,14 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    use pipedash_plugin_api::PlainDialect;
+    use pipedash_plugin_azure_devops::AzureDevOpsLogDialect;
+    use pipedash_plugin_bitbucket::BitbucketLogDialect;
     use pipedash_plugin_buildkite::BuildkiteLogDialect;
+    use pipedash_plugin_gitea::GiteaLogDialect;
     use pipedash_plugin_gitlab::GitlabLogDialect;
+    use pipedash_plugin_jenkins::JenkinsLogDialect;
+    use pipedash_plugin_tekton::TektonLogDialect;
 
     use super::super::document::Document;
     use super::super::testing::{
@@ -584,5 +598,224 @@ mod tests {
         assert_eq!(lines[6], "2026-10-27T10:00:03.400Z progress 100%");
         assert_eq!(lines[7], "2026-10-27T10:00:04.500Z Job succeeded");
         assert!(lines.iter().all(|line| !line.contains("00O")));
+    }
+
+    static GITEA: GiteaLogDialect = GiteaLogDialect;
+    static BITBUCKET: BitbucketLogDialect = BitbucketLogDialect;
+    static TEKTON: TektonLogDialect = TektonLogDialect;
+    static JENKINS: JenkinsLogDialect = JenkinsLogDialect;
+    static AZURE: AzureDevOpsLogDialect = AzureDevOpsLogDialect;
+    static PLAIN: PlainDialect = PlainDialect;
+
+    fn error_texts(dialect: &'static dyn LogDialect, log: &str) -> Vec<String> {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut ingester = ingester(dir.path(), doc_key(), 1, Vec::new(), BlockLimits::default());
+        ingester.dialect = dialect;
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.try_send(Bytes::copy_from_slice(log.as_bytes()))
+            .expect("channel has room");
+        drop(tx);
+
+        let meta = ingester.run(&mut rx).expect("ingest").meta;
+
+        let text = Document::open(dir.path())
+            .expect("open")
+            .text_block(0)
+            .expect("block");
+        let lines: Vec<&str> = std::str::from_utf8(&text).expect("utf8").lines().collect();
+        assert_eq!(meta.error_lines.len() as u32, meta.error_total);
+        meta.error_lines
+            .iter()
+            .map(|&line| lines[line as usize].to_string())
+            .collect()
+    }
+
+    fn assert_errors(found: &[String], expected: &[&str]) {
+        assert_eq!(found.len(), expected.len(), "{found:#?}");
+        for (line, suffix) in found.iter().zip(expected) {
+            assert!(
+                line.ends_with(suffix),
+                "{line:?} does not end with {suffix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn gitlab_failed_job_flags_the_runner_verdict_and_tool_failures() {
+        let found = error_texts(
+            &GITLAB,
+            concat!(
+                "Running with gitlab-runner 18.4.0 (139a0ac0)\n",
+                "section_start:1790320399:step_script\r\x1b[0K\x1b[0K\x1b[36;1mExecuting \"step_script\" stage of the job script\x1b[0;m\x1b[0;m\n",
+                "\x1b[32;1m$ npm test\x1b[0;m\n",
+                "FAIL src/login.test.ts\n",
+                "npm ERR! Test failed.  See above for more details.\n",
+                "section_end:1790320422:step_script\r\x1b[0Ksection_start:1790320422:cleanup_file_variables\r\x1b[0K\x1b[0K\x1b[36;1mCleaning up project directory and file based variables\x1b[0;m\x1b[0;m\n",
+                "section_end:1790320423:cleanup_file_variables\r\x1b[0K\x1b[31;1mERROR: Job failed: exit code 1\x1b[0;m\n",
+            ),
+        );
+
+        assert_errors(
+            &found,
+            &[
+                "FAIL src/login.test.ts",
+                "npm ERR! Test failed.  See above for more details.",
+                "ERROR: Job failed: exit code 1",
+            ],
+        );
+    }
+
+    #[test]
+    fn gitea_failed_job_flags_the_runner_verdict_and_tool_failures() {
+        let found = error_texts(
+            &GITEA,
+            concat!(
+                "2026-10-28T10:15:30.0000000Z ⭐ Run Main npm test\n",
+                "2026-10-28T10:15:31.0000000Z > app@1.0.0 test\n",
+                "2026-10-28T10:15:31.5000000Z FAIL src/login.test.ts\n",
+                "2026-10-28T10:15:32.0000000Z npm ERR! Test failed.  See above for more details.\n",
+                "2026-10-28T10:15:33.0000000Z ❌  Failure - Main npm test\n",
+                "2026-10-28T10:15:33.0000000Z exitcode '1': failure\n",
+            ),
+        );
+
+        assert_errors(
+            &found,
+            &[
+                "FAIL src/login.test.ts",
+                "npm ERR! Test failed.  See above for more details.",
+                "❌  Failure - Main npm test",
+                "exitcode '1': failure",
+            ],
+        );
+    }
+
+    #[test]
+    fn bitbucket_failed_step_flags_test_and_build_failures() {
+        let found = error_texts(
+            &BITBUCKET,
+            concat!(
+                "+ npm ci\n",
+                "added 214 packages\n",
+                "+ python manage.py test\n",
+                "Traceback (most recent call last):\n",
+                "  File \"manage.py\", line 12, in <module>\n",
+                "ValueError: invalid literal for int() with base 10: 'x'\n",
+                "+ make build\n",
+                "make: *** [Makefile:12: build] Error 2\n",
+                "Searching for test report files in directories named [test-results]\n",
+            ),
+        );
+
+        assert_errors(
+            &found,
+            &[
+                "Traceback (most recent call last):",
+                "ValueError: invalid literal for int() with base 10: 'x'",
+                "make: *** [Makefile:12: build] Error 2",
+            ],
+        );
+    }
+
+    #[test]
+    fn tekton_failed_step_flags_container_output_failures() {
+        let found = error_texts(
+            &TEKTON,
+            concat!(
+                "\x1e2026-10-28T10:01:01Z Step run-tests\n",
+                "2026-10-28T10:01:20Z running 3 tests\n",
+                "2026-10-28T10:01:30Z test login::rejects_bad_password ... FAILED\n",
+                "2026-10-28T10:01:30Z test result: FAILED. 2 passed; 1 failed\n",
+                "2026-10-28T10:01:31Z {\"level\":\"error\",\"msg\":\"tests failed\"}\n",
+                "2026-10-28T10:01:31Z time=\"2026-10-28T10:01:31Z\" level=fatal msg=\"exit status 1\"\n",
+            ),
+        );
+
+        assert_errors(
+            &found,
+            &[
+                "test login::rejects_bad_password ... FAILED",
+                "test result: FAILED. 2 passed; 1 failed",
+                "{\"level\":\"error\",\"msg\":\"tests failed\"}",
+                "time=\"2026-10-28T10:01:31Z\" level=fatal msg=\"exit status 1\"",
+            ],
+        );
+    }
+
+    #[test]
+    fn jenkins_unstable_build_is_an_error_like_its_failed_status() {
+        let found = error_texts(
+            &JENKINS,
+            concat!(
+                "Started by user admin\n",
+                "[app] $ /bin/sh -xe /tmp/jenkins123.sh\n",
+                "+ make test\n",
+                "Tests run: 4, Failures: 1\n",
+                "Finished: UNSTABLE\n",
+            ),
+        );
+
+        assert_errors(&found, &["Finished: UNSTABLE"]);
+    }
+
+    #[test]
+    fn providers_with_native_error_markers_do_not_infer_more() {
+        let jenkins = error_texts(
+            &JENKINS,
+            concat!(
+                "[Pipeline] sh\n",
+                "+ make test\n",
+                "test result: FAILED. 0 passed; 1 failed\n",
+                "[Pipeline] }\n",
+                "[Pipeline] // stage\n",
+                "[Pipeline] error\n",
+                "ERROR: script returned exit code 2\n",
+                "Finished: FAILURE\n",
+            ),
+        );
+        assert_errors(
+            &jenkins,
+            &["ERROR: script returned exit code 2", "Finished: FAILURE"],
+        );
+
+        let azure = error_texts(
+            &AZURE,
+            concat!(
+                "2026-10-28T10:00:00.0000000Z ##[section]Starting: Bash\n",
+                "2026-10-28T10:00:01.0000000Z npm ERR! Test failed.\n",
+                "2026-10-28T10:00:02.0000000Z ##[error]Bash exited with code '1'.\n",
+                "2026-10-28T10:00:02.0000000Z ##[section]Finishing: Bash\n",
+            ),
+        );
+        assert_errors(&azure, &["Bash exited with code '1'."]);
+    }
+
+    #[test]
+    fn ordinary_output_is_not_flagged_as_an_error() {
+        let found = error_texts(
+            &PLAIN,
+            concat!(
+                "0 errors\n",
+                "error_handler.rs\n",
+                "cargo test --fail-fast\n",
+                "errors: none\n",
+                "test errors::parse_error ... ok\n",
+                "PASS src/error.test.ts\n",
+                "✓ handles error responses\n",
+                "Compiling error-chain v0.12.0\n",
+                "ERROR_COUNT=0\n",
+                "No errors found\n",
+                "0 FAILED\n",
+                "Process exited with code 0\n",
+                "exit status 0\n",
+                "log_level=error\n",
+                "Error handling guide\n",
+                "level=info msg=\"retrying after error\"\n",
+                "Finished in 0.5s (0 failures)\n",
+                "exit code 2 is documented below\n",
+            ),
+        );
+
+        assert_errors(&found, &[]);
     }
 }

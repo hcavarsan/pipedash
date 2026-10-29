@@ -41,6 +41,10 @@ impl LogDialect for KomodoLogDialect {
             None => plain,
         }
     }
+
+    fn infers_errors(&self) -> bool {
+        false
+    }
 }
 
 pub(crate) fn stage_lines(log: &UpdateLog) -> impl Iterator<Item = (LineMarker, &str)> {

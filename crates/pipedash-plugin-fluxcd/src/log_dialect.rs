@@ -51,6 +51,10 @@ impl LogDialect for FluxcdLogDialect {
             body: &rest[space + 1..],
         }
     }
+
+    fn infers_errors(&self) -> bool {
+        false
+    }
 }
 
 pub(crate) fn push_line(out: &mut Vec<u8>, marker: LineMarker, stamp: Option<&str>, text: &str) {

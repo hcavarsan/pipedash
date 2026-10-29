@@ -84,6 +84,10 @@ pub trait LogDialect: Send + Sync {
     fn is_step_start(&self, _line: &ParsedLine<'_>) -> bool {
         false
     }
+
+    fn infers_errors(&self) -> bool {
+        true
+    }
 }
 
 pub struct PlainDialect;

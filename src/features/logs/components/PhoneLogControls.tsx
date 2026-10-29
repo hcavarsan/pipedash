@@ -116,6 +116,7 @@ export function PhoneLogBar({
   onEnd,
 }: PhoneLogBarProps): ReactNode {
   const noErrors = meta.error_total === 0
+  const failed = meta.sections.some((section) => section.status === 'failed')
 
   return (
     <div className={classes.phoneBar}>
@@ -124,7 +125,8 @@ export function PhoneLogBar({
           {errorCounter(
             meta.error_lines,
             meta.error_total,
-            selection && selection.from === selection.to ? selection.from : null
+            selection && selection.from === selection.to ? selection.from : null,
+            failed
           )}
         </span>
         <button
