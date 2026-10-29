@@ -18,6 +18,9 @@
   <a href="https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB">
     <img src="https://developer.apple.com/app-store/marketing/guidelines/images/badge-download-on-the-app-store.svg" alt="Download on the App Store" height="40">
   </a>
+  <a href="https://pipedash.app/android">
+    <img src="https://img.shields.io/badge/Android-closed%20beta-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android closed beta" height="40">
+  </a>
   <br><br>
 </div>
 
