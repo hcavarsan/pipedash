@@ -37,7 +37,7 @@ after(async () => {
   await act(async () => cleanup())
   client.clear()
   notifyManager.setNotifyFunction((callback) => callback())
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 const rerunHooks = [

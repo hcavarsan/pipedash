@@ -1,7 +1,7 @@
 import { notifications } from '@mantine/notifications'
 import { IconSquare } from '@tabler/icons-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import type { ContextMenuItem } from '../components/common/ContextMenu'
 import { CancelActiveRunsModal, type CancelScope } from '../components/pipeline/CancelActiveRunsModal'
@@ -21,7 +21,12 @@ import { errorMessage } from '../utils/errorDisplay'
 
 type CancelItem = Extract<ContextMenuItem, { label: string }>
 
-export function useCancelActiveRuns() {
+interface CancelActiveRunsResult {
+  cancelItem: (label: string, pipelines: Pipeline[]) => CancelItem | null
+  dialog: ReactNode
+}
+
+export function useCancelActiveRuns(): CancelActiveRunsResult {
   const queryClient = useQueryClient()
   const { getPluginByType } = usePlugins()
   const { mutate: refreshProvider } = useRefreshProvider()
@@ -44,12 +49,12 @@ export function useCancelActiveRuns() {
 
     for (const { pipelineId, runNumber, error } of results) {
       if (error === null) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.runs.detail(pipelineId, runNumber) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.runs.detail(pipelineId, runNumber) })
       }
     }
 
     for (const { pipeline } of groups) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.runs.list(pipeline.id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs.list(pipeline.id) })
     }
 
     for (const providerId of new Set(groups.map(({ pipeline }) => pipeline.provider_id))) {
@@ -80,7 +85,12 @@ export function useCancelActiveRuns() {
   return { cancelItem, dialog }
 }
 
-export function useProviderCancelItems(providers: ProviderSummary[]) {
+interface ProviderCancelItemsResult {
+  providerItems: (provider: ProviderSummary) => CancelItem[]
+  dialog: ReactNode
+}
+
+export function useProviderCancelItems(providers: ProviderSummary[]): ProviderCancelItemsResult {
   const { data: pipelines = [] } = usePipelines(undefined, { providers })
   const { cancelItem, dialog } = useCancelActiveRuns()
 

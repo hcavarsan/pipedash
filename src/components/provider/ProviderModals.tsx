@@ -1,5 +1,5 @@
 import { Text } from '@mantine/core'
-import { useCallback, useEffect } from 'react'
+import { type ReactNode, useCallback, useEffect } from 'react'
 
 import { logger } from '../../lib/logger'
 import { useProviderDetails } from '../../queries/useProviderDetailsQuery'
@@ -14,7 +14,7 @@ import { StandardModal } from '../common/StandardModal'
 
 import { AddProviderModal } from './AddProviderModal'
 
-export function useConfirmRemoveProvider() {
+export function useConfirmRemoveProvider(): (id: number, name: string) => void {
   const { mutateAsync: removeProvider } = useRemoveProvider()
 
   return useCallback(
@@ -41,7 +41,7 @@ export function useConfirmRemoveProvider() {
   )
 }
 
-export function ProviderModals() {
+export function ProviderModals(): ReactNode {
   const addProviderModal = useProviderStore((s) => s.addProviderModal)
   const editProviderModal = useProviderStore((s) => s.editProviderModal)
   const editRequestId = useProviderStore((s) => s.editRequestId)

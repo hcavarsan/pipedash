@@ -1,5 +1,5 @@
 import { Box, Group, ScrollArea, Stack } from '@mantine/core'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { PageHeader } from '../common/PageHeader'
@@ -33,7 +33,7 @@ const SECTION_CONTENT: Record<SettingsSection, SectionContent> = {
   about: () => <AboutSection />,
 }
 
-export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps) => {
+export const SettingsPage = ({ activeSection, onRefresh }: SettingsPageProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const [headerActions, setHeaderActions] = useState<React.ReactNode>(null)

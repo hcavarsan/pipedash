@@ -1,8 +1,9 @@
 import { Box } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import { type ProviderTone, TONE_META } from '../../utils/fetchInfo'
 
-export function ToneDot({ tone }: { tone: ProviderTone }) {
+export function ToneDot({ tone }: { tone: ProviderTone }): ReactNode {
   return (
     <Box
       component="span"

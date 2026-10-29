@@ -1,4 +1,4 @@
-import { useHotkeys } from '@mantine/hooks'
+import { type HotkeyItem, useHotkeys } from '@mantine/hooks'
 import { listen } from '@tauri-apps/api/event'
 import { useEffect } from 'react'
 import { logger } from '../lib/logger'
@@ -28,8 +28,21 @@ function whenNoDialog(action: (() => void) | undefined) {
   }
 }
 
-export function useAppShortcuts({ onSettings, onSidebar, onRefresh, onLock }: AppShortcuts) {
+export function useAppShortcuts({ onSettings, onSidebar, onRefresh, onLock }: AppShortcuts): void {
   const desktop = isDesktopTauri()
+  const optional: HotkeyItem[] = []
+  if (onSettings) {
+    optional.push(['mod+,', () => whenNoDialog(onSettings)])
+  }
+  if (onSidebar) {
+    optional.push(['mod+\\', onSidebar])
+  }
+  if (desktop) {
+    optional.push(['mod+R', onRefresh])
+  }
+  if (desktop && onLock) {
+    optional.push(['mod+L', onLock])
+  }
   useHotkeys(
     [
       [
@@ -48,10 +61,7 @@ export function useAppShortcuts({ onSettings, onSidebar, onRefresh, onLock }: Ap
         { preventDefault: false },
       ],
       ['mod+K', focusSearch],
-      ...(onSettings ? ([['mod+,', () => whenNoDialog(onSettings)]] as [string, () => void][]) : []),
-      ...(onSidebar ? ([['mod+\\', onSidebar]] as [string, () => void][]) : []),
-      ...(desktop ? ([['mod+R', onRefresh]] as [string, () => void][]) : []),
-      ...(desktop && onLock ? ([['mod+L', onLock]] as [string, () => void][]) : []),
+      ...optional,
     ],
     [],
     true

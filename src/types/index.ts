@@ -733,7 +733,7 @@ export type {
   ModalBaseProps,
   PipelineComponentProps,
 } from './components'
-export { createError, toPipedashError } from './errors'
+export { toPipedashError } from './errors'
 
 export interface SetupStatus {
   config_exists: boolean

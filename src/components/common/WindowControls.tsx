@@ -23,7 +23,7 @@ const TrafficLight = ({ kind, label, onClick, icon }: TrafficLightProps) => (
   </UnstyledButton>
 )
 
-export const WindowControls = () => {
+export const WindowControls = (): ReactNode => {
   const [currentPlatform, setCurrentPlatform] = useState<Platform | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
 
@@ -67,7 +67,7 @@ export const WindowControls = () => {
       }
     }
 
-    init()
+    void init()
 
     return () => {
       isMounted = false

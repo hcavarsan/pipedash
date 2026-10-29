@@ -1,10 +1,12 @@
+import type { NotificationData } from '@mantine/notifications'
+
 import type { PaginatedRunHistory, Pipeline, PipelineRun, PipelineStatus } from '../types'
 
 import { formatCount } from './formatCount'
 
-export const isUnfinished = (status: PipelineStatus) => status === 'running' || status === 'pending'
+export const isUnfinished = (status: PipelineStatus): boolean => status === 'running' || status === 'pending'
 
-export const unfinishedPipelines = <T extends Pick<Pipeline, 'status'>>(pipelines: T[]) =>
+export const unfinishedPipelines = <T extends Pick<Pipeline, 'status'>>(pipelines: T[]): T[] =>
   pipelines.filter((pipeline) => isUnfinished(pipeline.status))
 
 export interface CancelProvider {
@@ -80,11 +82,11 @@ export const findUnfinishedRuns = async (
   return result
 }
 
-export const cancellableGroups = (groups: CancelGroup[]) => groups.filter((group) => group.canCancel)
+export const cancellableGroups = (groups: CancelGroup[]): CancelGroup[] => groups.filter((group) => group.canCancel)
 
-export const countRuns = (groups: CancelGroup[]) => groups.reduce((sum, group) => sum + group.runs.length, 0)
+export const countRuns = (groups: CancelGroup[]): number => groups.reduce((sum, group) => sum + group.runs.length, 0)
 
-export const summarizeCancellation = (results: CancelResult[]) => {
+export const summarizeCancellation = (results: CancelResult[]): NotificationData => {
   const failed = results.filter((result) => result.error !== null)
   const cancelled = results.length - failed.length
 

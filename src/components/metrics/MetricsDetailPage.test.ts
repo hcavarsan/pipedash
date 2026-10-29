@@ -6,6 +6,8 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { mockIPC } from '@tauri-apps/api/mocks'
 import { createElement } from 'react'
 
+import { isRecord } from '../../utils/isRecord'
+
 if (process.env.PIPEDASH_EXPORT_TEST !== '1') {
   test('chart exports wait for the native destination picker in an isolated runtime', () => {
     const result = spawnSync(process.execPath, ['test', import.meta.filename], {
@@ -30,7 +32,8 @@ if (process.env.PIPEDASH_EXPORT_TEST !== '1') {
       }
     }
     assert.equal(command, 'save_export_file')
-    exports.push(args as { fileName: string; contents: number[] })
+    assert.ok(isRecord(args) && typeof args.fileName === 'string' && Array.isArray(args.contents))
+    exports.push({ fileName: args.fileName, contents: args.contents.filter((n): n is number => typeof n === 'number') })
     return pending.promise
   })
 
@@ -48,7 +51,7 @@ if (process.env.PIPEDASH_EXPORT_TEST !== '1') {
     await act(async () => cleanup())
     client.clear()
     notifyManager.setNotifyFunction((callback) => callback())
-    GlobalRegistrator.unregister()
+    await GlobalRegistrator.unregister()
   })
 
   test('cancel stays silent, duplicate exports stay blocked, and success follows picker completion', async (context) => {
@@ -76,7 +79,8 @@ if (process.env.PIPEDASH_EXPORT_TEST !== '1') {
         )
       )
     )
-    const button = view().getByRole('button', { name: 'Export metrics' }) as HTMLButtonElement
+    const button = view().getByRole('button', { name: 'Export metrics' })
+    assert.ok(button instanceof HTMLButtonElement)
     await waitFor(() => assert.equal(button.disabled, false))
     fireEvent.click(button)
     fireEvent.click(await view().findByRole('menuitem', { name: 'Export as CSV' }))

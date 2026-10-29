@@ -1,4 +1,5 @@
 import { Box, Text, Tooltip } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import { STATUS_META } from '../../../theme/status'
 import type { PipelineStatus } from '../../../types'
@@ -9,7 +10,7 @@ interface StatusBadgeProps {
   size?: 'sm' | 'md' | undefined
 }
 
-export const StatusBadge = ({ status, label: customLabel, size = 'sm' }: StatusBadgeProps) => {
+export const StatusBadge = ({ status, label: customLabel, size = 'sm' }: StatusBadgeProps): ReactNode => {
   const { label, tone } = STATUS_META[status]
 
   return (
@@ -19,7 +20,7 @@ export const StatusBadge = ({ status, label: customLabel, size = 'sm' }: StatusB
   )
 }
 
-export const StatusIcon = ({ status, label: customLabel }: Omit<StatusBadgeProps, 'size'>) => {
+export const StatusIcon = ({ status, label: customLabel }: Omit<StatusBadgeProps, 'size'>): ReactNode => {
   const { label, tone, icon: Icon } = STATUS_META[status]
 
   return (
@@ -37,7 +38,7 @@ export const StatusIcon = ({ status, label: customLabel }: Omit<StatusBadgeProps
   )
 }
 
-export const StatusGlyph = ({ status, size = '1.1em' }: { status: PipelineStatus; size?: string }) => {
+export const StatusGlyph = ({ status, size = '1.1em' }: { status: PipelineStatus; size?: string }): ReactNode => {
   const { tone, icon: Icon } = STATUS_META[status]
 
   return (

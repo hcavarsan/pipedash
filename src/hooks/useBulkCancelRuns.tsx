@@ -14,7 +14,21 @@ interface UseBulkCancelRunsOptions {
   cancellingRunNumber: number | null
 }
 
-export function useBulkCancelRuns({ pipeline, page, runs, enabled, cancellingRunNumber }: UseBulkCancelRunsOptions) {
+interface UseBulkCancelRunsResult {
+  selectedRuns: PipelineRun[]
+  isRunCancellable: (run: PipelineRun) => boolean
+  selectRuns: (records: PipelineRun[]) => void
+  cancelSelected: () => void
+  isCancelling: boolean
+}
+
+export function useBulkCancelRuns({
+  pipeline,
+  page,
+  runs,
+  enabled,
+  cancellingRunNumber,
+}: UseBulkCancelRunsOptions): UseBulkCancelRunsResult {
   const pipelineId = pipeline?.id
   const [selectedRunNumbers, setSelectedRunNumbers] = useState<number[]>([])
   const cancelRunsMutation = useCancelRuns()

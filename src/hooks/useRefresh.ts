@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { logger } from '../lib/logger'
 import { isTauri, tauriService } from '../services'
 
-export const useRefresh = () => {
+export const useRefresh = (): void => {
   useEffect(() => {
     if (!isTauri()) {
       return

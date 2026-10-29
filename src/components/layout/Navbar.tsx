@@ -106,11 +106,11 @@ const NavTile = ({ icon: Icon, size }: { icon: typeof IconStack2; size: number }
   </ThemeIcon>
 )
 
-export const ProviderAvatar = ({ provider, size }: { provider: ProviderSummary; size: number }) => (
+export const ProviderAvatar = ({ provider, size }: { provider: ProviderSummary; size: number }): ReactNode => (
   <ProviderIcon name={provider.name} icon={provider.icon} size={size} badge={providerBadge(provider, Date.now())} />
 )
 
-export const ProviderStatusLine = ({ provider }: { provider: ProviderSummary }) => {
+export const ProviderStatusLine = ({ provider }: { provider: ProviderSummary }): ReactNode => {
   const { text, failed } = providerStatus(provider)
 
   return (
@@ -198,7 +198,7 @@ const TreeRow = ({
   )
 }
 
-export const Navbar = ({ compact = false }: NavbarProps) => {
+export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
   const { pathname, state } = useLocation()
   const [searchParams] = useSearchParams()
   const parent = pathname.startsWith('/pipelines/') ? (fromOf(state) ?? '/pipelines') : null

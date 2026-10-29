@@ -7,7 +7,7 @@ import { isPinned } from '../utils/navTree'
 
 type PinMenuItem = Extract<ContextMenuItem, { label: string }>
 
-export function usePinning() {
+export function usePinning(): (kind: PinKind, ref: string) => PinMenuItem {
   const { data: pins = [] } = usePins()
   const { mutate: setPin } = useSetPin()
 

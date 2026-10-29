@@ -1,4 +1,4 @@
-import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type UseQueryResult, useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { listen } from '@tauri-apps/api/event'
 import { platform } from '@tauri-apps/plugin-os'
 import { useEffect } from 'react'
@@ -16,7 +16,14 @@ function isBuildWatchPlatform() {
   return isTauri() && platform() === 'ios'
 }
 
-export function useBuildWatch() {
+type UseBuildWatchResult = UseQueryResult<BuildWatchStatus, Error> & {
+  enabled: boolean
+  busy: boolean
+  start: (pipelineId: string, runNumber: number) => void
+  stop: () => void
+}
+
+export function useBuildWatch(): UseBuildWatchResult {
   const queryClient = useQueryClient()
   const enabled = isBuildWatchPlatform()
   const query = useQuery({
@@ -65,7 +72,7 @@ export function useBuildWatch() {
   return { ...query, enabled, busy, start, stop }
 }
 
-export function useBuildWatchLifecycle() {
+export function useBuildWatchLifecycle(): void {
   const queryClient = useQueryClient()
 
   useEffect(() => {

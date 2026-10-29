@@ -38,7 +38,7 @@ export function PipelineCardGrid({
   getProvider,
   actions,
   selection,
-}: PipelineCardGridProps) {
+}: PipelineCardGridProps): ReactNode {
   const mobileShell = useMobileShell()
   const now = useNow(30_000)
   const contextMenu = useContextMenu()

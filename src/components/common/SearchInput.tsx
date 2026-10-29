@@ -1,6 +1,6 @@
 import { ActionIcon, Group, Loader, type MantineSize, TextInput, Tooltip } from '@mantine/core'
 import { IconSearch, IconX } from '@tabler/icons-react'
-import { type CSSProperties, type Ref, useRef } from 'react'
+import { type CSSProperties, type ReactNode, type Ref, useRef } from 'react'
 
 interface SearchInputProps {
   value: string
@@ -30,7 +30,7 @@ export function SearchInput({
   disabled,
   style,
   className,
-}: SearchInputProps) {
+}: SearchInputProps): ReactNode {
   const localRef = useRef<HTMLInputElement | null>(null)
 
   return (

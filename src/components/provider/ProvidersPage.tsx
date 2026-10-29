@@ -1,5 +1,6 @@
 import { ActionIcon, Button, Menu, Stack } from '@mantine/core'
 import { IconDots, IconEdit, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import { useProviders } from '../../queries/useProvidersQueries'
 import { useProviderStore } from '../../stores/providerStore'
@@ -64,7 +65,7 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
   )
 }
 
-export function ProvidersPage() {
+export function ProvidersPage(): ReactNode {
   const { data: providers = [], isLoading, error, refetch, isRefetching } = useProviders()
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const requestEditProvider = useProviderStore((s) => s.requestEditProvider)

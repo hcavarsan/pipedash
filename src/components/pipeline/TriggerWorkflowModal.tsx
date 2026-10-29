@@ -1,13 +1,14 @@
 import { Button, Group, NativeSelect, NumberInput, Select, Stack, Switch, Text, TextInput } from '@mantine/core'
-import { type ChangeEvent, useEffect, useId, useRef, useState } from 'react'
+import { type ChangeEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 
+import { useFormEnterNavigation } from '../../hooks/useFormEnterNavigation'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTriggerWorkflow, useWorkflowParameters } from '../../queries/useWorkflowQueries'
 import type { Pipeline, WorkflowParameter } from '../../types'
 import { actionTarget } from '../../utils/actionTarget'
 import { displayWarningNotification } from '../../utils/errorDisplay'
 import { errorId, fieldA11y, fieldAttributes, helpId, withoutType } from '../../utils/formFields'
-import { handleFormEnter, useFocusFirstInvalid } from '../../utils/formFocus'
+import { useFocusFirstInvalid } from '../../utils/formFocus'
 import { getPipelineLabels, getTriggerBlockReason } from '../../utils/pipelinePresentation'
 import { ActionTargetRows } from '../common/ActionTargetRows'
 import { ErrorState } from '../common/ErrorState'
@@ -64,12 +65,13 @@ export const TriggerWorkflowModal = ({
   pipeline,
   onSuccess,
   initialInputs,
-}: TriggerWorkflowModalProps) => {
+}: TriggerWorkflowModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const formId = useId()
   const formRef = useRef<HTMLFormElement>(null)
   const focusFirstInvalid = useFocusFirstInvalid(formRef)
+  useFormEnterNavigation(formRef)
   const [paramValues, setParamValues] = useState<Record<string, unknown>>({})
   const [baseline, setBaseline] = useState<Record<string, unknown>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -513,7 +515,6 @@ export const TriggerWorkflowModal = ({
           event.preventDefault()
           handleTrigger()
         }}
-        onKeyDown={handleFormEnter}
       >
         <Stack mb="md">
           <ActionTargetRows rows={target} />

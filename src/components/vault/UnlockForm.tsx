@@ -3,6 +3,7 @@ import { IconFaceId, IconFingerprint } from '@tabler/icons-react'
 import {
   type ChangeEvent,
   type KeyboardEvent,
+  type ReactNode,
   type SyntheticEvent,
   useCallback,
   useEffect,
@@ -24,7 +25,7 @@ interface UnlockFormProps {
   showCancelButton?: boolean
 }
 
-export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: UnlockFormProps) {
+export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: UnlockFormProps): ReactNode {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -75,7 +76,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
   useEffect(() => {
     if (biometricEnabled && !autoPrompted.current) {
       autoPrompted.current = true
-      handleBiometricUnlock()
+      void handleBiometricUnlock()
     }
   }, [biometricEnabled, handleBiometricUnlock])
 

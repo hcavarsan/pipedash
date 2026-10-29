@@ -40,7 +40,7 @@ after(async () => {
   client.clear()
   notifications.clean()
   notifyManager.setNotifyFunction((callback) => callback())
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 test('the workflow footer submits its parameter form through the native submit button', async (context) => {
@@ -84,7 +84,8 @@ test('the workflow footer submits its parameter form through the native submit b
   fireEvent.change(input, { target: { value: 'release' } })
   const form = input.closest('form')
   assert.ok(form)
-  const submit = view().getByRole('button', { name: 'Trigger workflow' }) as HTMLButtonElement
+  const submit = view().getByRole('button', { name: 'Trigger workflow' })
+  assert.ok(submit instanceof HTMLButtonElement)
   assert.equal(submit.type, 'submit')
   assert.equal(submit.form, form)
   assert.equal(form.contains(submit), false)

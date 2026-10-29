@@ -2,17 +2,21 @@ import assert from 'node:assert/strict'
 import { after, beforeEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import { createElement, Fragment } from 'react'
+import { createElement, Fragment, useRef } from 'react'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
-after(() => GlobalRegistrator.unregister())
 
 const { cleanup, fireEvent, render, waitFor, within } = await import('@testing-library/react')
 const { MantineProvider, Menu, createTheme } = await import('@mantine/core')
 const { MemoryRouter, useNavigate } = await import('react-router-dom')
 const { ContextMenuHost, useContextMenu } = await import('./ContextMenu')
 const { SearchInput } = await import('./SearchInput')
-const { handleFormEnter } = await import('../../utils/formFocus')
+const { useFormEnterNavigation } = await import('../../hooks/useFormEnterNavigation')
+
+after(async () => {
+  cleanup()
+  await GlobalRegistrator.unregister()
+})
 
 const view = () => within(document.body)
 
@@ -127,21 +131,19 @@ test('context menu closes when the route changes', async () => {
   await waitFor(() => assert.equal(view().queryByRole('menu'), null))
 })
 
-test('desktop Enter handling leaves native form submission untouched', () => {
-  const form = document.createElement('form')
-  const input = document.createElement('input')
-  let prevented = false
+function EnterForm() {
+  const formRef = useRef<HTMLFormElement>(null)
 
-  form.append(input)
-  handleFormEnter({
-    key: 'Enter',
-    defaultPrevented: false,
-    nativeEvent: { isComposing: false },
-    target: input,
-    currentTarget: form,
-    preventDefault: () => {
-      prevented = true
-    },
-  } as unknown as Parameters<typeof handleFormEnter>[0])
-  assert.equal(prevented, false)
+  useFormEnterNavigation(formRef)
+
+  return createElement('form', { ref: formRef }, createElement('input', { 'aria-label': 'Name' }))
+}
+
+test('desktop Enter handling leaves native form submission untouched', () => {
+  render(createElement(EnterForm))
+
+  const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+
+  view().getByRole('textbox', { name: 'Name' }).dispatchEvent(event)
+  assert.equal(event.defaultPrevented, false)
 })

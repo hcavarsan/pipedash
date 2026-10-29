@@ -104,5 +104,4 @@ export const useAuthStore = create<AuthStore>()(
   )
 )
 
-// Export getter for use outside React components (e.g., in api.ts)
-export const getToken = () => useAuthStore.getState().token
+export const getToken = (): string | null => useAuthStore.getState().token

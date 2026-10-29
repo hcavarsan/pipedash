@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { logger } from '../lib/logger'
 import { useInvalidatePipelineMetrics } from '../queries/useMetricsQueries'
 import { events } from '../services'
-import type { PipelineStatusChangedPayload } from '../types/events'
+import { isRecord } from '../utils/isRecord'
 
 const METRICS_EVENT_TYPES = [
   'metrics-generated',
@@ -49,10 +49,13 @@ export function useMetricsEventListeners({
       }
 
       if (eventType === 'pipeline-status-changed') {
-        const ids = (payload as PipelineStatusChangedPayload | null)?.pipeline_ids
+        const ids =
+          isRecord(payload) && Array.isArray(payload.pipeline_ids)
+            ? payload.pipeline_ids.filter((id): id is string => typeof id === 'string')
+            : []
 
-        if (ids?.includes(pipelineId)) {
-          invalidateRef.current()
+        if (ids.includes(pipelineId)) {
+          void invalidateRef.current()
         }
 
         return
@@ -62,7 +65,7 @@ export function useMetricsEventListeners({
         if (eventType === 'metrics-config-changed' && onConfigChangedRef.current) {
           onConfigChangedRef.current()
         } else {
-          invalidateRef.current()
+          void invalidateRef.current()
         }
       }
     }
@@ -87,7 +90,7 @@ export function useMetricsEventListeners({
       }
     }
 
-    setupListeners()
+    void setupListeners()
 
     return () => {
       isActive = false

@@ -1,6 +1,6 @@
 import { Box, Button, Group, ScrollArea, Stack, Stepper, Text } from '@mantine/core'
 import { IconCheck, IconDatabase, IconListCheck, IconTransfer } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import {
@@ -26,7 +26,7 @@ import { Onboarding, StepHeader } from './Onboarding'
 import { isPostgresUrl, StorageStep } from './StorageStep'
 import { SuccessStep } from './SuccessStep'
 import { TransferStep } from './TransferStep'
-import type { SetupState, SetupWizardProps, StorageBackend } from './types'
+import type { SetupState, SetupWizardProps } from './types'
 
 type WizardStep = 'storage' | 'transfer' | 'confirm' | 'success'
 
@@ -36,7 +36,7 @@ const STEP_META = {
   confirm: { label: 'Confirm', icon: <IconListCheck size={16} /> },
 }
 
-export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) => {
+export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps): ReactNode => {
   const { data: currentConfig, isLoading: loading } = useStorageConfig({ enabled: opened })
   const { data: vaultStatus, isLoading: checkingVault } = useVaultPasswordStatus({ enabled: opened })
   const { data: defaultDataDir = '' } = useDefaultDataDir({ enabled: opened })
@@ -159,7 +159,7 @@ export const SetupWizard = ({ opened, onComplete, onClose }: SetupWizardProps) =
 
       setState((prev) => ({
         ...prev,
-        backend: currentBackend as StorageBackend,
+        backend: currentBackend,
         dataDir: effectiveDataDir,
         postgresUrl: currentConfig.config.storage.postgres?.connection_string || '',
       }))

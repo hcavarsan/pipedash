@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { SettingsMenu } from '../components/settings/SettingsMenu'
 import { SettingsPage } from '../components/settings/SettingsPage'
@@ -8,7 +9,7 @@ interface SettingsRouteProps {
   onRefresh?: (() => Promise<void>) | undefined
 }
 
-export function SettingsRoute({ onRefresh }: SettingsRouteProps) {
+export function SettingsRoute({ onRefresh }: SettingsRouteProps): ReactNode {
   const { section } = useParams<{ section?: string }>()
   const mobileShell = useMobileShell()
 

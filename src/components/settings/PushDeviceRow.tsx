@@ -1,5 +1,6 @@
 import { ActionIcon, Group, Menu, Stack, Text, Tooltip } from '@mantine/core'
 import { IconDots, IconSend, IconTrash } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
@@ -25,7 +26,7 @@ export const PushDeviceRow = ({
   removing,
   onTest,
   onRemove,
-}: PushDeviceRowProps) => {
+}: PushDeviceRowProps): ReactNode => {
   const mobileShell = useMobileShell()
 
   if (mobileShell) {

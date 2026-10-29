@@ -1,15 +1,22 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { useEffect } from 'react'
 
 import { queryKeys } from '../lib/queryKeys'
 import { mobileService } from '../services/mobile'
 import { useNotificationStore } from '../stores/notificationStore'
+import type { LocalNotificationSettings } from '../types'
 import { displayErrorNotification } from '../utils/errorDisplay'
 import { isIosPlatform } from '../utils/platform'
 
 const mutationKey = [...queryKeys.localNotifications.all, 'change']
 
-export function useLocalNotificationSettings() {
+export function useLocalNotificationSettings(): UseQueryResult<LocalNotificationSettings, Error> {
   return useQuery({
     queryKey: queryKeys.localNotifications.settings(),
     queryFn: () => mobileService.getLocalNotificationSettings(),
@@ -19,7 +26,7 @@ export function useLocalNotificationSettings() {
   })
 }
 
-export function useSetLocalNotifications() {
+export function useSetLocalNotifications(): UseMutationResult<LocalNotificationSettings, Error, boolean, void> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -36,7 +43,7 @@ export function useSetLocalNotifications() {
   })
 }
 
-export function useLocalNotificationsLifecycle() {
+export function useLocalNotificationsLifecycle(): void {
   const queryClient = useQueryClient()
   const { data } = useLocalNotificationSettings()
   const enabled = data?.enabled

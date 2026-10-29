@@ -12,7 +12,7 @@ const { usePipelineFilters, useRunHistoryFilters } = await import('./useUrlState
 
 after(async () => {
   await act(async () => cleanup())
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 interface StatusFilters {
@@ -21,17 +21,22 @@ interface StatusFilters {
   clearFilters: () => void
 }
 
-function mount(useFilters: () => StatusFilters, initial: string) {
-  const seen: { filters: StatusFilters | null; search: string } = { filters: null, search: '' }
+interface Seen {
+  filters: StatusFilters | null
+  search: string
+}
 
-  function Probe() {
-    seen.filters = useFilters()
-    seen.search = useLocation().search
+function Probe({ useFilters, seen }: { useFilters: () => StatusFilters; seen: Seen }): null {
+  seen.filters = useFilters()
+  seen.search = useLocation().search
 
-    return null
-  }
+  return null
+}
 
-  render(createElement(MemoryRouter, { initialEntries: [initial] }, createElement(Probe)))
+function mount(useFilters: () => StatusFilters, initial: string): Seen {
+  const seen: Seen = { filters: null, search: '' }
+
+  render(createElement(MemoryRouter, { initialEntries: [initial] }, createElement(Probe, { useFilters, seen })))
 
   return seen
 }
@@ -45,7 +50,8 @@ for (const [name, useFilters] of hooks) {
   test(`${name} keeps every filter change made before the next render`, async () => {
     await act(async () => cleanup())
     const seen = mount(useFilters, '/pipelines?search=api')
-    const filters = seen.filters as StatusFilters
+    const filters = seen.filters
+    assert.ok(filters)
 
     act(() => {
       filters.selectStatus('running', true)
@@ -58,7 +64,8 @@ for (const [name, useFilters] of hooks) {
     assert.equal(params.get('dateRange'), '7d')
     assert.equal(params.get('search'), 'api')
 
-    const next = seen.filters as StatusFilters
+    const next = seen.filters
+    assert.ok(next)
 
     act(() => {
       next.clearFilters()
@@ -71,7 +78,8 @@ for (const [name, useFilters] of hooks) {
   test(`${name} status selection is idempotent, so a deselect reported twice still removes it once`, async () => {
     await act(async () => cleanup())
     const seen = mount(useFilters, '/pipelines?status=running,failed,pending')
-    const filters = seen.filters as StatusFilters
+    const filters = seen.filters
+    assert.ok(filters)
 
     act(() => {
       filters.selectStatus('failed', true)

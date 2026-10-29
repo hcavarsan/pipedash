@@ -1,5 +1,5 @@
 import { Badge, Box, Card, Group, Paper, SimpleGrid, Stack, Text } from '@mantine/core'
-import { type KeyboardEvent, type RefObject, type SyntheticEvent, useEffect, useRef } from 'react'
+import { type KeyboardEvent, type ReactNode, type RefObject, type SyntheticEvent, useEffect, useRef } from 'react'
 import {
   Area,
   AreaChart,
@@ -198,7 +198,7 @@ export const MetricsChart = ({
   onDataPointClick,
   chartTitle,
   chartRef,
-}: MetricsChartProps) => {
+}: MetricsChartProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const metricType = data.metric_type

@@ -5,7 +5,12 @@ import { useMobileShell } from '@/hooks/useIsMobile'
 import { useFactoryReset } from '@/queries/usePlatformQueries'
 import { openConfirm } from '@/utils/confirm'
 
-export const useFactoryResetConfirm = (onReset?: () => Promise<void> | void) => {
+interface FactoryResetConfirmResult {
+  confirmReset: () => void
+  isResetting: boolean
+}
+
+export const useFactoryResetConfirm = (onReset?: () => Promise<void> | void): FactoryResetConfirmResult => {
   const { mutate, isPending } = useFactoryReset()
   const { clearColorScheme } = useMantineColorScheme()
   const mobileShell = useMobileShell()

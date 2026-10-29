@@ -1,5 +1,5 @@
 import { listen } from '@tauri-apps/api/event'
-import { useEffect } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { type NavigateFunction, useNavigate } from 'react-router-dom'
 
 import { isMobileShell } from '../hooks/useIsMobile'
@@ -17,7 +17,7 @@ import { scrollActiveToTop } from './layout/scrollToTop'
 const NOTIFICATIONS = '/notifications'
 
 function openPipeline(navigate: NavigateFunction, pipelineId: string, from: string, runNumber?: number) {
-  navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, { state: { from } })
+  void navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, { state: { from } })
   if (runNumber) {
     useModalStore.getState().openLogsModal(pipelineId, runNumber)
   }
@@ -33,7 +33,7 @@ function handleIntent(navigate: NavigateFunction, intent: NativeIntent) {
         intent.runNumber
       )
     } else {
-      navigate(intent.path)
+      void navigate(intent.path)
     }
 
     return
@@ -43,7 +43,7 @@ function handleIntent(navigate: NavigateFunction, intent: NativeIntent) {
 
   if (intent.action !== 'open-run' && intent.key && known) {
     if (isMobileShell()) {
-      navigate(NOTIFICATIONS)
+      void navigate(NOTIFICATIONS)
     }
     openNotificationDetails(intent.key)
 
@@ -57,7 +57,7 @@ function handleIntent(navigate: NavigateFunction, intent: NativeIntent) {
   }
 
   if (isMobileShell()) {
-    navigate(NOTIFICATIONS)
+    void navigate(NOTIFICATIONS)
   }
 }
 
@@ -81,7 +81,7 @@ function listenNative(event: string, onEvent: () => void): () => void {
   }
 }
 
-export function NativeBridge() {
+export function NativeBridge(): ReactNode {
   const navigate = useNavigate()
 
   useEffect(() => {

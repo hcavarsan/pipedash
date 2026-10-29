@@ -43,7 +43,16 @@ interface SectionHeadingProps {
   onToggle?: (() => void) | undefined
 }
 
-export function SectionHeading({ id, icon, label, info, actions, count, expanded, onToggle }: SectionHeadingProps) {
+export function SectionHeading({
+  id,
+  icon,
+  label,
+  info,
+  actions,
+  count,
+  expanded,
+  onToggle,
+}: SectionHeadingProps): ReactNode {
   const content = (
     <Group gap="xs" wrap="nowrap">
       {onToggle &&
@@ -120,7 +129,7 @@ export function PipelineStatusBadge({
 }: {
   pipeline: ViewPipeline
   provider: ProviderSummary | undefined
-}) {
+}): ReactNode {
   const now = useNow(30_000)
   const age = provider && dataAge(provider, now)
   const lastActivity = `Last activity: ${pipeline.last_run ? formatDateTime(pipeline.last_run) : 'Never'}`
@@ -151,7 +160,7 @@ export function PipelineStatusBadge({
   )
 }
 
-export function RepositoryFetchIndicator({ row }: { row: TableRow }) {
+export function RepositoryFetchIndicator({ row }: { row: TableRow }): ReactNode {
   if (!row.hasPendingFetch) {
     return null
   }
@@ -163,7 +172,7 @@ export function RepositoryFetchIndicator({ row }: { row: TableRow }) {
   )
 }
 
-export function FetchInfo({ providers }: { providers: ProviderSummary[] }) {
+export function FetchInfo({ providers }: { providers: ProviderSummary[] }): ReactNode {
   const now = useNow(30_000)
   const openNotifications = useNotificationCenterStore((state) => state.open)
   const worst = worstTone(providers.map((provider) => providerTone(provider, now)))
@@ -246,7 +255,7 @@ export function RowFetchInfo({
 }: {
   row: TableRow
   getProvider: (providerId: number) => ProviderSummary | undefined
-}) {
+}): ReactNode {
   return <FetchInfo providers={Array.from(row.providerIds ?? [], getProvider).flatMap((p) => p ?? [])} />
 }
 
@@ -273,12 +282,12 @@ export interface PipelineSelection {
 
 type WorkflowMenuItem = Extract<ContextMenuItem, { label: string }>
 
-export const triggerIcon = (pipeline: Pipeline) =>
+export const triggerIcon = (pipeline: Pipeline): ReactNode =>
   pipeline.provider_type === 'fluxcd' ? <IconRefresh size={16} /> : <IconPlayerPlayFilled size={16} />
 
-export const repositoryRef = (sectionId: string) => sectionId.slice('repo:'.length)
+export const repositoryRef = (sectionId: string): string => sectionId.slice('repo:'.length)
 
-export const viewRef = (sectionId: string) => sectionId.slice('view:'.length)
+export const viewRef = (sectionId: string): string => sectionId.slice('view:'.length)
 
 export const refreshItem = (providerIds: number[], actions: PipelineActions): WorkflowMenuItem => ({
   label: 'Refresh',
@@ -353,7 +362,13 @@ export function workflowMenuItems(pipeline: ViewPipeline, actions: PipelineActio
   return items
 }
 
-export function WorkflowActions({ pipeline, actions }: { pipeline: ViewPipeline; actions: PipelineActions }) {
+export function WorkflowActions({
+  pipeline,
+  actions,
+}: {
+  pipeline: ViewPipeline
+  actions: PipelineActions
+}): ReactNode {
   const { onViewMetrics } = actions
   const metricsLabel = `View metrics for ${pipeline.name}`
   const triggerLabel = `${getPipelineLabels(pipeline.provider_type).trigger} ${pipeline.name}`
@@ -387,7 +402,7 @@ export function WorkflowActions({ pipeline, actions }: { pipeline: ViewPipeline;
   )
 }
 
-export function RowActionMenu({ name, items }: { name: string; items: WorkflowMenuItem[] }) {
+export function RowActionMenu({ name, items }: { name: string; items: WorkflowMenuItem[] }): ReactNode {
   if (items.length === 0) {
     return null
   }
@@ -427,7 +442,7 @@ export function SectionActions({
   providerIds: number[]
   items: WorkflowMenuItem[]
   actions: PipelineActions
-}) {
+}): ReactNode {
   const refreshLabel = `Refresh ${name}`
 
   return (
@@ -455,7 +470,7 @@ export function WorkflowActionMenu({
   pipeline: ViewPipeline
   provider?: ProviderSummary | undefined
   actions: PipelineActions
-}) {
+}): ReactNode {
   const openNotifications = useNotificationCenterStore((state) => state.open)
   const items = workflowMenuItems(pipeline, actions)
   const blockedReason = getTriggerBlockReason(pipeline)

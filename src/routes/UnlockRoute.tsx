@@ -1,5 +1,5 @@
 import { Box, Center, Paper, Stack, Title } from '@mantine/core'
-import { useCallback } from 'react'
+import { type ReactNode, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { AppLogo } from '../components/atoms/AppLogo'
@@ -13,7 +13,7 @@ import { useMobileNavStore } from '../stores/mobileNavStore'
 
 import classes from './UnlockRoute.module.css'
 
-export function UnlockRoute() {
+export function UnlockRoute(): ReactNode {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const consumeReturnPath = useAuthStore((s) => s.consumeReturnPath)
@@ -23,16 +23,14 @@ export function UnlockRoute() {
   useDocumentTitle('Unlock')
 
   const handleSuccess = useCallback(() => {
-    // Reconnect WebSocket after unlock
     wsClient.manualReconnect()
 
-    // Get return path from store or query param
     const storePath = consumeReturnPath()
     const queryPath = searchParams.get('return')
     const returnTo = storePath || queryPath || '/pipelines'
     const from = takeHeld(returnTo)
 
-    navigate(returnTo, { replace: true, state: from ? { from } : undefined })
+    void navigate(returnTo, { replace: true, state: from ? { from } : undefined })
   }, [consumeReturnPath, navigate, searchParams, takeHeld])
 
   if (mobileShell) {

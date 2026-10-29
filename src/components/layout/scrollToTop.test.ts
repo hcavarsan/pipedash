@@ -66,10 +66,12 @@ test('cleanup removes exactly its own entry', () => {
 
 test('with no active entry the app shell scrolls to the top', () => {
   const main = document.createElement('main')
-  const scrolls: unknown[] = []
+  const scrolls: Array<ScrollToOptions | number | undefined> = []
 
   main.className = 'mantine-AppShell-main'
-  main.scrollTo = ((options: unknown) => scrolls.push(options)) as typeof main.scrollTo
+  main.scrollTo = (options?: ScrollToOptions | number) => {
+    scrolls.push(options)
+  }
   document.body.append(main)
 
   const hidden = scroller(true)
@@ -77,7 +79,9 @@ test('with no active entry the app shell scrolls to the top', () => {
 
   scrollActiveToTop()
   assert.equal(scrolls.length, 1)
-  assert.equal((scrolls[0] as ScrollToOptions).top, 0)
+  const first = scrolls[0]
+  assert.ok(typeof first === 'object')
+  assert.equal(first.top, 0)
 
   stop()
 })

@@ -3,11 +3,13 @@ import type { KeyboardEvent } from 'react'
 
 import type { LogViewerHandle } from '../logs/LogViewer'
 
-export function createLogShortcutHandler(viewer: () => LogViewerHandle | null) {
+export function createLogShortcutHandler(
+  viewer: () => LogViewerHandle | null
+): (event: KeyboardEvent<HTMLElement>) => void {
   return (event: KeyboardEvent<HTMLElement>) => {
     const handle = viewer()
 
-    if (!handle || !event.currentTarget.contains(event.target as Node)) {
+    if (!handle || !(event.target instanceof Node) || !event.currentTarget.contains(event.target)) {
       return
     }
 

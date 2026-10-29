@@ -37,7 +37,8 @@ const WS_URL = getWsUrl()
 
 class WebSocketClient {
   private ws: WebSocket | null = null
-  private listeners = new Map<string, Set<EventCallback>>()
+  private events = new EventTarget()
+  private listenerCounts = new Map<string, number>()
   private reconnectAttempts = 0
   private reconnectDelay = 1000
   private isConnecting = false
@@ -135,14 +136,8 @@ class WebSocketClient {
             return
           }
 
-          if (type && this.listeners.has(type)) {
-            this.listeners.get(type)?.forEach((callback) => {
-              try {
-                callback(payload)
-              } catch (error) {
-                logger.error('WebSocket', `Error in listener for ${type}`, error)
-              }
-            })
+          if (type) {
+            this.events.dispatchEvent(new CustomEvent(type, { detail: payload }))
           }
         } catch (error) {
           logger.error('WebSocket', 'Failed to parse message', error)
@@ -231,7 +226,8 @@ class WebSocketClient {
 
   dispose(): void {
     this.disconnect()
-    this.listeners.clear()
+    this.events = new EventTarget()
+    this.listenerCounts.clear()
   }
 
   listen<T = unknown>(eventType: string, callback: EventCallback<T>): UnlistenFn {
@@ -241,21 +237,39 @@ class WebSocketClient {
       return () => undefined
     }
 
-    if (!this.listeners.has(eventType)) {
-      this.listeners.set(eventType, new Set())
+    const handler = (event: Event): void => {
+      if (event instanceof CustomEvent) {
+        try {
+          callback(event.detail)
+        } catch (error) {
+          logger.error('WebSocket', `Error in listener for ${eventType}`, error)
+        }
+      }
     }
 
-    this.listeners.get(eventType)?.add(callback as EventCallback)
+    this.events.addEventListener(eventType, handler)
+    this.listenerCounts.set(eventType, (this.listenerCounts.get(eventType) ?? 0) + 1)
 
     if (!this.ws && !this.isConnecting) {
       this.connect()
     }
 
-    return () => {
-      this.listeners.get(eventType)?.delete(callback as EventCallback)
+    let active = true
 
-      if (this.listeners.get(eventType)?.size === 0) {
-        this.listeners.delete(eventType)
+    return () => {
+      if (!active) {
+        return
+      }
+
+      active = false
+      this.events.removeEventListener(eventType, handler)
+
+      const remaining = (this.listenerCounts.get(eventType) ?? 1) - 1
+
+      if (remaining > 0) {
+        this.listenerCounts.set(eventType, remaining)
+      } else {
+        this.listenerCounts.delete(eventType)
       }
     }
   }
@@ -265,15 +279,9 @@ class WebSocketClient {
   }
 
   private emitConnectionStatus(status: 'connected' | 'disconnected' | 'reconnecting'): void {
-    if (this.listeners.has('connection-status')) {
-      this.listeners.get('connection-status')?.forEach((callback) => {
-        try {
-          callback({ status, reconnectAttempts: this.reconnectAttempts })
-        } catch (error) {
-          logger.error('WebSocket', 'Error in connection-status listener', error)
-        }
-      })
-    }
+    this.events.dispatchEvent(
+      new CustomEvent('connection-status', { detail: { status, reconnectAttempts: this.reconnectAttempts } })
+    )
   }
 
   manualReconnect(): void {

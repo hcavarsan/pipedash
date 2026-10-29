@@ -68,9 +68,9 @@ export function fieldAttributes({ name, label, kind, defaultValue, last = false 
   return { ...TECHNICAL, autoComplete: 'off', enterKeyHint }
 }
 
-export const helpId = (id: string) => `${id}-help`
+export const helpId = (id: string): string => `${id}-help`
 
-export const errorId = (id: string) => `${id}-error`
+export const errorId = (id: string): string => `${id}-error`
 
 interface FieldState {
   required?: boolean | undefined
@@ -97,4 +97,4 @@ export function fieldA11y(id: string, { required, error, description }: FieldSta
   }
 }
 
-export const withoutType = ({ type, ...rest }: FieldAttributes) => rest
+export const withoutType = ({ type, ...rest }: FieldAttributes): Omit<FieldAttributes, 'type'> => rest

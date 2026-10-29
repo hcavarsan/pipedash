@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import classes from './TomlTextArea.module.css'
 
 interface TomlTextAreaProps {
@@ -6,7 +8,7 @@ interface TomlTextAreaProps {
   disabled?: boolean
 }
 
-export function TomlTextArea({ value, onChange, disabled }: TomlTextAreaProps) {
+export function TomlTextArea({ value, onChange, disabled }: TomlTextAreaProps): ReactNode {
   return (
     <textarea
       className={classes.editor}

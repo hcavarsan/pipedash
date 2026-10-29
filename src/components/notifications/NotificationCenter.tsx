@@ -95,7 +95,7 @@ function SectionLabel({ children }: { children: string }) {
   )
 }
 
-export function NotificationHost() {
+export function NotificationHost(): ReactNode {
   const { data: providers } = useProviders()
   const [announcement, setAnnouncement] = useState('')
   const previousLevels = useRef<Map<number, HealthLevel> | null>(null)
@@ -374,13 +374,18 @@ function ShellNotificationList() {
   )
 }
 
-export function useUnreadNotifications() {
+interface UnreadNotifications {
+  unread: number
+  dotColor: string | null
+}
+
+export function useUnreadNotifications(): UnreadNotifications {
   const items = useNotificationCenterStore((state) => state.items)
 
   return { unread: items.filter((item) => !item.read).length, dotColor: unreadDotColor(items) }
 }
 
-export function NotificationsPage() {
+export function NotificationsPage(): ReactNode {
   const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
   const mobileShell = useMobileShell()
 
@@ -389,7 +394,7 @@ export function NotificationsPage() {
   return mobileShell ? <ShellNotificationList /> : <NotificationList />
 }
 
-export function NotificationCenter() {
+export function NotificationCenter(): ReactNode {
   const [opened, setOpened] = useState(false)
   const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
   const { unread, dotColor } = useUnreadNotifications()

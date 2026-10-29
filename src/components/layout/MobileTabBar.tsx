@@ -1,4 +1,5 @@
 import { IconBell, IconPinned, IconPlug, IconSettings, IconStack2 } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
@@ -18,7 +19,7 @@ const TABS: Array<{ id: MobileTab; label: string; ariaLabel: string; to: string;
   { id: 'settings', label: 'Settings', ariaLabel: 'Settings', to: '/settings', icon: IconSettings },
 ]
 
-export function MobileTabBar() {
+export function MobileTabBar(): ReactNode {
   const { pathname, search, state } = useLocation()
   const navigate = useNavigate()
   const goBack = useGoBack()

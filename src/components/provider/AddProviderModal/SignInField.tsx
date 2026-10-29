@@ -1,6 +1,6 @@
 import { Anchor, Button, Group, Input, Loader, Stack, Text, TextInput } from '@mantine/core'
 import { IconCheck, IconLogin } from '@tabler/icons-react'
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { SIGN_IN_KEY } from '../../../constants/credentials'
 import { useCancelSignIn, useCompleteSignIn, useSignInStatus, useStartSignIn } from '../../../queries/useSignInQueries'
@@ -40,7 +40,7 @@ export function SignInField({
   disabled,
   shell,
   onChange,
-}: SignInFieldProps) {
+}: SignInFieldProps): ReactNode {
   const [previous, setPrevious] = useState<string | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasted, setPasted] = useState('')

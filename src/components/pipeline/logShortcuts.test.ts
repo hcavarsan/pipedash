@@ -14,7 +14,7 @@ const { createLogShortcutHandler } = await import('./logShortcuts')
 
 after(async () => {
   await act(async () => cleanup())
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 function press(target: Element, init: KeyboardEventInit) {

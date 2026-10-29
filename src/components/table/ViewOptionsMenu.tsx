@@ -1,9 +1,10 @@
 import { Button, Menu, UnstyledButton } from '@mantine/core'
 import { IconAdjustmentsHorizontal, IconArrowDown, IconArrowUp } from '@tabler/icons-react'
-import { Fragment } from 'react'
+import { Fragment, type ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import type { PipelineView, SectionMode, ViewDisplay } from '../../types'
+import { typedKeys } from '../../utils/typedKeys'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 
 import classes from './IosPipelineList.module.css'
@@ -21,7 +22,7 @@ interface Option<K extends keyof ViewDisplay> {
   label: string
 }
 
-export function ViewOptionsMenu({ view, groupTitle, onChange, onExpandAll, hidden }: ViewOptionsMenuProps) {
+export function ViewOptionsMenu({ view, groupTitle, onChange, onExpandAll, hidden }: ViewOptionsMenuProps): ReactNode {
   const mobileShell = useMobileShell()
   const { display } = view
 
@@ -49,7 +50,7 @@ export function ViewOptionsMenu({ view, groupTitle, onChange, onExpandAll, hidde
     status: 'Status',
     none: 'None',
   }
-  const sections = (Object.keys(sectionLabels) as SectionMode[]).map((value) => ({
+  const sections = typedKeys(sectionLabels).map((value) => ({
     value,
     label: sectionLabels[value],
   }))

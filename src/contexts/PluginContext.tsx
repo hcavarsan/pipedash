@@ -15,7 +15,7 @@ interface PluginContextType {
 
 const PluginContext = createContext<PluginContextType | undefined>(undefined)
 
-export const PluginProvider = ({ children }: { children: ReactNode }) => {
+export const PluginProvider = ({ children }: { children: ReactNode }): ReactNode => {
   const query = usePluginsQuery()
 
   const getPluginByTypeCallback = useCallback((type: string) => getPluginByType(query.data, type), [query.data])
@@ -44,7 +44,7 @@ export const PluginProvider = ({ children }: { children: ReactNode }) => {
   return <PluginContext.Provider value={value}>{children}</PluginContext.Provider>
 }
 
-export const usePlugins = () => {
+export const usePlugins = (): PluginContextType => {
   const context = useContext(PluginContext)
 
   if (!context) {

@@ -13,7 +13,7 @@ import { isMobilePlatform } from '../utils/platform'
 import { theme } from './index'
 import { iosCssVariablesResolver, iosTheme } from './ios'
 
-function NativeAppearanceSync() {
+function NativeAppearanceSync(): ReactNode {
   const { colorScheme } = useMantineColorScheme()
 
   useEffect(() => {
@@ -27,7 +27,7 @@ function NativeAppearanceSync() {
   return null
 }
 
-export function AppMantineProvider({ children }: { children: ReactNode }) {
+export function AppMantineProvider({ children }: { children: ReactNode }): ReactNode {
   const mobileShell = useMobileShell()
 
   useNativeChrome(mobileShell)

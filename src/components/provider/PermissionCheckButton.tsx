@@ -1,5 +1,6 @@
 import { Button, Loader } from '@mantine/core'
 import { IconShieldCheck } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { IosGroup, IosRow } from '../ios/IosList'
@@ -10,7 +11,11 @@ interface PermissionCheckButtonProps {
   loading?: boolean
 }
 
-export const PermissionCheckButton = ({ onClick, disabled = false, loading = false }: PermissionCheckButtonProps) => {
+export const PermissionCheckButton = ({
+  onClick,
+  disabled = false,
+  loading = false,
+}: PermissionCheckButtonProps): ReactNode => {
   const mobileShell = useMobileShell()
 
   if (mobileShell) {

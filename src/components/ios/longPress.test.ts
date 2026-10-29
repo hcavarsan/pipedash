@@ -14,7 +14,7 @@ const harness = () => {
       schedule: (callback, ms) => {
         pending = { callback, ms }
 
-        return 1 as unknown as ReturnType<typeof setTimeout>
+        return setTimeout(() => undefined, 0)
       },
       unschedule: () => {
         pending = null

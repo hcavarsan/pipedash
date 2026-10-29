@@ -1,6 +1,6 @@
 import { ActionIcon } from '@mantine/core'
 import { IconChevronLeft, IconLock, IconPlus } from '@tabler/icons-react'
-import { type CSSProperties, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useRefresh } from '../../hooks/useRefresh'
@@ -40,7 +40,7 @@ function BarLayer({ snapshot, depth, live, layout, backTo, canLock, lock, action
     </span>
   )
   const Title = live && pushed ? 'h1' : 'div'
-  const style = live ? undefined : ({ '--title-collapse': snapshot.collapse } as CSSProperties)
+  const style = live ? undefined : { '--title-collapse': snapshot.collapse }
 
   return (
     <div
@@ -108,7 +108,7 @@ function BarLayer({ snapshot, depth, live, layout, backTo, canLock, lock, action
   )
 }
 
-export function MobileHeader() {
+export function MobileHeader(): ReactNode {
   useRefresh()
   const { pathname, search, state } = useLocation()
   const { title, back, tab } = mobileChrome(pathname, search, state)
@@ -219,7 +219,7 @@ export function MobileHeader() {
         ref={barRef}
         className={classes.bar}
         data-transition={transition ? '' : undefined}
-        style={{ '--inset': `${BAR_INSET}px`, '--side': `${layout.side}px` } as CSSProperties}
+        style={{ '--inset': `${BAR_INSET}px`, '--side': `${layout.side}px` }}
       >
         <div className={classes.edge} aria-hidden />
         {transition

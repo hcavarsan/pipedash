@@ -60,7 +60,13 @@ export const buildChartTitle = (
   return `${aggregation} ${METRIC_CONFIG[metricType].subject} per ${PERIOD_UNIT[period]} · ${getDateRangeLabel(range)}`
 }
 
-export const getRangeOptions = (retentionDays: number) => {
+interface RangeOption {
+  value: DateRange
+  label: string
+  disabled: boolean
+}
+
+export const getRangeOptions = (retentionDays: number): RangeOption[] => {
   const now = new Date()
 
   return DATE_RANGE_OPTIONS.map((option) => {
@@ -78,7 +84,12 @@ export const getRangeOptions = (retentionDays: number) => {
 export const getWidestRange = (retentionDays: number): DateRange =>
   getRangeOptions(retentionDays).findLast((option) => !option.disabled)?.value ?? '24h'
 
-export const useMetricsWindow = (range: DateRange) =>
+interface MetricsWindowResult {
+  startDate: string | undefined
+  endDate: string
+}
+
+export const useMetricsWindow = (range: DateRange): MetricsWindowResult =>
   useMemo(() => {
     const now = new Date()
 

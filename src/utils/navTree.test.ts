@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { PinnedItem, PipelineView } from '../types'
+import { pipelineViewFixture } from '../testing/fixtures'
+import type { PinnedItem } from '../types'
 import { ancestorKeys, buildViewNodes, filterNavTree, isPinned, type NavNode, pinTo } from './navTree'
 
 const view = (id: string, name: string, parent: string | null = null) =>
-  ({ id, name, parent, kind: 'custom' }) as PipelineView
+  pipelineViewFixture({ id, name, parent, kind: 'custom' })
 
 const views = [
   view('prod', 'Production'),

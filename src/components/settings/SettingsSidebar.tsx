@@ -8,6 +8,7 @@ import {
   IconPlug,
   IconSettings,
 } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 export const SETTINGS_SECTIONS = [
@@ -25,7 +26,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]['id']
 export const isSettingsSection = (value: string | undefined): value is SettingsSection =>
   SETTINGS_SECTIONS.some((section) => section.id === value)
 
-export const SettingsSidebar = ({ activeSection }: { activeSection: SettingsSection }) => (
+export const SettingsSidebar = ({ activeSection }: { activeSection: SettingsSection }): ReactNode => (
   <ScrollArea w={280} px="md" py="md" style={{ flexShrink: 0 }}>
     <Stack component="nav" aria-label="Settings" gap="xs">
       {SETTINGS_SECTIONS.map((section) => (

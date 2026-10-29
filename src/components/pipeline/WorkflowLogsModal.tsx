@@ -15,7 +15,7 @@ import {
 } from '@mantine/core'
 import { useClipboard } from '@mantine/hooks'
 import { IconCopy, IconExternalLink, IconPlayerPlay, IconRefresh, IconShare2, IconSquare } from '@tabler/icons-react'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { usePlugins } from '../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
@@ -29,7 +29,7 @@ import { STATUS_META } from '../../theme/status'
 import { TYPOGRAPHY } from '../../theme/typography'
 import type { CellRenderer, Pipeline, PipelineStatus } from '../../types'
 import { filterVisibleColumns } from '../../utils/columnBuilder'
-import { type CellValue, renderCellValue } from '../../utils/dynamicRenderers'
+import { isCellValue, renderCellValue } from '../../utils/dynamicRenderers'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 import { formatDuration } from '../../utils/formatDuration'
 import { getValueByPath } from '../../utils/objectPath'
@@ -103,7 +103,7 @@ export const WorkflowLogsModal = ({
   onCancelSuccess,
   pipeline,
   canViewLogs,
-}: WorkflowLogsModalProps) => {
+}: WorkflowLogsModalProps): ReactNode => {
   const pipelineName = pipeline?.name ?? ''
   const [cancelling, setCancelling] = useState(false)
   const [confirmingRerun, setConfirmingRerun] = useState(false)
@@ -335,7 +335,7 @@ export const WorkflowLogsModal = ({
       )
     }
 
-    return renderCellValue(field.renderer, value as CellValue)
+    return renderCellValue(field.renderer, isCellValue(value) ? value : undefined)
   }
 
   const footer = runDetails ? (

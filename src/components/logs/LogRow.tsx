@@ -1,9 +1,11 @@
 import { Anchor, Text, UnstyledButton } from '@mantine/core'
 import { IconAlertTriangle, IconChevronDown, IconChevronRight, IconCircleX } from '@tabler/icons-react'
-import { memo, useMemo } from 'react'
+import { memo, type ReactNode, useMemo } from 'react'
 import type { AnsiColor, LogSection, LogStyle } from '../../types/logs'
 import { formatDuration } from '../../utils/formatDuration'
+import { isOneOf } from '../../utils/isOneOf'
 import { openExternal } from '../../utils/openExternal'
+import { typedKeys } from '../../utils/typedKeys'
 import { StatusIcon } from '../atoms/StatusBadge'
 import classes from './LogViewer.module.css'
 import type { LineState } from './lineCache'
@@ -168,7 +170,7 @@ function LineText({
   })
 }
 
-export const LogRow = memo(function LogRow(props: LogRowProps) {
+export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
   const { kind, line, data, section, open, selected, gutterCh, timestamps, onToggle, onSelect, onFullLine } = props
 
   if (kind === 'step') {
@@ -178,12 +180,12 @@ export const LogRow = memo(function LogRow(props: LogRowProps) {
   const loaded = typeof data === 'object' ? data : null
   const lineKind = loaded?.kind
   const Glyph = lineKind === 'error' ? IconCircleX : lineKind === 'warning' ? IconAlertTriangle : null
-  const kindClass = lineKind && lineKind in KIND_CLASS ? KIND_CLASS[lineKind as keyof typeof KIND_CLASS] : null
+  const kindClass = lineKind && isOneOf(typedKeys(KIND_CLASS), lineKind) ? KIND_CLASS[lineKind] : null
 
   return (
     <div
       className={join(classes.row, kindClass, selected && classes.selected)}
-      style={{ ['--log-gutter' as string]: gutterCh }}
+      style={{ '--log-gutter': gutterCh }}
       data-line={line}
       data-selectable
     >

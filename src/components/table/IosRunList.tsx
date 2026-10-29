@@ -150,7 +150,7 @@ export const IosRunList = ({
   onOpen,
   getSwipeActions,
   renderMenu,
-}: IosRunListProps) => {
+}: IosRunListProps): ReactNode => {
   const now = Date.now()
 
   return (
@@ -189,7 +189,7 @@ export const IosRunList = ({
   )
 }
 
-export const IosToolbar = ({ label, children }: { label: string; children: ReactNode }) => {
+export const IosToolbar = ({ label, children }: { label: string; children: ReactNode }): ReactNode => {
   const [toolbar, ref] = useState<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -239,7 +239,7 @@ interface IosRunToolbarProps {
   onCancelRuns: () => void
 }
 
-export const IosRunToolbar = ({ count, cancelling, onDone, onCancelRuns }: IosRunToolbarProps) => (
+export const IosRunToolbar = ({ count, cancelling, onDone, onCancelRuns }: IosRunToolbarProps): ReactNode => (
   <IosToolbar label="Selected runs">
     <Button variant="subtle" onClick={onDone}>
       Done

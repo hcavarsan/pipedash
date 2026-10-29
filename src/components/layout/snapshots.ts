@@ -8,7 +8,11 @@ const LIMIT = 6
 const cache = new Map<string, Snapshot>()
 
 export function captureSnapshot(key: string, source: HTMLElement, scroll: number, collapse: number): void {
-  const node = source.cloneNode(true) as HTMLElement
+  const node = source.cloneNode(true)
+
+  if (!(node instanceof HTMLElement)) {
+    return
+  }
 
   node.style.transform = ''
   cache.delete(key)

@@ -11,7 +11,6 @@ import {
   type ConfigAnalysisResponse,
   type ConfigContentResponse,
   type CreateViewInput,
-  createError,
   type ExportFileResult,
   type FeatureAvailability,
   type GeneralConfig,
@@ -61,6 +60,7 @@ import {
   type ViewRef,
   type WorkflowParameter,
 } from '../types'
+import type { PipedashError } from '../types/errors'
 import type { LogLinesPage, LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 import { isMobilePlatform } from '../utils/platform'
 import { DEFAULT_RETRY_CONFIG, shouldRetry, withRetry } from '../utils/retryLogic'
@@ -78,6 +78,10 @@ const TAURI_COMMAND_TIMEOUTS: Record<string, number> = {
 
 const DEFAULT_COMMAND_TIMEOUT = 45000
 
+function timeoutError(cmd: string, timeoutMs: number): PipedashError {
+  return { type: 'timeout', message: `Command '${cmd}' timeout`, timeoutMs }
+}
+
 async function invokeWithTimeout<T>(
   cmd: string,
   args?: Record<string, unknown>,
@@ -90,9 +94,7 @@ async function invokeWithTimeout<T>(
     try {
       return await Promise.race([
         invoke<T>(cmd, args),
-        new Promise<T>((_, reject) =>
-          setTimeout(() => reject(createError('timeout', `Command '${cmd}' timeout`, { timeoutMs: timeout })), timeout)
-        ),
+        new Promise<T>((_, reject) => setTimeout(() => reject(timeoutError(cmd, timeout)), timeout)),
       ])
     } catch (error) {
       throw toPipedashError(error)

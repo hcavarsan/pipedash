@@ -3,7 +3,8 @@ import { after, beforeEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
-import type { PipelineViewPage, ViewPipeline } from '../types'
+import { pipelineViewPageFixture, viewPipelineFixture } from '../testing/fixtures'
+import type { PipelineViewPage } from '../types'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 after(() => GlobalRegistrator.unregister())
@@ -11,9 +12,24 @@ after(() => GlobalRegistrator.unregister())
 const { act, cleanup, renderHook } = await import('@testing-library/react')
 const { usePipelineSelection } = await import('./usePipelineSelection')
 
-const pipeline = (id: string) => ({ id }) as ViewPipeline
+const pipeline = (id: string) => viewPipelineFixture({ id })
 const pageOf = (...ids: string[]) =>
-  ({ pinned: [], pinned_blocks: [], sections: [{ pipelines: ids.map(pipeline) }] }) as unknown as PipelineViewPage
+  pipelineViewPageFixture({
+    sections: [
+      {
+        id: 'section',
+        kind: 'view',
+        title: 'Section',
+        organization: null,
+        provider_ids: [],
+        status: null,
+        status_pipeline_id: null,
+        last_run: null,
+        pending_fetch: false,
+        pipelines: ids.map(pipeline),
+      },
+    ],
+  })
 
 beforeEach(() => cleanup())
 
@@ -48,11 +64,9 @@ test('selecting visible rows keeps selected pipelines from collapsed sections', 
 })
 
 test('a pipeline present only in a pinned block can be selected', () => {
-  const page = {
-    pinned: [],
-    pinned_blocks: [{ pipelines: [pipeline('x')] }],
-    sections: [],
-  } as unknown as PipelineViewPage
+  const page = pipelineViewPageFixture({
+    pinned_blocks: [{ kind: 'repository', ref: 'x', name: 'x', pipelines: [pipeline('x')] }],
+  })
   const { result } = render(page)
 
   act(() => result.current.toggle(pipeline('x')))

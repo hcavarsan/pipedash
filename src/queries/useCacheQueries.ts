@@ -1,5 +1,12 @@
 import { notifications } from '@mantine/notifications'
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type QueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { logLineCache } from '../components/logs/lineCache'
 import { REFRESH_INTERVALS } from '../constants/intervals'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
@@ -8,7 +15,15 @@ import { service } from '../services'
 import type { RunLogDocument } from '../types/logs'
 import { errorMessage } from '../utils/errorDisplay'
 
-export function useCacheStats() {
+interface CacheStats {
+  pipelines_count: number
+  run_history_count: number
+  workflow_params_count: number
+  metrics_count: number
+  run_logs_bytes: number
+}
+
+export function useCacheStats(): UseQueryResult<CacheStats, Error> {
   return useQuery({
     queryKey: queryKeys.cache.stats(),
     queryFn: () => service.getCacheStats(),
@@ -34,7 +49,7 @@ async function resetRunLogs(queryClient: QueryClient) {
   ])
 }
 
-export function useClearCache() {
+export function useClearCache(): UseMutationResult<void, Error, void, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -42,8 +57,8 @@ export function useClearCache() {
 
     onSuccess: async () => {
       await resetRunLogs(queryClient)
-      queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
       notifications.show({
         title: 'Cache cleared',
@@ -62,15 +77,15 @@ export function useClearCache() {
   })
 }
 
-export function useClearPipelinesCache() {
+export function useClearPipelinesCache(): UseMutationResult<number, Error, void, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: () => service.clearPipelinesCache(),
 
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
 
       notifications.show({
         title: 'Pipelines cache cleared',
@@ -89,15 +104,15 @@ export function useClearPipelinesCache() {
   })
 }
 
-export function useClearRunHistoryCache() {
+export function useClearRunHistoryCache(): UseMutationResult<void, Error, void, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: () => service.clearAllRunHistoryCaches(),
 
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
 
       notifications.show({
         title: 'Run history cache cleared',
@@ -116,15 +131,15 @@ export function useClearRunHistoryCache() {
   })
 }
 
-export function useClearWorkflowParamsCache() {
+export function useClearWorkflowParamsCache(): UseMutationResult<void, Error, void, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: () => service.clearWorkflowParamsCache(),
 
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.workflows.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workflows.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
 
       notifications.show({
         title: 'Workflow parameters cache cleared',
@@ -143,7 +158,7 @@ export function useClearWorkflowParamsCache() {
   })
 }
 
-export function useClearRunLogsCache() {
+export function useClearRunLogsCache(): UseMutationResult<void, Error, void, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({

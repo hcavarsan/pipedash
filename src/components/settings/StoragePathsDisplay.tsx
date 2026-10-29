@@ -2,7 +2,7 @@ import { ActionIcon, Card, Group, Stack, Text, Tooltip, VisuallyHidden } from '@
 import { useClipboard } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { IconCheck, IconCopy, IconEdit, IconFolderOpen } from '@tabler/icons-react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { haptic } from '../../lib/haptics'
@@ -97,7 +97,7 @@ const CopyPathRow = ({ label, path, copied, onCopy }: CopyPathRowProps) => (
   />
 )
 
-export const StoragePathsDisplay = ({ paths, config, onEditConfig }: StoragePathsDisplayProps) => {
+export const StoragePathsDisplay = ({ paths, config, onEditConfig }: StoragePathsDisplayProps): ReactNode => {
   const canOpen = isDesktopTauri()
   const mobileShell = useMobileShell()
   const isPostgres = config?.storage?.backend === 'postgres'

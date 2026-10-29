@@ -34,9 +34,9 @@ if (process.env.PIPEDASH_ACCESSIBILITY_TEST !== '1') {
     reads = 0
     native = { reduceTransparency: true, increaseContrast: true }
   })
-  after(() => {
+  after(async () => {
     cleanup()
-    GlobalRegistrator.unregister()
+    await GlobalRegistrator.unregister()
   })
 
   test('native accessibility settings apply on an iPad wider than the mobile breakpoint', async () => {

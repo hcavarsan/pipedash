@@ -6,8 +6,16 @@ import type { PipelineRun } from '../types'
 import { buildColumnsFromSchema, filterVisibleColumns } from '../utils/columnBuilder'
 
 interface ColumnPreferences {
-  columnOrder?: string[]
-  columnVisibility?: Record<string, boolean>
+  columnOrder?: string[] | undefined
+  columnVisibility?: Record<string, boolean> | undefined
+}
+
+interface TableColumnsResult {
+  columns: DataTableColumn<PipelineRun>[]
+  allColumns: DataTableColumn<PipelineRun>[]
+  loading: boolean
+  error: Error | null
+  refetch: () => Promise<unknown>
 }
 
 export function useTableColumns(
@@ -15,7 +23,7 @@ export function useTableColumns(
   tableId: string,
   additionalColumns: DataTableColumn<PipelineRun>[],
   preferences?: ColumnPreferences
-) {
+): TableColumnsResult {
   const {
     data: tableSchema,
     isLoading: loading,

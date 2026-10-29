@@ -1,4 +1,5 @@
 import { NativeSelect, type NativeSelectProps } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import { IosRow } from '../ios/IosList'
 
@@ -9,7 +10,7 @@ type MetricsPickerRowProps = Omit<NativeSelectProps, 'label' | 'variant' | 'onCh
   onChange: (value: string) => void
 }
 
-export const MetricsPickerRow = ({ label, onChange, ...selectProps }: MetricsPickerRowProps) => (
+export const MetricsPickerRow = ({ label, onChange, ...selectProps }: MetricsPickerRowProps): ReactNode => (
   <IosRow
     title={label}
     accessory={

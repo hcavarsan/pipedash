@@ -50,9 +50,9 @@ if (process.env.PIPEDASH_RESET_TEST !== '1') {
     client.clear()
     notifications.clean()
   })
-  after(() => {
+  after(async () => {
     notifyManager.setNotifyFunction((callback) => callback())
-    GlobalRegistrator.unregister()
+    await GlobalRegistrator.unregister()
   })
 
   for (const flag of ['caches_cleared', 'tokens_cleared', 'metrics_cleared'] as const) {

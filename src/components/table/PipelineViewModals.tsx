@@ -15,7 +15,7 @@ import {
   UnstyledButton,
 } from '@mantine/core'
 import { IconFolder, IconGripVertical, IconPlus, IconTrash, IconX } from '@tabler/icons-react'
-import { type FormEvent, useCallback, useState } from 'react'
+import { type FormEvent, type ReactNode, useCallback, useId, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
@@ -69,7 +69,7 @@ const DEFAULT_DISPLAY: ViewDisplay = {
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
-export function useConfirmDeleteView() {
+export function useConfirmDeleteView(): (view: PipelineView) => void {
   const { mutateAsync: deleteView } = useDeletePipelineView()
   const { data: views = [] } = usePipelineViews()
 
@@ -123,6 +123,7 @@ function ViewEditorModal() {
   const closeEditor = usePipelineViewStore((s) => s.closeEditor)
   const navigate = useNavigate()
   const mobileShell = useMobileShell()
+  const formId = useId()
   const { data: views = [] } = usePipelineViews()
   const { data: providers = [] } = useProviders()
   const { mutateAsync: createView, isPending: creatingPending } = useCreatePipelineView()
@@ -199,7 +200,7 @@ function ViewEditorModal() {
         })
 
         closeEditor()
-        navigate(`/pipelines?view=${encodeURIComponent(created.id)}`)
+        void navigate(`/pipelines?view=${encodeURIComponent(created.id)}`)
 
         return
       }
@@ -252,7 +253,7 @@ function ViewEditorModal() {
         <Button variant="default" size="sm" onClick={requestClose} disabled={saving}>
           Cancel
         </Button>
-        <Button type="submit" form="pipeline-view-editor" size="sm" loading={saving}>
+        <Button type="submit" form={formId} size="sm" loading={saving}>
           {creating ? 'Create view' : 'Save'}
         </Button>
       </Group>
@@ -269,7 +270,7 @@ function ViewEditorModal() {
       footer={footer}
       primaryAction={{ label: creating ? 'Create' : 'Save', onClick: () => void save(), loading: saving }}
     >
-      <form id="pipeline-view-editor" onSubmit={onSubmit}>
+      <form id={formId} onSubmit={onSubmit}>
         <Stack gap="lg">
           {showName && (
             <TextInput
@@ -336,11 +337,11 @@ function ViewEditorModal() {
                 value={draft.rules.name_contains ?? ''}
                 onChange={(event) => setRules({ name_contains: event.currentTarget.value || null })}
               />
-              <MultiSelect
+              <MultiSelect<PipelineStatus>
                 label="Statuses"
                 data={STATUS_OPTIONS}
                 value={draft.rules.statuses}
-                onChange={(values) => setRules({ statuses: values as PipelineStatus[] })}
+                onChange={(values) => setRules({ statuses: values })}
                 clearable
               />
             </Stack>
@@ -351,16 +352,14 @@ function ViewEditorModal() {
               <Text size="sm" fw={500}>
                 Layout
               </Text>
-              <SegmentedControl
+              <SegmentedControl<ViewLayout>
                 aria-label="Layout"
                 data={[
                   { value: 'table', label: 'Table' },
                   { value: 'cards', label: 'Cards' },
                 ]}
                 value={draft.display.layout}
-                onChange={(value) =>
-                  setDraft((d) => ({ ...d, display: { ...d.display, layout: value as ViewLayout } }))
-                }
+                onChange={(value) => setDraft((d) => ({ ...d, display: { ...d.display, layout: value } }))}
               />
             </Stack>
           )}
@@ -657,7 +656,7 @@ function ManageViewsModal() {
   )
 }
 
-export function PipelineViewModals() {
+export function PipelineViewModals(): ReactNode {
   return (
     <>
       <ManageViewsModal />

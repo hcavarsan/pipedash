@@ -18,7 +18,7 @@ interface BatchedInvalidation {
   timestamp: number
 }
 
-export function useEventSync() {
+export function useEventSync(): void {
   const queryClient = useQueryClient()
 
   const batchedInvalidations = useRef<BatchedInvalidation>({
@@ -33,14 +33,14 @@ export function useEventSync() {
 
     if (batch.invalidateAll) {
       logger.debug('EventSync', 'Processing batched invalidation: ALL providers')
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
     } else if (batch.providerIds.size > 0) {
       logger.debug('EventSync', 'Processing batched invalidation', {
         providerIds: Array.from(batch.providerIds),
       })
 
       for (const providerId of batch.providerIds) {
-        invalidateProviderPipelines(queryClient, providerId)
+        void invalidateProviderPipelines(queryClient, providerId)
       }
     }
 
@@ -73,7 +73,11 @@ export function useEventSync() {
 
     async function register<T>(name: string, handler: (payload: T) => void | Promise<void>) {
       try {
-        const unlisten = await events.listen<T>(name, handler)
+        const unlisten = await events.listen<T>(name, (payload) => {
+          void Promise.resolve(handler(payload)).catch((error: unknown) => {
+            logger.error('EventSync', `Handler for ${name} failed`, error)
+          })
+        })
 
         if (mounted) {
           cleanupFns.push(unlisten)
@@ -85,31 +89,31 @@ export function useEventSync() {
       }
     }
 
-    register<EventPayloadMap['provider-added']>('provider-added', (payload) => {
+    void register<EventPayloadMap['provider-added']>('provider-added', (payload) => {
       if (!payload?.provider) {
         logger.warn('EventSync', 'provider-added: Invalid payload')
 
         return
       }
       logger.debug('EventSync', 'provider-added', { providerId: payload.provider.id })
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
       scheduleBatchedInvalidation(payload.provider.id)
     })
 
-    register<EventPayloadMap['provider-updated']>('provider-updated', (payload) => {
+    void register<EventPayloadMap['provider-updated']>('provider-updated', (payload) => {
       if (!payload?.provider) {
         logger.warn('EventSync', 'provider-updated: Invalid payload')
 
         return
       }
       logger.debug('EventSync', 'provider-updated', { providerId: payload.provider.id })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.providers.detail(payload.provider.id),
       })
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
     })
 
-    register<EventPayloadMap['provider-removed']>('provider-removed', (payload) => {
+    void register<EventPayloadMap['provider-removed']>('provider-removed', (payload) => {
       if (!payload?.provider) {
         logger.warn('EventSync', 'provider-removed: Invalid payload')
 
@@ -119,11 +123,11 @@ export function useEventSync() {
       queryClient.removeQueries({
         queryKey: queryKeys.providers.detail(payload.provider.id),
       })
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
       scheduleBatchedInvalidation(payload.provider.id)
     })
 
-    register<EventPayloadMap['provider-status-updated']>('provider-status-updated', async (payload) => {
+    void register<EventPayloadMap['provider-status-updated']>('provider-status-updated', async (payload) => {
       if (!payload?.provider) {
         logger.warn('EventSync', 'provider-status-updated: Invalid payload')
 
@@ -133,20 +137,20 @@ export function useEventSync() {
       await applyProviderStatus(queryClient, payload.provider)
     })
 
-    register<EventPayloadMap['providers-changed']>('providers-changed', () => {
+    void register<EventPayloadMap['providers-changed']>('providers-changed', () => {
       logger.debug('EventSync', 'providers-changed')
-      queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.list() })
     })
 
-    register<EventPayloadMap['pipeline-views-changed']>('pipeline-views-changed', () => {
+    void register<EventPayloadMap['pipeline-views-changed']>('pipeline-views-changed', () => {
       logger.debug('EventSync', 'pipeline-views-changed')
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
-      queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() })
-      queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() })
+      void queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })
     })
 
-    register<EventPayloadMap['pipelines-updated']>('pipelines-updated', async (payload) => {
+    void register<EventPayloadMap['pipelines-updated']>('pipelines-updated', async (payload) => {
       if (!payload?.pipelines || payload.providerId === undefined) {
         logger.warn('EventSync', 'pipelines-updated: Invalid payload, invalidating cache', payload)
         scheduleBatchedInvalidation(payload?.providerId)
@@ -172,10 +176,10 @@ export function useEventSync() {
       })
     })
 
-    register<EventPayloadMap['pipeline-cache-invalidated']>('pipeline-cache-invalidated', (payload) => {
+    void register<EventPayloadMap['pipeline-cache-invalidated']>('pipeline-cache-invalidated', (payload) => {
       if (!payload) {
         logger.warn('EventSync', 'cache-invalidated: Invalid payload, invalidating all')
-        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
         return
       }
@@ -188,39 +192,39 @@ export function useEventSync() {
       })
 
       if (normalizedProviderId !== undefined) {
-        invalidateProviderPipelines(queryClient, normalizedProviderId)
+        void invalidateProviderPipelines(queryClient, normalizedProviderId)
       } else {
-        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
       }
     })
 
-    register<unknown>('storage-updated', () => {
+    void register<unknown>('storage-updated', () => {
       logger.debug('EventSync', 'storage-updated')
-      queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
     })
 
-    register<unknown>('cache-cleared', () => {
+    void register<unknown>('cache-cleared', () => {
       logger.debug('EventSync', 'cache-cleared')
-      queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.cache.all })
       scheduleBatchedInvalidation()
     })
 
-    register<{ providerId: number }>('schema-updated', (payload) => {
+    void register<{ providerId: number }>('schema-updated', (payload) => {
       if (!payload?.providerId) {
         logger.warn('EventSync', 'schema-updated: Invalid payload, invalidating all')
-        queryClient.invalidateQueries({ queryKey: queryKeys.tableSchema.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.tableSchema.all })
 
         return
       }
 
       logger.debug('EventSync', 'schema-updated', { providerId: payload.providerId })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.tableSchema.detail(payload.providerId),
       })
     })
 
-    register<unknown>('vault-unlocked', async () => {
+    void register<unknown>('vault-unlocked', async () => {
       logger.info('EventSync', 'vault-unlocked: CoreContext now available, refreshing data')
 
       await queryClient.cancelQueries()
@@ -240,21 +244,21 @@ export function useEventSync() {
         refetchType: 'active',
       })
 
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.storage.all,
         refetchType: 'none',
       })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.tableSchema.all,
         refetchType: 'none',
       })
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.cache.all,
         refetchType: 'none',
       })
     })
 
-    register<unknown>('vault-locked', async () => {
+    void register<unknown>('vault-locked', async () => {
       logger.info('EventSync', 'vault-locked: CoreContext shut down, routing to unlock')
 
       useAuthStore.getState().clearToken()
@@ -291,7 +295,7 @@ export function useEventSync() {
         logger.info('EventSync', 'WebSocket reconnected - invalidating critical queries')
         wasDisconnected = false
 
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: queryKeys.providers.all,
           refetchType: 'active',
         })

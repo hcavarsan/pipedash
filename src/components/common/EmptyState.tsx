@@ -12,7 +12,7 @@ interface EmptyStateProps {
   action?: ReactNode
 }
 
-export function EmptyState({ title, description, icon, action }: EmptyStateProps) {
+export function EmptyState({ title, description, icon, action }: EmptyStateProps): ReactNode {
   const mobileShell = useMobileShell()
 
   if (mobileShell) {

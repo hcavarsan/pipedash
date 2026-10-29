@@ -12,22 +12,14 @@ export type PipedashError =
   | { type: 'not_found'; message: string; resource?: string; cause?: unknown }
   | { type: 'unknown'; message: string; cause?: unknown }
 
-export function createError<T extends PipedashError['type']>(
-  type: T,
-  message: string,
-  extra?: Partial<Extract<PipedashError, { type: T }>>
-): PipedashError {
-  return { type, message, ...extra } as PipedashError
-}
-
 export function isPipedashError(error: unknown): error is PipedashError {
   return (
     typeof error === 'object' &&
     error !== null &&
     'type' in error &&
     'message' in error &&
-    typeof (error as { type: unknown }).type === 'string' &&
-    typeof (error as { message: unknown }).message === 'string'
+    typeof error.type === 'string' &&
+    typeof error.message === 'string'
   )
 }
 
@@ -82,25 +74,25 @@ export function toPipedashError(error: unknown): PipedashError {
 
   if (error instanceof Error) {
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      return createError('network', 'Network request failed', { cause: error })
+      return { type: 'network', message: 'Network request failed', cause: error }
     }
 
     if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
-      return createError('timeout', 'Request timed out', { cause: error })
+      return { type: 'timeout', message: 'Request timed out', cause: error }
     }
 
-    return createError('unknown', error.message, { cause: error })
+    return { type: 'unknown', message: error.message, cause: error }
   }
 
   if (typeof error === 'string') {
-    return createError('unknown', error)
+    return { type: 'unknown', message: error }
   }
 
   if (isCommandError(error)) {
-    return createError('unknown', error.error, { cause: error })
+    return { type: 'unknown', message: error.error, cause: error }
   }
 
-  return createError('unknown', 'An unknown error occurred', { cause: error })
+  return { type: 'unknown', message: 'An unknown error occurred', cause: error }
 }
 
 function isCommandError(error: unknown): error is { error: string } {

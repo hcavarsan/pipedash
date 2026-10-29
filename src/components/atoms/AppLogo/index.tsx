@@ -1,4 +1,5 @@
 import { Image } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import { withBasePath } from '../../../lib/basePath'
 
@@ -10,7 +11,7 @@ interface AppLogoProps {
   alt?: string
 }
 
-export const AppLogo = ({ size, alt = '' }: AppLogoProps) => {
+export const AppLogo = ({ size, alt = '' }: AppLogoProps): ReactNode => {
   const largest = typeof size === 'number' ? size : Math.max(size.base, size.sm ?? 0)
 
   return (

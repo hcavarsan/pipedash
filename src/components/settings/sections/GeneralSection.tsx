@@ -16,7 +16,7 @@ import {
 } from '@mantine/core'
 import { IconTrash } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
@@ -25,6 +25,7 @@ import { useStorageConfig } from '@/queries/useStorageQueries'
 import { service } from '@/services'
 import type { GeneralConfig } from '@/types'
 import { displayErrorNotification } from '@/utils/errorDisplay'
+import { isOneOf } from '@/utils/isOneOf'
 import { isHttpUrl } from '@/utils/openExternal'
 import { getPlatformOverride, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
 
@@ -38,16 +39,27 @@ interface GeneralSectionProps {
   onRefresh?: (() => Promise<void>) | undefined
 }
 
-const THEME_OPTIONS = [
+const THEME_OPTIONS: { value: MantineColorScheme; label: string }[] = [
   { value: 'dark', label: 'Dark' },
   { value: 'light', label: 'Light' },
   { value: 'auto', label: 'System' },
 ]
 
+const THEME_VALUES = THEME_OPTIONS.map((option) => option.value)
+
+type PlatformChoice = '' | 'macos' | 'windows' | 'linux'
+
+const PLATFORM_OPTIONS: { value: PlatformChoice; label: string }[] = [
+  { value: '', label: 'Auto-detect' },
+  { value: 'macos', label: 'macOS' },
+  { value: 'windows', label: 'Windows' },
+  { value: 'linux', label: 'Linux' },
+]
+
 const PROXY_DESCRIPTION =
   "Sends provider requests through this HTTP proxy, except Tekton and Flux. Leave it empty to connect directly or through HTTPS_PROXY. Proxies that need a password aren't supported."
 
-export function GeneralSection({ onRefresh }: GeneralSectionProps) {
+export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
   const mobileShell = useMobileShell()
   const [platformOverride, setPlatformOverrideState] = useState<string | null>(null)
   const [currentPlatform, setCurrentPlatform] = useState<string>('linux')
@@ -127,11 +139,13 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
       setCurrentPlatform(detectedPlatform)
     }
 
-    loadPlatform()
+    loadPlatform().catch((error: unknown) => {
+      logger.error('GeneralSection', 'Failed to detect platform', error)
+    })
   }, [])
 
-  const handlePlatformChange = (value: string | null) => {
-    setPlatformOverride(value as 'macos' | 'windows' | 'linux' | null)
+  const handlePlatformChange = (value: PlatformChoice | null) => {
+    setPlatformOverride(value || null)
     setPlatformOverrideState(value)
   }
 
@@ -145,7 +159,7 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
                 id={id}
                 data={THEME_OPTIONS}
                 value={colorScheme}
-                onChange={(value) => value && setColorScheme(value as MantineColorScheme)}
+                onChange={(value) => isOneOf(THEME_VALUES, value) && setColorScheme(value)}
               />
             )}
           </FieldRow>
@@ -209,13 +223,13 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
       <Card padding="md">
         <Stack gap="md">
           <Input.Wrapper label="Theme" description="Choose Dark, Light, or follow your system setting.">
-            <SegmentedControl
+            <SegmentedControl<MantineColorScheme>
               mt="xs"
               aria-label="Theme"
               fullWidth
               data={THEME_OPTIONS}
               value={colorScheme}
-              onChange={(value) => setColorScheme(value as MantineColorScheme)}
+              onChange={setColorScheme}
             />
           </Input.Wrapper>
 
@@ -223,17 +237,12 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps) {
 
           {!isMobilePlatform() && (
             <>
-              <Select
+              <Select<PlatformChoice>
                 label="Platform"
                 description={`Detected: ${currentPlatform}`}
                 placeholder="Auto-detect"
-                data={[
-                  { value: '', label: 'Auto-detect' },
-                  { value: 'macos', label: 'macOS' },
-                  { value: 'windows', label: 'Windows' },
-                  { value: 'linux', label: 'Linux' },
-                ]}
-                value={platformOverride || ''}
+                data={PLATFORM_OPTIONS}
+                value={PLATFORM_OPTIONS.find((option) => option.value === platformOverride)?.value ?? ''}
                 onChange={handlePlatformChange}
               />
 

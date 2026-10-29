@@ -3,7 +3,7 @@ import { after, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import type { RenderResult } from '@testing-library/react'
-import { createElement, useState } from 'react'
+import { createElement, useId, useState } from 'react'
 
 import type { SignInStart, SignInStatus } from '../../../types'
 
@@ -22,7 +22,7 @@ after(async () => {
   await act(async () => cleanup())
   client.clear()
   notifyManager.setNotifyFunction((callback) => callback())
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 const started = (id: string): SignInStart => ({
@@ -34,9 +34,10 @@ const started = (id: string): SignInStart => ({
 
 function Form({ onChange }: { onChange: (reference: string | null) => void }) {
   const [reference, setReference] = useState<string | null>(null)
+  const id = useId()
 
   return createElement(SignInField, {
-    id: 'sign-in',
+    id,
     providerType: 'argocd',
     configValues: reference
       ? { server_url: 'https://argo.example.com', sign_in: reference }
@@ -51,21 +52,16 @@ function Form({ onChange }: { onChange: (reference: string | null) => void }) {
   })
 }
 
-const renderField = async (onChange: (reference: string | null) => void): Promise<RenderResult> => {
-  let rendered: RenderResult | undefined
-
-  await act(async () => {
-    rendered = render(
+const renderField = (onChange: (reference: string | null) => void): Promise<RenderResult> =>
+  act(async () =>
+    render(
       createElement(
         MantineProvider,
         null,
         createElement(QueryClientProvider, { client }, createElement(Form, { onChange }))
       )
     )
-  })
-
-  return rendered as RenderResult
-}
+  )
 
 const neverSettles = () => new Promise<SignInStatus>(() => undefined)
 

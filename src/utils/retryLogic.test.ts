@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createError, formatErrorMessage, toPipedashError } from '../types/errors'
+import { formatErrorMessage, type PipedashError, toPipedashError } from '../types/errors'
 import { withRetry } from './retryLogic'
+
+function authError(): PipedashError {
+  return { type: 'auth', message: 'Bad credentials' }
+}
+
+function networkError(): PipedashError {
+  return { type: 'network', message: 'NetworkError when attempting to fetch' }
+}
 
 const noRetry = { maxAttempts: 1, delayMs: 0 }
 
@@ -14,7 +22,7 @@ test('a Tauri command error keeps the backend message', () => {
 })
 
 test('withRetry rethrows the original error instead of stringifying it', async () => {
-  const original = createError('auth', 'Bad credentials')
+  const original = authError()
 
   await assert.rejects(
     withRetry(() => Promise.reject(original), noRetry),
@@ -34,7 +42,7 @@ test('withRetry still retries errors that shouldRetry accepts', async () => {
     async () => {
       calls++
       if (calls < 3) {
-        throw createError('network', 'NetworkError when attempting to fetch')
+        throw networkError()
       }
 
       return 'ok'

@@ -16,16 +16,16 @@ import {
   TextInput,
 } from '@mantine/core'
 import { useQueries } from '@tanstack/react-query'
-import { type Dispatch, Fragment, type ReactNode, type RefObject, useMemo } from 'react'
+import { type Dispatch, Fragment, type ReactNode, type RefObject } from 'react'
 
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../../constants/credentials'
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
+import { useFormEnterNavigation } from '../../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { service } from '../../../services'
 import type { ConfigField, PluginMetadata } from '../../../types'
 import { type FieldInputKind, fieldA11y, fieldAttributes, withoutType } from '../../../utils/formFields'
-import { handleFormEnter } from '../../../utils/formFocus'
 import { ProviderIcon } from '../../atoms/ProviderIcon'
 import { LiveStatus, useErrorAnnouncement } from '../../forms/LiveStatus'
 import { IosGroup, IosRow } from '../../ios/IosList'
@@ -74,13 +74,13 @@ export function CredentialsStep({
   permissionRow,
   secondaryRow,
   scopeNote,
-}: CredentialsStepProps) {
+}: CredentialsStepProps): ReactNode {
+  useFormEnterNavigation(formRef)
   const mobileShell = useMobileShell()
   const { selectedPlugin, providerName, authMode, configValues, fieldErrors, submitting } = state
   const announcement = useErrorAnnouncement(fieldErrors)
 
-  const configValuesKey = useMemo(() => JSON.stringify(configValues), [configValues])
-  const debouncedConfigValuesKey = useDebounce(configValuesKey, DEBOUNCE_DELAYS.FILTER)
+  const debouncedConfigValues = useDebounce(configValues, DEBOUNCE_DELAYS.FILTER)
 
   const fields = selectedPlugin?.config_schema.fields ?? []
   const lastTextKey = [...fields].reverse().find((field) => field.field_type !== 'Boolean')?.key
@@ -96,13 +96,9 @@ export function CredentialsStep({
   )
   const optionQueries = useQueries({
     queries: dynamicFields.map((field) => ({
-      queryKey: ['providerFieldOptions', selectedPlugin?.provider_type, field.key, debouncedConfigValuesKey],
+      queryKey: ['providerFieldOptions', selectedPlugin?.provider_type, field.key, debouncedConfigValues],
       queryFn: () =>
-        service.getProviderFieldOptions(
-          selectedPlugin?.provider_type ?? '',
-          field.key,
-          JSON.parse(debouncedConfigValuesKey) as Record<string, string>
-        ),
+        service.getProviderFieldOptions(selectedPlugin?.provider_type ?? '', field.key, debouncedConfigValues),
       enabled: !!selectedPlugin,
       retry: false,
     })),
@@ -178,7 +174,7 @@ export function CredentialsStep({
   const fieldStateFor = (field: ConfigField) => {
     const value = configValues[field.key] || ''
     const fieldOptions = optionQueries[dynamicFields.findIndex((candidate) => candidate.key === field.key)]
-    const loadingOptions = !!fieldOptions && (fieldOptions.isFetching || debouncedConfigValuesKey !== configValuesKey)
+    const loadingOptions = !!fieldOptions && (fieldOptions.isFetching || debouncedConfigValues !== configValues)
 
     return {
       value,
@@ -559,7 +555,6 @@ export function CredentialsStep({
         event.preventDefault()
         onSubmit()
       }}
-      onKeyDown={handleFormEnter}
     >
       {renderContent()}
       <LiveStatus message={announcement} />

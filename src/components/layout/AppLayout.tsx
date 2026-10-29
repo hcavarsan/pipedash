@@ -1,6 +1,6 @@
 import { AppShell, Box } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
@@ -22,7 +22,7 @@ interface AppLayoutProps {
   onOpenSettings?: () => void
 }
 
-export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
+export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps): ReactNode => {
   const location = useLocation()
   const isSettingsPage = location.pathname.startsWith('/settings')
   const { isMobile } = useIsMobile()
@@ -145,7 +145,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
           'mobile-shell': mobileShell,
         }}
         padding={{ base: 'xs', sm: 'md' }}
-        {...(mobileShell ? { style: { '--tab-bar-reserve': tabBarReserve } as CSSProperties } : {})}
+        {...(mobileShell ? { style: { '--tab-bar-reserve': tabBarReserve } } : {})}
         styles={{
           header: mobileShell
             ? {

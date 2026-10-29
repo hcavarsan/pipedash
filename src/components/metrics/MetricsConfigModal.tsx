@@ -1,6 +1,6 @@
 import { Button, Card, Group, NumberInput, Select, Skeleton, Stack, Switch, Text } from '@mantine/core'
 import { IconTrash } from '@tabler/icons-react'
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { RETENTION_PRESETS, validateRetentionDays } from '../../constants/metricsRetention'
 import { useMobileShell } from '../../hooks/useIsMobile'
@@ -48,7 +48,7 @@ export const MetricsConfigModal = ({
   pipelineId,
   pipelineName,
   onConfigChange,
-}: MetricsConfigModalProps) => {
+}: MetricsConfigModalProps): ReactNode => {
   const mobileShell = useMobileShell()
   const globalConfig = useGlobalMetricsConfig()
   const pipelineConfig = usePipelineMetricsConfig(pipelineId || '')

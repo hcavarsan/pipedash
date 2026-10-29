@@ -23,7 +23,7 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import type { DataTableColumn } from 'mantine-datatable'
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { TYPOGRAPHY } from '../../theme/typography'
@@ -41,8 +41,8 @@ interface TableCustomizationModalProps {
   columns: DataTableColumn<PipelineRun>[]
   visibleColumns: DataTableColumn<PipelineRun>[]
   onApply: (columnOrder: string[], columnVisibility: Record<string, boolean>) => void
-  currentOrder?: string[]
-  currentVisibility?: Record<string, boolean>
+  currentOrder?: string[] | undefined
+  currentVisibility?: Record<string, boolean> | undefined
 }
 
 interface ColumnItem {
@@ -63,7 +63,7 @@ export function TableCustomizationModal({
   onApply,
   currentOrder,
   currentVisibility,
-}: TableCustomizationModalProps) {
+}: TableCustomizationModalProps): ReactNode {
   const mobileShell = useMobileShell()
   const [columnItems, setColumnItems] = useState<ColumnItem[]>([])
   const [initialSignature, setInitialSignature] = useState('')
@@ -158,14 +158,12 @@ export function TableCustomizationModal({
 
   const handleApply = () => {
     const order = columnItems.map((item) => item.id)
-    const visibility = columnItems.reduce(
-      (acc, item) => {
-        acc[item.id] = item.visible
+    const seed: Record<string, boolean> = {}
+    const visibility = columnItems.reduce((acc, item) => {
+      acc[item.id] = item.visible
 
-        return acc
-      },
-      {} as Record<string, boolean>
-    )
+      return acc
+    }, seed)
 
     onApply(order, visibility)
     onClose()

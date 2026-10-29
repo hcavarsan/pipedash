@@ -11,12 +11,18 @@ export interface Reveal {
 const isOpen = (element: HTMLElement) =>
   element.hasAttribute('data-open') || element.hasAttribute('data-pinned') || element.matches(':focus-within')
 
-export function createSearchReveal(root: () => HTMLElement | null) {
+export interface SearchReveal {
+  closed: () => Reveal | null
+  settle: (target: Reveal, open: boolean, velocity: number, config: SpringConfig) => Promise<void>
+  stop: () => void
+}
+
+export function createSearchReveal(root: () => HTMLElement | null): SearchReveal {
   let reveal: Reveal | null = null
 
   const closed = (): Reveal | null => {
     const element = Array.from(root()?.querySelectorAll<HTMLElement>('[data-search-reveal]') ?? []).find(
-      (candidate) => (candidate.firstElementChild as HTMLElement | null)?.offsetHeight
+      (candidate) => candidate.firstElementChild instanceof HTMLElement && candidate.firstElementChild.offsetHeight > 0
     )
     const bar = element?.firstElementChild
 

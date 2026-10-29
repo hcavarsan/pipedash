@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Divider, PasswordInput, Stack, Text, TextInput } from '@mantine/core'
 import { IconInfoCircle } from '@tabler/icons-react'
-import { type KeyboardEvent, useRef, useState } from 'react'
+import { type KeyboardEvent, type ReactNode, useRef, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNow } from '../../hooks/useNow'
@@ -24,7 +24,7 @@ const submitOnReturn = (event: KeyboardEvent, action: () => void) => {
   }
 }
 
-export function PushNotificationsCard() {
+export function PushNotificationsCard(): ReactNode {
   const { data: status, error, refetch, isRefetching } = usePushStatus()
   const mobileShell = useMobileShell()
   const pair = usePairPushServer()

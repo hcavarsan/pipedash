@@ -16,7 +16,8 @@ export const buildViewNodes = (views: PipelineView[], parent: string | null = nu
     children: buildViewNodes(views, view.id),
   }))
 
-export const matchesQuery = (name: string, query: string) => name.toLowerCase().includes(query.trim().toLowerCase())
+export const matchesQuery = (name: string, query: string): boolean =>
+  name.toLowerCase().includes(query.trim().toLowerCase())
 
 export const filterNavTree = (nodes: NavNode[], query: string): NavNode[] =>
   query.trim() === ''
@@ -46,5 +47,5 @@ export const ancestorKeys = (nodes: NavNode[], key: string): string[] | null => 
 export const pinTo = ({ kind, ref }: PinnedItem): string =>
   kind === 'view' ? `/pipelines?view=${encodeURIComponent(ref)}` : `/pipelines?search=${encodeURIComponent(ref)}`
 
-export const isPinned = (pins: PinnedItem[], kind: PinKind, ref: string) =>
+export const isPinned = (pins: PinnedItem[], kind: PinKind, ref: string): boolean =>
   pins.some((pin) => pin.kind === kind && pin.ref === ref)

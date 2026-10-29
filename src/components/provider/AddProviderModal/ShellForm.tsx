@@ -11,7 +11,7 @@ interface StepHeadingProps {
   subtitle?: string
 }
 
-export function StepHeading({ title, subtitle }: StepHeadingProps) {
+export function StepHeading({ title, subtitle }: StepHeadingProps): ReactNode {
   return (
     <div className={classes.heading}>
       <h2 className={classes.headingTitle} tabIndex={-1} data-step-heading>
@@ -31,7 +31,7 @@ interface ShellFieldProps {
   children: ReactNode
 }
 
-export function ShellField({ id, label, required, description, error, children }: ShellFieldProps) {
+export function ShellField({ id, label, required, description, error, children }: ShellFieldProps): ReactNode {
   return (
     <IosGroup
       header={
@@ -62,7 +62,7 @@ export function ShellField({ id, label, required, description, error, children }
   )
 }
 
-export function CheckCircle({ checked }: { checked: boolean }) {
+export function CheckCircle({ checked }: { checked: boolean }): ReactNode {
   return (
     <span className={classes.check} data-checked={checked ? '' : undefined} aria-hidden>
       {checked && <IconCheck size={14} stroke={3} />}

@@ -1,12 +1,13 @@
 import { Alert, Group, Radio, Stack, Text } from '@mantine/core'
 import { IconAlertCircle, IconCheck, IconDatabase, IconDatabaseOff } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { IosGroup, IosRow } from '../../ios/IosList'
 
 import type { TransferStepProps } from './types'
 
-export function TransferStep({ state, setState, error }: TransferStepProps) {
+export function TransferStep({ state, setState, error }: TransferStepProps): ReactNode {
   const mobileShell = useMobileShell()
 
   if (mobileShell) {

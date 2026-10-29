@@ -1,10 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
+import { type UseQueryResult, useQuery } from '@tanstack/react-query'
 
 import { GC_TIMES, STALE_TIMES } from '@/lib/cacheConfig'
 import { queryKeys } from '@/lib/queryKeys'
 import { service } from '@/services'
+import type { ProviderConfig } from '@/types'
 
-export function useProviderDetails(providerId: number | null) {
+export function useProviderDetails(providerId: number | null): UseQueryResult<ProviderConfig & { id: number }, Error> {
   return useQuery({
     queryKey: queryKeys.providers.detail(providerId || 0),
     queryFn: async () => {

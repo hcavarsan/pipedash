@@ -9,7 +9,10 @@ const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 
 const joinUnique = (values: string[]) => [...new Set(values.filter(Boolean))].join(', ')
 
-export const deployTarget = ({ provider_type, metadata }: Pick<Pipeline, 'provider_type' | 'metadata'>) => {
+export const deployTarget = ({
+  provider_type,
+  metadata,
+}: Pick<Pipeline, 'provider_type' | 'metadata'>): { label: string; value: string } | null => {
   if (provider_type === 'argocd') {
     const value = [text(metadata?.destination_cluster), text(metadata?.destination_namespace)]
       .filter(Boolean)

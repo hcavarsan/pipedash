@@ -43,7 +43,7 @@ after(async () => {
   await act(async () => cleanup())
   client.clear()
   notifyManager.setNotifyFunction((callback) => callback())
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 function SearchPage() {
@@ -92,7 +92,8 @@ test('URL-backed searches keep input focus, while page and view changes focus th
 
   const heading = view().getByRole('heading', { name: 'Pipelines' })
   await waitFor(() => assert.ok(document.activeElement === heading, 'Initial navigation focuses the heading'))
-  const input = view().getByRole('textbox', { name: 'Search pipelines' }) as HTMLInputElement
+  const input = view().getByRole('textbox', { name: 'Search pipelines' })
+  assert.ok(input instanceof HTMLInputElement)
   input.focus()
 
   for (const value of ['b', 'bu', 'build']) {

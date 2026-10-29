@@ -1,16 +1,30 @@
 import { notifications } from '@mantine/notifications'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import { useAuthStore } from '../stores/authStore'
-import type { MigrationOptions, MigrationPlan, MigrationResult, PipedashConfig } from '../types'
+import type {
+  ConfigContentResponse,
+  MigrationOptions,
+  MigrationPlan,
+  MigrationResult,
+  PipedashConfig,
+  StorageConfigResponse,
+  StoragePathsResponse,
+} from '../types'
 import { getHttpStatus } from '../types/errors'
 import { errorMessage } from '../utils/errorDisplay'
 import { formatCount } from '../utils/formatCount'
 
-export function useStorageConfig(options?: { enabled?: boolean }) {
+export function useStorageConfig(options?: { enabled?: boolean }): UseQueryResult<StorageConfigResponse | null, Error> {
   return useQuery({
     queryKey: queryKeys.storage.config(),
     queryFn: async () => {
@@ -29,7 +43,7 @@ export function useStorageConfig(options?: { enabled?: boolean }) {
   })
 }
 
-export function useStoragePaths() {
+export function useStoragePaths(): UseQueryResult<StoragePathsResponse, Error> {
   return useQuery({
     queryKey: queryKeys.storage.paths(),
     queryFn: () => service.getStoragePaths(),
@@ -38,7 +52,7 @@ export function useStoragePaths() {
   })
 }
 
-export function useConfigContent() {
+export function useConfigContent(): UseQueryResult<ConfigContentResponse, Error> {
   return useQuery({
     queryKey: queryKeys.storage.configContent(),
     queryFn: () => service.getConfigContent(),
@@ -48,7 +62,7 @@ export function useConfigContent() {
   })
 }
 
-export function useDefaultDataDir(options?: { enabled?: boolean }) {
+export function useDefaultDataDir(options?: { enabled?: boolean }): UseQueryResult<string, Error> {
   return useQuery({
     queryKey: queryKeys.storage.defaultDataDir(),
     queryFn: () => service.getDefaultDataDir(),
@@ -58,18 +72,18 @@ export function useDefaultDataDir(options?: { enabled?: boolean }) {
   })
 }
 
-export function useSaveStorageConfig() {
+export function useSaveStorageConfig(): UseMutationResult<void, Error, PipedashConfig, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (config: PipedashConfig) => service.saveStorageConfig(config),
 
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
 
-      queryClient.refetchQueries({ queryKey: queryKeys.storage.config() })
-      queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
+      void queryClient.refetchQueries({ queryKey: queryKeys.storage.config() })
+      void queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
 
       notifications.show({
         title: 'Configuration saved',
@@ -88,7 +102,12 @@ export function useSaveStorageConfig() {
   })
 }
 
-export function useTestStorageConnection() {
+export function useTestStorageConnection(): UseMutationResult<
+  { success: boolean; message: string },
+  Error,
+  PipedashConfig,
+  unknown
+> {
   return useMutation({
     mutationFn: (config: PipedashConfig) => service.testStorageConnection(config),
 
@@ -120,7 +139,12 @@ export function useTestStorageConnection() {
   })
 }
 
-export function useCreateInitialConfig() {
+export function useCreateInitialConfig(): UseMutationResult<
+  void,
+  Error,
+  { config: PipedashConfig; vaultPassword?: string },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -135,12 +159,12 @@ export function useCreateInitialConfig() {
     },
 
     onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
-      queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
 
       await queryClient.refetchQueries({ queryKey: queryKeys.setup.status() })
-      queryClient.refetchQueries({ queryKey: queryKeys.storage.config() })
-      queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
+      void queryClient.refetchQueries({ queryKey: queryKeys.storage.config() })
+      void queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
 
       notifications.show({
         title: 'Configuration created',
@@ -159,7 +183,12 @@ export function useCreateInitialConfig() {
   })
 }
 
-export function usePlanStorageMigration() {
+export function usePlanStorageMigration(): UseMutationResult<
+  MigrationPlan,
+  Error,
+  { config: PipedashConfig; options: MigrationOptions },
+  unknown
+> {
   return useMutation<MigrationPlan, Error, { config: PipedashConfig; options: MigrationOptions }>({
     mutationFn: ({ config, options }) => service.planStorageMigration(config, options),
 
@@ -173,7 +202,12 @@ export function usePlanStorageMigration() {
   })
 }
 
-export function useExecuteMigration() {
+export function useExecuteMigration(): UseMutationResult<
+  MigrationResult,
+  Error,
+  { plan: MigrationPlan; options: MigrationOptions },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation<MigrationResult, Error, { plan: MigrationPlan; options: MigrationOptions }>({
@@ -181,13 +215,13 @@ export function useExecuteMigration() {
 
     onSuccess: (result) => {
       if (result.success) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
-        queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
-        queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
-        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
 
-        queryClient.refetchQueries({ queryKey: queryKeys.storage.config() })
-        queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
+        void queryClient.refetchQueries({ queryKey: queryKeys.storage.config() })
+        void queryClient.refetchQueries({ queryKey: queryKeys.storage.paths() })
 
         notifications.show({
           title: 'Migration complete',

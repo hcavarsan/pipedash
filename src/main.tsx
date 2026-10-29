@@ -19,7 +19,13 @@ import '@mantine/notifications/styles.layer.css'
 import 'mantine-datatable/styles.layer.css'
 import './App.css'
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+const root = document.getElementById('root')
+
+if (!root) {
+  throw new Error('Missing #root element')
+}
+
+ReactDOM.createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <AppMantineProvider>

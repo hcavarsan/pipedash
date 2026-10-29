@@ -1,5 +1,6 @@
 import { Box, Image, Text, ThemeIcon } from '@mantine/core'
 import { IconInfoCircleFilled } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { withBasePath } from '../../../lib/basePath'
@@ -17,7 +18,7 @@ const initials = (name: string) => {
   return (second ? `${first.charAt(0)}${second.charAt(0)}` : first.slice(0, 2)).toUpperCase()
 }
 
-export const ProviderIcon = ({ name, icon, size, badge }: ProviderIconProps) => {
+export const ProviderIcon = ({ name, icon, size, badge }: ProviderIconProps): ReactNode => {
   const mobileShell = useMobileShell()
   const fontSize = size <= 24 ? 'xs' : size <= 32 ? 'sm' : size <= 40 ? 'md' : size <= 48 ? 'lg' : 'xl'
 

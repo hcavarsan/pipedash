@@ -83,7 +83,7 @@ function ToolbarButton({ label, shortcut, icon, onClick, disabled, pressed, load
   )
 }
 
-export function LogToolbar(props: LogToolbarProps) {
+export function LogToolbar(props: LogToolbarProps): ReactNode {
   const { query, searchError, counter, filter } = props
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {

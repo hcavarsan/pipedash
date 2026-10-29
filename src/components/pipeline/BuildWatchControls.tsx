@@ -1,5 +1,6 @@
 import { ActionIcon, Alert, Button, Card, Group, Menu, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconDots, IconEye } from '@tabler/icons-react'
+import { type ReactNode, useId } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useBuildWatch } from '../../queries/useBuildWatchQueries'
@@ -19,7 +20,7 @@ interface BuildWatchControlsProps {
   status: PipelineStatus
 }
 
-export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatchControlsProps) {
+export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatchControlsProps): ReactNode {
   const watch = useBuildWatch()
   if (!watch.data?.supported || (status !== 'pending' && status !== 'running')) {
     return null
@@ -69,9 +70,10 @@ interface BuildWatchSectionProps {
   onViewRun: (pipelineId: string, runNumber: number) => void
 }
 
-export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps) {
+export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactNode {
   const watch = useBuildWatch()
   const mobileShell = useMobileShell()
+  const titleId = useId()
   if (!watch.enabled || (watch.data && !watch.data.supported)) {
     return null
   }
@@ -176,9 +178,9 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps) {
       {recovery}
     </IosGroup>
   ) : (
-    <Stack gap="sm" component="section" aria-labelledby="watching-run-title">
+    <Stack gap="sm" component="section" aria-labelledby={titleId}>
       <SectionHeading
-        id="watching-run-title"
+        id={titleId}
         icon={<IconEye size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
         label="Watching"
         count={current ? 1 : 0}

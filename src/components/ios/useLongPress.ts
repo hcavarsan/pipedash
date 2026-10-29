@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react'
 
 import { haptic } from '../../lib/haptics'
 
@@ -16,7 +16,10 @@ export function openRowMenu(row: HTMLElement): boolean {
   return true
 }
 
-export function useLongPress(onLongPress: (row: HTMLElement) => boolean, enabled = true) {
+export function useLongPress(
+  onLongPress: (row: HTMLElement) => boolean,
+  enabled = true
+): Dispatch<SetStateAction<HTMLElement | null>> {
   const [element, ref] = useState<HTMLElement | null>(null)
   const latest = useRef(onLongPress)
 
@@ -61,7 +64,7 @@ export function useLongPress(onLongPress: (row: HTMLElement) => boolean, enabled
     }
 
     const onScroll = (event: Event) => {
-      if (event.target === document || (event.target as Node).contains(element)) {
+      if (event.target === document || (event.target instanceof Node && event.target.contains(element))) {
         abort()
       }
     }
@@ -119,4 +122,5 @@ export function useLongPress(onLongPress: (row: HTMLElement) => boolean, enabled
   return ref
 }
 
-export const useRowMenuLongPress = (enabled = true) => useLongPress(openRowMenu, enabled)
+export const useRowMenuLongPress = (enabled = true): Dispatch<SetStateAction<HTMLElement | null>> =>
+  useLongPress(openRowMenu, enabled)

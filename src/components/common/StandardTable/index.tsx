@@ -1,9 +1,10 @@
 import { Box } from '@mantine/core'
 import { DataTable, type DataTableProps } from 'mantine-datatable'
+import type { ReactNode } from 'react'
 
 const INTERACTIVE_TARGET = 'button, a, input, label, [role="checkbox"]'
 
-export function StandardTable<T>(props: DataTableProps<T>) {
+export function StandardTable<T>(props: DataTableProps<T>): ReactNode {
   return (
     <Box
       style={{

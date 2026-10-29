@@ -1,5 +1,12 @@
 import { notifications } from '@mantine/notifications'
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type QueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
@@ -10,9 +17,11 @@ import { service } from '../services'
 import type {
   CreateViewInput,
   PinKind,
+  PinnedItem,
   PipelineView,
   PipelineViewPage,
   PipelineViewQuery,
+  ViewMember,
   ViewPatch,
   ViewPipeline,
 } from '../types'
@@ -23,10 +32,10 @@ const LEGACY_PINNED_KEY = 'pipedash-pinned-pipelines'
 const LEGACY_HIDDEN_KEY = 'pipedash-hidden-pipelines'
 
 function invalidateViews(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
-  queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
-  queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })
-  queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
+  void queryClient.invalidateQueries({ queryKey: [...queryKeys.pipelines.all, 'viewMembers'] })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pins() })
 }
 
 function notifyError(title: string, error: Error, fallback: string) {
@@ -49,7 +58,7 @@ function updatePagePipeline(queryClient: QueryClient, id: string, patch: Partial
   }))
 }
 
-export function usePipelineViews(enabled = true) {
+export function usePipelineViews(enabled = true): UseQueryResult<PipelineView[], Error> {
   return useQuery({
     queryKey: queryKeys.pipelines.views(),
     queryFn: () => service.listPipelineViews(),
@@ -58,7 +67,10 @@ export function usePipelineViews(enabled = true) {
   })
 }
 
-export function usePipelineViewPage(query: PipelineViewQuery, enabled: boolean) {
+export function usePipelineViewPage(
+  query: PipelineViewQuery,
+  enabled: boolean
+): UseQueryResult<PipelineViewPage, Error> {
   return useQuery({
     queryKey: queryKeys.pipelines.page(query),
     queryFn: () => service.getPipelineViewPage(query),
@@ -70,7 +82,7 @@ export function usePipelineViewPage(query: PipelineViewQuery, enabled: boolean) 
   })
 }
 
-export function useViewMembers(id: string, enabled: boolean) {
+export function useViewMembers(id: string, enabled: boolean): UseQueryResult<ViewMember[], Error> {
   return useQuery({
     queryKey: queryKeys.pipelines.viewMembers(id),
     queryFn: () => service.listPipelineViewMembers(id),
@@ -78,7 +90,7 @@ export function useViewMembers(id: string, enabled: boolean) {
   })
 }
 
-export function usePins() {
+export function usePins(): UseQueryResult<PinnedItem[], Error> {
   return useQuery({
     queryKey: queryKeys.pipelines.pins(),
     queryFn: () => service.listPins(),
@@ -86,7 +98,7 @@ export function usePins() {
   })
 }
 
-export function useSetPin() {
+export function useSetPin(): UseMutationResult<void, Error, { kind: PinKind; ref: string; pinned: boolean }, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -97,7 +109,7 @@ export function useSetPin() {
   })
 }
 
-export function useCreatePipelineView() {
+export function useCreatePipelineView(): UseMutationResult<PipelineView, Error, CreateViewInput, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -110,7 +122,12 @@ export function useCreatePipelineView() {
   })
 }
 
-export function useUpdatePipelineView() {
+export function useUpdatePipelineView(): UseMutationResult<
+  PipelineView,
+  Error,
+  { id: string; patch: ViewPatch },
+  void
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -138,7 +155,7 @@ export function useUpdatePipelineView() {
   })
 }
 
-export function useDeletePipelineView() {
+export function useDeletePipelineView(): UseMutationResult<void, Error, string, unknown> {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -151,14 +168,19 @@ export function useDeletePipelineView() {
       notifications.show({ title: 'View deleted', message: 'The view was removed.', color: 'green' })
 
       if (currentView === id) {
-        navigate('/pipelines', { replace: true })
+        void navigate('/pipelines', { replace: true })
       }
     },
     onError: (error: Error) => notifyError("Couldn't delete view", error, 'Try deleting the view again.'),
   })
 }
 
-export function useReorderPipelineViews() {
+export function useReorderPipelineViews(): UseMutationResult<
+  void,
+  Error,
+  string[],
+  { previous: PipelineView[] | undefined }
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -194,7 +216,12 @@ export function useReorderPipelineViews() {
   })
 }
 
-export function useSetViewMembership() {
+export function useSetViewMembership(): UseMutationResult<
+  void,
+  Error,
+  { id: string; pipelineIds: string[]; member: boolean },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -208,7 +235,7 @@ export function useSetViewMembership() {
   })
 }
 
-export function useTogglePin() {
+export function useTogglePin(): UseMutationResult<void, Error, ViewPipeline, void> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -222,7 +249,7 @@ export function useTogglePin() {
   })
 }
 
-export function useToggleHidden() {
+export function useToggleHidden(): UseMutationResult<void, Error, ViewPipeline, void> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -247,7 +274,7 @@ function readLegacyKeys(storageKey: string, field: string): string[] {
   }
 }
 
-export function useLegacyPipelineMarksImport(enabled: boolean) {
+export function useLegacyPipelineMarksImport(enabled: boolean): void {
   const queryClient = useQueryClient()
   const started = useRef(false)
 
@@ -275,8 +302,8 @@ export function useLegacyPipelineMarksImport(enabled: boolean) {
       .importLegacyPipelineMarks({ pinned, hidden })
       .then(() => {
         clear()
-        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
-        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
       })
       .catch((error) => logger.warn('PipelineViews', 'Legacy pin/hide import failed', error))
   }, [enabled, queryClient])

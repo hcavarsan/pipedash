@@ -1,7 +1,7 @@
 import { Button, Group, Loader, Menu, SegmentedControl, Stack, UnstyledButton } from '@mantine/core'
 import { IconDownload, IconFileTypeCsv, IconPhoto } from '@tabler/icons-react'
 import { toBlob } from 'html-to-image'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useAggregatedMetrics } from '../../queries/useMetricsQueries'
@@ -60,7 +60,7 @@ export const MetricsDetailPage = ({
   initialAggregation,
   retentionDays,
   refreshTrigger,
-}: MetricsDetailPageProps) => {
+}: MetricsDetailPageProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const [dateRange, setDateRange] = useState<DateRange>(initialDateRange)

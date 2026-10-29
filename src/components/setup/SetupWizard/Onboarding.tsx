@@ -10,7 +10,7 @@ interface OnboardingProps {
   children: ReactNode
 }
 
-export function Onboarding({ title, footer, children }: OnboardingProps) {
+export function Onboarding({ title, footer, children }: OnboardingProps): ReactNode {
   return (
     <div className={classes.screen}>
       <div className={classes.scroll}>
@@ -32,7 +32,7 @@ interface StepHeaderProps {
   labels: string[]
 }
 
-export function StepHeader({ step, labels }: StepHeaderProps) {
+export function StepHeader({ step, labels }: StepHeaderProps): ReactNode {
   return (
     <div className={classes.stepHeader}>
       <div className={classes.dots} role="img" aria-label={`Step ${step + 1} of ${labels.length}`}>

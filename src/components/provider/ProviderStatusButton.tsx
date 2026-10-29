@@ -1,4 +1,5 @@
 import { Group, Stack, Text, Tooltip, UnstyledButton } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
@@ -8,7 +9,7 @@ import { providerAttention } from '../../utils/providerAttention'
 import { TABLE_CELL_STYLES } from '../../utils/tableCells'
 import { ProviderIcon } from '../atoms/ProviderIcon'
 
-export function ProviderStatusButton({ provider }: { provider: ProviderSummary | undefined }) {
+export function ProviderStatusButton({ provider }: { provider: ProviderSummary | undefined }): ReactNode {
   const open = useNotificationCenterStore((state) => state.open)
   const mobileShell = useMobileShell()
 

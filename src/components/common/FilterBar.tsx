@@ -1,6 +1,6 @@
 import { ActionIcon, Box, Button, Group, MultiSelect, Select, Stack, Tooltip } from '@mantine/core'
 import { IconAdjustmentsHorizontal, IconFilter, IconFilterFilled, IconX } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../constants/intervals'
 import { useDebounce } from '../../hooks/useDebounce'
@@ -85,7 +85,7 @@ export const FilterSelect = ({
   searchable,
   leftSection,
   clearable = true,
-}: FilterSelectProps) => (
+}: FilterSelectProps): ReactNode => (
   <Select
     aria-label={label}
     placeholder={label}
@@ -119,7 +119,7 @@ export const FilterSelect = ({
   />
 )
 
-export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
+export const FilterBar = ({ filters, onClearAll }: FilterBarProps): ReactNode => {
   const mobileShell = useMobileShell()
   const [sheetOpen, setSheetOpen] = useState(false)
   const [localSearchValue, setLocalSearchValue] = useState(filters.search?.value || '')

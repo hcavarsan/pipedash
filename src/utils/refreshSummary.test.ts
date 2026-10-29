@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { ProviderSummary, RefreshResult } from '../types'
+import { providerSummaryFixture } from '../testing/fixtures'
+import type { RefreshResult } from '../types'
 
 import { describeRefreshResult, summarizeRefresh } from './refreshSummary'
 
@@ -13,7 +14,7 @@ const result = (provider_id: number, overrides: Partial<RefreshResult> = {}): Re
   ...overrides,
 })
 
-const provider = (id: number, name: string) => ({ id, name }) as ProviderSummary
+const provider = (id: number, name: string) => providerSummaryFixture({ id, name })
 
 test('summarizes a clean refresh with the number of providers', () => {
   assert.deepEqual(summarizeRefresh([result(1)], []), { message: 'Refreshed 1 provider', color: 'green' })

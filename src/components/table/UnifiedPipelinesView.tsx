@@ -20,7 +20,7 @@ import {
   IconRefresh,
 } from '@tabler/icons-react'
 import type { DataTableSortStatus } from 'mantine-datatable'
-import { Fragment, type ReactNode, useCallback, useMemo } from 'react'
+import { Fragment, type ReactNode, useCallback, useId, useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { useCancelActiveRuns } from '../../hooks/useCancelActiveRuns'
@@ -46,6 +46,7 @@ import { getErrorCode } from '../../types/errors'
 import { getPipelineLabels, getStatusOptions } from '../../utils/pipelinePresentation'
 import { fetchHint, providerAttention } from '../../utils/providerAttention'
 import { TableCells } from '../../utils/tableCells'
+import { typedKeys } from '../../utils/typedKeys'
 import { canAddSubView } from '../../utils/viewTree'
 import { useContextMenu } from '../common/ContextMenu'
 import { EmptyState } from '../common/EmptyState'
@@ -85,7 +86,8 @@ import { ViewOptionsMenu } from './ViewOptionsMenu'
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 
-const SORT_ACCESSORS: Partial<Record<ViewSortKey, string>> = {
+const SORT_ACCESSORS: Record<ViewSortKey, string | undefined> = {
+  manual: undefined,
   name: 'name',
   last_run: 'lastRun',
   status: 'status',
@@ -94,7 +96,7 @@ const SORT_ACCESSORS: Partial<Record<ViewSortKey, string>> = {
 }
 
 const accessorSort = (accessor: string): ViewSortKey | undefined =>
-  (Object.keys(SORT_ACCESSORS) as ViewSortKey[]).find((key) => SORT_ACCESSORS[key] === accessor)
+  typedKeys(SORT_ACCESSORS).find((key) => SORT_ACCESSORS[key] === accessor)
 
 interface EmptyTableIssue {
   id: number
@@ -140,7 +142,7 @@ interface UnifiedPipelinesViewProps {
   onViewMetrics?: (pipeline: Pipeline) => void
 }
 
-export const UnifiedPipelinesView = ({
+export function UnifiedPipelinesView({
   providers,
   loading: loadingProp = false,
   error: errorProp,
@@ -149,9 +151,10 @@ export const UnifiedPipelinesView = ({
   onViewRun,
   onTrigger,
   onViewMetrics,
-}: UnifiedPipelinesViewProps) => {
+}: UnifiedPipelinesViewProps): ReactNode {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
+  const pinnedTitleId = useId()
 
   const { filters, setFilter, selectStatus, clearFilters } = usePipelineFilters()
   const {
@@ -740,9 +743,9 @@ export const UnifiedPipelinesView = ({
         (mobileShell ? (
           pinnedGrid('Pinned')
         ) : (
-          <Stack gap="sm" component="section" aria-labelledby="pinned-workflows-title">
+          <Stack gap="sm" component="section" aria-labelledby={pinnedTitleId}>
             <SectionHeading
-              id="pinned-workflows-title"
+              id={pinnedTitleId}
               icon={<IconPinFilled size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
               label="Pinned"
               count={pinnedPipelines.length}

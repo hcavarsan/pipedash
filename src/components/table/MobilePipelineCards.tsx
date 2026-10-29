@@ -38,7 +38,13 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-export function MobilePipelineCards({ rows, getProvider, onToggleRepo, actions, selection }: MobilePipelineCardsProps) {
+export function MobilePipelineCards({
+  rows,
+  getProvider,
+  onToggleRepo,
+  actions,
+  selection,
+}: MobilePipelineCardsProps): ReactNode {
   const renderProviders = (row: TableRow) => (
     <Group gap="xs" px="xs" wrap="wrap">
       {Array.from(row.providerIds ?? []).map((providerId) => (

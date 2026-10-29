@@ -1,5 +1,6 @@
 import { Button, Card, Group, SimpleGrid, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconChevronRight, IconMaximize } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import type { AggregatedMetrics, MetricType } from '../../types'
@@ -35,7 +36,13 @@ const CardStat = ({ label, value, shell }: { label: string; value: string; shell
     </Stack>
   )
 
-export const CompactMetricsCard = ({ metricType, data, title, loading, onExpand }: CompactMetricsCardProps) => {
+export const CompactMetricsCard = ({
+  metricType,
+  data,
+  title,
+  loading,
+  onExpand,
+}: CompactMetricsCardProps): ReactNode => {
   const mobileShell = useMobileShell()
 
   const renderBody = () => {

@@ -1,6 +1,6 @@
 import { Group, Menu, Paper, Stack, Text, UnstyledButton } from '@mantine/core'
 import { IconCheck, IconChevronDown, IconChevronUp, IconSelector } from '@tabler/icons-react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import type { AggregatedMetric, AggregatedMetrics } from '../../types'
@@ -21,7 +21,7 @@ interface MetricsDataTableProps {
 type SortField = 'timestamp' | 'value' | 'count' | 'min' | 'max'
 type SortDirection = 'asc' | 'desc'
 
-export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDataTableProps) => {
+export const MetricsDataTable = ({ data, selectedIndex, onRowClick }: MetricsDataTableProps): ReactNode => {
   const mobileShell = useMobileShell()
   const [sort, setSort] = useState<{ field: SortField; direction: SortDirection } | null>(null)
   const metricType = data.metric_type

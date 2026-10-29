@@ -1,9 +1,10 @@
 import { Box, Stack, Text, UnstyledButton } from '@mantine/core'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { SETTINGS_SECTIONS, type SettingsSection } from './SettingsSidebar'
 
-export const SettingsMobileTabs = ({ activeSection }: { activeSection: SettingsSection }) => (
+export const SettingsMobileTabs = ({ activeSection }: { activeSection: SettingsSection }): ReactNode => (
   <Box
     component="nav"
     aria-label="Settings sections"

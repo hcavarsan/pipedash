@@ -1,5 +1,6 @@
 import { Button, Text } from '@mantine/core'
 import { IconLogin, IconRefresh, IconSettings } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
@@ -15,7 +16,7 @@ interface ProviderRecoveryActionsProps {
   onNavigate?: () => void
 }
 
-export function ProviderRecoveryActions({ providerId, recovery, onNavigate }: ProviderRecoveryActionsProps) {
+export function ProviderRecoveryActions({ providerId, recovery, onNavigate }: ProviderRecoveryActionsProps): ReactNode {
   const refresh = useRefreshProvider()
   const buttonSize = useMobileShell() ? 'sm' : 'compact-xs'
   const requestEditProvider = useProviderStore((state) => state.requestEditProvider)

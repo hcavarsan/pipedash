@@ -9,7 +9,8 @@ export interface RerunSummaryField {
   value: string
 }
 
-export const canRerunFailedOnly = (run: Pick<PipelineRun, 'metadata'>) => run.metadata?.can_rerun_failed_jobs === true
+export const canRerunFailedOnly = (run: Pick<PipelineRun, 'metadata'>): boolean =>
+  run.metadata?.can_rerun_failed_jobs === true
 
 export const buildRerunSummary = (
   run: PipelineRun,

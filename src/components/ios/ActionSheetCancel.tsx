@@ -1,9 +1,10 @@
 import { Menu } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { iosOverlayClasses } from '../../theme/iosOverlays'
 
-export function ActionSheetCancel() {
+export function ActionSheetCancel(): ReactNode {
   const mobileShell = useMobileShell()
 
   if (!mobileShell) {

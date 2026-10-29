@@ -38,7 +38,7 @@ const notify = (
 
 const pipelineListsFilter = { queryKey: [...queryKeys.pipelines.all, 'list'] }
 
-export function useFailureNotifications() {
+export function useFailureNotifications(): void {
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -83,7 +83,7 @@ export function useFailureNotifications() {
         return
       }
 
-      const pipelines = event.query.state.data as Pipeline[] | undefined
+      const pipelines = queryClient.getQueryData<Pipeline[]>(event.query.queryKey)
 
       if (!pipelines) {
         return

@@ -19,13 +19,15 @@ function Form() {
 
 after(async () => {
   await act(async () => cleanup())
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 test('keyboard opening reveals focused inline fields within the visual viewport', async () => {
   const result = render(createElement(Form))
-  const field = result.getByRole('textbox') as HTMLInputElement
-  const main = field.parentElement as HTMLElement
+  const field = result.getByRole('textbox')
+  assert.ok(field instanceof HTMLInputElement)
+  const main = field.parentElement
+  assert.ok(main)
   Object.defineProperties(main, {
     scrollHeight: { configurable: true, value: 1200 },
     clientHeight: { configurable: true, value: 852 },

@@ -13,7 +13,7 @@ import {
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconCheck, IconX } from '@tabler/icons-react'
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from 'react'
 import { parse } from 'smol-toml'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
@@ -28,10 +28,11 @@ import { FormErrorDisplay } from '../common/FormErrorDisplay'
 import { LoadingState } from '../common/LoadingState'
 import { StandardModal } from '../common/StandardModal'
 
+import { loadTomlEditor } from './loadTomlEditor'
 import { MigrationConfirmModal } from './MigrationConfirmModal'
 import { TomlTextArea } from './TomlTextArea'
 
-const TomlEditor = lazy(() => import('./TomlEditor'))
+const TomlEditor = lazy(loadTomlEditor)
 
 interface ConfigEditorModalProps {
   opened: boolean
@@ -40,7 +41,7 @@ interface ConfigEditorModalProps {
   onSaved?: () => void
 }
 
-export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: ConfigEditorModalProps) => {
+export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: ConfigEditorModalProps): ReactNode => {
   const colorScheme = useComputedColorScheme('dark')
   const theme = useMantineTheme()
   const mobileShell = useMobileShell()
@@ -125,7 +126,7 @@ export const ConfigEditorModal = ({ opened, onClose, initialContent, onSaved }: 
   useEffect(() => {
     const timer = setTimeout(() => {
       if (content && content !== initialContent && !validationError) {
-        analyzeChanges(content)
+        void analyzeChanges(content)
       }
     }, 1000)
 

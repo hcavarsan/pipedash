@@ -1,5 +1,5 @@
 import { Button, Group, Stack, Text } from '@mantine/core'
-import { useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 
 import { usePlugins } from '../../contexts/PluginContext'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
@@ -33,7 +33,7 @@ interface CancelActiveRunsModalProps {
   onConfirm: (groups: CancelGroup[]) => Promise<unknown>
 }
 
-export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: CancelActiveRunsModalProps) => {
+export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: CancelActiveRunsModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const now = useNow(30_000)

@@ -1,7 +1,7 @@
 import { VisuallyHidden } from '@mantine/core'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
-export function LiveStatus({ message }: { message: string }) {
+export function LiveStatus({ message }: { message: string }): ReactNode {
   return (
     <VisuallyHidden role="status" aria-live="polite" aria-atomic>
       {message}

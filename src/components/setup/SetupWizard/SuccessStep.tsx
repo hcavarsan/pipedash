@@ -1,6 +1,6 @@
 import { Button, Card, Code, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core'
 import { IconAlertTriangle, IconCheck, IconCircleCheckFilled } from '@tabler/icons-react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
@@ -20,7 +20,7 @@ export function SuccessStep({
   vaultStatus,
   vaultPasswordFromEnv,
   onComplete,
-}: SuccessStepProps) {
+}: SuccessStepProps): ReactNode {
   const [restarting, setRestarting] = useState(false)
   const onDevice = isMobilePlatform()
   const mobileShell = useMobileShell()

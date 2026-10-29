@@ -1,4 +1,5 @@
 import { Stack } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import { IosGroup, IosRow } from '../ios/IosList'
 import { SETTINGS_SECTIONS, type SettingsSection } from './SettingsSidebar'
@@ -9,7 +10,7 @@ const GROUPS: SettingsSection[][] = [
   ['about'],
 ]
 
-export function SettingsMenu() {
+export function SettingsMenu(): ReactNode {
   return (
     <Stack gap="lg" pb="md">
       {GROUPS.map((ids) => (

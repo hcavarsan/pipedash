@@ -11,8 +11,8 @@ GlobalRegistrator.register({ width: 1400, height: 900 })
 const { apiService } = await import('../../services')
 const { LogLineCache } = await import('./lineCache')
 
-after(() => {
-  GlobalRegistrator.unregister()
+after(async () => {
+  await GlobalRegistrator.unregister()
 })
 
 interface Call {

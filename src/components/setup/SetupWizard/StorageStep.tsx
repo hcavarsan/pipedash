@@ -1,10 +1,11 @@
 import { Alert, Card, Code, PasswordInput, SegmentedControl, Stack, Text, TextInput } from '@mantine/core'
 import { IconAlertCircle, IconAlertTriangle, IconInfoCircle, IconKey } from '@tabler/icons-react'
-import { useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { isTauri } from '../../../services'
 import { isMobilePlatform } from '../../../utils/platform'
+import { typedKeys } from '../../../utils/typedKeys'
 import { LoadingState } from '../../common/LoadingState'
 import { IosGroup, IosRow } from '../../ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../settings/storageLabels'
@@ -40,7 +41,14 @@ function analyzePasswordStrength(password: string): string[] {
   return warnings
 }
 
-export function StorageStep({ state, setState, currentConfig, vaultStatus, error, checkingVault }: StorageStepProps) {
+export function StorageStep({
+  state,
+  setState,
+  currentConfig,
+  vaultStatus,
+  error,
+  checkingVault,
+}: StorageStepProps): ReactNode {
   const mobileShell = useMobileShell()
   const [blurred, setBlurred] = useState({ postgresUrl: false, password: false, confirmation: false })
   const passwordsMatch = state.vaultPassword === state.vaultPasswordConfirm
@@ -118,11 +126,11 @@ export function StorageStep({ state, setState, currentConfig, vaultStatus, error
           <Text size="sm" fw={600}>
             Database backend
           </Text>
-          <SegmentedControl
+          <SegmentedControl<StorageBackend>
             aria-label="Database backend"
             value={state.backend}
-            onChange={(value) => setState({ ...state, backend: value as StorageBackend })}
-            data={(Object.keys(STORAGE_BACKEND_LABELS) as StorageBackend[]).map((value) => ({
+            onChange={(value) => setState({ ...state, backend: value })}
+            data={typedKeys(STORAGE_BACKEND_LABELS).map((value) => ({
               label: STORAGE_BACKEND_LABELS[value],
               value,
             }))}
@@ -155,7 +163,7 @@ export function StorageStep({ state, setState, currentConfig, vaultStatus, error
           )}
 
           <Text size="xs" c="dimmed">
-            {currentBackend ? `Current backend: ${STORAGE_BACKEND_LABELS[currentBackend as StorageBackend]}. ` : ''}
+            {currentBackend ? `Current backend: ${STORAGE_BACKEND_LABELS[currentBackend]}. ` : ''}
             {state.backend === 'sqlite'
               ? 'Local encrypted storage with vault password'
               : 'Centralized storage, multi-user, encrypted tokens'}

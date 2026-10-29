@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { PipelineView, ViewMembership, ViewPipeline } from '../types'
+import { pipelineViewFixture, viewPipelineFixture } from '../testing/fixtures'
+import type { PipelineView, ViewMembership } from '../types'
 import {
   canAddSubView,
   childViews,
@@ -16,7 +17,8 @@ import {
   viewMemberIds,
 } from './viewTree'
 
-const view = (id: string, parent: string | null = null, kind = 'custom') => ({ id, parent, kind }) as PipelineView
+const view = (id: string, parent: string | null = null, kind: PipelineView['kind'] = 'custom') =>
+  pipelineViewFixture({ id, parent, kind })
 
 const views = [
   view('all', null, 'all'),
@@ -76,7 +78,7 @@ test('reorderSlots permutes only the moved ids within their slots', () => {
   assert.deepEqual(reorderSlots(['a', 'a1', 'b', 'c'], ['c', 'a', 'b']), ['c', 'a1', 'a', 'b'])
 })
 
-const pipeline = (id: string, memberships: ViewMembership[]) => ({ id, memberships }) as ViewPipeline
+const pipeline = (id: string, memberships: ViewMembership[]) => viewPipelineFixture({ id, memberships })
 
 test('leaving the only sub-view that brought a pipeline into a parent also clears the parent', () => {
   const members = directMembers([

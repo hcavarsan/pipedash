@@ -11,7 +11,7 @@ interface LoadingStateProps {
   action?: ReactNode
 }
 
-export function LoadingState({ message, variant = 'section', action }: LoadingStateProps) {
+export function LoadingState({ message, variant = 'section', action }: LoadingStateProps): ReactNode {
   const mobileShell = useMobileShell()
   const isPage = variant === 'page'
 

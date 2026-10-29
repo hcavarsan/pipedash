@@ -1,4 +1,4 @@
-import { type QueryClient, useQuery } from '@tanstack/react-query'
+import { type QueryClient, type UseQueryResult, useQuery } from '@tanstack/react-query'
 
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
@@ -6,25 +6,25 @@ import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
 import type { Pipeline, ProviderSummary } from '../types'
 
-export function invalidateProviderPipelines(queryClient: QueryClient, providerId: number) {
-  queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list({ providerId }), exact: true })
-  queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
+export function invalidateProviderPipelines(queryClient: QueryClient, providerId: number): void {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list({ providerId }), exact: true })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.list(), exact: true })
   invalidateViewPages(queryClient)
 }
 
 function invalidateViewPages(queryClient: QueryClient) {
-  queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
-  queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.pages() })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.views() })
 }
 
-export function setProviderPipelines(queryClient: QueryClient, providerId: number, pipelines: Pipeline[]) {
+export function setProviderPipelines(queryClient: QueryClient, providerId: number, pipelines: Pipeline[]): void {
   const allKey = queryKeys.pipelines.list()
 
   queryClient.setQueryData(queryKeys.pipelines.list({ providerId }), pipelines)
   invalidateViewPages(queryClient)
 
   if (queryClient.getQueryData(allKey) === undefined) {
-    queryClient.invalidateQueries({ queryKey: allKey, exact: true })
+    void queryClient.invalidateQueries({ queryKey: allKey, exact: true })
 
     return
   }
@@ -35,7 +35,10 @@ export function setProviderPipelines(queryClient: QueryClient, providerId: numbe
   ])
 }
 
-export function usePipelines(providerId?: number, options?: { enabled?: boolean; providers?: ProviderSummary[] }) {
+export function usePipelines(
+  providerId?: number,
+  options?: { enabled?: boolean; providers?: ProviderSummary[] }
+): UseQueryResult<Pipeline[], Error> {
   const hasProviders = (options?.providers?.length ?? 0) > 0
 
   return useQuery({

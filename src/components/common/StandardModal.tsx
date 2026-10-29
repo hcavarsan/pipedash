@@ -90,7 +90,7 @@ export const StandardModal = ({
   backAction,
   dirty = false,
   detents,
-}: StandardModalProps) => {
+}: StandardModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const reducedMotion = useReducedMotion()

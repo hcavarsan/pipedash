@@ -1,13 +1,28 @@
 import { Anchor, Badge, Code } from '@mantine/core'
 import { StatusBadge } from '../components/atoms/StatusBadge'
 import { STATUS_META } from '../theme/status'
-import type { CellRenderer, PipelineStatus } from '../types'
+import type { CellRenderer } from '../types'
 import { formatDateTime } from './formatDateTime'
 import { formatDuration } from './formatDuration'
+import { isOneOf } from './isOneOf'
+import { isRecord } from './isRecord'
 import { isHttpUrl } from './openExternal'
 import { TableCells } from './tableCells'
+import { typedKeys } from './typedKeys'
 
 export type CellValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[]
+
+export function isCellValue(value: unknown): value is CellValue {
+  return (
+    value === null ||
+    value === undefined ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    Array.isArray(value) ||
+    isRecord(value)
+  )
+}
 
 const renderEmpty = (): React.ReactNode => TableCells.textDimmed('—')
 
@@ -46,7 +61,7 @@ const renderLink = (value: CellValue): React.ReactNode => {
     <Anchor
       href={url}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       size="sm"
       truncate="end"
       onClick={(event) => event.stopPropagation()}
@@ -81,8 +96,8 @@ export const renderCellValue = (renderer: CellRenderer, value: CellValue, status
   if (renderer === 'StatusBadge') {
     const status = String(value).toLowerCase()
 
-    return status in STATUS_META ? (
-      <StatusBadge status={status as PipelineStatus} label={statusLabel} />
+    return isOneOf(typedKeys(STATUS_META), status) ? (
+      <StatusBadge status={status} label={statusLabel} />
     ) : (
       renderText(value)
     )

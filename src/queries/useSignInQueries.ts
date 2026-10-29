@@ -1,10 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { REFRESH_INTERVALS } from '../constants/intervals'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
+import type { SignInStart, SignInStatus } from '../types'
 
-export function useSignInStatus(id: string | null) {
+export function useSignInStatus(id: string | null): UseQueryResult<SignInStatus, Error> {
   return useQuery({
     queryKey: queryKeys.signIn.status(id ?? ''),
     queryFn: () => service.signInStatus(id ?? ''),
@@ -18,14 +25,24 @@ export function useSignInStatus(id: string | null) {
   })
 }
 
-export function useStartSignIn() {
+export function useStartSignIn(): UseMutationResult<
+  SignInStart,
+  Error,
+  { providerType: string; config: Record<string, string> },
+  unknown
+> {
   return useMutation({
     mutationFn: ({ providerType, config }: { providerType: string; config: Record<string, string> }) =>
       service.startSignIn(providerType, config),
   })
 }
 
-export function useCompleteSignIn() {
+export function useCompleteSignIn(): UseMutationResult<
+  SignInStatus,
+  Error,
+  { id: string; redirectUrl: string },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -34,7 +51,7 @@ export function useCompleteSignIn() {
   })
 }
 
-export function useCancelSignIn() {
+export function useCancelSignIn(): UseMutationResult<void, Error, string, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({

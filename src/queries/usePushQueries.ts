@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import { STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
@@ -7,7 +13,7 @@ import { mobileService } from '../services/mobile'
 import type { MobileDevicesResponse, PushStatus } from '../types'
 import { displayErrorNotification, displaySuccessNotification } from '../utils/errorDisplay'
 
-export function usePushStatus() {
+export function usePushStatus(): UseQueryResult<PushStatus, Error> {
   return useQuery<PushStatus>({
     queryKey: queryKeys.push.status(),
     queryFn: () => mobileService.getPushStatus(),
@@ -15,7 +21,12 @@ export function usePushStatus() {
   })
 }
 
-export function usePairPushServer() {
+export function usePairPushServer(): UseMutationResult<
+  PushStatus,
+  unknown,
+  { serverUrl: string; apiToken: string; label?: string },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation<PushStatus, unknown, { serverUrl: string; apiToken: string; label?: string }>({
@@ -28,7 +39,7 @@ export function usePairPushServer() {
   })
 }
 
-export function useUnpairPushServer() {
+export function useUnpairPushServer(): UseMutationResult<PushStatus, unknown, string, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation<PushStatus, unknown, string>({
@@ -38,7 +49,7 @@ export function useUnpairPushServer() {
   })
 }
 
-export function usePushSendTest() {
+export function usePushSendTest(): UseMutationResult<void, unknown, string, unknown> {
   return useMutation<void, unknown, string>({
     mutationFn: (id) => mobileService.pushSendTest(id),
     onSuccess: () => displaySuccessNotification('Check your notifications in a moment.', 'Test push sent'),
@@ -46,7 +57,7 @@ export function usePushSendTest() {
   })
 }
 
-export function useMobileDevices() {
+export function useMobileDevices(): UseQueryResult<MobileDevicesResponse, Error> {
   return useQuery<MobileDevicesResponse>({
     queryKey: queryKeys.push.devices(),
     queryFn: () => apiService.listMobileDevices(),
@@ -54,7 +65,7 @@ export function useMobileDevices() {
   })
 }
 
-export function useRemoveMobileDevice() {
+export function useRemoveMobileDevice(): UseMutationResult<void, unknown, string, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation<void, unknown, string>({
@@ -64,7 +75,7 @@ export function useRemoveMobileDevice() {
   })
 }
 
-export function useTestMobileDevice() {
+export function useTestMobileDevice(): UseMutationResult<void, unknown, string, unknown> {
   return useMutation<void, unknown, string>({
     mutationFn: (id) => apiService.testMobileDevice(id),
     onSuccess: () => displaySuccessNotification('The device should get it in a moment.', 'Test push sent'),

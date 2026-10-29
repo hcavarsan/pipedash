@@ -32,7 +32,7 @@ const ALERT_POSITION = {
   zIndex: 1000,
 } as const
 
-export function ConnectionStatus() {
+export function ConnectionStatus(): ReactNode {
   const [connectionState, setConnectionState] = useState<ConnectionState>({
     status: 'connected',
     reconnectAttempts: 0,
@@ -67,11 +67,10 @@ export function ConnectionStatus() {
       return
     }
 
-    const invalidate = () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
-      ])
+    const invalidate = (): void => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+    }
 
     if (isTauri()) {
       service

@@ -2,6 +2,7 @@ import { Button, Card, Divider, Stack, Text } from '@mantine/core'
 import { IconExternalLink } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
 import { getVersion } from '@tauri-apps/api/app'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
@@ -18,7 +19,7 @@ const LINKS = [
   { label: 'Source code', url: 'https://github.com/hcavarsan/pipedash' },
 ]
 
-export function AboutSection() {
+export function AboutSection(): ReactNode {
   const mobileShell = useMobileShell()
   const { data: version } = useQuery({
     queryKey: queryKeys.app.version(),

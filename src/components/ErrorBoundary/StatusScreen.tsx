@@ -11,7 +11,15 @@ interface StatusScreenProps {
   minHeight?: string | number
 }
 
-export function StatusScreen({ icon, title, message, hint, detail, actions, minHeight = '100%' }: StatusScreenProps) {
+export function StatusScreen({
+  icon,
+  title,
+  message,
+  hint,
+  detail,
+  actions,
+  minHeight = '100%',
+}: StatusScreenProps): ReactNode {
   return (
     <Center mih={minHeight} h="100%" px="lg" py="xl" role="alert">
       <Stack align="center" gap="lg" w="100%" maw={360}>

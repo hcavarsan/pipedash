@@ -6,10 +6,8 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { SPRING_DEFAULT } from '../../lib/spring'
 import { createSearchReveal } from './searchReveal'
 
-GlobalRegistrator.register()
+GlobalRegistrator.register({ settings: { device: { prefersReducedMotion: 'reduce' } } })
 after(() => GlobalRegistrator.unregister())
-
-window.matchMedia = ((query: string) => ({ matches: query.includes('reduce') })) as typeof window.matchMedia
 
 const mount = () => {
   const root = document.createElement('div')

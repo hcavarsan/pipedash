@@ -1,5 +1,5 @@
 import { Card, Stack, Switch } from '@mantine/core'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { isMobileShell, useMobileShell } from '@/hooks/useIsMobile'
 import { useLocalNotificationSettings, useSetLocalNotifications } from '@/queries/useLocalNotificationQueries'
@@ -40,7 +40,7 @@ function confirmBackgroundAccess(): Promise<boolean> {
   return promise
 }
 
-export function NotificationsSection() {
+export function NotificationsSection(): ReactNode {
   const mobileShell = useMobileShell()
   const ios = isIosPlatform()
   const storeEnabled = useNotificationStore((s) => s.notificationsEnabled)

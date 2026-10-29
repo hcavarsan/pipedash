@@ -1,11 +1,21 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import {
+  type InfiniteData,
+  type UseInfiniteQueryResult,
+  type UseQueryResult,
+  useInfiniteQuery,
+  useQuery,
+} from '@tanstack/react-query'
 
 import { PAGE_SIZES } from '../constants/pagination'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { service } from '../services'
-import type { PaginatedAvailablePipelines, ProviderConfig } from '../types'
+import type { Organization, PaginatedAvailablePipelines, ProviderConfig } from '../types'
 
-export function useProviderOrganizations(providerType: string, config: ProviderConfig, enableQuery = true) {
+export function useProviderOrganizations(
+  providerType: string,
+  config: ProviderConfig,
+  enableQuery = true
+): UseQueryResult<Organization[], Error> {
   return useQuery({
     queryKey: ['providerOrganizations', providerType, config.config],
     queryFn: () => service.fetchProviderOrganizations(providerType, config.config || {}),
@@ -21,7 +31,7 @@ export function usePipelinePreview(
   organization?: string,
   search?: string,
   enableQuery = true
-) {
+): UseInfiniteQueryResult<InfiniteData<PaginatedAvailablePipelines, unknown>, Error> {
   return useInfiniteQuery({
     queryKey: ['pipelinePreview', providerType, config.config, organization, search],
     queryFn: ({ pageParam = 1 }) =>

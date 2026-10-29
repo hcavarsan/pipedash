@@ -7,6 +7,7 @@ import {
   displayPosition,
   expandLevel,
   FLICK_SPEED,
+  SHEET_DETENTS,
   type SheetDetent,
   scrimLevel,
   sheetFrame,
@@ -15,6 +16,7 @@ import {
 import { animateSpring, SPRING_DEFAULT, SPRING_MOMENTUM, type SpringAnimation } from '../lib/spring'
 import { type GestureStart, trackTouches } from '../lib/touchTracker'
 import { iosClasses } from '../theme/ios'
+import { isOneOf } from '../utils/isOneOf'
 
 import { type SheetHandle, sheetHandle } from './useSheetStack'
 
@@ -148,7 +150,7 @@ function begin({ target }: GestureStart): SheetDrag | null {
 }
 
 function measureHeights({ sheet, modal }: SheetDrag): number[] {
-  const detents = sheet.dataset.detents?.split(',') as SheetDetent[] | undefined
+  const detents = sheet.dataset.detents?.split(',').filter((value) => isOneOf(SHEET_DETENTS, value))
   const inner = sheet.parentElement
 
   if (modal && detents && inner) {

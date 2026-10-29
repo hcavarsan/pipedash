@@ -14,7 +14,7 @@ import { IosRow } from '../ios/IosList'
 
 import classes from './mobileParts.module.css'
 
-export const AccentText = ({ children }: { children: ReactNode }) => (
+export const AccentText = ({ children }: { children: ReactNode }): ReactNode => (
   <Text span inherit c="var(--ios-tint)">
     {children}
   </Text>
@@ -24,7 +24,7 @@ export const RowSelect = ({
   w = '9em',
   onChange,
   ...props
-}: Omit<NativeSelectProps, 'onChange'> & { onChange?: (value: string | null) => void }) => (
+}: Omit<NativeSelectProps, 'onChange'> & { onChange?: (value: string | null) => void }): ReactNode => (
   <NativeSelect
     variant="unstyled"
     w={w}
@@ -35,7 +35,7 @@ export const RowSelect = ({
   />
 )
 
-export const RowNumberInput = ({ w = '6em', ...props }: NumberInputProps) => (
+export const RowNumberInput = ({ w = '6em', ...props }: NumberInputProps): ReactNode => (
   <NumberInput
     variant="unstyled"
     hideControls
@@ -46,7 +46,7 @@ export const RowNumberInput = ({ w = '6em', ...props }: NumberInputProps) => (
   />
 )
 
-export const RowTextInput = ({ w = '12em', ...props }: ComponentProps<typeof TextInput>) => (
+export const RowTextInput = ({ w = '12em', ...props }: ComponentProps<typeof TextInput>): ReactNode => (
   <TextInput
     variant="unstyled"
     autoCapitalize="none"
@@ -67,7 +67,7 @@ export const FieldRow = ({
   title,
   subtitle,
   children,
-}: LabeledRowProps & { children: (fieldId: string) => ReactNode }) => {
+}: LabeledRowProps & { children: (fieldId: string) => ReactNode }): ReactNode => {
   const id = useId()
 
   return (
@@ -83,7 +83,11 @@ export const FieldRow = ({
   )
 }
 
-export const SwitchRow = ({ title, subtitle, ...props }: LabeledRowProps & Omit<SwitchProps, 'id' | 'label'>) => {
+export const SwitchRow = ({
+  title,
+  subtitle,
+  ...props
+}: LabeledRowProps & Omit<SwitchProps, 'id' | 'label'>): ReactNode => {
   const id = useId()
   const descriptionId = `${id}-description`
 

@@ -21,7 +21,7 @@ after(async () => {
   await act(async () => cleanup())
   client.clear()
   notifyManager.setNotifyFunction((callback) => callback())
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 test('phone settings can recover a failed load and block overlapping saves', async (context) => {
@@ -61,7 +61,8 @@ test('phone settings can recover a failed load and block overlapping saves', asy
   assert.ok(await view().findByText("Couldn't load provider status page setting"))
   failRead = false
   fireEvent.click(view().getByRole('button', { name: /retry|try again/i }))
-  const toggle = (await view().findByRole('switch', { name: 'Check provider status pages' })) as HTMLInputElement
+  const toggle = await view().findByRole('switch', { name: 'Check provider status pages' })
+  assert.ok(toggle instanceof HTMLInputElement)
   assert.equal(toggle.checked, false)
   fireEvent.click(toggle)
   await waitFor(() => {

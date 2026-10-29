@@ -1,5 +1,6 @@
 import { Anchor, Box, Breadcrumbs, Group, Text, UnstyledButton } from '@mantine/core'
 import { IconChevronRight, IconPlus } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { usePipelineViewQuery } from '../../hooks/useUrlState'
@@ -7,7 +8,7 @@ import { usePipelineViews } from '../../queries/usePipelineViewQueries'
 import { usePipelineViewStore } from '../../stores/pipelineViewStore'
 import { canAddSubView, childViews, viewAncestors } from '../../utils/viewTree'
 
-export function SubViewBar() {
+export function SubViewBar(): ReactNode {
   const query = usePipelineViewQuery()
   const [searchParams] = useSearchParams()
   const { data: views = [] } = usePipelineViews()

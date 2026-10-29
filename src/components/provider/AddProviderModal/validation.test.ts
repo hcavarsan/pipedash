@@ -26,8 +26,20 @@ test('provider validation leaves unknown fields for the operation error', () => 
   assert.deepEqual(mapProviderFieldErrors({ selected_items: 'Select a pipeline' }, []), {})
 })
 
+const configField = (key: string): ConfigField => ({
+  key,
+  label: key,
+  description: null,
+  field_type: 'Text',
+  required: false,
+  default_value: null,
+  options: null,
+  validation_regex: null,
+  validation_message: null,
+})
+
 test('sign-in mode drops the token field and needs a completed sign-in', () => {
-  const fields = [{ key: 'server_url' }, { key: 'token' }] as ConfigField[]
+  const fields = [configField('server_url'), configField('token')]
 
   assert.deepEqual(
     activeConfigFields(fields, 'sign_in').map((field) => field.key),

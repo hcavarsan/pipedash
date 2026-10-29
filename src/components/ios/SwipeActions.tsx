@@ -30,7 +30,7 @@ const ACTION_WIDTH = 80
 
 let closeOpenRow: (() => void) | null = null
 
-export function SwipeActions({ actions, children }: SwipeActionsProps) {
+export function SwipeActions({ actions, children }: SwipeActionsProps): ReactNode {
   const slideRef = useRef<HTMLDivElement>(null)
   const primaryRef = useRef<HTMLButtonElement>(null)
   const open = useRef(false)

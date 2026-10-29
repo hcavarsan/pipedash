@@ -147,7 +147,7 @@ class ApiClient {
     }
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+  private async send(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<string> {
     return withRetry(
       async () => {
         const token = getToken()
@@ -187,18 +187,7 @@ class ApiClient {
           throw error
         }
 
-        const text = await res.text()
-
-        if (!text) {
-          return undefined as T
-        }
-
-        try {
-          return JSON.parse(text)
-        } catch (parseError) {
-          logger.error('API', 'Failed to parse response', parseError)
-          throw new Error('Invalid response from server: response is not valid JSON')
-        }
+        return res.text()
       },
       {
         ...DEFAULT_RETRY_CONFIG,
@@ -214,6 +203,25 @@ class ApiClient {
         },
       }
     )
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+    const text = await this.send(method, path, body, options)
+
+    if (!text) {
+      throw new Error('Empty response from server')
+    }
+
+    try {
+      return JSON.parse(text)
+    } catch (parseError) {
+      logger.error('API', 'Failed to parse response', parseError)
+      throw new Error('Invalid response from server: response is not valid JSON')
+    }
+  }
+
+  private async requestVoid(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<void> {
+    await this.send(method, path, body, options)
   }
 
   private get<T>(path: string): Promise<T> {
@@ -257,7 +265,7 @@ class ApiClient {
   }
 
   async updateProvider(id: number, config: ProviderConfig): Promise<void> {
-    await this.put(`/providers/${id}`, {
+    await this.requestVoid('PUT', `/providers/${id}`, {
       name: config.name,
       token: config.token,
       config: config.config,
@@ -266,13 +274,13 @@ class ApiClient {
   }
 
   async updateProviderRefreshInterval(id: number, refreshInterval: number): Promise<void> {
-    await this.put(`/providers/${id}/refresh-interval`, {
+    await this.requestVoid('PUT', `/providers/${id}/refresh-interval`, {
       refresh_interval: refreshInterval,
     })
   }
 
   async removeProvider(id: number): Promise<void> {
-    await this.delete(`/providers/${id}`)
+    await this.requestVoid('DELETE', `/providers/${id}`)
   }
 
   async exportProviders(): Promise<string> {
@@ -370,7 +378,7 @@ class ApiClient {
   }
 
   async cancelSignIn(id: string): Promise<void> {
-    await this.delete(`/sign-in/${encodeURIComponent(id)}`)
+    await this.requestVoid('DELETE', `/sign-in/${encodeURIComponent(id)}`)
   }
 
   async checkProviderPermissions(providerType: string, config: Record<string, string>): Promise<PermissionCheckResult> {
@@ -427,7 +435,7 @@ class ApiClient {
   }
 
   async updateGeneralSettings(update: GeneralConfig): Promise<void> {
-    await this.put('/settings/general', update)
+    await this.requestVoid('PUT', '/settings/general', update)
   }
 
   async getWorkflowRunDetails(pipelineId: string, runNumber: number): Promise<PipelineRun> {
@@ -435,19 +443,21 @@ class ApiClient {
   }
 
   async cancelPipelineRun(pipelineId: string, runNumber: number): Promise<void> {
-    await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/cancel`)
+    await this.requestVoid('POST', `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/cancel`)
   }
 
   async reviewPipelineRun(pipelineId: string, runNumber: number, decision: ReviewDecision): Promise<void> {
-    await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/review`, { decision })
+    await this.requestVoid('POST', `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/review`, {
+      decision,
+    })
   }
 
   async rerunFailedJobs(pipelineId: string, runNumber: number): Promise<void> {
-    await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/rerun-failed-jobs`)
+    await this.requestVoid('POST', `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/rerun-failed-jobs`)
   }
 
   async rerunRun(pipelineId: string, runNumber: number): Promise<void> {
-    await this.post(`/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/rerun`)
+    await this.requestVoid('POST', `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/rerun`)
   }
 
   async openUrl(url: string): Promise<void> {
@@ -459,7 +469,7 @@ class ApiClient {
   }
 
   async clearRunHistoryCache(pipelineId: string): Promise<void> {
-    await this.delete(`/cache/run-history/${encodeURIComponent(pipelineId)}`)
+    await this.requestVoid('DELETE', `/cache/run-history/${encodeURIComponent(pipelineId)}`)
   }
 
   async getCacheStats(): Promise<{
@@ -479,15 +489,15 @@ class ApiClient {
   }
 
   async clearAllRunHistoryCaches(): Promise<void> {
-    await this.delete('/cache/run-history')
+    await this.requestVoid('DELETE', '/cache/run-history')
   }
 
   async clearWorkflowParamsCache(): Promise<void> {
-    await this.delete('/cache/workflow-params')
+    await this.requestVoid('DELETE', '/cache/workflow-params')
   }
 
   async clearAllCaches(): Promise<void> {
-    await this.delete('/cache')
+    await this.requestVoid('DELETE', '/cache')
   }
 
   async getRunLogTree(pipelineId: string, runNumber: number): Promise<RunLogTree> {
@@ -530,7 +540,7 @@ class ApiClient {
   }
 
   async clearRunLogsCache(): Promise<void> {
-    await this.request('DELETE', '/cache/run-logs', undefined, { retry: false })
+    await this.requestVoid('DELETE', '/cache/run-logs', undefined, { retry: false })
   }
 
   async exportRunLog(
@@ -559,7 +569,7 @@ class ApiClient {
   }
 
   async updateGlobalMetricsConfig(enabled: boolean, defaultRetentionDays: number): Promise<void> {
-    await this.put('/metrics/config', {
+    await this.requestVoid('PUT', '/metrics/config', {
       enabled,
       default_retention_days: defaultRetentionDays,
     })
@@ -570,7 +580,7 @@ class ApiClient {
   }
 
   async updatePipelineMetricsConfig(pipelineId: string, enabled: boolean, retentionDays: number): Promise<void> {
-    await this.put(`/metrics/pipelines/${encodeURIComponent(pipelineId)}/config`, {
+    await this.requestVoid('PUT', `/metrics/pipelines/${encodeURIComponent(pipelineId)}/config`, {
       enabled,
       retention_days: retentionDays,
     })
@@ -629,7 +639,7 @@ class ApiClient {
   }
 
   async saveTablePreferences(providerId: number, tableId: string, preferencesJson: string): Promise<void> {
-    await this.put(`/preferences/table/${providerId}/${encodeURIComponent(tableId)}`, {
+    await this.requestVoid('PUT', `/preferences/table/${providerId}/${encodeURIComponent(tableId)}`, {
       preferences_json: preferencesJson,
     })
   }
@@ -665,11 +675,11 @@ class ApiClient {
   }
 
   async deletePipelineView(id: ViewRef): Promise<void> {
-    await this.delete(`/pipeline-views/${encodeURIComponent(id)}`)
+    await this.requestVoid('DELETE', `/pipeline-views/${encodeURIComponent(id)}`)
   }
 
   async reorderPipelineViews(order: ViewRef[]): Promise<void> {
-    await this.put('/pipeline-views/order', { order })
+    await this.requestVoid('PUT', '/pipeline-views/order', { order })
   }
 
   async listPipelineViewMembers(id: ViewRef): Promise<ViewMember[]> {
@@ -677,11 +687,14 @@ class ApiClient {
   }
 
   async setPipelineViewMembership(id: ViewRef, pipelineId: string, member: boolean): Promise<void> {
-    await this.put(`/pipeline-views/${encodeURIComponent(id)}/membership`, { pipeline_id: pipelineId, member })
+    await this.requestVoid('PUT', `/pipeline-views/${encodeURIComponent(id)}/membership`, {
+      pipeline_id: pipelineId,
+      member,
+    })
   }
 
   async setPipelineHidden(pipelineId: string, hidden: boolean): Promise<void> {
-    await this.put('/pipeline-views/hidden', { pipeline_id: pipelineId, hidden })
+    await this.requestVoid('PUT', '/pipeline-views/hidden', { pipeline_id: pipelineId, hidden })
   }
 
   async listPins(): Promise<PinnedItem[]> {
@@ -689,7 +702,7 @@ class ApiClient {
   }
 
   async setPin(kind: PinKind, ref: string, pinned: boolean): Promise<void> {
-    await this.put('/pipeline-views/pins', { kind, ref, pinned })
+    await this.requestVoid('PUT', '/pipeline-views/pins', { kind, ref, pinned })
   }
 
   async importLegacyPipelineMarks(marks: LegacyMarks): Promise<LegacyImportResult> {
@@ -701,7 +714,7 @@ class ApiClient {
   }
 
   async createInitialConfig(config: PipedashConfig, vaultPassword?: string): Promise<void> {
-    await this.post('/setup/config', {
+    await this.requestVoid('POST', '/setup/config', {
       config,
       vault_password: vaultPassword,
     })
@@ -736,7 +749,7 @@ class ApiClient {
   }
 
   async saveConfigContent(content: string): Promise<void> {
-    await this.put('/storage/config/content', { content })
+    await this.requestVoid('PUT', '/storage/config/content', { content })
   }
 
   async analyzeConfig(content: string): Promise<ConfigAnalysisResponse> {
@@ -762,7 +775,7 @@ class ApiClient {
   }
 
   async saveStorageConfig(config: PipedashConfig): Promise<void> {
-    await this.post('/storage/config/save', config)
+    await this.requestVoid('POST', '/storage/config/save', config)
   }
 
   async testStorageConnection(config: PipedashConfig): Promise<{
@@ -814,11 +827,11 @@ class ApiClient {
   }
 
   async removeMobileDevice(id: string): Promise<void> {
-    await this.delete(`/push/subscriptions/${encodeURIComponent(id)}`)
+    await this.requestVoid('DELETE', `/push/subscriptions/${encodeURIComponent(id)}`)
   }
 
   async testMobileDevice(id: string): Promise<void> {
-    await this.post(`/push/subscriptions/${encodeURIComponent(id)}/test`)
+    await this.requestVoid('POST', `/push/subscriptions/${encodeURIComponent(id)}/test`)
   }
 }
 

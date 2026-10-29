@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { after, beforeEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import type { PointerEvent } from 'react'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 after(() => GlobalRegistrator.unregister())
@@ -14,20 +13,19 @@ const { useSidebarResize } = await import('./useSidebarResize')
 const nav = document.createElement('nav')
 const handle = document.createElement('div')
 let renderedWidth = 248
-nav.getBoundingClientRect = () => ({ width: renderedWidth, left: 0 }) as DOMRect
+nav.getBoundingClientRect = () => new DOMRect(0, 0, renderedWidth, 0)
 handle.setPointerCapture = () => {}
 nav.append(handle)
 document.body.append(nav)
 
-const pointer = (clientX: number) =>
-  ({
-    button: 0,
-    pointerId: 1,
-    clientX,
-    currentTarget: handle,
-    timeStamp: performance.now(),
-    preventDefault: () => {},
-  }) as unknown as PointerEvent<HTMLElement>
+const pointer = (clientX: number) => ({
+  button: 0,
+  pointerId: 1,
+  clientX,
+  currentTarget: handle,
+  timeStamp: performance.now(),
+  preventDefault: () => {},
+})
 
 const renderSidebar = () => renderHook((resizable: boolean) => useSidebarResize(resizable), { initialProps: true })
 

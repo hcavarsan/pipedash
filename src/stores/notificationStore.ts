@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 
+import { isRecord } from '../utils/isRecord'
+
 interface NotificationStoreState {
   notificationsEnabled: boolean
 }
@@ -16,7 +18,7 @@ const initialState: NotificationStoreState = {
 }
 
 export function migrateNotificationSettings(persisted: unknown, version: number): NotificationStoreState {
-  const saved = (persisted ?? {}) as Record<string, unknown>
+  const saved: Record<string, unknown> = isRecord(persisted) ? persisted : {}
 
   if (version >= 1) {
     return { notificationsEnabled: saved.notificationsEnabled === true }

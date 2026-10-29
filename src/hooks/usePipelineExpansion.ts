@@ -4,7 +4,13 @@ import { usePipelineExpansionStore } from '../stores/pipelineExpansionStore'
 
 const EMPTY: Record<string, boolean> = {}
 
-export function usePipelineExpansion(view: string, filterKey: string, filtersActive: boolean) {
+interface PipelineExpansionResult {
+  isOpen: (id: string, fallback: boolean) => boolean
+  toggle: (id: string, fallback: boolean) => void
+  setAll: (ids: string[], open: boolean) => void
+}
+
+export function usePipelineExpansion(view: string, filterKey: string, filtersActive: boolean): PipelineExpansionResult {
   const saved = usePipelineExpansionStore((s) => s.expanded[view] ?? EMPTY)
   const setExpanded = usePipelineExpansionStore((s) => s.setExpanded)
   const [session, setSession] = useState({ key: filterKey, overrides: EMPTY })

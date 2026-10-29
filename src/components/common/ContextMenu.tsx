@@ -78,7 +78,7 @@ export function useContextMenu(): (items: () => ContextMenuItem[]) => {
   }
 }
 
-export function ContextMenuHost() {
+export function ContextMenuHost(): ReactNode {
   const menu = useContextMenuStore((state) => state.menu)
   const close = useContextMenuStore((state) => state.close)
   const dropdownRef = useRef<HTMLDivElement>(null)

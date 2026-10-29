@@ -1,6 +1,6 @@
 import { Button, Group, Radio, Stack, Text } from '@mantine/core'
 import { IconCheck } from '@tabler/icons-react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import type { Pipeline, PipelineRun } from '../../types'
@@ -52,7 +52,13 @@ const ShellRows = ({ rows, header }: { rows: RerunSummaryField[]; header?: strin
   </IosGroup>
 )
 
-export const RerunConfirmModal = ({ run, pipeline, providerName, onClose, onConfirm }: RerunConfirmModalProps) => {
+export const RerunConfirmModal = ({
+  run,
+  pipeline,
+  providerName,
+  onClose,
+  onConfirm,
+}: RerunConfirmModalProps): ReactNode => {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const [choice, setChoice] = useState<RerunMode | null>(null)
@@ -120,7 +126,7 @@ export const RerunConfirmModal = ({ run, pipeline, providerName, onClose, onConf
         </Stack>
       )}
       {modes.length > 0 ? (
-        <Radio.Group value={mode} onChange={(value) => setChoice(value as RerunMode)}>
+        <Radio.Group<RerunMode> value={mode} onChange={(value) => setChoice(value)}>
           <Stack gap="xs">
             {modes.map((value) => (
               <Radio

@@ -1,4 +1,5 @@
 import { Box, Group, ScrollArea, Text, UnstyledButton } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import type { RunLogNode } from '../../types/logs'
 import { formatDuration } from '../../utils/formatDuration'
@@ -10,7 +11,7 @@ interface LogJobListProps {
   onSelect: (id: string) => void
 }
 
-export const LogJobList = ({ nodes, selectedId, onSelect }: LogJobListProps) => (
+export const LogJobList = ({ nodes, selectedId, onSelect }: LogJobListProps): ReactNode => (
   <ScrollArea w={260} flex="none" style={{ borderRight: '1px solid var(--mantine-color-default-border)' }}>
     <Box component="nav" aria-label="Jobs" p="xs">
       {nodes

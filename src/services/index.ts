@@ -30,20 +30,7 @@ export const isTauri = (): boolean => {
 
 export type PipedashService = Omit<typeof tauriService, 'setRefreshMode' | 'showSystemNotification'>
 
-let _service: PipedashService | null = null
-
-export const service: PipedashService = new Proxy({} as PipedashService, {
-  get(_target, prop: keyof PipedashService) {
-    if (_service === null) {
-      const inTauri = isTauri()
-
-      _service = inTauri ? tauriService : apiService
-      logger.debug('Service', `Initialized with ${inTauri ? 'Tauri IPC' : 'REST API'} backend`)
-    }
-
-    return _service[prop]
-  },
-})
+export const service: PipedashService = isTauri() ? tauriService : apiService
 
 export const events = {
   onPipelinesUpdated: async <T = unknown>(callback: (payload: T) => void): Promise<() => void> => {

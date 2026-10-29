@@ -1,5 +1,5 @@
 import { IconCircleXFilled, IconSearch } from '@tabler/icons-react'
-import { useRef, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 
 import classes from './PhoneSearchField.module.css'
 
@@ -17,7 +17,7 @@ export function PhoneSearchField({
   onChange,
   onClear,
   onSubmit,
-}: PhoneSearchFieldProps) {
+}: PhoneSearchFieldProps): ReactNode {
   const inputRef = useRef<HTMLInputElement>(null)
   const [active, setActive] = useState(false)
 

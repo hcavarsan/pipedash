@@ -18,7 +18,7 @@ import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
 import { ProviderRecoveryActions } from '../provider/ProviderRecoveryActions'
 
-export const openLink = (url: string) => {
+export const openLink = (url: string): void => {
   openExternal(url).catch((error: unknown) => displayErrorNotification(error, "Couldn't open link"))
 }
 
@@ -383,7 +383,7 @@ function ShellProviderStatus({ provider, now, onNavigate }: ShellProviderStatusP
   )
 }
 
-export function ProviderStatusModal() {
+export function ProviderStatusModal(): ReactNode {
   const selection = useNotificationCenterStore((state) => state.selection)
   const close = useNotificationCenterStore((state) => state.close)
   const { data: providers } = useProviders()

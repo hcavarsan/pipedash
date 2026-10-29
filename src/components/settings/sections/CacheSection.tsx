@@ -1,4 +1,5 @@
 import { Box, Button, Card, Divider, Loader, SimpleGrid, Stack, Text } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { haptic } from '../../../lib/haptics'
@@ -31,7 +32,7 @@ const CACHE_NAMES: Record<CacheType, string> = {
   all: 'all caches',
 }
 
-export const CacheSection = ({ onRefresh }: CacheSectionProps) => {
+export const CacheSection = ({ onRefresh }: CacheSectionProps): ReactNode => {
   const mobileShell = useMobileShell()
   const { data: cacheStats, isLoading, error, refetch, isRefetching } = useCacheStats()
 

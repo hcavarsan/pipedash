@@ -101,7 +101,10 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
           case 'list_pipeline_views':
             return views
           case 'get_pipeline_view_page': {
-            const query = args?.query as { view: string }
+            const requested =
+              typeof args?.query === 'object' && args.query !== null && 'view' in args.query
+                ? args.query.view
+                : undefined
             const viewPipeline = {
               ...pipeline,
               organization: 'owner',
@@ -110,7 +113,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
               memberships: [],
             }
             return {
-              view: views.find((view) => view.id === query.view) ?? views[0],
+              view: views.find((view) => view.id === requested) ?? views[0],
               pinned: pinnedInView ? [viewPipeline] : [],
               pinned_blocks: [],
               sections: [],
@@ -267,9 +270,9 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     os.platform = 'ios'
   })
 
-  after(() => {
+  after(async () => {
     notifyManager.setNotifyFunction((callback) => callback())
-    GlobalRegistrator.unregister()
+    await GlobalRegistrator.unregister()
   })
 
   test('pending and running controls share one pending start and send only actual run identity', async () => {
@@ -277,7 +280,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     startGate = gate.promise
     mount({ secondRun: true })
     const buttons = await view().findAllByRole('button', { name: 'Watch run' })
-    await waitFor(() => assert.ok(buttons.every((button) => !(button as HTMLButtonElement).disabled)))
+    await waitFor(() => assert.ok(buttons.every((button) => button instanceof HTMLButtonElement && !button.disabled)))
     const [first, second] = buttons
     assert.ok(first && second)
     act(() => {
@@ -292,7 +295,9 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     })
     await act(async () => gate.resolve())
     await view().findByRole('region', { name: 'Watching' })
-    assert.equal((view().getByRole('button', { name: 'Watch run' }) as HTMLButtonElement).disabled, true)
+    const blocked = view().getByRole('button', { name: 'Watch run' })
+    assert.ok(blocked instanceof HTMLButtonElement)
+    assert.equal(blocked.disabled, true)
     assert.match(document.body.textContent ?? '', /Stop the current watch before watching another run/)
   })
 
@@ -339,7 +344,9 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     await view().findByText(nativeStatus.reason ?? '')
     assert.equal(view().queryByText('Watch unavailable'), null)
     assert.ok(view().getAllByText(nativeStatus.reason ?? '').length > 0)
-    assert.equal((view().getByRole('button', { name: 'Watch run' }) as HTMLButtonElement).disabled, true)
+    const blocked = view().getByRole('button', { name: 'Watch run' })
+    assert.ok(blocked instanceof HTMLButtonElement)
+    assert.equal(blocked.disabled, true)
     fireEvent.click(view().getByRole('button', { name: 'Open Settings' }))
     await waitFor(() =>
       assert.equal(
@@ -401,11 +408,12 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     startFailure = new Error('Background execution is disabled')
     mount()
     const button = await view().findByRole('button', { name: 'Watch run' })
-    await waitFor(() => assert.equal((button as HTMLButtonElement).disabled, false))
+    assert.ok(button instanceof HTMLButtonElement)
+    await waitFor(() => assert.equal(button.disabled, false))
     fireEvent.click(button)
     await waitFor(() => assert.equal(notices.mock.calls.length, 1))
     assert.equal(view().queryByRole('region', { name: 'Watching' }), null)
-    await waitFor(() => assert.equal((button as HTMLButtonElement).disabled, false))
+    await waitFor(() => assert.equal(button.disabled, false))
   })
 
   test('failed stop preserves authoritative watch state and reports the failure', async (context) => {

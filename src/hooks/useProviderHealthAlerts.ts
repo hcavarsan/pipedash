@@ -8,7 +8,7 @@ import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNo
 
 type HealthAlert = EventPayloadMap['provider-health-alert']
 
-export function useProviderHealthAlerts() {
+export function useProviderHealthAlerts(): void {
   useEffect(() => {
     let active = true
     let unlisten: (() => void) | undefined

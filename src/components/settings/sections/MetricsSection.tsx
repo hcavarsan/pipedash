@@ -1,5 +1,5 @@
 import { Alert, Box, Card, Divider, NumberInput, Select, Stack, Switch, Text } from '@mantine/core'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { RETENTION_PRESETS, validateRetentionDays } from '../../../constants/metricsRetention'
 import { useMobileShell } from '../../../hooks/useIsMobile'
@@ -206,7 +206,7 @@ const MetricsForm = ({ config }: { config: GlobalMetricsConfig }) => {
   )
 }
 
-export const MetricsSection = () => {
+export const MetricsSection = (): ReactNode => {
   const { data: config, isLoading, error, refetch, isRefetching } = useGlobalMetricsConfig()
 
   return (

@@ -1,6 +1,6 @@
 import { Box, Button, Group, Stack, Stepper, Text } from '@mantine/core'
 import { IconCheck, IconKey, IconList } from '@tabler/icons-react'
-import { useCallback, useEffect, useId, useMemo, useReducer, useRef } from 'react'
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useReducer, useRef } from 'react'
 
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../../constants/credentials'
 import { usePlugins } from '../../../contexts/PluginContext'
@@ -40,7 +40,7 @@ export function AddProviderModal({
   onUpdate,
   editMode = false,
   existingProvider,
-}: AddProviderModalProps) {
+}: AddProviderModalProps): ReactNode {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const { plugins, loading: pluginsLoading } = usePlugins()

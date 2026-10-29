@@ -1,5 +1,6 @@
 import { Button, Group, Modal, Stack, Text, ThemeIcon } from '@mantine/core'
 import { IconExternalLink, IconHeartbeat, IconHistory } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
@@ -15,7 +16,7 @@ import { openLink } from './ProviderStatusModal'
 
 const LINK_LABELS = { incident: 'View incident', status_page: 'Open status page' } as const
 
-export function NotificationDetailsModal() {
+export function NotificationDetailsModal(): ReactNode {
   const selection = useNotificationCenterStore((state) => state.selection)
   const items = useNotificationCenterStore((state) => state.items)
   const open = useNotificationCenterStore((state) => state.open)
@@ -25,7 +26,7 @@ export function NotificationDetailsModal() {
   const location = useLocation()
   const openHistory = (pipelineId: string) => {
     close()
-    navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, {
+    void navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, {
       state: { from: location.pathname + location.search },
     })
   }

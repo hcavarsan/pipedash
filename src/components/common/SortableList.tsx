@@ -65,7 +65,14 @@ function SortableItem<T>({
   })
 }
 
-export function SortableList<T>({ items, getId, onReorder, orientation, handle, children }: SortableListProps<T>) {
+export function SortableList<T>({
+  items,
+  getId,
+  onReorder,
+  orientation,
+  handle,
+  children,
+}: SortableListProps<T>): ReactNode {
   const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   const keyboard = useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   const sensors = useSensors(pointer, ...(handle ? [keyboard] : []))

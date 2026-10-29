@@ -47,7 +47,7 @@ interface Screen {
   backLabel: string | null
 }
 
-export function MobilePage({ children }: { children: ReactNode }) {
+export function MobilePage({ children }: { children: ReactNode }): ReactNode {
   const { pathname, search, state } = useLocation()
   const from = fromOf(state)
   const chrome = mobileChrome(pathname, search, state)
@@ -239,7 +239,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
       mountSnapshot(underlay, previous.key, outgoing.title, classes.placeholder)
       useMobileNavStore.getState().setTransition({ kind: 'push', other: outgoing })
       motion.set(widthRef.current)
-      motion.to(0).then((finished) => {
+      void motion.to(0).then((finished) => {
         if (settled(finished)) {
           clearLayers()
           arrive()
@@ -253,7 +253,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
     mountSnapshot(overlay, previous.key, outgoing.title, classes.placeholder)
     useMobileNavStore.getState().setTransition({ kind: 'pop', other: outgoing })
     motion.set(0)
-    motion.to(widthRef.current).then((finished) => {
+    void motion.to(widthRef.current).then((finished) => {
       if (settled(finished)) {
         clearLayers()
         arrive()
@@ -360,7 +360,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
     }
 
     const settle = (target: number, velocity: number, onDone: () => void) => {
-      motion.to(target, velocity, springFor(velocity)).then((finished) => {
+      void motion.to(target, velocity, springFor(velocity)).then((finished) => {
         if (finished) {
           onDone()
         }
@@ -507,7 +507,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
     }
 
     const rest = (velocity: number) => {
-      pull.to(inflight ? PULL_HOLD : 0, velocity, springFor(velocity))
+      void pull.to(inflight ? PULL_HOLD : 0, velocity, springFor(velocity))
     }
 
     const commit = (velocity: number) => {
@@ -595,7 +595,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
           const shown = context.reveal.spring.value
           const open = armed || shown >= context.reveal.full / 2 || (vy > FLICK_SPEED && shown > 0)
 
-          reveals.settle(context.reveal, open, vy, springFor(vy))
+          void reveals.settle(context.reveal, open, vy, springFor(vy))
         }
 
         if (armed && !inflight) {
@@ -612,7 +612,7 @@ export function MobilePage({ children }: { children: ReactNode }) {
         arm(false)
         rest(0)
         if (context.reveal) {
-          reveals.settle(context.reveal, false, 0, SPRING_DEFAULT)
+          void reveals.settle(context.reveal, false, 0, SPRING_DEFAULT)
         }
       },
     })
@@ -643,14 +643,9 @@ export function MobilePage({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <div
-        className={classes.spinner}
-        ref={spinnerRef}
-        style={{ '--pull-hold': `${PULL_HOLD}px` } as React.CSSProperties}
-        aria-hidden
-      >
+      <div className={classes.spinner} ref={spinnerRef} style={{ '--pull-hold': `${PULL_HOLD}px` }} aria-hidden>
         {SPOKES.map((index) => (
-          <span key={index} className={classes.spoke} style={{ '--i': index } as React.CSSProperties} />
+          <span key={index} className={classes.spoke} style={{ '--i': index }} />
         ))}
       </div>
       <div className={classes.live} role="status" aria-live="polite" ref={announceRef} />

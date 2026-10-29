@@ -41,6 +41,7 @@ import { useBulkCancelRuns } from '../../hooks/useBulkCancelRuns'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useTableColumns } from '../../hooks/useTableColumns'
 import { useRunHistoryFilters } from '../../hooks/useUrlState'
+import { logger } from '../../lib/logger'
 import { useBuildWatch } from '../../queries/useBuildWatchQueries'
 import {
   useClearRunHistoryCache,
@@ -59,6 +60,7 @@ import { getDateRangeStart } from '../../utils/dateRange'
 import { formatCount } from '../../utils/formatCount'
 import { formatDateTime } from '../../utils/formatDateTime'
 import { formatDuration } from '../../utils/formatDuration'
+import { getValueByPath } from '../../utils/objectPath'
 import {
   canRerunInPlace,
   getPipelineLabels,
@@ -120,7 +122,7 @@ const RunField = ({ icon, label, children }: RunFieldProps) => (
   </Box>
 )
 
-export const RunHistoryPage = ({
+export function RunHistoryPage({
   pipeline,
   onBack,
   onViewRun,
@@ -133,7 +135,7 @@ export const RunHistoryPage = ({
   tab,
   onTabChange,
   isLoadingPipeline = false,
-}: RunHistoryPageProps) => {
+}: RunHistoryPageProps): ReactNode {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const buildWatch = useBuildWatch()
@@ -598,7 +600,7 @@ export const RunHistoryPage = ({
 
   const actionsColumn = useMemo(
     () => ({
-      accessor: 'actions' as keyof PipelineRun,
+      accessor: 'actions',
       title: 'Actions',
       width: '120px',
       textAlign: 'right' as const,
@@ -702,9 +704,14 @@ export const RunHistoryPage = ({
 
       if (refreshTrigger > currentRefresh) {
         refreshCounterRef.current = refreshTrigger
-        clearCacheMutation.mutateAsync(pipeline.id).then(() => {
-          refetchRuns()
-        })
+        clearCacheMutation
+          .mutateAsync(pipeline.id)
+          .then(() => {
+            refetchRuns()
+          })
+          .catch((error: unknown) => {
+            logger.error('RunHistoryPage', 'Failed to clear run cache', error)
+          })
       }
     }
   }, [refreshTrigger, pipeline?.id, clearCacheMutation, refetchRuns])
@@ -754,7 +761,9 @@ export const RunHistoryPage = ({
       unlisteners.push(unlisten2)
     }
 
-    setupListeners()
+    setupListeners().catch((error: unknown) => {
+      logger.error('RunHistoryPage', 'Failed to register run listeners', error)
+    })
 
     return () => {
       mounted = false
@@ -799,12 +808,12 @@ export const RunHistoryPage = ({
     const { columnAccessor, direction } = sortStatus
 
     sorted.sort((a, b) => {
-      let aVal: unknown = a[columnAccessor as keyof PipelineRun]
-      let bVal: unknown = b[columnAccessor as keyof PipelineRun]
+      let aVal: unknown = getValueByPath({ ...a }, String(columnAccessor))
+      let bVal: unknown = getValueByPath({ ...b }, String(columnAccessor))
 
       if (columnAccessor === 'started_at' || columnAccessor === 'concluded_at') {
-        aVal = aVal ? new Date(aVal as string | number | Date).getTime() : 0
-        bVal = bVal ? new Date(bVal as string | number | Date).getTime() : 0
+        aVal = typeof aVal === 'string' || typeof aVal === 'number' ? new Date(aVal).getTime() : 0
+        bVal = typeof bVal === 'string' || typeof bVal === 'number' ? new Date(bVal).getTime() : 0
       }
 
       if (aVal === null || aVal === undefined) {

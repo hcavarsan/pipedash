@@ -14,7 +14,7 @@ interface IosGroupProps {
   children: ReactNode
 }
 
-export function IosGroup({ header, headerAction, headingLevel = 2, footer, children }: IosGroupProps) {
+export function IosGroup({ header, headerAction, headingLevel = 2, footer, children }: IosGroupProps): ReactNode {
   const id = useId()
   const headingId = `${id}-heading`
   const footerId = `${id}-footer`
@@ -79,7 +79,7 @@ export function IosRow({
   ariaLabel,
   invalid,
   swipeActions,
-}: IosRowProps) {
+}: IosRowProps): ReactNode {
   const location = useLocation()
   const pressRef = useRowMenuLongPress(Boolean(longPressMenu))
   const tappable = Boolean(to || onClick)

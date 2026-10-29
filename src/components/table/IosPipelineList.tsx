@@ -1,6 +1,6 @@
 import { Loader } from '@mantine/core'
 import { IconCheck, IconChevronRight } from '@tabler/icons-react'
-import { type CSSProperties, type ReactNode, useId } from 'react'
+import { type ReactNode, useId } from 'react'
 
 import { useNow } from '../../hooks/useNow'
 import { STATUS_META } from '../../theme/status'
@@ -58,7 +58,7 @@ export function IosPipelineRow({
   swipeActions,
   longPressMenu,
   selected,
-}: IosPipelineRowProps) {
+}: IosPipelineRowProps): ReactNode {
   const hintId = useId()
   const selecting = selected !== undefined
   const pressRef = useRowMenuLongPress(Boolean(longPressMenu) && !selecting)
@@ -116,7 +116,7 @@ export function IosPipelineRow({
       className={classes.row}
       data-repo={expanded === undefined ? undefined : ''}
       data-nested={depth ? '' : undefined}
-      style={depth ? ({ '--level': depth } as CSSProperties) : undefined}
+      style={depth ? { '--level': depth } : undefined}
       data-selecting={selecting ? '' : undefined}
       data-trailing={trailing && !selecting ? '' : undefined}
       data-swipeable={swipeActions?.length && !selecting ? '' : undefined}
@@ -141,7 +141,7 @@ const compactRelative = (value: string, now: number) => {
   return unit ? NARROW_FORMAT.format(Math.round(diff / unit[1]), unit[0]) : NARROW_FORMAT.format(0, 'second')
 }
 
-export const relativeOrNever = (value: string | null | undefined, now: number) =>
+export const relativeOrNever = (value: string | null | undefined, now: number): string =>
   value ? compactRelative(value, now) : 'Never'
 
 interface IosPipelineListProps {
@@ -164,7 +164,7 @@ export function IosPipelineList({
   actions,
   selection,
   onSelect,
-}: IosPipelineListProps) {
+}: IosPipelineListProps): ReactNode {
   const now = useNow(30_000)
 
   return (

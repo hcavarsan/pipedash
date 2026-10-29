@@ -1,6 +1,6 @@
 import { Alert, Badge, Box, Button, Card, Code, Divider, Group, Stack, Text, ThemeIcon, Tooltip } from '@mantine/core'
 import { IconAlertCircle, IconCheck, IconRefresh, IconX } from '@tabler/icons-react'
-import type React from 'react'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import type { FeatureAvailability, PermissionStatus, PluginMetadata } from '../../types'
@@ -12,7 +12,7 @@ import { IosGroup, IosRow } from '../ios/IosList'
 import classes from './AddProviderModal/ShellForm.module.css'
 
 const formatPermissionDescription = (description: string) => {
-  const parts: (string | React.ReactNode)[] = []
+  const parts: ReactNode[] = []
   let lastIndex = 0
 
   for (const match of description.matchAll(/'([^']+)'/g)) {
@@ -97,7 +97,7 @@ export const PermissionCheckModal = ({
   features,
   loading,
   error,
-}: PermissionCheckModalProps) => {
+}: PermissionCheckModalProps): ReactNode => {
   const mobileShell = useMobileShell()
   const shellTitle = metadata?.provider_type === 'fluxcd' ? 'Kubernetes permissions' : 'Token permissions'
   const modalTitle = (

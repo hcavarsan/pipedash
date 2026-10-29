@@ -50,7 +50,7 @@ after(async () => {
   client.clear()
   notifications.clean()
   notifyManager.setNotifyFunction((callback) => callback())
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 test('saving metrics retention preserves a newer draft when the saved config refetches', async (context) => {
@@ -69,7 +69,8 @@ test('saving metrics retention preserves a newer draft when the saved config ref
 
   fireEvent.click(await view().findByRole('combobox', { name: 'Retention period' }))
   fireEvent.click(await view().findByText('Custom'))
-  const days = view().getByRole('textbox', { name: 'Custom days' }) as HTMLInputElement
+  const days = view().getByRole('textbox', { name: 'Custom days' })
+  assert.ok(days instanceof HTMLInputElement)
 
   fireEvent.change(days, { target: { value: '30' } })
   fireEvent.blur(days)
@@ -82,6 +83,8 @@ test('saving metrics retention preserves a newer draft when the saved config ref
     assert.equal(reads, 2)
     assert.equal(client.isFetching({ queryKey: queryKeys.metrics.globalConfig() }), 0)
     assert.equal(client.getQueryData<typeof config>(queryKeys.metrics.globalConfig())?.default_retention_days, 30)
-    assert.equal((view().getByRole('textbox', { name: 'Custom days' }) as HTMLInputElement).value, '45')
+    const current = view().getByRole('textbox', { name: 'Custom days' })
+    assert.ok(current instanceof HTMLInputElement)
+    assert.equal(current.value, '45')
   })
 })

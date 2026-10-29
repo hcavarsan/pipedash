@@ -1,5 +1,5 @@
 import { Button } from '@mantine/core'
-import { useCallback, useEffect } from 'react'
+import { type ReactNode, useCallback, useEffect } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { EmptyState } from '../components/common/EmptyState'
@@ -25,7 +25,7 @@ export function PipelineDetailRoute({
   onCancel,
   onReview,
   onRerunFailedJobs,
-}: PipelineDetailRouteProps) {
+}: PipelineDetailRouteProps): ReactNode {
   const { pipelineId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const { state } = useLocation()
@@ -79,13 +79,13 @@ export function PipelineDetailRoute({
     if (onBack) {
       onBack()
     } else {
-      navigate('/pipelines')
+      void navigate('/pipelines')
     }
   }
 
   useEffect(() => {
     if (mobileShell && !loading && !actualPipeline) {
-      navigate('/pipelines', { replace: true })
+      void navigate('/pipelines', { replace: true })
     }
   }, [mobileShell, loading, actualPipeline, navigate])
 

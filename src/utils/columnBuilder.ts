@@ -21,7 +21,7 @@ export function buildColumnsFromSchema(
 
   const columns: DataTableColumn<PipelineRun>[] = columnDefs.map((def) => {
     const column: DataTableColumn<PipelineRun> = {
-      accessor: def.id as keyof PipelineRun,
+      accessor: def.id,
       title: def.label,
       sortable: def.sortable,
       ...(def.width == null ? {} : { width: def.width }),

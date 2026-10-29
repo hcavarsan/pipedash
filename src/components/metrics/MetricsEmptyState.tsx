@@ -1,5 +1,6 @@
 import { Button } from '@mantine/core'
 import { IconChartLine, IconRefresh } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import { type DateRange, getDateRangeLabel, getDateRangeStart } from '../../utils/dateRange'
 import { EmptyState } from '../common/EmptyState'
@@ -20,7 +21,7 @@ export const MetricsEmptyState = ({
   onRangeChange,
   onRefresh,
   refreshing,
-}: MetricsEmptyStateProps) => {
+}: MetricsEmptyStateProps): ReactNode => {
   const widest = getWidestRange(retentionDays)
   const canWiden = (getDateRangeStart(widest)?.getTime() ?? 0) < (getDateRangeStart(range)?.getTime() ?? 0)
 

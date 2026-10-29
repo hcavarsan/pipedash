@@ -24,7 +24,7 @@ export function ContentUnavailable({
   tone = 'default',
   busy,
   fill,
-}: ContentUnavailableProps) {
+}: ContentUnavailableProps): ReactNode {
   return (
     <div className={classes.root} role={role} aria-busy={busy} data-tone={tone} data-fill={fill ? '' : undefined}>
       {icon && (

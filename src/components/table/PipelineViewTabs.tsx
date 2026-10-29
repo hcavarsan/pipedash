@@ -11,6 +11,7 @@ import {
   IconPlus,
   IconTrash,
 } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useProviderCancelItems } from '../../hooks/useCancelActiveRuns'
@@ -32,7 +33,10 @@ import { SortableList } from '../common/SortableList'
 
 import { useConfirmDeleteView } from './PipelineViewModals'
 
-export function useViewMenuItems(views: PipelineView[], orientation: 'horizontal' | 'vertical') {
+export function useViewMenuItems(
+  views: PipelineView[],
+  orientation: 'horizontal' | 'vertical'
+): (view: PipelineView) => ContextMenuItem[] {
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const { mutate: reorder } = useReorderPipelineViews()
   const confirmDelete = useConfirmDeleteView()
@@ -90,7 +94,7 @@ export function useViewMenuItems(views: PipelineView[], orientation: 'horizontal
   }
 }
 
-export function PipelineViewTabs() {
+export function PipelineViewTabs(): ReactNode {
   const query = usePipelineViewQuery()
   const [, setSearchParams] = useSearchParams()
   const { data: views = [] } = usePipelineViews()

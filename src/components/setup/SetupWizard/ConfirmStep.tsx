@@ -1,5 +1,6 @@
 import { Alert, Card, Code, Group, Stack, Text, Tooltip } from '@mantine/core'
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { isMobilePlatform } from '../../../utils/platform'
@@ -28,7 +29,7 @@ export function ConfirmStep({
   isMobile,
   error,
   vaultStatus,
-}: ConfirmStepProps) {
+}: ConfirmStepProps): ReactNode {
   const onDevice = isMobilePlatform()
   const mobileShell = useMobileShell()
 

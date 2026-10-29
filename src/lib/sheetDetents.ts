@@ -1,6 +1,7 @@
 import { rubberband } from './spring'
 
-export type SheetDetent = 'medium' | 'large'
+export const SHEET_DETENTS = ['medium', 'large'] as const
+export type SheetDetent = (typeof SHEET_DETENTS)[number]
 
 export const MEDIUM_RATIO = 0.5
 export const FLICK_SPEED = 500

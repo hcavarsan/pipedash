@@ -16,7 +16,7 @@ interface ErrorStateProps {
   retrying?: boolean
 }
 
-export function ErrorState({ title, error, hint, actions, onRetry, retrying = false }: ErrorStateProps) {
+export function ErrorState({ title, error, hint, actions, onRetry, retrying = false }: ErrorStateProps): ReactNode {
   const mobileShell = useMobileShell()
 
   if (mobileShell) {

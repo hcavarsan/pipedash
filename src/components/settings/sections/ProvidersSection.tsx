@@ -167,7 +167,7 @@ interface ProvidersSectionProps {
   onHeaderActionsChange?: ((actions: ReactNode) => void) | undefined
 }
 
-export const ProvidersSection = ({ onHeaderActionsChange }: ProvidersSectionProps) => {
+export const ProvidersSection = ({ onHeaderActionsChange }: ProvidersSectionProps): ReactNode => {
   const mobileShell = useMobileShell()
   const { getPluginDisplayName } = usePlugins()
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)

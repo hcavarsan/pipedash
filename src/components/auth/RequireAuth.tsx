@@ -19,7 +19,7 @@ interface RequireAuthProps {
   children: ReactNode
 }
 
-export function RequireAuth({ children }: RequireAuthProps) {
+export function RequireAuth({ children }: RequireAuthProps): ReactNode {
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -39,7 +39,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
 
       setReturnPath(currentPath)
       hold({ path: currentPath, from: fromOf(location.state) })
-      navigate('/unlock', { replace: true })
+      void navigate('/unlock', { replace: true })
     }
   }, [isLoadingVault, needsUnlock, location, setReturnPath, hold, navigate])
 

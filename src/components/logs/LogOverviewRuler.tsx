@@ -1,8 +1,9 @@
 import { useComputedColorScheme } from '@mantine/core'
 import {
-  forwardRef,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
+  type Ref,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -25,12 +26,17 @@ interface LogOverviewRulerProps {
   warningLines: readonly number[]
   matchLines: readonly number[]
   onSeek: (line: number) => void
+  ref?: Ref<LogRulerHandle>
 }
 
-export const LogOverviewRuler = forwardRef<LogRulerHandle, LogOverviewRulerProps>(function LogOverviewRuler(
-  { lineCount, errorLines, warningLines, matchLines, onSeek },
-  ref
-) {
+export function LogOverviewRuler({
+  ref,
+  lineCount,
+  errorLines,
+  warningLines,
+  matchLines,
+  onSeek,
+}: LogOverviewRulerProps): ReactNode {
   const rootRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameRef = useRef<number | null>(null)
@@ -189,4 +195,4 @@ export const LogOverviewRuler = forwardRef<LogRulerHandle, LogOverviewRulerProps
       />
     </div>
   )
-})
+}

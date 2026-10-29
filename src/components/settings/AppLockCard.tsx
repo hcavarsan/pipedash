@@ -1,4 +1,5 @@
 import { Card, Stack, Switch, Text } from '@mantine/core'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useSetAppLock, useVaultStatus } from '../../queries/useVaultQueries'
@@ -7,7 +8,7 @@ import { IosGroup } from '../ios/IosList'
 
 import { SwitchRow } from './mobileParts'
 
-export function AppLockCard() {
+export function AppLockCard(): ReactNode {
   const mobileShell = useMobileShell()
   const { data: vaultStatus } = useVaultStatus()
   const setAppLock = useSetAppLock()

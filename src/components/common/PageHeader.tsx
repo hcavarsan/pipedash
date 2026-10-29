@@ -1,5 +1,6 @@
 import { ActionIcon, Box, Group, Stack, Text, Title, Tooltip } from '@mantine/core'
 import { IconArrowLeft } from '@tabler/icons-react'
+import { type ReactNode, useId } from 'react'
 
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useMobileTitle } from '../../stores/mobileNavStore'
@@ -12,7 +13,8 @@ interface PageHeaderProps {
   actions?: React.ReactNode
 }
 
-export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', actions }: PageHeaderProps) => {
+export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', actions }: PageHeaderProps): ReactNode => {
+  const headingId = useId()
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
 
@@ -48,7 +50,7 @@ export const PageHeader = ({ title, subtitle, onBack, backLabel = 'Back', action
               lineClamp={1}
               miw={0}
               tabIndex={-1}
-              id="page-heading"
+              id={headingId}
               data-page-heading
             >
               {title}

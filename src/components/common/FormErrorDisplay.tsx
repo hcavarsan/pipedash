@@ -1,6 +1,6 @@
 import { Alert } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
-import { useEffect, useRef } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 
 import { scrollBehavior } from '../../lib/motion'
 
@@ -10,7 +10,7 @@ interface FormErrorDisplayProps {
   onDismiss?: (() => void) | undefined
 }
 
-export function FormErrorDisplay({ title, globalError, onDismiss }: FormErrorDisplayProps) {
+export function FormErrorDisplay({ title, globalError, onDismiss }: FormErrorDisplayProps): ReactNode {
   const errorRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

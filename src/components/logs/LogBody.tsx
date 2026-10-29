@@ -1,8 +1,9 @@
 import { UnstyledButton } from '@mantine/core'
 import {
-  forwardRef,
   type HTMLAttributes,
   type KeyboardEvent,
+  type ReactNode,
+  type Ref,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -63,6 +64,7 @@ export interface LogBodyProps {
   onFullLine: (line: number) => void
   rowEvents: Pick<HTMLAttributes<HTMLDivElement>, 'onContextMenu' | 'onKeyDown'>
   onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
+  ref?: Ref<LogBodyHandle>
 }
 
 interface Metrics {
@@ -105,7 +107,7 @@ const restoreFor = (row: number, align: ScrollAlign, clientHeight: number): Rest
   return align === 'end' ? { row, offset: 0, end: true } : { row, offset: -clientHeight * CENTER_LEAD }
 }
 
-export const LogBody = forwardRef<LogBodyHandle, LogBodyProps>(function LogBody(props, ref) {
+export function LogBody({ ref, ...props }: LogBodyProps): ReactNode {
   const { meta, model, wrap, timestamps, variant, jobName } = props
   const scrollerRef = useRef<HTMLDivElement>(null)
   const spacerRef = useRef<HTMLDivElement>(null)
@@ -303,7 +305,13 @@ export const LogBody = forwardRef<LogBodyHandle, LogBodyProps>(function LogBody(
       let changed = false
 
       for (const entry of entries) {
-        const rel = Number((entry.target as HTMLElement).dataset.row) - win.base
+        const target = entry.target
+
+        if (!(target instanceof HTMLElement)) {
+          continue
+        }
+
+        const rel = Number(target.dataset.row) - win.base
         const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height
 
         if (rel < 0 || rel >= win.size || height <= 0) {
@@ -581,6 +589,32 @@ export const LogBody = forwardRef<LogBodyHandle, LogBodyProps>(function LogBody(
   )
 
   useEffect(() => {
+    const el = scrollerRef.current
+
+    if (!el) {
+      return undefined
+    }
+
+    const onFocusIn = (): void => {
+      focusInside.current = true
+    }
+
+    const onFocusOut = (event: FocusEvent): void => {
+      if (event.target instanceof Node && event.target.isConnected) {
+        focusInside.current = false
+      }
+    }
+
+    el.addEventListener('focusin', onFocusIn)
+    el.addEventListener('focusout', onFocusOut)
+
+    return () => {
+      el.removeEventListener('focusin', onFocusIn)
+      el.removeEventListener('focusout', onFocusOut)
+    }
+  }, [])
+
+  useEffect(() => {
     if (variant !== 'phone') {
       return
     }
@@ -697,14 +731,6 @@ export const LogBody = forwardRef<LogBodyHandle, LogBodyProps>(function LogBody(
         data-variant={variant}
         aria-label={`Log for ${jobName}`}
         tabIndex={-1}
-        onFocus={() => {
-          focusInside.current = true
-        }}
-        onBlur={(event) => {
-          if (event.target.isConnected) {
-            focusInside.current = false
-          }
-        }}
         onScroll={onScroll}
         onWheel={releaseTarget}
         onTouchStart={releaseTarget}
@@ -742,4 +768,4 @@ export const LogBody = forwardRef<LogBodyHandle, LogBodyProps>(function LogBody(
       {model.count === 0 && <div className={classes.empty}>{props.emptyLabel}</div>}
     </div>
   )
-})
+}

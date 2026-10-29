@@ -13,7 +13,15 @@ interface StepRegionProps {
   children: ReactNode
 }
 
-export function StepRegion({ stepKey, position, title, hiddenHeading, className, style, children }: StepRegionProps) {
+export function StepRegion({
+  stepKey,
+  position,
+  title,
+  hiddenHeading,
+  className,
+  style,
+  children,
+}: StepRegionProps): ReactNode {
   const regionRef = useRef<HTMLDivElement>(null)
   const previous = useRef(stepKey)
   const [announcement, setAnnouncement] = useState('')

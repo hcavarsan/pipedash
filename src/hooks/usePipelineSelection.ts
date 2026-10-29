@@ -2,7 +2,16 @@ import { useCallback, useMemo, useState } from 'react'
 
 import type { PipelineViewPage, ViewPipeline } from '../types'
 
-export function usePipelineSelection(view: string, page: PipelineViewPage | undefined) {
+interface PipelineSelectionResult {
+  selecting: boolean
+  selectedPipelines: ViewPipeline[]
+  toggle: (pipeline: ViewPipeline) => void
+  select: (visibleIds: string[], chosenIds: string[]) => void
+  start: () => void
+  finish: () => void
+}
+
+export function usePipelineSelection(view: string, page: PipelineViewPage | undefined): PipelineSelectionResult {
   const pipelines = useMemo(
     () =>
       new Map(

@@ -1,4 +1,5 @@
 import { Box, Group, Text, UnstyledButton } from '@mantine/core'
+import type { ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { useNow } from '../../hooks/useNow'
@@ -10,7 +11,7 @@ import { type ProviderTone, providerTone } from '../../utils/fetchInfo'
 import { activeTabId, providerTabId, tabSearch } from '../../utils/providerTabs'
 import { ToneDot } from '../atoms/ToneDot'
 
-export function PipelineViewStrip() {
+export function PipelineViewStrip(): ReactNode {
   const query = usePipelineViewQuery()
   const [searchParams] = useSearchParams()
   const { data: views = [] } = usePipelineViews()

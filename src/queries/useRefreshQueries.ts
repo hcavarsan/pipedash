@@ -1,10 +1,10 @@
 import { notifications } from '@mantine/notifications'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 
 import { queryKeys } from '../lib/queryKeys'
 import { isTauri, service } from '../services'
-import type { ProviderSummary } from '../types'
+import type { ProviderSummary, RefreshResult } from '../types'
 import { displayErrorNotification } from '../utils/errorDisplay'
 import { summarizeRefresh } from '../utils/refreshSummary'
 
@@ -12,13 +12,18 @@ const REFRESH_TOAST_MS = 5000
 
 const desktopOffline = () => isTauri() && !navigator.onLine
 
-export function useRefreshProvider() {
+export function useRefreshProvider(): UseMutationResult<RefreshResult, Error, number, unknown> {
   return useMutation({
     mutationFn: (providerId: number) => service.refreshProvider(providerId),
   })
 }
 
-export function useRefreshProviders() {
+interface RefreshProvidersResult {
+  refresh: (providerIds: number[]) => Promise<void>
+  refreshing: ReadonlySet<number>
+}
+
+export function useRefreshProviders(): RefreshProvidersResult {
   const queryClient = useQueryClient()
   const { mutateAsync: refreshProvider } = useRefreshProvider()
   const [refreshing, setRefreshing] = useState<ReadonlySet<number>>(new Set())
@@ -60,7 +65,7 @@ export function useRefreshProviders() {
   return { refresh, refreshing }
 }
 
-export function useRefreshAll() {
+export function useRefreshAll(): UseMutationResult<RefreshResult[], Error, void, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({

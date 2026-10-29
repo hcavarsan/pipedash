@@ -1,11 +1,25 @@
 import { notifications } from '@mantine/notifications'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { useCallback } from 'react'
 
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
-import type { AggregatedMetrics, AggregationPeriod, AggregationType, MetricType } from '../types'
+import type {
+  AggregatedMetrics,
+  AggregationPeriod,
+  AggregationType,
+  GlobalMetricsConfig,
+  MetricsConfig,
+  MetricsStats,
+  MetricType,
+} from '../types'
 import { errorMessage } from '../utils/errorDisplay'
 
 const advancePeriod = (date: Date, period: AggregationPeriod): Date => {
@@ -55,7 +69,7 @@ const fillMissingPeriods = (data: AggregatedMetrics): AggregatedMetrics => {
   return { ...data, metrics: filled, total_count: filled.length }
 }
 
-export function useInvalidatePipelineMetrics(pipelineId: string) {
+export function useInvalidatePipelineMetrics(pipelineId: string): () => Promise<void> {
   const queryClient = useQueryClient()
 
   return useCallback(
@@ -64,7 +78,7 @@ export function useInvalidatePipelineMetrics(pipelineId: string) {
   )
 }
 
-export function useGlobalMetricsConfig() {
+export function useGlobalMetricsConfig(): UseQueryResult<GlobalMetricsConfig, Error> {
   return useQuery({
     queryKey: queryKeys.metrics.globalConfig(),
     queryFn: () => service.getGlobalMetricsConfig(),
@@ -73,7 +87,7 @@ export function useGlobalMetricsConfig() {
   })
 }
 
-export function usePipelineMetricsConfig(pipelineId: string) {
+export function usePipelineMetricsConfig(pipelineId: string): UseQueryResult<MetricsConfig, Error> {
   return useQuery({
     queryKey: queryKeys.metrics.pipelineConfig(pipelineId),
     queryFn: () => service.getPipelineMetricsConfig(pipelineId),
@@ -92,7 +106,7 @@ export function useAggregatedMetrics(params: {
   endDate?: string | undefined
   limit?: number | undefined
   enabled?: boolean | undefined
-}) {
+}): UseQueryResult<AggregatedMetrics, Error> {
   const { enabled = true, ...queryParams } = params
 
   return useQuery({
@@ -123,7 +137,7 @@ export function useAggregatedMetrics(params: {
   })
 }
 
-export function useMetricsStorageStats() {
+export function useMetricsStorageStats(): UseQueryResult<MetricsStats, Error> {
   return useQuery({
     queryKey: queryKeys.metrics.stats(),
     queryFn: () => service.getMetricsStorageStats(),
@@ -132,7 +146,12 @@ export function useMetricsStorageStats() {
   })
 }
 
-export function useUpdateGlobalMetricsConfig() {
+export function useUpdateGlobalMetricsConfig(): UseMutationResult<
+  void,
+  Error,
+  { enabled: boolean; retentionDays: number },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -140,9 +159,9 @@ export function useUpdateGlobalMetricsConfig() {
       service.updateGlobalMetricsConfig(enabled, retentionDays),
 
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.metrics.globalConfig() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.globalConfig() })
 
-      queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
 
       notifications.show({
         title: 'Global metrics settings saved',
@@ -161,7 +180,12 @@ export function useUpdateGlobalMetricsConfig() {
   })
 }
 
-export function useUpdatePipelineMetricsConfig() {
+export function useUpdatePipelineMetricsConfig(): UseMutationResult<
+  void,
+  Error,
+  { pipelineId: string; enabled: boolean; retentionDays: number },
+  unknown
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -176,11 +200,11 @@ export function useUpdatePipelineMetricsConfig() {
     }) => service.updatePipelineMetricsConfig(pipelineId, enabled, retentionDays),
 
     onSuccess: (_data, { pipelineId }) => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.metrics.pipelineConfig(pipelineId),
       })
 
-      queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
 
       notifications.show({
         title: 'Pipeline metrics settings saved',
@@ -199,17 +223,17 @@ export function useUpdatePipelineMetricsConfig() {
   })
 }
 
-export function useFlushMetrics() {
+export function useFlushMetrics(): UseMutationResult<number, Error, string | undefined, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (pipelineId?: string) => service.flushPipelineMetrics(pipelineId),
 
     onSuccess: (deletedCount, pipelineId) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.stats() })
 
       if (pipelineId) {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: queryKeys.metrics.all,
           predicate: (query): boolean => {
             const key = query.queryKey
@@ -226,7 +250,7 @@ export function useFlushMetrics() {
           },
         })
       } else {
-        queryClient.invalidateQueries({ queryKey: queryKeys.metrics.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.metrics.all })
       }
 
       notifications.show({

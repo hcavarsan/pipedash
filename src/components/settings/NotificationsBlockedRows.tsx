@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { mobileService } from '../../services/mobile'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 import { isMobilePlatform } from '../../utils/platform'
@@ -9,7 +11,7 @@ import { AccentText } from './mobileParts'
 const WEB_HELP =
   "Allow notifications for this site in your browser's site settings, then turn this on again. On iPhone, add Pipedash to the Home Screen first, then open Settings > Notifications > Pipedash."
 
-export function NotificationsBlockedRows() {
+export function NotificationsBlockedRows(): ReactNode {
   const native = isMobilePlatform()
 
   return (

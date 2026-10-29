@@ -1,6 +1,6 @@
 import { Button, Grid, Group, SegmentedControl, Select, Stack } from '@mantine/core'
 import { IconAdjustments, IconChartLine } from '@tabler/icons-react'
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useMetricsEventListeners } from '../../hooks/useMetricsEventListeners'
@@ -48,7 +48,7 @@ export const PipelineMetricsView = ({
   pipelineName,
   repository,
   refreshTrigger,
-}: PipelineMetricsViewProps) => {
+}: PipelineMetricsViewProps): ReactNode => {
   const mobileShell = useMobileShell()
   const { filters, setFilter } = useMetricsFilters()
   const dateRange: DateRange = isDateRange(filters.dateRange) ? filters.dateRange : '24h'
@@ -93,7 +93,7 @@ export const PipelineMetricsView = ({
 
   useEffect(() => {
     if (refreshTrigger !== undefined && refreshTrigger > 0 && isMetricsEnabled) {
-      refetchAll()
+      void refetchAll()
     }
   }, [refreshTrigger, isMetricsEnabled, refetchAll])
 
@@ -116,12 +116,12 @@ export const PipelineMetricsView = ({
       await service.clearRunHistoryCache(pipelineId)
       await service.fetchRunHistory(pipelineId, 1, 50)
 
-      refetchAll()
+      void refetchAll()
     }
   }
 
   const handleConfigChanged = useCallback(() => {
-    refetchConfig().then(refetchAll)
+    void refetchConfig().then(refetchAll)
   }, [refetchConfig, refetchAll])
 
   useMetricsEventListeners({

@@ -169,14 +169,14 @@ function AppContent() {
 
   const handleViewHistory = useCallback(
     (pipeline: { id: string }) => {
-      navigate(`/pipelines/${encodeURIComponent(pipeline.id)}`, { state: { from: listLocation } })
+      void navigate(`/pipelines/${encodeURIComponent(pipeline.id)}`, { state: { from: listLocation } })
     },
     [navigate, listLocation]
   )
 
   const handleViewMetrics = useCallback(
     (pipeline: { id: string }) => {
-      navigate(`/pipelines/${encodeURIComponent(pipeline.id)}?tab=metrics`, { state: { from: listLocation } })
+      void navigate(`/pipelines/${encodeURIComponent(pipeline.id)}?tab=metrics`, { state: { from: listLocation } })
     },
     [navigate, listLocation]
   )
@@ -190,7 +190,7 @@ function AppContent() {
   const handleOpenSettings = useCallback(() => {
     const isOnSettings = location.pathname.startsWith('/settings')
 
-    navigate(isOnSettings ? '/pipelines' : '/settings')
+    void navigate(isOnSettings ? '/pipelines' : '/settings')
   }, [navigate, location.pathname])
 
   const handleViewRun = useCallback(
@@ -499,7 +499,7 @@ function App() {
 
   const handleSetupComplete = useCallback(() => {
     setSetupActive(false)
-    queryClient.invalidateQueries({ queryKey: queryKeys.setup.status() })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.setup.status() })
   }, [queryClient])
 
   if (checkingSetup) {

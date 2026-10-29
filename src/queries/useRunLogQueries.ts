@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  type UseMutationResult,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { useEffect, useMemo } from 'react'
 
 import { useDebounce } from '../hooks/useDebounce'
@@ -7,7 +13,7 @@ import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { events, service } from '../services'
 import type { EventPayloadMap } from '../types/events'
-import type { LogSearchQuery, LogSearchResult, RunLogDocument } from '../types/logs'
+import type { LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 
 const TREE_REFETCH_MS = 10_000
 const TREE_COMPLETE_STALE_MS = 60_000
@@ -23,7 +29,11 @@ export interface RunLogTarget {
   nodeId: string
 }
 
-export function useRunLogTree(pipelineId: string, runNumber: number, enabled: boolean = true) {
+export function useRunLogTree(
+  pipelineId: string,
+  runNumber: number,
+  enabled: boolean = true
+): UseQueryResult<RunLogTree, Error> {
   return useQuery({
     queryKey: queryKeys.runLogs.tree(pipelineId, runNumber),
     queryFn: () => service.getRunLogTree(pipelineId, runNumber),
@@ -35,7 +45,12 @@ export function useRunLogTree(pipelineId: string, runNumber: number, enabled: bo
   })
 }
 
-export function useRunLogDocument(pipelineId: string, runNumber: number, nodeId: string, enabled: boolean = true) {
+export function useRunLogDocument(
+  pipelineId: string,
+  runNumber: number,
+  nodeId: string,
+  enabled: boolean = true
+): UseQueryResult<RunLogDocument, Error> {
   const queryClient = useQueryClient()
   const active = enabled && !!pipelineId && !!nodeId && runNumber > 0
 
@@ -73,13 +88,13 @@ export function useRunLogDocument(pipelineId: string, runNumber: number, nodeId:
 
     const invalidate = () => queryClient.invalidateQueries({ queryKey, exact: true })
 
-    register('run-log-progress', ({ receivedBytes }) => {
+    void register('run-log-progress', ({ receivedBytes }) => {
       queryClient.setQueryData<RunLogDocument>(queryKey, (current) =>
         current?.state === 'loading' ? { state: 'loading', received_bytes: receivedBytes } : current
       )
     })
-    register('run-log-ready', invalidate)
-    register('run-log-failed', invalidate)
+    void register('run-log-ready', invalidate)
+    void register('run-log-failed', invalidate)
 
     return () => {
       mounted = false
@@ -108,7 +123,7 @@ export function useRunLogDocument(pipelineId: string, runNumber: number, nodeId:
   })
 }
 
-export function useRetryRunLog() {
+export function useRetryRunLog(): UseMutationResult<RunLogDocument, Error, RunLogTarget, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -128,7 +143,7 @@ export function useRunLogSearch(
   revision: number | undefined,
   sessionId: string,
   query: LogSearchQuery
-) {
+): UseQueryResult<LogSearchResult, Error> {
   const text = useDebounce(query.text, SEARCH_DEBOUNCE_MS)
   const effective = useMemo<LogSearchQuery>(
     () => ({ text, regex: query.regex, case_sensitive: query.case_sensitive }),

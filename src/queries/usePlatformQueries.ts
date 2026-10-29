@@ -1,11 +1,18 @@
 import { notifications } from '@mantine/notifications'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { service } from '../services'
 import { useNotificationStore } from '../stores/notificationStore'
 import { formatCount } from '../utils/formatCount'
 
-export function useFactoryReset() {
+interface FactoryResetResult {
+  providers_removed: number
+  caches_cleared: boolean
+  tokens_cleared: boolean
+  metrics_cleared: boolean
+}
+
+export function useFactoryReset(): UseMutationResult<FactoryResetResult, Error, void, unknown> {
   const queryClient = useQueryClient()
 
   return useMutation({

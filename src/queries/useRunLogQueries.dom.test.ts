@@ -56,17 +56,39 @@ const advance = (ms: number) => {
   now = target
 }
 
-const cancel = (id: number | { [Symbol.toPrimitive]: () => number } | undefined) => {
-  if (id !== undefined && timers.delete(Number(id))) {
+const realTimers = new Map<number, ReturnType<typeof setTimeout>>()
+
+const realTimeout = (run: () => void, delay: number) => {
+  nextId += 1
+  const id = nextId
+
+  realTimers.set(
+    id,
+    setTimeout(() => {
+      realTimers.delete(id)
+      run()
+    }, delay)
+  )
+
+  return id
+}
+
+const cancel = (id: number | undefined) => {
+  if (id === undefined || timers.delete(id)) {
     return
   }
-  clearTimeout(id as Parameters<typeof clearTimeout>[0])
+  const real = realTimers.get(id)
+
+  if (real !== undefined) {
+    clearTimeout(real)
+    realTimers.delete(id)
+  }
 }
 
 const wasServer = environmentManager.isServer()
 environmentManager.setIsServer(() => false)
-timeoutManager.setTimeoutProvider({
-  setTimeout: (run, delay) => (delay > 0 ? schedule(run, delay, null) : setTimeout(run, delay)),
+timeoutManager.setTimeoutProvider<number>({
+  setTimeout: (run, delay) => (delay > 0 ? schedule(run, delay, null) : realTimeout(run, delay)),
   clearTimeout: cancel,
   setInterval: (run, delay) => schedule(run, delay, delay),
   clearInterval: cancel,
@@ -96,14 +118,14 @@ after(async () => {
   await act(async () => cleanup())
   client.clear()
   notifyManager.setNotifyFunction((callback) => callback())
-  timeoutManager.setTimeoutProvider({
+  timeoutManager.setTimeoutProvider<ReturnType<typeof setTimeout>>({
     setTimeout: (run, delay) => setTimeout(run, delay),
-    clearTimeout: (id) => clearTimeout(id as Parameters<typeof clearTimeout>[0]),
+    clearTimeout: (id) => clearTimeout(id),
     setInterval: (run, delay) => setInterval(run, delay),
-    clearInterval: (id) => clearInterval(id as Parameters<typeof clearInterval>[0]),
+    clearInterval: (id) => clearInterval(id),
   })
   environmentManager.setIsServer(() => wasServer)
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 test('a pending job becomes ready after the 10 s refetch without reselection', async (context) => {

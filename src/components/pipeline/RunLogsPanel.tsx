@@ -1,5 +1,5 @@
 import { Box, Select } from '@mantine/core'
-import { type Ref, useMemo, useState } from 'react'
+import { type ReactNode, type Ref, useMemo, useState } from 'react'
 
 import { useRunLogTree } from '../../queries/useRunLogQueries'
 import type { RunLogNode } from '../../types/logs'
@@ -27,7 +27,7 @@ export const RunLogsPanel = ({
   providerName,
   narrow,
   viewerRef,
-}: RunLogsPanelProps) => {
+}: RunLogsPanelProps): ReactNode => {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const { data: tree, isLoading, error, refetch, isFetching } = useRunLogTree(pipelineId, runNumber, true)
 

@@ -7,7 +7,7 @@ import {
   IconLockOpen,
   IconSettings,
 } from '@tabler/icons-react'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { useAppShortcuts } from '../../hooks/useAppShortcuts'
@@ -31,7 +31,7 @@ interface HeaderProps {
   onOpenSettings?: (() => void) | undefined
 }
 
-export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpenSettings }: HeaderProps) => {
+export const Header = React.memo(({ onToggleNavbar, navbarOpened = false, onOpenSettings }: HeaderProps): ReactNode => {
   useRefresh()
   const refreshAll = useRefreshAll()
   const [isMacOS, setIsMacOS] = useState<boolean | null>(null)

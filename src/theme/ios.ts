@@ -2,6 +2,7 @@ import {
   ActionIcon,
   Button,
   Checkbox,
+  type ConvertCSSVariablesInput,
   type CSSVariablesResolver,
   createTheme,
   Input,
@@ -92,7 +93,7 @@ const IOS_ROLES = {
   ...tinted('green', '--ios-green'),
 }
 
-export const iosCssVariablesResolver: CSSVariablesResolver = (mantineTheme) => {
+export const iosCssVariablesResolver: CSSVariablesResolver = (mantineTheme): ConvertCSSVariablesInput => {
   const base = v8CssVariablesResolver(mantineTheme)
 
   return {

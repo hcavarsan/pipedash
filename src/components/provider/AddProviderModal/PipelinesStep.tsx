@@ -15,7 +15,7 @@ import {
 } from '@mantine/core'
 import { IconBuildingSkyscraper, IconSearch, IconStack2 } from '@tabler/icons-react'
 import type { DataTableColumn } from 'mantine-datatable'
-import { type Dispatch, useEffect, useMemo } from 'react'
+import { type Dispatch, type ReactNode, useEffect, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../constants/intervals'
 import { useDebounce } from '../../../hooks/useDebounce'
@@ -42,7 +42,7 @@ interface PipelinesStepProps {
   isMobile: boolean
 }
 
-export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: PipelinesStepProps) {
+export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: PipelinesStepProps): ReactNode {
   const mobileShell = useMobileShell()
   const { selectedPlugin, selectedOrganization, selectedPipelines, repositorySearch } = state
   const labels = getPipelineLabels(selectedPlugin?.provider_type)

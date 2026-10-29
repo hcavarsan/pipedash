@@ -1,12 +1,13 @@
-import { useQuery } from '@tanstack/react-query'
+import { type UseQueryResult, useQuery } from '@tanstack/react-query'
 
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services'
+import type { PluginMetadata } from '../types'
 import { getHttpStatus } from '../types/errors'
 
-export function usePlugins() {
+export function usePlugins(): UseQueryResult<PluginMetadata[], Error> {
   return useQuery({
     queryKey: queryKeys.plugins.list(),
     queryFn: async () => {

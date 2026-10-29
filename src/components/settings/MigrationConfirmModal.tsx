@@ -1,10 +1,10 @@
 import { Alert, Badge, Button, Card, Checkbox, Group, PasswordInput, Stack, Text } from '@mantine/core'
 import { IconAlertCircle } from '@tabler/icons-react'
-import { useEffect, useId, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 
+import { useFormEnterNavigation } from '../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import type { MigrationOptions, MigrationPlan, MigrationStatsPreview } from '../../types'
-import { handleFormEnter } from '../../utils/formFocus'
 import { StandardModal } from '../common/StandardModal'
 import { IosGroup, IosRow } from '../ios/IosList'
 
@@ -32,9 +32,12 @@ export const MigrationConfirmModal = ({
   migrationPlan,
   stats,
   onConfirm,
-}: MigrationConfirmModalProps) => {
+}: MigrationConfirmModalProps): ReactNode => {
   const mobileShell = useMobileShell()
   const formId = useId()
+  const formRef = useRef<HTMLFormElement>(null)
+  useFormEnterNavigation(formRef)
+  const passwordErrorId = useId()
   const [loading, setLoading] = useState(false)
   const [password, setPassword] = useState('')
   const [migrateData, setMigrateData] = useState(true)
@@ -117,7 +120,7 @@ export const MigrationConfirmModal = ({
             password ? (
               'Required to decrypt and migrate your encrypted tokens.'
             ) : (
-              <Text span inherit c="red" id="migration-password-error">
+              <Text span inherit c="red" id={passwordErrorId}>
                 Password is required for token migration
               </Text>
             )
@@ -130,7 +133,7 @@ export const MigrationConfirmModal = ({
                 variant="unstyled"
                 aria-required
                 aria-invalid={!password}
-                aria-describedby={password ? undefined : 'migration-password-error'}
+                aria-describedby={password ? undefined : passwordErrorId}
                 placeholder="Required"
                 value={password}
                 onChange={(e) => setPassword(e.currentTarget.value)}
@@ -213,7 +216,7 @@ export const MigrationConfirmModal = ({
           event.preventDefault()
           void handleConfirm()
         }}
-        onKeyDown={handleFormEnter}
+        ref={formRef}
       >
         {mobileShell ? shellBody : desktopBody}
       </form>
