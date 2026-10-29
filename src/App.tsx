@@ -13,6 +13,7 @@ import { RequireAuth } from './features/vault/components/RequireAuth'
 import { logger } from './lib/logger'
 import { queryKeys } from './lib/queryKeys'
 import { service } from './services/service'
+import { formatErrorMessage } from './types/errors'
 
 const UnlockRoute = lazy(() =>
   import('./features/vault/routes/UnlockRoute').then((m) => ({
@@ -72,7 +73,7 @@ export function App(): ReactNode {
       }
     },
     onError: (error) => logger.error('App', 'Failed to restart after the config was fixed', error),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.setup.status() }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.setup.status() }),
   })
 
   if (checkingSetup) {
@@ -97,7 +98,7 @@ export function App(): ReactNode {
   if (setupStatus?.config_exists && !setupStatus.config_valid) {
     return (
       <ConfigErrorScreen
-        errors={setupStatus.validation_errors}
+        errors={retryConfig.isError ? [formatErrorMessage(retryConfig.error)] : setupStatus.validation_errors}
         onRetry={() => retryConfig.mutate()}
         retrying={retryConfig.isPending}
       />

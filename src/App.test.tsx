@@ -5,7 +5,11 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
-const backend: { configErrors: string[]; calls: string[] } = { configErrors: [], calls: [] }
+const backend: { configErrors: string[]; restartError: string | null; calls: string[] } = {
+  configErrors: [],
+  restartError: null,
+  calls: [],
+}
 
 Object.assign(window, {
   __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
@@ -28,6 +32,10 @@ Object.assign(window, {
             metrics_db: '/home/user/.local/share/pipedash/metrics.db',
           }
         case 'restart_app':
+          if (backend.restartError) {
+            throw new Error(backend.restartError)
+          }
+
           return Promise.withResolvers<null>().promise
         default:
           throw new Error(`Unexpected command: ${command}`)
@@ -49,6 +57,7 @@ let client = new QueryClient()
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   backend.configErrors = ['Failed to parse config: unclosed table']
+  backend.restartError = null
   backend.calls = []
   notifyManager.setNotifyFunction((callback) => act(callback))
 })
@@ -98,4 +107,17 @@ test('retry on a config that is still broken shows the new errors and does not r
 
   await waitFor(() => assert.ok(view().getByText('storage.backend: unknown variant')))
   assert.equal(backend.calls.includes('restart_app'), false)
+})
+
+test('a restart that fails after the config is fixed keeps the error screen with the restart error', async () => {
+  const user = userEvent.setup()
+  await renderApp()
+
+  backend.configErrors = []
+  backend.restartError = 'Failed to create CoreContext: database is locked'
+  await user.click(view().getByRole('button', { name: 'Retry' }))
+
+  await waitFor(() => assert.ok(view().getByText('Failed to create CoreContext: database is locked')))
+  assert.ok(view().getByRole('button', { name: 'Retry' }))
+  assert.equal(backend.calls.includes('get_vault_status'), false)
 })
