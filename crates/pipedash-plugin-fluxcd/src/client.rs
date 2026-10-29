@@ -44,6 +44,7 @@ use crate::{
     },
     health::Deployment,
     types::{
+        Event,
         FluxResource,
         Kind,
     },
@@ -330,6 +331,34 @@ impl FluxClient {
         .await?;
 
         Ok(())
+    }
+
+    pub async fn events(&self, target: &Target) -> PluginResult<Vec<Event>> {
+        let request = Request::new(format!("/api/v1/namespaces/{}/events", target.namespace));
+        let selector = format!(
+            "involvedObject.kind={},involvedObject.name={},involvedObject.namespace={}",
+            target.kind, target.name, target.namespace
+        );
+        let context = format!("list events of {target}");
+        let mut events = Vec::new();
+        let mut params = ListParams::default().limit(PAGE_LIMIT).fields(&selector);
+
+        loop {
+            let page: ObjectList = self.exec(request.list(&params), &context).await?;
+            for item in page.items {
+                events.push(serde_json::from_value(item).map_err(|error| {
+                    PluginError::SerializationError(format!("{context}: {error}"))
+                })?);
+            }
+            match page
+                .metadata
+                .continue_token
+                .filter(|token| !token.is_empty())
+            {
+                Some(next) => params.continue_token = Some(next),
+                None => return Ok(events),
+            }
+        }
     }
 
     pub async fn deployment(&self, namespace: &str, name: &str) -> PluginResult<Deployment> {

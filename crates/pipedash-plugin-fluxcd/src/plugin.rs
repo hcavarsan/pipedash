@@ -19,6 +19,9 @@ use pipedash_plugin_api::{
     custom_status_source,
     AvailablePipeline,
     ComponentHealth,
+    LogDialect,
+    LogNode,
+    LogSink,
     Organization,
     PaginatedResponse,
     PaginationParams,
@@ -31,6 +34,7 @@ use pipedash_plugin_api::{
     PluginError,
     PluginMetadata,
     PluginResult,
+    RunRef,
     StatusSource,
     TriggerParams,
 };
@@ -47,6 +51,11 @@ use crate::{
         self,
         Settings,
         Target,
+    },
+    log_dialect::FluxcdLogDialect,
+    logs::{
+        self,
+        Node,
     },
     mapper,
     metadata::{
@@ -266,12 +275,35 @@ impl FluxcdPlugin {
             .collect())
     }
 
-    async fn runs(&self, pipeline_id: &str) -> PluginResult<(Target, Vec<PipelineRun>)> {
+    async fn runs(
+        &self, pipeline_id: &str,
+    ) -> PluginResult<(Target, FluxResource, Vec<PipelineRun>)> {
         let target = self.target(pipeline_id)?;
         let resource = self.client().await?.get(&target).await?;
         let runs = mapper::build_runs(&resource, self.provider_id()?)?;
 
-        Ok((target, runs))
+        Ok((target, resource, runs))
+    }
+
+    async fn run(
+        &self, pipeline_id: &str, run_number: i64,
+    ) -> PluginResult<(FluxResource, PipelineRun)> {
+        let (target, resource, runs) = self.runs(pipeline_id).await?;
+        let mut matching: Vec<PipelineRun> = runs
+            .into_iter()
+            .filter(|run| run.run_number == run_number)
+            .collect();
+
+        match matching.len() {
+            0 => Err(PluginError::PipelineNotFound(format!(
+                "{target} has no record {run_number}. Flux keeps a bounded status.history, so older records are no longer available"
+            ))),
+            1 => Ok((resource, matching.remove(0))),
+            _ => Err(PluginError::ApiError(format!(
+                "{target} has {} records numbered {run_number}; refusing to pick one",
+                matching.len()
+            ))),
+        }
     }
 
     fn scopes(&self) -> PluginResult<Vec<Option<String>>> {
@@ -404,7 +436,7 @@ impl Plugin for FluxcdPlugin {
     async fn fetch_run_history(
         &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>> {
-        let (_, runs) = self.runs(pipeline_id).await?;
+        let (_, _, runs) = self.runs(pipeline_id).await?;
 
         Ok(runs.into_iter().take(limit).collect())
     }
@@ -412,22 +444,37 @@ impl Plugin for FluxcdPlugin {
     async fn fetch_run_details(
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun> {
-        let (target, runs) = self.runs(pipeline_id).await?;
-        let mut matching: Vec<PipelineRun> = runs
-            .into_iter()
-            .filter(|run| run.run_number == run_number)
-            .collect();
+        Ok(self.run(pipeline_id, run_number).await?.1)
+    }
 
-        match matching.len() {
-            0 => Err(PluginError::PipelineNotFound(format!(
-                "{target} has no record {run_number}. Flux keeps a bounded status.history, so older records are no longer available"
-            ))),
-            1 => Ok(matching.remove(0)),
-            _ => Err(PluginError::ApiError(format!(
-                "{target} has {} records numbered {run_number}; refusing to pick one",
-                matching.len()
-            ))),
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let (_, record) = self.run(run.pipeline_id, run.run_number).await?;
+
+        Ok(logs::log_nodes(&record))
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let node = Node::parse(node_id)?;
+        let target = self.target(run.pipeline_id)?;
+        let mut out = Vec::new();
+
+        match node {
+            Node::Reconciliation => {
+                let (resource, record) = self.run(run.pipeline_id, run.run_number).await?;
+                logs::write_reconciliation(&resource, &record, &mut out);
+            }
+            Node::Events => {
+                logs::write_events(self.client().await?.events(&target).await?, &mut out);
+            }
         }
+
+        sink.write(out.into()).await
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &FluxcdLogDialect
     }
 
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String> {
@@ -586,7 +633,12 @@ mod tests {
         time::Duration,
     };
 
-    use pipedash_plugin_api::HealthLevel;
+    use pipedash_plugin_api::{
+        HealthLevel,
+        LineMarker,
+        LogAvailability,
+        LogNodeKind,
+    };
     use serde_json::{
         json,
         Value,
@@ -1470,12 +1522,13 @@ mod tests {
                 ("Request Kustomization reconciliation", false),
                 ("Request HelmRelease reconciliation", false),
                 ("Read Flux controller deployments", false),
+                ("Read Flux object events", false),
             ]
         );
         assert!(!status.all_granted);
         assert_eq!(status.metadata["scope"], "namespaces: ci");
         let reviewed = stub.recorded();
-        assert_eq!(reviewed.len(), 2 * 2 + 2 + 3);
+        assert_eq!(reviewed.len(), 2 * 2 + 2 + 3 + 1);
         assert!(reviewed.iter().all(|(method, _, body)| method == "POST"
             && (body.contains("\"namespace\":\"ci\"")
                 || body.contains("\"namespace\":\"flux-system\""))));
@@ -1489,7 +1542,11 @@ mod tests {
 
         let status = plugin.check_permissions().await.unwrap();
 
-        assert!(status.permissions.iter().all(|check| !check.granted));
+        assert!(status
+            .permissions
+            .iter()
+            .filter(|check| check.permission.name != "Read Flux object events")
+            .all(|check| !check.granted));
         assert!(!status.all_granted);
         assert_eq!(status.metadata["scope"], "all namespaces");
     }
@@ -1970,5 +2027,541 @@ mod tests {
             "2026-10-20T10:00:05+00:00"
         );
         assert!(matches!(history, Err(PluginError::SerializationError(_))));
+    }
+
+    const LOG_APP: &str = "fluxcd__1__Kustomization__ci__web";
+    const LOG_HELM: &str = "fluxcd__1__HelmRelease__ci__podinfo";
+    const OPEN: LineMarker = LineMarker::SectionStart { open: true };
+
+    fn cluster_with_events(
+        kustomizations: Vec<Value>, helm_releases: Vec<Value>, events: Vec<Value>,
+    ) -> Stub {
+        stub(move |_, target, _| {
+            if target.starts_with("/api/v1/namespaces/ci/events") {
+                (200, list(events.clone(), None))
+            } else {
+                serve(target, &kustomizations, &helm_releases)
+            }
+        })
+    }
+
+    fn condition_json(type_: &str, status: &str, reason: &str, message: &str, at: &str) -> Value {
+        json!({
+            "type": type_,
+            "status": status,
+            "reason": reason,
+            "message": message,
+            "observedGeneration": 1,
+            "lastTransitionTime": at,
+        })
+    }
+
+    fn web_kustomization() -> Value {
+        let mut failed = json!({
+            "digest": "sha256:a",
+            "firstReconciled": "2026-10-20T10:00:00Z",
+            "lastReconciled": "2026-10-20T10:00:10Z",
+            "lastReconciledDuration": "10s",
+            "lastReconciledStatus": "HealthCheckFailed",
+            "totalReconciliations": 1,
+            "metadata": { "revision": "main@sha1:6b7aab8a1f" },
+        });
+        failed["metadata"]["originRevision"] = json!("main@sha1:0f3d9c2e44");
+        let status = json!({
+            "observedGeneration": 1,
+            "lastAttemptedRevision": "main@sha1:9c1e0b7d55",
+            "lastAppliedRevision": "main@sha1:6b7aab8a1f",
+            "history": [failed],
+            "conditions": [
+                condition_json(
+                    "Ready",
+                    "False",
+                    "ArtifactFailed",
+                    "failed to fetch artifact\nconnection refused",
+                    "2026-10-21T08:00:00Z",
+                ),
+                condition_json(
+                    "Reconciling",
+                    "True",
+                    "ProgressingWithRetry",
+                    "retrying in 5m",
+                    "2026-10-21T08:00:01Z",
+                ),
+            ],
+        });
+        let spec = json!({
+            "interval": "10m",
+            "path": "./apps",
+            "sourceRef": { "kind": "GitRepository", "name": "flux-system" },
+        });
+
+        flux("Kustomization", "ci", "web", spec, status)
+    }
+
+    fn podinfo_release() -> Value {
+        let status = json!({
+            "observedGeneration": 1,
+            "history": [{
+                "version": 3,
+                "action": "upgrade",
+                "status": "failed",
+                "chartName": "podinfo",
+                "chartVersion": "6.7.1",
+                "appVersion": "6.7.1",
+                "digest": "sha256:c",
+                "configDigest": "sha256:d",
+                "firstDeployed": "2026-10-19T09:00:00Z",
+                "lastDeployed": "2026-10-20T11:00:00Z",
+            }],
+            "conditions": [condition_json(
+                "Ready",
+                "True",
+                "UpgradeSucceeded",
+                "Helm upgrade succeeded",
+                "2026-10-21T08:00:00Z",
+            )],
+        });
+
+        flux("HelmRelease", "ci", "podinfo", json!({}), status)
+    }
+
+    fn warning_events() -> Vec<Value> {
+        vec![
+            json!({
+                "type": "Normal",
+                "reason": "ReconciliationSucceeded",
+                "message": "Reconciliation finished in 45s",
+                "eventTime": "2026-10-20T10:05:00.123456Z",
+                "reportingComponent": "kustomize-controller",
+                "series": { "count": 2, "lastObservedTime": "2026-10-20T10:07:00.000000Z" },
+            }),
+            json!({
+                "type": "Warning",
+                "reason": "HealthCheckFailed",
+                "message": "health check failed after 30s",
+                "count": 3,
+                "firstTimestamp": "2026-10-20T10:00:10Z",
+                "lastTimestamp": "2026-10-20T10:02:10Z",
+                "source": { "component": "kustomize-controller" },
+            }),
+            json!({
+                "type": "Normal",
+                "reason": "Progressing",
+                "message": "Reconciliation in progress",
+                "lastTimestamp": "2026-10-20T10:00:00Z",
+            }),
+        ]
+    }
+
+    async fn read_raw(
+        plugin: &FluxcdPlugin, pipeline_id: &str, run_number: i64, node_id: &str,
+    ) -> PluginResult<String> {
+        let metadata = HashMap::new();
+        let run = RunRef {
+            pipeline_id,
+            run_number,
+            run_id: "",
+            metadata: &metadata,
+        };
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        let mut sink = LogSink::new(tx);
+        let result = plugin.read_log(run, node_id, &mut sink).await;
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        result?;
+
+        Ok(String::from_utf8(bytes).unwrap())
+    }
+
+    async fn read_lines(
+        plugin: &FluxcdPlugin, pipeline_id: &str, run_number: i64, node_id: &str,
+    ) -> PluginResult<Vec<(LineMarker, String)>> {
+        let raw = read_raw(plugin, pipeline_id, run_number, node_id).await?;
+
+        Ok(raw
+            .lines()
+            .map(|line| {
+                let parsed = FluxcdLogDialect.parse(line.as_bytes());
+                (
+                    parsed.marker,
+                    String::from_utf8_lossy(parsed.body).into_owned(),
+                )
+            })
+            .collect())
+    }
+
+    fn line(marker: LineMarker, text: &str) -> (LineMarker, String) {
+        (marker, text.to_string())
+    }
+
+    async fn run_numbered(plugin: &FluxcdPlugin, pipeline_id: &str, snapshot: bool) -> i64 {
+        plugin
+            .fetch_run_history(pipeline_id, 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|run| run.metadata.contains_key("snapshot") == snapshot)
+            .unwrap()
+            .run_number
+    }
+
+    #[tokio::test]
+    async fn log_nodes_list_the_record_and_the_object_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = cluster_with_events(vec![web_kustomization()], vec![], vec![]);
+        let plugin = plugin(&stub.server, &dir, &[]);
+        let metadata = HashMap::new();
+        let node_list = |run_number| {
+            let plugin = &plugin;
+            let metadata = &metadata;
+            async move {
+                let run = RunRef {
+                    pipeline_id: LOG_APP,
+                    run_number,
+                    run_id: "",
+                    metadata,
+                };
+                plugin.fetch_log_nodes(run).await.unwrap()
+            }
+        };
+
+        let history = node_list(run_numbered(&plugin, LOG_APP, false).await).await;
+        let current = node_list(run_numbered(&plugin, LOG_APP, true).await).await;
+
+        let summary = |nodes: &[pipedash_plugin_api::LogNode]| {
+            nodes
+                .iter()
+                .map(|node| (node.id.clone(), node.kind, node.status, node.log))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            summary(&history),
+            [
+                (
+                    "reconciliation".to_string(),
+                    LogNodeKind::Job,
+                    PipelineStatus::Failed,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "object-events".to_string(),
+                    LogNodeKind::Job,
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Partial)
+                ),
+            ]
+        );
+        assert_eq!(history[0].name, "Reconciliation");
+        assert_eq!(history[1].name, "Events of the object");
+        assert_eq!(
+            history[0].started_at.unwrap().to_rfc3339(),
+            "2026-10-20T10:00:00+00:00"
+        );
+        assert_eq!(
+            history[0].finished_at.unwrap().to_rfc3339(),
+            "2026-10-20T10:00:10+00:00"
+        );
+        assert_eq!(current[0].status, PipelineStatus::Failed);
+        assert_eq!(current[0].log, Some(LogAvailability::Partial));
+    }
+
+    #[tokio::test]
+    async fn failed_history_record_reads_its_status_revision_digest_and_times() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = cluster_with_events(vec![web_kustomization()], vec![], vec![]);
+        let plugin = plugin(&stub.server, &dir, &[]);
+        let number = run_numbered(&plugin, LOG_APP, false).await;
+
+        let lines = read_lines(&plugin, LOG_APP, number, "reconciliation")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            lines,
+            [
+                line(OPEN, "Reconciliation 6b7aab8 of Kustomization ci/web"),
+                line(LineMarker::Error, "Reconcile failed: HealthCheckFailed"),
+                line(LineMarker::Plain, "Took 10s"),
+                line(LineMarker::Plain, "Revision: main@sha1:6b7aab8a1f"),
+                line(LineMarker::Plain, "Origin revision: main@sha1:0f3d9c2e44"),
+                line(LineMarker::Plain, "Digest: sha256:a"),
+                line(
+                    LineMarker::Plain,
+                    "First reconciled: 2026-10-20T10:00:00+00:00"
+                ),
+                line(LineMarker::Plain, "Reconciliations: 1"),
+            ]
+        );
+        let raw = read_raw(&plugin, LOG_APP, number, "reconciliation")
+            .await
+            .unwrap();
+        assert!(raw.starts_with("+2026-10-20T10:00:00Z Reconciliation 6b7aab8"));
+        assert!(raw.contains("\n!2026-10-20T10:00:10Z Reconcile failed: HealthCheckFailed\n"));
+    }
+
+    #[tokio::test]
+    async fn current_state_record_reads_the_conditions_with_reason_and_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = cluster_with_events(vec![web_kustomization()], vec![], vec![]);
+        let plugin = plugin(&stub.server, &dir, &[]);
+        let number = run_numbered(&plugin, LOG_APP, true).await;
+
+        let lines = read_lines(&plugin, LOG_APP, number, "reconciliation")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            lines,
+            [
+                line(OPEN, "Current state of Kustomization ci/web"),
+                line(LineMarker::Error, "Not ready"),
+                line(
+                    LineMarker::Error,
+                    "ArtifactFailed: failed to fetch artifact"
+                ),
+                line(LineMarker::Error, "connection refused"),
+                line(LineMarker::Plain, "Revision: main@sha1:9c1e0b7d55"),
+                line(LineMarker::Plain, "Applied revision: main@sha1:6b7aab8a1f"),
+                line(LineMarker::Plain, "Source: GitRepository/ci/flux-system"),
+                line(LineMarker::Plain, "Interval: 10m"),
+                line(OPEN, "Conditions"),
+                line(
+                    LineMarker::Error,
+                    "Ready=False ArtifactFailed: failed to fetch artifact"
+                ),
+                line(LineMarker::Error, "connection refused"),
+                line(
+                    LineMarker::Plain,
+                    "Reconciling=True ProgressingWithRetry: retrying in 5m"
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn helm_release_record_reads_the_chart_version_and_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = cluster_with_events(vec![], vec![podinfo_release()], vec![]);
+        let plugin = plugin(&stub.server, &dir, &[]);
+        let number = run_numbered(&plugin, LOG_HELM, false).await;
+
+        let lines = read_lines(&plugin, LOG_HELM, number, "reconciliation")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            lines,
+            [
+                line(OPEN, "Release #3 of HelmRelease ci/podinfo"),
+                line(LineMarker::Error, "Failed"),
+                line(LineMarker::Plain, "Chart version: 6.7.1"),
+                line(LineMarker::Plain, "Chart: podinfo@6.7.1"),
+                line(LineMarker::Plain, "Release version: 3"),
+                line(LineMarker::Plain, "App version: 6.7.1"),
+                line(LineMarker::Plain, "Action: upgrade"),
+                line(LineMarker::Plain, "Digest: sha256:c"),
+                line(LineMarker::Plain, "Config digest: sha256:d"),
+                line(
+                    LineMarker::Plain,
+                    "First deployed: 2026-10-19T09:00:00+00:00"
+                ),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn object_events_come_in_time_order_with_warnings_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = cluster_with_events(vec![], vec![], warning_events());
+        let plugin = plugin(&stub.server, &dir, &[]);
+
+        let raw = read_raw(&plugin, LOG_APP, 0, "object-events")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            raw,
+            ".2026-10-20T10:00:00Z Normal Progressing: Reconciliation in progress\n\
+             ?2026-10-20T10:02:10Z Warning HealthCheckFailed from kustomize-controller: health check failed after 30s (x3)\n\
+             .2026-10-20T10:07:00Z Normal ReconciliationSucceeded from kustomize-controller: Reconciliation finished in 45s (x2)\n"
+        );
+        let requests = stub.recorded();
+        assert_eq!(requests.len(), 1);
+        let (method, target, _) = &requests[0];
+        assert_eq!(method, "GET");
+        assert!(
+            target.starts_with("/api/v1/namespaces/ci/events?"),
+            "{target}"
+        );
+        assert!(
+            target.contains(
+                "fieldSelector=involvedObject.kind%3DKustomization%2CinvolvedObject.name%3Dweb%2CinvolvedObject.namespace%3Dci"
+            ),
+            "{target}"
+        );
+    }
+
+    #[tokio::test]
+    async fn events_follow_continue_tokens_and_say_so_when_there_are_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let pages = stub(|_, target, _| {
+            let first = !target.contains("continue=");
+            let events = if first {
+                vec![
+                    json!({ "type": "Normal", "reason": "First", "message": "one", "lastTimestamp": "2026-10-20T10:00:00Z" }),
+                ]
+            } else {
+                vec![
+                    json!({ "type": "Normal", "reason": "Second", "message": "two", "lastTimestamp": "2026-10-20T10:01:00Z" }),
+                ]
+            };
+            (200, list(events, first.then_some("page-2")))
+        });
+        let empty = cluster_with_events(vec![], vec![], vec![]);
+
+        let paged = read_lines(
+            &plugin(&pages.server, &dir, &[]),
+            LOG_APP,
+            0,
+            "object-events",
+        )
+        .await
+        .unwrap();
+        let none = read_lines(
+            &plugin(&empty.server, &dir, &[]),
+            LOG_APP,
+            0,
+            "object-events",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            paged,
+            [
+                line(LineMarker::Plain, "Normal First: one"),
+                line(LineMarker::Plain, "Normal Second: two"),
+            ]
+        );
+        assert_eq!(
+            none,
+            [line(
+                LineMarker::Plain,
+                "No events. Kubernetes keeps events for one hour by default."
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn bad_node_ids_are_rejected_without_a_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = cluster_with_events(vec![web_kustomization()], vec![], warning_events());
+        let plugin = plugin(&stub.server, &dir, &[]);
+
+        for node_id in [
+            "",
+            "events",
+            "pods",
+            "Reconciliation",
+            "reconciliation/x",
+            "reconciliation ",
+            "object-events?watch=true",
+            "../object-events",
+        ] {
+            let error = read_raw(&plugin, LOG_APP, 1, node_id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{node_id:?}: {error:?}"
+            );
+        }
+        assert!(stub.recorded().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_record_flux_no_longer_keeps_is_not_found_but_the_object_events_still_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = cluster_with_events(vec![web_kustomization()], vec![], warning_events());
+        let plugin = plugin(&stub.server, &dir, &[]);
+        let metadata = HashMap::new();
+        let run = RunRef {
+            pipeline_id: LOG_APP,
+            run_number: 42,
+            run_id: "",
+            metadata: &metadata,
+        };
+
+        let nodes = plugin.fetch_log_nodes(run).await.unwrap_err();
+        let record = read_raw(&plugin, LOG_APP, 42, "reconciliation")
+            .await
+            .unwrap_err();
+        let events = read_raw(&plugin, LOG_APP, 42, "object-events").await;
+
+        assert!(
+            matches!(nodes, PluginError::PipelineNotFound(_)),
+            "{nodes:?}"
+        );
+        assert!(
+            matches!(record, PluginError::PipelineNotFound(_)),
+            "{record:?}"
+        );
+        assert_eq!(events.unwrap().lines().count(), 3);
+    }
+
+    #[tokio::test]
+    async fn forbidden_events_are_a_permission_denial_naming_the_resource() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = stub(|_, _, _| {
+            (
+                403,
+                status_json(
+                    403,
+                    "Forbidden",
+                    "events is forbidden: cannot list resource",
+                ),
+            )
+        });
+        let plugin = plugin(&stub.server, &dir, &[]);
+
+        let error = read_raw(&plugin, LOG_APP, 1, "object-events")
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(&error, PluginError::PermissionDenied(message) if message.contains("list events of Kustomization ci/web")),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn events_permission_is_reviewed_in_every_monitored_namespace() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = review_stub(|attributes| {
+            attributes["resource"] == "events"
+                && attributes["group"] == ""
+                && attributes["verb"] == "list"
+                && attributes["namespace"] == "ci"
+        });
+        let granted = |status: PermissionStatus| {
+            status
+                .permissions
+                .into_iter()
+                .find(|check| check.permission.name == "Read Flux object events")
+                .map(|check| (check.granted, check.permission.required))
+        };
+
+        let both = plugin(&stub.server, &dir, &[("namespaces", "ci,apps")]);
+        let only = plugin(&stub.server, &dir, &[("namespaces", "ci")]);
+
+        assert_eq!(
+            granted(both.check_permissions().await.unwrap()),
+            Some((false, false))
+        );
+        assert_eq!(
+            granted(only.check_permissions().await.unwrap()),
+            Some((true, false))
+        );
     }
 }

@@ -45,8 +45,9 @@ const READ_HELMRELEASES: &str = "Read HelmReleases";
 const RECONCILE_KUSTOMIZATIONS: &str = "Request Kustomization reconciliation";
 const RECONCILE_HELMRELEASES: &str = "Request HelmRelease reconciliation";
 const READ_CONTROLLERS: &str = "Read Flux controller deployments";
+const READ_EVENTS: &str = "Read Flux object events";
 
-pub(crate) const PERMISSIONS: [PermissionSpec; 5] = [
+pub(crate) const PERMISSIONS: [PermissionSpec; 6] = [
     PermissionSpec {
         name: READ_KUSTOMIZATIONS,
         description: "get and list kustomizations.kustomize.toolkit.fluxcd.io to show status, conditions and history",
@@ -92,6 +93,15 @@ pub(crate) const PERMISSIONS: [PermissionSpec; 5] = [
         verbs: &["get"],
         names: &config::CONTROLLERS,
     },
+    PermissionSpec {
+        name: READ_EVENTS,
+        description: "list events in the namespace of each monitored resource to show the Kubernetes events of a Kustomization or HelmRelease",
+        required: false,
+        group: "",
+        resource: "events",
+        verbs: &["list"],
+        names: &[],
+    },
 ];
 
 pub fn create_metadata() -> PluginMetadata {
@@ -116,7 +126,7 @@ fn create_config_schema() -> ConfigSchema {
             key: "kubeconfig".to_string(),
             label: "Kubeconfig".to_string(),
             description: Some(
-                "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Monitoring needs get/list permissions. Reconciliation also needs patch permission."
+                "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Monitoring needs get/list permissions. Reconciliation also needs patch permission. Run logs also need list on events in each monitored namespace."
                     .to_string(),
             ),
             field_type: ConfigFieldType::Text,
@@ -204,7 +214,7 @@ fn create_capabilities() -> PluginCapabilities {
         queues: false,
         custom_tables: false,
         retains_run_history: true,
-        logs: false,
+        logs: true,
         sign_in: false,
     }
 }
@@ -240,6 +250,18 @@ fn create_features() -> Vec<Feature> {
                 "Report when the Flux controllers are scaled to zero, not running or only partly available"
                     .to_string(),
             required_permissions: vec![READ_CONTROLLERS.to_string()],
+        },
+        Feature {
+            id: "run_logs".to_string(),
+            name: "Run logs".to_string(),
+            description:
+                "Show the reconciliation record of a run and the Kubernetes events of the resource"
+                    .to_string(),
+            required_permissions: vec![
+                READ_KUSTOMIZATIONS.to_string(),
+                READ_HELMRELEASES.to_string(),
+                READ_EVENTS.to_string(),
+            ],
         },
     ]
 }
