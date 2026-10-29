@@ -58,7 +58,7 @@ server {
         return 405;
     }
 
-    location ~ /\.(?!well-known/) {
+    location ~ ^/\.(?!well-known/) {
         return 404;
     }
 
