@@ -3,6 +3,9 @@ use std::collections::HashMap;
 use chrono::Utc;
 use pipedash_plugin_api::{
     AvailablePipeline,
+    LogAvailability,
+    LogNode,
+    LogNodeKind,
     Pipeline,
     PipelineRun,
     PipelineStatus,
@@ -12,8 +15,10 @@ use pipedash_plugin_api::{
 
 use crate::types::{
     self,
+    StepState,
     TektonPipeline,
     TektonPipelineRun,
+    TektonTaskRun,
 };
 
 fn parse_tasks_message(message: &str) -> Option<(usize, usize)> {
@@ -37,11 +42,13 @@ pub(crate) fn map_status(conditions: &[types::Condition]) -> PipelineStatus {
         match succeeded_condition.status.as_str() {
             "True" => PipelineStatus::Success,
             "False" => match succeeded_condition.reason.as_str() {
-                "Cancelled" | "PipelineRunCancelled" => PipelineStatus::Cancelled,
+                "Cancelled" | "PipelineRunCancelled" | "TaskRunCancelled" => {
+                    PipelineStatus::Cancelled
+                }
                 _ => PipelineStatus::Failed,
             },
             "Unknown" => match succeeded_condition.reason.as_str() {
-                "PipelineRunPending" => PipelineStatus::Pending,
+                "PipelineRunPending" | "Pending" => PipelineStatus::Pending,
                 _ => PipelineStatus::Running,
             },
             _ => PipelineStatus::Pending,
@@ -415,6 +422,101 @@ pub(crate) fn map_workflow_parameters(pipeline: &TektonPipeline) -> Vec<Workflow
         .collect()
 }
 
+pub(crate) fn listed_taskruns(run: &TektonPipelineRun) -> Vec<(&str, &str)> {
+    let children: Vec<_> = run
+        .status
+        .child_references
+        .iter()
+        .filter(|child| child.kind == "TaskRun")
+        .map(|child| (child.name.as_str(), child.pipeline_task_name.as_str()))
+        .collect();
+    if !children.is_empty() {
+        return children;
+    }
+
+    let mut legacy: Vec<_> = run
+        .status
+        .task_runs
+        .iter()
+        .map(|(name, task_run)| (name.as_str(), task_run.pipeline_task_name.as_str()))
+        .collect();
+    legacy.sort_unstable();
+    legacy
+}
+
+fn log_availability(status: PipelineStatus) -> LogAvailability {
+    match status {
+        PipelineStatus::Running => LogAvailability::Partial,
+        PipelineStatus::Pending => LogAvailability::Pending,
+        _ => LogAvailability::Ready,
+    }
+}
+
+fn step_status(step: &StepState) -> PipelineStatus {
+    match (&step.terminated, &step.running) {
+        (Some(_), _) if step.termination_reason.as_deref() == Some("Skipped") => {
+            PipelineStatus::Skipped
+        }
+        (Some(terminated), _) if terminated.exit_code == 0 => PipelineStatus::Success,
+        (Some(_), _) => PipelineStatus::Failed,
+        (None, Some(_)) => PipelineStatus::Running,
+        (None, None) => PipelineStatus::Pending,
+    }
+}
+
+fn step_to_log_node(task_run: &str, step: &StepState) -> LogNode {
+    LogNode {
+        id: format!("{task_run}:{}", step.name),
+        parent_id: Some(task_run.to_string()),
+        kind: LogNodeKind::Step,
+        name: step.name.clone(),
+        status: step_status(step),
+        started_at: step.started_at(),
+        finished_at: step.finished_at(),
+        log: None,
+        web_url: None,
+    }
+}
+
+pub(crate) fn taskruns_to_log_nodes(
+    run: &TektonPipelineRun, task_runs: &[TektonTaskRun],
+) -> Vec<LogNode> {
+    let mut nodes = Vec::new();
+    for (name, pipeline_task) in listed_taskruns(run) {
+        let Some(task_run) = task_runs
+            .iter()
+            .find(|task_run| task_run.metadata.name == name)
+        else {
+            continue;
+        };
+        let status = map_status(&task_run.status.conditions);
+
+        nodes.push(LogNode {
+            id: name.to_string(),
+            parent_id: None,
+            kind: LogNodeKind::Job,
+            name: if pipeline_task.is_empty() {
+                name.to_string()
+            } else {
+                pipeline_task.to_string()
+            },
+            status,
+            started_at: types::parse_timestamp(&task_run.status.start_time),
+            finished_at: types::parse_timestamp(&task_run.status.completion_time),
+            log: Some(log_availability(status)),
+            web_url: None,
+        });
+        nodes.extend(
+            task_run
+                .status
+                .steps
+                .iter()
+                .map(|step| step_to_log_node(name, step)),
+        );
+    }
+    nodes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,6 +553,11 @@ mod tests {
             ("False", "CouldntGetPipeline", PipelineStatus::Failed),
             ("False", "Cancelled", PipelineStatus::Cancelled),
             ("False", "PipelineRunCancelled", PipelineStatus::Cancelled),
+            ("Unknown", "Pending", PipelineStatus::Pending),
+            ("Unknown", "TaskRunCancelled", PipelineStatus::Running),
+            ("False", "TaskRunCancelled", PipelineStatus::Cancelled),
+            ("False", "TaskRunTimeout", PipelineStatus::Failed),
+            ("False", "TaskRunImagePullFailed", PipelineStatus::Failed),
         ];
 
         for (status, reason, expected) in cases {
@@ -469,5 +576,231 @@ mod tests {
 
         assert_eq!(map_status(&conditions), PipelineStatus::Pending);
         assert_eq!(map_status(&[]), PipelineStatus::Pending);
+    }
+
+    fn pipeline_run(status_json: &str) -> TektonPipelineRun {
+        serde_json::from_str(&format!(
+            r#"{{"apiVersion":"tekton.dev/v1","kind":"PipelineRun","metadata":{{"name":"build-1","namespace":"ci"}},"spec":{{}},"status":{status_json}}}"#
+        ))
+        .unwrap()
+    }
+
+    fn task_run(name: &str, status_json: &str) -> TektonTaskRun {
+        serde_json::from_str(&format!(
+            r#"{{"metadata":{{"name":"{name}","namespace":"ci"}},"status":{status_json}}}"#
+        ))
+        .unwrap()
+    }
+
+    const TWO_CHILDREN: &str = r#"{"childReferences":[
+        {"apiVersion":"tekton.dev/v1","kind":"TaskRun","name":"build-1-clone","pipelineTaskName":"clone"},
+        {"apiVersion":"tekton.dev/v1beta1","kind":"CustomRun","name":"build-1-approval","pipelineTaskName":"approval"},
+        {"apiVersion":"tekton.dev/v1","kind":"TaskRun","name":"build-1-test","pipelineTaskName":"test"}
+    ]}"#;
+
+    #[test]
+    fn listed_taskruns_come_from_child_references_then_from_legacy_task_runs() {
+        let current = pipeline_run(TWO_CHILDREN);
+        assert_eq!(
+            listed_taskruns(&current),
+            [("build-1-clone", "clone"), ("build-1-test", "test")]
+        );
+
+        let legacy = pipeline_run(
+            r#"{"taskRuns":{
+                "build-1-test":{"pipelineTaskName":"test"},
+                "build-1-clone":{"pipelineTaskName":"clone"}
+            }}"#,
+        );
+        assert_eq!(
+            listed_taskruns(&legacy),
+            [("build-1-clone", "clone"), ("build-1-test", "test")]
+        );
+
+        assert!(listed_taskruns(&pipeline_run("{}")).is_empty());
+    }
+
+    #[test]
+    fn every_taskrun_condition_maps_to_a_job_status_and_log_availability() {
+        let run = pipeline_run(TWO_CHILDREN);
+        let cases = [
+            (
+                "True",
+                "Succeeded",
+                PipelineStatus::Success,
+                LogAvailability::Ready,
+            ),
+            (
+                "False",
+                "Failed",
+                PipelineStatus::Failed,
+                LogAvailability::Ready,
+            ),
+            (
+                "False",
+                "TaskRunTimeout",
+                PipelineStatus::Failed,
+                LogAvailability::Ready,
+            ),
+            (
+                "False",
+                "TaskRunCancelled",
+                PipelineStatus::Cancelled,
+                LogAvailability::Ready,
+            ),
+            (
+                "Unknown",
+                "Running",
+                PipelineStatus::Running,
+                LogAvailability::Partial,
+            ),
+            (
+                "Unknown",
+                "Started",
+                PipelineStatus::Running,
+                LogAvailability::Partial,
+            ),
+            (
+                "Unknown",
+                "Pending",
+                PipelineStatus::Pending,
+                LogAvailability::Pending,
+            ),
+        ];
+        for (status, reason, expected, log) in cases {
+            let json = format!(
+                r#"{{"conditions":[{{"type":"Succeeded","status":"{status}","reason":"{reason}"}}]}}"#
+            );
+            let nodes = taskruns_to_log_nodes(&run, &[task_run("build-1-clone", &json)]);
+            assert_eq!(nodes.len(), 1, "{status} {reason}");
+            assert_eq!(nodes[0].status, expected, "{status} {reason}");
+            assert_eq!(nodes[0].log, Some(log), "{status} {reason}");
+        }
+
+        let nodes = taskruns_to_log_nodes(&run, &[task_run("build-1-clone", "{}")]);
+        assert_eq!(nodes[0].status, PipelineStatus::Pending);
+        assert_eq!(nodes[0].log, Some(LogAvailability::Pending));
+    }
+
+    #[test]
+    fn job_nodes_follow_the_child_references_and_skip_unlisted_or_missing_taskruns() {
+        let run = pipeline_run(TWO_CHILDREN);
+        let task_runs = [
+            task_run("build-1-test", r#"{"startTime":"2026-10-28T10:02:00Z"}"#),
+            task_run("build-1-stray", "{}"),
+            task_run(
+                "build-1-clone",
+                r#"{"startTime":"2026-10-28T10:00:00Z","completionTime":"2026-10-28T10:01:30Z"}"#,
+            ),
+        ];
+
+        let nodes = taskruns_to_log_nodes(&run, &task_runs);
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_str(),
+                    node.name.as_str(),
+                    node.kind,
+                    node.parent_id.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("build-1-clone", "clone", LogNodeKind::Job, None),
+                ("build-1-test", "test", LogNodeKind::Job, None),
+            ]
+        );
+        assert_eq!(
+            nodes[0].started_at,
+            types::parse_timestamp(&Some("2026-10-28T10:00:00Z".to_string()))
+        );
+        assert_eq!(
+            nodes[0].finished_at,
+            types::parse_timestamp(&Some("2026-10-28T10:01:30Z".to_string()))
+        );
+        assert_eq!(nodes[1].finished_at, None);
+    }
+
+    #[test]
+    fn steps_become_child_nodes_without_a_log_of_their_own() {
+        let run = pipeline_run(TWO_CHILDREN);
+        let steps = r#"{"steps":[
+            {"name":"fetch","container":"step-fetch","terminated":{"exitCode":0,"startedAt":"2026-10-28T10:00:01Z","finishedAt":"2026-10-28T10:00:05Z"},"terminationReason":"Completed"},
+            {"name":"compile","container":"step-compile","terminated":{"exitCode":2,"startedAt":"2026-10-28T10:00:05Z","finishedAt":"2026-10-28T10:00:09Z"},"terminationReason":"Error"},
+            {"name":"package","container":"step-package","terminated":{"exitCode":1,"startedAt":"2026-10-28T10:00:09Z","finishedAt":"2026-10-28T10:00:09Z"},"terminationReason":"Skipped"},
+            {"name":"upload","container":"step-upload","running":{"startedAt":"2026-10-28T10:00:10Z"}},
+            {"name":"notify","container":"step-notify","waiting":{"reason":"PodInitializing"}}
+        ]}"#;
+
+        let nodes = taskruns_to_log_nodes(&run, &[task_run("build-1-clone", steps)]);
+
+        let summary: Vec<_> = nodes[1..]
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_str(),
+                    node.parent_id.as_deref(),
+                    node.kind,
+                    node.name.as_str(),
+                    node.status,
+                    node.log,
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (
+                    "build-1-clone:fetch",
+                    Some("build-1-clone"),
+                    LogNodeKind::Step,
+                    "fetch",
+                    PipelineStatus::Success,
+                    None
+                ),
+                (
+                    "build-1-clone:compile",
+                    Some("build-1-clone"),
+                    LogNodeKind::Step,
+                    "compile",
+                    PipelineStatus::Failed,
+                    None
+                ),
+                (
+                    "build-1-clone:package",
+                    Some("build-1-clone"),
+                    LogNodeKind::Step,
+                    "package",
+                    PipelineStatus::Skipped,
+                    None
+                ),
+                (
+                    "build-1-clone:upload",
+                    Some("build-1-clone"),
+                    LogNodeKind::Step,
+                    "upload",
+                    PipelineStatus::Running,
+                    None
+                ),
+                (
+                    "build-1-clone:notify",
+                    Some("build-1-clone"),
+                    LogNodeKind::Step,
+                    "notify",
+                    PipelineStatus::Pending,
+                    None
+                ),
+            ]
+        );
+        let stamp = |text: &str| types::parse_timestamp(&Some(text.to_string()));
+        assert_eq!(nodes[1].started_at, stamp("2026-10-28T10:00:01Z"));
+        assert_eq!(nodes[1].finished_at, stamp("2026-10-28T10:00:05Z"));
+        assert_eq!(nodes[4].started_at, stamp("2026-10-28T10:00:10Z"));
+        assert_eq!(nodes[4].finished_at, None);
+        assert_eq!(nodes[5].started_at, None);
     }
 }

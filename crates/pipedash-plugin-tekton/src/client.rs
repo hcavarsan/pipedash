@@ -1,13 +1,21 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use futures::AsyncBufReadExt;
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::Pod;
+use kube::api::{
+    Api,
+    LogParams,
+};
 use kube::Client;
 use pipedash_plugin_api::{
     from_status,
+    LogSink,
     PluginError,
     PluginResult,
     RetryPolicy,
+    LOG_CHUNK_STALL_TIMEOUT,
 };
 use serde::Deserialize;
 
@@ -16,11 +24,14 @@ use crate::{
         self,
         KubeconfigSource,
     },
+    log_dialect,
     types::{
         PipelineList,
         PipelineRunList,
+        TaskRunList,
         TektonPipeline,
         TektonPipelineRun,
+        TektonTaskRun,
     },
 };
 
@@ -40,6 +51,8 @@ struct AccessStatus {
 }
 
 const MAX_RETRY_AFTER_SECONDS: u32 = 3600;
+pub(crate) const STEP_LOG_TAIL_LINES: usize = 10_000;
+const STEP_LOG_TIMEOUT: Duration = Duration::from_secs(900);
 
 pub(crate) fn map_kube_error(error: kube::Error, context: &str) -> PluginError {
     match error {
@@ -407,6 +420,108 @@ impl TektonClient {
 
         let pipelinerun_list: PipelineRunList = self.request_json(&url).await?;
         Ok(pipelinerun_list.items)
+    }
+
+    pub async fn get_pipelinerun(
+        &self, namespace: &str, name: &str,
+    ) -> PluginResult<TektonPipelineRun> {
+        self.request_json(&format!(
+            "/apis/tekton.dev/v1/namespaces/{namespace}/pipelineruns/{name}"
+        ))
+        .await
+    }
+
+    pub async fn get_taskrun(&self, namespace: &str, name: &str) -> PluginResult<TektonTaskRun> {
+        self.request_json(&format!(
+            "/apis/tekton.dev/v1/namespaces/{namespace}/taskruns/{name}"
+        ))
+        .await
+    }
+
+    pub async fn list_taskruns(
+        &self, namespace: &str, pipelinerun_name: &str,
+    ) -> PluginResult<Vec<TektonTaskRun>> {
+        let list: TaskRunList = self
+            .request_json(&format!(
+                "/apis/tekton.dev/v1/namespaces/{namespace}/taskruns?labelSelector=tekton.dev/pipelineRun={pipelinerun_name}"
+            ))
+            .await?;
+        Ok(list.items)
+    }
+
+    pub async fn stream_step_log(
+        &self, namespace: &str, pod: &str, container: &str, sink: &mut LogSink,
+    ) -> PluginResult<usize> {
+        tokio::time::timeout(
+            STEP_LOG_TIMEOUT,
+            self.pipe_step_log(namespace, pod, container, sink),
+        )
+        .await
+        .map_err(|_| {
+            PluginError::NetworkError("Pod log download timed out after 900 seconds".into())
+        })?
+    }
+
+    async fn pipe_step_log(
+        &self, namespace: &str, pod: &str, container: &str, sink: &mut LogSink,
+    ) -> PluginResult<usize> {
+        let pods: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+        let params = LogParams {
+            container: Some(container.to_string()),
+            timestamps: true,
+            tail_lines: Some(STEP_LOG_TAIL_LINES as i64),
+            ..LogParams::default()
+        };
+        let stream = self
+            .retry_policy
+            .retry(|| async {
+                pods.log_stream(pod, &params)
+                    .await
+                    .map_err(|error| match error {
+                        kube::Error::Api(status) if status.code == 404 => {
+                            PluginError::PipelineNotFound(format!(
+                                "The pod {pod} of this TaskRun no longer exists"
+                            ))
+                        }
+                        other => map_kube_error(other, "Failed to read pod logs"),
+                    })
+            })
+            .await?;
+        let mut stream = std::pin::pin!(stream);
+
+        let mut lines = 0;
+        let mut ends_with_newline = true;
+        loop {
+            let chunk = match tokio::time::timeout(LOG_CHUNK_STALL_TIMEOUT, stream.fill_buf()).await
+            {
+                Err(_) => {
+                    return Err(PluginError::NetworkError(
+                        "Log download stalled for 60 seconds".into(),
+                    ))
+                }
+                Ok(Err(e)) => {
+                    return Err(PluginError::NetworkError(format!(
+                        "Failed to read pod logs: {e}"
+                    )))
+                }
+                Ok(Ok([])) => break,
+                Ok(Ok(chunk)) => chunk,
+            };
+            let read = chunk.len();
+            let clean = log_dialect::without_line_tags(chunk).into_owned();
+            stream.consume_unpin(read);
+
+            lines += clean.iter().filter(|b| **b == b'\n').count();
+            if let Some(last) = clean.last() {
+                ends_with_newline = *last == b'\n';
+            }
+            sink.write(clean.into()).await?;
+        }
+        if !ends_with_newline {
+            sink.write(vec![b'\n'].into()).await?;
+            lines += 1;
+        }
+        Ok(lines)
     }
 
     pub async fn create_pipelinerun(

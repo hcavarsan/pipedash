@@ -139,6 +139,70 @@ pub struct PipelineRunSpec {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StepTerminated {
+    #[serde(rename = "exitCode", default)]
+    pub exit_code: i32,
+    #[serde(rename = "startedAt", default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(
+        rename = "finishedAt",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub finished_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StepRunning {
+    #[serde(rename = "startedAt", default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StepState {
+    pub name: String,
+    #[serde(default)]
+    pub container: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminated: Option<StepTerminated>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<StepRunning>,
+    #[serde(
+        rename = "terminationReason",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub termination_reason: Option<String>,
+}
+
+impl StepState {
+    pub fn has_started(&self) -> bool {
+        self.terminated.is_some() || self.running.is_some()
+    }
+
+    pub fn started_at(&self) -> Option<DateTime<Utc>> {
+        let stamp = match (&self.terminated, &self.running) {
+            (Some(terminated), _) => &terminated.started_at,
+            (None, Some(running)) => &running.started_at,
+            (None, None) => return None,
+        };
+        parse_timestamp(stamp)
+    }
+
+    pub fn finished_at(&self) -> Option<DateTime<Utc>> {
+        parse_timestamp(&self.terminated.as_ref()?.finished_at)
+    }
+
+    pub fn container_name(&self) -> String {
+        if self.container.is_empty() {
+            format!("step-{}", self.name)
+        } else {
+            self.container.clone()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct TaskRunStatusFields {
     #[serde(rename = "startTime", skip_serializing_if = "Option::is_none")]
     pub start_time: Option<String>,
@@ -146,6 +210,17 @@ pub struct TaskRunStatusFields {
     pub completion_time: Option<String>,
     #[serde(default)]
     pub conditions: Vec<Condition>,
+    #[serde(rename = "podName", default, skip_serializing_if = "Option::is_none")]
+    pub pod_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<StepState>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TektonTaskRun {
+    pub metadata: ObjectMeta,
+    #[serde(default)]
+    pub status: TaskRunStatusFields,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -199,6 +274,11 @@ pub struct PipelineList {
 #[derive(Debug, Deserialize)]
 pub struct PipelineRunList {
     pub items: Vec<TektonPipelineRun>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaskRunList {
+    pub items: Vec<TektonTaskRun>,
 }
 
 pub fn parse_timestamp(timestamp: &Option<String>) -> Option<DateTime<Utc>> {
