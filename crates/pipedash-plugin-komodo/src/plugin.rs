@@ -623,6 +623,7 @@ mod tests {
                         json!({"error": "no update exists with given id", "trace": ["failed to query to db"]}),
                     ),
                     ("u-down", _) => (503, json!({"error": "database is down", "trace": []})),
+                    ("u-busy", _) => (500, json!({"error": BUSY_CORE, "trace": []})),
                     (_, Some(index)) if index < UPDATE_COUNT => (200, full_update(index)),
                     _ => (404, json!({"error": "update not found", "trace": []})),
                 }
@@ -689,6 +690,8 @@ mod tests {
         })
     }
 
+    const BUSY_CORE: &str = "core is busy";
+
     async fn stub_komodo() -> (String, Requests) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -703,9 +706,14 @@ mod tests {
                     };
                     let (status, body) = reply(&request);
                     recorded.lock().await.push(request);
+                    let retry_after = if body["error"] == BUSY_CORE {
+                        "Retry-After: 120\r\n"
+                    } else {
+                        ""
+                    };
                     let body = body.to_string();
                     let response = format!(
-                        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\n{retry_after}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.len()
                     );
                     let _ = stream.write_all(response.as_bytes()).await;
@@ -1511,6 +1519,27 @@ mod tests {
             matches!(down, PluginError::ServiceUnavailable { .. }),
             "{down}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_busy_update_read_keeps_the_server_retry_wait() {
+        let (plugin, _, requests) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u-busy");
+
+        let error = plugin
+            .fetch_log_nodes(log_run(&metadata, 1))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::ServiceUnavailable { .. }),
+            "{error}"
+        );
+        assert_eq!(
+            error.retry_after(),
+            Some(std::time::Duration::from_secs(120))
+        );
+        assert_eq!(bodies(&requests, "GetUpdate").await.len(), 1);
     }
 
     #[tokio::test]
