@@ -7,7 +7,10 @@ use std::time::Duration;
 
 use pipedash_plugin_api::{
     check_response,
+    from_status,
     map_send_error,
+    redact_url,
+    truncate_chars,
     PluginError,
     PluginResult,
     RetryPolicy,
@@ -39,6 +42,7 @@ pub(crate) struct KomodoClient {
 const MAX_LAST_RUN_PAGES: u32 = 5;
 const UPDATE_LOGS_TIMEOUT: Duration = Duration::from_secs(900);
 const MISSING_UPDATE: &str = "no update exists with given id";
+const ERROR_BODY_PREVIEW_CHARS: usize = 300;
 
 impl KomodoClient {
     pub fn new(
@@ -118,18 +122,38 @@ impl KomodoClient {
     }
 
     pub async fn update_logs(&self, update_id: &str) -> PluginResult<UpdateLogs> {
-        self.send_read(
-            "GetUpdate",
-            json!({ "id": update_id }),
-            Some(UPDATE_LOGS_TIMEOUT),
-        )
-        .await
-        .map_err(|error| match error {
-            PluginError::ServiceUnavailable { message, .. } if message.contains(MISSING_UPDATE) => {
-                PluginError::PipelineNotFound(format!("Update {update_id} no longer exists"))
-            }
-            other => other,
-        })
+        let url = self.url("read")?;
+        let params = json!({ "id": update_id });
+        self.retry_policy
+            .retry(|| async {
+                let response = self
+                    .request(&url, "GetUpdate", &params)
+                    .timeout(UPDATE_LOGS_TIMEOUT)
+                    .send()
+                    .await
+                    .map_err(|e| map_send_error(e, &url))?;
+                if response.status() != reqwest::StatusCode::INTERNAL_SERVER_ERROR {
+                    return parse_json(check_response(response).await?, "GetUpdate").await;
+                }
+                let body = response.text().await.map_err(|e| map_send_error(e, &url))?;
+                if serde_json::from_str::<Value>(&body)
+                    .is_ok_and(|error| error["error"] == MISSING_UPDATE)
+                {
+                    return Err(PluginError::PipelineNotFound(format!(
+                        "Update {update_id} no longer exists"
+                    )));
+                }
+                Err(from_status(
+                    500,
+                    format!(
+                        "500 from {}: {}",
+                        redact_url(&url),
+                        truncate_chars(body.trim(), ERROR_BODY_PREVIEW_CHARS)
+                    ),
+                    None,
+                ))
+            })
+            .await
     }
 
     pub async fn deploy_stack(&self, stack_id: &str) -> PluginResult<Update> {
@@ -150,20 +174,14 @@ impl KomodoClient {
     async fn read<T: DeserializeOwned>(
         &self, request_type: &str, params: Value,
     ) -> PluginResult<T> {
-        self.send_read(request_type, params, None).await
-    }
-
-    async fn send_read<T: DeserializeOwned>(
-        &self, request_type: &str, params: Value, timeout: Option<Duration>,
-    ) -> PluginResult<T> {
         let url = self.url("read")?;
         self.retry_policy
             .retry(|| async {
-                let mut request = self.request(&url, request_type, &params);
-                if let Some(timeout) = timeout {
-                    request = request.timeout(timeout);
-                }
-                let response = request.send().await.map_err(|e| map_send_error(e, &url))?;
+                let response = self
+                    .request(&url, request_type, &params)
+                    .send()
+                    .await
+                    .map_err(|e| map_send_error(e, &url))?;
                 parse_json(check_response(response).await?, request_type).await
             })
             .await

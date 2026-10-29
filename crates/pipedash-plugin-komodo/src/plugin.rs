@@ -1150,14 +1150,19 @@ mod tests {
     async fn read_chunks(
         plugin: &KomodoPlugin, run: RunRef<'_>, node_id: &str,
     ) -> PluginResult<Vec<Vec<u8>>> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        let mut sink = LogSink::new(tx);
-        let result = plugin.read_log(run, node_id, &mut sink).await;
-        drop(sink);
-        let mut chunks = Vec::new();
-        while let Some(chunk) = rx.recv().await {
-            chunks.push(chunk.to_vec());
-        }
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let read = async {
+            let mut sink = LogSink::new(tx);
+            plugin.read_log(run, node_id, &mut sink).await
+        };
+        let collect = async {
+            let mut chunks = Vec::new();
+            while let Some(chunk) = rx.recv().await {
+                chunks.push(chunk.to_vec());
+            }
+            chunks
+        };
+        let (result, chunks) = tokio::join!(read, collect);
         result.map(|()| chunks)
     }
 
@@ -1473,7 +1478,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_update_komodo_no_longer_has_is_not_found_and_other_failures_are_not() {
-        let (plugin, _, _) = stub_plugin(&[]).await;
+        let (plugin, _, requests) = stub_plugin(&[]).await;
 
         for update_id in ["u999", "u-gone"] {
             let metadata = update_metadata(update_id);
@@ -1491,6 +1496,12 @@ mod tests {
                 );
             }
         }
+        let gone_reads = bodies(&requests, "GetUpdate")
+            .await
+            .into_iter()
+            .filter(|body| body["params"]["id"] == "u-gone")
+            .count();
+        assert_eq!(gone_reads, 2);
         let metadata = update_metadata("u-down");
         let down = plugin
             .fetch_log_nodes(log_run(&metadata, 1))
