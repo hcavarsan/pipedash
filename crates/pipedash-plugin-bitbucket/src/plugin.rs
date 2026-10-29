@@ -325,8 +325,8 @@ impl Plugin for BitbucketPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let (_, workspace, repo_slug) = config::parse_pipeline_id(run.pipeline_id)?;
         config::check_step_uuid(node_id)?;
         let client = self.client()?;
@@ -338,6 +338,7 @@ impl Plugin for BitbucketPlugin {
         client
             .stream_step_log(&workspace, &repo_slug, &pipeline.uuid, node_id, sink)
             .await
+            .map(|()| LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -913,13 +914,15 @@ mod tests {
         let metadata = HashMap::new();
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let mut sink = LogSink::new(tx);
-        let result = plugin.read_log(run_7(&metadata), node_id, &mut sink).await;
+        let result = plugin
+            .read_log(run_7(&metadata), node_id, None, &mut sink)
+            .await;
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result.map(|()| bytes)
+        result.map(|_| bytes)
     }
 
     #[tokio::test]

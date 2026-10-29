@@ -465,8 +465,8 @@ impl Plugin for TektonPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let (namespace, pipelinerun_name) = run_target(&run)?;
         if !config::is_kube_name(node_id) {
             return Err(PluginError::InvalidConfig(format!(
@@ -526,7 +526,7 @@ impl Plugin for TektonPlugin {
                     .await?;
             }
         }
-        Ok(())
+        Ok(LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -1482,14 +1482,14 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
         let mut sink = LogSink::new(tx);
         let result = plugin
-            .read_log(log_run(&metadata), node_id, &mut sink)
+            .read_log(log_run(&metadata), node_id, None, &mut sink)
             .await;
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result.map(|()| bytes)
+        result.map(|_| bytes)
     }
 
     fn sent(requests: &mpsc::Receiver<String>) -> Vec<String> {
@@ -1756,7 +1756,12 @@ mod tests {
         );
         let (tx, _rx) = tokio::sync::mpsc::channel(1);
         let error = plugin
-            .read_log(log_run(&metadata), "build-1-clone", &mut LogSink::new(tx))
+            .read_log(
+                log_run(&metadata),
+                "build-1-clone",
+                None,
+                &mut LogSink::new(tx),
+            )
             .await
             .unwrap_err();
         assert!(matches!(error, PluginError::InvalidConfig(_)), "{error:?}");

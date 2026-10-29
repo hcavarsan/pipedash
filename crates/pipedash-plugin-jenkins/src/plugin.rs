@@ -256,14 +256,15 @@ impl Plugin for JenkinsPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let job_path = Self::job_path(run.pipeline_id)?;
         let build_number = Self::build_number(node_id)?;
 
         self.client()?
             .stream_console_log(job_path, build_number, sink)
             .await
+            .map(|()| LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -682,6 +683,7 @@ mod tests {
             .read_log(
                 build_of_folder_job(run_number, &metadata),
                 node_id,
+                None,
                 &mut sink,
             )
             .await;
@@ -690,7 +692,7 @@ mod tests {
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result.map(|()| bytes)
+        result.map(|_| bytes)
     }
 
     #[tokio::test]

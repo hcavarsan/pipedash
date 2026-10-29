@@ -341,8 +341,8 @@ impl Plugin for GitLabPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         if node_id.is_empty() || !node_id.bytes().all(|b| b.is_ascii_digit()) {
             return Err(PluginError::InvalidConfig(format!(
                 "Invalid GitLab job ID: {node_id}"
@@ -353,6 +353,7 @@ impl Plugin for GitLabPlugin {
         self.client()?
             .stream_job_log(project_id, node_id, sink)
             .await
+            .map(|()| LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -883,13 +884,15 @@ mod tests {
         let metadata = HashMap::new();
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let mut sink = LogSink::new(tx);
-        let result = plugin.read_log(run_77(&metadata), node_id, &mut sink).await;
+        let result = plugin
+            .read_log(run_77(&metadata), node_id, None, &mut sink)
+            .await;
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result.map(|()| bytes)
+        result.map(|_| bytes)
     }
 
     async fn targets(requests: &Requests) -> Vec<String> {

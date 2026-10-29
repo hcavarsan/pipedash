@@ -244,8 +244,8 @@ impl Plugin for BuildkitePlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let (org, slug) = Self::org_and_slug(run.pipeline_id)?;
         if node_id.is_empty() || !node_id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
             return Err(PluginError::InvalidConfig(format!(
@@ -256,6 +256,7 @@ impl Plugin for BuildkitePlugin {
         self.client()?
             .stream_job_log(org, slug, run.run_number, node_id, sink)
             .await
+            .map(|()| LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -472,14 +473,14 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let mut sink = LogSink::new(tx);
         let result = plugin
-            .read_log(run_150(&metadata), node_id, &mut sink)
+            .read_log(run_150(&metadata), node_id, None, &mut sink)
             .await;
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result.map(|()| bytes)
+        result.map(|_| bytes)
     }
 
     #[tokio::test]

@@ -1,4 +1,9 @@
 use std::collections::HashMap;
+use std::sync::atomic::{
+    AtomicBool,
+    Ordering,
+};
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -6,6 +11,7 @@ use chrono::{
     DateTime,
     Utc,
 };
+use serde::de::DeserializeOwned;
 use serde::{
     Deserialize,
     Serialize,
@@ -57,6 +63,51 @@ pub struct RunRef<'a> {
     pub metadata: &'a HashMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LogCursor(serde_json::Value);
+
+impl LogCursor {
+    pub fn new<T: Serialize>(position: &T) -> PluginResult<Self> {
+        serde_json::to_value(position)
+            .map(Self)
+            .map_err(|error| PluginError::SerializationError(error.to_string()))
+    }
+
+    pub fn parse<T: DeserializeOwned>(&self) -> Option<T> {
+        serde_json::from_value(self.0.clone()).ok()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogReadMode {
+    Append,
+    Replace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogRead {
+    pub mode: LogReadMode,
+    pub cursor: Option<LogCursor>,
+}
+
+impl LogRead {
+    pub fn replace(cursor: Option<LogCursor>) -> Self {
+        Self {
+            mode: LogReadMode::Replace,
+            cursor,
+        }
+    }
+
+    pub fn append(cursor: LogCursor) -> Self {
+        Self {
+            mode: LogReadMode::Append,
+            cursor: Some(cursor),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineMarker {
     Plain,
@@ -104,17 +155,42 @@ impl LogDialect for PlainDialect {
 
 pub struct LogSink {
     tx: mpsc::Sender<Bytes>,
+    written: bool,
+    restarted: Arc<AtomicBool>,
 }
 
 impl LogSink {
     pub fn new(tx: mpsc::Sender<Bytes>) -> Self {
-        Self { tx }
+        Self {
+            tx,
+            written: false,
+            restarted: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn restart_signal(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.restarted)
+    }
+
+    pub fn restart(&mut self) -> PluginResult<()> {
+        if self.written {
+            return Err(PluginError::Internal(
+                "A log read can only restart before it writes".into(),
+            ));
+        }
+        self.restarted.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    pub fn restarted(&self) -> bool {
+        self.restarted.load(Ordering::SeqCst)
     }
 
     pub async fn write(&mut self, chunk: Bytes) -> PluginResult<()> {
         if chunk.is_empty() {
             return Ok(());
         }
+        self.written = true;
         self.tx
             .send(chunk)
             .await

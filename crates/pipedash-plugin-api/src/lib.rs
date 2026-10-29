@@ -38,9 +38,12 @@ pub use http::{
 pub use logs::{
     LineMarker,
     LogAvailability,
+    LogCursor,
     LogDialect,
     LogNode,
     LogNodeKind,
+    LogRead,
+    LogReadMode,
     LogSink,
     ParsedLine,
     PlainDialect,

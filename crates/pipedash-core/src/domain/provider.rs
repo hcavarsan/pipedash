@@ -22,8 +22,10 @@ use super::pipeline::{
     TriggerParams,
 };
 use super::run_logs::{
+    LogCursor,
     LogDialect,
     LogNode,
+    LogRead,
     LogSink,
     PlainDialect,
 };
@@ -254,8 +256,8 @@ pub trait Provider: Send + Sync {
     }
 
     async fn read_log(
-        &self, _run: &PipelineRun, _node_id: &str, _sink: &mut LogSink,
-    ) -> DomainResult<()> {
+        &self, _run: &PipelineRun, _node_id: &str, _from: Option<&LogCursor>, _sink: &mut LogSink,
+    ) -> DomainResult<LogRead> {
         Err(DomainError::NotSupported(
             "Run logs are not supported by this provider".into(),
         ))

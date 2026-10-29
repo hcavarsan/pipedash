@@ -273,8 +273,8 @@ impl Plugin for AzureDevOpsPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let id = config::parse_pipeline_id(run.pipeline_id)?;
         let record_id = Self::log_node_record_id(node_id)?;
         let client = self.client()?;
@@ -288,6 +288,7 @@ impl Plugin for AzureDevOpsPlugin {
         client
             .stream_build_log(id.project, run.run_number, log_id, sink)
             .await
+            .map(|()| LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -1486,14 +1487,19 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let mut sink = LogSink::new(tx);
         let result = plugin
-            .read_log(build_of_pipeline(run_number, &metadata), node_id, &mut sink)
+            .read_log(
+                build_of_pipeline(run_number, &metadata),
+                node_id,
+                None,
+                &mut sink,
+            )
             .await;
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result.map(|()| bytes)
+        result.map(|_| bytes)
     }
 
     #[tokio::test]

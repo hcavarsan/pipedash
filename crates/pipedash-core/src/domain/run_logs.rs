@@ -5,8 +5,11 @@ use chrono::{
 pub use pipedash_plugin_api::{
     LineMarker,
     LogAvailability,
+    LogCursor,
     LogDialect,
     LogNodeKind,
+    LogRead,
+    LogReadMode,
     LogSink,
     ParsedLine,
     PlainDialect,

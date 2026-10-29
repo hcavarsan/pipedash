@@ -19,8 +19,10 @@ use pipedash_plugin_api::{
     custom_status_source,
     AvailablePipeline,
     ComponentHealth,
+    LogCursor,
     LogDialect,
     LogNode,
+    LogRead,
     LogSink,
     Organization,
     PaginatedResponse,
@@ -517,8 +519,8 @@ impl Plugin for FluxcdPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let node = Node::parse(node_id)?;
         let target = self.target(run.pipeline_id)?;
         let mut out = Vec::new();
@@ -533,7 +535,9 @@ impl Plugin for FluxcdPlugin {
             }
         }
 
-        sink.write(out.into()).await
+        sink.write(out.into())
+            .await
+            .map(|()| LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -2254,7 +2258,7 @@ mod tests {
         };
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let mut sink = LogSink::new(tx);
-        let result = plugin.read_log(run, node_id, &mut sink).await;
+        let result = plugin.read_log(run, node_id, None, &mut sink).await;
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {

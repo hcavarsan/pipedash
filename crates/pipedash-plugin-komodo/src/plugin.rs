@@ -312,8 +312,8 @@ impl Plugin for KomodoPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let index = Self::stage_index(node_id)?;
         let (_, stack_id) = config::parse_pipeline_id(run.pipeline_id)?;
         let (_, update) = self.run_update_logs(&run, stack_id).await?;
@@ -321,7 +321,9 @@ impl Plugin for KomodoPlugin {
             PluginError::InvalidConfig(format!("Update has no log stage {index}"))
         })?;
 
-        Self::write_stage(log, sink).await
+        Self::write_stage(log, sink)
+            .await
+            .map(|()| LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -1186,7 +1188,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let read = async {
             let mut sink = LogSink::new(tx);
-            plugin.read_log(run, node_id, &mut sink).await
+            plugin.read_log(run, node_id, None, &mut sink).await
         };
         let collect = async {
             let mut chunks = Vec::new();
@@ -1196,7 +1198,7 @@ mod tests {
             chunks
         };
         let (result, chunks) = tokio::join!(read, collect);
-        result.map(|()| chunks)
+        result.map(|_| chunks)
     }
 
     async fn read_stage(

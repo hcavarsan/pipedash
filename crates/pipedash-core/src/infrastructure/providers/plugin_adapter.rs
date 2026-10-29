@@ -13,8 +13,10 @@ use pipedash_plugin_api::{
 use crate::domain::{
     DomainError,
     DomainResult,
+    LogCursor,
     LogDialect,
     LogNode,
+    LogRead,
     LogSink,
     Pipeline,
     PipelineRun,
@@ -302,10 +304,10 @@ impl Provider for PluginAdapter {
     }
 
     async fn read_log(
-        &self, run: &PipelineRun, node_id: &str, sink: &mut LogSink,
-    ) -> DomainResult<()> {
+        &self, run: &PipelineRun, node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> DomainResult<LogRead> {
         self.plugin
-            .read_log(Self::run_ref(run), node_id, sink)
+            .read_log(Self::run_ref(run), node_id, from, sink)
             .await
             .map_err(Self::map_error)
     }

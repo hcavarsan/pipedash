@@ -51,7 +51,9 @@ use super::{
 use crate::domain::{
     DomainError,
     DomainResult,
+    LogCursor,
     LogNode,
+    LogRead,
     LogSink,
     Pipeline,
     PipelineRun,
@@ -403,8 +405,8 @@ impl Provider for StubProvider {
     }
 
     async fn read_log(
-        &self, _run: &PipelineRun, _node_id: &str, sink: &mut LogSink,
-    ) -> DomainResult<()> {
+        &self, _run: &PipelineRun, _node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> DomainResult<LogRead> {
         self.log_reads.fetch_add(1, Ordering::SeqCst);
         if let Some(gate) = &self.log_gate {
             gate.pass().await;
@@ -420,7 +422,7 @@ impl Provider for StubProvider {
                 .map_err(|e| DomainError::ProviderError(e.to_string()))?;
         }
 
-        Ok(())
+        Ok(LogRead::replace(None))
     }
 }
 

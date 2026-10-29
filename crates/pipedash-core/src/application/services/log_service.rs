@@ -941,7 +941,10 @@ impl IngestWork {
             let node_id = key.node_id.clone();
             let read = async move {
                 let mut sink = LogSink::new(tx);
-                let result = provider.read_log(&run, &node_id, &mut sink).await;
+                let result = provider
+                    .read_log(&run, &node_id, None, &mut sink)
+                    .await
+                    .map(|_| ());
                 drop(sink);
                 result
             };
