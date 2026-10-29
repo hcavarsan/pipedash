@@ -75,4 +75,5 @@ dependencies {
     implementation("androidx.browser:browser:1.8.0")
     implementation("org.rustls:rustls-platform-verifier:${rustlsPlatformVerifierVersion.get()}")
     implementation(project(":tauri-android"))
+    testImplementation("junit:junit:4.13.2")
 }

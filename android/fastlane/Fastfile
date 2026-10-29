@@ -108,10 +108,11 @@ platform :android do
     UI.success("#{File.basename(aab)} passed the Google Play checks")
   end
 
-  desc "Build an unsigned AAB and run the Google Play checks (pull requests)"
+  desc "Run the native plugin unit tests, build an unsigned AAB and run the Google Play checks (pull requests)"
   lane :check do
     prepare_project
     build_aab(version_code: 1, targets: ["aarch64"])
+    sh(File.join(ANDROID_DIR, "gradlew"), "-p", ANDROID_DIR, ":tauri-plugin-pipedash-native:testDebugUnitTest")
     verify_aab(aab: AAB, version_code: 1, abis: ["arm64-v8a"], signed: false)
   end
 

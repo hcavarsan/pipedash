@@ -7,15 +7,10 @@ import android.view.ViewGroup
 import android.view.WindowManager
 
 object PrivacyCover {
-    private var armed = false
-    private var holdForFrontend = false
-    private var awaitingFrontend = false
-    private var foreground = true
+    private val state = CoverState()
     private var cover: View? = null
 
     fun configure(activity: Activity, armed: Boolean, holdForFrontend: Boolean) {
-        this.armed = armed
-        this.holdForFrontend = holdForFrontend
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             activity.setRecentsScreenshotEnabled(!armed)
         } else if (armed) {
@@ -23,14 +18,13 @@ object PrivacyCover {
         } else {
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
-        if (!armed) {
+        if (state.configure(armed, holdForFrontend)) {
             hide()
         }
     }
 
     fun show(activity: Activity) {
-        foreground = false
-        if (!armed || cover != null) {
+        if (!state.backgrounded()) {
             return
         }
         val view = View(activity)
@@ -42,25 +36,21 @@ object PrivacyCover {
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
         )
         cover = view
-        awaitingFrontend = holdForFrontend
     }
 
     fun resumed() {
-        foreground = true
-        if (!awaitingFrontend) {
+        if (state.resumed()) {
             hide()
         }
     }
 
     fun release() {
-        awaitingFrontend = false
-        if (foreground) {
+        if (state.released()) {
             hide()
         }
     }
 
     private fun hide() {
-        awaitingFrontend = false
         val view = cover ?: return
         cover = null
         view.animate().alpha(0f).setDuration(150).withEndAction {
