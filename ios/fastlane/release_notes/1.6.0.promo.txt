@@ -1,0 +1,1 @@
+Organize pipelines into views with sub-views and pins, and use Select to pin, hide or cancel several pipelines at once.

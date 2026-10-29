@@ -1,0 +1,8 @@
+- Organize pipelines into views with sub-views, and pin pipelines, views and repositories.
+- Use Select to pin, hide, refresh or cancel several pipelines at once.
+- Read job logs inside Pipedash for GitLab, Jenkins, Buildkite, Bitbucket, Gitea, Azure DevOps, Tekton and Komodo.
+- See ArgoCD sync results, app events and pod logs, and FluxCD reconciliations and events, in the run logs.
+- Add Azure DevOps pipelines and Komodo stacks, and sign in to ArgoCD with single sign-on instead of a token.
+- Hide workflows you don't watch, and filter by several statuses at once.
+- Cancel, re-run and trigger dialogs show the repository, branch and environment they act on.
+- Job logs on iPhone get a toolbar to jump between errors, and ArgoCD lists apps that wait for their first sync.
