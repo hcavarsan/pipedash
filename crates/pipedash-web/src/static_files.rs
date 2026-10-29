@@ -26,13 +26,8 @@ pub fn serve_static(uri: Uri, base_path: &str) -> Response {
 
     match StaticAssets::get(path) {
         Some(content) => serve_file_content(content.data.as_ref(), path),
-        None => {
-            if path_has_no_extension(path) {
-                serve_index_html(base_path)
-            } else {
-                not_found()
-            }
-        }
+        None if is_asset_path(path) => not_found(),
+        None => serve_index_html(base_path),
     }
 }
 
@@ -95,22 +90,19 @@ fn determine_cache_control(path: &str) -> HeaderValue {
     }
 }
 
-fn path_has_no_extension(path: &str) -> bool {
-    let last_segment = path.rsplit('/').next().unwrap_or(path);
-    !last_segment.contains('.')
+fn is_asset_path(path: &str) -> bool {
+    match path.split_once('/') {
+        Some((dir, _)) => StaticAssets::iter().any(|file| {
+            file.strip_prefix(dir)
+                .is_some_and(|rest| rest.starts_with('/'))
+        }),
+        None => path.contains('.'),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_path_has_no_extension() {
-        assert!(path_has_no_extension("pipelines"));
-        assert!(path_has_no_extension("pipelines/some-id"));
-        assert!(!path_has_no_extension("favicon.ico"));
-        assert!(!path_has_no_extension("assets/vendor-abc123.js"));
-    }
 
     #[test]
     fn test_determine_cache_control() {
@@ -161,6 +153,37 @@ mod tests {
             response.status() == StatusCode::OK
                 || response.status() == StatusCode::INTERNAL_SERVER_ERROR
         );
+    }
+
+    #[test]
+    fn pipeline_links_with_dots_in_the_id_open_the_app() {
+        for uri in [
+            "/pipelines/gitea__3__acme%2Fapi%2Fci.yml",
+            "/pipelines/web.prod",
+        ] {
+            let response = serve_static(uri.parse().unwrap(), "/");
+
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                "text/html; charset=utf-8",
+                "{uri}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_files_in_built_asset_folders_are_not_found() {
+        let index = StaticAssets::get(INDEX_HTML).expect("dist/index.html");
+        if String::from_utf8_lossy(&index.data).contains("Frontend not built") {
+            return;
+        }
+
+        for uri in ["/assets/missing-abc123.js", "/provider-icons/missing.svg"] {
+            let response = serve_static(uri.parse().unwrap(), "/");
+
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+        }
     }
 
     #[tokio::test]
