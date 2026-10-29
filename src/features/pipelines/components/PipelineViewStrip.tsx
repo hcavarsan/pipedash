@@ -12,6 +12,12 @@ import { ToneDot } from './ToneDot'
 
 const EDGE = 16
 
+interface Chip {
+  id: string
+  label: string
+  dot?: ProviderTone | undefined
+}
+
 export function PipelineViewStrip(): ReactNode {
   const query = usePipelineViewQuery()
   const [searchParams] = useSearchParams()
@@ -20,12 +26,21 @@ export function PipelineViewStrip(): ReactNode {
   const now = useNow(30_000)
   const activeId = activeTabId(views, query)
   const scrollerRef = useRef<HTMLDivElement>(null)
+  const providerChips: Chip[] = providers.map((provider) => ({
+    id: providerTabId(provider.id),
+    label: `${provider.name} ${provider.pipeline_count}`,
+    dot: providerTone(provider, now),
+  }))
+  const chips = views
+    .filter((view) => view.parent === null)
+    .flatMap((view): Chip[] => (view.kind === 'pinned' ? providerChips : [{ id: view.id, label: view.name }]))
+  const activeIndex = chips.findIndex((chip) => chip.id === activeId)
 
   useLayoutEffect(() => {
     const scroller = scrollerRef.current
-    const chip = scroller?.querySelector<HTMLElement>(`[data-chip="${CSS.escape(activeId)}"]`)
+    const chip = scroller?.children[activeIndex]
 
-    if (!scroller || !chip) {
+    if (!scroller || !(chip instanceof HTMLElement)) {
       return
     }
 
@@ -37,36 +52,23 @@ export function PipelineViewStrip(): ReactNode {
     } else if (end > scroller.scrollLeft) {
       scroller.scrollLeft = end
     }
-  }, [activeId])
-
-  const chip = (id: string, label: string, dot?: ProviderTone) => {
-    const active = activeId === id
-
-    return (
-      <Link
-        key={id}
-        to={{ pathname: '/pipelines', search: tabSearch(searchParams, id).toString() }}
-        replace
-        className={classes.chip}
-        aria-current={active ? 'page' : undefined}
-        data-chip={id}
-      >
-        {dot && <ToneDot tone={dot} />}
-        <span className={classes.label}>{label}</span>
-      </Link>
-    )
-  }
-
-  const providerChips = providers.map((provider) =>
-    chip(providerTabId(provider.id), `${provider.name} ${provider.pipeline_count}`, providerTone(provider, now))
-  )
+  }, [activeIndex])
 
   return (
     <nav aria-label="Pipeline views" className={classes.strip}>
       <div ref={scrollerRef} className={classes.scroller}>
-        {views
-          .filter((view) => view.parent === null)
-          .flatMap((view) => (view.kind === 'pinned' ? providerChips : [chip(view.id, view.name)]))}
+        {chips.map(({ id, label, dot }) => (
+          <Link
+            key={id}
+            to={{ pathname: '/pipelines', search: tabSearch(searchParams, id).toString() }}
+            replace
+            className={classes.chip}
+            aria-current={activeId === id ? 'page' : undefined}
+          >
+            {dot && <ToneDot tone={dot} />}
+            <span className={classes.label}>{label}</span>
+          </Link>
+        ))}
       </div>
     </nav>
   )

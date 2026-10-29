@@ -56,8 +56,12 @@
 }
 
 :global(html[data-reduce-transparency]) .edge {
+  height: calc(var(--safe-bottom) + 76px);
+  background: var(--ios-grouped-bg);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
 .tab {

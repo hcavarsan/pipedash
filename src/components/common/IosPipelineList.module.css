@@ -169,7 +169,7 @@
   box-sizing: border-box;
   border: 1.5px solid var(--ios-separator);
   border-radius: 50%;
-  color: var(--ios-on-tint, white);
+  color: var(--ios-on-tint);
   pointer-events: none;
 }
 

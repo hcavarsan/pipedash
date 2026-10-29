@@ -40,7 +40,7 @@
 
 .chip[aria-current="page"] {
   background: var(--ios-tint);
-  color: #fff;
+  color: var(--ios-on-tint);
 }
 
 .chip:focus-visible {
