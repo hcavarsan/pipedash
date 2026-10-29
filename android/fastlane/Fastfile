@@ -14,6 +14,7 @@ TAURI_DIR = File.join(ROOT, "crates/pipedash-desktop")
 ANDROID_DIR = File.join(TAURI_DIR, "gen/android")
 FASTLANE_DIR = File.join(ROOT, "android/fastlane")
 AAB = File.join(ANDROID_DIR, "app/build/outputs/bundle/universalRelease/app-universal-release.aab")
+DATA_SAFETY = File.join(FASTLANE_DIR, "data_safety.csv")
 DEBUG_APK = File.join(ANDROID_DIR, "app/build/outputs/apk/universal/debug/app-universal-debug.apk")
 RELEASE_TARGETS = %w[aarch64 armv7 x86_64].freeze
 RELEASE_ABIS = %w[arm64-v8a armeabi-v7a x86_64].freeze
@@ -231,6 +232,8 @@ platform :android do
   desc "Replace the en-US images on the Play listing without publishing a build"
   lane :upload_screenshots do
     screenshots_path = prepare_screenshots
+    version_code = google_play_track_version_codes(package_name: APP_ID, track: "internal", json_key_data: play_key).max
+    UI.user_error!("supply attaches listing uploads to a release, and the internal track has none. Run beta first") unless version_code
     Dir.mktmpdir do |metadata_path|
       AndroidProject.assemble_metadata(
         source: File.join(FASTLANE_DIR, "metadata/android"),
@@ -240,6 +243,8 @@ platform :android do
       upload_to_play_store(
         package_name: APP_ID,
         json_key_data: play_key,
+        track: "internal",
+        version_code: version_code,
         metadata_path: metadata_path,
         skip_upload_aab: true,
         skip_upload_apk: true,
@@ -250,5 +255,22 @@ platform :android do
         sync_image_upload: true,
       )
     end
+  end
+
+  desc "Send android/fastlane/data_safety.csv as the Data safety form"
+  lane :data_safety do
+    require "google/apis/androidpublisher_v3"
+    service = Google::Apis::AndroidpublisherV3::AndroidPublisherService.new
+    service.authorization = Google::Auth::ServiceAccountCredentials.make_creds(
+      json_key_io: StringIO.new(play_key),
+      scope: Google::Apis::AndroidpublisherV3::AUTH_ANDROIDPUBLISHER,
+    )
+    request = Google::Apis::AndroidpublisherV3::SafetyLabelsUpdateRequest.new(safety_labels: File.read(DATA_SAFETY))
+    begin
+      service.data_application_safety(APP_ID, request)
+    rescue Google::Apis::Error => error
+      UI.user_error!("Google Play rejected the Data safety form: #{error.message}")
+    end
+    UI.success("Data safety form updated from #{File.basename(DATA_SAFETY)}")
   end
 end

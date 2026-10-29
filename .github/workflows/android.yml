@@ -7,12 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       lane:
-        description: "beta: internal testing; release: production; upload_screenshots: images only; bundle: signed AAB for the first Console upload"
+        description: "beta: internal testing; release: production; upload_screenshots: images only; data_safety: Data safety form; bundle: signed AAB for the first Console upload"
         type: choice
         options:
           - beta
           - release
           - upload_screenshots
+          - data_safety
           - bundle
         default: beta
       beta_ref:
@@ -53,7 +54,7 @@ jobs:
           rust-targets: aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
       - name: Write upload keystore
-        if: ${{ (inputs.lane || 'beta') != 'upload_screenshots' }}
+        if: ${{ !contains(fromJSON('["upload_screenshots", "data_safety"]'), inputs.lane || 'beta') }}
         env:
           ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
         run: |

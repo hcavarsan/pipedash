@@ -120,10 +120,17 @@ class AndroidLanesTest < Minitest::Test
   end
 
   def test_screenshot_upload_never_builds_or_uploads_a_bundle
+    error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:upload_screenshots) }
+    assert_includes error.message, "internal track has none"
+    assert_empty @events
+
+    @scenario[:codes] = { "internal" => [4, 9] }
     run_lane(:upload_screenshots)
 
     assert_equal [:upload], @events
     published = @scenario.fetch(:published)
+    assert_equal "internal", published.fetch(:track)
+    assert_equal 9, published.fetch(:version_code)
     assert_equal true, published.fetch(:skip_upload_aab)
     assert_equal true, published.fetch(:skip_upload_apk)
     assert_equal false, published.fetch(:skip_upload_images)
