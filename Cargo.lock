@@ -87,6 +87,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "android-native-keyring-store"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48c6349ddff23194f8fdce2ea8849380f5a4868c1648965b70e801e104cba9b3"
+dependencies = [
+ "base64 0.22.1",
+ "jni 0.21.1",
+ "keyring-core",
+ "log",
+ "ndk-context",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4127,6 +4145,7 @@ name = "pipedash-desktop"
 version = "0.5.0"
 dependencies = [
  "aes-gcm",
+ "android-native-keyring-store",
  "anyhow",
  "apple-native-keyring-store",
  "argon2",
@@ -4135,8 +4154,10 @@ dependencies = [
  "chrono",
  "dirs 7.0.0",
  "futures",
+ "jni 0.22.4",
  "keyring",
  "keyring-core",
+ "ndk-context",
  "pipedash-core",
  "pipedash-plugin-api",
  "pipedash-plugin-argocd",
@@ -4153,6 +4174,7 @@ dependencies = [
  "rand 0.10.3",
  "reqwest",
  "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "sha2 0.11.1",

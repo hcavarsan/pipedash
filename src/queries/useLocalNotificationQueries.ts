@@ -5,7 +5,7 @@ import { queryKeys } from '../lib/queryKeys'
 import { mobileService } from '../services/mobile'
 import { useNotificationStore } from '../stores/notificationStore'
 import { displayErrorNotification } from '../utils/errorDisplay'
-import { isIosPlatform } from '../utils/platform'
+import { isMobilePlatform } from '../utils/platform'
 
 const mutationKey = [...queryKeys.localNotifications.all, 'change']
 
@@ -13,7 +13,7 @@ export function useLocalNotificationSettings() {
   return useQuery({
     queryKey: queryKeys.localNotifications.settings(),
     queryFn: () => mobileService.getLocalNotificationSettings(),
-    enabled: isIosPlatform(),
+    enabled: isMobilePlatform(),
     staleTime: 0,
     retry: false,
   })
@@ -48,7 +48,7 @@ export function useLocalNotificationsLifecycle() {
   }, [enabled])
 
   useEffect(() => {
-    if (!isIosPlatform()) {
+    if (!isMobilePlatform()) {
       return
     }
     const refresh = () => {

@@ -14,7 +14,7 @@ class ScreenshotLanesTest < Minitest::Test
   FileUtils.mkdir_p([FIXTURE_FASTLANE, File.join(FIXTURE_ROOT, "ios/app-store-screenshots"),
                      File.join(FIXTURE_FASTLANE, "release_notes"), File.join(FIXTURE_ROOT, "crates/pipedash-desktop")])
   FileUtils.cp(File.join(__dir__, "Fastfile"), FIXTURE_FASTLANE)
-  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb store_text.rb review_notes.txt
+  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb store_text.rb store_version.rb review_notes.txt
      metadata age_rating.json].each do |name|
     FileUtils.ln_s(File.join(__dir__, name), FIXTURE_FASTLANE)
   end

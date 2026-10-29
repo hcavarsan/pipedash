@@ -2,7 +2,7 @@ import { Alert, Card, Code, Group, Stack, Text, Tooltip } from '@mantine/core'
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react'
 
 import { useMobileShell } from '../../../hooks/useIsMobile'
-import { isMobilePlatform } from '../../../utils/platform'
+import { isMobilePlatform, secureStoreLabel } from '../../../utils/platform'
 import { CopyButton } from '../../atoms/CopyButton'
 import { IosGroup, IosRow } from '../../ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../settings/storageLabels'
@@ -63,7 +63,7 @@ export function ConfirmStep({
           {state.backend === 'postgres' && (
             <IosRow title="Connection" value={summarizeConnection(state.postgresUrl) ?? 'Unavailable'} />
           )}
-          <IosRow title="Credentials" value="Device Keychain" />
+          <IosRow title="Credentials" value={secureStoreLabel()} />
           {showTransferStep && (
             <IosRow title="Data migration" value={state.transferData ? 'Transfer data' : 'Fresh start'} />
           )}
@@ -128,7 +128,7 @@ export function ConfirmStep({
                 Credentials
               </Text>
               <Text size="sm" fw={500}>
-                {onDevice ? 'Device Keychain' : 'Encrypted storage'}
+                {onDevice ? secureStoreLabel() : 'Encrypted storage'}
               </Text>
             </Group>
 

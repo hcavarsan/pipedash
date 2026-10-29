@@ -1,0 +1,61 @@
+name: Set up Android build
+description: Install the toolchain that builds the Tauri Android app with fastlane.
+inputs:
+  rust-targets:
+    description: Space-separated Rust targets to install
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install mise
+      uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+      with:
+        install: false
+        cache: false
+
+    - name: Install mise tools
+      shell: bash
+      run: mise install
+
+    - name: Install dependencies
+      shell: bash
+      run: mise run install
+
+    - name: Install Java
+      uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      with:
+        distribution: temurin
+        java-version: "21"
+
+    - name: Install Ruby
+      uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1.335.0
+      with:
+        ruby-version: "3.4"
+        working-directory: android
+
+    - name: Install fastlane
+      shell: bash
+      working-directory: android
+      run: bundle install
+
+    - name: Install Rust targets
+      shell: bash
+      env:
+        RUST_TARGETS: ${{ inputs.rust-targets }}
+      run: |
+        read -r -a targets <<< "$RUST_TARGETS"
+        rustup target add "${targets[@]}"
+
+    - name: Install Android SDK
+      shell: bash
+      run: |
+        yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+        "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-37.0" "build-tools;37.0.0" "ndk;30.0.16248370"
+        echo "NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+
+    - name: Install bundletool
+      shell: bash
+      run: |
+        curl -fsSL -o "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+        echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $RUNNER_TEMP/bundletool.jar" | sha256sum -c -
+        echo "BUNDLETOOL_JAR=$RUNNER_TEMP/bundletool.jar" >> "$GITHUB_ENV"

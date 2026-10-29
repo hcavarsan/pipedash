@@ -38,8 +38,10 @@ let browser
 // iPhone and iPad feed the App Store decks. Desktop and iPhone, as webp, feed the README through
 // pipedash-website/public/img/readme/{desktop,mobile}/NN-<page>.webp.
 const devices = {
-  iphone: { width: 440, height: 956, scale: 3, mobile: true, folder: 'apple/iphone', agent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X' },
+  iphone: { width: 440, height: 956, scale: 3, mobile: true, phone: true, safeArea: { top: '62px', bottom: '34px' }, folder: 'apple/iphone', agent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X' },
   ipad: { width: 1032, height: 1376, scale: 2, mobile: true, folder: 'apple/ipad', agent: 'iPad; CPU OS 18_0 like Mac OS X' },
+  'android-phone': { width: 360, height: 780, scale: 3, mobile: true, phone: true, safeArea: { top: '32px', bottom: '24px' }, folder: 'android/phone', agent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X' },
+  'android-tablet': { width: 800, height: 1280, scale: 2, mobile: true, folder: 'android/tablet', agent: 'iPad; CPU OS 18_0 like Mac OS X' },
   desktop: { width: 1280, height: 800, scale: 2, mobile: false, folder: 'desktop', agent: 'Macintosh; Intel Mac OS X 10_15_7' },
 }
 
@@ -83,18 +85,18 @@ try {
     page.on('pageerror', (error) => failures.push(error.message))
     const folder = `${output}/${settings.folder}/en`
     await mkdir(folder, { recursive: true })
-    const phone = device === 'iphone'
+    const phone = settings.phone === true
     const prepare = async (path = '/pipelines', ready = 'Release iOS app') => {
       await page.goto(`${baseUrl}${path}`)
       await page.getByText(ready, { exact: true }).first().waitFor()
-      await page.evaluate(async ({ items, phone }) => {
+      await page.evaluate(async ({ items, safeArea }) => {
         const { useNotificationCenterStore } = await import('/src/stores/notificationCenterStore.ts')
         useNotificationCenterStore.setState({ items })
-        if (phone) {
-          document.documentElement.style.setProperty('--native-safe-area-top', '62px')
-          document.documentElement.style.setProperty('--native-safe-area-bottom', '34px')
+        if (safeArea) {
+          document.documentElement.style.setProperty('--native-safe-area-top', safeArea.top)
+          document.documentElement.style.setProperty('--native-safe-area-bottom', safeArea.bottom)
         }
-      }, { items: notifications, phone })
+      }, { items: notifications, safeArea: settings.safeArea })
       await page.addStyleTag({ content: '.tsqd-parent-container { display: none !important; }' })
     }
     const capture = async (number, expected) => {

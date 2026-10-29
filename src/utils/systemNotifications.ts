@@ -7,22 +7,26 @@ import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 import { useNotificationStore } from '../stores/notificationStore'
 import type { NotificationTarget } from '../types'
 
-import { isIosPlatform, isMobilePlatform } from './platform'
+import { isAndroidPlatform, isMobilePlatform } from './platform'
 
 export const openNotificationDetails = (key: string): void => {
   useNotificationCenterStore.getState().open({ type: 'notification', key })
 }
 
 export const systemDeliveryEnabled = (): boolean =>
-  !isIosPlatform() && useNotificationStore.getState().notificationsEnabled
+  !isMobilePlatform() && useNotificationStore.getState().notificationsEnabled
 
 export const systemNotificationsSupported = (): boolean =>
   isTauri() || ('Notification' in window && window.isSecureContext)
 
 export function notificationProblem(kind: 'unsupported' | 'blocked'): string {
   if (isMobilePlatform()) {
-    return kind === 'unsupported'
-      ? "Notifications aren't available on this device."
+    if (kind === 'unsupported') {
+      return "Notifications aren't available on this device."
+    }
+
+    return isAndroidPlatform()
+      ? 'Notifications are off for Pipedash. Turn them on in Android Settings > Apps > Pipedash > Notifications, then try again.'
       : 'Notifications are off for Pipedash. Turn them on in the Settings app under Notifications > Pipedash, then try again.'
   }
 

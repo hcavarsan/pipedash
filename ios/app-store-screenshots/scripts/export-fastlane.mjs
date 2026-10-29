@@ -10,17 +10,33 @@ import JSZip from 'jszip'
 import { chromium } from 'playwright'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const targets = { iphone: [1320, 2868], ipad: [2064, 2752] }
+export const stores = {
+  apple: {
+    output: '../fastlane/screenshots',
+    targets: {
+      iphone: { platform: 'ios', tab: 'iOS', option: 'iPhone', size: [1320, 2868], slides: [1, 10], file: n => `${n}-iphone.png` },
+      ipad: { platform: 'ios', tab: 'iOS', option: 'iPad', size: [2064, 2752], slides: [1, 10], file: n => `${n}-ipad.png` },
+    },
+  },
+  play: {
+    output: '../../android/fastlane/screenshots',
+    targets: {
+      android: { platform: 'android', tab: 'Android', option: 'Android Phone', size: [1080, 1920], slides: [2, 8], file: n => `images/phoneScreenshots/${n}.png` },
+      'android-10': { platform: 'android', tab: 'Android', option: 'Android 10" Tablet', size: [1600, 2560], slides: [1, 8], file: n => `images/tenInchScreenshots/${n}.png` },
+      'feature-graphic': { platform: 'android', tab: 'Android', option: 'Feature Graphic', size: [1024, 500], slides: [1, 1], file: () => 'images/featureGraphic.png' },
+    },
+  },
+}
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 
-export function validateProject(project) {
+export function validateProject(project, targets = stores.apple.targets) {
   assert.deepEqual(project.locales, ['en'], 'Only the en locale is supported; Fastlane output is en-US')
   assert.equal(project.locale, 'en', 'The active locale must be en')
-  assert(Object.hasOwn(targets, project.device), 'The active device must be iPhone or iPad')
+  assert(Object.values(stores).some(store => Object.hasOwn(store.targets, project.device)), 'The active device must be a Fastlane export target')
   assert.equal(project.orientation, 'portrait', 'Fastlane screenshots require portrait orientation')
-  for (const device of Object.keys(targets)) {
+  for (const [device, { slides: [min, max] }] of Object.entries(targets)) {
     const slides = project.slidesByDevice?.[device]
-    assert(Array.isArray(slides) && slides.length >= 1 && slides.length <= 10, `${device} requires 1–10 slides`)
+    assert(Array.isArray(slides) && slides.length >= min && slides.length <= max, `${device} requires ${min}–${max} slides`)
     for (const slide of slides) assert(/^[a-z0-9-]+$/.test(slide.layout), `Invalid ${device} slide layout`)
   }
 }
@@ -57,17 +73,16 @@ function validatePng(bytes, width, height, name) {
   for (let row = 0; row < height; row++) assert(pixels[row * rowLength] <= 4, `${name}: invalid PNG filter`)
 }
 
-export async function validateBundle(bytes, device, slides) {
-  assert(Object.hasOwn(targets, device), 'Unsupported export device')
-  const [width, height] = targets[device]
-  const prefix = `ios/${device}/${width}x${height}/en/`
+export async function validateBundle(bytes, device, slides, target) {
+  const [width, height] = target.size
+  const prefix = `${target.platform}/${device}/${width}x${height}/en/`
   const zip = await JSZip.loadAsync(bytes, { checkCRC32: true })
   const files = Object.values(zip.files).filter(file => !file.dir)
   for (const file of files) {
     const original = file.unsafeOriginalName ?? file.name
     assert(!original.includes('\\') && !original.startsWith('/') && !original.split('/').some(part => part === '..' || part === '.'), `Unsafe ZIP member: ${original}`)
     assert.equal(original, file.name, `Rewritten ZIP member: ${original}`)
-    assert(new RegExp(`^ios/${device}/[0-9]+x[0-9]+/en/[0-9]{2}-[a-z0-9-]+\\.png$`).test(file.name), `Unexpected ZIP member: ${file.name}`)
+    assert(new RegExp(`^${target.platform}/${device}/[0-9]+x[0-9]+/en/[0-9]{2}-[a-z0-9-]+\\.png$`).test(file.name), `Unexpected ZIP member: ${file.name}`)
   }
   const selected = files.filter(file => file.name.startsWith(prefix)).sort((a, b) => a.name.localeCompare(b.name))
   assert.equal(selected.length, slides.length, `${device}: incomplete or duplicate target-size screenshots`)
@@ -77,7 +92,7 @@ export async function validateBundle(bytes, device, slides) {
     assert.equal(file.name, `${prefix}${number}-${slides[index].layout}.png`, `${device}: wrong slide order or layout`)
     const png = await file.async('nodebuffer')
     validatePng(png, width, height, file.name)
-    output.push({ name: `${number}-${device}.png`, bytes: png })
+    output.push({ name: target.file(number), bytes: png })
   }
   return output
 }
@@ -116,7 +131,7 @@ async function stopServer(child) {
   try { await exited } finally { clearTimeout(timeout) }
 }
 
-async function exportDevice(browser, url, project, device, archive) {
+async function exportDevice(browser, url, project, device, target, archive) {
   const context = await browser.newContext({ acceptDownloads: true, locale: 'en-US', viewport: { width: 1600, height: 1000 } })
   try {
     let memory = structuredClone(project)
@@ -141,8 +156,9 @@ async function exportDevice(browser, url, project, device, archive) {
     })
     await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 })
     const saved = memory.device !== device ? page.waitForResponse(response => response.url().endsWith('/api/project') && response.request().method() === 'POST' && response.request().postDataJSON().device === device) : null
+    await page.getByRole('tab', { name: target.tab, exact: true }).click()
     await page.getByRole('combobox', { name: 'Device', exact: true }).click()
-    await page.getByRole('option', { name: device === 'iphone' ? 'iPhone' : 'iPad', exact: true }).click()
+    await page.getByRole('option', { name: target.option, exact: true }).click()
     await saved
     const download = page.waitForEvent('download', { timeout: 240_000 })
     const failure = page.waitForFunction(() => window.__exportFailures.length > 0, { }, { timeout: 240_000 }).then(async () => {
@@ -156,19 +172,21 @@ async function exportDevice(browser, url, project, device, archive) {
     await page.waitForFunction(() => [...document.querySelectorAll('[data-sonner-toast][data-type="success"]')].some(toast => toast.textContent.startsWith('Exported ')), {}, { timeout: 30_000 })
     errors.push(...await page.evaluate(() => window.__exportFailures))
     assert.deepEqual(errors, [], `${device}: editor export warnings or missing assets`)
-    return await validateBundle(await readFile(archive), device, project.slidesByDevice[device])
+    return await validateBundle(await readFile(archive), device, project.slidesByDevice[device], target)
   } finally {
     await context.close()
   }
 }
 
-export async function main() {
+export async function main(store = process.argv[2] ?? 'apple') {
+  assert(Object.hasOwn(stores, store), `Unknown store: ${store}`)
+  const { targets } = stores[store]
   const projectPath = path.join(root, 'app-store-screenshots.json')
   const canonical = await readFile(projectPath)
   const project = JSON.parse(canonical.toString())
-  validateProject(project)
+  validateProject(project, targets)
   await access(path.join(root, '.next', 'BUILD_ID')).catch(() => { throw new Error('Build the screenshot editor first: bun run build') })
-  const output = path.resolve(root, '../fastlane/screenshots')
+  const output = path.resolve(root, stores[store].output)
   await mkdir(output, { recursive: true })
   await mkdir(path.join(root, 'exports'), { recursive: true })
   const stage = await mkdtemp(path.join(output, '.export-'))
@@ -192,11 +210,15 @@ export async function main() {
     if (interrupted) throw new Error('Screenshot export interrupted')
     const generated = path.join(stage, 'en-US')
     await mkdir(generated)
-    for (const device of Object.keys(targets)) {
+    for (const [device, target] of Object.entries(targets)) {
       const archive = path.join(root, 'exports', `${device}.zip`)
-      const files = await exportDevice(browser, url, project, device, archive)
+      const files = await exportDevice(browser, url, project, device, target, archive)
       if (interrupted) throw new Error('Screenshot export interrupted')
-      for (const file of files) await writeFile(path.join(generated, file.name), file.bytes)
+      for (const file of files) {
+        const destination = path.join(generated, file.name)
+        await mkdir(path.dirname(destination), { recursive: true })
+        await writeFile(destination, file.bytes)
+      }
       console.log(`${device}: ${files.length} validated screenshots; complete bundle: ${archive}`)
     }
     assert((await readFile(projectPath)).equals(canonical), 'Canonical project changed during export; output was not replaced')

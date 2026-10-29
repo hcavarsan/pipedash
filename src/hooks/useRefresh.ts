@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { logger } from '../lib/logger'
 import { isTauri, tauriService } from '../services'
+import { isAndroidPlatform } from '../utils/platform'
 
 export const useRefresh = () => {
   useEffect(() => {
@@ -21,8 +22,11 @@ export const useRefresh = () => {
       })
     }
 
-    appWindow
-      .isFocused()
+    const initiallyFocused = isAndroidPlatform()
+      ? Promise.resolve(document.visibilityState === 'visible')
+      : appWindow.isFocused()
+
+    initiallyFocused
       .then((focused) => {
         if (mounted && !focusEventSeen) {
           apply(focused)

@@ -116,7 +116,7 @@ impl<R: Runtime> PipedashNative<R> {
         Ok(LocalNotificationSettings {
             enabled: false,
             available: false,
-            reason: Some("Background notifications require the Pipedash iOS app".to_string()),
+            reason: Some("Background notifications require the Pipedash mobile app".to_string()),
         })
     }
 

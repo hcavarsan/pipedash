@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 publish = false
 links = "tauri-plugin-pipedash-native"
-description = "UIKit integration for the Pipedash iOS app: haptics, appearance, privacy cover, share sheet, notification actions and status-bar taps."
+description = "Native integration for the Pipedash mobile apps: haptics, appearance, privacy cover, share sheet, notification actions and background refresh."
 
 [dependencies]
 serde = { workspace = true }

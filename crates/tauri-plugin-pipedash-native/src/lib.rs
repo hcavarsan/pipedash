@@ -8,17 +8,17 @@ use tauri::{
 };
 
 mod error;
-#[cfg(target_os = "ios")]
+#[cfg(mobile)]
 mod mobile;
 mod model;
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(mobile))]
 mod unsupported;
 
 pub use error::{
     Error,
     Result,
 };
-#[cfg(target_os = "ios")]
+#[cfg(mobile)]
 pub use mobile::PipedashNative;
 pub use model::{
     Accessibility,
@@ -35,7 +35,7 @@ pub use model::{
     PrivacyCover,
     ShareRect,
 };
-#[cfg(not(target_os = "ios"))]
+#[cfg(not(mobile))]
 pub use unsupported::PipedashNative;
 
 pub trait PipedashNativeExt<R: Runtime> {
@@ -51,9 +51,9 @@ impl<R: Runtime, T: Manager<R>> PipedashNativeExt<R> for T {
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("pipedash-native")
         .setup(|app, api| {
-            #[cfg(target_os = "ios")]
+            #[cfg(mobile)]
             let native = mobile::init(app, api)?;
-            #[cfg(not(target_os = "ios"))]
+            #[cfg(not(mobile))]
             let native = unsupported::init(app, api)?;
             app.manage(native);
             Ok(())

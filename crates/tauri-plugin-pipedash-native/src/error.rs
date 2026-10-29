@@ -7,7 +7,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("This is only available in the iOS app")]
+    #[error("This is only available in the mobile app")]
     Unsupported,
     #[error("{0}")]
     Native(String),

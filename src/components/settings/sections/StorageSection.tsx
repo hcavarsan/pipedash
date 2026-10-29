@@ -15,7 +15,7 @@ import { useLockVault, useVaultStatus } from '../../../queries/useVaultQueries'
 import { isTauri } from '../../../services'
 import { formatErrorMessage } from '../../../types/errors'
 import { lockMeansSomething } from '../../../utils/appLock'
-import { isMobilePlatform } from '../../../utils/platform'
+import { isMobilePlatform, secureStoreLabel } from '../../../utils/platform'
 import { EmptyState } from '../../common/EmptyState'
 import { ErrorState } from '../../common/ErrorState'
 import { LoadingState } from '../../common/LoadingState'
@@ -149,7 +149,7 @@ export const StorageSection = () => {
               title="Credentials"
               value={
                 vaultStatus?.password_source === 'keyring'
-                  ? 'Device Keychain'
+                  ? secureStoreLabel()
                   : `Encrypted in ${STORAGE_BACKEND_LABELS[backend]}`
               }
             />

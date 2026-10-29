@@ -7,7 +7,7 @@ import { isTauri } from '@/services'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { openConfirm } from '@/utils/confirm'
 import { displayWarningNotification } from '@/utils/errorDisplay'
-import { isIosPlatform, isMobilePlatform } from '@/utils/platform'
+import { isAndroidPlatform, isMobilePlatform } from '@/utils/platform'
 import {
   notificationProblem,
   requestSystemNotificationPermission,
@@ -22,15 +22,13 @@ import { PushNotificationsCard } from '../PushNotificationsCard'
 
 const DESCRIPTION =
   'Get a system notification when a pipeline fails or runs longer than usual, and when a provider has an outage or recovers.'
-const IOS_DESCRIPTION = `${DESCRIPTION} Pipedash also checks in the background when iOS allows it.`
 
-function confirmBackgroundAccess(): Promise<boolean> {
+function confirmBackgroundAccess(system: string): Promise<boolean> {
   const { promise, resolve } = Promise.withResolvers<boolean>()
 
   openConfirm({
     title: 'Turn on notifications?',
-    children:
-      'While this device is locked, Pipedash uses the provider credentials saved on it to check for failed pipelines, long-running runs, and provider outages. iOS decides when these checks happen, so alerts can be delayed. iOS asks to allow notifications next. Turning notifications off removes this access.',
+    children: `While this device is locked, Pipedash uses the provider credentials saved on it to check for failed pipelines, long-running runs, and provider outages. ${system} decides when these checks happen, so alerts can be delayed. ${system} asks to allow notifications next. Turning notifications off removes this access.`,
     labels: isMobileShell() ? { confirm: 'Turn On', cancel: 'Cancel' } : { confirm: 'Turn on', cancel: 'Cancel' },
     onConfirm: () => resolve(true),
     onCancel: () => resolve(false),
@@ -42,7 +40,8 @@ function confirmBackgroundAccess(): Promise<boolean> {
 
 export function NotificationsSection() {
   const mobileShell = useMobileShell()
-  const ios = isIosPlatform()
+  const background = isMobilePlatform()
+  const system = isAndroidPlatform() ? 'Android' : 'iOS'
   const storeEnabled = useNotificationStore((s) => s.notificationsEnabled)
   const setStoreEnabled = useNotificationStore((s) => s.setNotificationsEnabled)
   const settings = useLocalNotificationSettings()
@@ -51,15 +50,17 @@ export function NotificationsSection() {
   const [blocked, setBlocked] = useState(() => 'Notification' in window && Notification.permission === 'denied')
   const [busy, setBusy] = useState(false)
 
-  const enabled = notificationsSupported && (ios ? settings.data?.enabled === true : storeEnabled)
-  const disabled = !notificationsSupported || busy || (ios && settings.data === undefined)
-  const description = ios ? IOS_DESCRIPTION : DESCRIPTION
+  const enabled = notificationsSupported && (background ? settings.data?.enabled === true : storeEnabled)
+  const disabled = !notificationsSupported || busy || (background && settings.data === undefined)
+  const description = background
+    ? `${DESCRIPTION} Pipedash also checks in the background when ${system} allows it.`
+    : DESCRIPTION
   let note: string | undefined
   if (!notificationsSupported) {
     note = notificationProblem('unsupported')
-  } else if (ios && settings.isError) {
+  } else if (background && settings.isError) {
     note = "Couldn't read the notification settings for this device."
-  } else if (ios && settings.data?.enabled && !settings.data.available) {
+  } else if (background && settings.data?.enabled && !settings.data.available) {
     note = settings.data.reason ?? undefined
   }
 
@@ -71,7 +72,7 @@ export function NotificationsSection() {
     setBusy(true)
     try {
       if (next) {
-        if (ios && !(await confirmBackgroundAccess())) {
+        if (background && !(await confirmBackgroundAccess(system))) {
           return
         }
 
@@ -85,7 +86,7 @@ export function NotificationsSection() {
         setBlocked(false)
       }
 
-      if (!ios) {
+      if (!background) {
         setStoreEnabled(next)
 
         return

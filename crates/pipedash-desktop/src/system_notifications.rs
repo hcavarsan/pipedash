@@ -2,11 +2,11 @@ use tauri::{
     AppHandle,
     Runtime,
 };
-#[cfg(desktop)]
+#[cfg(not(target_os = "ios"))]
 use tauri_plugin_notification::ActionPerformed;
 use tauri_plugin_notification::NotificationExt;
 
-#[cfg(desktop)]
+#[cfg(not(target_os = "ios"))]
 use crate::native::{
     publish,
     NativeIntent,
@@ -21,11 +21,11 @@ use crate::{
 
 #[cfg(desktop)]
 const MAIN_WINDOW: &str = "main";
-#[cfg(desktop)]
+#[cfg(not(target_os = "ios"))]
 const TAP_ACTION: &str = "tap";
 
 pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    #[cfg(desktop)]
+    #[cfg(not(target_os = "ios"))]
     {
         let handle = app.clone();
         app.notification()
@@ -36,7 +36,7 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     crate::native::register(app)
 }
 
-#[cfg(desktop)]
+#[cfg(not(target_os = "ios"))]
 fn clicked_target(performed: &ActionPerformed) -> Option<NotificationTarget> {
     if performed.action_id() != TAP_ACTION {
         return None;
@@ -59,12 +59,13 @@ pub(crate) fn focus_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-#[cfg(desktop)]
+#[cfg(not(target_os = "ios"))]
 fn on_action<R: Runtime>(app: &AppHandle<R>, performed: &ActionPerformed) {
     let Some(target) = clicked_target(performed) else {
         return;
     };
 
+    #[cfg(desktop)]
     focus_main_window(app);
     publish(
         app,

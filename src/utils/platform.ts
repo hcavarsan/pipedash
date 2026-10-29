@@ -44,7 +44,9 @@ function tauriPlatform(): Platform {
 
 export const isMobilePlatform = (): boolean => isTauri() && isMobileOs(tauriPlatform())
 
-export const isIosPlatform = (): boolean => isTauri() && tauriPlatform() === 'ios'
+export const isAndroidPlatform = (): boolean => isTauri() && tauriPlatform() === 'android'
+
+export const secureStoreLabel = (): string => (isAndroidPlatform() ? 'Android Keystore' : 'Device Keychain')
 
 export const isDesktopTauri = (): boolean => isTauri() && !isMobilePlatform()
 

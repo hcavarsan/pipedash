@@ -35,11 +35,17 @@ use crate::{
     ShareRect,
 };
 
+#[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_pipedash_native);
 
 pub fn init<R: Runtime, C: DeserializeOwned>(
     _app: &AppHandle<R>, api: PluginApi<R, C>,
 ) -> Result<PipedashNative<R>> {
+    #[cfg(target_os = "android")]
+    let handle = api
+        .register_android_plugin("com.henrique.pipedash.plugin", "NativePlugin")
+        .map_err(|e| Error::Native(e.to_string()))?;
+    #[cfg(target_os = "ios")]
     let handle = api
         .register_ios_plugin(init_plugin_pipedash_native)
         .map_err(|e| Error::Native(e.to_string()))?;
@@ -101,6 +107,12 @@ struct FinishNotificationRefreshArgs<'a> {
 #[derive(Deserialize)]
 struct ShareResult {
     completed: bool,
+}
+
+#[cfg(target_os = "android")]
+#[derive(Deserialize)]
+struct FlagResult {
+    value: bool,
 }
 
 #[derive(Deserialize)]
@@ -185,6 +197,12 @@ impl<R: Runtime> PipedashNative<R> {
 
     pub async fn open_settings(&self) -> Result<()> {
         self.call("openSettings", ()).await
+    }
+
+    #[cfg(target_os = "android")]
+    pub async fn resumed_in_app(&self) -> Result<bool> {
+        let result: FlagResult = self.call("resumedInApp", ()).await?;
+        Ok(result.value)
     }
 
     pub async fn set_badge(&self, count: u32) -> Result<()> {
