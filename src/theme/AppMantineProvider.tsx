@@ -9,11 +9,10 @@ import { useNativeChrome } from '../hooks/useNativeChrome'
 import { useSheetDrag } from '../hooks/useSheetDrag'
 import { mobileService } from '../services/mobile'
 import { isMobilePlatform } from '../utils/platform'
-
-import { theme } from './index'
 import { iosCssVariablesResolver, iosTheme } from './ios'
+import { theme } from './theme'
 
-function NativeAppearanceSync() {
+function NativeAppearanceSync(): ReactNode {
   const { colorScheme } = useMantineColorScheme()
 
   useEffect(() => {
@@ -27,7 +26,7 @@ function NativeAppearanceSync() {
   return null
 }
 
-export function AppMantineProvider({ children }: { children: ReactNode }) {
+export function AppMantineProvider({ children }: { children: ReactNode }): ReactNode {
   const mobileShell = useMobileShell()
 
   useNativeChrome(mobileShell)
@@ -36,8 +35,20 @@ export function AppMantineProvider({ children }: { children: ReactNode }) {
   useAccessibilityPrefs()
 
   useLayoutEffect(() => {
-    document.documentElement.toggleAttribute('data-ios', mobileShell)
-    document.documentElement.style.removeProperty('background-color')
+    const root = document.documentElement
+    const hadIos = root.hasAttribute('data-ios')
+    const background = root.style.getPropertyValue('background-color')
+    const priority = root.style.getPropertyPriority('background-color')
+
+    root.toggleAttribute('data-ios', mobileShell)
+    root.style.removeProperty('background-color')
+
+    return () => {
+      root.toggleAttribute('data-ios', hadIos)
+      if (background) {
+        root.style.setProperty('background-color', background, priority)
+      }
+    }
   }, [mobileShell])
 
   return (

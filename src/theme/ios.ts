@@ -2,6 +2,7 @@ import {
   ActionIcon,
   Button,
   Checkbox,
+  type ConvertCSSVariablesInput,
   type CSSVariablesResolver,
   createTheme,
   Input,
@@ -14,10 +15,9 @@ import {
   Tabs,
   v8CssVariablesResolver,
 } from '@mantine/core'
-
-import { baseTheme as theme } from './index'
 import classes from './ios.module.css'
 import { iosOverlayClasses, iosOverlayComponents } from './iosOverlays'
+import { baseTheme as theme } from './theme'
 
 const SYSTEM_FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif'
 
@@ -92,7 +92,7 @@ const IOS_ROLES = {
   ...tinted('green', '--ios-green'),
 }
 
-export const iosCssVariablesResolver: CSSVariablesResolver = (mantineTheme) => {
+export const iosCssVariablesResolver: CSSVariablesResolver = (mantineTheme): ConvertCSSVariablesInput => {
   const base = v8CssVariablesResolver(mantineTheme)
 
   return {

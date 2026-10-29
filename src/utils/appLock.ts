@@ -1,4 +1,4 @@
-import type { Biometry, VaultStatusResponse } from '../types'
+import type { Biometry, VaultStatusResponse } from '../types/domain'
 
 import { isAndroidPlatform } from './platform'
 

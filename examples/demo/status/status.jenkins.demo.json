@@ -1,0 +1,19 @@
+{{- $outage := eq (mod (div (now).Unix 600) 3) 1 -}}
+{
+  "components": [
+    {"id": "agents", "name": "Build agents", "status": "{{ if $outage }}partial_outage{{ else }}operational{{ end }}"},
+    {"id": "controller", "name": "Controller", "status": "operational"}
+  ],
+  "incidents": [
+    {{- if $outage }}
+    {
+      "id": "queued-builds",
+      "name": "Builds are queued",
+      "status": "investigating",
+      "impact": "major",
+      "components": [{"id": "agents"}],
+      "incident_updates": [{"body": "Half of the build agents are offline. Builds start late."}]
+    }
+    {{- end }}
+  ]
+}

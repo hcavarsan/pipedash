@@ -1329,4 +1329,56 @@ mod tests {
         assert!(!release.capabilities.edit_display);
         assert_eq!(h.bus.count("pipeline-views-changed"), 1);
     }
+
+    #[tokio::test]
+    async fn pipeline_view_rules_drop_a_removed_provider_and_stay_editable() {
+        let h = Harness::new().await;
+        let kept = h.add_provider("kept").await;
+        let removed = h.add_provider("removed").await;
+        let views = service(&h);
+        let shared = views
+            .create_view(CreateViewInput {
+                rules: ViewRules {
+                    provider_ids: vec![kept, removed],
+                    ..Default::default()
+                },
+                ..input("Release")
+            })
+            .await
+            .unwrap();
+        let only_removed = views
+            .create_view(CreateViewInput {
+                rules: ViewRules {
+                    provider_ids: vec![removed],
+                    name_contains: Some("deploy".into()),
+                    ..Default::default()
+                },
+                ..input("Removed deploys")
+            })
+            .await
+            .unwrap();
+
+        h.provider_service.remove_provider(removed).await.unwrap();
+
+        let stored = views.list_views().await.unwrap();
+        let rules_of = |id: &ViewRef| stored.iter().find(|v| v.id == *id).unwrap().rules.clone();
+        assert_eq!(rules_of(&shared.id).provider_ids, vec![kept]);
+        assert_eq!(rules_of(&only_removed.id), ViewRules::default());
+
+        let edited = views
+            .update_view(
+                shared.id.clone(),
+                ViewPatch {
+                    rules: Some(ViewRules {
+                        name_contains: Some("deploy".into()),
+                        ..rules_of(&shared.id)
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(edited.rules.provider_ids, vec![kept]);
+        assert_eq!(edited.rules.name_contains.as_deref(), Some("deploy"));
+    }
 }

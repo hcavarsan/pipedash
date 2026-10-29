@@ -11,6 +11,7 @@ license = "GPL-3.0"
 async-trait.workspace = true
 chrono.workspace = true
 futures.workspace = true
+pipedash-plugin-actions.workspace = true
 pipedash-plugin-api.workspace = true
 reqwest.workspace = true
 serde.workspace = true

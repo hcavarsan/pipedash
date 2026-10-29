@@ -1,9 +1,9 @@
 import { IconBell, IconPinned, IconPlug, IconSettings, IconStack2 } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-
+import { useUnreadNotifications } from '../../features/notifications/components/NotificationCenter'
 import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
 import { resumeRoute, useMobileNavStore } from '../../stores/mobileNavStore'
-import { useUnreadNotifications } from '../notifications/NotificationCenter'
 import classes from './MobileTabBar.module.css'
 import { type MobileTab, mobileChrome } from './mobileChrome'
 import { tabAction } from './navigation'
@@ -18,7 +18,7 @@ const TABS: Array<{ id: MobileTab; label: string; ariaLabel: string; to: string;
   { id: 'settings', label: 'Settings', ariaLabel: 'Settings', to: '/settings', icon: IconSettings },
 ]
 
-export function MobileTabBar() {
+export function MobileTabBar(): ReactNode {
   const { pathname, search, state } = useLocation()
   const navigate = useNavigate()
   const goBack = useGoBack()

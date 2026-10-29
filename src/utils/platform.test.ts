@@ -1,5 +1,18 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
+
+const stubbed = ['document', 'localStorage', 'window'] as const
+const originals = stubbed.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const)
+
+after(() => {
+  for (const [name, descriptor] of originals) {
+    if (descriptor) {
+      Object.defineProperty(globalThis, name, descriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, name)
+    }
+  }
+})
 
 Object.assign(globalThis, {
   document: { baseURI: 'http://localhost/' },

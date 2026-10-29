@@ -9,15 +9,25 @@ interface StatusScreenProps {
   detail?: ReactNode
   actions: ReactNode
   minHeight?: string | number
+  headingOrder?: 1 | 2 | 3
 }
 
-export function StatusScreen({ icon, title, message, hint, detail, actions, minHeight = '100%' }: StatusScreenProps) {
+export function StatusScreen({
+  icon,
+  title,
+  message,
+  hint,
+  detail,
+  actions,
+  minHeight = '100%',
+  headingOrder = 2,
+}: StatusScreenProps): ReactNode {
   return (
     <Center mih={minHeight} h="100%" px="lg" py="xl" role="alert">
       <Stack align="center" gap="lg" w="100%" maw={360}>
         {icon}
         <Stack align="center" gap="2xs">
-          <Title order={3} ta="center">
+          <Title order={headingOrder} ta="center">
             {title}
           </Title>
           <Text size="sm" c="dimmed" ta="center" style={{ overflowWrap: 'anywhere' }}>

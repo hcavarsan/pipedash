@@ -70,7 +70,7 @@ export function createLongPress(
   }
 }
 
-export function guardLongPressClick(target: EventTarget, pointerId: number | null) {
+export function guardLongPressClick(target: EventTarget, pointerId: number | null): () => void {
   const block = (event: Event) => {
     if ('pointerId' in event && event.pointerId !== pointerId) {
       remove()

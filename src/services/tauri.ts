@@ -4,63 +4,63 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { platform } from '@tauri-apps/plugin-os'
 import { REFRESH_TIMEOUT_MS } from '../constants/timeouts'
 import { logger } from '../lib/logger'
-import {
-  type AggregatedMetrics,
-  type AggregationPeriod,
-  type AggregationType,
-  type ConfigAnalysisResponse,
-  type ConfigContentResponse,
-  type CreateViewInput,
-  createError,
-  type ExportFileResult,
-  type FeatureAvailability,
-  type GeneralConfig,
-  type GlobalMetricsConfig,
-  type LegacyImportResult,
-  type LegacyMarks,
-  type MetricEntry,
-  type MetricsConfig,
-  type MetricsStats,
-  type MetricType,
-  type MigrationOptions,
-  type MigrationPlan,
-  type MigrationResult,
-  type NotificationTarget,
-  type Organization,
-  type PaginatedAvailablePipelines,
-  type PaginatedRunHistory,
-  type PermissionCheckResult,
-  type PermissionStatus,
-  type PinKind,
-  type PinnedItem,
-  type PipedashConfig,
-  type Pipeline,
-  type PipelineRun,
-  type PipelineView,
-  type PipelineViewPage,
-  type PipelineViewQuery,
-  type PluginMetadata,
-  type ProviderConfig,
-  type ProviderImportResult,
-  type ProviderSummary,
-  type RefreshResult,
-  type ReviewDecision,
-  type SetupStatus,
-  type SignInStart,
-  type SignInStatus,
-  type StorageConfigResponse,
-  type StoragePathsResponse,
-  type TableSchema,
-  type TriggerParams,
-  toPipedashError,
-  type UnlockVaultResponse,
-  type ValidationResult,
-  type VaultStatusResponse,
-  type ViewMember,
-  type ViewPatch,
-  type ViewRef,
-  type WorkflowParameter,
-} from '../types'
+import type {
+  AggregatedMetrics,
+  AggregationPeriod,
+  AggregationType,
+  ConfigAnalysisResponse,
+  ConfigContentResponse,
+  CreateViewInput,
+  ExportFileResult,
+  FeatureAvailability,
+  GeneralConfig,
+  GlobalMetricsConfig,
+  LegacyImportResult,
+  LegacyMarks,
+  MetricEntry,
+  MetricsConfig,
+  MetricsStats,
+  MetricType,
+  MigrationOptions,
+  MigrationPlan,
+  MigrationResult,
+  NotificationTarget,
+  Organization,
+  PaginatedAvailablePipelines,
+  PaginatedRunHistory,
+  PermissionCheckResult,
+  PermissionStatus,
+  PinKind,
+  PinnedItem,
+  PipedashConfig,
+  Pipeline,
+  PipelineRun,
+  PipelineView,
+  PipelineViewPage,
+  PipelineViewQuery,
+  PluginMetadata,
+  ProviderConfig,
+  ProviderImportResult,
+  ProviderSummary,
+  RefreshResult,
+  ReviewDecision,
+  SetupStatus,
+  SignInStart,
+  SignInStatus,
+  StorageConfigResponse,
+  StoragePathsResponse,
+  TableSchema,
+  TriggerParams,
+  UnlockVaultResponse,
+  ValidationResult,
+  VaultStatusResponse,
+  ViewMember,
+  ViewPatch,
+  ViewRef,
+  WorkflowParameter,
+} from '../types/domain'
+import type { PipedashError } from '../types/errors'
+import { toPipedashError } from '../types/errors'
 import type { LogLinesPage, LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 import { isMobilePlatform } from '../utils/platform'
 import { DEFAULT_RETRY_CONFIG, shouldRetry, withRetry } from '../utils/retryLogic'
@@ -74,7 +74,12 @@ const TAURI_COMMAND_TIMEOUTS: Record<string, number> = {
   preview_provider_pipelines: 60000,
   fetch_provider_organizations: 60000,
   add_provider: 120000,
-  default: 45000,
+}
+
+const DEFAULT_COMMAND_TIMEOUT = 45000
+
+function timeoutError(cmd: string, timeoutMs: number): PipedashError {
+  return { type: 'timeout', message: `Command '${cmd}' timeout`, timeoutMs }
 }
 
 async function invokeWithTimeout<T>(
@@ -83,15 +88,13 @@ async function invokeWithTimeout<T>(
   customTimeout?: number,
   enableRetry = true
 ): Promise<T> {
-  const timeout = customTimeout ?? TAURI_COMMAND_TIMEOUTS[cmd] ?? TAURI_COMMAND_TIMEOUTS.default
+  const timeout = customTimeout ?? TAURI_COMMAND_TIMEOUTS[cmd] ?? DEFAULT_COMMAND_TIMEOUT
 
   const executeCommand = async () => {
     try {
       return await Promise.race([
         invoke<T>(cmd, args),
-        new Promise<T>((_, reject) =>
-          setTimeout(() => reject(createError('timeout', `Command '${cmd}' timeout`, { timeoutMs: timeout })), timeout)
-        ),
+        new Promise<T>((_, reject) => setTimeout(() => reject(timeoutError(cmd, timeout)), timeout)),
       ])
     } catch (error) {
       throw toPipedashError(error)

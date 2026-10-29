@@ -1,6 +1,6 @@
 import { ActionIcon } from '@mantine/core'
 import { IconChevronLeft, IconLock, IconPlus } from '@tabler/icons-react'
-import { type CSSProperties, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useRefresh } from '../../hooks/useRefresh'
@@ -25,7 +25,7 @@ interface LayerProps {
   depth: 'deeper' | 'shallower'
   live: boolean
   layout: BarLayout
-  backTo?: string
+  backTo?: string | undefined
   canLock: boolean
   lock: ReactNode
   actions: ReactNode
@@ -40,7 +40,7 @@ function BarLayer({ snapshot, depth, live, layout, backTo, canLock, lock, action
     </span>
   )
   const Title = live && pushed ? 'h1' : 'div'
-  const style = live ? undefined : ({ '--title-collapse': snapshot.collapse } as CSSProperties)
+  const style = live ? undefined : { '--title-collapse': snapshot.collapse }
 
   return (
     <div
@@ -108,7 +108,7 @@ function BarLayer({ snapshot, depth, live, layout, backTo, canLock, lock, action
   )
 }
 
-export function MobileHeader() {
+export function MobileHeader(): ReactNode {
   useRefresh()
   const { pathname, search, state } = useLocation()
   const { title, back, tab } = mobileChrome(pathname, search, state)
@@ -176,7 +176,7 @@ export function MobileHeader() {
 
   const lock = canLock ? (
     <ActionIcon aria-label="Lock Pipedash" loading={lockMutation.isPending} onClick={() => lockMutation.mutate()}>
-      <IconLock size={22} />
+      <IconLock size={22} aria-hidden />
     </ActionIcon>
   ) : null
 
@@ -192,7 +192,7 @@ export function MobileHeader() {
       )}
       {tab === 'providers' && (
         <ActionIcon color="blue" aria-label="Add provider" onClick={openAddProviderModal}>
-          <IconPlus size={24} />
+          <IconPlus size={24} aria-hidden />
         </ActionIcon>
       )}
     </>
@@ -219,7 +219,7 @@ export function MobileHeader() {
         ref={barRef}
         className={classes.bar}
         data-transition={transition ? '' : undefined}
-        style={{ '--inset': `${BAR_INSET}px`, '--side': `${layout.side}px` } as CSSProperties}
+        style={{ '--inset': `${BAR_INSET}px`, '--side': `${layout.side}px` }}
       >
         <div className={classes.edge} aria-hidden />
         {transition

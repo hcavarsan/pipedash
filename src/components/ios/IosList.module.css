@@ -82,7 +82,8 @@
   position: relative;
 }
 
-.item + .item::before {
+.item + .item::before,
+[data-virtual-item]:not([data-first]) > .item::before {
   content: "";
   position: absolute;
   top: 0;

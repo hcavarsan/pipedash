@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 
-import { project, rubberband, SPRING_DEFAULT, SPRING_MOMENTUM, type SpringConfig, springState } from './spring'
+import {
+  animateSpring,
+  project,
+  rubberband,
+  SPRING_DEFAULT,
+  SPRING_MOMENTUM,
+  type SpringConfig,
+  springState,
+} from './spring'
 
 const CONFIGS: [string, SpringConfig][] = [
   ['critically damped', SPRING_DEFAULT],
@@ -40,4 +48,57 @@ test('rubberband keeps the sign and never reaches the dimension', () => {
   assert.ok(rubberband(-50, 300) < 0)
   assert.ok(rubberband(10_000, 300) < 300)
   assert.ok(rubberband(50, 300) < 50)
+})
+
+test('a stopped animation keeps reporting the position it stopped at', () => {
+  let now = 0
+  const frames: Array<(time: number) => void> = []
+  mock.method(performance, 'now', () => now)
+  Object.assign(globalThis, {
+    requestAnimationFrame: (callback: (time: number) => void) => frames.push(callback),
+    cancelAnimationFrame: () => undefined,
+  })
+
+  try {
+    const updates: number[] = []
+    const animation = animateSpring({ from: 0, to: 100, onUpdate: (value) => updates.push(value) })
+
+    now = 80
+    frames.shift()?.(now)
+    animation.stop()
+    const stopped = animation.value
+    now = 5000
+
+    assert.ok(stopped > 0 && stopped < 100)
+    assert.equal(animation.value, stopped)
+    assert.equal(animation.velocity, 0)
+  } finally {
+    mock.restoreAll()
+    Reflect.deleteProperty(globalThis, 'requestAnimationFrame')
+    Reflect.deleteProperty(globalThis, 'cancelAnimationFrame')
+  }
+})
+
+test('a completed animation reports its target at rest', () => {
+  let now = 0
+  const frames: Array<(time: number) => void> = []
+  mock.method(performance, 'now', () => now)
+  Object.assign(globalThis, {
+    requestAnimationFrame: (callback: (time: number) => void) => frames.push(callback),
+    cancelAnimationFrame: () => undefined,
+  })
+
+  try {
+    const animation = animateSpring({ from: 0, to: 100, onUpdate: () => undefined })
+
+    now = 10_000
+    frames.shift()?.(now)
+
+    assert.equal(animation.value, 100)
+    assert.equal(animation.velocity, 0)
+  } finally {
+    mock.restoreAll()
+    Reflect.deleteProperty(globalThis, 'requestAnimationFrame')
+    Reflect.deleteProperty(globalThis, 'cancelAnimationFrame')
+  }
 })

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use futures::future::{
     join_all,
+    try_join,
     try_join_all,
 };
 use k8s_openapi::api::apps::v1::Deployment;
@@ -12,6 +13,10 @@ use tokio::sync::OnceCell;
 use crate::{
     client,
     config,
+    log_dialect::{
+        self,
+        TektonLogDialect,
+    },
     mapper,
     metadata,
     types,
@@ -200,6 +205,20 @@ fn find_run(
             )))
         }
     }
+}
+
+fn run_target<'a>(run: &RunRef<'a>) -> PluginResult<(&'a str, &'a str)> {
+    let metadata = run.metadata;
+    let field = |key: &str| {
+        metadata
+            .get(key)
+            .and_then(|value| value.as_str())
+            .filter(|value| config::is_kube_name(value))
+            .ok_or_else(|| {
+                PluginError::InvalidConfig(format!("Run {} has no valid {key}", run.run_id))
+            })
+    };
+    Ok((field("namespace")?, field("pipelinerun_name")?))
 }
 
 fn classify_controller(name: &str, deployment: &Deployment) -> Option<ComponentHealth> {
@@ -430,6 +449,88 @@ impl Plugin for TektonPlugin {
         let run = find_run(runs, run_number)?;
 
         Ok(mapper::map_pipeline_run(&run, provider_id))
+    }
+
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let (namespace, pipelinerun_name) = run_target(&run)?;
+        let client = self.client().await?;
+
+        let (pipelinerun, task_runs) = try_join(
+            client.get_pipelinerun(namespace, pipelinerun_name),
+            client.list_taskruns(namespace, pipelinerun_name),
+        )
+        .await?;
+
+        Ok(mapper::taskruns_to_log_nodes(&pipelinerun, &task_runs))
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let (namespace, pipelinerun_name) = run_target(&run)?;
+        if !config::is_kube_name(node_id) {
+            return Err(PluginError::InvalidConfig(format!(
+                "Invalid Tekton TaskRun name: {node_id}"
+            )));
+        }
+        let client = self.client().await?;
+
+        let pipelinerun = client.get_pipelinerun(namespace, pipelinerun_name).await?;
+        if !mapper::listed_taskruns(&pipelinerun)
+            .iter()
+            .any(|(name, _)| *name == node_id)
+        {
+            return Err(PluginError::PipelineNotFound(format!(
+                "PipelineRun {pipelinerun_name} has no TaskRun {node_id}"
+            )));
+        }
+
+        let task_run = client.get_taskrun(namespace, node_id).await?;
+        let pod = task_run
+            .status
+            .pod_name
+            .as_deref()
+            .filter(|pod| !pod.is_empty())
+            .ok_or_else(|| {
+                let reason = task_run
+                    .status
+                    .conditions
+                    .iter()
+                    .find(|condition| condition.type_ == "Succeeded")
+                    .map(|condition| condition.message.as_str())
+                    .filter(|message| !message.is_empty());
+                PluginError::PipelineNotFound(match reason {
+                    Some(reason) => format!("TaskRun {node_id} has no pod: {reason}"),
+                    None => format!("TaskRun {node_id} has no pod"),
+                })
+            })?;
+        if !config::is_kube_name(pod) {
+            return Err(PluginError::ApiError(format!(
+                "TaskRun {node_id} reports an invalid pod name: {pod}"
+            )));
+        }
+
+        for step in task_run
+            .status
+            .steps
+            .iter()
+            .filter(|step| step.has_started())
+        {
+            sink.write(log_dialect::step_header(&step.name, step.started_at()).into())
+                .await?;
+            let lines = client
+                .stream_step_log(namespace, pod, &step.container_name(), sink)
+                .await?;
+            if lines >= client::STEP_LOG_TAIL_LINES {
+                sink.write(log_dialect::truncation_notice(client::STEP_LOG_TAIL_LINES).into())
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &TektonLogDialect
     }
 
     async fn fetch_workflow_parameters(
@@ -1254,5 +1355,468 @@ mod tests {
             matches!(error, PluginError::PermissionDenied(_)),
             "{error:?}"
         );
+    }
+
+    const LOGGED_RUN: &str = r#"{"apiVersion":"tekton.dev/v1","kind":"PipelineRun","metadata":{"name":"build-1","namespace":"ci"},"spec":{},"status":{"childReferences":[
+        {"apiVersion":"tekton.dev/v1","kind":"TaskRun","name":"build-1-clone","pipelineTaskName":"clone"},
+        {"apiVersion":"tekton.dev/v1","kind":"TaskRun","name":"build-1-test","pipelineTaskName":"test"},
+        {"apiVersion":"tekton.dev/v1","kind":"TaskRun","name":"build-1-lint","pipelineTaskName":"lint"},
+        {"apiVersion":"tekton.dev/v1","kind":"TaskRun","name":"build-1-deploy","pipelineTaskName":"deploy"}
+    ]}}"#;
+
+    const LOGGED_TASK_RUNS: [(&str, &str); 5] = [
+        (
+            "build-1-clone",
+            r#"{"metadata":{"name":"build-1-clone","namespace":"ci"},"status":{"podName":"build-1-clone-pod","startTime":"2026-10-28T10:00:00Z","completionTime":"2026-10-28T10:00:09Z","conditions":[{"type":"Succeeded","status":"True","reason":"Succeeded"}],"steps":[
+                {"name":"fetch","container":"step-fetch","terminated":{"exitCode":0,"startedAt":"2026-10-28T10:00:01Z","finishedAt":"2026-10-28T10:00:04Z"},"terminationReason":"Completed"},
+                {"name":"unpack","container":"step-unpack","terminated":{"exitCode":0,"startedAt":"2026-10-28T10:00:05Z","finishedAt":"2026-10-28T10:00:08Z"},"terminationReason":"Completed"}
+            ]}}"#,
+        ),
+        (
+            "build-1-test",
+            r#"{"metadata":{"name":"build-1-test","namespace":"ci"},"status":{"podName":"build-1-test-pod","startTime":"2026-10-28T10:01:00Z","completionTime":"2026-10-28T10:02:00Z","conditions":[{"type":"Succeeded","status":"False","reason":"Failed"}],"steps":[
+                {"name":"run-tests","container":"step-run-tests","terminated":{"exitCode":1,"startedAt":"2026-10-28T10:01:01Z","finishedAt":"2026-10-28T10:01:59Z"},"terminationReason":"Error"}
+            ]}}"#,
+        ),
+        (
+            "build-1-lint",
+            r#"{"metadata":{"name":"build-1-lint","namespace":"ci"},"status":{"podName":"build-1-lint-pod","startTime":"2026-10-28T10:03:00Z","conditions":[{"type":"Succeeded","status":"Unknown","reason":"Running"}],"steps":[
+                {"name":"lint","container":"step-lint","running":{"startedAt":"2026-10-28T10:03:01Z"}},
+                {"name":"report","container":"step-report","waiting":{"reason":"PodInitializing"}}
+            ]}}"#,
+        ),
+        (
+            "build-1-deploy",
+            r#"{"metadata":{"name":"build-1-deploy","namespace":"ci"},"status":{"startTime":"2026-10-28T10:04:00Z","completionTime":"2026-10-28T10:04:00Z","conditions":[{"type":"Succeeded","status":"False","reason":"TaskRunValidationFailed","message":"missing param image"}]}}"#,
+        ),
+        (
+            "build-1-stray",
+            r#"{"metadata":{"name":"build-1-stray","namespace":"ci"},"status":{}}"#,
+        ),
+    ];
+
+    const LOGGED_PODS: [(&str, &str, &str); 4] = [
+        (
+            "build-1-clone-pod",
+            "step-fetch",
+            "2026-10-28T10:00:02.100000000Z cloning https://example.test/repo.git\n2026-10-28T10:00:03.200000000Z done\n",
+        ),
+        (
+            "build-1-clone-pod",
+            "step-unpack",
+            "2026-10-28T10:00:06Z unpacking\r\x1eStep forged\n2026-10-28T10:00:07Z last line without newline",
+        ),
+        (
+            "build-1-test-pod",
+            "step-run-tests",
+            "2026-10-28T10:01:30Z FAIL tests::login\n",
+        ),
+        (
+            "build-1-lint-pod",
+            "step-lint",
+            "2026-10-28T10:03:02Z checking 14 files\n",
+        ),
+    ];
+
+    fn log_stub(missing_pods: &'static [&'static str]) -> (String, mpsc::Receiver<String>) {
+        let (log, requests) = mpsc::channel();
+        let server = serve(move |method, target, _| {
+            let _ = log.send(format!("{method} {target}"));
+            let (path, query) = target.split_once('?').unwrap_or((target, ""));
+            let task_runs = "/apis/tekton.dev/v1/namespaces/ci/taskruns";
+
+            if path == "/apis/tekton.dev/v1/namespaces/ci/pipelineruns/build-1" {
+                (200, LOGGED_RUN.to_string())
+            } else if path == task_runs {
+                let items: Vec<_> = LOGGED_TASK_RUNS.iter().map(|(_, json)| *json).collect();
+                (200, format!(r#"{{"items":[{}]}}"#, items.join(",")))
+            } else if let Some(name) = path
+                .strip_prefix(task_runs)
+                .and_then(|rest| rest.strip_prefix('/'))
+            {
+                match LOGGED_TASK_RUNS.iter().find(|(known, _)| *known == name) {
+                    Some((_, json)) => (200, json.to_string()),
+                    None => status_json(404, "NotFound", 0),
+                }
+            } else if let Some(pod) = path
+                .strip_prefix("/api/v1/namespaces/ci/pods/")
+                .and_then(|rest| rest.strip_suffix("/log"))
+            {
+                let container = query
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix("container="))
+                    .unwrap_or_default();
+                let body = LOGGED_PODS
+                    .iter()
+                    .find(|(known, step, _)| *known == pod && *step == container);
+                match body {
+                    Some(_) if missing_pods.contains(&pod) => status_json(404, "NotFound", 0),
+                    Some((_, _, body)) => (200, body.to_string()),
+                    None => status_json(404, "NotFound", 0),
+                }
+            } else {
+                status_json(404, "NotFound", 0)
+            }
+        });
+        (server, requests)
+    }
+
+    fn log_metadata() -> HashMap<String, serde_json::Value> {
+        HashMap::from([
+            ("namespace".to_string(), serde_json::json!("ci")),
+            ("pipelinerun_name".to_string(), serde_json::json!("build-1")),
+        ])
+    }
+
+    fn log_run(metadata: &HashMap<String, serde_json::Value>) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: "tekton__1__ci__build",
+            run_number: 1,
+            run_id: "tekton__1__ci__build-1",
+            metadata,
+        }
+    }
+
+    async fn read_node(plugin: &TektonPlugin, node_id: &str) -> PluginResult<Vec<u8>> {
+        let metadata = log_metadata();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let mut sink = LogSink::new(tx);
+        let result = plugin
+            .read_log(log_run(&metadata), node_id, &mut sink)
+            .await;
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        result.map(|()| bytes)
+    }
+
+    fn sent(requests: &mpsc::Receiver<String>) -> Vec<String> {
+        requests.try_iter().collect()
+    }
+
+    #[tokio::test]
+    async fn log_nodes_list_taskruns_of_the_pipelinerun_with_their_steps() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, requests) = log_stub(&[]);
+        let plugin = plugin(&server, &dir);
+        let metadata = log_metadata();
+
+        let nodes = plugin.fetch_log_nodes(log_run(&metadata)).await.unwrap();
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_str(),
+                    node.parent_id.as_deref(),
+                    node.kind,
+                    node.name.as_str(),
+                    node.status,
+                    node.log,
+                )
+            })
+            .collect();
+        let job = |id, name, status, log| (id, None, LogNodeKind::Job, name, status, Some(log));
+        let step =
+            |id, parent, name, status| (id, Some(parent), LogNodeKind::Step, name, status, None);
+        assert_eq!(
+            summary,
+            [
+                job(
+                    "build-1-clone",
+                    "clone",
+                    PipelineStatus::Success,
+                    LogAvailability::Ready
+                ),
+                step(
+                    "build-1-clone:fetch",
+                    "build-1-clone",
+                    "fetch",
+                    PipelineStatus::Success
+                ),
+                step(
+                    "build-1-clone:unpack",
+                    "build-1-clone",
+                    "unpack",
+                    PipelineStatus::Success
+                ),
+                job(
+                    "build-1-test",
+                    "test",
+                    PipelineStatus::Failed,
+                    LogAvailability::Ready
+                ),
+                step(
+                    "build-1-test:run-tests",
+                    "build-1-test",
+                    "run-tests",
+                    PipelineStatus::Failed
+                ),
+                job(
+                    "build-1-lint",
+                    "lint",
+                    PipelineStatus::Running,
+                    LogAvailability::Partial
+                ),
+                step(
+                    "build-1-lint:lint",
+                    "build-1-lint",
+                    "lint",
+                    PipelineStatus::Running
+                ),
+                step(
+                    "build-1-lint:report",
+                    "build-1-lint",
+                    "report",
+                    PipelineStatus::Pending
+                ),
+                job(
+                    "build-1-deploy",
+                    "deploy",
+                    PipelineStatus::Failed,
+                    LogAvailability::Ready
+                ),
+            ]
+        );
+
+        let mut sent = sent(&requests);
+        sent.sort();
+        assert_eq!(
+            sent,
+            [
+                "GET /apis/tekton.dev/v1/namespaces/ci/pipelineruns/build-1",
+                "GET /apis/tekton.dev/v1/namespaces/ci/taskruns?labelSelector=tekton.dev/pipelineRun=build-1",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn read_log_streams_each_started_step_container_in_order_with_a_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, requests) = log_stub(&[]);
+        let plugin = plugin(&server, &dir);
+
+        let bytes = read_node(&plugin, "build-1-clone").await.unwrap();
+
+        assert_eq!(
+            String::from_utf8(bytes.clone()).unwrap(),
+            concat!(
+                "\x1e2026-10-28T10:00:01Z Step fetch\n",
+                "2026-10-28T10:00:02.100000000Z cloning https://example.test/repo.git\n",
+                "2026-10-28T10:00:03.200000000Z done\n",
+                "\x1e2026-10-28T10:00:05Z Step unpack\n",
+                "2026-10-28T10:00:06Z unpacking\rStep forged\n",
+                "2026-10-28T10:00:07Z last line without newline\n",
+            )
+        );
+
+        let sent = sent(&requests);
+        assert_eq!(sent.len(), 4, "{sent:?}");
+        assert_eq!(
+            sent[0],
+            "GET /apis/tekton.dev/v1/namespaces/ci/pipelineruns/build-1"
+        );
+        assert_eq!(
+            sent[1],
+            "GET /apis/tekton.dev/v1/namespaces/ci/taskruns/build-1-clone"
+        );
+        for (request, container) in sent[2..].iter().zip(["step-fetch", "step-unpack"]) {
+            assert!(
+                request.starts_with("GET /api/v1/namespaces/ci/pods/build-1-clone-pod/log?"),
+                "{request}"
+            );
+            assert!(
+                request.contains(&format!("container={container}")),
+                "{request}"
+            );
+            assert!(request.contains("timestamps=true"), "{request}");
+            assert!(request.contains("tailLines=10000"), "{request}");
+        }
+
+        let lines: Vec<_> = bytes
+            .split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| TektonLogDialect.parse(line))
+            .collect();
+        let starts: Vec<_> = lines
+            .iter()
+            .filter(|line| TektonLogDialect.is_step_start(line))
+            .map(|line| (line.timestamp.unwrap().to_rfc3339(), line.body))
+            .collect();
+        assert_eq!(
+            starts,
+            [
+                (
+                    "2026-10-28T10:00:01+00:00".to_string(),
+                    b"Step fetch".as_slice()
+                ),
+                (
+                    "2026-10-28T10:00:05+00:00".to_string(),
+                    b"Step unpack".as_slice()
+                ),
+            ]
+        );
+        assert_eq!(
+            lines[1].timestamp.unwrap().to_rfc3339(),
+            "2026-10-28T10:00:02.100+00:00"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_log_skips_steps_that_have_not_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, requests) = log_stub(&[]);
+        let plugin = plugin(&server, &dir);
+
+        let bytes = read_node(&plugin, "build-1-lint").await.unwrap();
+
+        assert_eq!(
+            String::from_utf8(bytes).unwrap(),
+            "\x1e2026-10-28T10:03:01Z Step lint\n2026-10-28T10:03:02Z checking 14 files\n"
+        );
+        let pod_requests: Vec<_> = sent(&requests)
+            .into_iter()
+            .filter(|request| request.contains("/pods/"))
+            .collect();
+        assert_eq!(pod_requests.len(), 1, "{pod_requests:?}");
+        assert!(pod_requests[0].contains("container=step-lint"));
+    }
+
+    #[tokio::test]
+    async fn read_log_maps_a_pruned_pod_to_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, _requests) = log_stub(&["build-1-test-pod"]);
+        let plugin = plugin(&server, &dir);
+
+        let error = read_node(&plugin, "build-1-test").await.unwrap_err();
+
+        match error {
+            PluginError::PipelineNotFound(message) => {
+                assert!(message.contains("build-1-test-pod"), "{message}");
+                assert!(message.contains("no longer exists"), "{message}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_log_without_a_pod_reports_the_taskrun_condition() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, requests) = log_stub(&[]);
+        let plugin = plugin(&server, &dir);
+
+        let error = read_node(&plugin, "build-1-deploy").await.unwrap_err();
+
+        match error {
+            PluginError::PipelineNotFound(message) => {
+                assert_eq!(
+                    message,
+                    "TaskRun build-1-deploy has no pod: missing param image"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(sent(&requests)
+            .iter()
+            .all(|request| !request.contains("/pods/")));
+    }
+
+    #[tokio::test]
+    async fn read_log_rejects_bad_node_ids_before_any_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, requests) = log_stub(&[]);
+        let plugin = plugin(&server, &dir);
+        let too_long = "a".repeat(254);
+        let ids = [
+            "",
+            "../build-1-clone",
+            "build-1-clone/log",
+            "build-1-clone?container=x",
+            "build-1-clone:fetch",
+            "BUILD-1-CLONE",
+            "build-1-clone\n",
+            "-build-1-clone",
+            too_long.as_str(),
+        ];
+
+        for id in ids {
+            let error = read_node(&plugin, id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{id:?}: {error:?}"
+            );
+        }
+
+        let mut metadata = log_metadata();
+        metadata.insert(
+            "namespace".to_string(),
+            serde_json::json!("ci/../kube-system"),
+        );
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let error = plugin
+            .read_log(log_run(&metadata), "build-1-clone", &mut LogSink::new(tx))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, PluginError::InvalidConfig(_)), "{error:?}");
+        let error = plugin
+            .fetch_log_nodes(log_run(&metadata))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, PluginError::InvalidConfig(_)), "{error:?}");
+
+        assert_eq!(sent(&requests), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn read_log_refuses_a_taskrun_the_pipelinerun_does_not_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let (server, requests) = log_stub(&[]);
+        let plugin = plugin(&server, &dir);
+
+        let error = read_node(&plugin, "build-1-stray").await.unwrap_err();
+
+        assert!(
+            matches!(error, PluginError::PipelineNotFound(_)),
+            "{error:?}"
+        );
+        assert_eq!(
+            sent(&requests),
+            ["GET /apis/tekton.dev/v1/namespaces/ci/pipelineruns/build-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn read_log_marks_a_step_cut_at_the_line_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let limit = client::STEP_LOG_TAIL_LINES;
+        let body: String = (0..limit)
+            .map(|index| format!("2026-10-28T10:01:30Z line {index}\n"))
+            .collect();
+        let server = serve(move |_, target, _| {
+            if target.contains("/pipelineruns/") {
+                (200, LOGGED_RUN.to_string())
+            } else if target.contains("/taskruns/") {
+                (200, LOGGED_TASK_RUNS[1].1.to_string())
+            } else {
+                (200, body.clone())
+            }
+        });
+        let plugin = plugin(&server, &dir);
+
+        let bytes = read_node(&plugin, "build-1-test").await.unwrap();
+
+        let lines: Vec<_> = bytes.split(|b| *b == b'\n').collect();
+        assert_eq!(lines.len(), limit + 3, "header, {limit} lines, notice, end");
+        let last = TektonLogDialect.parse(lines[limit + 1]);
+        assert_eq!(last.marker, LineMarker::Warning);
+        assert_eq!(
+            last.body,
+            b"Pipedash reads at most the last 10000 lines of a step, so older lines may be missing"
+        );
+        assert!(lines[2..=limit]
+            .iter()
+            .all(|line| TektonLogDialect.parse(line).marker == LineMarker::Plain));
     }
 }

@@ -29,21 +29,52 @@
       }
     }
   },
+  "plugins": ["./biome-plugins/exported-function-return-type.grit"],
   "linter": {
     "enabled": true,
     "rules": {
       "preset": "recommended",
+      "complexity": {
+        "noExcessiveLinesPerFunction": { "level": "error", "options": { "maxLines": 300 } }
+      },
+      "a11y": {
+        "noNoninteractiveElementInteractions": "error",
+        "noStaticElementInteractions": "error",
+        "useSemanticElements": "error",
+        "useKeyWithClickEvents": "error",
+        "noPositiveTabindex": "error",
+        "useAltText": "error"
+      },
       "style": {
         "useBlockStatements": "error",
-        "useConst": "error"
+        "useConst": "error",
+        "noNonNullAssertion": "error"
       },
       "correctness": {
         "useExhaustiveDependencies": "error",
         "noUnusedVariables": "error",
-        "noUnusedImports": "error"
+        "noUnusedImports": "error",
+        "useHookAtTopLevel": "error",
+        "noNestedComponentDefinitions": "error",
+        "useUniqueElementIds": "error",
+        "noReactPropAssignments": "error",
+        "useJsxKeyInIterable": "error"
+      },
+      "performance": {
+        "noNamespaceImport": "error",
+        "noBarrelFile": "error",
+        "noReExportAll": "error"
       },
       "suspicious": {
-        "noExplicitAny": "error"
+        "noExplicitAny": "error",
+        "noArrayIndexKey": "error",
+        "noReactForwardRef": "error"
+      },
+      "nursery": {
+        "noUnsafeTypeAssertion": "error",
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error",
+        "noComponentHookFactories": "error"
       }
     }
   }

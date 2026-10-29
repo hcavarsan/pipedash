@@ -16,7 +16,7 @@ interface ErrorStateProps {
   retrying?: boolean
 }
 
-export function ErrorState({ title, error, hint, actions, onRetry, retrying = false }: ErrorStateProps) {
+export function ErrorState({ title, error, hint, actions, onRetry, retrying = false }: ErrorStateProps): ReactNode {
   const mobileShell = useMobileShell()
 
   if (mobileShell) {
@@ -32,7 +32,12 @@ export function ErrorState({ title, error, hint, actions, onRetry, retrying = fa
           (onRetry || actions) && (
             <>
               {onRetry && (
-                <Button variant="default" leftSection={<IconRefresh size={18} />} loading={retrying} onClick={onRetry}>
+                <Button
+                  variant="default"
+                  leftSection={<IconRefresh size={18} aria-hidden />}
+                  loading={retrying}
+                  onClick={onRetry}
+                >
                   Retry
                 </Button>
               )}
@@ -45,7 +50,7 @@ export function ErrorState({ title, error, hint, actions, onRetry, retrying = fa
   }
 
   return (
-    <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />} title={title}>
+    <Alert color="red" variant="light" icon={<IconAlertCircle size={16} aria-hidden />} title={title}>
       <Stack gap="sm" align="flex-start">
         <Text size="sm">{formatErrorMessage(error)}</Text>
         {hint && (
@@ -59,7 +64,7 @@ export function ErrorState({ title, error, hint, actions, onRetry, retrying = fa
               <Button
                 size="xs"
                 variant="default"
-                leftSection={<IconRefresh size={14} />}
+                leftSection={<IconRefresh size={14} aria-hidden />}
                 loading={retrying}
                 onClick={onRetry}
               >

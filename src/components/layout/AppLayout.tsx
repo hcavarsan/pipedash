@@ -1,20 +1,19 @@
 import { AppShell, Box } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-
+import { NotificationHost } from '../../features/notifications/components/NotificationCenter'
+import { Navbar } from '../../features/pipelines/components/Navbar'
+import { PipelineViewModals } from '../../features/pipelines/components/PipelineViewModals'
+import { ProviderModals } from '../../features/providers/components/ProviderModals'
 import { useIsMobile, useMobileShell } from '../../hooks/useIsMobile'
 import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
-
-import { NotificationHost } from '../notifications/NotificationCenter'
-import { ProviderModals } from '../provider/ProviderModals'
-import { PipelineViewModals } from '../table/PipelineViewModals'
+import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
 import classes from './AppLayout.module.css'
 import { Header } from './Header'
 import { MobileHeader } from './MobileHeader'
 import { MobilePage } from './MobilePage'
 import { MobileTabBar } from './MobileTabBar'
-import { Navbar } from './Navbar'
 import { useSidebarResize } from './useSidebarResize'
 
 interface AppLayoutProps {
@@ -22,7 +21,7 @@ interface AppLayoutProps {
   onOpenSettings?: () => void
 }
 
-export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
+export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps): ReactNode => {
   const location = useLocation()
   const isSettingsPage = location.pathname.startsWith('/settings')
   const { isMobile } = useIsMobile()
@@ -130,22 +129,22 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
       )}
       <AppShell
         header={{ height: mobileShell ? 'calc(44px + var(--safe-top))' : 'calc(70px + var(--safe-top))' }}
-        navbar={
-          mobileShell
-            ? undefined
-            : {
+        {...(mobileShell
+          ? {}
+          : {
+              navbar: {
                 width: { base: 280, sm: sidebar.navbarWidth },
                 breakpoint: 'sm',
                 collapsed: { mobile: !mobileOpened, desktop: isSettingsPage },
-              }
-        }
+              },
+            })}
         mod={{
           'sidebar-resizing': sidebar.resizing,
           'sidebar-instant': sidebar.instant,
           'mobile-shell': mobileShell,
         }}
         padding={{ base: 'xs', sm: 'md' }}
-        style={mobileShell ? ({ '--tab-bar-reserve': tabBarReserve } as CSSProperties) : undefined}
+        {...(mobileShell ? { style: { '--tab-bar-reserve': tabBarReserve } } : {})}
         styles={{
           header: mobileShell
             ? {
@@ -156,7 +155,7 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
                 WebkitBackdropFilter: 'none',
                 transition: 'none',
               }
-            : undefined,
+            : {},
           main: {
             minHeight: 'unset',
             background: 'var(--mantine-color-body)',
@@ -182,7 +181,9 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
 
         {!mobileShell && (
           <AppShell.Navbar>
-            <Navbar compact={compact} />
+            <ErrorBoundary scope="feature" name="Sidebar">
+              <Navbar compact={compact} />
+            </ErrorBoundary>
             {resizable && <Box className="sidebar-resize-handle" {...sidebar.handleProps} />}
           </AppShell.Navbar>
         )}
@@ -196,9 +197,15 @@ export const AppLayout = ({ children, onOpenSettings }: AppLayoutProps) => {
         </AppShell.Main>
 
         {mobileShell && <MobileTabBar />}
-        <ProviderModals />
-        <PipelineViewModals />
-        <NotificationHost />
+        <ErrorBoundary scope="feature" name="Provider dialogs">
+          <ProviderModals />
+        </ErrorBoundary>
+        <ErrorBoundary scope="feature" name="Pipeline view dialogs">
+          <PipelineViewModals />
+        </ErrorBoundary>
+        <ErrorBoundary scope="feature" name="Notifications">
+          <NotificationHost />
+        </ErrorBoundary>
       </AppShell>
     </>
   )

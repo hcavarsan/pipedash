@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { HealthLevel, HealthSignal, Maintenance, ProviderHealth, ProviderSummary } from '../types'
+import type { HealthLevel, HealthSignal, Maintenance, ProviderHealth, ProviderSummary } from '../types/domain'
 
 import { formatTime } from './formatDateTime'
 import { isOutageLevel, providerAttention } from './providerAttention'

@@ -1,20 +1,20 @@
 import { ActionIcon, Group, Loader, type MantineSize, TextInput, Tooltip } from '@mantine/core'
 import { IconSearch, IconX } from '@tabler/icons-react'
-import { type CSSProperties, type Ref, useRef } from 'react'
+import { type CSSProperties, type ReactNode, type Ref, useRef } from 'react'
 
 interface SearchInputProps {
   value: string
   onChange: (value: string) => void
   placeholder: string
-  'aria-label'?: string
-  loading?: boolean
-  loadingLabel?: string
-  autoFocus?: boolean
-  inputRef?: Ref<HTMLInputElement>
-  size?: MantineSize
-  disabled?: boolean
-  style?: CSSProperties
-  className?: string
+  'aria-label'?: string | undefined
+  loading?: boolean | undefined
+  loadingLabel?: string | undefined
+  autoFocus?: boolean | undefined
+  inputRef?: Ref<HTMLInputElement> | undefined
+  size?: MantineSize | undefined
+  disabled?: boolean | undefined
+  style?: CSSProperties | undefined
+  className?: string | undefined
 }
 
 export function SearchInput({
@@ -24,13 +24,13 @@ export function SearchInput({
   'aria-label': ariaLabel,
   loading = false,
   loadingLabel = 'Searching…',
-  autoFocus,
+  autoFocus = false,
   inputRef,
   size,
   disabled,
   style,
   className,
-}: SearchInputProps) {
+}: SearchInputProps): ReactNode {
   const localRef = useRef<HTMLInputElement | null>(null)
 
   return (
@@ -57,12 +57,12 @@ export function SearchInput({
       placeholder={placeholder}
       aria-label={ariaLabel ?? placeholder}
       autoFocus={autoFocus}
-      size={size}
-      className={className}
       leftSection={<IconSearch size={16} aria-hidden />}
-      rightSectionWidth={loading && value ? 64 : undefined}
-      disabled={disabled}
-      style={style}
+      disabled={disabled ?? false}
+      {...(size === undefined ? {} : { size })}
+      {...(className === undefined ? {} : { className })}
+      {...(style === undefined ? {} : { style })}
+      {...(loading && value ? { rightSectionWidth: 64 } : {})}
       rightSection={
         (loading || value) && (
           <Group gap="3xs" wrap="nowrap">

@@ -42,7 +42,6 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     open: process.env.TAURI_ARCH === undefined,
-    // if the host Tauri is expecting is set, use it
     host: host || '127.0.0.1',
     hmr: host
       ? {
@@ -55,8 +54,6 @@ export default defineConfig({
       // tell vite to ignore watching Rust source and build directories
       ignored: ['**/src-tauri/**', '**/crates/**', '**/target/**'],
     },
-    // Only enable proxy in web mode (not in Tauri mode)
-    // In Tauri mode, frontend uses IPC instead of HTTP API
     proxy:
       process.env.TAURI_ARCH !== undefined
         ? undefined
@@ -85,11 +82,16 @@ export default defineConfig({
         comments: false,
         codeSplitting: {
           groups: [
-            { name: 'tauri', test: /node_modules[\\/]@tauri-apps[\\/]/ },
-            { name: 'charts', test: /node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor)[\\/]/ },
-            { name: 'mantine', test: /node_modules[\\/](@mantine|mantine-datatable)[\\/]/ },
-            { name: 'icons', test: /node_modules[\\/]@tabler[\\/]/ },
-            { name: 'vendor', test: /node_modules[\\/]/ },
+            { name: 'tauri', test: /node_modules[\\/]@tauri-apps[\\/]/, priority: 50 },
+            { name: 'mantine', test: /node_modules[\\/]@mantine[\\/]/, priority: 40 },
+            { name: 'icons', test: /node_modules[\\/]@tabler[\\/]/, priority: 40 },
+            { name: 'vendor', test: /node_modules[\\/]/, tags: ['$initial'], priority: 30 },
+            { name: 'charts', test: /node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor)[\\/]/, priority: 20 },
+            { name: 'monaco', test: /node_modules[\\/](monaco-editor|@monaco-editor)[\\/]/, priority: 20 },
+            { name: 'dnd', test: /node_modules[\\/]@dnd-kit[\\/]/, priority: 20 },
+            { name: 'html-to-image', test: /node_modules[\\/]html-to-image[\\/]/, priority: 20 },
+            { name: 'datatable', test: /node_modules[\\/]mantine-datatable[\\/]/, priority: 20 },
+            { name: 'lazy-vendor', test: /node_modules[\\/]/, priority: 10 },
           ],
         },
         chunkFileNames: 'assets/[name]-[hash].js',

@@ -37,11 +37,14 @@ const WS_URL = getWsUrl()
 
 class WebSocketClient {
   private ws: WebSocket | null = null
-  private listeners = new Map<string, Set<EventCallback>>()
+  private events = new EventTarget()
+  private listenerCounts = new Map<string, number>()
   private reconnectAttempts = 0
   private reconnectDelay = 1000
   private isConnecting = false
   private shouldReconnect = true
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private unsubscribeAuth: (() => void) | null = null
   // Prevents reconnection after auth failures exceed threshold
   private isLockedOut = false
   // Track rapid disconnect cycles to detect server rejecting connections
@@ -55,13 +58,13 @@ class WebSocketClient {
   }
 
   private setupTokenChangeListener(): void {
-    if (isTauriMode()) {
+    if (isTauriMode() || this.unsubscribeAuth) {
       return
     }
 
     // Subscribe to auth state changes - only react to actual transitions
-    useAuthStore.subscribe(
-      (state) => state.isAuthenticated,
+    this.unsubscribeAuth = useAuthStore.subscribe(
+      (state) => state.token !== null,
       (isAuthenticated, wasAuthenticated) => {
         // User just authenticated (unlocked vault)
         if (isAuthenticated && !wasAuthenticated) {
@@ -96,6 +99,7 @@ class WebSocketClient {
       return
     }
 
+    this.setupTokenChangeListener()
     this.isConnecting = true
     this.shouldReconnect = true
 
@@ -135,14 +139,8 @@ class WebSocketClient {
             return
           }
 
-          if (type && this.listeners.has(type)) {
-            this.listeners.get(type)?.forEach((callback) => {
-              try {
-                callback(payload)
-              } catch (error) {
-                logger.error('WebSocket', `Error in listener for ${type}`, error)
-              }
-            })
+          if (type) {
+            this.events.dispatchEvent(new CustomEvent(type, { detail: payload }))
           }
         } catch (error) {
           logger.error('WebSocket', 'Failed to parse message', error)
@@ -214,15 +212,26 @@ class WebSocketClient {
 
     logger.debug('WebSocket', `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`)
 
-    setTimeout(() => {
+    this.clearReconnectTimer()
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+
       if (this.shouldReconnect) {
         this.connect()
       }
     }, delay)
   }
 
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+  }
+
   disconnect(): void {
     this.shouldReconnect = false
+    this.clearReconnectTimer()
     if (this.ws) {
       this.ws.close()
       this.ws = null
@@ -231,7 +240,10 @@ class WebSocketClient {
 
   dispose(): void {
     this.disconnect()
-    this.listeners.clear()
+    this.unsubscribeAuth?.()
+    this.unsubscribeAuth = null
+    this.events = new EventTarget()
+    this.listenerCounts.clear()
   }
 
   listen<T = unknown>(eventType: string, callback: EventCallback<T>): UnlistenFn {
@@ -241,21 +253,39 @@ class WebSocketClient {
       return () => undefined
     }
 
-    if (!this.listeners.has(eventType)) {
-      this.listeners.set(eventType, new Set())
+    const handler = (event: Event): void => {
+      if (event instanceof CustomEvent) {
+        try {
+          callback(event.detail)
+        } catch (error) {
+          logger.error('WebSocket', `Error in listener for ${eventType}`, error)
+        }
+      }
     }
 
-    this.listeners.get(eventType)?.add(callback as EventCallback)
+    this.events.addEventListener(eventType, handler)
+    this.listenerCounts.set(eventType, (this.listenerCounts.get(eventType) ?? 0) + 1)
 
     if (!this.ws && !this.isConnecting) {
       this.connect()
     }
 
-    return () => {
-      this.listeners.get(eventType)?.delete(callback as EventCallback)
+    let active = true
 
-      if (this.listeners.get(eventType)?.size === 0) {
-        this.listeners.delete(eventType)
+    return () => {
+      if (!active) {
+        return
+      }
+
+      active = false
+      this.events.removeEventListener(eventType, handler)
+
+      const remaining = (this.listenerCounts.get(eventType) ?? 1) - 1
+
+      if (remaining > 0) {
+        this.listenerCounts.set(eventType, remaining)
+      } else {
+        this.listenerCounts.delete(eventType)
       }
     }
   }
@@ -265,18 +295,13 @@ class WebSocketClient {
   }
 
   private emitConnectionStatus(status: 'connected' | 'disconnected' | 'reconnecting'): void {
-    if (this.listeners.has('connection-status')) {
-      this.listeners.get('connection-status')?.forEach((callback) => {
-        try {
-          callback({ status, reconnectAttempts: this.reconnectAttempts })
-        } catch (error) {
-          logger.error('WebSocket', 'Error in connection-status listener', error)
-        }
-      })
-    }
+    this.events.dispatchEvent(
+      new CustomEvent('connection-status', { detail: { status, reconnectAttempts: this.reconnectAttempts } })
+    )
   }
 
   manualReconnect(): void {
+    this.clearReconnectTimer()
     this.isLockedOut = false
     this.rapidDisconnectCount = 0
     this.reconnectAttempts = 0

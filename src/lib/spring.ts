@@ -98,6 +98,7 @@ export function animateSpring({
   const displacement = from - to
   let frame = 0
   let done = false
+  let rest = { value: to, velocity: 0 }
   const { promise: finished, resolve } = Promise.withResolvers<boolean>()
 
   const stateAt = (now: number) => springState(displacement, velocity, Math.max(0, now - start) / 1000, config)
@@ -105,6 +106,10 @@ export function animateSpring({
   const finish = (settled: boolean) => {
     if (done) {
       return
+    }
+
+    if (!settled) {
+      rest = { value: to + stateAt(performance.now()).displacement, velocity: 0 }
     }
 
     done = true
@@ -135,10 +140,10 @@ export function animateSpring({
 
   return {
     get value() {
-      return done ? to : to + stateAt(performance.now()).displacement
+      return done ? rest.value : to + stateAt(performance.now()).displacement
     },
     get velocity() {
-      return done ? 0 : stateAt(performance.now()).velocity
+      return done ? rest.velocity : stateAt(performance.now()).velocity
     },
     finished,
     stop: () => finish(false),

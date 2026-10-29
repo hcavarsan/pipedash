@@ -7,6 +7,7 @@ import {
   displayPosition,
   expandLevel,
   FLICK_SPEED,
+  SHEET_DETENTS,
   type SheetDetent,
   scrimLevel,
   sheetFrame,
@@ -15,6 +16,7 @@ import {
 import { animateSpring, SPRING_DEFAULT, SPRING_MOMENTUM, type SpringAnimation } from '../lib/spring'
 import { type GestureStart, trackTouches } from '../lib/touchTracker'
 import { iosClasses } from '../theme/ios'
+import { isOneOf } from '../utils/isOneOf'
 
 import { type SheetHandle, sheetHandle } from './useSheetStack'
 
@@ -34,6 +36,7 @@ interface SheetDrag {
   scrollers: HTMLElement[]
   expandable: boolean
   active: boolean
+  disposed: boolean
   heights: number[]
   top: number
   floor: number
@@ -53,6 +56,7 @@ interface Settling {
 }
 
 const settling = new WeakMap<HTMLElement, Settling>()
+const live = new Set<SheetDrag>()
 let candidate: SheetDrag | null = null
 
 function lastOverlay(): HTMLElement | null {
@@ -108,7 +112,7 @@ function begin({ target }: GestureStart): SheetDrag | null {
     return null
   }
 
-  const modal = sheet.classList.contains(iosClasses.sheetContent)
+  const modal = iosClasses.sheetContent !== undefined && sheet.classList.contains(iosClasses.sheetContent)
   const handle = modal ? (sheetHandle(sheet) ?? closeButtonHandle(sheet)) : floatingHandle
 
   if (!handle) {
@@ -131,6 +135,7 @@ function begin({ target }: GestureStart): SheetDrag | null {
     scrollers,
     expandable: detents.length > 1 && sheet.dataset.detent !== 'large',
     active: false,
+    disposed: false,
     heights: [],
     top: 0,
     floor: Number.POSITIVE_INFINITY,
@@ -148,7 +153,7 @@ function begin({ target }: GestureStart): SheetDrag | null {
 }
 
 function measureHeights({ sheet, modal }: SheetDrag): number[] {
-  const detents = sheet.dataset.detents?.split(',') as SheetDetent[] | undefined
+  const detents = sheet.dataset.detents?.split(',').filter((value) => isOneOf(SHEET_DETENTS, value))
   const inner = sheet.parentElement
 
   if (modal && detents && inner) {
@@ -162,22 +167,24 @@ function measureHeights({ sheet, modal }: SheetDrag): number[] {
 
 function activate(drag: SheetDrag, dy: number) {
   const { sheet } = drag
+
+  live.add(drag)
   const prior = settling.get(sheet)
 
   if (prior) {
     drag.heights = prior.heights
-    drag.top = prior.heights[prior.heights.length - 1]
+    drag.top = prior.heights.at(-1) ?? 0
     drag.base = prior.spring.value
     prior.spring.stop()
     settling.delete(sheet)
   } else {
     drag.heights = measureHeights(drag)
-    drag.top = drag.heights[drag.heights.length - 1]
+    drag.top = drag.heights.at(-1) ?? 0
     drag.base = drag.top - Math.round(sheet.getBoundingClientRect().height)
   }
 
   drag.dismissible = !sheet.hasAttribute('data-locked')
-  drag.floor = drag.dismissible ? Number.POSITIVE_INFINITY : drag.top - drag.heights[0]
+  drag.floor = drag.dismissible ? Number.POSITIVE_INFINITY : drag.top - (drag.heights[0] ?? 0)
   drag.anchor = dy
   drag.current = drag.base
   drag.overlay = lastOverlay()
@@ -248,6 +255,7 @@ function cleanup(drag: SheetDrag) {
   }
 
   settling.delete(sheet)
+  live.delete(drag)
 }
 
 function commit(drag: SheetDrag, stop: number) {
@@ -304,7 +312,11 @@ async function dismiss(drag: SheetDrag, velocity: number) {
   if (prefersReducedMotion()) {
     const fade = sheet.animate({ opacity: [1, 0] }, { duration: FADE_MS, fill: 'forwards' })
 
-    await fade.finished
+    await fade.finished.catch(() => undefined)
+
+    if (drag.disposed) {
+      return
+    }
 
     if (await handle.closeNow()) {
       cleanup(drag)
@@ -317,6 +329,10 @@ async function dismiss(drag: SheetDrag, velocity: number) {
   }
 
   if (!(await glide(drag, drag.top + DISMISS_CLEARANCE, velocity).finished)) {
+    return
+  }
+
+  if (drag.disposed) {
     return
   }
 
@@ -353,7 +369,8 @@ export function useSheetDrag(active: boolean): void {
       return
     }
 
-    return trackTouches<SheetDrag>(document, {
+    let disposed = false
+    const stopTracking = trackTouches<SheetDrag>(document, {
       axis: 'y',
       retry: true,
       begin,
@@ -370,8 +387,28 @@ export function useSheetDrag(active: boolean): void {
         void release(drag, vy)
       },
       cancel: (drag) => {
-        void settleTo(drag, restStop(drag), 0)
+        if (!disposed) {
+          void settleTo(drag, restStop(drag), 0)
+        }
       },
     })
+
+    return () => {
+      disposed = true
+      stopTracking()
+
+      for (const drag of live) {
+        drag.disposed = true
+        settling.get(drag.sheet)?.spring.stop()
+
+        for (const animation of drag.sheet.getAnimations()) {
+          animation.cancel()
+        }
+
+        cleanup(drag)
+      }
+
+      live.clear()
+    }
   }, [active])
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
@@ -7,6 +7,18 @@ import { registerScrollToTop, scrollActiveToTop } from './scrollToTop'
 
 GlobalRegistrator.register({ width: 393, height: 852 })
 after(() => GlobalRegistrator.unregister())
+
+const fixtures: HTMLElement[] = []
+const disposers: Array<() => void> = []
+
+afterEach(() => {
+  for (const dispose of disposers.splice(0)) {
+    dispose()
+  }
+  for (const fixture of fixtures.splice(0)) {
+    fixture.remove()
+  }
+})
 
 function scroller(covered: boolean) {
   const inner = document.createElement('div')
@@ -19,22 +31,29 @@ function scroller(covered: boolean) {
 
   inner.append(element)
   document.body.append(inner)
+  fixtures.push(inner)
 
   return { element, inner }
 }
 
-const registerFor = (element: HTMLElement, calls: string[], name: string) =>
-  registerScrollToTop({
+const registerFor = (element: HTMLElement, calls: string[], name: string) => {
+  const dispose = registerScrollToTop({
     isActive: () => !element.closest('[data-sheet-covered]'),
     scrollToTop: () => calls.push(name),
   })
+
+  disposers.push(dispose)
+
+  return dispose
+}
 
 test('the newest uncovered entry handles the tap and covered entries are skipped', () => {
   const calls: string[] = []
   const lower = scroller(false)
   const upper = scroller(false)
-  const stopLower = registerFor(lower.element, calls, 'lower')
-  const stopUpper = registerFor(upper.element, calls, 'upper')
+
+  registerFor(lower.element, calls, 'lower')
+  registerFor(upper.element, calls, 'upper')
 
   scrollActiveToTop()
   assert.deepEqual(calls, ['upper'])
@@ -42,9 +61,6 @@ test('the newest uncovered entry handles the tap and covered entries are skipped
   upper.inner.setAttribute('data-sheet-covered', '1')
   scrollActiveToTop()
   assert.deepEqual(calls, ['upper', 'lower'])
-
-  stopUpper()
-  stopLower()
 })
 
 test('cleanup removes exactly its own entry', () => {
@@ -66,18 +82,22 @@ test('cleanup removes exactly its own entry', () => {
 
 test('with no active entry the app shell scrolls to the top', () => {
   const main = document.createElement('main')
-  const scrolls: unknown[] = []
+  const scrolls: Array<ScrollToOptions | number | undefined> = []
 
   main.className = 'mantine-AppShell-main'
-  main.scrollTo = ((options: unknown) => scrolls.push(options)) as typeof main.scrollTo
+  main.scrollTo = (options?: ScrollToOptions | number) => {
+    scrolls.push(options)
+  }
   document.body.append(main)
+  fixtures.push(main)
 
   const hidden = scroller(true)
-  const stop = registerFor(hidden.element, [], 'hidden')
+
+  registerFor(hidden.element, [], 'hidden')
 
   scrollActiveToTop()
   assert.equal(scrolls.length, 1)
-  assert.equal((scrolls[0] as ScrollToOptions).top, 0)
-
-  stop()
+  const first = scrolls[0]
+  assert.ok(typeof first === 'object')
+  assert.equal(first.top, 0)
 })

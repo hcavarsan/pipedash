@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use pipedash_plugin_api::*;
 
+use crate::log_dialect::BitbucketLogDialect;
 use crate::{
     client,
     config,
@@ -309,6 +310,40 @@ impl Plugin for BitbucketPlugin {
         ))
     }
 
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let (_, workspace, repo_slug) = config::parse_pipeline_id(run.pipeline_id)?;
+        let client = self.client()?;
+
+        let pipeline = client
+            .find_pipeline_by_build_number(&workspace, &repo_slug, run.run_number)
+            .await?;
+        let steps = client
+            .list_steps(&workspace, &repo_slug, &pipeline.uuid)
+            .await?;
+
+        Ok(mapper::steps_to_log_nodes(&steps))
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let (_, workspace, repo_slug) = config::parse_pipeline_id(run.pipeline_id)?;
+        config::check_step_uuid(node_id)?;
+        let client = self.client()?;
+
+        let pipeline = client
+            .find_pipeline_by_build_number(&workspace, &repo_slug, run.run_number)
+            .await?;
+
+        client
+            .stream_step_log(&workspace, &repo_slug, &pipeline.uuid, node_id, sink)
+            .await
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &BitbucketLogDialect
+    }
+
     async fn fetch_workflow_parameters(
         &self, _workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {
@@ -469,6 +504,7 @@ impl Plugin for BitbucketPlugin {
 
 #[cfg(test)]
 mod tests {
+    use std::net::SocketAddr;
     use std::sync::{
         mpsc,
         Arc,
@@ -677,5 +713,347 @@ mod tests {
             requests.last().unwrap(),
             "POST /repositories/ws/repo/pipelines/%7B1%7D/stopPipeline HTTP/1.1"
         );
+    }
+
+    const PIPELINE_UUID: &str = "{3f9d6e5c-2b1a-4c7d-8e9f-0a1b2c3d4e5f}";
+    const STEP_BUILD: &str = "{1b0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a61}";
+    const STEP_TEST: &str = "{2c1f6d8b-1e22-4a7f-8b68-4d2e3f5a6b72}";
+    const STEP_DEPLOY: &str = "{3d207e9c-2f33-4b80-9c79-5e3f4a6b7c83}";
+    const STEP_RELEASE: &str = "{4e318fad-3044-4c91-8d8a-6f405b7c8d94}";
+    const STEP_SMOKE: &str = "{5f4290be-4155-4da2-9e9b-70516c8d9ea5}";
+    const STEP_PRUNED: &str = "{60503acf-5266-4eb3-8fac-81627d9eafb6}";
+    const STEP_EXPIRED: &str = "{71614bd0-6377-4fc4-90bd-92738eafb0c7}";
+    const BUILD_LOG: &str = "+ npm ci\nadded 214 packages\n+ npm run build\nbuilt in 9s\n";
+    const TEST_LOG: &str =
+        "+ make test\nrunning 3 tests\ntest result: FAILED. 2 passed; 1 failed\n";
+
+    struct Reply {
+        status: &'static str,
+        headers: Vec<(&'static str, String)>,
+        body: String,
+    }
+
+    fn reply(status: &'static str, body: &str) -> Reply {
+        Reply {
+            status,
+            headers: Vec::new(),
+            body: body.to_string(),
+        }
+    }
+
+    type Recorded = Arc<tokio::sync::Mutex<Vec<(String, Option<String>)>>>;
+
+    async fn stub(
+        handler: impl Fn(&str, &str) -> Reply + Send + 'static,
+    ) -> (SocketAddr, Recorded) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let recorded = Recorded::default();
+        let journal = recorded.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buffer = [0; 8192];
+                let count = stream.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..count]);
+                let mut lines = request.lines();
+                let request_line = lines.next().unwrap().to_string();
+                let header = |wanted: &str| {
+                    request
+                        .lines()
+                        .filter_map(|line| line.split_once(':'))
+                        .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
+                        .map(|(_, value)| value.trim().to_string())
+                };
+                let target = request_line.split_whitespace().nth(1).unwrap();
+                let reply = handler(target, &header("host").unwrap());
+                journal
+                    .lock()
+                    .await
+                    .push((request_line.clone(), header("authorization")));
+                let headers: String = reply
+                    .headers
+                    .iter()
+                    .map(|(name, value)| format!("{name}: {value}\r\n"))
+                    .collect();
+                let response = format!(
+                    "HTTP/1.1 {}\r\n{headers}content-length: {}\r\nconnection: close\r\n\r\n{}",
+                    reply.status,
+                    reply.body.len(),
+                    reply.body
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        (address, recorded)
+    }
+
+    fn steps_path() -> String {
+        format!(
+            "/repositories/ws/repo/pipelines/{}/steps",
+            urlencoding::encode(PIPELINE_UUID)
+        )
+    }
+
+    fn log_path(step_uuid: &str) -> String {
+        format!("{}/{}/log", steps_path(), urlencoding::encode(step_uuid))
+    }
+
+    fn step(uuid: &str, name: &str, state: serde_json::Value, started: bool) -> serde_json::Value {
+        let mut step = serde_json::json!({"uuid": uuid, "name": name, "state": state});
+        if started {
+            step["started_on"] = "2026-10-28T10:00:00.000Z".into();
+        }
+        if state["name"] == "COMPLETED" && started {
+            step["completed_on"] = "2026-10-28T10:01:15.000Z".into();
+        }
+        step
+    }
+
+    fn completed(result: &str) -> serde_json::Value {
+        serde_json::json!({"name": "COMPLETED", "result": {"name": result}})
+    }
+
+    fn steps_page(host: &str, second_page: bool) -> String {
+        let (values, next) = if second_page {
+            (
+                vec![
+                    step(
+                        STEP_DEPLOY,
+                        "Deploy",
+                        serde_json::json!({"name": "IN_PROGRESS"}),
+                        true,
+                    ),
+                    step(
+                        STEP_RELEASE,
+                        "Release",
+                        serde_json::json!({"name": "PENDING"}),
+                        false,
+                    ),
+                    step(STEP_SMOKE, "Smoke", completed("NOT_RUN"), false),
+                ],
+                None,
+            )
+        } else {
+            (
+                vec![
+                    step(STEP_BUILD, "Build", completed("SUCCESSFUL"), true),
+                    step(STEP_TEST, "Test", completed("FAILED"), true),
+                ],
+                Some(format!("http://{host}{}?pagelen=100&page=2", steps_path())),
+            )
+        };
+        serde_json::json!({"values": values, "next": next, "pagelen": 100}).to_string()
+    }
+
+    fn pipelines_page() -> String {
+        serde_json::json!({
+            "values": [{
+                "uuid": PIPELINE_UUID,
+                "build_number": 7,
+                "state": {"name": "IN_PROGRESS"},
+                "target": {"type": "pipeline_ref_target", "ref_name": "main"},
+                "created_on": "2026-10-28T10:00:00Z",
+                "links": {}
+            }],
+            "pagelen": 100
+        })
+        .to_string()
+    }
+
+    async fn serve_pipeline_logs() -> (BitbucketPlugin, Recorded, Recorded) {
+        let (storage, stored) = stub(|target, _| match target {
+            "/storage/test.log" => reply("200 OK", TEST_LOG),
+            _ => reply("404 Not Found", "{}"),
+        })
+        .await;
+        let (api, requests) = stub(move |target, host| {
+            let url = reqwest::Url::parse(&format!("http://{host}{target}")).unwrap();
+            let path = url.path();
+            if path == "/repositories/ws/repo/pipelines" {
+                reply("200 OK", &pipelines_page())
+            } else if path == steps_path() {
+                let second_page = url.query_pairs().any(|(key, _)| key == "page");
+                reply("200 OK", &steps_page(host, second_page))
+            } else if path == log_path(STEP_BUILD) {
+                reply("200 OK", BUILD_LOG)
+            } else if path == log_path(STEP_TEST) {
+                Reply {
+                    status: "307 Temporary Redirect",
+                    headers: vec![("location", format!("http://{storage}/storage/test.log"))],
+                    body: String::new(),
+                }
+            } else if path == log_path(STEP_EXPIRED) {
+                reply("410 Gone", "{}")
+            } else {
+                reply("404 Not Found", "{}")
+            }
+        })
+        .await;
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut plugin = BitbucketPlugin::new();
+        plugin.client = Some(client::BitbucketClient::new(
+            Arc::new(reqwest::Client::builder().no_proxy().build().unwrap()),
+            format!("http://{api}"),
+            "Basic stub".to_string(),
+        ));
+        plugin.provider_id = Some(1);
+        (plugin, requests, stored)
+    }
+
+    fn run_7(metadata: &HashMap<String, serde_json::Value>) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: "bitbucket__1__ws__repo",
+            run_number: 7,
+            run_id: "bitbucket__1__ws__repo__7",
+            metadata,
+        }
+    }
+
+    async fn read_step(plugin: &BitbucketPlugin, node_id: &str) -> PluginResult<Vec<u8>> {
+        let metadata = HashMap::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin.read_log(run_7(&metadata), node_id, &mut sink).await;
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        result.map(|()| bytes)
+    }
+
+    #[tokio::test]
+    async fn steps_on_two_pages_become_job_nodes() {
+        let (plugin, requests, _) = serve_pipeline_logs().await;
+        let metadata = HashMap::new();
+
+        let nodes = plugin.fetch_log_nodes(run_7(&metadata)).await.unwrap();
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| (node.id.as_str(), node.name.as_str(), node.status, node.log))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                (
+                    STEP_BUILD,
+                    "Build",
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    STEP_TEST,
+                    "Test",
+                    PipelineStatus::Failed,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    STEP_DEPLOY,
+                    "Deploy",
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Partial)
+                ),
+                (
+                    STEP_RELEASE,
+                    "Release",
+                    PipelineStatus::Pending,
+                    Some(LogAvailability::Pending)
+                ),
+                (STEP_SMOKE, "Smoke", PipelineStatus::Skipped, None),
+            ]
+        );
+        let lines: Vec<String> = requests
+            .lock()
+            .await
+            .iter()
+            .map(|(line, _)| line.clone())
+            .collect();
+        let steps = steps_path();
+        assert_eq!(
+            &lines[1..],
+            [
+                format!("GET {steps}?pagelen=100 HTTP/1.1"),
+                format!("GET {steps}?pagelen=100&page=2 HTTP/1.1"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn step_log_streams_into_the_sink() {
+        let (plugin, requests, _) = serve_pipeline_logs().await;
+
+        let log = read_step(&plugin, STEP_BUILD).await.unwrap();
+
+        assert_eq!(log, BUILD_LOG.as_bytes());
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[1],
+            (
+                format!("GET {} HTTP/1.1", log_path(STEP_BUILD)),
+                Some("Basic stub".to_string())
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn step_log_redirect_is_followed_without_the_api_credentials() {
+        let (plugin, requests, stored) = serve_pipeline_logs().await;
+
+        let log = read_step(&plugin, STEP_TEST).await.unwrap();
+
+        assert_eq!(log, TEST_LOG.as_bytes());
+        let requests = requests.lock().await;
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].1.as_deref(), Some("Basic stub"));
+        assert_eq!(
+            *stored.lock().await,
+            [("GET /storage/test.log HTTP/1.1".to_string(), None)]
+        );
+    }
+
+    #[tokio::test]
+    async fn step_log_that_is_gone_is_not_found() {
+        let (plugin, _, _) = serve_pipeline_logs().await;
+
+        for step in [STEP_PRUNED, STEP_EXPIRED] {
+            let error = read_step(&plugin, step).await.unwrap_err();
+            assert!(
+                matches!(&error, PluginError::PipelineNotFound(message) if message.contains("no longer available")),
+                "{step}: {error:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn step_ids_outside_the_braced_uuid_shape_are_rejected_without_a_request() {
+        let (plugin, requests, stored) = serve_pipeline_logs().await;
+
+        let rejected = [
+            "",
+            "{}",
+            "1b0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a61",
+            "%7B1b0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a61%7D",
+            "{1b0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a6}",
+            "{1b0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a611}",
+            "{1b0e5c7a0d11-4f6e-9a57-3c1d2e4f5a61--}",
+            "{1g0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a61}",
+            "{../../../pipelines/%7Bx%7D/stopPipeline}",
+            "{1b0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a61}/log",
+            "{1b0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a61}?x=1",
+            "{1b0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a61}\n",
+            " {1b0e5c7a-0d11-4f6e-9a57-3c1d2e4f5a61}",
+        ];
+        for node_id in rejected {
+            let error = read_step(&plugin, node_id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{node_id:?}: {error:?}"
+            );
+        }
+
+        assert!(requests.lock().await.is_empty());
+        assert!(stored.lock().await.is_empty());
     }
 }

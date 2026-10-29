@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, test } from 'node:test'
+import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
@@ -12,7 +12,9 @@ const { act, cleanup, renderHook, waitFor } = await import('@testing-library/rea
 const { environmentManager, notifyManager, QueryClient, QueryClientProvider, timeoutManager } = await import(
   '@tanstack/react-query'
 )
-const { apiService, events, tauriService } = await import('../services')
+const { events } = await import('../services/service')
+const { apiService } = await import('../services/api')
+const { tauriService } = await import('../services/tauri')
 const { useRunLogDocument } = await import('./useRunLogQueries')
 
 interface ManualTimer {
@@ -56,17 +58,39 @@ const advance = (ms: number) => {
   now = target
 }
 
-const cancel = (id: number | { [Symbol.toPrimitive]: () => number } | undefined) => {
-  if (id !== undefined && timers.delete(Number(id))) {
+const realTimers = new Map<number, ReturnType<typeof setTimeout>>()
+
+const realTimeout = (run: () => void, delay: number) => {
+  nextId += 1
+  const id = nextId
+
+  realTimers.set(
+    id,
+    setTimeout(() => {
+      realTimers.delete(id)
+      run()
+    }, delay)
+  )
+
+  return id
+}
+
+const cancel = (id: number | undefined) => {
+  if (id === undefined || timers.delete(id)) {
     return
   }
-  clearTimeout(id as Parameters<typeof clearTimeout>[0])
+  const real = realTimers.get(id)
+
+  if (real !== undefined) {
+    clearTimeout(real)
+    realTimers.delete(id)
+  }
 }
 
 const wasServer = environmentManager.isServer()
 environmentManager.setIsServer(() => false)
-timeoutManager.setTimeoutProvider({
-  setTimeout: (run, delay) => (delay > 0 ? schedule(run, delay, null) : setTimeout(run, delay)),
+timeoutManager.setTimeoutProvider<number>({
+  setTimeout: (run, delay) => (delay > 0 ? schedule(run, delay, null) : realTimeout(run, delay)),
   clearTimeout: cancel,
   setInterval: (run, delay) => schedule(run, delay, delay),
   clearInterval: cancel,
@@ -92,18 +116,26 @@ const readyMeta: LogDocumentMeta = {
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children)
 
+beforeEach(() => {
+  client.clear()
+})
+
+afterEach(async () => {
+  await act(async () => cleanup())
+})
+
 after(async () => {
   await act(async () => cleanup())
   client.clear()
   notifyManager.setNotifyFunction((callback) => callback())
-  timeoutManager.setTimeoutProvider({
+  timeoutManager.setTimeoutProvider<ReturnType<typeof setTimeout>>({
     setTimeout: (run, delay) => setTimeout(run, delay),
-    clearTimeout: (id) => clearTimeout(id as Parameters<typeof clearTimeout>[0]),
+    clearTimeout: (id) => clearTimeout(id),
     setInterval: (run, delay) => setInterval(run, delay),
-    clearInterval: (id) => clearInterval(id as Parameters<typeof clearInterval>[0]),
+    clearInterval: (id) => clearInterval(id),
   })
   environmentManager.setIsServer(() => wasServer)
-  GlobalRegistrator.unregister()
+  await GlobalRegistrator.unregister()
 })
 
 test('a pending job becomes ready after the 10 s refetch without reselection', async (context) => {
@@ -128,4 +160,92 @@ test('a pending job becomes ready after the 10 s refetch without reselection', a
   await act(async () => advance(1))
   await waitFor(() => assert.equal(result.current.data?.state, 'ready'))
   assert.equal(opens.mock.callCount(), 2)
+})
+
+type Handler = (payload: { pipelineId: string; runNumber: number; nodeId: string; receivedBytes?: number }) => void
+
+function captureListeners(context: TestContext, defer?: Promise<void>) {
+  const handlers = new Map<string, Handler>()
+  const unlisten = context.mock.fn(() => undefined)
+  context.mock.method(events, 'listen', async (name: string, handler: Handler) => {
+    handlers.set(name, handler)
+    await defer
+
+    return unlisten
+  })
+
+  return { handlers, unlisten }
+}
+
+function stubOpen(context: TestContext, impl: () => Promise<RunLogDocument>) {
+  const opens = context.mock.fn(impl)
+  context.mock.method(apiService, 'openRunLog', opens)
+  context.mock.method(tauriService, 'openRunLog', opens)
+
+  return opens
+}
+
+const target = { pipelineId: 'github__1__o/r/w', runNumber: 7, nodeId: '99' }
+
+test('a failed open exposes the error', async (context) => {
+  captureListeners(context)
+  const opens = stubOpen(context, async () => {
+    throw new Error('log unavailable')
+  })
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { result } = renderHook(() => useRunLogDocument(target.pipelineId, 7, '99', true), { wrapper })
+
+  await waitFor(() => assert.equal(opens.mock.callCount(), 1))
+  await act(async () => advance(1000))
+  await waitFor(() => assert.equal(result.current.isError, true))
+})
+
+test('progress events update a loading document and an empty ready document is accepted', async (context) => {
+  const { handlers } = captureListeners(context)
+  let current: RunLogDocument = { state: 'loading', received_bytes: 1 }
+  stubOpen(context, async () => current)
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { result } = renderHook(() => useRunLogDocument(target.pipelineId, 7, '99', true), { wrapper })
+  await waitFor(() => assert.equal(result.current.data?.state, 'loading'))
+
+  await act(async () => handlers.get('run-log-progress')?.({ ...target, receivedBytes: 4096 }))
+  await waitFor(() => assert.deepEqual(result.current.data, { state: 'loading', received_bytes: 4096 }))
+
+  current = { state: 'ready', ...readyMeta, line_count: 0, text_bytes: 0 }
+  await act(async () => handlers.get('run-log-ready')?.(target))
+  await waitFor(() => assert.equal(result.current.data?.state, 'ready'))
+})
+
+test('events for another target are ignored after switching targets', async (context) => {
+  const { handlers } = captureListeners(context)
+  const opens = stubOpen(context, async () => ({ state: 'loading', received_bytes: 1 }))
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { result, rerender } = renderHook(({ node }) => useRunLogDocument(target.pipelineId, 7, node, true), {
+    wrapper,
+    initialProps: { node: '99' },
+  })
+  await waitFor(() => assert.equal(result.current.data?.state, 'loading'))
+  rerender({ node: '100' })
+  await waitFor(() => assert.equal(opens.mock.callCount(), 2))
+  await waitFor(() => assert.equal(result.current.data?.state, 'loading'))
+
+  await act(async () => handlers.get('run-log-progress')?.({ ...target, receivedBytes: 9999 }))
+
+  assert.deepEqual(result.current.data, { state: 'loading', received_bytes: 1 })
+})
+
+test('listeners that register after unmount are released', async (context) => {
+  const gate = Promise.withResolvers<void>()
+  const { unlisten } = captureListeners(context, gate.promise)
+  stubOpen(context, async () => ({ state: 'pending' }))
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { unmount } = renderHook(() => useRunLogDocument(target.pipelineId, 7, '99', true), { wrapper })
+  unmount()
+  gate.resolve()
+
+  await waitFor(() => assert.equal(unlisten.mock.callCount(), 3))
 })

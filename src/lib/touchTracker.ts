@@ -28,6 +28,8 @@ interface TrackerOptions<Context> {
   cancel?: (context: Context) => void
 }
 
+type TrackerTarget = Pick<HTMLElement, 'addEventListener' | 'removeEventListener'>
+
 type Phase = 'pending' | 'active' | 'ignored'
 
 interface Session<Context> {
@@ -45,15 +47,24 @@ interface Point {
   t: number
 }
 
-export function trackTouches<Context>(target: Document | HTMLElement, options: TrackerOptions<Context>): () => void {
+export function trackTouches<Context>(target: TrackerTarget, options: TrackerOptions<Context>): () => void {
   let session: Session<Context> | null = null
   let waiting = false
   let pointerId: number | null = null
+  let captured: { element: Element; id: number } | null = null
+
+  const releaseCapture = () => {
+    if (captured?.element.hasPointerCapture(captured.id)) {
+      captured.element.releasePointerCapture(captured.id)
+    }
+    captured = null
+  }
 
   const abort = () => {
     if (session?.phase === 'active') {
       options.cancel?.(session.context)
     }
+    releaseCapture()
     session = null
     waiting = false
     pointerId = null
@@ -80,6 +91,10 @@ export function trackTouches<Context>(target: Document | HTMLElement, options: T
   }
 
   const start = (element: Element | null, point: Point) => {
+    if (session?.phase === 'active') {
+      options.cancel?.(session.context)
+    }
+    releaseCapture()
     session = null
     waiting = !open(element, point) && options.retry === true
   }
@@ -122,7 +137,13 @@ export function trackTouches<Context>(target: Document | HTMLElement, options: T
     prevent()
     session.last = drag
     session.samples.push(point)
-    while (session.samples.length > 2 && point.t - session.samples[0].t > VELOCITY_WINDOW_MS) {
+    while (session.samples.length > 2) {
+      const oldest = session.samples[0]
+
+      if (!oldest || point.t - oldest.t <= VELOCITY_WINDOW_MS) {
+        break
+      }
+
       session.samples.shift()
     }
     options.move(session.context, drag)
@@ -134,6 +155,7 @@ export function trackTouches<Context>(target: Document | HTMLElement, options: T
     session = null
     waiting = false
     pointerId = null
+    captured = null
 
     if (current?.phase !== 'active') {
       return
@@ -147,101 +169,97 @@ export function trackTouches<Context>(target: Document | HTMLElement, options: T
 
   const touchPoint = (touch: Touch): Point => ({ x: touch.clientX, y: touch.clientY, t: performance.now() })
 
-  const onTouchStart = (event: Event) => {
-    const touchEvent = event as TouchEvent
+  const onTouchStart = (event: TouchEvent): void => {
+    const touch = event.touches[0]
 
-    if (touchEvent.touches.length !== 1) {
+    if (event.touches.length !== 1 || !touch) {
       abort()
 
       return
     }
 
-    start(event.target instanceof Element ? event.target : null, touchPoint(touchEvent.touches[0]))
+    start(event.target instanceof Element ? event.target : null, touchPoint(touch))
   }
 
-  const onTouchMove = (event: Event) => {
-    const touchEvent = event as TouchEvent
+  const onTouchMove = (event: TouchEvent): void => {
+    const touch = event.touches[0]
 
-    if (touchEvent.touches.length !== 1) {
+    if (event.touches.length !== 1 || !touch) {
       abort()
 
       return
     }
 
-    advance(event.target instanceof Element ? event.target : null, touchPoint(touchEvent.touches[0]), () => {
-      if (touchEvent.cancelable) {
-        touchEvent.preventDefault()
+    advance(event.target instanceof Element ? event.target : null, touchPoint(touch), () => {
+      if (event.cancelable) {
+        event.preventDefault()
       }
     })
   }
 
-  const onTouchEnd = (event: Event) => {
-    const touch = (event as TouchEvent).changedTouches[0]
+  const onTouchEnd = (event: TouchEvent): void => {
+    const touch = event.changedTouches[0]
 
     finish(touch ? touchPoint(touch) : null)
   }
 
   const pointerPoint = (event: PointerEvent): Point => ({ x: event.clientX, y: event.clientY, t: performance.now() })
 
-  const onPointerDown = (event: Event) => {
-    const pointer = event as PointerEvent
-
-    if (pointer.pointerType === 'touch' || pointer.button !== 0) {
+  const onPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch' || event.button !== 0) {
       return
     }
 
-    pointerId = pointer.pointerId
-    start(event.target instanceof Element ? event.target : null, pointerPoint(pointer))
+    pointerId = event.pointerId
+    start(event.target instanceof Element ? event.target : null, pointerPoint(event))
   }
 
-  const onPointerMove = (event: Event) => {
-    const pointer = event as PointerEvent
-
-    if (pointer.pointerId !== pointerId) {
+  const onPointerMove = (event: PointerEvent): void => {
+    if (event.pointerId !== pointerId) {
       return
     }
 
-    advance(event.target instanceof Element ? event.target : null, pointerPoint(pointer), () => {
-      if (event.target instanceof Element && !event.target.hasPointerCapture(pointer.pointerId)) {
-        event.target.setPointerCapture(pointer.pointerId)
+    advance(event.target instanceof Element ? event.target : null, pointerPoint(event), () => {
+      if (event.target instanceof Element && !event.target.hasPointerCapture(event.pointerId)) {
+        event.target.setPointerCapture(event.pointerId)
+        captured = { element: event.target, id: event.pointerId }
       }
-      pointer.preventDefault()
+      event.preventDefault()
     })
   }
 
-  const onPointerUp = (event: Event) => {
-    const pointer = event as PointerEvent
-
-    if (pointer.pointerId === pointerId) {
-      finish(pointerPoint(pointer))
+  const onPointerUp = (event: PointerEvent): void => {
+    if (event.pointerId === pointerId) {
+      finish(pointerPoint(event))
     }
   }
 
-  const onPointerCancel = (event: Event) => {
-    if ((event as PointerEvent).pointerId === pointerId) {
+  const onPointerCancel = (event: PointerEvent): void => {
+    if (event.pointerId === pointerId) {
       abort()
     }
   }
 
-  const listeners: [string, (event: Event) => void, AddEventListenerOptions][] = [
-    ['touchstart', onTouchStart, { passive: true }],
-    ['touchmove', onTouchMove, { passive: false }],
-    ['touchend', onTouchEnd, { passive: true }],
-    ['touchcancel', abort, { passive: true }],
-    ['pointerdown', onPointerDown, { passive: true }],
-    ['pointermove', onPointerMove, { passive: false }],
-    ['pointerup', onPointerUp, { passive: true }],
-    ['pointercancel', onPointerCancel, { passive: true }],
-    ['lostpointercapture', onPointerCancel, { passive: true }],
-  ]
-
-  for (const [type, listener, listenerOptions] of listeners) {
-    target.addEventListener(type, listener, listenerOptions)
-  }
+  target.addEventListener('touchstart', onTouchStart, { passive: true })
+  target.addEventListener('touchmove', onTouchMove, { passive: false })
+  target.addEventListener('touchend', onTouchEnd, { passive: true })
+  target.addEventListener('touchcancel', abort, { passive: true })
+  target.addEventListener('pointerdown', onPointerDown, { passive: true })
+  target.addEventListener('pointermove', onPointerMove, { passive: false })
+  target.addEventListener('pointerup', onPointerUp, { passive: true })
+  target.addEventListener('pointercancel', onPointerCancel, { passive: true })
+  target.addEventListener('lostpointercapture', onPointerCancel, { passive: true })
 
   return () => {
-    for (const [type, listener] of listeners) {
-      target.removeEventListener(type, listener)
-    }
+    abort()
+    target.removeEventListener('touchstart', onTouchStart)
+    target.removeEventListener('touchmove', onTouchMove)
+    target.removeEventListener('touchend', onTouchEnd)
+    target.removeEventListener('touchcancel', abort)
+    target.removeEventListener('pointerdown', onPointerDown)
+    target.removeEventListener('pointermove', onPointerMove)
+    target.removeEventListener('pointerup', onPointerUp)
+    target.removeEventListener('pointercancel', onPointerCancel)
+    target.removeEventListener('lostpointercapture', onPointerCancel)
   }
 }

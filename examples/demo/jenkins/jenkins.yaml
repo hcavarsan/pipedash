@@ -6,7 +6,14 @@ jenkins:
       users:
         - id: pipedash
           password: ${JENKINS_PASSWORD}
-  authorizationStrategy: loggedInUsersCanDoAnything
+  authorizationStrategy:
+    globalMatrix:
+      entries:
+        - user:
+            name: pipedash
+            permissions:
+              - Overall/Read
+              - Job/Read
 
 security:
   globalJobDslSecurityConfiguration:
@@ -98,7 +105,46 @@ jobs:
               pipeline {
                 agent any
                 stages {
-                  stage('End-to-end') { steps { sh 'echo "Running end-to-end suite"; sleep 240' } }
+                  stage('End-to-end') {
+                    steps {
+                      script {
+                        if (currentBuild.number % 3 == 0) {
+                          timeout(time: 60, unit: 'SECONDS') { sh 'echo "Waiting for the browser grid"; sleep 240' }
+                        } else {
+                          sh 'echo "Running end-to-end suite"; sleep 240'
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            '''.stripIndent())
+          }
+        }
+      }
+
+      pipelineJob('acme/smoke-tests') {
+        logRotator { numToKeep(30) }
+        properties { pipelineTriggers { triggers { cron { spec('H/4 * * * *') } } } }
+        definition {
+          cps {
+            sandbox(true)
+            script('''
+              pipeline {
+                agent any
+                options { disableConcurrentBuilds() }
+                stages {
+                  stage('Smoke') {
+                    steps {
+                      script {
+                        if (currentBuild.number % 4 == 0) {
+                          sh 'echo "Waiting for the staging database"; sleep 180'
+                        } else {
+                          sh 'echo "Smoke tests passed"; sleep 15'
+                        }
+                      }
+                    }
+                  }
                 }
               }
             '''.stripIndent())

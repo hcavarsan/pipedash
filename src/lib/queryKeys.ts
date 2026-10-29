@@ -1,4 +1,4 @@
-import type { PipelineViewQuery } from '../types'
+import type { PipelineViewQuery } from '../types/domain'
 import type { LogSearchQuery } from '../types/logs'
 
 export const queryKeys = {
@@ -18,7 +18,8 @@ export const queryKeys = {
 
   pipelines: {
     all: ['pipelines'] as const,
-    list: (filters?: { providerId?: number }) => [...queryKeys.pipelines.all, 'list', filters ?? {}] as const,
+    list: (filters?: { providerId?: number | undefined }) =>
+      [...queryKeys.pipelines.all, 'list', filters ?? {}] as const,
     detail: (id: string) => [...queryKeys.pipelines.all, 'detail', id] as const,
     views: () => [...queryKeys.pipelines.all, 'views'] as const,
     pages: () => [...queryKeys.pipelines.all, 'page'] as const,
@@ -29,10 +30,12 @@ export const queryKeys = {
 
   runs: {
     all: ['runs'] as const,
-    list: (pipelineId: string, page?: number) =>
+    list: (pipelineId: string, page?: number, pageSize?: number) =>
       page === undefined
         ? ([...queryKeys.runs.all, 'list', pipelineId] as const)
-        : ([...queryKeys.runs.all, 'list', pipelineId, { page }] as const),
+        : ([...queryKeys.runs.all, 'list', pipelineId, { page, pageSize }] as const),
+    infinite: (pipelineId: string, pageSize: number) =>
+      [...queryKeys.runs.all, 'list', pipelineId, 'infinite', { pageSize }] as const,
     detail: (pipelineId: string, runNumber: number) =>
       [...queryKeys.runs.all, 'detail', pipelineId, runNumber] as const,
     active: (pipelineId: string) => [...queryKeys.runs.all, 'active', pipelineId] as const,
@@ -43,7 +46,7 @@ export const queryKeys = {
     all: ['metrics'] as const,
     globalConfig: () => [...queryKeys.metrics.all, 'config', 'global'] as const,
     pipelineConfig: (pipelineId: string) => [...queryKeys.metrics.all, 'config', 'pipeline', pipelineId] as const,
-    aggregated: (params: { metricType: string; aggregationPeriod: string; pipelineId?: string }) =>
+    aggregated: (params: { metricType: string; aggregationPeriod: string; pipelineId?: string | undefined }) =>
       [...queryKeys.metrics.all, 'aggregated', params] as const,
     stats: () => [...queryKeys.metrics.all, 'stats'] as const,
   },
@@ -69,6 +72,7 @@ export const queryKeys = {
     paths: () => [...queryKeys.storage.all, 'paths'] as const,
     configContent: () => [...queryKeys.storage.all, 'configContent'] as const,
     defaultDataDir: () => [...queryKeys.storage.all, 'defaultDataDir'] as const,
+    analysis: (content: string) => [...queryKeys.storage.all, 'analysis', content] as const,
   },
 
   cache: {

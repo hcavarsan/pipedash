@@ -12,7 +12,8 @@ import {
   IconTool,
 } from '@tabler/icons-react'
 
-import type { HealthLevel, PipelineStatus } from '../types'
+import type { HealthLevel, PipelineStatus } from '../types/domain'
+import { typedKeys } from '../utils/typedKeys'
 
 type StatusTone = 'success' | 'failed' | 'running' | 'pending' | 'neutral'
 
@@ -25,7 +26,7 @@ export const STATUS_META: Record<PipelineStatus, { label: string; tone: StatusTo
   skipped: { label: 'Skipped', tone: 'neutral', icon: IconCircleChevronsRight },
 }
 
-export const STATUS_OPTIONS = (Object.keys(STATUS_META) as PipelineStatus[]).map((status) => ({
+export const STATUS_OPTIONS = typedKeys(STATUS_META).map((status) => ({
   value: status,
   label: STATUS_META[status].label,
 }))

@@ -165,6 +165,19 @@ pub(crate) fn parse_pipeline_id(id: &str) -> PluginResult<(i64, String, String)>
     Ok((provider_id, namespace, pipeline_name))
 }
 
+const MAX_KUBE_NAME_BYTES: usize = 253;
+
+pub(crate) fn is_kube_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    let alphanumeric = |b: &u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+    bytes.len() <= MAX_KUBE_NAME_BYTES
+        && bytes.first().is_some_and(alphanumeric)
+        && bytes.last().is_some_and(alphanumeric)
+        && bytes
+            .iter()
+            .all(|b| alphanumeric(b) || *b == b'-' || *b == b'.')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,6 +204,38 @@ mod tests {
     fn test_parse_invalid_pipeline_id() {
         let id = "invalid__1__namespace__pipeline";
         assert!(parse_pipeline_id(id).is_err());
+    }
+
+    #[test]
+    fn kube_names_are_lowercase_dns_subdomains_up_to_253_bytes() {
+        let longest = "a".repeat(253);
+        let valid = ["a", "build-1-clone", "pod.name-1", "0", longest.as_str()];
+        for name in valid {
+            assert!(is_kube_name(name), "{name}");
+        }
+
+        let too_long = "a".repeat(254);
+        let invalid = [
+            "",
+            "UPPER",
+            "has space",
+            "a/b",
+            "../x",
+            "..",
+            "a%2fb",
+            "a:b",
+            "a_b",
+            "-lead",
+            "trail-",
+            ".lead",
+            "trail.",
+            "new\nline",
+            "naïve",
+            too_long.as_str(),
+        ];
+        for name in invalid {
+            assert!(!is_kube_name(name), "{name:?}");
+        }
     }
 
     fn config(pairs: &[(&str, &str)]) -> HashMap<String, String> {

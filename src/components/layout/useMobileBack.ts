@@ -31,9 +31,9 @@ export function useGoBack(): (parent: string) => void {
       const index = historyIndex()
 
       if (resolveBack(index, previousEntry(index), parent) === 'pop') {
-        navigate(-1)
+        void navigate(-1)
       } else {
-        navigate(parent, { replace: true })
+        void navigate(parent, { replace: true })
       }
     },
     [navigate]

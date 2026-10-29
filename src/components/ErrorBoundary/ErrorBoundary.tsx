@@ -12,7 +12,8 @@ type Scope = 'app' | 'route' | 'feature'
 interface ErrorBoundaryProps {
   children: ReactNode
   scope?: Scope
-  name?: string
+  name?: string | undefined
+  resetKeys?: readonly unknown[] | undefined
 }
 
 interface ErrorBoundaryState {
@@ -34,15 +35,27 @@ const SCOPE_TITLE: Record<Scope, string> = {
 
 interface BoundaryFallbackProps {
   scope: Scope
-  name?: string
+  name?: string | undefined
   error: Error
   componentStack: string | null
   onRetry: () => void
 }
 
-function BoundaryFallback({ scope, name, error, componentStack, onRetry }: BoundaryFallbackProps) {
+function keysChanged(previous: readonly unknown[] | undefined, next: readonly unknown[] | undefined): boolean {
+  if (previous === next) {
+    return false
+  }
+  if (!previous || !next || previous.length !== next.length) {
+    return true
+  }
+
+  return previous.some((value, index) => !Object.is(value, next[index]))
+}
+
+function BoundaryFallback({ scope, name, error, componentStack, onRetry }: BoundaryFallbackProps): ReactNode {
   const mobileShell = useMobileShell()
   const title = name ? `${name} failed to load` : SCOPE_TITLE[scope]
+  const headingOrder = scope === 'feature' ? 2 : 1
 
   if (mobileShell) {
     return (
@@ -53,6 +66,7 @@ function BoundaryFallback({ scope, name, error, componentStack, onRetry }: Bound
           </ThemeIcon>
         }
         title={title}
+        headingOrder={headingOrder}
         message={error.message || 'An unexpected error occurred'}
         minHeight={scope === 'app' ? '100dvh' : 400}
         detail={
@@ -84,7 +98,7 @@ function BoundaryFallback({ scope, name, error, componentStack, onRetry }: Bound
             <IconAlertTriangle size={24} aria-hidden />
           </ThemeIcon>
           <Stack align="center" gap="xs">
-            <Title order={3}>{title}</Title>
+            <Title order={headingOrder}>{title}</Title>
             <Text size="sm" c="dimmed" ta="center">
               {error.message || 'An unexpected error occurred'}
             </Text>
@@ -124,6 +138,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       componentStack: errorInfo.componentStack,
     })
     this.setState({ componentStack: errorInfo.componentStack ?? null })
+  }
+
+  componentDidUpdate(previous: ErrorBoundaryProps, previousState: ErrorBoundaryState): void {
+    if (previousState.error && this.state.error && keysChanged(previous.resetKeys, this.props.resetKeys)) {
+      this.setState({ error: null, componentStack: null })
+    }
   }
 
   handleRetry = (): void => {

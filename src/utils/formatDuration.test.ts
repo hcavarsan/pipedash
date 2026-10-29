@@ -17,3 +17,9 @@ test('keeps the existing second, minute and hour duration display', () => {
   assert.equal(formatDuration(3600), '1h')
   assert.equal(formatDuration(5400), '1h 30m')
 })
+
+test('rounds once so durations never show 60 seconds or 60 minutes', () => {
+  assert.equal(formatDuration(59.6), '1m')
+  assert.equal(formatDuration(119.6), '2m')
+  assert.equal(formatDuration(3599.6), '1h')
+})

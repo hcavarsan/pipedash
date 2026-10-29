@@ -238,16 +238,22 @@ impl State {
 
     fn line(&mut self, raw: &[u8]) -> io::Result<Flow> {
         let visible = clean_carriage_returns(raw);
-        let parsed = self.dialect.parse(visible);
-        let timestamp = match parsed.timestamp {
-            None if visible.as_ptr() != raw.as_ptr() => self.dialect.parse(raw).timestamp,
-            timestamp => timestamp,
-        };
+        let mut parsed = self.dialect.parse(visible);
+        let mut timestamp = parsed.timestamp;
+        if visible.as_ptr() != raw.as_ptr() {
+            let whole = self.dialect.parse(raw);
+            if parsed.marker == LineMarker::Plain && whole.marker != LineMarker::Plain {
+                parsed = whole;
+            }
+            timestamp = timestamp.or(whole.timestamp);
+        }
         let ts = timestamp.map(|t| t.timestamp_millis());
         match parsed.marker {
             LineMarker::GroupEnd => {
                 self.outline.group_end(self.line_count, ts);
-                return Ok(Flow::Continue);
+                if parsed.body.trim_ascii().is_empty() {
+                    return Ok(Flow::Continue);
+                }
             }
             LineMarker::OpenSection => {
                 self.render(parsed.body);
@@ -357,6 +363,7 @@ impl State {
 #[cfg(test)]
 mod tests {
     use pipedash_plugin_buildkite::BuildkiteLogDialect;
+    use pipedash_plugin_gitlab::GitlabLogDialect;
 
     use super::super::document::Document;
     use super::super::testing::{
@@ -440,5 +447,142 @@ mod tests {
         );
         assert!(lines[9].ends_with(" 🚨 Error: The command exited with status 1"));
         assert!(!text.contains("bk;t=") && !text.contains("^^^"));
+    }
+
+    static GITLAB: GitlabLogDialect = GitlabLogDialect;
+
+    const GITLAB_LOG: &str = concat!(
+        "Running with gitlab-runner 18.4.0 (139a0ac0)\n",
+        "  on code-europa-eu-runner fkXhbgRUT, system ID: s_5247efa18f3c\n",
+        "section_start:1790320399:prepare_executor\r\x1b[0K\x1b[0K\x1b[36;1mPreparing the \"docker+machine\" executor\x1b[0;m\x1b[0;m\n",
+        "\x1b[0KUsing Docker executor with image python:3.11 ...\x1b[0;m\n",
+        "section_end:1790320401:prepare_executor\r\x1b[0Ksection_start:1790320401:prepare_script\r\x1b[0K\x1b[0K\x1b[36;1mPreparing environment\x1b[0;m\x1b[0;m\n",
+        "Running on runner-fkxhbgrut-project-1344-concurrent-0\n",
+        "section_end:1790320402:prepare_script\r\x1b[0Ksection_start:1790320402:get_sources[collapsed=true]\r\x1b[0K\x1b[0K\x1b[36;1mGetting source from Git repository\x1b[0;m\x1b[0;m\n",
+        "\x1b[32;1mFetching changes with git depth set to 20...\x1b[0;m\n",
+        "section_end:1790320403:get_sources\r\x1b[0Ksection_start:1790320403:step_script\r\x1b[0K\x1b[0K\x1b[36;1mExecuting \"step_script\" stage of the job script\x1b[0;m\x1b[0;m\n",
+        "\x1b[32;1m$ make test\x1b[0;m\n",
+        "test result: ok. 3 passed\n",
+        "section_end:1790320422:step_script\r\x1b[0Ksection_start:1790320422:cleanup_file_variables\r\x1b[0K\x1b[0K\x1b[36;1mCleaning up project directory and file based variables\x1b[0;m\x1b[0;m\n",
+        "section_end:1790320423:cleanup_file_variables\r\x1b[0K\x1b[32;1mJob succeeded\x1b[0;m\n",
+    );
+
+    const GITLAB_TIMESTAMPED_LOG: &str = concat!(
+        "2026-10-27T10:00:00.100000Z 00O Running with gitlab-runner 17.0.0\n",
+        "2026-10-27T10:00:00.100000Z 00O section_start:1793095200:prepare_executor\r\x1b[0K\n",
+        "2026-10-27T10:00:00.100100Z 00O+\x1b[0K\x1b[36;1mPreparing the \"shell\" executor\x1b[0;m\x1b[0;m\n",
+        "2026-10-27T10:00:01.200000Z 00O \x1b[0KUsing Shell (bash) executor...\x1b[0;m\n",
+        "2026-10-27T10:00:02.300000Z 00O section_end:1793095202:prepare_executor\r\x1b[0Ksection_start:1793095202:step_script\r\x1b[0K\n",
+        "2026-10-27T10:00:02.300100Z 00O+\x1b[0K\x1b[36;1mExecuting \"step_script\" stage of the job script\x1b[0;m\n",
+        "2026-10-27T10:00:03.400000Z 00O progress 10%\rprogress 100%\n",
+        "2026-10-27T10:00:04.500000Z 00O section_end:1793095204:step_script\r\x1b[0K\n",
+        "2026-10-27T10:00:04.500000Z 00O Job succeeded\n",
+    );
+
+    type SectionRow = (String, Option<u32>, Option<u32>, u32, bool);
+
+    fn ingest_gitlab(log: &str) -> (Vec<SectionRow>, Vec<String>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut ingester = ingester(dir.path(), doc_key(), 1, Vec::new(), BlockLimits::default());
+        ingester.dialect = &GITLAB;
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.try_send(Bytes::copy_from_slice(log.as_bytes()))
+            .expect("channel has room");
+        drop(tx);
+
+        let meta = ingester.run(&mut rx).expect("ingest").meta;
+
+        let sections = meta
+            .sections
+            .iter()
+            .map(|s| (s.title.clone(), s.parent, s.header_line, s.end_line, s.open))
+            .collect();
+        let text = Document::open(dir.path())
+            .expect("open")
+            .text_block(0)
+            .expect("block");
+        let lines = std::str::from_utf8(&text)
+            .expect("utf8")
+            .lines()
+            .map(str::to_string)
+            .collect();
+        (sections, lines)
+    }
+
+    #[test]
+    fn gitlab_sections_survive_ingest() {
+        let (sections, lines) = ingest_gitlab(GITLAB_LOG);
+
+        let row = |title: &str, header: u32, end: u32, open: bool| -> SectionRow {
+            (title.to_string(), None, Some(header), end, open)
+        };
+        assert_eq!(
+            sections,
+            vec![
+                row("Preparing the \"docker+machine\" executor", 2, 4, true),
+                row("Preparing environment", 4, 6, true),
+                row("Getting source from Git repository", 6, 8, false),
+                row(
+                    "Executing \"step_script\" stage of the job script",
+                    8,
+                    11,
+                    true
+                ),
+                row(
+                    "Cleaning up project directory and file based variables",
+                    11,
+                    12,
+                    true
+                ),
+            ]
+        );
+        assert_eq!(lines.len(), 13);
+        assert!(lines[12].ends_with("Job succeeded"));
+        assert!(lines.iter().all(|line| !line.contains("section_")));
+    }
+
+    #[test]
+    fn gitlab_text_after_a_section_end_follows_the_section() {
+        let (sections, lines) = ingest_gitlab(concat!(
+            "section_start:1700000000:build[collapsed=true]\r\x1b[0KBuild\n",
+            "compiling\n",
+            "section_end:1700000010:build\r\x1b[0KDone\n",
+            "after the section\n",
+        ));
+
+        assert_eq!(
+            sections,
+            vec![("Build".to_string(), None, Some(0), 2, false)]
+        );
+        assert_eq!(
+            lines,
+            vec![
+                "2023-11-14T22:13:20.000Z Build",
+                "compiling",
+                "2023-11-14T22:13:30.000Z Done",
+                "after the section",
+            ]
+        );
+    }
+
+    #[test]
+    fn gitlab_runner_timestamps_and_continued_headers_survive_ingest() {
+        let (sections, lines) = ingest_gitlab(GITLAB_TIMESTAMPED_LOG);
+
+        assert_eq!(
+            sections,
+            vec![
+                ("prepare_executor".to_string(), None, Some(1), 4, true),
+                ("step_script".to_string(), None, Some(4), 7, true),
+            ]
+        );
+        assert_eq!(lines.len(), 8);
+        assert_eq!(
+            lines[0],
+            "2026-10-27T10:00:00.100Z Running with gitlab-runner 17.0.0"
+        );
+        assert_eq!(lines[6], "2026-10-27T10:00:03.400Z progress 100%");
+        assert_eq!(lines[7], "2026-10-27T10:00:04.500Z Job succeeded");
+        assert!(lines.iter().all(|line| !line.contains("00O")));
     }
 }

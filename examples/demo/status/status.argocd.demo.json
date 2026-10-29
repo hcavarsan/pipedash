@@ -1,0 +1,27 @@
+{{- $outage := eq (mod (div (now).Unix 600) 3) 2 -}}
+{
+  "components": [
+    {"id": "repo-server", "name": "Repo server", "status": "{{ if $outage }}major_outage{{ else }}operational{{ end }}"},
+    {"id": "api", "name": "API", "status": "degraded_performance"}
+  ],
+  "incidents": [
+    {{- if $outage }}
+    {
+      "id": "sync-failures",
+      "name": "Syncs are failing",
+      "status": "investigating",
+      "impact": "critical",
+      "components": [{"id": "repo-server"}],
+      "incident_updates": [{"body": "The repo server can't render manifests. Applications are not syncing."}]
+    },
+    {{- end }}
+    {
+      "id": "slow-api",
+      "name": "Slow application list",
+      "status": "monitoring",
+      "impact": "minor",
+      "components": [{"id": "api"}],
+      "incident_updates": [{"body": "The application list loads slowly. A fix is rolling out."}]
+    }
+  ]
+}

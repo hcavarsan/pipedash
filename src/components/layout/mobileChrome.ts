@@ -1,4 +1,4 @@
-import { SETTINGS_SECTIONS } from '../settings/SettingsSidebar'
+import { SETTINGS_SECTIONS } from '../common/SettingsSidebar'
 
 export type MobileTab = 'pipelines' | 'pinned' | 'providers' | 'notifications' | 'settings'
 

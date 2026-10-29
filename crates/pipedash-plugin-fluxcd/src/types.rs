@@ -225,3 +225,60 @@ impl FluxResource {
         })
     }
 }
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EventSeries {
+    pub count: Option<i64>,
+    pub last_observed_time: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct EventSource {
+    pub component: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Event {
+    #[serde(rename = "type", default)]
+    pub type_: String,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub message: String,
+    pub count: Option<i64>,
+    pub first_timestamp: Option<DateTime<Utc>>,
+    pub last_timestamp: Option<DateTime<Utc>>,
+    pub event_time: Option<DateTime<Utc>>,
+    pub series: Option<EventSeries>,
+    pub source: Option<EventSource>,
+    pub reporting_component: Option<String>,
+}
+
+impl Event {
+    pub fn time(&self) -> Option<DateTime<Utc>> {
+        self.series
+            .as_ref()
+            .and_then(|series| series.last_observed_time)
+            .or(self.last_timestamp)
+            .or(self.event_time)
+            .or(self.first_timestamp)
+    }
+
+    pub fn occurrences(&self) -> i64 {
+        self.series
+            .as_ref()
+            .and_then(|series| series.count)
+            .or(self.count)
+            .unwrap_or(1)
+    }
+
+    pub fn component(&self) -> Option<&str> {
+        self.source
+            .as_ref()
+            .and_then(|source| source.component.as_deref())
+            .or(self.reporting_component.as_deref())
+            .filter(|component| !component.is_empty())
+    }
+}

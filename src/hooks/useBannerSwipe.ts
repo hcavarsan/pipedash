@@ -16,14 +16,16 @@ interface Banner {
   base: number
   anchor: number | null
   position: number
+  disposed: boolean
 }
 
 const springs = new WeakMap<HTMLElement, SpringAnimation>()
+const live = new Set<Banner>()
 
 function begin({ target }: GestureStart): Banner | null {
   const element = target?.closest<HTMLElement>(`.${iosOverlayClasses.toast}`)
 
-  return element?.id ? { element, base: 0, anchor: null, position: 0 } : null
+  return element?.id ? { element, base: 0, anchor: null, position: 0, disposed: false } : null
 }
 
 function settle(banner: Banner, to: number, velocity: number): Promise<boolean> {
@@ -57,12 +59,14 @@ async function release(banner: Banner, velocity: number) {
   }
 
   if (prefersReducedMotion()) {
-    await element.animate({ opacity: [1, 0] }, { duration: FADE_MS, fill: 'forwards' }).finished
+    await element.animate({ opacity: [1, 0] }, { duration: FADE_MS, fill: 'forwards' }).finished.catch(() => undefined)
   } else if (!(await settle(banner, exit, velocity))) {
     return
   }
 
-  notifications.hide(element.id)
+  if (!banner.disposed) {
+    notifications.hide(element.id)
+  }
 }
 
 export function useBannerSwipe(active: boolean): void {
@@ -71,12 +75,15 @@ export function useBannerSwipe(active: boolean): void {
       return
     }
 
-    return trackTouches<Banner>(document, {
+    let disposed = false
+    const stopTracking = trackTouches<Banner>(document, {
       axis: 'y',
       begin,
       accept: (_dx, dy) => dy < 0,
       move: (banner, { dy }) => {
         const { element } = banner
+
+        live.add(banner)
 
         if (banner.anchor === null) {
           const spring = springs.get(element)
@@ -92,11 +99,31 @@ export function useBannerSwipe(active: boolean): void {
         element.style.translate = `0 ${banner.position}px`
       },
       end: (banner, _drag, { vy }) => {
-        void release(banner, vy)
+        void release(banner, vy).finally(() => live.delete(banner))
       },
       cancel: (banner) => {
-        void settle(banner, 0, 0)
+        if (!disposed) {
+          void settle(banner, 0, 0)
+        }
       },
     })
+
+    return () => {
+      disposed = true
+      stopTracking()
+
+      for (const banner of live) {
+        banner.disposed = true
+        springs.get(banner.element)?.stop()
+
+        for (const animation of banner.element.getAnimations()) {
+          animation.cancel()
+        }
+
+        banner.element.style.removeProperty('translate')
+      }
+
+      live.clear()
+    }
   }, [active])
 }

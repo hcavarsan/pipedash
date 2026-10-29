@@ -1,7 +1,6 @@
 import { save } from '@tauri-apps/plugin-dialog'
 import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs'
-
-import { isTauri } from '../services'
+import { isTauri } from '../services/isTauri'
 import { mobileService } from '../services/mobile'
 
 import { isMobilePlatform } from './platform'

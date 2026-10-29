@@ -1,20 +1,25 @@
 import { useEffect } from 'react'
 
 import { logger } from '../lib/logger'
-import { events, isTauri } from '../services'
+import { isTauri } from '../services/isTauri'
+import { events } from '../services/service'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 import type { EventPayloadMap } from '../types/events'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
 type HealthAlert = EventPayloadMap['provider-health-alert']
 
-export function useProviderHealthAlerts() {
+export function useProviderHealthAlerts(): void {
   useEffect(() => {
     let active = true
     let unlisten: (() => void) | undefined
 
     events
       .listen<HealthAlert>('provider-health-alert', (alert) => {
+        if (!active) {
+          return
+        }
+
         if (isTauri() && !navigator.onLine && alert.link === null) {
           return
         }

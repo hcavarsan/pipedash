@@ -1,0 +1,47 @@
+import { NavLink, ScrollArea, Stack } from '@mantine/core'
+import {
+  IconBell,
+  IconChartBar,
+  IconDatabase,
+  IconFolder,
+  IconInfoCircle,
+  IconPlug,
+  IconSettings,
+} from '@tabler/icons-react'
+import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+
+export const SETTINGS_SECTIONS = [
+  { id: 'general', label: 'General', icon: <IconSettings size={16} aria-hidden /> },
+  { id: 'notifications', label: 'Notifications', icon: <IconBell size={16} aria-hidden /> },
+  { id: 'providers', label: 'Providers', icon: <IconPlug size={16} aria-hidden /> },
+  { id: 'metrics', label: 'Metrics', icon: <IconChartBar size={16} aria-hidden /> },
+  { id: 'cache', label: 'Cache', icon: <IconDatabase size={16} aria-hidden /> },
+  { id: 'storage', label: 'Storage', icon: <IconFolder size={16} aria-hidden /> },
+  { id: 'about', label: 'About', icon: <IconInfoCircle size={16} aria-hidden /> },
+] as const
+
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]['id']
+
+export const isSettingsSection = (value: string | undefined): value is SettingsSection =>
+  SETTINGS_SECTIONS.some((section) => section.id === value)
+
+export const SettingsSidebar = ({ activeSection }: { activeSection: SettingsSection }): ReactNode => (
+  <ScrollArea w={280} px="md" py="md" style={{ flexShrink: 0 }}>
+    <Stack component="nav" aria-label="Settings" gap="xs">
+      {SETTINGS_SECTIONS.map((section) => (
+        <NavLink
+          key={section.id}
+          component={Link}
+          to={`/settings/${section.id}`}
+          replace
+          active={activeSection === section.id}
+          aria-current={activeSection === section.id ? 'page' : undefined}
+          label={section.label}
+          leftSection={section.icon}
+          variant="light"
+        />
+      ))}
+    </Stack>
+  </ScrollArea>
+)

@@ -8,14 +8,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
 
-import { useLocalNotificationsLifecycle } from '../../queries/useLocalNotificationQueries'
+import { useLocalNotificationsLifecycle } from '../../features/notifications/queries/useLocalNotificationQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../stores/notificationStore'
-import type { Pipeline, ProviderHealthAlert } from '../../types'
+import type { Pipeline, ProviderHealthAlert } from '../../types/domain'
 import { useFailureNotifications } from '../useFailureNotifications'
 import { useProviderHealthAlerts } from '../useProviderHealthAlerts'
 
 import { callbacks, delivered, listeners, native, permission } from './notificationEnvironment'
+import { defineRegistrationScenarios } from './notificationRegistrationScenarios'
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 const pipeline: Pipeline = {
@@ -53,7 +54,7 @@ async function mount(notificationsEnabled: boolean) {
   await act(async () => {
     render(createElement(QueryClientProvider, { client }, createElement(Screen)))
   })
-  await waitFor(() => assert.ok(listeners.has('provider-health-alert')))
+  await waitFor(() => assert.ok(listeners.has('provider-health-alert') && listeners.has('pipelines-failed')))
 }
 
 async function publish(name: string, payload: unknown) {
@@ -79,13 +80,18 @@ afterEach(async () => {
 
 after(() => GlobalRegistrator.unregister())
 
+defineRegistrationScenarios(client, Screen)
+
 test('one flag delivers a backend-confirmed failure to the desktop and the center', async () => {
   await mount(true)
   await publish('pipelines-failed', { pipelines: [pipeline] })
   const [item] = useNotificationCenterStore.getState().items
-  assert.equal(item?.pipelineId, pipeline.id)
+  assert.ok(item)
+  assert.equal(item.pipelineId, pipeline.id)
   await waitFor(() => assert.equal(delivered.length, 1))
-  assert.deepEqual([delivered[0].title, delivered[0].body], [item.title, item.body])
+  const [first] = delivered
+  assert.ok(first)
+  assert.deepEqual([first.title, first.body], [item.title, item.body])
   assert.equal(item.body, 'owner/repo · github')
 })
 
@@ -93,9 +99,12 @@ test('the same flag delivers a provider outage', async () => {
   await mount(true)
   await publish('provider-health-alert', outage)
   const [item] = useNotificationCenterStore.getState().items
-  assert.equal(item?.key, outage.notification_key)
+  assert.ok(item)
+  assert.equal(item.key, outage.notification_key)
   await waitFor(() => assert.equal(delivered.length, 1))
-  assert.deepEqual([delivered[0].title, delivered[0].body], [item.title, item.body])
+  const [first] = delivered
+  assert.ok(first)
+  assert.deepEqual([first.title, first.body], [item.title, item.body])
 })
 
 test('with notifications off failures and outages stay in the center only', async () => {

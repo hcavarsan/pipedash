@@ -1,4 +1,4 @@
-import type { ProviderSummary } from '../types'
+import type { ProviderSummary } from '../types/domain'
 
 import { formatDateTime } from './formatDateTime'
 import { formatRelativeTime } from './formatRelativeTime'
@@ -45,13 +45,19 @@ export const providerTone = (provider: ProviderSummary, now: number): ProviderTo
 export const worstTone = (tones: ProviderTone[]): ProviderTone =>
   TONE_SEVERITY.find((tone) => tones.includes(tone)) ?? 'fresh'
 
-export const providerBadge = (provider: ProviderSummary, now: number) => {
+export const providerBadge = (provider: ProviderSummary, now: number): { color: string; label: string } | undefined => {
   const tone = providerTone(provider, now)
 
   return tone === 'fresh' ? undefined : { color: TONE_META[tone].color, label: TONE_META[tone].label }
 }
 
-export const dataAge = (provider: ProviderSummary, now: number) => {
+interface DataAge {
+  tone: ProviderTone
+  label: string
+  detail: string
+}
+
+export const dataAge = (provider: ProviderSummary, now: number): DataAge => {
   const tone = providerTone(provider, now)
   const at = provider.last_success_at
   const ago = at ? formatRelativeTime(at, now) : null
@@ -71,7 +77,7 @@ export const dataAge = (provider: ProviderSummary, now: number) => {
   }
 }
 
-export const staleNote = (provider: ProviderSummary, now: number) => {
+export const staleNote = (provider: ProviderSummary, now: number): string | undefined => {
   const age = dataAge(provider, now)
 
   return age.tone === 'fresh' ? undefined : age.label

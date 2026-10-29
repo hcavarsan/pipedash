@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
+import { describe, it, mock } from 'node:test'
 
 import { createLongPress, guardLongPressClick, LONG_PRESS_MS } from './longPress'
 
@@ -14,7 +14,7 @@ const harness = () => {
       schedule: (callback, ms) => {
         pending = { callback, ms }
 
-        return 1 as unknown as ReturnType<typeof setTimeout>
+        return setTimeout(() => undefined, 0)
       },
       unschedule: () => {
         pending = null
@@ -130,5 +130,36 @@ describe('guardLongPressClick', () => {
     assert.equal(nextTap.defaultPrevented, false)
     assert.equal(mouseDown.defaultPrevented, false)
     remove()
+  })
+
+  it('drops the guard after 600ms so the next click goes through', () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const target = new EventTarget()
+    const remove = guardLongPressClick(target, 2)
+    const early = new Event('mousedown', { cancelable: true })
+
+    mock.timers.tick(599)
+    target.dispatchEvent(early)
+    assert.equal(early.defaultPrevented, true)
+
+    mock.timers.tick(1)
+
+    const click = Object.assign(new Event('click', { cancelable: true }), { pointerId: 2 })
+
+    target.dispatchEvent(click)
+    assert.equal(click.defaultPrevented, false)
+    remove()
+    mock.timers.reset()
+  })
+
+  it('disposes idempotently', () => {
+    const target = new EventTarget()
+    const remove = guardLongPressClick(target, 2)
+    const click = Object.assign(new Event('click', { cancelable: true }), { pointerId: 2 })
+
+    remove()
+    remove()
+    target.dispatchEvent(click)
+    assert.equal(click.defaultPrevented, false)
   })
 })

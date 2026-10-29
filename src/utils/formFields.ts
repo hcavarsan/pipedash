@@ -68,26 +68,33 @@ export function fieldAttributes({ name, label, kind, defaultValue, last = false 
   return { ...TECHNICAL, autoComplete: 'off', enterKeyHint }
 }
 
-export const helpId = (id: string) => `${id}-help`
+export const helpId = (id: string): string => `${id}-help`
 
-export const errorId = (id: string) => `${id}-error`
+export const errorId = (id: string): string => `${id}-error`
 
 interface FieldState {
-  required?: boolean
-  error?: string | null
-  description?: string | null
+  required?: boolean | undefined
+  error?: string | null | undefined
+  description?: string | null | undefined
 }
 
-export function fieldA11y(id: string, { required, error, description }: FieldState) {
+interface FieldA11y {
+  required?: true
+  'aria-required'?: true
+  'aria-invalid': boolean
+  'aria-describedby'?: string
+  'aria-errormessage'?: string
+}
+
+export function fieldA11y(id: string, { required, error, description }: FieldState): FieldA11y {
   const describedBy = [description ? helpId(id) : null, error ? errorId(id) : null].filter(Boolean).join(' ')
 
   return {
-    required: required || undefined,
-    'aria-required': required || undefined,
+    ...(required ? { required: true, 'aria-required': true } : {}),
     'aria-invalid': Boolean(error),
-    'aria-describedby': describedBy || undefined,
-    'aria-errormessage': error ? errorId(id) : undefined,
+    ...(describedBy ? { 'aria-describedby': describedBy } : {}),
+    ...(error ? { 'aria-errormessage': errorId(id) } : {}),
   }
 }
 
-export const withoutType = ({ type, ...rest }: FieldAttributes) => rest
+export const withoutType = ({ type, ...rest }: FieldAttributes): Omit<FieldAttributes, 'type'> => rest

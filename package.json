@@ -1,7 +1,7 @@
 {
   "name": "pipedash-desktop",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite --debug hmr",
@@ -16,7 +16,7 @@
     "taze": "taze major -I",
     "taze:minor": "taze minor -w",
     "knip": "knip",
-    "test": "tsc -p tsconfig.test.json && bun test src"
+    "test": "tsc -p tsconfig.test.json && bun test --isolate src"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -30,10 +30,11 @@
     "@tabler/icons-react": "^3.49.0",
     "@tanstack/react-query": "^5.104.5",
     "@tanstack/react-query-devtools": "^5.104.5",
+    "@tanstack/react-virtual": "^3.14.23",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-fs": "^2.7.1",
-    "@tauri-apps/plugin-notification": "^2.7.0",
+    "@tauri-apps/plugin-notification": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2.7.2",
     "@tauri-apps/plugin-os": "^2.4.0",
     "html-to-image": "^1.11.13",
@@ -53,6 +54,7 @@
     "@tauri-apps/cli": "^2.12.3",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

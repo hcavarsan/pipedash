@@ -2,13 +2,14 @@ import { Alert, Button, Group, Text, Tooltip } from '@mantine/core'
 import { useNetwork } from '@mantine/hooks'
 import { IconLock, IconRefresh, IconWifiOff } from '@tabler/icons-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { useVaultStatus } from '@/queries/useVaultQueries'
-import { isTauri, service } from '@/services'
+import { isTauri } from '@/services/isTauri'
+import { service } from '@/services/service'
 import { WS_EVENTS, wsClient } from '@/services/websocket'
 
 import classes from './ConnectionStatus.module.css'
@@ -32,7 +33,7 @@ const ALERT_POSITION = {
   zIndex: 1000,
 } as const
 
-export function ConnectionStatus() {
+export function ConnectionStatus(): ReactNode {
   const [connectionState, setConnectionState] = useState<ConnectionState>({
     status: 'connected',
     reconnectAttempts: 0,
@@ -41,7 +42,6 @@ export function ConnectionStatus() {
   const { data: vaultStatus } = useVaultStatus()
   const queryClient = useQueryClient()
   const { online } = useNetwork()
-  const wasOnline = useRef(online)
   const mobileShell = useMobileShell()
 
   useEffect(() => {
@@ -59,36 +59,33 @@ export function ConnectionStatus() {
   }, [])
 
   useEffect(() => {
-    const cameBackOnline = online && !wasOnline.current
+    const handleOnline = (): void => {
+      const invalidate = (): void => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+      }
 
-    wasOnline.current = online
-
-    if (!cameBackOnline) {
-      return
+      if (isTauri()) {
+        service
+          .refreshAll()
+          .catch((error: unknown) => logger.error('ConnectionStatus', 'Refresh after reconnect failed', error))
+          .finally(invalidate)
+      } else {
+        wsClient.manualReconnect()
+        invalidate()
+      }
     }
 
-    const invalidate = () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all }),
-      ])
+    window.addEventListener('online', handleOnline)
 
-    if (isTauri()) {
-      service
-        .refreshAll()
-        .catch((error) => logger.error('ConnectionStatus', 'Refresh after reconnect failed', error))
-        .finally(invalidate)
-    } else {
-      wsClient.manualReconnect()
-      invalidate()
-    }
-  }, [online, queryClient])
+    return () => window.removeEventListener('online', handleOnline)
+  }, [queryClient])
 
   const handleManualReconnect = () => {
     wsClient.manualReconnect()
   }
 
-  const bannerRef = useCallback((node: HTMLDivElement | null) => {
+  const bannerRef = (node: HTMLDivElement | null): (() => void) | undefined => {
     if (!node) {
       return
     }
@@ -104,7 +101,7 @@ export function ConnectionStatus() {
       observer.disconnect()
       root.style.removeProperty('--connection-banner-height')
     }
-  }, [])
+  }
 
   const vaultLocked = vaultStatus?.requires_password && !vaultStatus?.is_unlocked
 
@@ -149,7 +146,7 @@ export function ConnectionStatus() {
       return (
         <Tooltip label="Vault is locked - some features may be unavailable">
           <Alert
-            icon={<IconLock size={16} />}
+            icon={<IconLock size={16} aria-hidden />}
             title="Vault locked"
             color="orange"
             variant="light"
@@ -165,7 +162,7 @@ export function ConnectionStatus() {
     if (!online) {
       return (
         <Alert
-          icon={<IconWifiOff size={16} />}
+          icon={<IconWifiOff size={16} aria-hidden />}
           title="You're offline"
           color="orange"
           variant="light"
@@ -183,7 +180,7 @@ export function ConnectionStatus() {
   if (vaultLocked) {
     return (
       <Alert
-        icon={<IconLock size={16} />}
+        icon={<IconLock size={16} aria-hidden />}
         title="Vault locked"
         color="orange"
         variant="light"
@@ -201,7 +198,7 @@ export function ConnectionStatus() {
 
   return (
     <Alert
-      icon={<IconWifiOff size={16} />}
+      icon={<IconWifiOff size={16} aria-hidden />}
       title={connectionState.status === 'reconnecting' ? 'Reconnecting' : 'Disconnected'}
       color="orange"
       variant="light"
@@ -214,7 +211,12 @@ export function ConnectionStatus() {
             ? `Attempt ${connectionState.reconnectAttempts}`
             : 'Real-time updates unavailable'}
         </Text>
-        <Button size="xs" variant="default" leftSection={<IconRefresh size={14} />} onClick={handleManualReconnect}>
+        <Button
+          size="xs"
+          variant="default"
+          leftSection={<IconRefresh size={14} aria-hidden />}
+          onClick={handleManualReconnect}
+        >
           Reconnect
         </Button>
       </Group>

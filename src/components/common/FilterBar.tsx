@@ -1,9 +1,7 @@
 import { ActionIcon, Box, Button, Group, MultiSelect, Select, Stack, Tooltip } from '@mantine/core'
 import { IconAdjustmentsHorizontal, IconFilter, IconFilterFilled, IconX } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 
-import { DEBOUNCE_DELAYS } from '../../constants/intervals'
-import { useDebounce } from '../../hooks/useDebounce'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { STATUS_OPTIONS } from '../../theme/status'
 import { DATE_RANGE_OPTIONS } from '../../utils/dateRange'
@@ -72,9 +70,9 @@ interface FilterSelectProps {
   data: { value: string; label: string }[]
   value: string | null
   onChange: (value: string | null) => void
-  searchable?: boolean
+  searchable?: boolean | undefined
   leftSection?: React.ReactNode
-  clearable?: boolean
+  clearable?: boolean | undefined
 }
 
 export const FilterSelect = ({
@@ -85,14 +83,14 @@ export const FilterSelect = ({
   searchable,
   leftSection,
   clearable = true,
-}: FilterSelectProps) => (
+}: FilterSelectProps): ReactNode => (
   <Select
     aria-label={label}
     placeholder={label}
     data={data}
     value={value}
     onChange={onChange}
-    searchable={searchable}
+    searchable={searchable ?? false}
     rightSection={
       value && clearable ? (
         <Tooltip label={`Clear ${label.toLowerCase()} filter`}>
@@ -105,13 +103,13 @@ export const FilterSelect = ({
               onChange(null)
             }}
           >
-            <IconX size={14} />
+            <IconX size={14} aria-hidden />
           </ActionIcon>
         </Tooltip>
-      ) : undefined
+      ) : null
     }
-    rightSectionPointerEvents={value && clearable ? 'all' : undefined}
     leftSection={leftSection}
+    {...(value && clearable ? { rightSectionPointerEvents: 'all' as const } : {})}
     miw={130}
     flex={1}
     maw="100%"
@@ -119,82 +117,29 @@ export const FilterSelect = ({
   />
 )
 
-export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
+export const FilterBar = ({ filters, onClearAll }: FilterBarProps): ReactNode => {
   const mobileShell = useMobileShell()
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [localSearchValue, setLocalSearchValue] = useState(filters.search?.value || '')
-  const debouncedSearchValue = useDebounce(localSearchValue, DEBOUNCE_DELAYS.FILTER)
+  const searchValue = filters.search?.value ?? ''
 
-  const syncStateRef = useRef<{
-    lastSentToParent: string
-    lastReceivedFromParent: string
-  }>({
-    lastSentToParent: filters.search?.value || '',
-    lastReceivedFromParent: filters.search?.value || '',
-  })
-
-  useEffect(() => {
-    const searchFilter = filters.search
-
-    if (!searchFilter) {
-      return
-    }
-
-    const externalValue = searchFilter.value ?? ''
-    const syncState = syncStateRef.current
-
-    if (externalValue !== syncState.lastReceivedFromParent) {
-      syncState.lastReceivedFromParent = externalValue
-
-      if (externalValue !== localSearchValue && externalValue !== debouncedSearchValue) {
-        setLocalSearchValue(externalValue)
-        syncState.lastSentToParent = externalValue
-      }
-
-      return
-    }
-
-    if (debouncedSearchValue !== syncState.lastSentToParent) {
-      syncState.lastSentToParent = debouncedSearchValue
-      syncState.lastReceivedFromParent = debouncedSearchValue
-      searchFilter.onChange(debouncedSearchValue)
-    }
-  }, [debouncedSearchValue, filters.search, localSearchValue])
-
-  const hasActiveFilters = useMemo(
-    () =>
-      !!(
-        filters.search?.value ||
-        filters.status?.value.length ||
-        filters.provider?.value ||
-        filters.organization?.value ||
-        filters.repository?.value ||
-        filters.workflow?.value ||
-        filters.branch?.value ||
-        filters.actor?.value ||
-        filters.dateRange?.value
-      ),
-    [
-      filters.search,
-      filters.status,
-      filters.provider,
-      filters.organization,
-      filters.repository,
-      filters.workflow,
-      filters.branch,
-      filters.actor,
-      filters.dateRange,
-    ]
+  const hasActiveFilters = !!(
+    filters.search?.value ||
+    filters.status?.value.length ||
+    filters.provider?.value ||
+    filters.organization?.value ||
+    filters.repository?.value ||
+    filters.workflow?.value ||
+    filters.branch?.value ||
+    filters.actor?.value ||
+    filters.dateRange?.value
   )
 
-  const clearAllFilters = useCallback(() => {
-    setLocalSearchValue('')
+  const clearAllFilters = (): void => {
     if (onClearAll) {
       onClearAll()
 
       return
     }
-    // Fallback: clear individually
     filters.search?.onChange('')
     filters.status?.onClear()
     filters.provider?.onChange(null)
@@ -204,7 +149,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
     filters.branch?.onChange(null)
     filters.actor?.onChange(null)
     filters.dateRange?.onChange(null)
-  }, [filters, onClearAll])
+  }
 
   const status = filters.status
   const statusOptions = status?.options ?? STATUS_OPTIONS
@@ -251,8 +196,8 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
         <SearchInput
           aria-label={filters.search.placeholder || 'Search'}
           placeholder={filters.search.placeholder || 'Search'}
-          value={localSearchValue}
-          onChange={setLocalSearchValue}
+          value={searchValue}
+          onChange={filters.search.onChange}
           size="xs"
         />
       </Box>
@@ -266,18 +211,15 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
         <div
           className={classes.reveal}
           data-search-reveal
-          data-pinned={localSearchValue || activeSelects > 0 || sheetOpen ? true : undefined}
+          data-pinned={searchValue || activeSelects > 0 || sheetOpen ? true : undefined}
         >
           <div className={classes.bar}>
             {filters.search && (
               <PhoneSearchField
-                value={localSearchValue}
+                value={searchValue}
                 placeholder={filters.search.placeholder}
-                onChange={setLocalSearchValue}
-                onClear={() => {
-                  setLocalSearchValue('')
-                  filters.search?.onChange('')
-                }}
+                onChange={filters.search.onChange}
+                onClear={() => filters.search?.onChange('')}
               />
             )}
             {(selects.length > 0 || status) && (
@@ -377,7 +319,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
             onClear={status.onClear}
             clearable
             clearButtonProps={{ 'aria-label': 'Clear status filter' }}
-            leftSection={<IconFilter size={14} />}
+            leftSection={<IconFilter size={14} aria-hidden />}
             miw={130}
             flex={1}
             maw="100%"
@@ -390,7 +332,13 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps) => {
         ))}
 
         {hasActiveFilters && (
-          <Button variant="subtle" color="gray" onClick={clearAllFilters} size="xs" leftSection={<IconX size={14} />}>
+          <Button
+            variant="subtle"
+            color="gray"
+            onClick={clearAllFilters}
+            size="xs"
+            leftSection={<IconX size={14} aria-hidden />}
+          >
             Clear filters
           </Button>
         )}

@@ -133,3 +133,29 @@ pub(crate) struct Update {
     #[serde(default)]
     pub commit_hash: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct UpdateLogs {
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub logs: Vec<UpdateLog>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct UpdateLog {
+    #[serde(default)]
+    pub stage: String,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub stdout: String,
+    #[serde(default)]
+    pub stderr: String,
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub start_ts: i64,
+    #[serde(default)]
+    pub end_ts: i64,
+}

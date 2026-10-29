@@ -15,7 +15,36 @@ import { createSpringValue } from './springValue'
 
 const KEYBOARD_STEP = 16
 
-export const useSidebarResize = (resizable: boolean) => {
+type ResizePointerEvent = Pick<
+  PointerEvent<HTMLElement>,
+  'button' | 'pointerId' | 'clientX' | 'currentTarget' | 'timeStamp' | 'preventDefault'
+>
+
+interface SidebarHandleProps {
+  role: 'separator'
+  tabIndex: number
+  'aria-label': string
+  'aria-orientation': 'vertical'
+  'aria-valuemin': number
+  'aria-valuemax': number
+  'aria-valuenow': number
+  onPointerDown: (event: ResizePointerEvent) => void
+  onPointerMove: (event: ResizePointerEvent) => void
+  onLostPointerCapture: () => void
+  onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
+  onDoubleClick: () => void
+}
+
+interface SidebarResizeResult {
+  compact: boolean
+  navbarWidth: number | string
+  resizing: boolean
+  instant: boolean
+  toggle: () => void
+  handleProps: SidebarHandleProps
+}
+
+export const useSidebarResize = (resizable: boolean): SidebarResizeResult => {
   const [compact, setCompact] = useLocalStorage({ key: 'pipedash-sidebar-compact', defaultValue: false })
   const [width, setWidth] = useLocalStorage({ key: 'pipedash-sidebar-width', defaultValue: SIDEBAR_DEFAULT_WIDTH })
   const [presentation, setPresentation] = useState<number | null>(null)
@@ -31,12 +60,20 @@ export const useSidebarResize = (resizable: boolean) => {
     [spring]
   )
 
+  const [previousResizable, setPreviousResizable] = useState(resizable)
+
+  if (previousResizable !== resizable) {
+    setPreviousResizable(resizable)
+    if (!resizable) {
+      setResizing(false)
+      setPresentation(null)
+    }
+  }
+
   useEffect(() => {
     if (!resizable) {
       drag.current = null
       spring.grab()
-      setResizing(false)
-      setPresentation(null)
     }
   }, [resizable, spring])
 
@@ -45,7 +82,7 @@ export const useSidebarResize = (resizable: boolean) => {
     setCompact(next.compact)
   }
 
-  const onPointerDown = (event: PointerEvent<HTMLElement>) => {
+  const onPointerDown = (event: ResizePointerEvent) => {
     if (!resizable || event.button !== 0) {
       return
     }
@@ -59,7 +96,7 @@ export const useSidebarResize = (resizable: boolean) => {
     setResizing(true)
   }
 
-  const onPointerMove = (event: PointerEvent<HTMLElement>) => {
+  const onPointerMove = (event: ResizePointerEvent) => {
     const current = drag.current
     if (!current) {
       return
@@ -141,5 +178,5 @@ export const useSidebarResize = (resizable: boolean) => {
         save({ width: SIDEBAR_DEFAULT_WIDTH, compact: false })
       },
     },
-  } as const
+  }
 }
