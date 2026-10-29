@@ -20,7 +20,9 @@ const notify = (
   provider: ProviderSummary | undefined,
   system: boolean
 ) => {
-  const body = [pipeline.repository, provider?.name || pipeline.provider_type].filter(Boolean).join(' · ')
+  const body = [pipeline.repository, provider?.name || pipeline.provider_type, pipeline.resource_state?.message]
+    .filter(Boolean)
+    .join(' · ')
   const key = `pipeline:${pipeline.id}`
 
   useNotificationCenterStore.getState().push({

@@ -1,4 +1,8 @@
 use std::collections::HashMap;
+use std::time::{
+    Duration,
+    Instant,
+};
 
 use pipedash_plugin_api::{
     PluginError,
@@ -14,6 +18,7 @@ use crate::{
 
 const PROGRESS_DEADLINE_EXCEEDED: &str = "ProgressDeadlineExceeded";
 const REPLICA_SET_UPDATED: &str = "ReplicaSetUpdated";
+const UNSETTLED_GRACE: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WorkloadKind {
@@ -67,8 +72,11 @@ struct Meta {
 }
 
 #[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Spec {
     replicas: Option<i64>,
+    #[serde(default)]
+    min_ready_seconds: u64,
 }
 
 #[derive(Deserialize)]
@@ -115,6 +123,27 @@ fn replicas_ready(ready: i64, desired: i64) -> String {
     format!("{ready} of {desired} replicas ready")
 }
 
+struct Issue {
+    detail: String,
+    settled: bool,
+}
+
+impl Issue {
+    fn settled(detail: &str) -> Self {
+        Self {
+            detail: detail.to_string(),
+            settled: true,
+        }
+    }
+
+    fn unsettled(detail: String) -> Self {
+        Self {
+            detail,
+            settled: false,
+        }
+    }
+}
+
 impl Document {
     fn condition(&self, type_: &str) -> Option<&Condition> {
         self.status
@@ -123,7 +152,7 @@ impl Document {
             .find(|condition| condition.kind == type_)
     }
 
-    fn deployment_issue(&self, desired: i64) -> Option<String> {
+    fn deployment_issue(&self, desired: i64) -> Option<Issue> {
         let status = &self.status;
         let progressing = self.condition("Progressing");
         let reason = progressing.map_or("", |condition| condition.reason.as_str());
@@ -131,41 +160,44 @@ impl Document {
         if progressing.is_some_and(|condition| condition.status == "False")
             && reason == PROGRESS_DEADLINE_EXCEEDED
         {
-            Some("rollout exceeded its progress deadline".to_string())
+            Some(Issue::settled("rollout exceeded its progress deadline"))
         } else if reason != REPLICA_SET_UPDATED
             && status.updated_replicas == desired
             && status.ready_replicas < desired
         {
-            Some(replicas_ready(status.ready_replicas, desired))
+            Some(Issue::unsettled(replicas_ready(
+                status.ready_replicas,
+                desired,
+            )))
         } else {
             None
         }
     }
 
-    fn stateful_set_issue(&self, desired: i64) -> Option<String> {
+    fn stateful_set_issue(&self, desired: i64) -> Option<Issue> {
         let status = &self.status;
 
         (status.current_revision.is_some()
             && status.current_revision == status.update_revision
             && status.ready_replicas < desired)
-            .then(|| replicas_ready(status.ready_replicas, desired))
+            .then(|| Issue::unsettled(replicas_ready(status.ready_replicas, desired)))
     }
 
-    fn daemon_set_issue(&self) -> Option<String> {
+    fn daemon_set_issue(&self) -> Option<Issue> {
         let status = &self.status;
 
         (status.number_unavailable > 0
             && status.updated_number_scheduled == status.desired_number_scheduled)
             .then(|| {
-                format!(
+                Issue::unsettled(format!(
                     "{} of {} pods available",
                     status.desired_number_scheduled - status.number_unavailable,
                     status.desired_number_scheduled
-                )
+                ))
             })
     }
 
-    fn issue(&self, kind: WorkloadKind) -> Option<String> {
+    fn issue(&self, kind: WorkloadKind) -> Option<Issue> {
         if self.status.observed_generation < self.metadata.generation {
             return None;
         }
@@ -180,35 +212,79 @@ impl Document {
     }
 }
 
+pub(crate) struct Finding {
+    pub owner: Target,
+    pub workload: String,
+    pub message: String,
+    settled: bool,
+    min_ready: Duration,
+}
+
+pub(crate) struct UnhealthyWorkloads {
+    grace: Duration,
+    since: HashMap<String, Instant>,
+}
+
+impl Default for UnhealthyWorkloads {
+    fn default() -> Self {
+        Self::with_grace(UNSETTLED_GRACE)
+    }
+}
+
+impl UnhealthyWorkloads {
+    pub(crate) fn with_grace(grace: Duration) -> Self {
+        Self {
+            grace,
+            since: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn lasting(&mut self, findings: Vec<Finding>, now: Instant) -> Vec<Finding> {
+        let previous = std::mem::take(&mut self.since);
+        findings
+            .into_iter()
+            .filter(|finding| {
+                let first = previous.get(&finding.workload).copied().unwrap_or(now);
+                self.since.insert(finding.workload.clone(), first);
+                finding.settled || now.duration_since(first) >= self.grace + finding.min_ready
+            })
+            .collect()
+    }
+}
+
 pub(crate) fn finding(
     kind: WorkloadKind, owner: Kind, value: Value,
-) -> PluginResult<Option<(Target, String)>> {
+) -> PluginResult<Option<Finding>> {
     let document: Document = serde_json::from_value(value).map_err(|error| {
         PluginError::SerializationError(format!("Failed to parse {}: {error}", kind.as_str()))
     })?;
     let group = owner.group();
     let labels = &document.metadata.labels;
-    let (Some(name), Some(namespace), Some(detail)) = (
+    let (Some(name), Some(namespace), Some(issue)) = (
         labels.get(&format!("{group}/name")),
         labels.get(&format!("{group}/namespace")),
         document.issue(kind),
     ) else {
         return Ok(None);
     };
+    let workload = format!(
+        "{} {}/{}",
+        kind.as_str(),
+        document.metadata.namespace,
+        document.metadata.name
+    );
 
-    Ok(Some((
-        Target {
+    Ok(Some(Finding {
+        owner: Target {
             kind: owner,
             namespace: namespace.clone(),
             name: name.clone(),
         },
-        format!(
-            "{} {}/{}: {detail}",
-            kind.as_str(),
-            document.metadata.namespace,
-            document.metadata.name
-        ),
-    )))
+        message: format!("{workload}: {}", issue.detail),
+        workload,
+        settled: issue.settled,
+        min_ready: Duration::from_secs(document.spec.min_ready_seconds),
+    }))
 }
 
 #[cfg(test)]
@@ -233,10 +309,28 @@ mod tests {
         })
     }
 
+    fn found(kind: WorkloadKind, spec: Value, status: Value) -> Option<Finding> {
+        finding(kind, Kind::Kustomization, workload(spec, status)).unwrap()
+    }
+
     fn issue(kind: WorkloadKind, spec: Value, status: Value) -> Option<String> {
-        finding(kind, Kind::Kustomization, workload(spec, status))
-            .unwrap()
-            .map(|(_, issue)| issue)
+        found(kind, spec, status).map(|found| found.message)
+    }
+
+    fn warming_daemon_set(min_ready_seconds: u64) -> Finding {
+        found(
+            WorkloadKind::DaemonSet,
+            json!({ "minReadySeconds": min_ready_seconds }),
+            json!({
+                "observedGeneration": 4, "desiredNumberScheduled": 3,
+                "updatedNumberScheduled": 3, "numberUnavailable": 1,
+            }),
+        )
+        .unwrap()
+    }
+
+    fn messages(findings: Vec<Finding>) -> Vec<String> {
+        findings.into_iter().map(|found| found.message).collect()
     }
 
     fn progressing(status: &str, reason: &str) -> Value {
@@ -374,15 +468,84 @@ mod tests {
         let status = json!({ "observedGeneration": 4, "updatedReplicas": 1 });
         let item = workload(json!({}), status);
 
-        let (owner, _) = finding(WorkloadKind::Deployment, Kind::Kustomization, item.clone())
+        let found = finding(WorkloadKind::Deployment, Kind::Kustomization, item.clone())
             .unwrap()
             .unwrap();
         assert_eq!(
-            owner,
+            found.owner,
             Target::new(Kind::Kustomization, "ci", "app").unwrap()
         );
         assert!(finding(WorkloadKind::Deployment, Kind::HelmRelease, item)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn unhealthy_workloads_are_reported_only_after_they_stay_unhealthy() {
+        let start = Instant::now();
+        let mut tracker = UnhealthyWorkloads::default();
+
+        assert!(tracker
+            .lasting(vec![warming_daemon_set(0)], start)
+            .is_empty());
+        assert!(tracker
+            .lasting(vec![warming_daemon_set(0)], start + Duration::from_secs(90))
+            .is_empty());
+        assert_eq!(
+            messages(tracker.lasting(vec![warming_daemon_set(0)], start + UNSETTLED_GRACE)),
+            ["DaemonSet apps/web: 2 of 3 pods available"]
+        );
+    }
+
+    #[test]
+    fn min_ready_seconds_extend_the_wait_before_reporting() {
+        let start = Instant::now();
+        let mut tracker = UnhealthyWorkloads::default();
+        tracker.lasting(vec![warming_daemon_set(300)], start);
+
+        assert!(tracker
+            .lasting(vec![warming_daemon_set(300)], start + UNSETTLED_GRACE)
+            .is_empty());
+        assert_eq!(
+            tracker
+                .lasting(
+                    vec![warming_daemon_set(300)],
+                    start + UNSETTLED_GRACE + Duration::from_secs(300),
+                )
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn recovering_restarts_the_wait() {
+        let start = Instant::now();
+        let mut tracker = UnhealthyWorkloads::default();
+        tracker.lasting(vec![warming_daemon_set(0)], start);
+        tracker.lasting(Vec::new(), start + Duration::from_secs(60));
+
+        assert!(tracker
+            .lasting(vec![warming_daemon_set(0)], start + UNSETTLED_GRACE)
+            .is_empty());
+    }
+
+    #[test]
+    fn a_missed_progress_deadline_is_reported_at_once() {
+        let deadline = found(
+            WorkloadKind::Deployment,
+            json!({ "replicas": 3 }),
+            json!({
+                "observedGeneration": 4, "updatedReplicas": 1, "readyReplicas": 3,
+                "conditions": [progressing("False", "ProgressDeadlineExceeded")],
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            UnhealthyWorkloads::default()
+                .lasting(vec![deadline], Instant::now())
+                .len(),
+            1
+        );
     }
 }

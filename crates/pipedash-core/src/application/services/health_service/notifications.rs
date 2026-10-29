@@ -301,7 +301,12 @@ impl NotificationState {
             .map(|mark| mark.name.as_str())
             .filter(|name| !name.is_empty())
             .unwrap_or(&pipeline.provider_type);
-        let body = [pipeline.repository.as_str(), provider]
+        let message = pipeline
+            .resource_state
+            .as_ref()
+            .and_then(|state| state.message.as_deref())
+            .unwrap_or_default();
+        let body = [pipeline.repository.as_str(), provider, message]
             .iter()
             .filter(|part| !part.is_empty())
             .copied()

@@ -67,7 +67,10 @@ use crate::{
         FluxResource,
         Kind,
     },
-    workloads::WorkloadKind,
+    workloads::{
+        UnhealthyWorkloads,
+        WorkloadKind,
+    },
 };
 
 const CONCURRENCY: usize = 8;
@@ -78,6 +81,7 @@ pub struct FluxcdPlugin {
     provider_id: Option<i64>,
     settings: Option<Settings>,
     status_source: Option<StatusSource>,
+    unhealthy: std::sync::Mutex<UnhealthyWorkloads>,
 }
 
 impl Default for FluxcdPlugin {
@@ -149,6 +153,7 @@ impl FluxcdPlugin {
             provider_id: None,
             settings: None,
             status_source: None,
+            unhealthy: std::sync::Mutex::default(),
         }
     }
 
@@ -344,9 +349,18 @@ impl FluxcdPlugin {
             .buffer_unordered(CONCURRENCY)
             .collect::<Vec<_>>()
             .await;
+        let findings = findings.into_iter().flatten().collect();
+        let lasting = self
+            .unhealthy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .lasting(findings, std::time::Instant::now());
         let mut issues: HashMap<Target, Vec<String>> = HashMap::new();
-        for (owner, issue) in findings.into_iter().flatten() {
-            issues.entry(owner).or_default().push(issue);
+        for finding in lasting {
+            issues
+                .entry(finding.owner)
+                .or_default()
+                .push(finding.message);
         }
         issues.values_mut().for_each(|found| found.sort());
 
@@ -2703,10 +2717,16 @@ mod tests {
         requests.len() - workload_requests(requests).len()
     }
 
+    fn without_grace(mut plugin: FluxcdPlugin) -> FluxcdPlugin {
+        plugin.unhealthy =
+            std::sync::Mutex::new(UnhealthyWorkloads::with_grace(std::time::Duration::ZERO));
+        plugin
+    }
+
     async fn pipeline_with(workloads: Vec<(&'static str, Value)>) -> Pipeline {
         let dir = tempfile::tempdir().unwrap();
         let stub = apps_stub(vec![kustomization("ci", "app")], vec![], workloads);
-        let mut pipelines = plugin(&stub.server, &dir, &[])
+        let mut pipelines = without_grace(plugin(&stub.server, &dir, &[]))
             .fetch_pipelines()
             .await
             .unwrap();
@@ -2771,7 +2791,7 @@ mod tests {
                 ),
             ],
         );
-        let plugin = plugin(&stub.server, &dir, &[]);
+        let plugin = without_grace(plugin(&stub.server, &dir, &[]));
 
         let pipelines = plugin.fetch_pipelines().await.unwrap();
 
@@ -2798,6 +2818,34 @@ mod tests {
         );
         let other = pipelines.iter().find(|p| p.name == "Kustomization/other");
         assert_flux_ready(other.unwrap());
+    }
+
+    #[tokio::test]
+    async fn pods_still_warming_up_after_an_update_keep_the_ready_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = apps_stub(
+            vec![kustomization("ci", "app")],
+            vec![],
+            vec![(
+                "daemonsets",
+                workload(
+                    KUSTOMIZE,
+                    "app",
+                    "agent",
+                    json!({}),
+                    json!({
+                        "observedGeneration": 1, "desiredNumberScheduled": 4,
+                        "updatedNumberScheduled": 4, "numberUnavailable": 1,
+                    }),
+                ),
+            )],
+        );
+        let plugin = plugin(&stub.server, &dir, &[]);
+
+        for _ in 0..2 {
+            let pipelines = plugin.fetch_pipelines().await.unwrap();
+            assert_flux_ready(&pipelines[0]);
+        }
     }
 
     #[tokio::test]
@@ -2924,7 +2972,7 @@ mod tests {
             .fetch_pipelines()
             .await
             .unwrap();
-        let partial = plugin(&only_deployments_forbidden.server, &dir, &[])
+        let partial = without_grace(plugin(&only_deployments_forbidden.server, &dir, &[]))
             .fetch_pipelines()
             .await
             .unwrap();

@@ -377,7 +377,7 @@ impl FluxClient {
 
     pub async fn unhealthy_workloads(
         &self, owner: Kind, kind: WorkloadKind,
-    ) -> PluginResult<Vec<(Target, String)>> {
+    ) -> PluginResult<Vec<workloads::Finding>> {
         let request = Request::new(kind.collection_path());
         let params = ListParams::default()
             .limit(PAGE_LIMIT)

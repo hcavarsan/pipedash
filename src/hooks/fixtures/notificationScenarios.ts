@@ -143,10 +143,15 @@ test('a running-to-failed cache update does not duplicate the backend failure al
   assert.equal(items[0]?.read, true)
 })
 
-test('a backend degraded alert uses degraded wording', async () => {
+test('a backend degraded alert uses degraded wording and says why', async () => {
   await mount()
-  await publish('pipelines-failed', { pipelines: [{ ...pipeline, status: 'degraded' }] })
-  assert.equal(useNotificationCenterStore.getState().items[0]?.title, `${pipeline.name} is degraded`)
+  const message = 'Pod apps/web-7f9c: CrashLoopBackOff'
+  await publish('pipelines-failed', {
+    pipelines: [{ ...pipeline, status: 'degraded', resource_state: { label: 'Degraded', message } }],
+  })
+  const [item] = useNotificationCenterStore.getState().items
+  assert.equal(item?.title, `${pipeline.name} is degraded`)
+  assert.ok(item?.body.endsWith(` · ${message}`))
 })
 
 test('overdue runs still alert once when their cached observation changes', async () => {
