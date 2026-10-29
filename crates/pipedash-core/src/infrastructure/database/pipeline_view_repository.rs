@@ -122,6 +122,25 @@ fn to_json<T: serde::Serialize>(value: &T) -> DomainResult<String> {
     serde_json::to_string(value).map_err(|e| DomainError::InternalError(e.to_string()))
 }
 
+fn rules_without_provider(rules: &ViewRules, provider_id: i64) -> Option<ViewRules> {
+    if !rules.provider_ids.contains(&provider_id) {
+        return None;
+    }
+    let provider_ids: Vec<i64> = rules
+        .provider_ids
+        .iter()
+        .copied()
+        .filter(|id| *id != provider_id)
+        .collect();
+    if provider_ids.is_empty() {
+        return Some(ViewRules::default());
+    }
+    Some(ViewRules {
+        provider_ids,
+        ..rules.clone()
+    })
+}
+
 fn unique_name(name: &str, taken: &mut HashSet<String>) -> String {
     let mut candidate = name.to_string();
     let mut n = 2;
@@ -441,16 +460,39 @@ impl PipelineViewRepository {
         .map_err(db_error)
     }
 
-    pub async fn delete_provider_members(&self, provider_id: i64) -> DomainResult<()> {
-        let sql = format!(
+    pub async fn remove_provider(&self, provider_id: i64) -> DomainResult<()> {
+        let delete_members = format!(
             "DELETE FROM pipeline_view_members WHERE provider_id = {}",
             self.placeholder(1)
         );
-        on_pool!(&self.pool, |p| sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(provider_id)
-            .execute(p)
-            .await
-            .map(|_| ()))
+        let update_rules = format!(
+            "UPDATE pipeline_views SET rules_json = {}, updated_at = {} WHERE id = {}",
+            self.placeholder(1),
+            self.now(),
+            self.placeholder(2)
+        );
+        let mut rewritten = Vec::new();
+        for view in self.list_views().await? {
+            if let Some(rules) = rules_without_provider(&view.rules, provider_id) {
+                rewritten.push((view.id, to_json(&rules)?));
+            }
+        }
+        on_pool!(&self.pool, |p| async {
+            let mut tx = p.begin().await?;
+            sqlx::query(sqlx::AssertSqlSafe(delete_members.clone()))
+                .bind(provider_id)
+                .execute(&mut *tx)
+                .await?;
+            for (id, rules) in &rewritten {
+                sqlx::query(sqlx::AssertSqlSafe(update_rules.clone()))
+                    .bind(rules)
+                    .bind(*id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            tx.commit().await
+        }
+        .await)
         .map_err(db_error)
     }
 
@@ -787,7 +829,7 @@ mod tests {
         repo.upsert_member(release, 2, "argocd__2__a", false)
             .await
             .unwrap();
-        repo.delete_provider_members(2).await.unwrap();
+        repo.remove_provider(2).await.unwrap();
         assert!(repo
             .list_members()
             .await

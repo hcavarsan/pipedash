@@ -406,10 +406,10 @@ impl Repository {
         }
 
         if let Err(e) = super::PipelineViewRepository::new(self.cache_pool.clone())
-            .delete_provider_members(id)
+            .remove_provider(id)
             .await
         {
-            tracing::warn!("Failed to remove pipeline view members of provider {id}: {e}");
+            tracing::warn!("Failed to remove provider {id} from pipeline views: {e}");
         }
 
         self.config_backend.delete_provider(id).await?;
