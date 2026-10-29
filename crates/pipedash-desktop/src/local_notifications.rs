@@ -339,14 +339,10 @@ pub async fn sync_from_core<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     if state.authorization_revision.load(Ordering::Acquire) != authorization_revision {
         return Ok(());
     }
-    storage(move || {
-        let _guard = guard;
-        let mut observations = store::observations()?;
-        observations.retain_providers(&ids);
-        store::save_authorization(&authorization)?;
-        store::save_observations(&observations)
-    })
-    .await
+    storage(move || store::save_authorization(&authorization)).await?;
+    update_observations(|observations| observations.retain_providers(&ids)).await?;
+    drop(guard);
+    Ok(())
 }
 
 pub fn schedule_sync<R: Runtime>(app: &AppHandle<R>) {
@@ -435,7 +431,6 @@ async fn process_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) -> Res
     if !state.enabled.load(Ordering::Acquire) {
         return Ok(());
     }
-    let mut observations = storage(store::observations).await?;
     let authorization = if let CoreEvent::ProviderRemoved { provider, .. } = event {
         state.invalidate();
         let mut authorization = storage(store::authorization).await?;
@@ -443,29 +438,53 @@ async fn process_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) -> Res
             authorization
                 .providers
                 .retain(|entry| entry.id != Some(provider.id));
-            let ids = authorization
-                .providers
-                .iter()
-                .filter_map(|entry| entry.id)
-                .collect();
-            observations.retain_providers(&ids);
         }
         authorization
     } else {
         None
     };
-    let notices = observations.observe_event(event);
-    deliver(app, notices).await?;
-    storage(move || {
-        let _guard = guard;
-        if let Some(authorization) = authorization {
-            store::save_authorization(&authorization)?;
+    let kept: Option<HashSet<i64>> = authorization.as_ref().map(|authorization| {
+        authorization
+            .providers
+            .iter()
+            .filter_map(|entry| entry.id)
+            .collect()
+    });
+    if let Some(authorization) = authorization {
+        storage(move || store::save_authorization(&authorization)).await?;
+    }
+    let notices = update_observations(|observations| {
+        if let Some(ids) = &kept {
+            observations.retain_providers(ids);
         }
-        store::save_observations(&observations)
+        observations.observe_event(event)
     })
     .await?;
+    deliver(app, notices).await?;
+    drop(guard);
     state.revision.fetch_add(1, Ordering::AcqRel);
     Ok(())
+}
+
+#[cfg(all(target_os = "android", not(test)))]
+async fn update_observations<T>(mut change: impl FnMut(&mut NotificationState) -> T) -> Result<T> {
+    loop {
+        let generation = storage(store::generation).await?;
+        let mut observations = storage(store::observations).await?;
+        let changed = change(&mut observations);
+        if storage(move || store::save_observations_if_unchanged(&observations, generation)).await?
+        {
+            return Ok(changed);
+        }
+    }
+}
+
+#[cfg(not(all(target_os = "android", not(test))))]
+async fn update_observations<T>(change: impl FnOnce(&mut NotificationState) -> T) -> Result<T> {
+    let mut observations = storage(store::observations).await?;
+    let changed = change(&mut observations);
+    storage(move || store::save_observations(&observations)).await?;
+    Ok(changed)
 }
 
 async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {

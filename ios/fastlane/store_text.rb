@@ -80,6 +80,7 @@ module StoreText
 
       kept << line
     end
+    kept = [text[0, limit - 2]] if kept.empty?
     "#{kept.join.rstrip}\n…"
   end
 end

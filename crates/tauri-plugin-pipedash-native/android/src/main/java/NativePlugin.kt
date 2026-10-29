@@ -129,7 +129,7 @@ class NativePlugin(private val host: Activity) : Plugin(host) {
         PrivacyCover.resumed()
         webView?.evaluateJavascript("window.dispatchEvent(new Event('pipedash:accessibility-change'))", null)
         if (authInvoke != null && authLeftApp) {
-            finishAuthSession(true)
+            finishAuthSession()
         }
     }
 
@@ -362,7 +362,7 @@ class NativePlugin(private val host: Activity) : Plugin(host) {
             return
         }
         host.runOnUiThread {
-            finishAuthSession(false)
+            finishAuthSession()
             authInvoke = invoke
             authLeftApp = false
             appFlowActive = true
@@ -384,7 +384,7 @@ class NativePlugin(private val host: Activity) : Plugin(host) {
     @Command
     fun closeAuthSession(invoke: Invoke) {
         host.runOnUiThread {
-            finishAuthSession(false)
+            finishAuthSession()
             host.startActivity(
                 Intent(host, host.javaClass)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -393,11 +393,11 @@ class NativePlugin(private val host: Activity) : Plugin(host) {
         }
     }
 
-    private fun finishAuthSession(cancelled: Boolean) {
+    private fun finishAuthSession() {
         val invoke = authInvoke
         authInvoke = null
         appFlowActive = false
-        invoke?.resolve(JSObject().put("cancelled", cancelled) as JSObject)
+        invoke?.resolve(JSObject().put("cancelled", false) as JSObject)
     }
 
     @Command
