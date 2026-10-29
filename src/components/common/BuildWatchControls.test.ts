@@ -306,7 +306,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     const [stop] = view().getAllByRole('button', { name: 'Stop watching' })
     assert.ok(stop)
     await user.click(stop)
-    await view().findByText('Watch stopped')
+    await view().findByText(/^Watch stopped/)
     assert.equal(calls.filter((call) => call.command === 'stop_build_watch').length, 1)
     assert.equal(
       calls.some((call) => call.command.includes('cancel')),
@@ -321,7 +321,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     await waitFor(() => assert.equal(typeof nativeChange, 'function'))
     nativeStatus = { ...available(), watch: { ...snapshot, monitoring: 'interrupted' } }
     act(() => nativeChange?.())
-    await view().findByText('Watch interrupted')
+    await view().findByText(/^Watch interrupted/)
     assert.equal(
       calls.some((call) => call.command === 'start_build_watch'),
       false
@@ -331,7 +331,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
       watch: { ...snapshot, monitoring: 'completed', status: 'success', concludedAt: snapshot.updatedAt + 10 },
     }
     act(() => window.dispatchEvent(new Event('focus')))
-    await view().findByText('Watch completed')
+    await view().findByText(/^Watch completed/)
     assert.match(document.body.textContent ?? '', /Success/)
   })
 
@@ -427,7 +427,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     await user.click(stop)
     await waitFor(() => assert.equal(notices.mock.calls.length, 1))
     assert.ok(view().getByRole('region', { name: 'Watching' }))
-    assert.equal(view().queryByText('Watch stopped'), null)
+    assert.equal(view().queryByText(/^Watch stopped/), null)
   })
 
   test('the main pipelines list places the watched run above pinned and keeps its actions local', async () => {
@@ -439,13 +439,14 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     const pinned = view().getByRole('region', { name: 'Pinned' })
     assert.ok(section.compareDocumentPosition(pinned) & Node.DOCUMENT_POSITION_FOLLOWING)
     assert.equal(within(section).queryByRole('alert'), null)
-    assert.match(section.textContent ?? '', /Pending · GitHub · main/)
+    assert.ok(within(section).getByRole('button', { name: /^Build #42\s*, Pending/ }))
+    assert.match(section.textContent ?? '', /GitHub · main/)
     await user.click(within(section).getByRole('button', { name: /^Build #42/ }))
     assert.deepEqual(opened, [[snapshot.pipelineId, 42]])
     assert.equal(within(section).queryByRole('button', { name: 'Stop watching' }), null)
     await user.click(within(section).getByRole('button', { name: 'Watched run actions' }))
     await user.click(await view().findByRole('menuitem', { name: 'Stop watching' }))
-    await within(section).findByText('Watch stopped')
+    await within(section).findByText(/^Watch stopped/)
     assert.equal(calls.filter((call) => call.command === 'stop_build_watch').length, 1)
     assert.equal(
       calls.some((call) => call.command.includes('cancel')),
@@ -479,7 +480,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     const opened = mount({ page: '/pipelines', error: new Error('Pipelines unavailable') })
     const user = userEvent.setup({ document })
     const section = await view().findByRole('region', { name: 'Watching' })
-    assert.ok(within(section).getByText('Watch completed'))
+    assert.ok(within(section).getByText(/^Watch completed/))
     await user.click(within(section).getByRole('button', { name: /^Build #42/ }))
     assert.deepEqual(opened, [[snapshot.pipelineId, 42]])
     assert.equal(within(section).queryByRole('button', { name: 'Stop watching' }), null)
@@ -509,6 +510,6 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     await waitFor(() => assert.ok(!within(section).queryByRole('alert')))
     await user.click(within(section).getByRole('button', { name: 'Watched run actions' }))
     await user.click(await view().findByRole('menuitem', { name: 'Stop watching' }))
-    await within(section).findByText('Watch stopped')
+    await within(section).findByText(/^Watch stopped/)
   })
 }

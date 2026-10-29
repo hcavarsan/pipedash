@@ -2,8 +2,7 @@
   --pad: 1em;
   --glyph: 1.1em;
   --gap: 0.75em;
-  --level: 0;
-  --inset: calc(var(--pad) + (var(--level) + 1) * (var(--glyph) + var(--gap)));
+  --inset: var(--pad);
   position: relative;
   display: flex;
   align-items: center;
@@ -12,12 +11,17 @@
   background-image: linear-gradient(var(--row-press, transparent), var(--row-press, transparent));
 }
 
+.row[data-glyph] {
+  --inset: calc(var(--pad) + var(--glyph) + var(--gap));
+}
+
 .row[data-swipeable] {
   overflow: hidden;
 }
 
 .row + .row::before,
-[data-virtual-item]:not([data-first]) > .row::before {
+[data-virtual-item]:not([data-first]) > .row::before,
+.cell:not([data-first]) > .row::before {
   content: "";
   position: absolute;
   top: 0;
@@ -29,13 +33,29 @@
   background: var(--ios-separator);
 }
 
+.cell {
+  background: var(--ios-cell);
+}
+
+.cell[data-first] {
+  overflow: hidden;
+  border-top-left-radius: var(--ios-radius-grouped);
+  border-top-right-radius: var(--ios-radius-grouped);
+}
+
+.cell[data-last] {
+  overflow: hidden;
+  border-bottom-left-radius: var(--ios-radius-grouped);
+  border-bottom-right-radius: var(--ios-radius-grouped);
+}
+
 .main {
   display: flex;
   flex: 1;
   align-items: center;
   gap: var(--gap);
   min-width: 0;
-  min-height: 56px;
+  min-height: 44px;
   padding: 0.47em var(--pad);
   box-sizing: border-box;
   border: 0;
@@ -49,17 +69,17 @@
   transition: background-color 120ms ease;
 }
 
-.row[data-nested] .main {
-  padding-left: calc(var(--pad) + var(--level) * (var(--glyph) + var(--gap)));
-}
-
 .row[data-trailing] .main {
   padding-right: 4px;
 }
 
 .row[data-selecting] {
   --check: 22px;
-  --inset: calc(var(--pad) + var(--check) + var(--gap) + (var(--level) + 1) * (var(--glyph) + var(--gap)));
+  --inset: calc(var(--pad) + var(--check) + var(--gap));
+}
+
+.row[data-selecting][data-glyph] {
+  --inset: calc(var(--pad) + var(--check) + var(--gap) + var(--glyph) + var(--gap));
 }
 
 .row:has(.main:active),
@@ -74,17 +94,6 @@
   outline-offset: -2px;
 }
 
-.glyphEmpty {
-  display: inline-block;
-  flex-shrink: 0;
-  width: calc(var(--glyph) * 0.55);
-  height: calc(var(--glyph) * 0.55);
-  margin: calc(var(--glyph) * 0.225);
-  box-sizing: border-box;
-  border: 1.5px solid var(--ios-chevron);
-  border-radius: 50%;
-}
-
 .text {
   display: flex;
   flex: 1;
@@ -92,33 +101,31 @@
   min-width: 0;
 }
 
+.title,
+.subtitle {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .title {
   font-size: var(--ios-fs-body);
   line-height: var(--ios-lh-body);
-  overflow-wrap: anywhere;
 }
 
 .subtitle {
   font-size: var(--ios-fs-subheadline);
   line-height: var(--ios-lh-subheadline);
   color: var(--ios-secondary-label);
-  overflow-wrap: anywhere;
 }
 
-.status {
-  font-weight: 600;
-}
-
-.detail {
-  display: -webkit-box;
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
-  margin-top: 2px;
-  font-size: var(--ios-fs-footnote);
-  line-height: var(--ios-lh-footnote);
-  color: var(--ios-secondary-label);
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .value {
@@ -132,11 +139,6 @@
   display: flex;
   flex-shrink: 0;
   color: var(--ios-chevron);
-  transition: transform 160ms ease;
-}
-
-.chevron[data-open] {
-  transform: rotate(90deg);
 }
 
 .trailing {
@@ -145,27 +147,6 @@
   align-items: center;
   padding-right: 4px;
   color: var(--ios-secondary-label);
-}
-
-.sort {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-height: 44px;
-  margin-block: -14px;
-  padding: 0 0.5em;
-  font-size: var(--ios-fs-subheadline);
-  line-height: var(--ios-lh-subheadline);
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--ios-tint);
-}
-
-.spacer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
 }
 
 .row[data-flat] {
@@ -177,4 +158,128 @@
   flex-shrink: 0;
   width: 1.2em;
   color: var(--ios-tint);
+}
+
+.selectCheck {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--check);
+  height: var(--check);
+  box-sizing: border-box;
+  border: 1.5px solid var(--ios-separator);
+  border-radius: 50%;
+  color: var(--ios-on-tint);
+  pointer-events: none;
+}
+
+.selectCheck[data-selected] {
+  border-color: var(--ios-tint);
+  background: var(--ios-tint);
+}
+
+.selectCheck svg {
+  display: block;
+}
+
+.sectionHeader {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-top: 1.4em;
+  padding-bottom: 0.35em;
+}
+
+.sectionHeader[data-first] {
+  padding-top: 0;
+}
+
+.sectionHeader:has(.sectionToggle:active) {
+  opacity: 0.6;
+}
+
+.sectionHeading {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+
+.sectionToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 1.2em;
+  border: 0;
+  background: transparent;
+  color: var(--ios-label);
+  font-family: inherit;
+  text-align: left;
+}
+
+.sectionToggle:focus-visible {
+  outline: 2px solid var(--ios-tint);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+.sectionTitle {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ios-fs-headline);
+  font-weight: 600;
+  line-height: var(--ios-lh-headline);
+}
+
+.sectionMeta,
+.sectionCount {
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
+  color: var(--ios-secondary-label);
+}
+
+.sectionMeta {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sectionCount {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.sectionChevron {
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+  color: var(--ios-secondary-label);
+  transition: transform 160ms ease;
+}
+
+.sectionChevron[data-open] {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sectionChevron {
+    transition: none;
+  }
+}
+
+.sectionFooter {
+  margin: 0;
+  padding: 0.5em 1.2em 0;
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
+  color: var(--ios-secondary-label);
+  white-space: pre-line;
 }

@@ -31,6 +31,39 @@
   transform: translateY(calc(100% + var(--safe-bottom) + 12px));
 }
 
+.edge {
+  position: fixed;
+  z-index: 149;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: calc(var(--safe-bottom) + 88px);
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    var(--ios-grouped-bg) 0%,
+    color-mix(in srgb, var(--ios-grouped-bg) 72%, transparent) 40%,
+    transparent 100%
+  );
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  -webkit-mask-image: linear-gradient(to top, #000 45%, transparent);
+  mask-image: linear-gradient(to top, #000 45%, transparent);
+}
+
+.edge[data-hidden] {
+  visibility: hidden;
+}
+
+:global(html[data-reduce-transparency]) .edge {
+  height: calc(var(--safe-bottom) + 76px);
+  background: var(--ios-grouped-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
 .tab {
   position: relative;
   flex: 1 1 0;

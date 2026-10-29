@@ -1,7 +1,7 @@
 import { Button, Group } from '@mantine/core'
 import { IconSquare } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import { FilterBar } from '../../../components/common/FilterBar'
+import { FilterBar, type FilterSheet } from '../../../components/common/FilterBar'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import type { Pipeline } from '../../../types/domain'
 import { getStatusOptions } from '../../../utils/pipelinePresentation'
@@ -13,9 +13,10 @@ interface RunHistoryFiltersProps {
   pipeline: Pipeline
   data: RunHistoryPageData
   selection: RunPageSelection
+  sheet: FilterSheet
 }
 
-export function RunHistoryFilters({ pipeline, data, selection }: RunHistoryFiltersProps): ReactNode {
+export function RunHistoryFilters({ pipeline, data, selection, sheet }: RunHistoryFiltersProps): ReactNode {
   const mobileShell = useMobileShell()
   const { labels } = useRunActions()
   const { setFilter, filters } = data
@@ -28,6 +29,7 @@ export function RunHistoryFilters({ pipeline, data, selection }: RunHistoryFilte
       style={mobileShell ? { display: 'contents' } : undefined}
     >
       <FilterBar
+        sheet={sheet}
         onClearAll={data.clearFilters}
         filters={{
           search: {

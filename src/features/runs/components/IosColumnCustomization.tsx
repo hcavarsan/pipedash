@@ -1,5 +1,5 @@
 import { ActionIcon, Button, Menu, Stack, TextInput } from '@mantine/core'
-import { IconCheck, IconDots, IconSearch } from '@tabler/icons-react'
+import { IconCheck, IconMenu2, IconSearch } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
 import { EmptyState } from '../../../components/common/EmptyState'
@@ -96,7 +96,7 @@ export function IosColumnCustomization({
                   <Menu position="bottom">
                     <Menu.Target>
                       <ActionIcon type="button" aria-label={`Reorder ${item.title}`}>
-                        <IconDots size={22} aria-hidden />
+                        <IconMenu2 size={22} aria-hidden />
                       </ActionIcon>
                     </Menu.Target>
                     <Menu.Dropdown>

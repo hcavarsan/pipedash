@@ -1,6 +1,6 @@
 import { ActionIcon, Box, Button, Group, MultiSelect, Select, Stack, Tooltip } from '@mantine/core'
-import { IconAdjustmentsHorizontal, IconFilter, IconFilterFilled, IconX } from '@tabler/icons-react'
-import { type ReactNode, useState } from 'react'
+import { IconFilter, IconX } from '@tabler/icons-react'
+import type { ReactNode } from 'react'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { STATUS_OPTIONS } from '../../theme/status'
@@ -47,9 +47,15 @@ interface FilterConfig {
   dateRange?: ValueFilter
 }
 
+export interface FilterSheet {
+  opened: boolean
+  onClose: () => void
+}
+
 interface FilterBarProps {
   filters: FilterConfig
   onClearAll?: () => void
+  sheet?: FilterSheet | undefined
 }
 
 const dateRangeOptions = [{ value: '', label: 'All time' }, ...DATE_RANGE_OPTIONS]
@@ -117,9 +123,9 @@ export const FilterSelect = ({
   />
 )
 
-export const FilterBar = ({ filters, onClearAll }: FilterBarProps): ReactNode => {
+export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): ReactNode => {
   const mobileShell = useMobileShell()
-  const [sheetOpen, setSheetOpen] = useState(false)
+  const sheetOpen = sheet?.opened ?? false
   const searchValue = filters.search?.value ?? ''
 
   const hasActiveFilters = !!(
@@ -204,43 +210,45 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps): ReactNode =>
     )
 
   if (mobileShell) {
-    const activeSelects = selects.filter((select) => select.value).length + (status?.value.length ? 1 : 0)
+    const activeLabels = [
+      ...(status?.value.length ? ['Status'] : []),
+      ...selects.filter((select) => select.value).map((select) => select.label),
+    ]
+    const clearSheetFilters = () => {
+      status?.onClear()
+      for (const select of selects) {
+        select.onChange(null)
+      }
+    }
 
     return (
       <>
         <div
           className={classes.reveal}
           data-search-reveal
-          data-pinned={searchValue || activeSelects > 0 || sheetOpen ? true : undefined}
+          data-pinned={searchValue || activeLabels.length > 0 || sheetOpen ? true : undefined}
         >
-          <div className={classes.bar}>
-            {filters.search && (
+          {filters.search && (
+            <div className={classes.bar}>
               <PhoneSearchField
                 value={searchValue}
                 placeholder={filters.search.placeholder}
                 onChange={filters.search.onChange}
                 onClear={() => filters.search?.onChange('')}
               />
-            )}
-            {(selects.length > 0 || status) && (
-              <button
-                type="button"
-                className={classes.filter}
-                data-active={activeSelects > 0 || undefined}
-                aria-label={activeSelects > 0 ? `Filters, ${activeSelects} active` : 'Filters'}
-                onClick={() => setSheetOpen(true)}
-              >
-                {activeSelects > 0 ? (
-                  <IconFilterFilled size={22} aria-hidden />
-                ) : (
-                  <IconAdjustmentsHorizontal size={22} aria-hidden />
-                )}
+            </div>
+          )}
+          {activeLabels.length > 0 && (
+            <div className={classes.active} role="status">
+              <span className={classes.activeText}>Filtered by {activeLabels.join(', ')}</span>
+              <button type="button" className={classes.clear} onClick={clearSheetFilters}>
+                Clear
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        <StandardModal opened={sheetOpen} onClose={() => setSheetOpen(false)} title="Filters" size="md">
+        <StandardModal opened={sheetOpen} onClose={() => sheet?.onClose()} title="Filters" size="md">
           <Stack gap="lg">
             <IosGroup>
               {status && (
@@ -292,7 +300,7 @@ export const FilterBar = ({ filters, onClearAll }: FilterBarProps): ReactNode =>
                   destructive
                   onClick={() => {
                     clearAllFilters()
-                    setSheetOpen(false)
+                    sheet?.onClose()
                   }}
                 />
               </IosGroup>

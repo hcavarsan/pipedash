@@ -197,7 +197,7 @@ export function FetchInfo({ providers }: { providers: ProviderSummary[] }): Reac
     <ActionIcon
       variant="transparent"
       color="gray"
-      c={TONE_META[worst].color}
+      c={worst === 'fresh' ? 'dimmed' : TONE_META[worst].color}
       size="sm"
       aria-label="Fetch info"
       onClick={only && providers.length === 1 ? () => openProvider(only) : undefined}

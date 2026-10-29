@@ -27,55 +27,58 @@ export function MobileTabBar(): ReactNode {
   const { unread, dotColor } = useUnreadNotifications()
   const keyboardOpen = useKeyboardOpen()
   return (
-    <nav
-      className={classes.bar}
-      aria-label="Main"
-      data-hidden={keyboardOpen || undefined}
-      aria-hidden={keyboardOpen || undefined}
-      inert={keyboardOpen}
-    >
-      {TABS.map(({ id, label, ariaLabel, to, icon: Icon }) => {
-        const active = id === activeTab
-        const unreadLabel = id === 'notifications' && unread > 0 ? `${ariaLabel}, ${unread} unread` : ariaLabel
+    <>
+      <div className={classes.edge} data-hidden={keyboardOpen || undefined} aria-hidden />
+      <nav
+        className={classes.bar}
+        aria-label="Main"
+        data-hidden={keyboardOpen || undefined}
+        aria-hidden={keyboardOpen || undefined}
+        inert={keyboardOpen}
+      >
+        {TABS.map(({ id, label, ariaLabel, to, icon: Icon }) => {
+          const active = id === activeTab
+          const unreadLabel = id === 'notifications' && unread > 0 ? `${ariaLabel}, ${unread} unread` : ariaLabel
 
-        return (
-          <Link
-            key={id}
-            to={to}
-            className={classes.tab}
-            data-active={active || undefined}
-            aria-current={active ? 'page' : undefined}
-            aria-label={unreadLabel}
-            onClick={(event) => {
-              event.preventDefault()
+          return (
+            <Link
+              key={id}
+              to={to}
+              className={classes.tab}
+              data-active={active || undefined}
+              aria-current={active ? 'page' : undefined}
+              aria-label={unreadLabel}
+              onClick={(event) => {
+                event.preventDefault()
 
-              const action = tabAction(activeTab, id, back !== null)
+                const action = tabAction(activeTab, id, back !== null)
 
-              if (action === 'switch') {
-                const route = resumeRoute(tabs, id, to)
+                if (action === 'switch') {
+                  const route = resumeRoute(tabs, id, to)
 
-                navigate(route.path, route.from ? { state: { from: route.from } } : undefined)
-              } else if (action === 'pop-to-root' && back) {
-                goBack(back.to)
-              } else {
-                scrollActiveToTop()
-              }
-            }}
-          >
-            <Icon size={24} stroke={active ? 2 : 1.6} aria-hidden />
-            <span className={classes.label}>{label}</span>
-            {id === 'notifications' && unread > 0 && dotColor && (
-              <span
-                className={classes.badge}
-                style={{ background: `var(--mantine-color-${dotColor}-filled)` }}
-                aria-hidden
-              >
-                {unread > 99 ? '99+' : unread}
-              </span>
-            )}
-          </Link>
-        )
-      })}
-    </nav>
+                  navigate(route.path, route.from ? { state: { from: route.from } } : undefined)
+                } else if (action === 'pop-to-root' && back) {
+                  goBack(back.to)
+                } else {
+                  scrollActiveToTop()
+                }
+              }}
+            >
+              <Icon size={24} stroke={active ? 2 : 1.6} aria-hidden />
+              <span className={classes.label}>{label}</span>
+              {id === 'notifications' && unread > 0 && dotColor && (
+                <span
+                  className={classes.badge}
+                  style={{ background: `var(--mantine-color-${dotColor}-filled)` }}
+                  aria-hidden
+                >
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </Link>
+          )
+        })}
+      </nav>
+    </>
   )
 }

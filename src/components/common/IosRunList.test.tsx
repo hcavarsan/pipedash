@@ -95,6 +95,6 @@ if (process.env.PIPEDASH_IOS_RUNS_TEST !== '1') {
 
     assert.ok(await view().findByText(/now/))
     act(() => context.mock.timers.tick(5 * 60_000))
-    await waitFor(() => assert.ok(view().getByText(/5 minutes ago/)))
+    await waitFor(() => assert.ok(view().getByText(/5m ago/)))
   })
 }

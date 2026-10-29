@@ -1,10 +1,15 @@
 import type { ReactNode } from 'react'
-import { FilterBar } from '../../../components/common/FilterBar'
+import { FilterBar, type FilterSheet } from '../../../components/common/FilterBar'
 import { getStatusOptions } from '../../../utils/pipelinePresentation'
 
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 
-export function PipelineViewFilters({ model }: { model: PipelineViewPageModel }): ReactNode {
+interface PipelineViewFiltersProps {
+  model: PipelineViewPageModel
+  sheet: FilterSheet
+}
+
+export function PipelineViewFilters({ model, sheet }: PipelineViewFiltersProps): ReactNode {
   const { page, filters, setFilter, selectStatus, clearFilters, isFluxView, labels, providerOptions } = model
 
   if (!page) {
@@ -13,6 +18,7 @@ export function PipelineViewFilters({ model }: { model: PipelineViewPageModel })
 
   return (
     <FilterBar
+      sheet={sheet}
       filters={{
         search: {
           value: filters.search,

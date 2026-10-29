@@ -7,7 +7,7 @@
   position: relative;
   display: flex;
   align-items: stretch;
-  min-height: 64px;
+  min-height: 44px;
   font-size: var(--ios-fs-body);
   background: var(--ios-cell);
   background-image: linear-gradient(var(--row-press, transparent), var(--row-press, transparent));
@@ -44,7 +44,7 @@
   align-items: center;
   gap: var(--gap);
   min-width: 0;
-  padding: 0.6em 4px 0.6em var(--pad);
+  padding: 0.47em var(--pad);
   border: 0;
   background: transparent;
   color: var(--ios-label);
@@ -54,10 +54,6 @@
   line-height: var(--ios-lh-body);
   text-align: left;
   transition: background-color 120ms ease;
-}
-
-.row[data-selecting] .main {
-  padding-right: var(--pad);
 }
 
 .row:has(.main:active),
@@ -85,7 +81,7 @@
   box-sizing: border-box;
   border: 1.5px solid var(--ios-separator);
   border-radius: 50%;
-  color: var(--ios-on-tint, white);
+  color: var(--ios-on-tint);
   pointer-events: none;
 }
 
@@ -109,10 +105,16 @@
   min-width: 0;
 }
 
+.title,
+.subtitle {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .title {
   font-size: var(--ios-fs-body);
   line-height: var(--ios-lh-body);
-  overflow-wrap: anywhere;
 }
 
 .number {
@@ -123,33 +125,22 @@
   font-size: var(--ios-fs-subheadline);
   line-height: var(--ios-lh-subheadline);
   color: var(--ios-secondary-label);
-  overflow-wrap: anywhere;
-}
-
-.meta {
-  font-size: var(--ios-fs-footnote);
-  line-height: var(--ios-lh-footnote);
-  color: var(--ios-secondary-label);
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
 }
 
-.status {
-  font-weight: 600;
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .chevron {
   display: flex;
   flex-shrink: 0;
   color: var(--ios-chevron);
-}
-
-.more {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  padding-right: 6px;
 }
 
 .headerAction {

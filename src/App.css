@@ -428,6 +428,7 @@ body,
   --ios-cell: #fff;
   --ios-sheet: #f2f2f7;
   --ios-tint: #007aff;
+  --ios-on-tint: #fff;
   --ios-red: #ff3b30;
   --ios-green: #34c759;
   --ios-orange: #ff9500;
@@ -592,6 +593,26 @@ html[data-ios],
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+[data-ios] [data-row-menu] {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  z-index: 3;
+  transform: translateY(-50%);
+  background: var(--ios-cell);
+}
+
+[data-ios] [data-row-menu]:not(:focus-visible) {
+  width: 1px;
+  min-width: 0;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 [data-ios]
