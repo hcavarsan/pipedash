@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     environment: google-play
     permissions:
-      contents: read # checkout the repository
+      contents: read
     steps:
       - name: Reject beta ref for other lanes
         if: ${{ inputs.beta_ref != '' && (inputs.lane || 'beta') != 'beta' }}
@@ -63,7 +63,7 @@ jobs:
       - name: Run Fastlane
         env:
           LANE: ${{ inputs.lane || 'beta' }}
-          GITHUB_TOKEN: ${{ github.token }} # read the GitHub release that becomes What's New
+          GITHUB_TOKEN: ${{ github.token }}
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           ANDROID_UPLOAD_KEYSTORE: ${{ runner.temp }}/upload.jks
           ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
