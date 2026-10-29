@@ -471,21 +471,30 @@ impl PipelineViewRepository {
             self.now(),
             self.placeholder(2)
         );
-        let select_rules = match &self.pool {
-            DatabasePool::Sqlite(_) => "SELECT id, rules_json FROM pipeline_views",
-            DatabasePool::Postgres(_) => "SELECT id, rules_json FROM pipeline_views FOR UPDATE",
+        let lock_views = match &self.pool {
+            DatabasePool::Sqlite(_) => None,
+            DatabasePool::Postgres(_) => {
+                Some("LOCK TABLE pipeline_views IN SHARE ROW EXCLUSIVE MODE")
+            }
         };
         on_pool!(&self.pool, |p| async {
             let mut tx = p.begin().await.map_err(db_error)?;
+            if let Some(lock) = lock_views {
+                sqlx::query(lock)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db_error)?;
+            }
             sqlx::query(sqlx::AssertSqlSafe(delete_members.clone()))
                 .bind(provider_id)
                 .execute(&mut *tx)
                 .await
                 .map_err(db_error)?;
-            let views = sqlx::query_as::<_, (i64, String)>(select_rules)
-                .fetch_all(&mut *tx)
-                .await
-                .map_err(db_error)?;
+            let views =
+                sqlx::query_as::<_, (i64, String)>("SELECT id, rules_json FROM pipeline_views")
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(db_error)?;
             for (id, rules_json) in views {
                 let Ok(rules) = serde_json::from_str::<ViewRules>(&rules_json) else {
                     continue;
