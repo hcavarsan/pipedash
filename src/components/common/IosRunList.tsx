@@ -12,11 +12,11 @@ import { animateSpring } from '../../lib/spring'
 import { STATUS_META } from '../../theme/status'
 import type { PipelineRun } from '../../types/domain'
 import { formatDuration } from '../../utils/formatDuration'
-import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { getStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import { IosGroup } from '../ios/IosList'
 import { SwipeActions } from '../ios/SwipeActions'
+import { relativeOrNever } from './IosPipelineList'
 import classes from './IosRunList.module.css'
 import { VirtualList } from './VirtualList'
 
@@ -35,17 +35,17 @@ const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, on
   const { openRun } = useRunActions()
   const swipeActions = swipeActionsOf(useRunActionItems(run))
   const onOpen = () => openRun(run)
-  const menu = <RunActionMenu run={run} />
   const hintId = useId()
   const pressRef = useRowMenuLongPress(!selecting)
   const name = isFlux ? String(run.metadata?.run_label ?? 'Reconciliation') : `#${run.run_number}`
   const message = isFlux
     ? String(run.metadata?.message ?? run.commit_message ?? '')
     : (run.commit_message?.split('\n')[0]?.trim() ?? '')
-  const subtitle = isFlux ? '' : [run.branch, run.actor].filter(Boolean).join(' · ')
-  const timing = [run.started_at && formatRelativeTime(run.started_at, now), formatDuration(run.duration_seconds)]
-    .filter((part) => part && part !== '-')
-    .join(' · ')
+  const timing = [
+    run.started_at && relativeOrNever(run.started_at, now),
+    run.duration_seconds !== null && formatDuration(run.duration_seconds),
+  ]
+  const subtitle = [...timing, ...(isFlux ? [message] : [run.branch, run.actor])].filter(Boolean).join(' · ')
   const statusLabel = getStatusLabel(run) ?? STATUS_META[run.status].label
   const swipeable = !selecting && swipeActions.length > 0
 
@@ -81,13 +81,8 @@ const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, on
               </>
             )}
           </span>
-          {(isFlux ? message : subtitle) && <span className={classes.subtitle}>{isFlux ? message : subtitle}</span>}
-          <span className={classes.meta}>
-            <span className={classes.status} style={{ color: `var(--status-${STATUS_META[run.status].tone})` }}>
-              {statusLabel}
-            </span>
-            {timing && ` · ${timing}`}
-          </span>
+          <span className={classes.srOnly}>, {statusLabel}</span>
+          {subtitle && <span className={classes.subtitle}>{subtitle}</span>}
         </span>
         {!selecting && (
           <span className={classes.chevron} aria-hidden>
@@ -98,7 +93,7 @@ const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, on
       <span id={hintId} hidden>
         {selecting ? `Select ${noun}` : `View details for ${noun}`}
       </span>
-      {!selecting && <div className={classes.more}>{menu}</div>}
+      {!selecting && <RunActionMenu run={run} />}
     </>
   )
 
@@ -118,7 +113,6 @@ const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, on
 interface IosRunListProps {
   runs: PipelineRun[]
   label: string
-  onSelect?: (() => void) | undefined
   selecting: boolean
   selectedNumbers: number[]
   isSelectable: (run: PipelineRun) => boolean
@@ -129,7 +123,6 @@ interface IosRunListProps {
 export const IosRunList = ({
   runs,
   label,
-  onSelect,
   selecting,
   selectedNumbers,
   isSelectable,
@@ -140,21 +133,11 @@ export const IosRunList = ({
   const { isFlux, labels } = useRunActions()
 
   return (
-    <IosGroup
-      header={label}
-      headerAction={
-        onSelect &&
-        !selecting && (
-          <button type="button" className={classes.headerAction} onClick={onSelect}>
-            Select
-          </button>
-        )
-      }
-    >
+    <IosGroup header={label}>
       <VirtualList
         items={runs}
         getKey={(run) => String(run.run_number)}
-        estimateSize={64}
+        estimateSize={58}
         onEndReached={onEndReached}
         renderItem={(run) => {
           const selectable = selecting && isSelectable(run)

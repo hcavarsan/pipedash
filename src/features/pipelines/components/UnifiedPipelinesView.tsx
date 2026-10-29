@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { PageContainer } from '../../../components/common/PageContainer'
 import type { Pipeline, ProviderSummary } from '../../../types/domain'
 import { usePipelineActions } from '../hooks/usePipelineActions'
@@ -32,6 +32,7 @@ export function UnifiedPipelinesView({
   onViewMetrics,
 }: UnifiedPipelinesViewProps): ReactNode {
   const model = usePipelineViewModel({ providers, loading, error })
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const { actions, changeDisplay, cancelDialog } = usePipelineActions({
     view: model.view,
     onTrigger,
@@ -42,9 +43,9 @@ export function UnifiedPipelinesView({
   return (
     <PipelineViewStatus model={model} onRetry={onRetry} onViewRun={onViewRun} onDisplayChange={changeDisplay}>
       <PageContainer>
-        <PipelineViewToolbar model={model} onDisplayChange={changeDisplay} />
+        <PipelineViewToolbar model={model} onDisplayChange={changeDisplay} onOpenFilters={() => setFiltersOpen(true)} />
         <PipelineViewNav model={model} />
-        <PipelineViewFilters model={model} />
+        <PipelineViewFilters model={model} sheet={{ opened: filtersOpen, onClose: () => setFiltersOpen(false) }} />
         <PipelineBuildWatch model={model} onViewRun={onViewRun} />
         <PipelineViewSelection model={model} actions={actions} />
         {cancelDialog}

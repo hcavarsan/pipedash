@@ -1,0 +1,55 @@
+.strip {
+  margin-inline: -0.25em;
+  font-size: var(--ios-fs-subheadline);
+}
+
+.scroller {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 16px;
+  scroll-padding-inline: 16px;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+}
+
+.scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--ios-fill-tertiary);
+  color: var(--ios-label);
+  line-height: var(--ios-lh-subheadline);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.chip:active {
+  opacity: 0.6;
+}
+
+.chip[aria-current="page"] {
+  background: var(--ios-tint);
+  color: #fff;
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--ios-tint);
+  outline-offset: 2px;
+}
+
+.label {
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

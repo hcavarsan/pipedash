@@ -20,26 +20,36 @@
   font-size: var(--ios-fs-body);
 }
 
-.filter {
-  position: relative;
+.active {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 0.5em;
+  margin-top: calc(var(--reveal-gap) * -0.5);
+  padding: 0 0.2em var(--reveal-gap) 1.2em;
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
+  color: var(--ios-secondary-label);
+}
+
+.activeText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.clear {
   flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  padding: 0;
+  min-height: 44px;
+  margin-block: -12px;
+  padding: 0 1em;
   border: 0;
-  border-radius: 999px;
-  background: var(--ios-fill-tertiary);
-  color: var(--ios-label);
-  font-family: inherit;
-}
-
-.filter:active {
-  opacity: 0.5;
-}
-
-.filter[data-active] {
+  background: transparent;
   color: var(--ios-tint);
+  font: inherit;
+}
+
+.clear:active {
+  opacity: 0.5;
 }

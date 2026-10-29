@@ -30,6 +30,7 @@
   font-size: var(--ios-fs-footnote);
   line-height: var(--ios-lh-footnote);
   color: var(--ios-secondary-label);
+  white-space: pre-line;
 }
 
 .group {

@@ -8,7 +8,6 @@ import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { MobilePipelineCards } from './MobilePipelineCards'
 import { PipelineRowsTable } from './PipelineRowsTable'
 import { PipelineSectionCards } from './PipelineSectionCards'
-import { PipelineViewOptions } from './PipelineViewToolbar'
 
 interface PipelineViewResultsProps {
   model: PipelineViewPageModel
@@ -36,13 +35,11 @@ function PipelineResultsBody({ model, actions, emptyState, onDisplayChange }: Pi
     return (
       <IosPipelineList
         header={model.sectionsLabel}
-        headerAction={<PipelineViewOptions model={model} onDisplayChange={onDisplayChange} />}
         rows={rows}
         getProvider={model.getProvider}
         onToggleRepo={toggleSection}
         actions={actions}
         selection={model.selection}
-        onSelect={model.selecting ? undefined : model.startSelection}
       />
     )
   }

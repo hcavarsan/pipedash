@@ -138,11 +138,11 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
       <IosPipelineRow
         status={current.status}
         title={`${current.pipelineName} #${current.runNumber}`}
-        subtitle={[current.providerName, current.branch].filter(Boolean).join(' · ')}
-        detail={state ?? undefined}
+        subtitle={[state, current.providerName, current.branch].filter(Boolean).join(' · ')}
         hint={`View run #${current.runNumber}`}
+        longPressMenu
         onClick={() => onViewRun(current.pipelineId, current.runNumber)}
-        trailing={actions}
+        menu={actions}
       />
     ) : (
       <Card padding="sm" className="interactive-surface stretched">

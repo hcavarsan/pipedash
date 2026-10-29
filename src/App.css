@@ -594,6 +594,26 @@ html[data-ios],
   -webkit-overflow-scrolling: touch;
 }
 
+[data-ios] [data-row-menu] {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  z-index: 3;
+  transform: translateY(-50%);
+  background: var(--ios-cell);
+}
+
+[data-ios] [data-row-menu]:not(:focus-visible) {
+  width: 1px;
+  min-width: 0;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 [data-ios]
   :is(
     a,

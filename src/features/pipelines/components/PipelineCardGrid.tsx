@@ -1,7 +1,7 @@
 import { Box, Card, Checkbox, Group, px, Stack, Text, UnstyledButton, useMantineTheme } from '@mantine/core'
 import { type ReactNode, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useContextMenu } from '../../../components/common/ContextMenu'
-import { IosPipelineRow, relativeOrNever } from '../../../components/common/IosPipelineList'
+import { IosPipelineRow, relativeOrNever, staleFooter } from '../../../components/common/IosPipelineList'
 import {
   FetchInfo,
   type PipelineActions,
@@ -17,7 +17,6 @@ import { IosGroup } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import type { ProviderSummary, ViewPipeline } from '../../../types/domain'
-import { staleNote } from '../../../utils/fetchInfo'
 import { formatDateTime } from '../../../utils/formatDateTime'
 import { getPipelineLabels, getStatusLabel } from '../../../utils/pipelinePresentation'
 
@@ -93,21 +92,22 @@ function IosPipelineItem({
   now,
 }: PipelineItemProps & { now: number }): ReactNode {
   const provider = getProvider(pipeline.provider_id)
+  const subtitle = [pipeline.repository, pipeline.branch, relativeOrNever(pipeline.last_run, now)]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <IosPipelineRow
       status={pipeline.status}
       statusText={getStatusLabel(pipeline)}
       title={pipeline.name}
-      subtitle={[pipeline.repository, provider?.name ?? 'Unknown'].join(' · ')}
-      detail={provider && staleNote(provider, now)}
-      value={relativeOrNever(pipeline.last_run, now)}
+      subtitle={subtitle}
       hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
       longPressMenu
       selected={selection ? selection.selected.has(pipeline.id) : undefined}
       onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
       swipeActions={workflowSwipeActions(pipeline, actions)}
-      trailing={<WorkflowActionMenu pipeline={pipeline} provider={provider} actions={actions} />}
+      menu={<WorkflowActionMenu pipeline={pipeline} provider={provider} actions={actions} />}
     />
   )
 }
@@ -222,7 +222,15 @@ export function PipelineCardGrid({
   )
 
   return mobileShell ? (
-    <IosGroup header={header} headerAction={headerAction}>
+    <IosGroup
+      header={header}
+      headerAction={headerAction}
+      footer={staleFooter(
+        pipelines.map((pipeline) => pipeline.provider_id),
+        getProvider,
+        now
+      )}
+    >
       {list}
     </IosGroup>
   ) : (

@@ -56,6 +56,8 @@ interface MobileNavState {
   rememberScroll: (key: string, top: number) => void
   transition: BarTransition | null
   setTransition: (transition: BarTransition | null) => void
+  navSlot: HTMLElement | null
+  setNavSlot: (slot: HTMLElement | null) => void
 }
 
 export const useMobileNavStore = create<MobileNavState>()((set, get) => ({
@@ -73,6 +75,8 @@ export const useMobileNavStore = create<MobileNavState>()((set, get) => ({
   rememberScroll: (key, top) => set({ scrolls: rememberScroll(get().scrolls, key, top) }),
   transition: null,
   setTransition: (transition) => set({ transition }),
+  navSlot: null,
+  setNavSlot: (navSlot) => set({ navSlot }),
 }))
 
 export function useMobileTitle(title: string | null | undefined): void {

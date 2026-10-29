@@ -1,16 +1,10 @@
-import { ActionIcon } from '@mantine/core'
-import { IconChevronLeft, IconLock, IconPlus } from '@tabler/icons-react'
+import { IconChevronLeft } from '@tabler/icons-react'
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { useRefresh } from '../../hooks/useRefresh'
-import { useRefreshAll } from '../../queries/useRefreshQueries'
-import { useLockVault, useVaultStatus } from '../../queries/useVaultQueries'
 import { type BarSnapshot, useMobileNavStore } from '../../stores/mobileNavStore'
-import { useProviderStore } from '../../stores/providerStore'
-import { lockMeansSomething } from '../../utils/appLock'
 import { ConnectionStatus } from '../common/ConnectionStatus'
-import { RefreshButton } from '../common/RefreshButton'
 
 import classes from './MobileHeader.module.css'
 import { mobileChrome } from './mobileChrome'
@@ -26,19 +20,12 @@ interface LayerProps {
   live: boolean
   layout: BarLayout
   backTo?: string | undefined
-  canLock: boolean
-  lock: ReactNode
-  actions: ReactNode
 }
 
-function BarLayer({ snapshot, depth, live, layout, backTo, canLock, lock, actions }: LayerProps) {
+function BarLayer({ snapshot, depth, live, layout, backTo }: LayerProps) {
   const goBack = useGoBack()
+  const setNavSlot = useMobileNavStore((s) => s.setNavSlot)
   const pushed = snapshot.backLabel !== null
-  const ghostLock = (
-    <span className={classes.ghost}>
-      <IconLock size={22} />
-    </span>
-  )
   const Title = live && pushed ? 'h1' : 'div'
   const style = live ? undefined : { '--title-collapse': snapshot.collapse }
 
@@ -52,8 +39,8 @@ function BarLayer({ snapshot, depth, live, layout, backTo, canLock, lock, action
       style={style}
     >
       <div className={classes.leading} data-leading>
-        {pushed ? (
-          live && backTo ? (
+        {pushed &&
+          (live && backTo ? (
             <button
               type="button"
               className={classes.back}
@@ -76,12 +63,7 @@ function BarLayer({ snapshot, depth, live, layout, backTo, canLock, lock, action
               <IconChevronLeft className={classes.chevron} aria-hidden />
               <span className={classes.backLabel}>{snapshot.backLabel}</span>
             </span>
-          )
-        ) : live ? (
-          lock
-        ) : (
-          canLock && ghostLock
-        )}
+          ))}
       </div>
 
       <Title
@@ -95,14 +77,7 @@ function BarLayer({ snapshot, depth, live, layout, backTo, canLock, lock, action
       </Title>
 
       <div className={classes.trailing} data-trailing>
-        {live ? (
-          <>
-            {pushed && lock}
-            {actions}
-          </>
-        ) : (
-          pushed && canLock && ghostLock
-        )}
+        {live && <span className={classes.slot} ref={setNavSlot} />}
       </div>
     </div>
   )
@@ -111,15 +86,9 @@ function BarLayer({ snapshot, depth, live, layout, backTo, canLock, lock, action
 export function MobileHeader(): ReactNode {
   useRefresh()
   const { pathname, search, state } = useLocation()
-  const { title, back, tab } = mobileChrome(pathname, search, state)
+  const { title, back } = mobileChrome(pathname, search, state)
   const pushedTitle = useMobileNavStore((s) => s.title)
   const transition = useMobileNavStore((s) => s.transition)
-  const refreshAll = useRefreshAll()
-  const lockMutation = useLockVault()
-  const { data: vaultStatus } = useVaultStatus()
-  const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
-  const canLock = vaultStatus ? lockMeansSomething(vaultStatus) && vaultStatus.is_unlocked : false
-  const refreshable = tab === 'pipelines' || tab === 'pinned'
   const backTarget = useMobileBack()
   const barRef = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState(INITIAL_LAYOUT)
@@ -174,30 +143,6 @@ export function MobileHeader(): ReactNode {
     return () => observer.disconnect()
   })
 
-  const lock = canLock ? (
-    <ActionIcon aria-label="Lock Pipedash" loading={lockMutation.isPending} onClick={() => lockMutation.mutate()}>
-      <IconLock size={22} aria-hidden />
-    </ActionIcon>
-  ) : null
-
-  const actions = (
-    <>
-      {refreshable && (
-        <RefreshButton
-          iconSize={22}
-          aria-label="Refresh all"
-          pending={refreshAll.isPending}
-          onClick={() => refreshAll.mutate()}
-        />
-      )}
-      {tab === 'providers' && (
-        <ActionIcon color="blue" aria-label="Add provider" onClick={openAddProviderModal}>
-          <IconPlus size={24} aria-hidden />
-        </ActionIcon>
-      )}
-    </>
-  )
-
   const renderLayer = (snapshot: BarSnapshot, depth: 'deeper' | 'shallower', isLive: boolean) => (
     <BarLayer
       key={isLive ? 'live' : 'other'}
@@ -206,9 +151,6 @@ export function MobileHeader(): ReactNode {
       live={isLive}
       layout={layout}
       backTo={backTarget?.to}
-      canLock={canLock}
-      lock={lock}
-      actions={actions}
     />
   )
 

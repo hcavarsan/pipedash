@@ -1,5 +1,4 @@
-import { Box, Group, Text, UnstyledButton } from '@mantine/core'
-import type { ReactNode } from 'react'
+import { type ReactNode, useLayoutEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { useNow } from '../../../hooks/useNow'
@@ -7,9 +6,11 @@ import { usePipelineViewQuery } from '../../../hooks/useUrlState'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import { type ProviderTone, providerTone } from '../../../utils/fetchInfo'
 import { usePipelineViews } from '../queries/usePipelineViewQueries'
-import { usePipelineViewStore } from '../stores/pipelineViewStore'
 import { activeTabId, providerTabId, tabSearch } from '../utils/providerTabs'
+import classes from './PipelineViewStrip.module.css'
 import { ToneDot } from './ToneDot'
+
+const EDGE = 16
 
 export function PipelineViewStrip(): ReactNode {
   const query = usePipelineViewQuery()
@@ -17,34 +18,42 @@ export function PipelineViewStrip(): ReactNode {
   const { data: views = [] } = usePipelineViews()
   const { data: providers = [] } = useProviders()
   const now = useNow(30_000)
-  const openManage = usePipelineViewStore((s) => s.openManage)
   const activeId = activeTabId(views, query)
+  const scrollerRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current
+    const chip = scroller?.querySelector<HTMLElement>(`[data-chip="${CSS.escape(activeId)}"]`)
+
+    if (!scroller || !chip) {
+      return
+    }
+
+    const start = chip.offsetLeft - EDGE
+    const end = chip.offsetLeft + chip.offsetWidth + EDGE - scroller.clientWidth
+
+    if (start < scroller.scrollLeft) {
+      scroller.scrollLeft = start
+    } else if (end > scroller.scrollLeft) {
+      scroller.scrollLeft = end
+    }
+  }, [activeId])
 
   const chip = (id: string, label: string, dot?: ProviderTone) => {
     const active = activeId === id
 
     return (
-      <UnstyledButton
+      <Link
         key={id}
-        component={Link}
         to={{ pathname: '/pipelines', search: tabSearch(searchParams, id).toString() }}
         replace
-        className="interactive-surface"
+        className={classes.chip}
         aria-current={active ? 'page' : undefined}
-        bdrs="sm"
-        py="2xs"
-        px="sm"
-        flex="0 0 auto"
-        c={active ? 'blue' : 'dimmed'}
-        mod={{ current: active }}
+        data-chip={id}
       >
-        <Group gap="3xs" wrap="nowrap">
-          {dot && <ToneDot tone={dot} />}
-          <Text size="xs" fw={500} truncate>
-            {label}
-          </Text>
-        </Group>
-      </UnstyledButton>
+        {dot && <ToneDot tone={dot} />}
+        <span className={classes.label}>{label}</span>
+      </Link>
     )
   }
 
@@ -53,31 +62,12 @@ export function PipelineViewStrip(): ReactNode {
   )
 
   return (
-    <Box
-      component="nav"
-      aria-label="Pipeline views"
-      p="3xs"
-      style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
-    >
-      <Box style={{ display: 'flex', gap: 'var(--mantine-spacing-3xs)', overflowX: 'auto' }}>
+    <nav aria-label="Pipeline views" className={classes.strip}>
+      <div ref={scrollerRef} className={classes.scroller}>
         {views
           .filter((view) => view.parent === null)
           .flatMap((view) => (view.kind === 'pinned' ? providerChips : [chip(view.id, view.name)]))}
-        <UnstyledButton
-          className="interactive-surface"
-          bdrs="sm"
-          py="2xs"
-          px="sm"
-          flex="0 0 auto"
-          c="dimmed"
-          ml="auto"
-          onClick={openManage}
-        >
-          <Text size="xs" fw={500}>
-            Edit
-          </Text>
-        </UnstyledButton>
-      </Box>
-    </Box>
+      </div>
+    </nav>
   )
 }

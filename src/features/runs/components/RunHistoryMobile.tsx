@@ -13,18 +13,10 @@ interface RunHistoryMobileProps {
   selection: RunPageSelection
   shell: boolean
   selecting: boolean
-  onStartSelection: () => void
   emptyState: ReactNode
 }
 
-export function RunHistoryMobile({
-  data,
-  selection,
-  shell,
-  selecting,
-  onStartSelection,
-  emptyState,
-}: RunHistoryMobileProps): ReactNode {
+export function RunHistoryMobile({ data, selection, shell, selecting, emptyState }: RunHistoryMobileProps): ReactNode {
   const { labels } = useRunActions()
   const { runs } = data
   const { selectedRuns, selectRuns, isRunCancellable } = selection
@@ -36,7 +28,6 @@ export function RunHistoryMobile({
         <IosRunList
           runs={runs}
           label={formatCount(runs.length, labels.run)}
-          onSelect={runs.some(isRunCancellable) ? onStartSelection : undefined}
           selecting={selecting}
           selectedNumbers={selectedRuns.map((run) => run.run_number)}
           isSelectable={isRunCancellable}

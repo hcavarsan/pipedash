@@ -114,13 +114,16 @@ export function usePipelineViewModel({
     toggle: toggleOpen,
     setAll,
   } = usePipelineExpansion(query.view, expanded, saveExpanded, JSON.stringify(query), filtersActive)
-  const toggleSection = (id: string) => toggleOpen(id, false)
+  const toggleSection = (id: string) => toggleOpen(id, mobileShell)
 
   const getProvider = useCallback(
     (providerId: number): ProviderSummary | undefined => providers.find((p) => p.id === providerId),
     [providers]
   )
-  const rows = useMemo(() => buildPipelineRows({ page, isOpen, getProvider }), [page, isOpen, getProvider])
+  const rows = useMemo(
+    () => buildPipelineRows({ page, isOpen, getProvider, defaultOpen: mobileShell }),
+    [page, isOpen, getProvider, mobileShell]
+  )
   const providerOptions = useMemo(
     () =>
       (page?.facets.provider_ids ?? [])

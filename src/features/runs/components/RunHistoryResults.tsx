@@ -1,6 +1,6 @@
 import { Button, Group } from '@mantine/core'
 import { IconHistory, IconRefresh } from '@tabler/icons-react'
-import { type ReactNode, useState } from 'react'
+import type { ReactNode } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { IosRunToolbar } from '../../../components/common/IosRunList'
@@ -16,6 +16,8 @@ interface RunHistoryResultsProps {
   data: RunHistoryPageData
   columns: RunHistoryColumns
   selection: RunPageSelection
+  selecting: boolean
+  onSelectingChange: (selecting: boolean) => void
 }
 
 function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
@@ -74,11 +76,16 @@ function RunHistoryEmpty({ data }: { data: RunHistoryPageData }): ReactNode {
   )
 }
 
-export function RunHistoryResults({ data, columns, selection }: RunHistoryResultsProps): ReactNode {
+export function RunHistoryResults({
+  data,
+  columns,
+  selection,
+  selecting,
+  onSelectingChange,
+}: RunHistoryResultsProps): ReactNode {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const { labels } = useRunActions()
-  const [selecting, setSelecting] = useState(false)
 
   if (data.isError) {
     return (
@@ -116,7 +123,6 @@ export function RunHistoryResults({ data, columns, selection }: RunHistoryResult
           selection={selection}
           shell={mobileShell}
           selecting={selecting}
-          onStartSelection={() => setSelecting(true)}
           emptyState={empty}
         />
         {mobileShell && selecting && (
@@ -125,7 +131,7 @@ export function RunHistoryResults({ data, columns, selection }: RunHistoryResult
             cancelling={selection.isCancelling}
             onDone={() => {
               selection.selectRuns([])
-              setSelecting(false)
+              onSelectingChange(false)
             }}
             onCancelRuns={selection.cancelSelected}
           />

@@ -1,9 +1,10 @@
-import { Tabs } from '@mantine/core'
+import { Menu, Tabs } from '@mantine/core'
 import { IconChartLine, IconHistory } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { PageContainer } from '../../../components/common/PageContainer'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
+import { NavBarMenu } from '../../../components/layout/NavBarMenu'
 import { PullToRefresh } from '../../../components/layout/PullRefreshContext'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { usePlugins } from '../../../queries/usePluginsQueries'
@@ -44,6 +45,8 @@ export function RunHistoryPage({
   const data = useRunHistoryPageData(pipeline)
   const columns = useRunHistoryColumns(pipeline?.provider_id)
   const [customization, setCustomization] = useState({ session: 0, opened: false })
+  const [selecting, setSelecting] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   useRunHistoryEvents({
     pipelineId: pipeline?.id,
@@ -62,10 +65,17 @@ export function RunHistoryPage({
   })
 
   const historyLoading = isLoadingPipeline || data.isLoading || columns.loading || !pipeline?.id
+  const canSelect = !selecting && data.runs.some(selection.isRunCancellable)
 
   return (
     <PageContainer>
       {mobileShell && <PullToRefresh refresh={data.refetch} />}
+      {mobileShell && tab === 'history' && !historyLoading && (
+        <NavBarMenu label="More">
+          {canSelect && <Menu.Item onClick={() => setSelecting(true)}>Select</Menu.Item>}
+          <Menu.Item onClick={() => setFiltersOpen(true)}>Filter</Menu.Item>
+        </NavBarMenu>
+      )}
       <RunHistoryHeader
         pipeline={pipeline}
         isLoadingPipeline={isLoadingPipeline}
@@ -104,8 +114,19 @@ export function RunHistoryPage({
             <LoadingState message={`Loading ${labels.history.toLowerCase()}…`} />
           ) : (
             <>
-              <RunHistoryFilters pipeline={pipeline} data={data} selection={selection} />
-              <RunHistoryResults data={data} columns={columns} selection={selection} />
+              <RunHistoryFilters
+                pipeline={pipeline}
+                data={data}
+                selection={selection}
+                sheet={{ opened: filtersOpen, onClose: () => setFiltersOpen(false) }}
+              />
+              <RunHistoryResults
+                data={data}
+                columns={columns}
+                selection={selection}
+                selecting={selecting}
+                onSelectingChange={setSelecting}
+              />
             </>
           )}
         </Tabs.Panel>
