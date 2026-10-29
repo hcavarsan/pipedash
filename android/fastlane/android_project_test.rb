@@ -90,6 +90,33 @@ class AndroidProjectTest < Minitest::Test
     assert_equal 1021, AndroidProject.next_version_code([1010, 1020, 2_026_010_520])
   end
 
+  def test_release_builds_are_stripped_with_the_pinned_ndk_and_keep_symbol_tables_once
+    gradle = <<~GRADLE
+      android {
+          compileSdk = 37
+          buildTypes {
+              getByName("debug") {
+                  packaging {
+                      jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
+                      jniLibs.keepDebugSymbols.add("*/x86_64/*.so")
+                  }
+              }
+              getByName("release") {
+                  optimization {}
+              }
+          }
+      }
+    GRADLE
+    patched = AndroidProject.with_debug_symbols(gradle, ndk_version: "30.0.1")
+
+    assert patched.start_with?("android {\n    ndkVersion = \"30.0.1\"\n    compileSdk = 37")
+    assert_includes patched, "getByName(\"release\") {\n            ndk { debugSymbolLevel = \"SYMBOL_TABLE\" }\n            optimization {}"
+    refute_includes patched, "keepDebugSymbols"
+    assert_equal patched, AndroidProject.with_debug_symbols(patched, ndk_version: "30.0.1")
+    assert_equal 1, AndroidProject.with_debug_symbols(patched, ndk_version: "31.0.0").scan("ndkVersion").size
+    assert_raises(ArgumentError) { AndroidProject.with_debug_symbols("buildTypes {}", ndk_version: "30.0.1") }
+  end
+
   def test_metadata_keeps_the_icon_and_gets_a_changelog
     Dir.mktmpdir do |dir|
       source = File.join(dir, "source")

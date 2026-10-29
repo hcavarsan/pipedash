@@ -80,6 +80,24 @@ module AndroidProject
     !loads.empty? && loads.all? { |line| line.split.last.to_i(16) >= 0x4000 }
   end
 
+  ANDROID_BLOCK = /^android \{\n/
+  RELEASE_BUILD_TYPE = 'getByName("release") {'
+  DEBUG_SYMBOLS = 'ndk { debugSymbolLevel = "SYMBOL_TABLE" }'
+  KEEP_DEBUG_SYMBOLS = /^\s*jniLibs\.keepDebugSymbols\.add\(.*\)\n/
+  NDK_VERSION = /^\s*ndkVersion = ".*"\n/
+
+  def self.with_debug_symbols(gradle, ndk_version:)
+    unless gradle.match?(ANDROID_BLOCK) && gradle.include?(RELEASE_BUILD_TYPE)
+      raise ArgumentError, "The app Gradle file has no android block with a release build type"
+    end
+
+    gradle = gradle.gsub(KEEP_DEBUG_SYMBOLS, "").gsub(NDK_VERSION, "")
+    gradle = gradle.sub(ANDROID_BLOCK, "android {\n    ndkVersion = \"#{ndk_version}\"\n")
+    return gradle if gradle.include?(DEBUG_SYMBOLS)
+
+    gradle.sub(RELEASE_BUILD_TYPE, "#{RELEASE_BUILD_TYPE}\n            #{DEBUG_SYMBOLS}")
+  end
+
   def self.assemble_metadata(source:, images:, into:, changelog: nil, version_code: nil)
     FileUtils.cp_r(File.join(source, "."), into)
     FileUtils.mkdir_p(File.join(into, "en-US/images"))

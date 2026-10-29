@@ -46,6 +46,11 @@ runs:
         read -r -a targets <<< "$RUST_TARGETS"
         rustup target add "${targets[@]}"
 
+    - name: Cache Rust build
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        shared-key: android-${{ inputs.rust-targets }}
+
     - name: Install Android SDK
       shell: bash
       run: |

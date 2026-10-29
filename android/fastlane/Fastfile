@@ -74,10 +74,16 @@ def next_version_code
 end
 
 platform :android do
-  desc "Generate the Android project with the app launcher icons"
+  desc "Generate the Android project with the app launcher icons and native debug symbols"
   lane :prepare_project do
     tauri("android", "init", "--ci")
     FileUtils.cp_r(File.join(TAURI_DIR, "icons/android/."), File.join(ANDROID_DIR, "app/src/main/res"))
+    gradle = File.join(ANDROID_DIR, "app/build.gradle.kts")
+    begin
+      File.write(gradle, AndroidProject.with_debug_symbols(File.read(gradle), ndk_version: File.basename(ENV.fetch("NDK_HOME"))))
+    rescue ArgumentError => error
+      UI.user_error!(error.message)
+    end
   end
 
   desc "Check that an AAB meets the Google Play requirements this project depends on"
