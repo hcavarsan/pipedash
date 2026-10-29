@@ -15,6 +15,10 @@ use serde::{
     Deserialize,
     Serialize,
 };
+use sha2::{
+    Digest,
+    Sha256,
+};
 
 use super::block::INDEX_RECORD_BYTES;
 use super::document::Document;
@@ -26,7 +30,10 @@ use super::outline::{
     Outline,
     StepBound,
 };
-use super::store::ReadLease;
+use super::store::{
+    short_hex,
+    ReadLease,
+};
 use super::MAX_LINE_BYTES;
 use crate::domain::LogCursor;
 
@@ -47,8 +54,14 @@ pub(super) struct Resume<O = Outline> {
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct Checkpoint<O = Outline> {
+    pub steps_hash: String,
     pub raw_hash: Option<String>,
     pub resume: Option<Resume<O>>,
+}
+
+pub(super) fn steps_hash(steps: &[StepBound]) -> String {
+    let json = serde_json::to_vec(steps).unwrap_or_default();
+    short_hex(&Sha256::digest(json))
 }
 
 pub(super) fn copy_prefix(from: &Path, to: &Path, len: u64) -> io::Result<File> {

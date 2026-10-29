@@ -97,6 +97,7 @@ const OPEN_TREE_TTL: Duration = Duration::from_secs(10);
 const FAILURE_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 const INTEREST_TTL: Duration = Duration::from_secs(45);
 const TREE_INTERVAL: Duration = Duration::from_secs(5);
+const TREE_BACKOFF_MAX: Duration = Duration::from_secs(60);
 const RESUMABLE_INTERVAL: Duration = Duration::from_secs(2);
 const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(10);
 const SHUTDOWN_PATIENCE: Duration = Duration::from_secs(5);

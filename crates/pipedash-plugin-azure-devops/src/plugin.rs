@@ -399,7 +399,11 @@ mod tests {
     };
 
     use super::*;
-    use crate::log_tail::Tally;
+    use crate::log_tail::{
+        LogPosition,
+        Tally,
+        BOUNDARY_LINE_LIMIT,
+    };
 
     const BASIC_AUTH: &str = "Basic OnN0dWItdG9rZW4=";
 
@@ -1748,12 +1752,36 @@ mod tests {
         "2026-10-28T10:00:03.0000000Z compiling",
         "2026-10-28T10:00:04.0000000Z ##[section]Finishing: Linux tests",
     ];
+    const REPEATED_LINES: [&str; 4] = ["q", "z", "z", "z"];
+    const LIVE_BUILDS: [(&str, i64, i64); 4] =
+        [("924", 7, 1), ("925", 8, 2), ("926", 9, 1), ("927", 10, 1)];
+
+    fn joined(lines: &[impl AsRef<str>]) -> String {
+        lines
+            .iter()
+            .map(|line| format!("{}\n", line.as_ref()))
+            .collect()
+    }
 
     fn live_text(lines: std::ops::Range<usize>) -> String {
-        LIVE_LINES[lines]
-            .iter()
-            .map(|line| format!("{line}\n"))
-            .collect()
+        joined(&LIVE_LINES[lines])
+    }
+
+    fn oversized_lines() -> Vec<String> {
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "x".repeat(BOUNDARY_LINE_LIMIT + 10),
+            "new".to_string(),
+        ]
+    }
+
+    fn server_lines(build: &str) -> Vec<String> {
+        match build {
+            "926" => REPEATED_LINES.iter().map(|line| line.to_string()).collect(),
+            "927" => oversized_lines(),
+            _ => LIVE_LINES.iter().map(|line| line.to_string()).collect(),
+        }
     }
 
     fn job_timeline(log: i64, attempt: i64) -> Value {
@@ -1771,24 +1799,23 @@ mod tests {
     }
 
     fn live_log(request: &Request, first_line: u64) -> Reply {
-        let from = request.query("startLine").map_or(0, |line| {
+        let path = request.url.path();
+        let Some((build, log, attempt)) = LIVE_BUILDS.iter().find(|(build, ..)| {
+            path.starts_with(&format!("/acme/Alpha/_apis/build/builds/{build}/"))
+        }) else {
+            return Reply::not_found(request);
+        };
+        if path.ends_with("/timeline") {
+            return Reply::json(200, job_timeline(*log, *attempt));
+        }
+        if !path.ends_with(&format!("/logs/{log}")) {
+            return Reply::not_found(request);
+        }
+        let skip = request.query("startLine").map_or(0, |line| {
             line.parse::<u64>().unwrap().saturating_sub(first_line) as usize
         });
-        match (request.method.as_str(), request.url.path()) {
-            ("GET", "/acme/Alpha/_apis/build/builds/924/timeline") => {
-                Reply::json(200, job_timeline(7, 1))
-            }
-            ("GET", "/acme/Alpha/_apis/build/builds/924/logs/7") => {
-                Reply::text(200, &live_text(from.min(5)..5))
-            }
-            ("GET", "/acme/Alpha/_apis/build/builds/925/timeline") => {
-                Reply::json(200, job_timeline(8, 2))
-            }
-            ("GET", "/acme/Alpha/_apis/build/builds/925/logs/8") => {
-                Reply::text(200, &live_text(from.min(5)..5))
-            }
-            _ => Reply::not_found(request),
-        }
+        let lines = server_lines(build);
+        Reply::text(200, &joined(&lines[skip.min(lines.len())..]))
     }
 
     fn zero_based_log(request: &Request) -> Reply {
@@ -1799,12 +1826,27 @@ mod tests {
         live_log(request, 1)
     }
 
-    const LIVE_SERVERS: [fn(&Request) -> Reply; 2] = [zero_based_log, one_based_log];
+    type LiveServer = (fn(&Request) -> Reply, u64);
 
-    fn cursor_over(build: i64, log: i64, attempt: i64, text: &str) -> LogCursor {
+    const LIVE_SERVERS: [LiveServer; 2] = [(zero_based_log, 0), (one_based_log, 1)];
+
+    fn position_over(
+        build: i64, log: i64, attempt: i64, text: &str, first_line: Option<u64>,
+    ) -> LogPosition {
         let mut tally = Tally::default();
         tally.feed(text.as_bytes());
-        LogCursor::new(&tally.position(build, log, attempt)).unwrap()
+        let mut position = tally.position(build, log, attempt);
+        if first_line.is_some() {
+            position.first_line = first_line;
+            position.anchor = None;
+        }
+        position
+    }
+
+    fn cursor_over(
+        build: i64, log: i64, attempt: i64, text: &str, first_line: Option<u64>,
+    ) -> LogCursor {
+        LogCursor::new(&position_over(build, log, attempt, text, first_line)).unwrap()
     }
 
     fn log_requests(stub: &Stub) -> Vec<Option<String>> {
@@ -1812,6 +1854,13 @@ mod tests {
             .iter()
             .filter(|request| request.url.path().contains("/logs/"))
             .map(|request| request.query("startLine"))
+            .collect()
+    }
+
+    fn lines_asked(lines: &[Option<u64>]) -> Vec<Option<String>> {
+        lines
+            .iter()
+            .map(|line| line.map(|line| line.to_string()))
             .collect()
     }
 
@@ -1825,7 +1874,7 @@ mod tests {
         assert_eq!(log, live_text(0..5).as_bytes());
         assert_eq!(
             read,
-            LogRead::replace(Some(cursor_over(924, 7, 1, &live_text(0..5))))
+            LogRead::replace(Some(cursor_over(924, 7, 1, &live_text(0..5), None)))
         );
         assert!(!restarted);
         assert_eq!(log_requests(&stub), [None]);
@@ -1833,10 +1882,10 @@ mod tests {
 
     #[tokio::test]
     async fn resumed_read_appends_only_the_new_lines_whichever_line_the_server_counts_from() {
-        for serve_log in LIVE_SERVERS {
+        for (serve_log, first) in LIVE_SERVERS {
             let stub = serve(serve_log).await;
             let plugin = plugin_for(&stub, "", "Alpha");
-            let cursor = cursor_over(924, 7, 1, &live_text(0..3));
+            let cursor = cursor_over(924, 7, 1, &live_text(0..3), None);
 
             let (log, read, restarted) = resume_job_log(&plugin, 924, JOB_LINUX, Some(&cursor))
                 .await
@@ -1845,38 +1894,90 @@ mod tests {
             assert_eq!(log, live_text(3..5).as_bytes());
             assert_eq!(
                 read,
-                LogRead::append(cursor_over(924, 7, 1, &live_text(0..5)))
+                LogRead::append(cursor_over(924, 7, 1, &live_text(0..5), Some(first)))
             );
             assert!(!restarted);
-            assert_eq!(log_requests(&stub), [Some("2".to_string())]);
+            assert_eq!(
+                log_requests(&stub),
+                lines_asked(&[Some(2), Some(2 + first)])
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn once_the_numbering_is_known_a_resume_asks_for_the_boundary_line_only() {
+        for (serve_log, first) in LIVE_SERVERS {
+            let stub = serve(serve_log).await;
+            let plugin = plugin_for(&stub, "", "Alpha");
+            let cursor = cursor_over(924, 7, 1, &live_text(0..3), Some(first));
+
+            let (log, read, restarted) = resume_job_log(&plugin, 924, JOB_LINUX, Some(&cursor))
+                .await
+                .unwrap();
+
+            assert_eq!(log, live_text(3..5).as_bytes());
+            assert_eq!(
+                read,
+                LogRead::append(cursor_over(924, 7, 1, &live_text(0..5), Some(first)))
+            );
+            assert!(!restarted);
+            assert_eq!(log_requests(&stub), lines_asked(&[Some(2 + first)]));
+        }
+    }
+
+    #[tokio::test]
+    async fn repeated_lines_at_the_boundary_do_not_swallow_the_new_line() {
+        let before = joined(&REPEATED_LINES[..3]);
+        let after = joined(&REPEATED_LINES);
+        for (serve_log, first) in LIVE_SERVERS {
+            for known in [None, Some(first)] {
+                let stub = serve(serve_log).await;
+                let plugin = plugin_for(&stub, "", "Alpha");
+                let cursor = cursor_over(926, 9, 1, &before, known);
+
+                let (log, read, restarted) = resume_job_log(&plugin, 926, JOB_LINUX, Some(&cursor))
+                    .await
+                    .unwrap();
+
+                assert_eq!(log, b"z\n", "{known:?}");
+                assert_eq!(
+                    read,
+                    LogRead::append(cursor_over(926, 9, 1, &after, Some(first))),
+                    "{known:?}"
+                );
+                assert!(!restarted, "{known:?}");
+            }
         }
     }
 
     #[tokio::test]
     async fn resumed_read_with_nothing_new_writes_nothing_and_keeps_the_cursor() {
-        for serve_log in LIVE_SERVERS {
+        for (serve_log, first) in LIVE_SERVERS {
             let stub = serve(serve_log).await;
             let plugin = plugin_for(&stub, "", "Alpha");
-            let cursor = cursor_over(924, 7, 1, &live_text(0..5));
+            let cursor = cursor_over(924, 7, 1, &live_text(0..5), None);
 
             let (log, read, restarted) = resume_job_log(&plugin, 924, JOB_LINUX, Some(&cursor))
                 .await
                 .unwrap();
 
             assert!(log.is_empty());
-            assert_eq!(read, LogRead::append(cursor));
+            assert_eq!(
+                read,
+                LogRead::append(cursor_over(924, 7, 1, &live_text(0..5), Some(first)))
+            );
             assert!(!restarted);
         }
     }
 
     #[tokio::test]
     async fn resumed_read_continues_a_last_line_that_had_no_newline_on_a_fresh_line() {
-        for serve_log in LIVE_SERVERS {
+        for (serve_log, first) in LIVE_SERVERS {
             let stub = serve(serve_log).await;
             let plugin = plugin_for(&stub, "", "Alpha");
             let unterminated = live_text(0..3);
             let unterminated = unterminated.trim_end_matches('\n');
-            let cursor = cursor_over(924, 7, 1, unterminated);
+            let cursor = cursor_over(924, 7, 1, unterminated, None);
 
             let (log, read, restarted) = resume_job_log(&plugin, 924, JOB_LINUX, Some(&cursor))
                 .await
@@ -1885,26 +1986,69 @@ mod tests {
             assert_eq!(log, format!("\n{}", live_text(3..5)).as_bytes());
             assert_eq!(
                 read,
-                LogRead::append(cursor_over(924, 7, 1, &live_text(0..5)))
+                LogRead::append(cursor_over(924, 7, 1, &live_text(0..5), Some(first)))
             );
             assert!(!restarted);
         }
     }
 
     #[tokio::test]
-    async fn cursor_that_cannot_continue_the_log_restarts_with_the_whole_log() {
-        let rewritten = "rewritten\n".repeat(5);
-        let longer = "longer\n".repeat(9);
-        let malformed = LogCursor::new(&"junk").unwrap();
-        let cases = [
-            (924, 7, cursor_over(924, 7, 1, &longer), 3),
-            (924, 7, cursor_over(924, 7, 1, &rewritten), 3),
-            (924, 7, cursor_over(924, 6, 1, &live_text(0..3)), 2),
-            (925, 8, cursor_over(925, 8, 1, &live_text(0..3)), 2),
-            (924, 7, malformed, 2),
-        ];
+    async fn boundary_line_longer_than_the_limit_restarts_with_a_full_streamed_read() {
+        let full = joined(&oversized_lines());
+        let seen = joined(&oversized_lines()[..3]);
+        for (serve_log, first) in LIVE_SERVERS {
+            let stub = serve(serve_log).await;
+            let plugin = plugin_for(&stub, "", "Alpha");
+            let cursor = cursor_over(927, 10, 1, &seen, Some(first));
 
-        for serve_log in LIVE_SERVERS {
+            let (bytes, read, restarted) = resume_job_log(&plugin, 927, JOB_LINUX, Some(&cursor))
+                .await
+                .unwrap();
+
+            assert_eq!(bytes, full.as_bytes());
+            assert_eq!(
+                read,
+                LogRead::replace(Some(cursor_over(927, 10, 1, &full, None)))
+            );
+            assert!(restarted);
+            assert_eq!(log_requests(&stub), lines_asked(&[Some(2 + first), None]));
+        }
+    }
+
+    #[tokio::test]
+    async fn cursor_that_cannot_continue_the_log_restarts_with_the_whole_log() {
+        let malformed = LogCursor::new(&"junk").unwrap();
+
+        for (serve_log, first) in LIVE_SERVERS {
+            let cases = [
+                (
+                    924,
+                    7,
+                    cursor_over(924, 7, 1, &"longer\n".repeat(9), Some(first)),
+                    3,
+                ),
+                (
+                    924,
+                    7,
+                    cursor_over(924, 7, 1, &"rewritten\n".repeat(5), Some(first)),
+                    3,
+                ),
+                (924, 7, cursor_over(924, 7, 1, "a\nb\nc\n", None), 3),
+                (924, 7, cursor_over(924, 7, 1, "z\nz\nz\n", None), 2),
+                (
+                    924,
+                    7,
+                    cursor_over(924, 6, 1, &live_text(0..3), Some(first)),
+                    2,
+                ),
+                (
+                    925,
+                    8,
+                    cursor_over(925, 8, 1, &live_text(0..3), Some(first)),
+                    2,
+                ),
+                (924, 7, malformed.clone(), 2),
+            ];
             for (build, log, cursor, requests) in &cases {
                 let stub = serve(serve_log).await;
                 let plugin = plugin_for(&stub, "", "Alpha");
@@ -1918,7 +2062,13 @@ mod tests {
                 let attempt = if *build == 925 { 2 } else { 1 };
                 assert_eq!(
                     read,
-                    LogRead::replace(Some(cursor_over(*build, *log, attempt, &live_text(0..5)))),
+                    LogRead::replace(Some(cursor_over(
+                        *build,
+                        *log,
+                        attempt,
+                        &live_text(0..5),
+                        None
+                    ))),
                     "{cursor:?}"
                 );
                 assert!(restarted, "{cursor:?}");

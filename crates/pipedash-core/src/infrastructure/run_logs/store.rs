@@ -1385,6 +1385,7 @@ mod tests {
 
         let second = publish_incomplete(&store, &key, "ial\nthree\n").await;
 
+        assert_ne!(first, second);
         assert_eq!(store.current(&key), Some(second));
         assert!(base_dir.is_dir());
         assert_eq!(files_of(&base_dir), before);

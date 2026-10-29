@@ -529,6 +529,35 @@ async fn changed_step_bounds_before_the_checkpoint_forbid_resuming() {
 }
 
 #[tokio::test]
+async fn a_step_that_finishes_without_new_output_publishes_a_new_revision() {
+    let mut running = step("only", PipelineStatus::Running, 0, 1);
+    running.finished_ms = None;
+    let mut lineage = Lineage::new(vec![running.clone()]).await;
+    lineage.extend(b"a\nb", false, cursor(7), 64, false).await;
+    let same = LogRead::append(LogCursor::new(&7).unwrap());
+    let tmp = lineage.store.tmp_dir().await.unwrap();
+    let idle = feed_blocking(lineage.ingester(&tmp, 99, false).await, Vec::new(), 8).await;
+    assert!(idle.unchanged(&same));
+    drop(idle);
+
+    lineage.steps = vec![step("only", PipelineStatus::Success, 0, 1)];
+    let idle = feed_blocking(lineage.ingester(&tmp, 99, false).await, Vec::new(), 8).await;
+    assert!(!idle.unchanged(&same));
+    drop(idle);
+    let (before, lease) = lineage.document().await;
+    let before = before.meta().revision;
+    drop(lease);
+
+    lineage.extend(b"", false, cursor(7), 64, false).await;
+
+    let (document, _lease) = lineage.document().await;
+    let section = &document.meta().sections[0];
+    assert_ne!(document.meta().revision, before);
+    assert_eq!(section.status, Some(PipelineStatus::Success));
+    assert_eq!(section.duration_ms, Some(1000));
+}
+
+#[tokio::test]
 async fn appends_with_nothing_new_are_recognised_as_unchanged() {
     let lineage = Lineage::new(Vec::new()).await;
     lineage.extend(b"a\nb", false, cursor(7), 64, false).await;

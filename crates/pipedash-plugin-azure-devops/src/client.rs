@@ -30,7 +30,9 @@ use serde_json::{
 };
 
 use crate::log_tail::{
+    BoundaryScan,
     LogPosition,
+    Scan,
     Tally,
 };
 use crate::types::{
@@ -150,39 +152,27 @@ impl AzureDevOpsClient {
                 known
             }
         };
-        let mut response = self
-            .open_build_log(
-                project,
-                build_id,
-                log_id,
-                resume.as_ref().map(LogPosition::request_line),
-            )
-            .await?;
-        let mut head = Vec::new();
-        let mut skip = 0;
-        if let Some(position) = &resume {
-            let mut newlines = 0;
-            while newlines < 2 {
-                let Some(chunk) = next_log_chunk(&mut response).await? else {
-                    break;
-                };
-                newlines += chunk.iter().filter(|&&byte| byte == b'\n').count();
-                head.extend_from_slice(&chunk);
-            }
-            match position.overlap(&head) {
-                Some(bytes) => skip = bytes,
-                None => {
-                    sink.restart()?;
-                    resume = None;
-                    head.clear();
-                    response = self.open_build_log(project, build_id, log_id, None).await?;
-                }
+        let mut opened = None;
+        if let Some(position) = resume.as_mut() {
+            opened = self
+                .open_after_boundary(project, build_id, log_id, position)
+                .await?;
+            if opened.is_none() {
+                sink.restart()?;
+                resume = None;
             }
         }
+        let (mut response, rest) = match opened {
+            Some(opened) => opened,
+            None => (
+                self.open_build_log(project, build_id, log_id, None).await?,
+                Bytes::new(),
+            ),
+        };
 
         let mut tally = resume.as_ref().map_or_else(Tally::default, Tally::resume);
         let mut eol = resume.as_ref().is_some_and(|position| position.open);
-        let mut chunk = Some(Bytes::from(head).slice(skip..));
+        let mut chunk = Some(rest);
         while let Some(bytes) = chunk {
             if !bytes.is_empty() {
                 if std::mem::take(&mut eol) {
@@ -204,6 +194,37 @@ impl AzureDevOpsClient {
             LogRead::append(cursor)
         } else {
             LogRead::replace(Some(cursor))
+        })
+    }
+
+    async fn open_after_boundary(
+        &self, project: &str, build_id: i64, log_id: i64, position: &mut LogPosition,
+    ) -> PluginResult<Option<(reqwest::Response, Bytes)>> {
+        if position.lines == 0 {
+            let response = self.open_build_log(project, build_id, log_id, None).await?;
+            return Ok(Some((response, Bytes::new())));
+        }
+        if position.first_line.is_none() {
+            let Some(start) = position.probe_line() else {
+                return Ok(None);
+            };
+            let mut probe = self
+                .open_build_log(project, build_id, log_id, Some(start))
+                .await?;
+            match first_line_hash(&mut probe).await? {
+                Some((hash, _)) if position.settle(hash) => {}
+                _ => return Ok(None),
+            }
+        }
+        let Some(start) = position.boundary_line() else {
+            return Ok(None);
+        };
+        let mut response = self
+            .open_build_log(project, build_id, log_id, Some(start))
+            .await?;
+        Ok(match first_line_hash(&mut response).await? {
+            Some((hash, rest)) if hash == position.last => Some((response, rest)),
+            _ => None,
         })
     }
 
@@ -345,6 +366,18 @@ impl AzureDevOpsClient {
         items.truncate(max);
         Ok(items)
     }
+}
+
+async fn first_line_hash(response: &mut reqwest::Response) -> PluginResult<Option<(u64, Bytes)>> {
+    let mut scan = BoundaryScan::new();
+    while let Some(chunk) = next_log_chunk(response).await? {
+        match scan.feed(chunk) {
+            Scan::More => {}
+            Scan::Line(hash, rest) => return Ok(Some((hash, rest))),
+            Scan::TooLong => return Ok(None),
+        }
+    }
+    Ok(scan.finish().map(|hash| (hash, Bytes::new())))
 }
 
 async fn signed_in(response: reqwest::Response) -> PluginResult<reqwest::Response> {

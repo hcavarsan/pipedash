@@ -1,5 +1,5 @@
+use bytes::Bytes;
 use pipedash_plugin_api::{
-    content_hash,
     extend_content_hash,
     CONTENT_HASH_SEED,
 };
@@ -8,18 +8,13 @@ use serde::{
     Serialize,
 };
 
-fn leading_lines(head: &[u8]) -> Vec<(u64, usize)> {
-    let mut lines = Vec::with_capacity(2);
-    let mut start = 0;
-    while lines.len() < 2 && start < head.len() {
-        let (end, next) = match head[start..].iter().position(|&byte| byte == b'\n') {
-            Some(offset) => (start + offset, start + offset + 1),
-            None => (head.len(), head.len()),
-        };
-        lines.push((content_hash(&head[start..end]), next));
-        start = next;
-    }
-    lines
+pub(crate) const BOUNDARY_LINE_LIMIT: usize = 1 << 20;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Anchor {
+    line: u64,
+    before: u64,
+    after: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,7 +24,9 @@ pub(crate) struct LogPosition {
     pub attempt: i64,
     pub lines: u64,
     pub open: bool,
-    pub tail: [u64; 2],
+    pub last: u64,
+    pub anchor: Option<Anchor>,
+    pub first_line: Option<u64>,
 }
 
 impl LogPosition {
@@ -37,33 +34,81 @@ impl LogPosition {
         self.build == build && self.log == log && self.attempt == attempt
     }
 
-    pub fn request_line(&self) -> u64 {
-        self.lines.saturating_sub(1)
+    pub fn probe_line(&self) -> Option<u64> {
+        self.anchor.map(|anchor| anchor.line + 1)
     }
 
-    pub fn overlap(&self, head: &[u8]) -> Option<usize> {
-        let lines = leading_lines(head);
-        let widths: &[usize] = if self.lines == 0 { &[0] } else { &[2, 1] };
-        widths
-            .iter()
-            .copied()
-            .find(|&width| {
-                width as u64 <= self.lines
-                    && lines.len() >= width
-                    && lines
-                        .iter()
-                        .zip(&self.tail[2 - width..])
-                        .all(|(line, hash)| line.0 == *hash)
-            })
-            .map(|width| width.checked_sub(1).map_or(0, |last| lines[last].1))
+    pub fn settle(&mut self, first: u64) -> bool {
+        let Some(anchor) = self.anchor else {
+            return false;
+        };
+        self.first_line = if first == anchor.after {
+            Some(0)
+        } else if first == anchor.before {
+            Some(1)
+        } else {
+            return false;
+        };
+        self.anchor = None;
+        true
+    }
+
+    pub fn boundary_line(&self) -> Option<u64> {
+        self.first_line
+            .map(|first| self.lines.saturating_sub(1) + first)
+    }
+}
+
+pub(crate) enum Scan {
+    More,
+    Line(u64, Bytes),
+    TooLong,
+}
+
+pub(crate) struct BoundaryScan {
+    hash: u64,
+    scanned: usize,
+}
+
+impl BoundaryScan {
+    pub fn new() -> Self {
+        Self {
+            hash: CONTENT_HASH_SEED,
+            scanned: 0,
+        }
+    }
+
+    pub fn feed(&mut self, chunk: Bytes) -> Scan {
+        let window = chunk.len().min(BOUNDARY_LINE_LIMIT - self.scanned + 1);
+        match chunk[..window].iter().position(|&byte| byte == b'\n') {
+            Some(end) => Scan::Line(
+                extend_content_hash(self.hash, &chunk[..end]),
+                chunk.slice(end + 1..),
+            ),
+            None => {
+                self.hash = extend_content_hash(self.hash, &chunk[..window]);
+                self.scanned += window;
+                if self.scanned > BOUNDARY_LINE_LIMIT {
+                    Scan::TooLong
+                } else {
+                    Scan::More
+                }
+            }
+        }
+    }
+
+    pub fn finish(self) -> Option<u64> {
+        (self.scanned > 0).then_some(self.hash)
     }
 }
 
 #[derive(Default)]
 pub(crate) struct Tally {
     done: u64,
-    tail: [u64; 2],
+    last: u64,
     current: Option<u64>,
+    anchor: Option<Anchor>,
+    first_line: Option<u64>,
     fed: bool,
 }
 
@@ -71,8 +116,10 @@ impl Tally {
     pub fn resume(position: &LogPosition) -> Self {
         Self {
             done: position.lines,
-            tail: position.tail,
+            last: position.last,
             current: None,
+            anchor: None,
+            first_line: position.first_line,
             fed: false,
         }
     }
@@ -88,7 +135,14 @@ impl Tally {
                 Some(end) => {
                     let seed = self.current.take().unwrap_or(CONTENT_HASH_SEED);
                     let hash = extend_content_hash(seed, &bytes[..end]);
-                    self.tail = [self.tail[1], hash];
+                    if self.first_line.is_none() && self.done > 0 && hash != self.last {
+                        self.anchor = Some(Anchor {
+                            line: self.done - 1,
+                            before: self.last,
+                            after: hash,
+                        });
+                    }
+                    self.last = hash;
                     self.done += 1;
                     bytes = &bytes[end + 1..];
                 }
@@ -102,9 +156,9 @@ impl Tally {
     }
 
     pub fn position(&self, build: i64, log: i64, attempt: i64) -> LogPosition {
-        let (lines, tail, open) = match self.current {
-            Some(hash) => (self.done + 1, [self.tail[1], hash], true),
-            None => (self.done, self.tail, false),
+        let (lines, last, open) = match self.current {
+            Some(hash) => (self.done + 1, hash, true),
+            None => (self.done, self.last, false),
         };
         LogPosition {
             build,
@@ -112,7 +166,9 @@ impl Tally {
             attempt,
             lines,
             open,
-            tail,
+            last,
+            anchor: self.anchor.filter(|_| self.first_line.is_none()),
+            first_line: self.first_line,
         }
     }
 }
@@ -129,6 +185,14 @@ mod tests {
             tally.feed(chunk);
         }
         tally.position(1, 2, 3)
+    }
+
+    fn first_line_hash(bytes: &'static [u8]) -> Option<u64> {
+        let mut scan = BoundaryScan::new();
+        match scan.feed(Bytes::from_static(bytes)) {
+            Scan::Line(hash, _) => Some(hash),
+            _ => scan.finish(),
+        }
     }
 
     #[test]
@@ -158,41 +222,110 @@ mod tests {
     }
 
     #[test]
-    fn resumed_tally_continues_the_line_count_and_boundary_hashes() {
-        let prefix = position_after(&[b"a\nb\n"]);
+    fn resumed_tally_continues_the_line_count_and_last_line() {
+        let mut prefix = position_after(&[b"a\nb\n"]);
+        assert!(prefix.settle(first_line_hash(b"b\n").unwrap()));
         let mut resumed = Tally::resume(&prefix);
         resumed.feed(b"c\nd\n");
 
-        assert_eq!(
-            resumed.position(1, 2, 3),
-            position_after(&[b"a\nb\nc\nd\n"])
-        );
+        let mut whole = position_after(&[b"a\nb\nc\nd\n"]);
+        whole.first_line = Some(0);
+        whole.anchor = None;
+        assert_eq!(resumed.position(1, 2, 3), whole);
     }
 
     #[test]
-    fn overlap_finds_the_boundary_whichever_line_the_server_starts_from() {
-        let position = position_after(&[b"a\nb\nc\n"]);
+    fn the_anchor_is_the_latest_pair_of_neighbouring_lines_that_differ() {
+        let position = position_after(&[b"a\nb\nb\nb\n"]);
 
-        assert_eq!(position.overlap(b"c\nd\n"), Some(2));
-        assert_eq!(position.overlap(b"b\nc\nd\n"), Some(4));
-        assert_eq!(position.overlap(b"c\n"), Some(2));
-        assert_eq!(position.overlap(b"c"), Some(1));
+        assert_eq!(position.probe_line(), Some(1));
+        assert!(position_after(&[b"a\n"]).probe_line().is_none());
+        assert!(position_after(&[b"z\nz\nz\n"]).probe_line().is_none());
+        assert!(position_after(&[]).probe_line().is_none());
     }
 
     #[test]
-    fn overlap_rejects_a_slice_that_does_not_continue_the_cursor() {
-        let position = position_after(&[b"a\nb\nc\n"]);
+    fn probing_a_line_tells_the_first_line_number_of_the_server() {
+        let hash_a = first_line_hash(b"a\n").unwrap();
+        let hash_b = first_line_hash(b"b\n").unwrap();
+        let hash_c = first_line_hash(b"c\n").unwrap();
 
-        for head in [&b""[..], b"d\ne\n", b"a\nb\n", b"x\nc\n", b"\n"] {
-            assert_eq!(position.overlap(head), None, "{head:?}");
+        for (probed, first_line) in [(hash_b, Some(0)), (hash_a, Some(1)), (hash_c, None)] {
+            let mut position = position_after(&[b"a\nb\n"]);
+
+            assert_eq!(position.settle(probed), first_line.is_some());
+            assert_eq!(position.first_line, first_line);
+            assert_eq!(position.anchor.is_some(), first_line.is_none());
         }
     }
 
     #[test]
-    fn empty_cursor_accepts_any_slice_without_skipping() {
-        let position = position_after(&[]);
+    fn boundary_line_is_the_last_known_line_in_the_servers_numbering() {
+        let mut position = position_after(&[b"a\nb\nc\n"]);
 
-        assert_eq!(position.overlap(b"a\nb\n"), Some(0));
-        assert_eq!(position.overlap(b""), Some(0));
+        assert_eq!(position.boundary_line(), None);
+        position.first_line = Some(0);
+        assert_eq!(position.boundary_line(), Some(2));
+        position.first_line = Some(1);
+        assert_eq!(position.boundary_line(), Some(3));
+    }
+
+    #[test]
+    fn boundary_scan_hashes_the_first_line_across_chunks_and_returns_the_rest() {
+        let mut scan = BoundaryScan::new();
+
+        assert!(matches!(scan.feed(Bytes::from_static(b"he")), Scan::More));
+        let Scan::Line(hash, rest) = scan.feed(Bytes::from_static(b"llo\nworld\n")) else {
+            panic!("the line ends in this chunk");
+        };
+
+        assert_eq!(Some(hash), first_line_hash(b"hello\n"));
+        assert_eq!(&rest[..], b"world\n");
+        assert_eq!(
+            first_line_hash(b"hello"),
+            first_line_hash(b"hello\n"),
+            "an unterminated line at the end of the body is still a line"
+        );
+        assert_eq!(first_line_hash(b""), None);
+        assert_eq!(
+            first_line_hash(b"\n"),
+            Some(CONTENT_HASH_SEED),
+            "an empty first line is still a line"
+        );
+    }
+
+    #[test]
+    fn boundary_scan_gives_up_on_a_line_longer_than_the_limit_without_keeping_it() {
+        let chunk = Bytes::from(vec![b'x'; 64 * 1024]);
+        let mut scan = BoundaryScan::new();
+        let mut fed = 0;
+
+        let verdict = loop {
+            match scan.feed(chunk.clone()) {
+                Scan::More => fed += chunk.len(),
+                other => break other,
+            }
+        };
+
+        assert!(matches!(verdict, Scan::TooLong));
+        assert!(fed <= BOUNDARY_LINE_LIMIT);
+        assert!(scan.scanned <= BOUNDARY_LINE_LIMIT + 1);
+    }
+
+    #[test]
+    fn boundary_scan_accepts_a_line_of_exactly_the_limit() {
+        let mut scan = BoundaryScan::new();
+        let mut line = vec![b'x'; BOUNDARY_LINE_LIMIT];
+        line.push(b'\n');
+
+        assert!(matches!(
+            scan.feed(Bytes::from(line)),
+            Scan::Line(_, rest) if rest.is_empty()
+        ));
+        let mut scan = BoundaryScan::new();
+        assert!(matches!(
+            scan.feed(Bytes::from(vec![b'x'; BOUNDARY_LINE_LIMIT + 1])),
+            Scan::TooLong
+        ));
     }
 }

@@ -701,6 +701,47 @@ async fn tree_and_run_changes_are_pushed_without_being_asked_for() {
 }
 
 #[tokio::test]
+async fn a_tree_fetched_for_a_replaced_provider_pushes_no_events() {
+    let gate = Gate::new();
+    let f = Fixture::live(&["a\n"], |stub| stub.run_gated(&gate)).await;
+    gate.open();
+    f.ready_meta("1").await;
+    gate.close();
+    f.stub.runs.lock().unwrap()[0].duration_seconds = Some(99);
+    f.stub.log_nodes.lock().unwrap()[0].status = PipelineStatus::Failed;
+
+    f.tick(5).await;
+    gate.arrived().await;
+    let mut config = f.h.config("renamed", 45);
+    config.id = Some(f.id);
+    f.h.provider_service
+        .update_provider(f.id, config)
+        .await
+        .unwrap();
+    gate.open();
+    f.settle().await;
+    f.tick(5).await;
+
+    assert_eq!(f.h.bus.count("run-updated"), 0);
+    assert_eq!(f.h.bus.count("run-log-tree-changed"), 0);
+}
+
+#[tokio::test]
+async fn an_unreachable_provider_is_not_asked_for_the_tree_every_five_seconds() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    let before = f.stub.run_fetches.load(Ordering::SeqCst);
+    *f.stub.run_response.lock().unwrap() = Some(Err(DomainError::NetworkError("down".into())));
+
+    for _ in 0..40 {
+        f.tick(1).await;
+    }
+
+    let fetches = f.stub.run_fetches.load(Ordering::SeqCst) - before;
+    assert!((1..=4).contains(&fetches), "{fetches} fetches in 40 s");
+}
+
+#[tokio::test]
 async fn watching_only_the_tree_pushes_changes_without_reading_any_log() {
     let f = Fixture::live(&["a\n"], resumable).await;
 

@@ -42,6 +42,7 @@ use super::block::{
 use super::checkpoint::{
     self,
     copy_prefix,
+    steps_hash,
     Base,
     Checkpoint,
     Resume,
@@ -125,12 +126,14 @@ pub struct Ingested {
     cfg: Ingester,
     resumed: Option<bool>,
     state: Option<State>,
+    steps_hash: String,
 }
 
 impl Ingester {
     pub fn run(self, rx: &mut mpsc::Receiver<Bytes>) -> io::Result<Ingested> {
         let received = Arc::clone(&self.received);
         let mut ingested = Ingested {
+            steps_hash: steps_hash(&self.steps),
             cfg: self,
             resumed: None,
             state: None,
@@ -171,7 +174,8 @@ impl Ingested {
         let Some(prior) = &base.checkpoint else {
             return false;
         };
-        if base.document.meta().complete != self.cfg.complete {
+        if base.document.meta().complete != self.cfg.complete || prior.steps_hash != self.steps_hash
+        {
             return false;
         }
         let state = self.state.as_ref();
@@ -194,13 +198,18 @@ impl Ingested {
 
     pub fn finish(mut self, cursor: Option<LogCursor>) -> io::Result<IngestOutcome> {
         self.start()?;
-        let Self { cfg, state, .. } = self;
+        let Self {
+            cfg,
+            state,
+            steps_hash,
+            ..
+        } = self;
         let mut state = state.ok_or_else(not_started)?;
         let had_cursor = cursor.is_some();
         let mut keep =
             !cfg.complete && !state.truncated && (had_cursor || state.raw_hash.is_some());
         if keep {
-            state.write_checkpoint(&cfg.dir, cursor)?;
+            state.write_checkpoint(&cfg.dir, cursor, &steps_hash)?;
         }
         state.render_tail()?;
         if keep && state.truncated {
@@ -456,7 +465,9 @@ impl State {
         self.complete_line(&pending).map(drop)
     }
 
-    fn write_checkpoint(&mut self, dir: &Path, cursor: Option<LogCursor>) -> io::Result<()> {
+    fn write_checkpoint(
+        &mut self, dir: &Path, cursor: Option<LogCursor>, steps_hash: &str,
+    ) -> io::Result<()> {
         let resume = match cursor {
             Some(cursor) => {
                 if self.writer.lines() > 0 {
@@ -478,6 +489,7 @@ impl State {
         let tail: &[u8] = if resume.is_some() { &self.pending } else { &[] };
 
         Checkpoint {
+            steps_hash: steps_hash.to_string(),
             raw_hash: self.raw_hash.clone(),
             resume,
         }

@@ -42,6 +42,12 @@ enum Visit {
     At(Instant),
 }
 
+fn tree_backoff(failures: u32) -> Duration {
+    TREE_INTERVAL
+        .saturating_mul(1u32 << failures.min(5))
+        .min(TREE_BACKOFF_MAX)
+}
+
 struct Watch {
     service: Arc<LogService>,
     _guard: LiveGuard,
@@ -52,6 +58,7 @@ struct Watch {
     wake: Arc<Notify>,
     last: Built,
     tree_due: Instant,
+    tree_failures: u32,
 }
 
 impl LogService {
@@ -118,6 +125,7 @@ impl LogService {
             wake,
             last: built.clone(),
             tree_due: now + TREE_INTERVAL,
+            tree_failures: 0,
         };
         self.admit(move |tracker| {
             tracker.spawn(watch.drive());
@@ -185,8 +193,14 @@ impl Watch {
         }
 
         if Instant::now() >= self.tree_due {
-            self.refresh(&lease, epoch).await;
-            self.tree_due = Instant::now() + TREE_INTERVAL;
+            let delay = if self.refresh(&lease, epoch).await {
+                self.tree_failures = 0;
+                TREE_INTERVAL
+            } else {
+                self.tree_failures = self.tree_failures.saturating_add(1);
+                tree_backoff(self.tree_failures)
+            };
+            self.tree_due = Instant::now() + delay;
         }
         let mut next = self.tree_due;
         let mut open = false;
@@ -204,7 +218,7 @@ impl Watch {
         (open || !self.last.1.status.is_terminal()).then_some(next)
     }
 
-    async fn refresh(&mut self, lease: &ProviderLease, epoch: CacheEpoch) {
+    async fn refresh(&mut self, lease: &ProviderLease, epoch: CacheEpoch) -> bool {
         let (pipeline_id, run_number) = (&self.run.0, self.run.1);
         let built = match self
             .service
@@ -214,31 +228,46 @@ impl Watch {
             Ok(built) => built,
             Err(e) => {
                 tracing::debug!(pipeline_id, run_number, error = %e, "Failed to refresh the run log tree");
-                return;
+                return false;
             }
         };
-        let tree_changed = built.0 != self.last.0;
-        let run_changed = built.1 != self.last.1;
-        self.last = built;
-        if tree_changed {
-            self.service
-                .event_bus
-                .emit(CoreEvent::RunLogTreeChanged {
-                    pipeline_id: pipeline_id.clone(),
-                    run_number,
-                })
-                .await;
+        let service = Arc::clone(&self.service);
+        let previous = &self.last;
+        let tree_changed = built.0 != previous.0;
+        let run_changed = built.1 != previous.1;
+        let current = service
+            .provider_service
+            .commit(lease, || async {
+                if service.store.epoch(lease.id) != epoch {
+                    return false;
+                }
+                if tree_changed {
+                    service
+                        .event_bus
+                        .emit(CoreEvent::RunLogTreeChanged {
+                            pipeline_id: pipeline_id.clone(),
+                            run_number,
+                        })
+                        .await;
+                }
+                if run_changed {
+                    service
+                        .event_bus
+                        .emit(CoreEvent::RunUpdated {
+                            pipeline_id: pipeline_id.clone(),
+                            run_number,
+                            run: PipelineRun::clone(&built.1),
+                        })
+                        .await;
+                }
+                true
+            })
+            .await;
+        if current == Some(true) {
+            self.last = built;
         }
-        if run_changed {
-            self.service
-                .event_bus
-                .emit(CoreEvent::RunUpdated {
-                    pipeline_id: pipeline_id.clone(),
-                    run_number,
-                    run: PipelineRun::clone(&self.last.1),
-                })
-                .await;
-        }
+
+        true
     }
 
     async fn visit(&self, lease: &ProviderLease, epoch: CacheEpoch, id: &str) -> Option<Visit> {
