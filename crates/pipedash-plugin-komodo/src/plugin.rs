@@ -875,12 +875,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_paging_is_capped_when_a_stack_stays_unseen() {
+    async fn a_stack_left_unseen_by_the_capped_paging_gets_its_own_lookup() {
         let (last_runs, pages, _) = last_runs(&[("selected_items", "id-dead,id-down")]).await;
 
         assert_eq!(last_runs["stack-dead"], Some(BUSY_START));
-        assert_eq!(last_runs["stack-down"], None);
-        assert_eq!(pages, [0, 1, 2, 3, 4]);
+        assert_eq!(last_runs["stack-down"], Some(DOWN_START));
+        assert_eq!(pages, [0, 1, 2, 3, 4, 0]);
     }
 
     #[tokio::test]

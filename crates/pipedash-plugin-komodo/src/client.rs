@@ -96,6 +96,7 @@ impl KomodoClient {
             return Ok(latest);
         }
         let query = json!({ "target.type": "Stack", "target.id": { "$in": stack_ids } });
+        let mut more_pages = false;
         for page in 0..MAX_LAST_RUN_PAGES {
             let response = self.list_updates(query.clone(), page).await?;
             for update in response.updates {
@@ -103,8 +104,18 @@ impl KomodoClient {
                     latest.insert(update.target.id, update.start_ts);
                 }
             }
-            if pending.is_empty() || response.next_page.is_none() {
+            more_pages = response.next_page.is_some();
+            if pending.is_empty() || !more_pages {
                 break;
+            }
+        }
+        if !more_pages {
+            return Ok(latest);
+        }
+        for stack_id in stack_ids.iter().filter(|id| pending.contains(*id)) {
+            let response = self.list_updates(stack_target(stack_id), 0).await?;
+            if let Some(update) = response.updates.into_iter().next() {
+                latest.insert(update.target.id, update.start_ts);
             }
         }
         Ok(latest)
