@@ -10,6 +10,7 @@ use pipedash_plugin_api::{
     from_status,
     map_send_error,
     redact_url,
+    retry_after,
     truncate_chars,
     PluginError,
     PluginResult,
@@ -135,6 +136,7 @@ impl KomodoClient {
                 if response.status() != reqwest::StatusCode::INTERNAL_SERVER_ERROR {
                     return parse_json(check_response(response).await?, "GetUpdate").await;
                 }
+                let wait = retry_after(response.headers(), chrono::Utc::now());
                 let body = response.text().await.map_err(|e| map_send_error(e, &url))?;
                 if serde_json::from_str::<Value>(&body)
                     .is_ok_and(|error| error["error"] == MISSING_UPDATE)
@@ -150,7 +152,7 @@ impl KomodoClient {
                         redact_url(&url),
                         truncate_chars(body.trim(), ERROR_BODY_PREVIEW_CHARS)
                     ),
-                    None,
+                    wait,
                 ))
             })
             .await
