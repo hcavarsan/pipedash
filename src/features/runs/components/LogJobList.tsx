@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { StatusIcon } from '../../../components/atoms/StatusBadge'
 import { VirtualList } from '../../../components/common/VirtualList'
 import type { RunLogNode } from '../../../types/logs'
-import { formatDuration } from '../../../utils/formatDuration'
+import { NodeDuration } from '../../logs/components/NodeDuration'
 
 interface LogJobListProps {
   nodes: readonly RunLogNode[]
@@ -57,7 +57,7 @@ export const LogJobList = ({ nodes, selectedId, onSelect }: LogJobListProps): Re
                   {node.name}
                 </Text>
                 <Text size="xs" c="dimmed">
-                  {formatDuration(node.duration_seconds)}
+                  <NodeDuration node={node} />
                 </Text>
               </Group>
             </UnstyledButton>

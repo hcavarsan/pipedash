@@ -69,6 +69,9 @@ export interface LogDocumentMeta {
   error_total: number
   warning_total: number
   focus_line: number | null
+  updated_at_ms: number
+  stable_lines: number
+  previous_revision: number | null
 }
 
 export type RunLogDocument =

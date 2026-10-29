@@ -1,10 +1,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
+    next_log_chunk,
     redact_url,
+    LogCursor,
+    LogRead,
     LogSink,
     PluginError,
     PluginResult,
@@ -25,6 +29,10 @@ use serde_json::{
     Value,
 };
 
+use crate::log_tail::{
+    LogPosition,
+    Tally,
+};
 use crate::types::{
     Build,
     Definition,
@@ -127,10 +135,87 @@ impl AzureDevOpsClient {
     }
 
     pub async fn stream_build_log(
-        &self, project: &str, build_id: i64, log_id: i64, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, project: &str, build_id: i64, log_id: i64, attempt: i64, from: Option<&LogCursor>,
+        sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
+        let mut resume = match from {
+            None => None,
+            Some(cursor) => {
+                let known = cursor
+                    .parse::<LogPosition>()
+                    .filter(|position| position.is_for(build_id, log_id, attempt));
+                if known.is_none() {
+                    sink.restart()?;
+                }
+                known
+            }
+        };
+        let mut response = self
+            .open_build_log(
+                project,
+                build_id,
+                log_id,
+                resume.as_ref().map(LogPosition::request_line),
+            )
+            .await?;
+        let mut head = Vec::new();
+        let mut skip = 0;
+        if let Some(position) = &resume {
+            let mut newlines = 0;
+            while newlines < 2 {
+                let Some(chunk) = next_log_chunk(&mut response).await? else {
+                    break;
+                };
+                newlines += chunk.iter().filter(|&&byte| byte == b'\n').count();
+                head.extend_from_slice(&chunk);
+            }
+            match position.overlap(&head) {
+                Some(bytes) => skip = bytes,
+                None => {
+                    sink.restart()?;
+                    resume = None;
+                    head.clear();
+                    response = self.open_build_log(project, build_id, log_id, None).await?;
+                }
+            }
+        }
+
+        let mut tally = resume.as_ref().map_or_else(Tally::default, Tally::resume);
+        let mut eol = resume.as_ref().is_some_and(|position| position.open);
+        let mut chunk = Some(Bytes::from(head).slice(skip..));
+        while let Some(bytes) = chunk {
+            if !bytes.is_empty() {
+                if std::mem::take(&mut eol) {
+                    sink.write(Bytes::from_static(b"\n")).await?;
+                }
+                tally.feed(&bytes);
+                sink.write(bytes).await?;
+            }
+            chunk = next_log_chunk(&mut response).await?;
+        }
+
+        let appended = resume.is_some();
+        let next = match resume {
+            Some(position) if !tally.fed() => position,
+            _ => tally.position(build_id, log_id, attempt),
+        };
+        let cursor = LogCursor::new(&next)?;
+        Ok(if appended {
+            LogRead::append(cursor)
+        } else {
+            LogRead::replace(Some(cursor))
+        })
+    }
+
+    async fn open_build_log(
+        &self, project: &str, build_id: i64, log_id: i64, start_line: Option<u64>,
+    ) -> PluginResult<reqwest::Response> {
         let path = format!("_apis/build/builds/{build_id}/logs/{log_id}");
-        let url = self.url(Some(project), &path, &[])?;
+        let query: Vec<_> = start_line
+            .map(|line| ("startLine", line.to_string()))
+            .into_iter()
+            .collect();
+        let url = self.url(Some(project), &path, &query)?;
         let response = self
             .retry_policy
             .retry_unsent(&url, || {
@@ -145,7 +230,7 @@ impl AzureDevOpsClient {
                 "Log {log_id} of build {build_id} is no longer available"
             )));
         }
-        sink.pipe(signed_in(response).await?).await
+        signed_in(response).await
     }
 
     pub async fn queue_build(&self, project: &str, body: &Value) -> PluginResult<Build> {

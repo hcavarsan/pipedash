@@ -1,7 +1,10 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useEffectEvent } from 'react'
 
 import { logger } from '../../../lib/logger'
 import { events } from '../../../services/service'
+import { updateRunInHistory } from '../lib/runHistoryCache'
+import { useRunUpdatedEvent } from './useRunUpdatedEvent'
 
 interface RunHistoryEventsOptions {
   pipelineId: string | undefined
@@ -10,6 +13,10 @@ interface RunHistoryEventsOptions {
 }
 
 export function useRunHistoryEvents({ pipelineId, resetPage, refetch }: RunHistoryEventsOptions): void {
+  const queryClient = useQueryClient()
+
+  useRunUpdatedEvent(pipelineId, true, (run) => updateRunInHistory(queryClient, run))
+
   const onTriggered = useEffectEvent(() => {
     resetPage()
     refetch()

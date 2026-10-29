@@ -43,6 +43,10 @@ use sha2::{
     Sha256,
 };
 
+use super::checkpoint::{
+    Base,
+    Checkpoint,
+};
 use super::document::{
     BlockCache,
     DocError,
@@ -71,7 +75,7 @@ const DOCS_DIR: &str = "docs";
 const TOUCH_FILE: &str = ".touch";
 const TREE_FILE: &str = "tree.json";
 const TREE_TMP_FILE: &str = "tree.json.tmp";
-pub(super) const STORED_FORMAT: u32 = 2;
+pub(super) const STORED_FORMAT: u32 = 4;
 
 type RunId = (i64, String);
 type TrimScope = (HashSet<RunId>, Option<(RunId, String)>);
@@ -84,11 +88,14 @@ pub struct DocKey {
     pub node_id: String,
 }
 
-fn hex_key(input: &str) -> String {
-    let digest = Sha256::digest(input.as_bytes());
+pub(super) fn short_hex(digest: &[u8]) -> String {
     let mut head = [0u8; 16];
     head.copy_from_slice(&digest[..16]);
     format!("{:032x}", u128::from_be_bytes(head))
+}
+
+fn hex_key(input: &str) -> String {
+    short_hex(&Sha256::digest(input.as_bytes()))
 }
 
 fn run_key_of(pipeline_id: &str, run_number: i64) -> String {
@@ -127,6 +134,9 @@ pub struct StoredDocMeta {
     pub error_total: u32,
     pub warning_total: u32,
     pub focus_line: Option<u32>,
+    pub updated_at_ms: i64,
+    pub stable_lines: u32,
+    pub previous_revision: Option<i64>,
 }
 
 impl StoredDocMeta {
@@ -146,6 +156,9 @@ impl StoredDocMeta {
             error_total: self.error_total,
             warning_total: self.warning_total,
             focus_line: self.focus_line,
+            updated_at_ms: self.updated_at_ms,
+            stable_lines: self.stable_lines,
+            previous_revision: self.previous_revision,
         }
     }
 }
@@ -167,6 +180,7 @@ pub struct CacheEpoch {
 pub enum PublishOutcome {
     Published,
     StaleEpoch,
+    StaleBase,
 }
 
 struct RevisionState {
@@ -599,9 +613,29 @@ impl LogStore {
         }
     }
 
+    pub async fn base(self: &Arc<Self>, key: &DocKey) -> DomainResult<Option<Base>> {
+        let Some(revision) = self.current(key) else {
+            return Ok(None);
+        };
+        let Some((document, lease)) = self.lease(key, revision).await? else {
+            return Ok(None);
+        };
+        let loaded = Arc::clone(&document);
+        let checkpoint = tokio::task::spawn_blocking(move || Checkpoint::load(&loaded))
+            .await
+            .map_err(join_error)?;
+
+        Ok(Some(Base {
+            revision,
+            document,
+            _lease: lease,
+            checkpoint,
+        }))
+    }
+
     pub async fn publish(
         self: &Arc<Self>, key: &DocKey, tmp: &Path, revision: i64, epoch: CacheEpoch,
-        busy: HashSet<(i64, String)>,
+        expected_current: Option<i64>, busy: HashSet<(i64, String)>,
     ) -> DomainResult<PublishOutcome> {
         if let Err(e) = self.sweep().await {
             tracing::warn!("{e}");
@@ -609,7 +643,7 @@ impl LogStore {
         let store = self.clone();
         let (key, tmp) = (key.clone(), tmp.to_path_buf());
         let (outcome, dirs) = tokio::task::spawn_blocking(move || {
-            store.publish_blocking(&key, &tmp, revision, epoch, &busy)
+            store.publish_blocking(&key, &tmp, revision, epoch, expected_current, &busy)
         })
         .await
         .map_err(join_error)??;
@@ -618,13 +652,22 @@ impl LogStore {
     }
 
     fn publish_blocking(
-        &self, key: &DocKey, tmp: &Path, revision: i64, epoch: CacheEpoch, busy: &HashSet<RunId>,
+        &self, key: &DocKey, tmp: &Path, revision: i64, epoch: CacheEpoch,
+        expected_current: Option<i64>, busy: &HashSet<RunId>,
     ) -> DomainResult<(PublishOutcome, Vec<PathBuf>)> {
         let save_error = |e: io::Error| io_error("Couldn't save the log", &e);
         let mut guard = lock(&self.registry);
         let reg = &mut *guard;
         if reg.epoch(key.provider_id) != epoch {
             return Ok((PublishOutcome::StaleEpoch, Vec::new()));
+        }
+        let current = reg
+            .runs
+            .get(&key.run_id())
+            .and_then(|run| run.docs.get(&key.doc_key()))
+            .and_then(|doc| doc.current);
+        if current != expected_current {
+            return Ok((PublishOutcome::StaleBase, Vec::new()));
         }
         let run_id = key.run_id();
         let doc_key = key.doc_key();
@@ -1104,14 +1147,23 @@ mod tests {
 
     use tempfile::TempDir;
 
+    use super::super::checkpoint::{
+        CHECKPOINT_FILE,
+        TAIL_FILE,
+    };
     use super::super::ingest::INDEX_FILE;
     use super::super::testing::{
         doc_key,
-        ingest_for,
+        feed,
+        finish,
+        ingester,
     };
     use super::super::BlockLimits;
     use super::*;
-    use crate::domain::LineKind;
+    use crate::domain::{
+        LineKind,
+        LogCursor,
+    };
 
     fn root(dir: &TempDir) -> PathBuf {
         dir.path().join("run-logs")
@@ -1136,32 +1188,81 @@ mod tests {
         publish_busy(store, key, text, HashSet::new()).await
     }
 
-    async fn publish_busy(
-        store: &Arc<LogStore>, key: &DocKey, text: &str, busy: HashSet<RunId>,
-    ) -> i64 {
+    async fn prepare(
+        store: &Arc<LogStore>, key: &DocKey, text: &str, complete: bool,
+    ) -> (PathBuf, i64, CacheEpoch) {
         let revision = store.allocate_revision();
         let epoch = store.epoch(key.provider_id);
         let tmp = store.tmp_dir().await.expect("tmp dir");
+        let base = store.base(key).await.expect("base");
         let (dir, key2, data) = (tmp.clone(), key.clone(), text.as_bytes().to_vec());
         tokio::task::spawn_blocking(move || {
-            ingest_for(
-                &dir,
-                key2,
-                revision,
-                &data,
-                1 << 16,
-                Vec::new(),
-                BlockLimits::default(),
-            )
+            let mut ingester = ingester(&dir, key2, revision, Vec::new(), BlockLimits::default());
+            ingester.complete = complete;
+            ingester.base = base;
+            let cursor = LogCursor::new(&revision).expect("cursor");
+            finish(feed(ingester, &data, 1 << 16), Some(cursor));
         })
         .await
         .expect("ingest");
+
+        (tmp, revision, epoch)
+    }
+
+    async fn publish_busy(
+        store: &Arc<LogStore>, key: &DocKey, text: &str, busy: HashSet<RunId>,
+    ) -> i64 {
+        let (tmp, revision, epoch) = prepare(store, key, text, true).await;
         let outcome = store
-            .publish(key, &tmp, revision, epoch, busy)
+            .publish(key, &tmp, revision, epoch, store.current(key), busy)
             .await
             .expect("publish");
         assert_eq!(outcome, PublishOutcome::Published);
         revision
+    }
+
+    async fn publish_incomplete(store: &Arc<LogStore>, key: &DocKey, text: &str) -> i64 {
+        let (tmp, revision, epoch) = prepare(store, key, text, false).await;
+        let outcome = store
+            .publish(
+                key,
+                &tmp,
+                revision,
+                epoch,
+                store.current(key),
+                HashSet::new(),
+            )
+            .await
+            .expect("publish");
+        assert_eq!(outcome, PublishOutcome::Published);
+        revision
+    }
+
+    fn files_of(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        fs::read_dir(dir)
+            .expect("read dir")
+            .map(|entry| {
+                let path = entry.expect("entry").path();
+                let name = path
+                    .file_name()
+                    .expect("name")
+                    .to_string_lossy()
+                    .into_owned();
+                (name, fs::read(&path).expect("read"))
+            })
+            .collect()
+    }
+
+    async fn lines_of(store: &Arc<LogStore>, key: &DocKey, revision: i64) -> Vec<String> {
+        let (doc, _lease) = store
+            .lease(key, revision)
+            .await
+            .expect("lease")
+            .expect("some");
+        let page = doc
+            .read_lines(store.block_cache(), 0, 100, 4096)
+            .expect("page");
+        page.lines.into_iter().map(|line| line.text).collect()
     }
 
     async fn first_line(store: &Arc<LogStore>, key: &DocKey, revision: i64) -> Option<String> {
@@ -1217,6 +1318,116 @@ mod tests {
 
         assert_eq!(store.current(&key), None);
         assert!(!rev_dir(&store, &key, revision).exists());
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_drops_documents_stored_before_checkpoints() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let key = doc_key();
+        let store = LogStore::open(root(&dir), u64::MAX).await.expect("open");
+        let revision = publish_incomplete(&store, &key, "one\ntwo").await;
+        let meta_path = rev_dir(&store, &key, revision).join(META_FILE);
+        let mut old: serde_json::Value =
+            serde_json::from_slice(&fs::read(&meta_path).expect("meta")).expect("json");
+        old["format"] = serde_json::json!(2);
+        fs::write(&meta_path, serde_json::to_vec(&old).expect("encode")).expect("write");
+        drop(store);
+
+        let store = LogStore::open(root(&dir), u64::MAX).await.expect("reopen");
+
+        assert_eq!(store.current(&key), None);
+        assert!(!rev_dir(&store, &key, revision).exists());
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_publish_rejects_a_stale_base() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let key = doc_key();
+        let store = LogStore::open(root(&dir), u64::MAX).await.expect("open");
+        let first = publish_doc(&store, &key, "one\n").await;
+
+        let (tmp, revision, epoch) = prepare(&store, &key, "late\n", true).await;
+        let empty_base = store
+            .publish(&key, &tmp, revision, epoch, None, HashSet::new())
+            .await
+            .expect("publish");
+
+        assert_eq!(empty_base, PublishOutcome::StaleBase);
+        assert_eq!(store.current(&key), Some(first));
+        assert!(tmp.is_dir());
+        assert!(!rev_dir(&store, &key, revision).exists());
+        let second = publish_doc(&store, &key, "two\n").await;
+        let moved_on = store
+            .publish(&key, &tmp, revision, epoch, Some(first), HashSet::new())
+            .await
+            .expect("publish");
+        assert_eq!(moved_on, PublishOutcome::StaleBase);
+        assert_eq!(store.current(&key), Some(second));
+        let current = store
+            .publish(&key, &tmp, revision, epoch, Some(second), HashSet::new())
+            .await
+            .expect("publish");
+        assert_eq!(current, PublishOutcome::Published);
+        assert_eq!(store.current(&key), Some(revision));
+        assert_eq!(lines_of(&store, &key, revision).await, ["late"]);
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_resuming_never_touches_the_leased_base() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let key = doc_key();
+        let store = LogStore::open(root(&dir), u64::MAX).await.expect("open");
+        let first = publish_incomplete(&store, &key, "one\ntwo\npart").await;
+        let base = store.base(&key).await.expect("base").expect("some");
+        assert!(base.cursor(&[]).is_some());
+        let base_dir = base.document.dir().to_path_buf();
+        let before = files_of(&base_dir);
+
+        let second = publish_incomplete(&store, &key, "ial\nthree\n").await;
+
+        assert_eq!(store.current(&key), Some(second));
+        assert!(base_dir.is_dir());
+        assert_eq!(files_of(&base_dir), before);
+        let held = base
+            .document
+            .read_lines(store.block_cache(), 0, 100, 4096)
+            .expect("page");
+        let held: Vec<_> = held.lines.into_iter().map(|line| line.text).collect();
+        assert_eq!(held, ["one", "two", "part"]);
+        assert_eq!(
+            lines_of(&store, &key, second).await,
+            ["one", "two", "partial", "three"]
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let blocks =
+                |revision| fs::metadata(rev_dir(&store, &key, revision).join("blocks.bin"));
+            let (old, new) = (blocks(first).unwrap(), blocks(second).unwrap());
+            assert_eq!((old.nlink(), new.nlink()), (1, 1));
+            assert_ne!(old.ino(), new.ino());
+        }
+
+        drop(base);
+        store.sweep().await.expect("sweep");
+        assert!(!base_dir.exists());
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_budget_counts_the_checkpoint_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let key = doc_key();
+        let store = LogStore::open(root(&dir), u64::MAX).await.expect("open");
+        let text = format!("##[error]boom\n{}", "x".repeat(300_000));
+        let revision = publish_incomplete(&store, &key, &text).await;
+        let files = files_of(&rev_dir(&store, &key, revision));
+
+        for name in [CHECKPOINT_FILE, TAIL_FILE, "errors.bin"] {
+            assert!(files.contains_key(name), "{name} is missing");
+        }
+        let total: usize = files.values().map(Vec::len).sum();
+        assert!(files[TAIL_FILE].len() >= 300_000);
+        assert_eq!(store.stats().await.bytes, total as u64);
     }
 
     #[tokio::test]
@@ -1449,7 +1660,7 @@ mod tests {
             assert_ne!(store.epoch(key.provider_id), epoch);
             let tmp = store.tmp_dir().await.expect("tmp");
             let outcome = store
-                .publish(&key, &tmp, 5, epoch, HashSet::new())
+                .publish(&key, &tmp, 5, epoch, None, HashSet::new())
                 .await
                 .expect("publish");
             assert_eq!(outcome, PublishOutcome::StaleEpoch);

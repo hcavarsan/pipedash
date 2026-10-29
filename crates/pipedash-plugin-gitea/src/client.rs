@@ -10,6 +10,7 @@ use pipedash_plugin_api::{
     check_response,
     map_send_error,
     redact_url,
+    LogReadMode,
     LogSink,
     Organization,
     PaginatedResponse,
@@ -19,7 +20,10 @@ use pipedash_plugin_api::{
     RetryPolicy,
 };
 use reqwest::{
-    header::AUTHORIZATION,
+    header::{
+        AUTHORIZATION,
+        RANGE,
+    },
     Method,
     StatusCode,
     Url,
@@ -28,6 +32,7 @@ use serde::de::DeserializeOwned;
 
 use crate::types::{
     Job,
+    JobAttempt,
     JobList,
     Repository,
     Run,
@@ -244,25 +249,43 @@ impl GiteaClient {
         Ok(jobs)
     }
 
+    pub async fn job_attempt(
+        &self, owner: &str, repo: &str, job_id: &str,
+    ) -> PluginResult<JobAttempt> {
+        let job: Job = self
+            .get(&format!("/repos/{owner}/{repo}/actions/jobs/{job_id}"), &[])
+            .await?;
+        Ok(job.attempt())
+    }
+
     pub async fn stream_job_log(
-        &self, owner: &str, repo: &str, job_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, owner: &str, repo: &str, job_id: &str, offset: Option<u64>, sink: &mut LogSink,
+    ) -> PluginResult<(LogReadMode, u64)> {
         let path = format!("/repos/{owner}/{repo}/actions/jobs/{job_id}/logs");
         let url = self.url(&path, &[])?;
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.request(Method::GET, &url).timeout(LOG_TIMEOUT).send()
-            })
-            .await?;
 
-        if matches!(response.status().as_u16(), 404 | 410) {
-            return Err(PluginError::PipelineNotFound(format!(
-                "Logs for job {job_id} are no longer available"
-            )));
-        }
+        let url = &url;
+        sink.pipe_resumed(offset, |from| async move {
+            let response = self
+                .retry_policy
+                .retry_unsent(url, || {
+                    let request = self.request(Method::GET, url).timeout(LOG_TIMEOUT);
+                    match from {
+                        Some(from) => request.header(RANGE, format!("bytes={from}-")),
+                        None => request,
+                    }
+                    .send()
+                })
+                .await?;
 
-        sink.pipe(check_response(response).await?).await
+            if matches!(response.status().as_u16(), 404 | 410) {
+                return Err(PluginError::PipelineNotFound(format!(
+                    "Logs for job {job_id} are no longer available"
+                )));
+            }
+            Ok(response)
+        })
+        .await
     }
 
     pub async fn raw_file(&self, owner: &str, repo: &str, path: &str) -> PluginResult<String> {

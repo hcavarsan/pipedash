@@ -7,9 +7,15 @@ use crate::application::test_support::{
     stub_run,
     Gate,
     Harness,
+    StubLogMode,
     StubProvider,
 };
-use crate::domain::PipelineStatus;
+use crate::domain::{
+    LogCursor,
+    LogDocumentMeta,
+    PipelineStatus,
+};
+use crate::infrastructure::run_logs::testing as logs;
 use crate::infrastructure::run_logs::SEARCH_MAX_QUERY_CHARS;
 
 const RUN: i64 = 7;
@@ -77,6 +83,7 @@ struct Fixture {
     id: i64,
     pipeline_id: String,
     stub: Arc<StubProvider>,
+    live: bool,
 }
 
 impl Fixture {
@@ -108,6 +115,7 @@ impl Fixture {
             id,
             pipeline_id: format!("github__{id}__web"),
             stub,
+            live: false,
         }
     }
 
@@ -155,7 +163,12 @@ impl Fixture {
             RunLogDocument::Loading { .. }
         ));
         self.ready(self.h.bus.count("run-log-ready") + 1).await;
-        meta_of(self.open(node_id).await)
+        let meta = meta_of(self.open(node_id).await);
+        if self.live {
+            self.settle().await;
+        }
+
+        meta
     }
 
     fn tmp_entries(&self) -> usize {
@@ -168,6 +181,60 @@ impl Fixture {
         self.svc().provider_of(&self.pipeline_id).await.unwrap();
         self.h.provider_service.acquire(self.id).await.unwrap();
     }
+
+    async fn live_with(
+        nodes: Vec<LogNode>, chunks: &[&str], build: impl FnOnce(StubProvider) -> StubProvider,
+    ) -> Self {
+        let mut f = Self::with_logs(nodes, chunks, build).await;
+        f.live = true;
+        f.stub.runs.lock().unwrap()[0].status = PipelineStatus::Running;
+        f.warm().await;
+        tokio::time::pause();
+        f
+    }
+
+    async fn live(chunks: &[&str], build: impl FnOnce(StubProvider) -> StubProvider) -> Self {
+        Self::live_with(partial_nodes(), chunks, build).await
+    }
+
+    async fn settle(&self) {
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    async fn tick(&self, seconds: u64) {
+        tokio::time::advance(Duration::from_secs(seconds) + Duration::from_millis(2)).await;
+        self.settle().await;
+    }
+
+    async fn texts(&self, meta: &LogDocumentMeta) -> Vec<String> {
+        self.svc()
+            .read_lines(
+                &self.pipeline_id,
+                RUN,
+                &meta.node_id,
+                meta.revision,
+                0,
+                100,
+                4096,
+            )
+            .await
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|line| line.text)
+            .collect()
+    }
+}
+
+fn partial_nodes() -> Vec<LogNode> {
+    vec![job("1", PipelineStatus::Running, LogAvailability::Partial)]
+}
+
+fn resumable(stub: StubProvider) -> StubProvider {
+    stub.with_log_mode(StubLogMode::Resumable)
 }
 
 fn gated(gate: &Arc<Gate>) -> impl FnOnce(StubProvider) -> StubProvider + '_ {
@@ -440,39 +507,411 @@ async fn pending_nodes_never_read() {
 }
 
 #[tokio::test]
-async fn partial_logs_refresh_after_ten_seconds_and_keep_stored_content_on_failure() {
-    let nodes = vec![job("1", PipelineStatus::Running, LogAvailability::Partial)];
-    let f = Fixture::with_logs(nodes, &["line one\n"], |stub| stub).await;
-    f.warm().await;
-    tokio::time::pause();
-
-    assert!(matches!(f.open("1").await, RunLogDocument::Loading { .. }));
-    f.ready(1).await;
-    assert!(!meta_of(f.open("1").await).complete);
+async fn a_live_log_resumes_from_its_cursor_and_publishes_only_the_new_lines() {
+    let f = Fixture::live(&["one\ntwo\n"], resumable).await;
+    let first = f.ready_meta("1").await;
     for _ in 0..5 {
-        tokio::task::yield_now().await;
+        f.open("1").await;
     }
     assert_eq!(f.stub.log_read_count(), 1);
 
-    tokio::time::advance(Duration::from_secs(11)).await;
-    assert!(!meta_of(f.open("1").await).complete);
-    until("the refresh", || f.stub.log_read_count() == 2).await;
+    f.stub.append_log("three\n");
+    f.tick(2).await;
     f.ready(2).await;
+    let second = meta_of(f.open("1").await);
+
+    assert_eq!(
+        (
+            first.line_count,
+            first.stable_lines,
+            first.previous_revision
+        ),
+        (2, 0, None)
+    );
+    assert_eq!((second.line_count, second.stable_lines), (3, 2));
+    assert_eq!(second.previous_revision, Some(first.revision));
+    assert!(!second.complete && second.updated_at_ms >= first.updated_at_ms);
+    assert_eq!(f.texts(&second).await, ["one", "two", "three"]);
+    let requests = f.stub.log_requests();
+    assert!(requests[0].is_none() && requests[1].is_some());
+    assert_eq!(requests.len(), 2);
+}
+
+#[tokio::test]
+async fn a_read_with_nothing_new_publishes_no_revision_and_no_event() {
+    let f = Fixture::live(&["one\n"], resumable).await;
+    let first = f.ready_meta("1").await;
+
+    f.tick(2).await;
+    until("the idle read", || f.stub.log_read_count() == 2).await;
+    f.settle().await;
+    f.tick(2).await;
+    until("the second idle read", || f.stub.log_read_count() == 3).await;
+    f.settle().await;
+
+    assert_eq!(f.h.bus.count("run-log-ready"), 1);
+    assert_eq!(f.h.log_store.current(&f.key("1")), Some(first.revision));
+    assert_eq!(f.stub.log_requests().iter().flatten().count(), 2);
+}
+
+#[tokio::test]
+async fn snapshot_logs_are_polled_slowly_and_identical_snapshots_publish_nothing() {
+    let f = Fixture::live(&["one\n"], |stub| stub).await;
+    let first = f.ready_meta("1").await;
+
+    f.tick(9).await;
+    assert_eq!(f.stub.log_read_count(), 1);
+    f.tick(1).await;
+    until("the second snapshot", || f.stub.log_read_count() == 2).await;
+    f.settle().await;
+    assert_eq!(f.h.bus.count("run-log-ready"), 1);
+    assert_eq!(f.h.log_store.current(&f.key("1")), Some(first.revision));
+
+    f.stub.append_log("two\n");
+    f.tick(10).await;
+    f.ready(2).await;
+    let second = meta_of(f.open("1").await);
+    assert_eq!(f.texts(&second).await, ["one", "two"]);
+    assert_eq!((second.stable_lines, second.previous_revision), (0, None));
+}
+
+#[tokio::test]
+async fn a_provider_that_cannot_continue_restarts_the_stored_log() {
+    let f = Fixture::live(&["old one\nold two\n"], resumable).await;
+    f.ready_meta("1").await;
+
+    f.stub.replace_log("fresh\n");
+    f.tick(2).await;
+    f.ready(2).await;
+    let second = meta_of(f.open("1").await);
+
+    assert_eq!(f.texts(&second).await, ["fresh"]);
+    assert_eq!((second.stable_lines, second.previous_revision), (0, None));
+    assert!(f.stub.log_requests()[1].is_some());
+}
+
+#[tokio::test]
+async fn a_provider_that_breaks_the_read_contract_publishes_nothing() {
+    let f = Fixture::with_logs(partial_nodes(), &["x\n"], |stub| {
+        stub.with_log_mode(StubLogMode::Misbehaving)
+    })
+    .await;
+
+    assert!(matches!(f.open("1").await, RunLogDocument::Loading { .. }));
+    f.failed(1).await;
+    until("the attempt to leave", || f.svc().inflight.is_empty()).await;
+
+    assert!(f.h.log_store.current(&f.key("1")).is_none());
+    assert_eq!(f.h.bus.count("run-log-ready"), 0);
+    assert_eq!(f.tmp_entries(), 0);
+    assert!(matches!(
+        f.open("1").await,
+        RunLogDocument::Unavailable { message } if message == PROVIDER_MISBEHAVED
+    ));
+}
+
+#[tokio::test]
+async fn live_reads_stop_when_nobody_keeps_the_log_open_and_start_again_when_somebody_does() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    f.tick(2).await;
+    until("a second read", || f.stub.log_read_count() == 2).await;
+    f.settle().await;
+
+    f.tick(50).await;
+    until("the live task to stop", || f.svc().lives.is_empty()).await;
+    let reads = f.stub.log_read_count();
+    f.tick(30).await;
+
+    assert_eq!(f.stub.log_read_count(), reads);
+    assert!(f.svc().interests.is_empty());
+    f.open("1").await;
+    assert_eq!(f.svc().lives.len(), 1);
+    f.tick(2).await;
+    until("the reads to start again", || {
+        f.stub.log_read_count() > reads
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_failed_live_read_keeps_the_stored_log_and_backs_off() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    let first = f.ready_meta("1").await;
 
     *f.stub.log_failure.lock().unwrap() = Some(DomainError::NetworkError("down".into()));
-    tokio::time::advance(Duration::from_secs(11)).await;
-    assert!(matches!(f.open("1").await, RunLogDocument::Ready(_)));
+    f.tick(2).await;
     f.failed(1).await;
-    assert!(matches!(f.open("1").await, RunLogDocument::Ready(_)));
-    assert_eq!(f.stub.log_read_count(), 3);
+    assert_eq!(meta_of(f.open("1").await).revision, first.revision);
+    for _ in 0..9 {
+        f.tick(30).await;
+        f.open("1").await;
+    }
+    assert_eq!(f.stub.log_read_count(), 2);
+
+    *f.stub.log_failure.lock().unwrap() = None;
+    f.stub.append_log("b\n");
+    for _ in 0..3 {
+        f.tick(30).await;
+        f.open("1").await;
+    }
+    f.ready(2).await;
+    assert_eq!(meta_of(f.open("1").await).line_count, 2);
+}
+
+#[tokio::test]
+async fn tree_and_run_changes_are_pushed_without_being_asked_for() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+
+    f.tick(5).await;
+    assert_eq!(f.h.bus.count("run-log-tree-changed"), 0);
+    assert_eq!(f.h.bus.count("run-updated"), 0);
+
+    f.stub.log_nodes.lock().unwrap()[0].finished_at = Some(Utc::now());
+    f.tick(5).await;
+    until("the tree event", || {
+        f.h.bus.count("run-log-tree-changed") == 1
+    })
+    .await;
+    assert_eq!(f.h.bus.count("run-updated"), 0);
+
+    f.stub.runs.lock().unwrap()[0].duration_seconds = Some(61);
+    f.tick(5).await;
+    until("the run event", || f.h.bus.count("run-updated") == 1).await;
+    assert_eq!(f.h.bus.count("run-log-tree-changed"), 1);
+    let updated =
+        f.h.bus
+            .events()
+            .into_iter()
+            .find_map(|event| match event {
+                CoreEvent::RunUpdated {
+                    pipeline_id,
+                    run_number,
+                    run,
+                } => Some((pipeline_id, run_number, run.duration_seconds)),
+                _ => None,
+            })
+            .unwrap();
+    assert_eq!(updated, (f.pipeline_id.clone(), RUN, Some(61)));
+
+    f.tick(5).await;
+    assert_eq!(f.h.bus.count("run-log-tree-changed"), 1);
+    assert_eq!(f.h.bus.count("run-updated"), 1);
+}
+
+#[tokio::test]
+async fn watching_only_the_tree_pushes_changes_without_reading_any_log() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+
+    f.svc().run_log_tree(&f.pipeline_id, RUN).await.unwrap();
+    assert_eq!(f.svc().lives.len(), 1);
+    f.stub.log_nodes.lock().unwrap()[0].status = PipelineStatus::Failed;
+    f.tick(5).await;
+
+    until("the tree event", || {
+        f.h.bus.count("run-log-tree-changed") == 1
+    })
+    .await;
+    assert_eq!(f.stub.log_read_count(), 0);
+}
+
+#[tokio::test]
+async fn complete_logs_and_trees_start_no_live_task() {
+    let f = Fixture::new(|stub| stub).await;
+
+    f.svc().run_log_tree(&f.pipeline_id, RUN).await.unwrap();
+    f.ready_meta("1").await;
+    f.open("1").await;
+
+    assert!(f.svc().lives.is_empty());
+    assert!(f.svc().interests.is_empty());
+}
+
+#[tokio::test]
+async fn a_watched_pending_node_is_read_as_soon_as_it_has_a_log() {
+    let nodes = vec![job("1", PipelineStatus::Running, LogAvailability::Pending)];
+    let f = Fixture::live_with(nodes, &["a\n"], resumable).await;
+    assert!(matches!(f.open("1").await, RunLogDocument::Pending));
+
+    *f.stub.log_nodes.lock().unwrap() = partial_nodes();
+    f.tick(5).await;
+
+    f.ready(1).await;
+    assert_eq!(f.stub.log_read_count(), 1);
+}
+
+#[tokio::test]
+async fn a_node_that_turns_ready_gets_one_final_read_and_the_live_task_ends() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    let first = f.ready_meta("1").await;
+
+    f.stub.append_log("b\nlast");
+    *f.stub.log_nodes.lock().unwrap() =
+        vec![job("1", PipelineStatus::Success, LogAvailability::Ready)];
+    f.stub.runs.lock().unwrap()[0].status = PipelineStatus::Success;
+    f.tick(5).await;
+    f.ready(2).await;
+    until("the live task to end", || f.svc().lives.is_empty()).await;
+
+    let last = meta_of(f.open("1").await);
+    assert!(last.complete);
+    assert_eq!(f.texts(&last).await, ["a", "b", "last"]);
+    assert_eq!(
+        (last.stable_lines, last.previous_revision),
+        (1, Some(first.revision))
+    );
+    assert!(f.stub.log_requests()[1].is_some());
+    let reads = f.stub.log_read_count();
+    f.tick(60).await;
+    assert_eq!(f.stub.log_read_count(), reads);
+    assert!(f.svc().interests.is_empty());
+}
+
+#[tokio::test]
+async fn truncated_logs_are_never_refreshed() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.stub.runs.lock().unwrap()[0].status = PipelineStatus::Success;
+    let key = f.key("1");
+    let tmp = f.h.log_store.tmp_dir().await.unwrap();
+    let revision = f.h.log_store.allocate_revision();
+    let epoch = f.h.log_store.epoch(f.id);
+    let dir = tmp.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut ingester = logs::ingester(
+            &dir,
+            key,
+            revision,
+            Vec::new(),
+            BlockLimits {
+                max_doc_text_bytes: 10,
+                ..BlockLimits::default()
+            },
+        );
+        ingester.complete = false;
+        let cursor = LogCursor::new(&1).unwrap();
+        logs::finish(
+            logs::feed(ingester, &b"0123456789\n".repeat(3), 4),
+            Some(cursor),
+        );
+    })
+    .await
+    .unwrap();
+    f.h.log_store
+        .publish(&f.key("1"), &tmp, revision, epoch, None, HashSet::new())
+        .await
+        .unwrap();
+
+    let meta = meta_of(f.open("1").await);
+    assert!(meta.truncated && !meta.complete);
+    f.tick(30).await;
+
+    assert_eq!(f.stub.log_read_count(), 0);
+    until("the live task to end", || f.svc().lives.is_empty()).await;
+}
+
+#[tokio::test]
+async fn a_paused_provider_is_left_alone_by_the_live_task_until_the_pause_ends() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    pause_for(&f, chrono::Duration::milliseconds(1500)).await;
+    let reads = f.stub.log_read_count();
+    let runs = f.stub.run_fetches.load(Ordering::SeqCst);
+    let trees = f.stub.log_node_fetch_count();
+
+    f.tick(6).await;
+
+    assert_eq!(f.stub.log_read_count(), reads);
+    assert_eq!(f.stub.run_fetches.load(Ordering::SeqCst), runs);
+    assert_eq!(f.stub.log_node_fetch_count(), trees);
+    std::thread::sleep(Duration::from_millis(1600));
+    f.tick(6).await;
+    until("polling to resume", || f.stub.log_read_count() > reads).await;
+    assert!(f.stub.run_fetches.load(Ordering::SeqCst) > runs);
+}
+
+#[tokio::test]
+async fn clearing_the_cache_ends_the_live_task() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    assert_eq!(f.svc().lives.len(), 1);
+
+    f.svc().clear().await.unwrap();
+    until("the live task to end", || f.svc().lives.is_empty()).await;
+    let events = f.h.bus.events().len();
+    f.tick(60).await;
+
+    assert_eq!(f.stub.log_read_count(), 1);
+    assert_eq!(f.h.bus.events().len(), events);
+    assert!(f.svc().interests.is_empty());
+}
+
+#[tokio::test]
+async fn shutting_down_ends_the_live_task() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    assert_eq!(f.svc().lives.len(), 1);
+
+    tokio::time::timeout(Duration::from_secs(10), f.svc().shutdown())
+        .await
+        .expect("shutdown hung");
+
+    assert!(f.svc().lives.is_empty() && f.svc().tracker.is_empty());
+    assert!(f
+        .svc()
+        .open_document(&f.pipeline_id, RUN, "1", false)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn purging_the_provider_cache_ends_the_live_task_silently() {
+    let f = Fixture::live(&["a\n"], resumable).await;
+    f.ready_meta("1").await;
+    let events = f.h.bus.events().len();
+
+    f.h.log_store.purge_provider(f.id).await.unwrap();
+    f.tick(5).await;
+
+    until("the live task to end", || f.svc().lives.is_empty()).await;
+    assert_eq!(f.stub.log_read_count(), 1);
+    assert_eq!(f.h.bus.events().len(), events);
+}
+
+#[tokio::test]
+async fn a_second_writer_on_the_same_store_cannot_replace_a_newer_revision() {
+    let gate = Gate::new();
+    let f = Fixture::with_logs(partial_nodes(), &["x\n"], gated(&gate)).await;
+    let store = LogStore::open(f.h._temp_dir.path().join("run-logs"), u64::MAX)
+        .await
+        .unwrap();
+    let other = Arc::new(LogService::new(
+        store,
+        Arc::clone(&f.h.provider_service),
+        Arc::clone(&f.h.repository),
+        f.h.bus.clone(),
+    ));
+
+    f.open("1").await;
+    other
+        .open_document(&f.pipeline_id, RUN, "1", false)
+        .await
+        .unwrap();
+    until("both reads", || f.stub.log_read_count() == 2).await;
+    gate.open();
+    until("both attempts to end", || {
+        f.svc().inflight.is_empty() && other.inflight.is_empty()
+    })
+    .await;
+
+    assert_eq!(f.h.bus.count("run-log-ready"), 1);
+    assert_eq!(f.h.bus.count("run-log-failed"), 0);
+    assert_eq!(f.tmp_entries(), 0);
 }
 
 #[tokio::test]
 async fn a_held_export_keeps_its_revision_until_the_stream_is_done() {
-    let nodes = vec![job("1", PipelineStatus::Running, LogAvailability::Partial)];
-    let f = Fixture::with_logs(nodes, &["line one\n"], |stub| stub).await;
-    f.warm().await;
-    tokio::time::pause();
+    let f = Fixture::live(&["line one\n"], |stub| stub).await;
 
     let first = f.ready_meta("1").await;
     let export = f
@@ -481,8 +920,7 @@ async fn a_held_export_keeps_its_revision_until_the_stream_is_done() {
         .await
         .unwrap();
     *f.stub.log_chunks.lock().unwrap() = vec![Bytes::from_static(b"line one\nline two\n")];
-    tokio::time::advance(Duration::from_secs(11)).await;
-    assert!(matches!(f.open("1").await, RunLogDocument::Ready(_)));
+    f.tick(10).await;
     f.ready(2).await;
     let second = meta_of(f.open("1").await);
     let old_dir = walk(
@@ -738,11 +1176,15 @@ async fn an_unknown_pipeline_is_not_found() {
 }
 
 async fn pause(f: &Fixture) {
+    pause_for(f, chrono::Duration::minutes(10)).await;
+}
+
+async fn pause_for(f: &Fixture, duration: chrono::Duration) {
     let lease = f.h.provider_service.acquire(f.id).await.unwrap();
     f.h.scheduler.set_quota_pause(
         f.id,
         lease.generation,
-        Some(Utc::now() + chrono::Duration::minutes(10)),
+        Some(Utc::now() + duration),
         Instant::now(),
         Utc::now(),
     );
@@ -893,6 +1335,35 @@ fn run_log_events_carry_camel_case_payloads() {
     assert_eq!(
         ready.to_json_payload(),
         serde_json::json!({ "pipelineId": "p", "runNumber": 3, "nodeId": "n", "revision": 9 })
+    );
+}
+
+#[test]
+fn live_run_events_carry_camel_case_payloads() {
+    let changed = CoreEvent::RunLogTreeChanged {
+        pipeline_id: "p".into(),
+        run_number: 3,
+    };
+    assert_eq!(changed.event_name(), "run-log-tree-changed");
+    assert_eq!(
+        changed.to_json_payload(),
+        serde_json::json!({ "pipelineId": "p", "runNumber": 3 })
+    );
+
+    let run = stub_run("p", 3, 12);
+    let updated = CoreEvent::RunUpdated {
+        pipeline_id: "p".into(),
+        run_number: 3,
+        run: run.clone(),
+    };
+    assert_eq!(updated.event_name(), "run-updated");
+    assert_eq!(
+        updated.to_json_payload(),
+        serde_json::json!({
+            "pipelineId": "p",
+            "runNumber": 3,
+            "run": serde_json::to_value(&run).unwrap(),
+        })
     );
 }
 

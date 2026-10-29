@@ -4,6 +4,7 @@ use std::time::Duration;
 use futures::AsyncBufReadExt;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::jiff::Timestamp;
 use kube::api::{
     Api,
     LogParams,
@@ -25,6 +26,11 @@ use crate::{
         KubeconfigSource,
     },
     log_dialect,
+    step_log::{
+        ContainerCursor,
+        StepFilter,
+        StepSummary,
+    },
     types::{
         PipelineList,
         PipelineRunList,
@@ -76,6 +82,15 @@ pub(crate) fn map_kube_error(error: kube::Error, context: &str) -> PluginError {
             PluginError::SerializationError(format!("{context}: {error}"))
         }
         other => PluginError::NetworkError(format!("{context}: {other}")),
+    }
+}
+
+fn map_pod_error(error: kube::Error, pod: &str, context: &str) -> PluginError {
+    match error {
+        kube::Error::Api(status) if status.code == 404 => {
+            PluginError::PipelineNotFound(format!("The pod {pod} of this TaskRun no longer exists"))
+        }
+        other => map_kube_error(other, context),
     }
 }
 
@@ -449,12 +464,24 @@ impl TektonClient {
         Ok(list.items)
     }
 
+    pub async fn get_pod(&self, namespace: &str, pod: &str) -> PluginResult<Pod> {
+        let pods: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+        self.retry_policy
+            .retry(|| async {
+                pods.get(pod)
+                    .await
+                    .map_err(|error| map_pod_error(error, pod, "Failed to read the pod"))
+            })
+            .await
+    }
+
     pub async fn stream_step_log(
-        &self, namespace: &str, pod: &str, container: &str, sink: &mut LogSink,
-    ) -> PluginResult<usize> {
+        &self, namespace: &str, pod: &str, container: &str, prior: Option<&ContainerCursor>,
+        hold_tail: bool, sink: &mut LogSink,
+    ) -> PluginResult<Option<StepSummary>> {
         tokio::time::timeout(
             STEP_LOG_TIMEOUT,
-            self.pipe_step_log(namespace, pod, container, sink),
+            self.pipe_step_log(namespace, pod, container, prior, hold_tail, sink),
         )
         .await
         .map_err(|_| {
@@ -463,13 +490,16 @@ impl TektonClient {
     }
 
     async fn pipe_step_log(
-        &self, namespace: &str, pod: &str, container: &str, sink: &mut LogSink,
-    ) -> PluginResult<usize> {
+        &self, namespace: &str, pod: &str, container: &str, prior: Option<&ContainerCursor>,
+        hold_tail: bool, sink: &mut LogSink,
+    ) -> PluginResult<Option<StepSummary>> {
         let pods: Api<Pod> = Api::namespaced(self.client.clone(), namespace);
+        let from = prior.and_then(|prior| prior.last);
         let params = LogParams {
             container: Some(container.to_string()),
             timestamps: true,
-            tail_lines: Some(STEP_LOG_TAIL_LINES as i64),
+            tail_lines: prior.is_none().then_some(STEP_LOG_TAIL_LINES as i64),
+            since_time: from.and_then(|stamp| Timestamp::from_second(stamp.at.timestamp()).ok()),
             ..LogParams::default()
         };
         let stream = self
@@ -477,20 +507,13 @@ impl TektonClient {
             .retry(|| async {
                 pods.log_stream(pod, &params)
                     .await
-                    .map_err(|error| match error {
-                        kube::Error::Api(status) if status.code == 404 => {
-                            PluginError::PipelineNotFound(format!(
-                                "The pod {pod} of this TaskRun no longer exists"
-                            ))
-                        }
-                        other => map_kube_error(other, "Failed to read pod logs"),
-                    })
+                    .map_err(|error| map_pod_error(error, pod, "Failed to read pod logs"))
             })
             .await?;
         let mut stream = std::pin::pin!(stream);
 
-        let mut lines = 0;
-        let mut ends_with_newline = true;
+        let mut filter = StepFilter::new(from, hold_tail);
+        let mut out = Vec::new();
         loop {
             let chunk = match tokio::time::timeout(LOG_CHUNK_STALL_TIMEOUT, stream.fill_buf()).await
             {
@@ -508,20 +531,18 @@ impl TektonClient {
                 Ok(Ok(chunk)) => chunk,
             };
             let read = chunk.len();
-            let clean = log_dialect::without_line_tags(chunk).into_owned();
+            let pushed = filter.push(&log_dialect::without_line_tags(chunk), &mut out);
             stream.consume_unpin(read);
-
-            lines += clean.iter().filter(|b| **b == b'\n').count();
-            if let Some(last) = clean.last() {
-                ends_with_newline = *last == b'\n';
+            if pushed.is_err() {
+                return Ok(None);
             }
-            sink.write(clean.into()).await?;
+            sink.write(std::mem::take(&mut out).into()).await?;
         }
-        if !ends_with_newline {
-            sink.write(vec![b'\n'].into()).await?;
-            lines += 1;
-        }
-        Ok(lines)
+        let Ok(summary) = filter.finish(&mut out) else {
+            return Ok(None);
+        };
+        sink.write(out.into()).await?;
+        Ok(Some(summary))
     }
 
     pub async fn create_pipelinerun(

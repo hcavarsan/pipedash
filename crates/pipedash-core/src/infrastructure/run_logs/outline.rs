@@ -16,6 +16,12 @@ use std::path::{
     PathBuf,
 };
 
+use serde::{
+    Deserialize,
+    Serialize,
+};
+
+use super::checkpoint::copy_prefix;
 use super::{
     MARKER_LINES_CAP,
     MAX_SECTIONS,
@@ -32,7 +38,7 @@ const ERRORS_BUFFER_BYTES: usize = 64 * 1024;
 const MAX_TITLE_BYTES: usize = 512;
 const MAX_STEP_MARKERS: usize = 100_000;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepBound {
     pub node_id: String,
     pub title: String,
@@ -41,6 +47,7 @@ pub struct StepBound {
     pub finished_ms: Option<i64>,
 }
 
+#[derive(Serialize, Deserialize)]
 struct Group {
     header: u32,
     title: String,
@@ -59,6 +66,7 @@ pub(crate) struct OutlineOutput {
     pub focus_line: Option<u32>,
 }
 
+#[derive(Default, Serialize, Deserialize)]
 pub(crate) struct Outline {
     steps: Vec<StepBound>,
     ts_boundary: Vec<u32>,
@@ -68,7 +76,9 @@ pub(crate) struct Outline {
     ignored_depth: u32,
     warned: bool,
     last_ts: Option<i64>,
+    #[serde(skip)]
     errors_path: PathBuf,
+    #[serde(skip)]
     errors: Option<BufWriter<File>>,
     error_total: u32,
     warning_total: u32,
@@ -91,25 +101,63 @@ fn truncate_title(text: &str) -> String {
     text[..end].to_string()
 }
 
+fn normalized(mut steps: Vec<StepBound>) -> Vec<StepBound> {
+    steps.sort_by_key(|s| (s.started_ms.is_none(), s.started_ms));
+    steps.truncate(MAX_SECTIONS);
+    steps
+}
+
 impl Outline {
-    pub(crate) fn new(mut steps: Vec<StepBound>, dir: &Path) -> Self {
-        steps.sort_by_key(|s| (s.started_ms.is_none(), s.started_ms));
-        steps.truncate(MAX_SECTIONS);
+    pub(crate) fn new(steps: Vec<StepBound>, dir: &Path) -> Self {
         Self {
-            steps,
-            ts_boundary: Vec::new(),
-            markers: Vec::new(),
-            groups: Vec::new(),
-            open_groups: Vec::new(),
-            ignored_depth: 0,
-            warned: false,
-            last_ts: None,
+            steps: normalized(steps),
             errors_path: dir.join(ERRORS_FILE),
-            errors: None,
-            error_total: 0,
-            warning_total: 0,
-            error_lines: Vec::new(),
-            warning_lines: Vec::new(),
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn accepts(&self, steps: &[StepBound]) -> bool {
+        let steps = normalized(steps.to_vec());
+        let placed = self.ts_boundary.len();
+        steps.len() >= placed
+            && self
+                .steps
+                .iter()
+                .zip(&steps)
+                .take(placed)
+                .all(|(old, new)| old.node_id == new.node_id && old.started_ms == new.started_ms)
+    }
+
+    fn spool_bytes(&self) -> u64 {
+        u64::from(self.error_total) * 4
+    }
+
+    pub(crate) fn spool_fits(&self, dir: &Path) -> bool {
+        self.error_total == 0
+            || fs::metadata(dir.join(ERRORS_FILE)).is_ok_and(|m| m.len() >= self.spool_bytes())
+    }
+
+    pub(crate) fn resume(
+        mut self, steps: Vec<StepBound>, base: &Path, dir: &Path,
+    ) -> io::Result<Self> {
+        self.steps = normalized(steps);
+        self.errors_path = dir.join(ERRORS_FILE);
+        if self.error_total > 0 {
+            let spool = copy_prefix(
+                &base.join(ERRORS_FILE),
+                &self.errors_path,
+                self.spool_bytes(),
+            )?;
+            self.errors = Some(BufWriter::with_capacity(ERRORS_BUFFER_BYTES, spool));
+        }
+        Ok(self)
+    }
+
+    pub(crate) fn discard_spool(&mut self) -> io::Result<()> {
+        self.errors = None;
+        match fs::remove_file(&self.errors_path) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
         }
     }
 
@@ -219,13 +267,8 @@ impl Outline {
         }
     }
 
-    pub(crate) fn finish(mut self, line_count: u32) -> io::Result<OutlineOutput> {
-        for &group in &self.open_groups {
-            let group = &mut self.groups[group];
-            group.end = Some(line_count);
-            group.last_ms = self.last_ts;
-        }
-        if let Some(mut writer) = self.errors.take() {
+    pub(crate) fn finish(&mut self, line_count: u32) -> io::Result<OutlineOutput> {
+        if let Some(writer) = self.errors.as_mut() {
             writer.flush()?;
         }
 
@@ -247,7 +290,12 @@ impl Outline {
             if let Some(parent) = parent {
                 end = end.min(drafts[parent].end);
             }
-            let duration_ms = match (group.first_ms, group.last_ms) {
+            let last_ms = if group.end.is_none() {
+                self.last_ts
+            } else {
+                group.last_ms
+            };
+            let duration_ms = match (group.first_ms, last_ms) {
                 (Some(first), Some(last)) => Some((last - first).max(0)),
                 _ => None,
             };
@@ -335,21 +383,17 @@ impl Outline {
             })
             .collect();
 
-        match fs::remove_file(&self.errors_path) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
-            _ => {}
-        }
         Ok(OutlineOutput {
             sections,
-            error_lines: self.error_lines,
-            warning_lines: self.warning_lines,
+            error_lines: self.error_lines.clone(),
+            warning_lines: self.warning_lines.clone(),
             error_total: self.error_total,
             warning_total: self.warning_total,
             focus_line,
         })
     }
 
-    fn step_drafts(&mut self, line_count: u32) -> Vec<Draft> {
+    fn step_drafts(&self, line_count: u32) -> Vec<Draft> {
         let count = self.steps.len();
         let mut placed: Vec<Option<u32>> = vec![None; count];
         let mut previous: Option<u32> = None;
@@ -396,9 +440,8 @@ impl Outline {
             starts[k] = placed[k].unwrap_or(next).min(line_count);
             next = starts[k];
         }
-        let steps = std::mem::take(&mut self.steps);
-        steps
-            .into_iter()
+        self.steps
+            .iter()
             .enumerate()
             .map(|(i, step)| {
                 let duration_ms = match (step.started_ms, step.finished_ms) {
@@ -407,9 +450,9 @@ impl Outline {
                 };
                 Draft {
                     kind: LogSectionKind::Step,
-                    node_id: Some(step.node_id),
-                    title: step.title,
-                    status: Some(step.status),
+                    node_id: Some(step.node_id.clone()),
+                    title: step.title.clone(),
+                    status: Some(step.status.clone()),
                     duration_ms,
                     header: None,
                     start: starts[i],
@@ -578,7 +621,7 @@ mod tests {
             self.outline.group_end(self.lines, ts);
         }
 
-        fn finish(self) -> OutlineOutput {
+        fn finish(mut self) -> OutlineOutput {
             self.outline.finish(self.lines).expect("finish")
         }
     }

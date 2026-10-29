@@ -48,15 +48,21 @@ impl LogDialect for KomodoLogDialect {
 }
 
 pub(crate) fn stage_lines(log: &UpdateLog) -> impl Iterator<Item = (LineMarker, &str)> {
-    let stderr = if log.success {
+    text_lines(&log.command, &log.stdout, &log.stderr, log.success)
+}
+
+pub(crate) fn text_lines<'a>(
+    command: &'a str, stdout: &'a str, stderr: &'a str, success: bool,
+) -> impl Iterator<Item = (LineMarker, &'a str)> {
+    let stderr_marker = if success {
         LineMarker::Warning
     } else {
         LineMarker::Error
     };
     [
-        (LineMarker::Command, log.command.as_str()),
-        (LineMarker::Plain, log.stdout.as_str()),
-        (stderr, log.stderr.as_str()),
+        (LineMarker::Command, command),
+        (LineMarker::Plain, stdout),
+        (stderr_marker, stderr),
     ]
     .into_iter()
     .flat_map(|(marker, text)| text.lines().map(move |line| (marker, line)))

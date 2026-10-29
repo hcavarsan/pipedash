@@ -1,5 +1,5 @@
-import { Alert, VisuallyHidden } from '@mantine/core'
-import { IconCopy } from '@tabler/icons-react'
+import { Alert, UnstyledButton, VisuallyHidden } from '@mantine/core'
+import { IconArrowDown, IconCopy } from '@tabler/icons-react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   type KeyboardEvent,
@@ -16,6 +16,7 @@ import { queryKeys } from '../../../lib/queryKeys'
 import { useLogViewerPrefs } from '../../../stores/logViewerPrefsStore'
 import type { LogDocumentMeta } from '../../../types/logs'
 import { openExternal } from '../../../utils/openExternal'
+import { useLiveTail } from '../hooks/useLiveTail'
 import { useLogExport } from '../hooks/useLogExport'
 import { useLogNavigation } from '../hooks/useLogNavigation'
 import { useLogRows } from '../hooks/useLogRows'
@@ -25,6 +26,7 @@ import type { LogFilter } from '../lib/logRows'
 import { sectionAtLine } from '../lib/logRows'
 import type { LogBodyHandle } from '../lib/logWindowTypes'
 import { FullLineModal } from './FullLineModal'
+import { LiveMarker } from './LiveMarker'
 import { LogBody } from './LogBody'
 import { LogOverviewRuler, type LogRulerHandle } from './LogOverviewRuler'
 import { LogToolbar } from './LogToolbar'
@@ -65,6 +67,8 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
     nodeId: node.id,
     revision: meta.revision,
     lineCount: meta.line_count,
+    previousRevision: meta.previous_revision,
+    stableLines: meta.stable_lines,
   }
   const getLine = useLogLines(doc, visibleLines)
   const search = useLogSearch({ pipelineId, runNumber, nodeId: node.id, revision: meta.revision })
@@ -79,7 +83,8 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
     bodyRef,
     rulerRef,
   })
-  const { selection, currentIdx, nextMatch, prevMatch, stepError, goToLine } = navigation
+  const { selection, currentIdx, nextMatch, prevMatch, stepError, goToLine, onViewport: navigateViewport } = navigation
+  const { behind, freshFrom, onViewport: trackViewport } = useLiveTail(meta.revision, meta.line_count, rows.model.count)
   const { copyRange, copySelection, exportLog, exporting, copied } = useLogExport({
     doc,
     pipelineName,
@@ -89,6 +94,13 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
 
   const onFullLine = useCallback((line: number) => setFullLine(line), [])
   const onSeek = useCallback((line: number) => goToLine(line, 'start'), [goToLine])
+  const onViewport = useCallback(
+    (first: number, last: number) => {
+      navigateViewport(first, last)
+      trackViewport(last)
+    },
+    [navigateViewport, trackViewport]
+  )
 
   useEffect(
     () =>
@@ -243,6 +255,7 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
           onOpenJob={() => openJob?.()}
         />
       )}
+      {!meta.complete && !meta.truncated && <LiveMarker updatedAtMs={meta.updated_at_ms} variant={variant} />}
       {meta.truncated && (
         <Alert color="gray" variant="light" mx="sm" mb="xs">
           Showing the first 1 GB of this log. Open the job in {providerName} for the rest.
@@ -263,17 +276,28 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
           timestamps={timestamps}
           stickyHeaders={filter === 'none'}
           selection={selection}
+          freshFrom={freshFrom}
           matchIndex={search.matchIndex}
           currentMatch={currentIdx === null ? null : (matches[currentIdx] ?? null)}
           emptyLabel={emptyLabel}
           onVisibleLines={setVisibleLines}
-          onViewport={navigation.onViewport}
+          onViewport={onViewport}
           onToggle={rows.onToggle}
           onSelect={navigation.onSelect}
           onFullLine={onFullLine}
           rowEvents={rowEvents}
           onKeyDown={onBodyKeyDown}
         />
+        {behind > 0 && (
+          <UnstyledButton
+            className={classes.jumpLatest}
+            data-variant={variant}
+            onClick={() => bodyRef.current?.scrollToEnd()}
+          >
+            <IconArrowDown size={14} aria-hidden />
+            Jump to latest · {behind} new {behind === 1 ? 'line' : 'lines'}
+          </UnstyledButton>
+        )}
         {!phone && (
           <LogOverviewRuler
             ref={rulerRef}

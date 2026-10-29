@@ -14,8 +14,11 @@ import { service } from '@/services/service'
 import type { PipelineRun } from '@/types/domain'
 import { displayErrorNotification, displaySuccessNotification } from '@/utils/errorDisplay'
 
+import { useRunUpdatedEvent } from '../hooks/useRunUpdatedEvent'
+
 const CANCELLATION_WATCH_INTERVAL = 1000
 const CANCELLATION_WATCH_ATTEMPTS = 10
+const HEARTBEAT_INTERVAL = 30_000
 
 export function useRunDetails(
   pipelineId: string,
@@ -23,14 +26,23 @@ export function useRunDetails(
   enabled: boolean = true,
   cancellationWatch: boolean = false
 ): UseQueryResult<PipelineRun, Error> {
+  const queryClient = useQueryClient()
   const watchStart = useRef<number | null>(null)
+  const active = enabled && !!pipelineId && runNumber > 0
+  const queryKey = queryKeys.runs.detail(pipelineId, runNumber)
+
+  useRunUpdatedEvent(pipelineId, active, (run) => {
+    if (run.run_number === runNumber) {
+      queryClient.setQueryData(queryKey, run)
+    }
+  })
 
   return useQuery({
-    queryKey: queryKeys.runs.detail(pipelineId, runNumber),
+    queryKey,
     queryFn: () => service.getWorkflowRunDetails(pipelineId, runNumber),
     staleTime: STALE_TIMES.FAST_CHANGING,
     gcTime: GC_TIMES.SHORT,
-    enabled: enabled && !!pipelineId && runNumber > 0,
+    enabled: active,
     refetchInterval: (query) => {
       const data = query.state.data
       const isRunning = data?.status === 'running' || data?.status === 'pending'
@@ -51,7 +63,7 @@ export function useRunDetails(
         }
       }
 
-      return 10000
+      return HEARTBEAT_INTERVAL
     },
     refetchIntervalInBackground: false,
   })

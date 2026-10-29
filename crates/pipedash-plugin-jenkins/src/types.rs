@@ -1,4 +1,7 @@
-use serde::Deserialize;
+use serde::{
+    Deserialize,
+    Serialize,
+};
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct JobItem {
@@ -152,4 +155,10 @@ pub(crate) struct JobsResponse {
 #[derive(Debug, Deserialize)]
 pub(crate) struct JobBuildsResponse {
     pub builds: Vec<Build>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct ConsoleCursor {
+    pub build: i64,
+    pub offset: u64,
 }

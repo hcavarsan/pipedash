@@ -2,7 +2,10 @@ use chrono::{
     DateTime,
     Utc,
 };
-use serde::Deserialize;
+use serde::{
+    Deserialize,
+    Serialize,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct User {
@@ -124,6 +127,23 @@ pub(crate) struct Job {
     pub completed_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub steps: Option<Vec<JobStep>>,
+    #[serde(default)]
+    pub run_attempt: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct JobAttempt {
+    pub run: i64,
+    pub started_at: Option<DateTime<Utc>>,
+}
+
+impl Job {
+    pub fn attempt(&self) -> JobAttempt {
+        JobAttempt {
+            run: self.run_attempt.unwrap_or_default(),
+            started_at: self.started_at,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

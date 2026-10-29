@@ -1883,9 +1883,10 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let mut sink = LogSink::new(tx);
         let metadata = HashMap::new();
-        plugin
+        let read = plugin
             .read_log(run_ref(&metadata), job_id, None, &mut sink)
             .await?;
+        assert_eq!(read, LogRead::replace(None));
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {

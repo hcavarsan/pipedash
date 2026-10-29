@@ -1,6 +1,7 @@
 mod client;
 mod config;
 mod log_dialect;
+mod log_tail;
 mod mapper;
 mod metadata;
 mod plugin;

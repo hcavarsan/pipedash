@@ -57,6 +57,9 @@ const meta: LogDocumentMeta = {
   error_total: 2,
   warning_total: 0,
   focus_line: null,
+  updated_at_ms: 0,
+  stable_lines: 0,
+  previous_revision: null,
 }
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

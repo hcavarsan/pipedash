@@ -236,13 +236,17 @@ pub(crate) fn timeline_to_log_nodes(timeline: &types::Timeline) -> Vec<LogNode> 
     nodes
 }
 
-pub(crate) fn job_log_id(timeline: &types::Timeline, record_id: &str) -> Option<i64> {
+pub(crate) fn job_log_ref(timeline: &types::Timeline, record_id: &str) -> Option<(i64, i64)> {
     timeline
         .records
         .iter()
         .find(|record| record.id == record_id && record.kind.as_deref() == Some("Job"))
-        .and_then(|record| record.log.as_ref())
-        .map(|log| log.id)
+        .and_then(|record| {
+            record
+                .log
+                .as_ref()
+                .map(|log| (log.id, record.attempt.unwrap_or(0)))
+        })
 }
 
 pub(crate) fn source_branch(branch: &str) -> String {
@@ -732,19 +736,21 @@ mod tests {
     }
 
     #[test]
-    fn only_a_job_record_with_a_log_gives_a_log_id() {
+    fn only_a_job_record_with_a_log_gives_a_log_id_and_its_attempt() {
         let timeline = timeline(
             r#"{"records": [
-                {"id": "job", "type": "Job", "log": {"id": 7}},
+                {"id": "job", "type": "Job", "attempt": 2, "log": {"id": 7}},
+                {"id": "first-try", "type": "Job", "log": {"id": 10}},
                 {"id": "bare-job", "type": "Job"},
                 {"id": "task", "parentId": "job", "type": "Task", "log": {"id": 8}},
                 {"id": "stage", "type": "Stage", "log": {"id": 9}}
             ]}"#,
         );
 
-        assert_eq!(job_log_id(&timeline, "job"), Some(7));
+        assert_eq!(job_log_ref(&timeline, "job"), Some((7, 2)));
+        assert_eq!(job_log_ref(&timeline, "first-try"), Some((10, 0)));
         for record_id in ["bare-job", "task", "stage", "missing", "7"] {
-            assert_eq!(job_log_id(&timeline, record_id), None, "{record_id}");
+            assert_eq!(job_log_ref(&timeline, record_id), None, "{record_id}");
         }
     }
 }

@@ -93,6 +93,12 @@ use crate::infrastructure::deduplication::{
 
 type RefreshFlight = Shared<BoxFuture<'static, DomainResult<Vec<RefreshResult>>>>;
 
+#[derive(Clone, PartialEq)]
+struct RunTiming {
+    typical: i64,
+    overdue: Option<String>,
+}
+
 struct Applied {
     pipelines: Vec<Pipeline>,
     changed_ids: Vec<String>,
@@ -105,7 +111,7 @@ pub struct PipelineService {
     metrics_service: Option<Arc<MetricsService>>,
     event_bus: Arc<dyn EventBus>,
     run_deduplicator: Arc<RequestDeduplicator<Vec<PipelineRun>, DomainError>>,
-    overdue_runs: Arc<DashMap<String, String>>,
+    run_timings: Arc<DashMap<String, RunTiming>>,
     scheduler: Arc<FetchScheduler>,
     fetch_permits: Arc<Semaphore>,
     health: HealthHandle,
@@ -132,7 +138,7 @@ impl PipelineService {
             metrics_service,
             event_bus,
             run_deduplicator: Arc::new(RequestDeduplicator::new()),
-            overdue_runs: Arc::new(DashMap::new()),
+            run_timings: Arc::new(DashMap::new()),
             fetch_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_PROVIDER_FETCHES)),
             mode,
             refresh_flight: Mutex::new(None),
@@ -530,9 +536,11 @@ impl PipelineService {
 
     fn mark_overdue(&self, mut pipelines: Vec<Pipeline>) -> Vec<Pipeline> {
         for pipeline in &mut pipelines {
-            pipeline.overdue_run = (pipeline.status == PipelineStatus::Running)
-                .then(|| self.overdue_runs.get(&pipeline.id).map(|run| run.clone()))
+            let timing = (pipeline.status == PipelineStatus::Running)
+                .then(|| self.run_timings.get(&pipeline.id))
                 .flatten();
+            pipeline.overdue_run = timing.as_ref().and_then(|t| t.overdue.clone());
+            pipeline.typical_duration_seconds = timing.as_ref().map(|t| t.typical);
         }
 
         pipelines
@@ -560,7 +568,15 @@ impl PipelineService {
                 async move {
                     let _permit = permits.acquire().await.ok()?;
                     match self.recent_runs(&pipeline.id).await {
-                        Ok(runs) => overdue_run(&runs, now).map(|run| (pipeline.id.clone(), run)),
+                        Ok(runs) => typical_duration(&runs).map(|typical| {
+                            (
+                                pipeline.id.clone(),
+                                RunTiming {
+                                    typical,
+                                    overdue: overdue_run(&runs, now),
+                                },
+                            )
+                        }),
                         Err(e) => {
                             tracing::debug!(pipeline_id = %pipeline.id, error = %e, "Overdue check failed");
                             None
@@ -568,20 +584,20 @@ impl PipelineService {
                     }
                 }
             });
-        let overdue: HashMap<String, String> = futures::future::join_all(checks)
+        let timings: HashMap<String, RunTiming> = futures::future::join_all(checks)
             .await
             .into_iter()
             .flatten()
             .collect();
 
         let mut changed = false;
-        self.overdue_runs.retain(|id, run| {
-            let keep = provider_id_of(id) != Some(provider_id) || overdue.get(id) == Some(run);
+        self.run_timings.retain(|id, timing| {
+            let keep = provider_id_of(id) != Some(provider_id) || timings.get(id) == Some(timing);
             changed |= !keep;
             keep
         });
-        for (id, run) in overdue {
-            changed |= self.overdue_runs.insert(id, run).is_none();
+        for (id, timing) in timings {
+            changed |= self.run_timings.insert(id, timing).is_none();
         }
 
         changed
@@ -1121,6 +1137,12 @@ pub(crate) fn overdue_run(runs: &[PipelineRun], now: DateTime<Utc>) -> Option<St
     let running = runs
         .iter()
         .find(|run| run.status == PipelineStatus::Running)?;
+    let median = typical_duration(runs)?;
+
+    ((now - running.started_at).num_seconds() > OVERDUE_FACTOR * median).then(|| running.id.clone())
+}
+
+pub(crate) fn typical_duration(runs: &[PipelineRun]) -> Option<i64> {
     let mut durations: Vec<i64> = runs
         .iter()
         .filter(|run| run.status == PipelineStatus::Success)
@@ -1132,13 +1154,12 @@ pub(crate) fn overdue_run(runs: &[PipelineRun], now: DateTime<Utc>) -> Option<St
     }
     durations.sort_unstable();
     let middle = durations.len() / 2;
-    let median = if durations.len() % 2 == 0 {
+
+    Some(if durations.len() % 2 == 0 {
         (durations[middle - 1] + durations[middle]) / 2
     } else {
         durations[middle]
-    };
-
-    ((now - running.started_at).num_seconds() > OVERDUE_FACTOR * median).then(|| running.id.clone())
+    })
 }
 
 fn is_archivable_flux_run(pipeline: &Pipeline, run: &PipelineRun) -> bool {
@@ -1354,6 +1375,32 @@ mod tests {
         assert_eq!(overdue_run(&ten_minute_history(45)[1..], now), None);
     }
 
+    #[test]
+    fn typical_duration_is_the_median_of_positive_successful_durations() {
+        let history = |minutes: &[Option<i64>]| -> Vec<PipelineRun> {
+            minutes
+                .iter()
+                .enumerate()
+                .map(|(i, m)| run(i as i64 + 1, "success", 60, *m))
+                .collect()
+        };
+
+        assert_eq!(typical_duration(&ten_minute_history(45)), Some(600));
+        assert_eq!(
+            typical_duration(&history(&[Some(10), Some(20), Some(30), Some(40)])),
+            Some(1500)
+        );
+        assert_eq!(
+            typical_duration(&history(&[Some(10), None, Some(0), Some(20)])),
+            None
+        );
+        assert_eq!(
+            typical_duration(&history(&[Some(10), None, Some(0), Some(20), Some(30)])),
+            Some(1200)
+        );
+        assert_eq!(typical_duration(&ten_minute_history(45)[..3]), None);
+    }
+
     #[tokio::test]
     async fn refresh_flags_a_running_pipeline_far_past_its_usual_duration() {
         let h = Harness::with_real_plugins().await;
@@ -1404,6 +1451,10 @@ mod tests {
         let again = service.get_cached_pipelines(None).await.unwrap();
 
         assert_eq!(before[0].overdue_run, None);
+        assert_eq!(before[0].typical_duration_seconds, None);
+        assert_eq!(after[0].typical_duration_seconds, Some(600));
+        assert_eq!(unknown[0].typical_duration_seconds, None);
+        assert_eq!(again[0].typical_duration_seconds, Some(600));
         assert!(changed);
         assert!(!unchanged);
         assert_eq!(after[0].overdue_run.as_deref(), Some("5"));

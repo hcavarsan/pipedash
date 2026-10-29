@@ -151,6 +151,8 @@ pub(crate) struct TimelineRecord {
     #[serde(default)]
     pub order: Option<i64>,
     #[serde(default)]
+    pub attempt: Option<i64>,
+    #[serde(default)]
     pub log: Option<LogRef>,
 }
 

@@ -2,10 +2,10 @@ import { Box, Card, Checkbox, Group, Stack, Text, UnstyledButton } from '@mantin
 import { IconCalendar, IconClock, IconGitBranch, IconUser } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { StatusBadge } from '../../../components/atoms/StatusBadge'
+import { RunDuration } from '../../../components/common/RunDuration'
 import { TYPOGRAPHY } from '../../../theme/typography'
 import type { PipelineRun } from '../../../types/domain'
 import { formatDateTime } from '../../../utils/formatDateTime'
-import { formatDuration } from '../../../utils/formatDuration'
 import { getRunStatusLabel } from '../../../utils/pipelinePresentation'
 import { TableCells } from '../../../utils/tableCells'
 
@@ -38,7 +38,7 @@ interface RunHistoryCardProps {
 }
 
 export function RunHistoryCard({ run, selected, selectable, onSelectedChange }: RunHistoryCardProps): ReactNode {
-  const { isFlux, labels, openRun } = useRunActions()
+  const { isFlux, labels, openRun, pipeline } = useRunActions()
 
   return (
     <Card padding="lg" className="interactive-surface stretched">
@@ -89,7 +89,9 @@ export function RunHistoryCard({ run, selected, selectable, onSelectedChange }: 
 
         <Group gap="lg" wrap="nowrap" align="flex-start">
           <RunField icon={<IconClock size={14} aria-hidden />} label="Duration">
-            <Text size={TYPOGRAPHY.FIELD_VALUE.size}>{formatDuration(run.duration_seconds)}</Text>
+            <Text size={TYPOGRAPHY.FIELD_VALUE.size}>
+              <RunDuration run={run} typicalSeconds={pipeline?.typical_duration_seconds} />
+            </Text>
           </RunField>
           <RunField icon={<IconCalendar size={14} aria-hidden />} label={isFlux ? 'Recorded' : 'Started'}>
             <Text size={TYPOGRAPHY.FIELD_VALUE.size} truncate>

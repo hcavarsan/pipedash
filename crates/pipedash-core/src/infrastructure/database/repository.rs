@@ -1805,6 +1805,7 @@ impl Repository {
             resource_state,
             metadata,
             overdue_run: None,
+            typical_duration_seconds: None,
         })
     }
 }

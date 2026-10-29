@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
 
 import { service } from '../../../services/service'
 import { getErrorCode } from '../../../types/errors'
@@ -12,6 +12,8 @@ export interface DocRef {
   nodeId: string
   revision: number
   lineCount: number
+  previousRevision: number | null
+  stableLines: number
 }
 
 export type LineState = LogLine | 'loading' | 'error' | undefined
@@ -37,8 +39,9 @@ const MAX_REQUEST_LINES = 500
 const RETRY_MS = 5000
 const NOT_FOUND_CODE = 'NOT_FOUND'
 
-const lineKey = (doc: DocRef, line: number): string =>
-  `${doc.pipelineId}\u0000${doc.runNumber}\u0000${doc.nodeId}#${doc.revision}#${line}`
+const nodePrefix = (doc: DocRef): string => `${doc.pipelineId}\u0000${doc.runNumber}\u0000${doc.nodeId}#`
+
+const lineKey = (doc: DocRef, line: number): string => `${nodePrefix(doc)}${doc.revision}#${line}`
 
 export class LogLineCache {
   private readonly budgetBytes: number
@@ -47,6 +50,7 @@ export class LogLineCache {
   private readonly pending = new Set<string>()
   private readonly failed = new Set<string>()
   private readonly needed = new Map<string, number>()
+  private readonly heads = new Map<string, number>()
   private readonly owners = new Map<symbol, Need>()
   private readonly queue: Request[] = []
   private readonly listeners = new Set<() => void>()
@@ -88,6 +92,7 @@ export class LogLineCache {
   }
 
   need(owner: symbol, doc: DocRef, lines: readonly number[]): void {
+    this.adopt(doc)
     this.setNeeded(owner, { doc, lines })
     for (const line of lines) {
       const key = lineKey(doc, line)
@@ -118,6 +123,7 @@ export class LogLineCache {
 
   clear(): void {
     this.generation += 1
+    this.heads.clear()
     this.entries.clear()
     this.pending.clear()
     this.failed.clear()
@@ -130,6 +136,34 @@ export class LogLineCache {
     this.changed()
     for (const owner of [...this.owners.values()]) {
       this.plan(owner.doc, owner.lines)
+    }
+  }
+
+  private adopt(doc: DocRef): void {
+    const prefix = nodePrefix(doc)
+    const head = this.heads.get(prefix)
+
+    this.heads.set(prefix, doc.revision)
+    if (head === undefined || head === doc.revision || head !== doc.previousRevision) {
+      return
+    }
+
+    const from = `${prefix}${head}#`
+    const reused: Array<[string, Entry]> = []
+
+    for (const [key, entry] of this.entries) {
+      if (key.startsWith(from) && Number(key.slice(from.length)) < doc.stableLines) {
+        reused.push([key, entry])
+      }
+    }
+
+    for (const [key, entry] of reused) {
+      this.entries.delete(key)
+      this.entries.set(`${prefix}${doc.revision}#${key.slice(from.length)}`, entry)
+    }
+
+    if (reused.length > 0) {
+      this.changed()
     }
   }
 
@@ -376,22 +410,30 @@ export function useLogLines(doc: DocRef | null, lines: readonly number[]): (line
   const nodeId = doc?.nodeId
   const revision = doc?.revision
   const lineCount = doc?.lineCount
+  const previousRevision = doc?.previousRevision
+  const stableLines = doc?.stableLines
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       pipelineId === undefined ||
       runNumber === undefined ||
       nodeId === undefined ||
       revision === undefined ||
-      lineCount === undefined
+      lineCount === undefined ||
+      previousRevision === undefined ||
+      stableLines === undefined
     ) {
       logLineCache.release(owner)
 
       return
     }
 
-    logLineCache.need(owner, { pipelineId, runNumber, nodeId, revision, lineCount }, lines)
-  }, [owner, pipelineId, runNumber, nodeId, revision, lineCount, lines])
+    logLineCache.need(
+      owner,
+      { pipelineId, runNumber, nodeId, revision, lineCount, previousRevision, stableLines },
+      lines
+    )
+  }, [owner, pipelineId, runNumber, nodeId, revision, lineCount, previousRevision, stableLines, lines])
 
   useEffect(() => () => logLineCache.release(owner), [owner])
 

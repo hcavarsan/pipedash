@@ -15,13 +15,50 @@ import { events, service } from '../services/service'
 import type { EventPayloadMap } from '../types/events'
 import type { LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 
-const TREE_REFETCH_MS = 10_000
 const TREE_COMPLETE_STALE_MS = 60_000
-const DOC_LOADING_REFETCH_MS = 3000
-const DOC_LIVE_REFETCH_MS = 10_000
+const HEARTBEAT_MS = 30_000
 const SEARCH_DEBOUNCE_MS = 250
 
-type RunLogEvent = 'run-log-progress' | 'run-log-ready' | 'run-log-failed'
+type RunLogEvent = 'run-log-progress' | 'run-log-ready' | 'run-log-failed' | 'run-log-tree-changed'
+
+interface RunTarget {
+  pipelineId: string
+  runNumber: number
+}
+
+const sameRun =
+  (pipelineId: string, runNumber: number) =>
+  (payload: RunTarget): boolean =>
+    payload.pipelineId === pipelineId && payload.runNumber === runNumber
+
+function subscribe<E extends RunLogEvent>(
+  name: E,
+  matches: (payload: EventPayloadMap[E]) => boolean,
+  handler: (payload: EventPayloadMap[E]) => void
+): () => void {
+  let live = true
+  let unlisten: (() => void) | undefined
+
+  events
+    .listen<EventPayloadMap[E]>(name, (payload) => {
+      if (live && payload && matches(payload)) {
+        handler(payload)
+      }
+    })
+    .then((stop) => {
+      if (live) {
+        unlisten = stop
+      } else {
+        stop()
+      }
+    })
+    .catch((error) => logger.error('RunLogs', `Failed to listen to ${name}`, error))
+
+  return () => {
+    live = false
+    unlisten?.()
+  }
+}
 
 export interface RunLogTarget {
   pipelineId: string
@@ -34,13 +71,26 @@ export function useRunLogTree(
   runNumber: number,
   enabled: boolean = true
 ): UseQueryResult<RunLogTree, Error> {
+  const queryClient = useQueryClient()
+  const active = enabled && !!pipelineId && runNumber > 0
+
+  useEffect(() => {
+    if (!active) {
+      return undefined
+    }
+
+    return subscribe('run-log-tree-changed', sameRun(pipelineId, runNumber), () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber), exact: true })
+    })
+  }, [active, queryClient, pipelineId, runNumber])
+
   return useQuery({
     queryKey: queryKeys.runLogs.tree(pipelineId, runNumber),
     queryFn: () => service.getRunLogTree(pipelineId, runNumber),
-    enabled: enabled && !!pipelineId && runNumber > 0,
+    enabled: active,
     staleTime: (query) => (query.state.data?.complete ? TREE_COMPLETE_STALE_MS : 0),
     gcTime: GC_TIMES.SHORT,
-    refetchInterval: (query) => (query.state.data && !query.state.data.complete ? TREE_REFETCH_MS : false),
+    refetchInterval: (query) => (query.state.data && !query.state.data.complete ? HEARTBEAT_MS : false),
     refetchIntervalInBackground: false,
   })
 }
@@ -56,50 +106,31 @@ export function useRunLogDocument(
 
   useEffect(() => {
     if (!active) {
-      return
+      return undefined
     }
 
-    let mounted = true
-    const cleanups: Array<() => void> = []
     const queryKey = queryKeys.runLogs.doc(pipelineId, runNumber, nodeId)
-
-    async function register<E extends RunLogEvent>(name: E, handler: (payload: EventPayloadMap[E]) => void) {
-      try {
-        const unlisten = await events.listen<EventPayloadMap[E]>(name, (payload) => {
-          if (
-            mounted &&
-            payload?.pipelineId === pipelineId &&
-            payload.runNumber === runNumber &&
-            payload.nodeId === nodeId
-          ) {
-            handler(payload)
-          }
-        })
-
-        if (mounted) {
-          cleanups.push(unlisten)
-        } else {
-          unlisten()
+    const refetch = () => void queryClient.invalidateQueries({ queryKey, exact: true })
+    const run = sameRun(pipelineId, runNumber)
+    const node = (payload: RunTarget & { nodeId: string }) => run(payload) && payload.nodeId === nodeId
+    const stops = [
+      subscribe('run-log-progress', node, ({ receivedBytes }) => {
+        queryClient.setQueryData<RunLogDocument>(queryKey, (current) =>
+          current?.state === 'loading' ? { state: 'loading', received_bytes: receivedBytes } : current
+        )
+      }),
+      subscribe('run-log-ready', node, refetch),
+      subscribe('run-log-failed', node, refetch),
+      subscribe('run-log-tree-changed', run, () => {
+        if (queryClient.getQueryData<RunLogDocument>(queryKey)?.state === 'pending') {
+          refetch()
         }
-      } catch (error) {
-        logger.error('RunLogs', `Failed to listen to ${name}`, error)
-      }
-    }
-
-    const invalidate = () => queryClient.invalidateQueries({ queryKey, exact: true })
-
-    void register('run-log-progress', ({ receivedBytes }) => {
-      queryClient.setQueryData<RunLogDocument>(queryKey, (current) =>
-        current?.state === 'loading' ? { state: 'loading', received_bytes: receivedBytes } : current
-      )
-    })
-    void register('run-log-ready', invalidate)
-    void register('run-log-failed', invalidate)
+      }),
+    ]
 
     return () => {
-      mounted = false
-      for (const unlisten of cleanups) {
-        unlisten()
+      for (const stop of stops) {
+        stop()
       }
     }
   }, [active, queryClient, pipelineId, runNumber, nodeId])
@@ -113,11 +144,9 @@ export function useRunLogDocument(
     refetchInterval: (query) => {
       const doc = query.state.data
 
-      if (doc?.state === 'loading') {
-        return DOC_LOADING_REFETCH_MS
-      }
-
-      return doc?.state === 'pending' || (doc?.state === 'ready' && !doc.complete) ? DOC_LIVE_REFETCH_MS : false
+      return doc?.state === 'loading' || doc?.state === 'pending' || (doc?.state === 'ready' && !doc.complete)
+        ? HEARTBEAT_MS
+        : false
     },
     refetchIntervalInBackground: false,
   })

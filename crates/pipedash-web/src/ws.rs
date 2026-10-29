@@ -164,7 +164,7 @@ mod tests {
 
     use super::*;
 
-    async fn read_opcode(stream: &mut TcpStream) -> Option<u8> {
+    async fn read_frame(stream: &mut TcpStream) -> Option<(u8, Vec<u8>)> {
         let mut head = [0u8; 2];
         stream.read_exact(&mut head).await.ok()?;
         let len = match head[1] & 0x7f {
@@ -174,12 +174,10 @@ mod tests {
         };
         let mut payload = vec![0u8; len];
         stream.read_exact(&mut payload).await.ok()?;
-        Some(head[0] & 0x0f)
+        Some((head[0] & 0x0f, payload))
     }
 
-    #[tokio::test]
-    async fn lagged_client_gets_closed_so_it_reconnects() {
-        let bus = Arc::new(WebSocketEventBus::new());
+    async fn connect(bus: &Arc<WebSocketEventBus>) -> TcpStream {
         let app = Router::new()
             .route("/ws", get(ws_handler))
             .with_state(AppState::setup_mode(bus.clone()));
@@ -200,19 +198,79 @@ mod tests {
         assert!(response.starts_with(b"HTTP/1.1 101"));
         tokio::time::sleep(Duration::from_millis(100)).await;
 
+        stream
+    }
+
+    async fn next_message(stream: &mut TcpStream) -> serde_json::Value {
+        let (opcode, payload) = tokio::time::timeout(Duration::from_secs(5), read_frame(stream))
+            .await
+            .expect("no message arrived")
+            .expect("the socket closed");
+        assert_eq!(opcode, 0x1);
+        serde_json::from_slice(&payload).unwrap()
+    }
+
+    #[tokio::test]
+    async fn lagged_client_gets_closed_so_it_reconnects() {
+        let bus = Arc::new(WebSocketEventBus::new());
+        let mut stream = connect(&bus).await;
+
         for _ in 0..1100 {
             bus.emit(CoreEvent::ProvidersChanged).await;
         }
 
         let closed = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                match read_opcode(&mut stream).await {
-                    None | Some(0x8) => break,
+                match read_frame(&mut stream).await {
+                    None => break,
+                    Some((0x8, _)) => break,
                     Some(_) => {}
                 }
             }
         })
         .await;
         assert!(closed.is_ok(), "socket stayed open after the client lagged");
+    }
+
+    #[tokio::test]
+    async fn live_run_events_reach_clients_with_their_payloads() {
+        let bus = Arc::new(WebSocketEventBus::new());
+        let mut stream = connect(&bus).await;
+        let run: pipedash_core::domain::PipelineRun = serde_json::from_value(serde_json::json!({
+            "id": "p__3", "pipeline_id": "p", "run_number": 3, "status": "running",
+            "started_at": "2026-01-01T00:00:00Z", "duration_seconds": 12, "logs_url": ""
+        }))
+        .unwrap();
+
+        bus.emit(CoreEvent::RunLogTreeChanged {
+            pipeline_id: "p".into(),
+            run_number: 3,
+        })
+        .await;
+        bus.emit(CoreEvent::RunUpdated {
+            pipeline_id: "p".into(),
+            run_number: 3,
+            run: run.clone(),
+        })
+        .await;
+
+        assert_eq!(
+            next_message(&mut stream).await,
+            serde_json::json!({
+                "type": "run-log-tree-changed",
+                "payload": { "pipelineId": "p", "runNumber": 3 },
+            })
+        );
+        assert_eq!(
+            next_message(&mut stream).await,
+            serde_json::json!({
+                "type": "run-updated",
+                "payload": {
+                    "pipelineId": "p",
+                    "runNumber": 3,
+                    "run": serde_json::to_value(&run).unwrap(),
+                },
+            })
+        );
     }
 }

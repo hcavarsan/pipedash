@@ -550,6 +550,7 @@ mod tests {
             resource_state: None,
             metadata: HashMap::new(),
             overdue_run: None,
+            typical_duration_seconds: None,
         };
         WatchedRun {
             pipeline,

@@ -131,6 +131,7 @@ pub(crate) fn pipeline(provider_id: i64, name: &str, status: PipelineStatus) -> 
         resource_state: None,
         metadata: HashMap::new(),
         overdue_run: None,
+        typical_duration_seconds: None,
     }
 }
 
@@ -145,6 +146,19 @@ pub(crate) fn stub_run(pipeline_id: &str, number: i64, duration_seconds: i64) ->
 
 pub(crate) fn parameter(name: &str) -> WorkflowParameter {
     serde_json::from_value(serde_json::json!({ "name": name, "type": "string" })).unwrap()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StubLogMode {
+    Snapshot,
+    Resumable,
+    Misbehaving,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StubCursor {
+    epoch: u64,
+    offset: usize,
 }
 
 pub(crate) struct StubProvider {
@@ -172,6 +186,9 @@ pub(crate) struct StubProvider {
     pub(crate) log_nodes_gate: Option<Arc<Gate>>,
     pub(crate) log_reads: AtomicUsize,
     pub(crate) log_node_fetches: AtomicUsize,
+    pub(crate) log_mode: Mutex<StubLogMode>,
+    pub(crate) log_epoch: AtomicU64,
+    pub(crate) log_requests: Mutex<Vec<Option<LogCursor>>>,
 }
 
 impl StubProvider {
@@ -205,6 +222,9 @@ impl StubProvider {
             log_nodes_gate: None,
             log_reads: AtomicUsize::new(0),
             log_node_fetches: AtomicUsize::new(0),
+            log_mode: Mutex::new(StubLogMode::Snapshot),
+            log_epoch: AtomicU64::new(0),
+            log_requests: Mutex::new(Vec::new()),
         }
     }
 
@@ -295,6 +315,27 @@ impl StubProvider {
 
     pub(crate) fn log_node_fetch_count(&self) -> usize {
         self.log_node_fetches.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn with_log_mode(self, mode: StubLogMode) -> Self {
+        *self.log_mode.lock().unwrap() = mode;
+        self
+    }
+
+    pub(crate) fn append_log(&self, text: &str) {
+        self.log_chunks
+            .lock()
+            .unwrap()
+            .push(Bytes::copy_from_slice(text.as_bytes()));
+    }
+
+    pub(crate) fn replace_log(&self, text: &str) {
+        self.log_epoch.fetch_add(1, Ordering::SeqCst);
+        *self.log_chunks.lock().unwrap() = vec![Bytes::copy_from_slice(text.as_bytes())];
+    }
+
+    pub(crate) fn log_requests(&self) -> Vec<Option<LogCursor>> {
+        self.log_requests.lock().unwrap().clone()
     }
 }
 
@@ -405,9 +446,10 @@ impl Provider for StubProvider {
     }
 
     async fn read_log(
-        &self, _run: &PipelineRun, _node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+        &self, _run: &PipelineRun, _node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
     ) -> DomainResult<LogRead> {
         self.log_reads.fetch_add(1, Ordering::SeqCst);
+        self.log_requests.lock().unwrap().push(from.cloned());
         if let Some(gate) = &self.log_gate {
             gate.pass().await;
         }
@@ -415,14 +457,53 @@ impl Provider for StubProvider {
         if let Some(failure) = failure {
             return Err(failure);
         }
+        let provider_error =
+            |e: pipedash_plugin_api::PluginError| DomainError::ProviderError(e.to_string());
         let chunks = self.log_chunks.lock().unwrap().clone();
-        for chunk in chunks {
-            sink.write(chunk)
-                .await
-                .map_err(|e| DomainError::ProviderError(e.to_string()))?;
+        let mode = *self.log_mode.lock().unwrap();
+        if mode == StubLogMode::Snapshot {
+            for chunk in chunks {
+                sink.write(chunk).await.map_err(provider_error)?;
+            }
+
+            return Ok(LogRead::replace(None));
         }
 
-        Ok(LogRead::replace(None))
+        let all = chunks.concat();
+        let epoch = self.log_epoch.load(Ordering::SeqCst);
+        let next = LogCursor::new(&StubCursor {
+            epoch,
+            offset: all.len(),
+        })
+        .map_err(provider_error)?;
+        if mode == StubLogMode::Misbehaving {
+            sink.write(Bytes::from(all)).await.map_err(provider_error)?;
+
+            return Ok(LogRead::append(next));
+        }
+        let continued = from
+            .and_then(LogCursor::parse::<StubCursor>)
+            .filter(|cursor| cursor.epoch == epoch && cursor.offset <= all.len());
+        match (from, continued) {
+            (Some(_), Some(cursor)) => {
+                sink.write(Bytes::copy_from_slice(&all[cursor.offset..]))
+                    .await
+                    .map_err(provider_error)?;
+
+                Ok(LogRead::append(next))
+            }
+            (Some(_), None) => {
+                sink.restart().map_err(provider_error)?;
+                sink.write(Bytes::from(all)).await.map_err(provider_error)?;
+
+                Ok(LogRead::replace(Some(next)))
+            }
+            (None, _) => {
+                sink.write(Bytes::from(all)).await.map_err(provider_error)?;
+
+                Ok(LogRead::replace(Some(next)))
+            }
+        }
     }
 }
 

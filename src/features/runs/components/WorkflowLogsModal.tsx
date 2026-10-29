@@ -126,6 +126,7 @@ function WorkflowLogsSession({
         isMobile={isMobile}
         mobileShell={mobileShell}
         cancellationRequested={cancellationRequested}
+        typicalSeconds={pipeline?.typical_duration_seconds}
         onRetry={() => {
           refetch().catch(() => undefined)
         }}

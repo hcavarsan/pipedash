@@ -16,7 +16,15 @@ use crate::{
     config,
     mapper,
     metadata,
+    types::JobAttempt,
 };
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LogPosition {
+    job: String,
+    attempt: JobAttempt,
+    offset: u64,
+}
 
 pub struct GiteaPlugin {
     metadata: PluginMetadata,
@@ -238,7 +246,7 @@ impl Plugin for GiteaPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+        &self, run: RunRef<'_>, node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
     ) -> PluginResult<LogRead> {
         let id = config::parse_pipeline_id(run.pipeline_id)?;
         if node_id.is_empty() || !node_id.bytes().all(|b| b.is_ascii_digit()) {
@@ -247,10 +255,26 @@ impl Plugin for GiteaPlugin {
             )));
         }
 
-        self.client()?
-            .stream_job_log(id.owner, id.repo, node_id, sink)
-            .await
-            .map(|()| LogRead::replace(None))
+        let client = self.client()?;
+        let attempt = client.job_attempt(id.owner, id.repo, node_id).await?;
+        let position = from
+            .and_then(|cursor| cursor.parse::<LogPosition>())
+            .filter(|position| position.job == node_id && position.attempt == attempt);
+        if from.is_some() && position.is_none() {
+            sink.restart()?;
+        }
+        let (mode, offset) = client
+            .stream_job_log(id.owner, id.repo, node_id, position.map(|p| p.offset), sink)
+            .await?;
+        let job = node_id.to_string();
+        Ok(LogRead {
+            mode,
+            cursor: Some(LogCursor::new(&LogPosition {
+                job,
+                attempt,
+                offset,
+            })?),
+        })
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -495,6 +519,14 @@ mod tests {
                             .unwrap();
                         (200, stub_jobs(page))
                     }
+                    ("GET", "/api/v1/repos/claude/smoke__ci/actions/jobs/101") => (
+                        200,
+                        serde_json::json!({"id": 101, "name": "build", "status": "completed", "run_attempt": 1, "started_at": "2026-10-28T10:00:00Z"}),
+                    ),
+                    ("GET", "/api/v1/repos/claude/smoke__ci/actions/jobs/104") => (
+                        200,
+                        serde_json::json!({"id": 104, "name": "deploy", "status": "waiting"}),
+                    ),
                     ("GET", "/api/v1/repos/claude/smoke__ci/actions/jobs/101/logs") => {
                         (200, serde_json::json!(JOB_LOG))
                     }
@@ -932,5 +964,262 @@ mod tests {
             panic!("expected NotSupported, got {error:?}");
         };
         assert!(message.contains("Gitea 1.25 or newer"), "{message}");
+    }
+
+    #[derive(Clone, Copy)]
+    enum RangeSupport {
+        Honored,
+        Ignored,
+        Misaligned,
+    }
+
+    const STARTED_AT: &str = "2026-10-28T10:00:00Z";
+
+    struct Log {
+        body: Vec<u8>,
+        range_support: RangeSupport,
+        ranges: Vec<Option<String>>,
+        run_attempt: i64,
+        started_at: &'static str,
+    }
+
+    type SharedLog = Arc<std::sync::Mutex<Log>>;
+
+    async fn stub_log(
+        body: &[u8], range_support: RangeSupport,
+    ) -> (GiteaPlugin, SharedLog, tokio::task::JoinHandle<()>) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let log = SharedLog::new(std::sync::Mutex::new(Log {
+            body: body.to_vec(),
+            range_support,
+            ranges: Vec::new(),
+            run_attempt: 1,
+            started_at: STARTED_AT,
+        }));
+        let state = log.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let count = stream.read(&mut buffer).await.unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                let range = request.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("range")
+                        .then(|| value.trim().to_string())
+                });
+                let target = request.split_whitespace().nth(1).unwrap().to_string();
+                let (status, content_range, payload) = {
+                    let mut log = state.lock().unwrap();
+                    if target.ends_with("/logs") {
+                        log.ranges.push(range.clone());
+                        let total = log.body.len();
+                        let start = range.as_deref().and_then(|value| {
+                            value
+                                .strip_prefix("bytes=")?
+                                .strip_suffix('-')?
+                                .parse()
+                                .ok()
+                        });
+                        match (start, log.range_support) {
+                            (Some(start), RangeSupport::Honored) if start >= total => (
+                                "416 Range Not Satisfiable",
+                                format!("Content-Range: bytes */{total}\r\n"),
+                                Vec::new(),
+                            ),
+                            (Some(start), RangeSupport::Honored) => (
+                                "206 Partial Content",
+                                format!("Content-Range: bytes {start}-{}/{total}\r\n", total - 1),
+                                log.body[start..].to_vec(),
+                            ),
+                            (Some(_), RangeSupport::Misaligned) => (
+                                "206 Partial Content",
+                                format!("Content-Range: bytes 0-{}/{total}\r\n", total - 1),
+                                log.body.clone(),
+                            ),
+                            _ => ("200 OK", String::new(), log.body.clone()),
+                        }
+                    } else {
+                        let job = serde_json::json!({
+                            "id": 101,
+                            "name": "build",
+                            "status": "in_progress",
+                            "run_attempt": log.run_attempt,
+                            "started_at": log.started_at
+                        });
+                        ("200 OK", String::new(), job.to_string().into_bytes())
+                    }
+                };
+                let head = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: text/plain\r\n{content_range}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                );
+                stream.write_all(head.as_bytes()).await.unwrap();
+                stream.write_all(&payload).await.unwrap();
+            }
+        });
+        let mut plugin = GiteaPlugin::new();
+        plugin
+            .initialize(
+                1,
+                HashMap::from([
+                    ("base_url".to_string(), format!("http://{addr}/")),
+                    ("token".to_string(), "stub-token".to_string()),
+                ]),
+                None,
+            )
+            .unwrap();
+        (plugin, log, server)
+    }
+
+    fn cursor(job: &str, offset: u64) -> LogCursor {
+        cursor_of(job, 1, STARTED_AT, offset)
+    }
+
+    fn cursor_of(job: &str, run: i64, started_at: &str, offset: u64) -> LogCursor {
+        LogCursor::new(&serde_json::json!({
+            "job": job,
+            "attempt": {"run": run, "started_at": started_at},
+            "offset": offset
+        }))
+        .unwrap()
+    }
+
+    async fn read_log(
+        plugin: &GiteaPlugin, from: Option<&LogCursor>,
+    ) -> (PluginResult<LogRead>, Vec<u8>, bool) {
+        let metadata = run_metadata();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin
+            .read_log(run_7(SMOKE_PIPELINE, &metadata), "101", from, &mut sink)
+            .await;
+        let restarted = sink.restarted();
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        (result, bytes, restarted)
+    }
+
+    fn ranges(log: &SharedLog) -> Vec<Option<String>> {
+        log.lock().unwrap().ranges.clone()
+    }
+
+    #[tokio::test]
+    async fn resumed_log_appends_only_the_new_bytes() {
+        let (plugin, log, server) = stub_log(b"a\nb\n", RangeSupport::Honored).await;
+
+        let (first, bytes, restarted) = read_log(&plugin, None).await;
+        assert_eq!(first.unwrap(), LogRead::replace(Some(cursor("101", 4))));
+        assert_eq!(bytes, b"a\nb\n");
+        assert!(!restarted);
+
+        log.lock().unwrap().body.extend_from_slice(b"c\n");
+        let (second, bytes, restarted) = read_log(&plugin, Some(&cursor("101", 4))).await;
+        assert_eq!(second.unwrap(), LogRead::append(cursor("101", 6)));
+        assert_eq!(bytes, b"c\n");
+        assert!(!restarted);
+
+        let (idle, bytes, restarted) = read_log(&plugin, Some(&cursor("101", 6))).await;
+        server.abort();
+        assert_eq!(idle.unwrap(), LogRead::append(cursor("101", 6)));
+        assert!(bytes.is_empty() && !restarted);
+        assert_eq!(
+            ranges(&log),
+            [None, Some("bytes=4-".into()), Some("bytes=6-".into())]
+        );
+    }
+
+    #[tokio::test]
+    async fn server_ignoring_range_restarts_with_the_whole_log() {
+        let (plugin, log, server) = stub_log(b"a\nb\nc\n", RangeSupport::Ignored).await;
+
+        let (read, bytes, restarted) = read_log(&plugin, Some(&cursor("101", 4))).await;
+        server.abort();
+
+        assert_eq!(read.unwrap(), LogRead::replace(Some(cursor("101", 6))));
+        assert_eq!(bytes, b"a\nb\nc\n");
+        assert!(restarted);
+        assert_eq!(ranges(&log), [Some("bytes=4-".into())]);
+    }
+
+    #[tokio::test]
+    async fn partial_reply_starting_elsewhere_restarts_with_the_whole_log() {
+        let (plugin, log, server) = stub_log(b"a\nb\nc\n", RangeSupport::Misaligned).await;
+
+        let (read, bytes, restarted) = read_log(&plugin, Some(&cursor("101", 4))).await;
+        server.abort();
+
+        assert_eq!(read.unwrap(), LogRead::replace(Some(cursor("101", 6))));
+        assert_eq!(bytes, b"a\nb\nc\n");
+        assert!(restarted);
+        assert_eq!(ranges(&log), [Some("bytes=4-".into()), None]);
+    }
+
+    #[tokio::test]
+    async fn shrunk_log_restarts_with_the_whole_log() {
+        let (plugin, log, server) = stub_log(b"a\n", RangeSupport::Honored).await;
+
+        let (read, bytes, restarted) = read_log(&plugin, Some(&cursor("101", 6))).await;
+        server.abort();
+
+        assert_eq!(read.unwrap(), LogRead::replace(Some(cursor("101", 2))));
+        assert_eq!(bytes, b"a\n");
+        assert!(restarted);
+        assert_eq!(ranges(&log), [Some("bytes=6-".into()), None]);
+    }
+
+    #[tokio::test]
+    async fn unusable_cursors_restart_without_a_range_request() {
+        let (plugin, log, server) = stub_log(b"a\nb\n", RangeSupport::Honored).await;
+
+        for stale in [LogCursor::new(&"garbage").unwrap(), cursor("102", 4)] {
+            let (read, bytes, restarted) = read_log(&plugin, Some(&stale)).await;
+            assert_eq!(read.unwrap(), LogRead::replace(Some(cursor("101", 4))));
+            assert_eq!(bytes, b"a\nb\n");
+            assert!(restarted);
+        }
+        server.abort();
+
+        assert_eq!(ranges(&log), [None, None]);
+    }
+
+    #[tokio::test]
+    async fn rerun_keeping_the_job_id_restarts_even_when_its_log_is_longer_than_the_cursor() {
+        let (plugin, log, server) = stub_log(b"a\nb\n", RangeSupport::Honored).await;
+
+        let (first, _, _) = read_log(&plugin, None).await;
+        let first = first.unwrap();
+        assert_eq!(first, LogRead::replace(Some(cursor("101", 4))));
+
+        for (run, started_at) in [(2, STARTED_AT), (1, "2026-10-28T11:00:00Z")] {
+            {
+                let mut log = log.lock().unwrap();
+                log.run_attempt = run;
+                log.started_at = started_at;
+                log.body = b"x\ny\nz\nw\n".to_vec();
+            }
+            let (read, bytes, restarted) = read_log(&plugin, first.cursor.as_ref()).await;
+            assert_eq!(
+                read.unwrap(),
+                LogRead::replace(Some(cursor_of("101", run, started_at, 8)))
+            );
+            assert_eq!(bytes, b"x\ny\nz\nw\n");
+            assert!(restarted);
+        }
+        server.abort();
+
+        assert_eq!(ranges(&log), [None, None, None]);
     }
 }

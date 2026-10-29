@@ -18,6 +18,7 @@ use crate::{
     log_dialect,
     mapper,
     metadata,
+    stage_cursor::StageCursor,
     types,
 };
 
@@ -103,9 +104,11 @@ impl KomodoPlugin {
             .ok_or_else(|| PluginError::InvalidConfig(format!("Invalid log node ID: {node_id}")))
     }
 
-    async fn write_stage(log: &types::UpdateLog, sink: &mut LogSink) -> PluginResult<()> {
+    async fn write_lines<'a>(
+        lines: impl Iterator<Item = (LineMarker, &'a str)>, sink: &mut LogSink,
+    ) -> PluginResult<()> {
         let mut chunk = Vec::new();
-        for (marker, line) in log_dialect::stage_lines(log) {
+        for (marker, line) in lines {
             log_dialect::push_line(&mut chunk, marker, line);
             if chunk.len() >= LOG_CHUNK_BYTES {
                 sink.write(std::mem::take(&mut chunk).into()).await?;
@@ -312,7 +315,7 @@ impl Plugin for KomodoPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+        &self, run: RunRef<'_>, node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
     ) -> PluginResult<LogRead> {
         let index = Self::stage_index(node_id)?;
         let (_, stack_id) = config::parse_pipeline_id(run.pipeline_id)?;
@@ -321,9 +324,33 @@ impl Plugin for KomodoPlugin {
             PluginError::InvalidConfig(format!("Update has no log stage {index}"))
         })?;
 
-        Self::write_stage(log, sink)
-            .await
-            .map(|()| LogRead::replace(None))
+        let resumed = match from {
+            None => None,
+            Some(cursor) => {
+                let resumed = cursor
+                    .parse::<StageCursor>()
+                    .and_then(|cursor| cursor.resume(log));
+                if resumed.is_none() {
+                    sink.restart()?;
+                }
+                resumed
+            }
+        };
+        let next = LogCursor::new(&StageCursor::of(log))?;
+        match resumed {
+            Some((stdout, stderr)) => {
+                Self::write_lines(
+                    log_dialect::text_lines("", stdout, stderr, log.success),
+                    sink,
+                )
+                .await?;
+                Ok(LogRead::append(next))
+            }
+            None => {
+                Self::write_lines(log_dialect::stage_lines(log), sink).await?;
+                Ok(LogRead::replace(Some(next)))
+            }
+        }
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -1662,5 +1689,165 @@ mod tests {
         assert!(options.accept_invalid_certs);
         assert_eq!(defaults.origin, None);
         assert!(!defaults.accept_invalid_certs);
+    }
+
+    async fn resume_stage(
+        plugin: &KomodoPlugin, run: RunRef<'_>, node_id: &str, from: Option<&LogCursor>,
+    ) -> PluginResult<(Vec<u8>, LogRead, bool)> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let read = async {
+            let mut sink = LogSink::new(tx);
+            let result = plugin.read_log(run, node_id, from, &mut sink).await;
+            (result, sink.restarted())
+        };
+        let collect = async {
+            let mut bytes = Vec::new();
+            while let Some(chunk) = rx.recv().await {
+                bytes.extend_from_slice(&chunk);
+            }
+            bytes
+        };
+        let ((result, restarted), bytes) = tokio::join!(read, collect);
+        result.map(|read| (bytes, read, restarted))
+    }
+
+    fn compose_stage(edit: impl FnOnce(&mut Value)) -> types::UpdateLog {
+        let mut stage = update_logs(5)[1].clone();
+        edit(&mut stage);
+        serde_json::from_value(stage).unwrap()
+    }
+
+    fn rendered(log: &types::UpdateLog) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (marker, line) in log_dialect::stage_lines(log) {
+            log_dialect::push_line(&mut out, marker, line);
+        }
+        out
+    }
+
+    fn cursor_of(log: &types::UpdateLog) -> LogCursor {
+        LogCursor::new(&StageCursor::of(log)).unwrap()
+    }
+
+    const FIRST_STDOUT_LINE: &str = "Pulling 10%\rPulling 100%\n";
+    const FIRST_STDERR_LINE: &str = "Error response from daemon: port is already allocated\n";
+
+    #[tokio::test]
+    async fn first_stage_read_is_the_whole_stage_with_a_cursor_over_its_fields() {
+        let (plugin, _, _) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u005");
+        let full = compose_stage(|_| {});
+
+        let (bytes, read, restarted) =
+            resume_stage(&plugin, log_run(&metadata, update_start(5)), "1", None)
+                .await
+                .unwrap();
+
+        assert_eq!(bytes, rendered(&full));
+        assert_eq!(read, LogRead::replace(Some(cursor_of(&full))));
+        assert!(!restarted);
+    }
+
+    #[tokio::test]
+    async fn grown_stage_appends_exactly_the_lines_the_earlier_read_did_not_render() {
+        let (plugin, _, _) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u005");
+        let full = compose_stage(|_| {});
+        let earlier = [
+            compose_stage(|stage| {
+                stage["stdout"] = json!(FIRST_STDOUT_LINE);
+                stage["stderr"] = json!("");
+                stage["success"] = json!(true);
+            }),
+            compose_stage(|stage| {
+                stage["stdout"] =
+                    json!(format!("{FIRST_STDOUT_LINE}Container web-app-1  Starting"));
+                stage["stderr"] = json!("");
+            }),
+            compose_stage(|stage| stage["stderr"] = json!(FIRST_STDERR_LINE)),
+        ];
+
+        for before in &earlier {
+            let (bytes, read, restarted) = resume_stage(
+                &plugin,
+                log_run(&metadata, update_start(5)),
+                "1",
+                Some(&cursor_of(before)),
+            )
+            .await
+            .unwrap();
+
+            let seen = rendered(before);
+            assert!(!bytes.is_empty());
+            assert_eq!(
+                [seen.as_slice(), bytes.as_slice()].concat(),
+                rendered(&full)
+            );
+            assert_eq!(read, LogRead::append(cursor_of(&full)));
+            assert!(!restarted);
+        }
+    }
+
+    #[tokio::test]
+    async fn unchanged_stage_appends_nothing() {
+        let (plugin, _, _) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u005");
+        let full = compose_stage(|_| {});
+
+        let (bytes, read, restarted) = resume_stage(
+            &plugin,
+            log_run(&metadata, update_start(5)),
+            "1",
+            Some(&cursor_of(&full)),
+        )
+        .await
+        .unwrap();
+
+        assert!(bytes.is_empty());
+        assert_eq!(read, LogRead::append(cursor_of(&full)));
+        assert!(!restarted);
+    }
+
+    #[tokio::test]
+    async fn stage_that_is_not_a_pure_extension_restarts_with_the_whole_stage() {
+        let (plugin, _, _) = stub_plugin(&[]).await;
+        let metadata = update_metadata("u005");
+        let full = compose_stage(|_| {});
+        let earlier = [
+            compose_stage(|stage| stage["stdout"] = json!("Pulling 5%\n")),
+            compose_stage(|stage| {
+                stage["stdout"] = json!(format!("{}extra\n", full.stdout));
+            }),
+            compose_stage(|stage| {
+                stage["stdout"] = json!(format!("{FIRST_STDOUT_LINE}Container web-app-1  Star"));
+                stage["stderr"] = json!("");
+            }),
+            compose_stage(|stage| {
+                stage["stdout"] = json!(FIRST_STDOUT_LINE);
+                stage["stderr"] = json!(FIRST_STDERR_LINE);
+            }),
+            compose_stage(|stage| stage["success"] = json!(true)),
+            compose_stage(|stage| stage["stderr"] = json!("Error response from daemon: port")),
+            compose_stage(|stage| stage["stage"] = json!("Compose Down")),
+            compose_stage(|stage| stage["start_ts"] = json!(full.start_ts + 1)),
+            compose_stage(|stage| stage["command"] = json!("docker compose up")),
+        ];
+
+        let mut cursors: Vec<_> = earlier.iter().map(cursor_of).collect();
+        cursors.push(LogCursor::new(&"junk").unwrap());
+        for cursor in &cursors {
+            let (bytes, read, restarted) = resume_stage(
+                &plugin,
+                log_run(&metadata, update_start(5)),
+                "1",
+                Some(cursor),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(bytes, rendered(&full), "{cursor:?}");
+            assert_eq!(read, LogRead::replace(Some(cursor_of(&full))), "{cursor:?}");
+            assert!(restarted, "{cursor:?}");
+        }
     }
 }

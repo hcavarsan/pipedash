@@ -1086,12 +1086,13 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let mut sink = LogSink::new(tx);
         let result = plugin.read_log(run, node_id, None, &mut sink).await;
+        assert!(!sink.restarted());
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result?;
+        assert_eq!(result?, LogRead::replace(None));
         Ok(bytes
             .split(|b| *b == b'\n')
             .filter(|line| !line.is_empty())

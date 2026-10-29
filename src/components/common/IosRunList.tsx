@@ -13,6 +13,7 @@ import { STATUS_META } from '../../theme/status'
 import type { PipelineRun } from '../../types/domain'
 import { formatDuration } from '../../utils/formatDuration'
 import { getRunStatusLabel } from '../../utils/pipelinePresentation'
+import { formatLiveRunDuration, isLiveRun } from '../../utils/runTiming'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import { IosGroup } from '../ios/IosList'
 import { SwipeActions } from '../ios/SwipeActions'
@@ -32,7 +33,7 @@ interface IosRunRowProps {
 }
 
 const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, onToggle }: IosRunRowProps) => {
-  const { openRun } = useRunActions()
+  const { openRun, pipeline } = useRunActions()
   const swipeActions = swipeActionsOf(useRunActionItems(run))
   const onOpen = () => openRun(run)
   const hintId = useId()
@@ -43,7 +44,9 @@ const IosRunRow = ({ run, isFlux, noun, now, selecting, selectable, selected, on
     : (run.commit_message?.split('\n')[0]?.trim() ?? '')
   const timing = [
     run.started_at && relativeOrNever(run.started_at, now),
-    run.duration_seconds !== null && formatDuration(run.duration_seconds),
+    isLiveRun(run)
+      ? formatLiveRunDuration(run, now, pipeline?.typical_duration_seconds)
+      : run.duration_seconds !== null && formatDuration(run.duration_seconds),
   ]
   const subtitle = [...timing, ...(isFlux ? [message] : [run.branch, run.actor])].filter(Boolean).join(' · ')
   const statusLabel = getRunStatusLabel(run) ?? STATUS_META[run.status].label
@@ -129,7 +132,7 @@ export const IosRunList = ({
   onToggle,
   onEndReached,
 }: IosRunListProps): ReactNode => {
-  const now = useNow(30_000)
+  const now = useNow(runs.some(isLiveRun) ? 1000 : 30_000)
   const { isFlux, labels } = useRunActions()
 
   return (

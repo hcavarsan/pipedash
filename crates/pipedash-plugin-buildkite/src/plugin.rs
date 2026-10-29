@@ -16,6 +16,12 @@ use crate::{
     metadata,
 };
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LogPosition {
+    job: String,
+    offset: u64,
+}
+
 pub struct BuildkitePlugin {
     metadata: PluginMetadata,
     client: Option<client::BuildkiteClient>,
@@ -244,7 +250,7 @@ impl Plugin for BuildkitePlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+        &self, run: RunRef<'_>, node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
     ) -> PluginResult<LogRead> {
         let (org, slug) = Self::org_and_slug(run.pipeline_id)?;
         if node_id.is_empty() || !node_id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
@@ -253,10 +259,28 @@ impl Plugin for BuildkitePlugin {
             )));
         }
 
-        self.client()?
-            .stream_job_log(org, slug, run.run_number, node_id, sink)
-            .await
-            .map(|()| LogRead::replace(None))
+        let position = from
+            .and_then(|cursor| cursor.parse::<LogPosition>())
+            .filter(|position| position.job == node_id);
+        if from.is_some() && position.is_none() {
+            sink.restart()?;
+        }
+        let (mode, offset) = self
+            .client()?
+            .stream_job_log(
+                org,
+                slug,
+                run.run_number,
+                node_id,
+                position.map(|p| p.offset),
+                sink,
+            )
+            .await?;
+        let job = node_id.to_string();
+        Ok(LogRead {
+            mode,
+            cursor: Some(LogCursor::new(&LogPosition { job, offset })?),
+        })
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -423,7 +447,7 @@ mod tests {
                     "name":"Tests","state":"failed","started_at":"2026-10-27T10:00:05.000Z",
                     "finished_at":"2026-10-27T10:02:05.000Z"}]}"#,
             ),
-            Some("/jobs/0190d2a4-7b1e-4c55-9f0e-6f2a1c3b4d5e/log.txt") => Reply {
+            Some("/jobs/0190d2a4-7b1e-4c55-9f0e-6f2a1c3b4d5e/log") => Reply {
                 status: "200 OK",
                 headers: "Content-Type: text/plain\r\n",
                 body: RAW_LOG,
@@ -566,5 +590,243 @@ mod tests {
         let pipelines = plugin.fetch_pipelines().await.unwrap();
 
         assert_eq!(pipelines.len(), 1);
+    }
+
+    #[derive(Default)]
+    struct JobLog {
+        body: Vec<u8>,
+        grow_after_head: Vec<u8>,
+        min_suffix: usize,
+        limited: bool,
+        requests: Vec<(String, Option<String>)>,
+    }
+
+    type SharedJobLog = Arc<std::sync::Mutex<JobLog>>;
+
+    fn job_log(body: &[u8]) -> SharedJobLog {
+        Arc::new(std::sync::Mutex::new(JobLog {
+            body: body.to_vec(),
+            ..JobLog::default()
+        }))
+    }
+
+    fn job_log_target(method: &str) -> String {
+        format!("{method} {BUILD_PATH}/jobs/{JOB_ID}/log")
+    }
+
+    async fn serve_job_log(log: &SharedJobLog) -> BuildkitePlugin {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let state = log.clone();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buffer = [0; 8192];
+                let count = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer)
+                    .await
+                    .unwrap();
+                let request = String::from_utf8_lossy(&buffer[..count]);
+                let mut request_line = request.lines().next().unwrap().split_whitespace();
+                let method = request_line.next().unwrap().to_string();
+                let target = request_line.next().unwrap().to_string();
+                let range = request
+                    .lines()
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(name, _)| name.eq_ignore_ascii_case("range"))
+                    .map(|(_, value)| value.trim().to_string());
+                let (status, headers, payload, length) = {
+                    let mut log = state.lock().unwrap();
+                    log.requests
+                        .push((format!("{method} {target}"), range.clone()));
+                    let total = log.body.len();
+                    let suffix = range
+                        .as_deref()
+                        .and_then(|value| value.strip_prefix("bytes=-")?.parse::<usize>().ok());
+                    if log.limited {
+                        (
+                            "429 Too Many Requests",
+                            "Retry-After: 120\r\n".to_string(),
+                            Vec::new(),
+                            0,
+                        )
+                    } else if method == "HEAD" {
+                        let grown = std::mem::take(&mut log.grow_after_head);
+                        log.body.extend_from_slice(&grown);
+                        ("200 OK", String::new(), Vec::new(), total)
+                    } else if let Some(suffix) = suffix {
+                        let start = total - suffix.max(log.min_suffix).min(total);
+                        let payload = log.body[start..].to_vec();
+                        let length = payload.len();
+                        (
+                            "206 Partial Content",
+                            format!("Content-Range: bytes {start}-{}/{total}\r\n", total - 1),
+                            payload,
+                            length,
+                        )
+                    } else {
+                        ("200 OK", String::new(), log.body.clone(), total)
+                    }
+                };
+                let head = format!(
+                    "HTTP/1.1 {status}\r\n{headers}Content-Length: {length}\r\nConnection: close\r\n\r\n"
+                );
+                let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, head.as_bytes()).await;
+                let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, &payload).await;
+            }
+        });
+        let mut plugin = BuildkitePlugin::new();
+        plugin.client = Some(
+            client::BuildkiteClient::new(Arc::new(reqwest::Client::new()), "token".to_string())
+                .with_base_url(format!("http://{addr}")),
+        );
+        plugin
+    }
+
+    fn cursor(job: &str, offset: u64) -> LogCursor {
+        LogCursor::new(&serde_json::json!({"job": job, "offset": offset})).unwrap()
+    }
+
+    async fn read_job_log(
+        plugin: &BuildkitePlugin, from: Option<&LogCursor>,
+    ) -> (PluginResult<LogRead>, Vec<u8>, bool) {
+        let metadata = HashMap::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin
+            .read_log(run_150(&metadata), JOB_ID, from, &mut sink)
+            .await;
+        let restarted = sink.restarted();
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        (result, bytes, restarted)
+    }
+
+    fn requests_of(log: &SharedJobLog) -> Vec<(String, Option<String>)> {
+        log.lock().unwrap().requests.clone()
+    }
+
+    #[tokio::test]
+    async fn resumed_job_log_fetches_only_the_unseen_suffix() {
+        let log = job_log(b"a\nb\n");
+        let plugin = serve_job_log(&log).await;
+
+        let (first, bytes, restarted) = read_job_log(&plugin, None).await;
+        assert_eq!(first.unwrap(), LogRead::replace(Some(cursor(JOB_ID, 4))));
+        assert_eq!(bytes, b"a\nb\n");
+        assert!(!restarted);
+
+        log.lock().unwrap().body.extend_from_slice(b"c\nd\n");
+        let (second, bytes, restarted) = read_job_log(&plugin, Some(&cursor(JOB_ID, 4))).await;
+        assert_eq!(second.unwrap(), LogRead::append(cursor(JOB_ID, 8)));
+        assert_eq!(bytes, b"c\nd\n");
+        assert!(!restarted);
+
+        let (idle, bytes, restarted) = read_job_log(&plugin, Some(&cursor(JOB_ID, 8))).await;
+        assert_eq!(idle.unwrap(), LogRead::append(cursor(JOB_ID, 8)));
+        assert!(bytes.is_empty() && !restarted);
+        assert_eq!(
+            requests_of(&log),
+            [
+                (job_log_target("GET"), None),
+                (job_log_target("HEAD"), None),
+                (job_log_target("GET"), Some("bytes=-4".to_string())),
+                (job_log_target("HEAD"), None),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn growth_between_the_size_check_and_the_fetch_loses_and_repeats_nothing() {
+        let log = job_log(b"a\nb\nx\n");
+        log.lock().unwrap().grow_after_head = b"y\n".to_vec();
+        let plugin = serve_job_log(&log).await;
+
+        let (read, bytes, restarted) = read_job_log(&plugin, Some(&cursor(JOB_ID, 4))).await;
+
+        assert_eq!(read.unwrap(), LogRead::append(cursor(JOB_ID, 8)));
+        assert_eq!(bytes, b"x\ny\n");
+        assert!(!restarted);
+        assert_eq!(
+            requests_of(&log),
+            [
+                (job_log_target("HEAD"), None),
+                (job_log_target("GET"), Some("bytes=-2".to_string())),
+                (job_log_target("GET"), Some("bytes=-4".to_string())),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn suffix_overlapping_the_cursor_is_dropped_before_writing() {
+        let log = job_log(b"a\nb\nc\n");
+        log.lock().unwrap().min_suffix = 5;
+        let plugin = serve_job_log(&log).await;
+
+        let (read, bytes, restarted) = read_job_log(&plugin, Some(&cursor(JOB_ID, 4))).await;
+
+        assert_eq!(read.unwrap(), LogRead::append(cursor(JOB_ID, 6)));
+        assert_eq!(bytes, b"c\n");
+        assert!(!restarted);
+    }
+
+    #[tokio::test]
+    async fn shrunk_job_log_restarts_with_the_whole_log() {
+        let log = job_log(b"a\n");
+        let plugin = serve_job_log(&log).await;
+
+        let (read, bytes, restarted) = read_job_log(&plugin, Some(&cursor(JOB_ID, 6))).await;
+
+        assert_eq!(read.unwrap(), LogRead::replace(Some(cursor(JOB_ID, 2))));
+        assert_eq!(bytes, b"a\n");
+        assert!(restarted);
+        assert_eq!(
+            requests_of(&log),
+            [
+                (job_log_target("HEAD"), None),
+                (job_log_target("GET"), None)
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn unusable_cursors_restart_without_a_size_check() {
+        let log = job_log(b"a\nb\n");
+        let plugin = serve_job_log(&log).await;
+
+        for stale in [
+            LogCursor::new(&"garbage").unwrap(),
+            cursor("0190d2a4-0000-0000-0000-000000000000", 4),
+        ] {
+            let (read, bytes, restarted) = read_job_log(&plugin, Some(&stale)).await;
+            assert_eq!(read.unwrap(), LogRead::replace(Some(cursor(JOB_ID, 4))));
+            assert_eq!(bytes, b"a\nb\n");
+            assert!(restarted);
+        }
+
+        assert_eq!(
+            requests_of(&log),
+            [(job_log_target("GET"), None), (job_log_target("GET"), None)]
+        );
+    }
+
+    #[tokio::test]
+    async fn rate_limited_resume_reports_the_delay_and_stops_after_one_request() {
+        let log = job_log(b"a\nb\n");
+        log.lock().unwrap().limited = true;
+        let plugin = serve_job_log(&log).await;
+
+        let (read, bytes, restarted) = read_job_log(&plugin, Some(&cursor(JOB_ID, 2))).await;
+
+        let error = read.unwrap_err();
+        assert!(
+            matches!(error, PluginError::RateLimited { .. }),
+            "{error:?}"
+        );
+        assert_eq!(error.retry_after(), Some(Duration::from_secs(120)));
+        assert!(bytes.is_empty() && !restarted);
+        assert_eq!(requests_of(&log), [(job_log_target("HEAD"), None)]);
     }
 }
