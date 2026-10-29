@@ -7,6 +7,8 @@ module AndroidProject
   MIN_SDK = 24
   MIN_TARGET_SDK = 36
   MAX_VERSION_CODE = 2_100_000_000
+  LAST_SEQUENTIAL_VERSION_CODE = 1005
+  RETIRED_VERSION_CODES = [2_026_010_519, 2_026_010_520].freeze
   REFRESH_SERVICE = "com.henrique.pipedash.plugin.NotificationRefreshJob"
   MAIN_ACTIVITY = "com.henrique.pipedash.MainActivity"
   REQUIRED_PERMISSIONS = %w[
@@ -27,7 +29,7 @@ module AndroidProject
   end
 
   def self.next_version_code(codes)
-    (codes.max || 0) + 1
+    ((codes - RETIRED_VERSION_CODES) + [LAST_SEQUENTIAL_VERSION_CODE]).max + 1
   end
 
   def self.verify_manifest!(xml, version_name:, version_code:)
