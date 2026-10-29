@@ -509,8 +509,8 @@ impl Plugin for ArgocdPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let (_provider_id, _namespace, app_name) = config::parse_pipeline_id(run.pipeline_id)?;
         let client = self.client()?;
         let mut out = Vec::new();
@@ -529,9 +529,12 @@ impl Plugin for ArgocdPlugin {
             })?;
             return self
                 .read_pod_log(&app_name, namespace, pod_name, sink)
-                .await;
+                .await
+                .map(|()| LogRead::replace(None));
         }
-        sink.write(out.into()).await
+        sink.write(out.into())
+            .await
+            .map(|()| LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -1082,13 +1085,14 @@ mod tests {
         };
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let mut sink = LogSink::new(tx);
-        let result = plugin.read_log(run, node_id, &mut sink).await;
+        let result = plugin.read_log(run, node_id, None, &mut sink).await;
+        assert!(!sink.restarted());
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result?;
+        assert_eq!(result?, LogRead::replace(None));
         Ok(bytes
             .split(|b| *b == b'\n')
             .filter(|line| !line.is_empty())

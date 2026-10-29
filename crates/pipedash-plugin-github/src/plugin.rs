@@ -388,8 +388,8 @@ impl Plugin for GitHubPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, _from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let (owner, repo) = Self::repo_of(run.pipeline_id)?;
         let job_id: u64 = node_id
             .parse()
@@ -398,6 +398,7 @@ impl Plugin for GitHubPlugin {
         self.client()?
             .stream_job_log(owner, repo, job_id, sink)
             .await
+            .map(|()| LogRead::replace(None))
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -1882,9 +1883,10 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let mut sink = LogSink::new(tx);
         let metadata = HashMap::new();
-        plugin
-            .read_log(run_ref(&metadata), job_id, &mut sink)
+        let read = plugin
+            .read_log(run_ref(&metadata), job_id, None, &mut sink)
             .await?;
+        assert_eq!(read, LogRead::replace(None));
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {

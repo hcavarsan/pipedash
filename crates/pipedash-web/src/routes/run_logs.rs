@@ -332,6 +332,15 @@ mod tests {
         let data_dir =
             std::env::temp_dir().join(format!("pipedash-run-logs-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&data_dir);
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::write(
+            data_dir.join("config.toml"),
+            format!(
+                "[storage]\ndata_dir = {:?}\n",
+                data_dir.display().to_string()
+            ),
+        )
+        .unwrap();
         std::env::set_var("PIPEDASH_CONFIG_PATH", data_dir.join("config.toml"));
         let mut config = PipedashConfig::default();
         config.storage.backend = StorageBackendType::Sqlite;
@@ -431,16 +440,17 @@ mod tests {
 
         async fn ready_revision(&self) -> i64 {
             let uri = self.logs_uri("?retry=false");
+            let mut last = Value::Null;
             for _ in 0..200 {
                 let (status, _, body) = send(&self.app, authed(Method::GET, &uri, None)).await;
-                let document = json_of(&body);
-                assert_eq!(status, StatusCode::OK, "{document}");
-                if document["state"] == "ready" {
-                    return document["revision"].as_i64().unwrap();
+                last = json_of(&body);
+                assert_eq!(status, StatusCode::OK, "{last}");
+                if last["state"] == "ready" {
+                    return last["revision"].as_i64().unwrap();
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
-            panic!("the log never became ready");
+            panic!("the log never became ready: {last}");
         }
 
         async fn issue(&self, revision: i64) -> (StatusCode, Value) {

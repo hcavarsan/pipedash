@@ -1,5 +1,8 @@
 use std::path::Path;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{
+    AtomicBool,
+    AtomicU64,
+};
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -15,6 +18,7 @@ use super::{
     StepBound,
     BLOCK_CACHE_BUDGET_BYTES,
 };
+use crate::domain::LogCursor;
 
 static DIALECT: ActionsLogDialect = ActionsLogDialect;
 
@@ -51,13 +55,12 @@ pub(crate) fn ingester(
         steps,
         received: Arc::new(AtomicU64::new(0)),
         limits,
+        base: None,
+        restart: Arc::new(AtomicBool::new(false)),
     }
 }
 
-pub(crate) fn ingest_for(
-    dir: &Path, key: DocKey, revision: i64, data: &[u8], chunk: usize, steps: Vec<StepBound>,
-    limits: BlockLimits,
-) -> IngestOutcome {
+pub(crate) fn feed(ingester: Ingester, data: &[u8], chunk: usize) -> super::Ingested {
     let chunks: Vec<Bytes> = data
         .chunks(chunk.max(1))
         .map(Bytes::copy_from_slice)
@@ -67,9 +70,21 @@ pub(crate) fn ingest_for(
         tx.try_send(chunk).expect("channel has room");
     }
     drop(tx);
-    ingester(dir, key, revision, steps, limits)
-        .run(&mut rx)
-        .expect("ingest")
+    ingester.run(&mut rx).expect("ingest")
+}
+
+pub(crate) fn finish(ingested: super::Ingested, cursor: Option<LogCursor>) -> IngestOutcome {
+    ingested.finish(cursor).expect("finish")
+}
+
+pub(crate) fn ingest_for(
+    dir: &Path, key: DocKey, revision: i64, data: &[u8], chunk: usize, steps: Vec<StepBound>,
+    limits: BlockLimits,
+) -> IngestOutcome {
+    finish(
+        feed(ingester(dir, key, revision, steps, limits), data, chunk),
+        None,
+    )
 }
 
 pub(crate) fn ingest(

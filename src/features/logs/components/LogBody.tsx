@@ -35,6 +35,7 @@ export interface LogBodyProps {
   timestamps: boolean
   stickyHeaders: boolean
   selection: { from: number; to: number } | null
+  freshFrom: number | null
   matchIndex: ReadonlyMap<number, MatchTriple[]>
   currentMatch: MatchTriple | null
   emptyLabel: string
@@ -188,6 +189,7 @@ export function LogBody({ ref, ...props }: LogBodyProps): ReactNode {
             gutterCh={gutterCh}
             timestamps={timestamps}
             selected={!!selection && item.line >= selection.from && item.line <= selection.to}
+            fresh={props.freshFrom !== null && item.line >= props.freshFrom}
             matches={props.matchIndex.get(item.line)}
             current={currentMatch && currentMatch[0] === item.line ? currentMatch : null}
             onToggle={props.onToggle}

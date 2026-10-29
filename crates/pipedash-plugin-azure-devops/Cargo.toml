@@ -9,6 +9,7 @@ license = "GPL-3.0"
 
 [dependencies]
 async-trait.workspace = true
+bytes.workspace = true
 chrono.workspace = true
 futures.workspace = true
 pipedash-plugin-actions.workspace = true

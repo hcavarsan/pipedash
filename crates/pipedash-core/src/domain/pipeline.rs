@@ -73,9 +73,11 @@ pub struct Pipeline {
     pub metadata: HashMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overdue_run: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typical_duration_seconds: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PipelineRun {
     pub id: String,
     pub pipeline_id: String,

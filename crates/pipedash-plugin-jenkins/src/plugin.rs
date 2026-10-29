@@ -256,13 +256,13 @@ impl Plugin for JenkinsPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let job_path = Self::job_path(run.pipeline_id)?;
         let build_number = Self::build_number(node_id)?;
 
         self.client()?
-            .stream_console_log(job_path, build_number, sink)
+            .stream_console_log(job_path, build_number, from, sink)
             .await
     }
 
@@ -615,12 +615,32 @@ mod tests {
         match path.strip_prefix("/job/team/job/app/") {
             Some(rest) if rest.starts_with("41/api/json") => json(BUILD_41),
             Some(rest) if rest.starts_with("42/api/json") => json(BUILD_42),
-            Some("42/consoleText") => Reply {
+            Some("42/logText/progressiveText?start=0") => Reply {
+                status: "200 OK",
+                headers: "Content-Type: text/plain;charset=UTF-8\r\nX-Text-Size: 131\r\nX-More-Data: true\r\n",
+                body: CONSOLE_42,
+            },
+            Some("42/logText/progressiveText?start=131") => Reply {
+                status: "200 OK",
+                headers: "Content-Type: text/plain;charset=UTF-8\r\nX-Text-Size: 136\r\nX-More-Data: true\r\n",
+                body: "done\n",
+            },
+            Some("42/logText/progressiveText?start=136") => Reply {
+                status: "200 OK",
+                headers: "Content-Type: text/plain;charset=UTF-8\r\nX-Text-Size: 136\r\nX-More-Data: true\r\n",
+                body: "",
+            },
+            Some("42/logText/progressiveText?start=900") => Reply {
+                status: "200 OK",
+                headers: "Content-Type: text/plain;charset=UTF-8\r\nX-Text-Size: 131\r\nX-More-Data: true\r\n",
+                body: CONSOLE_42,
+            },
+            Some("42/logText/progressiveText?start=777") => Reply {
                 status: "200 OK",
                 headers: "Content-Type: text/plain;charset=UTF-8\r\n",
                 body: CONSOLE_42,
             },
-            Some("8/consoleText") => missing("410 Gone"),
+            Some("8/logText/progressiveText?start=0") => missing("410 Gone"),
             _ => missing("404 Not Found"),
         }
     }
@@ -672,9 +692,9 @@ mod tests {
         }
     }
 
-    async fn read_console(
-        plugin: &JenkinsPlugin, run_number: i64, node_id: &str,
-    ) -> PluginResult<Vec<u8>> {
+    async fn resume_console(
+        plugin: &JenkinsPlugin, run_number: i64, node_id: &str, from: Option<&LogCursor>,
+    ) -> PluginResult<(Vec<u8>, LogRead, bool)> {
         let metadata = HashMap::new();
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let mut sink = LogSink::new(tx);
@@ -682,15 +702,29 @@ mod tests {
             .read_log(
                 build_of_folder_job(run_number, &metadata),
                 node_id,
+                from,
                 &mut sink,
             )
             .await;
+        let restarted = sink.restarted();
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result.map(|()| bytes)
+        result.map(|read| (bytes, read, restarted))
+    }
+
+    async fn read_console(
+        plugin: &JenkinsPlugin, run_number: i64, node_id: &str,
+    ) -> PluginResult<Vec<u8>> {
+        resume_console(plugin, run_number, node_id, None)
+            .await
+            .map(|(bytes, _, _)| bytes)
+    }
+
+    fn console_cursor(build: i64, offset: u64) -> LogCursor {
+        LogCursor::new(&serde_json::json!({ "build": build, "offset": offset })).unwrap()
     }
 
     #[tokio::test]
@@ -752,14 +786,90 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn console_text_of_a_job_in_a_folder_streams_with_basic_auth() {
+    async fn first_console_read_is_the_whole_log_and_resumes_at_the_server_text_size() {
         let requests = Arc::new(AtomicUsize::new(0));
         let plugin = folder_plugin(requests.clone()).await;
 
-        let log = read_console(&plugin, 42, "42").await.unwrap();
+        let (log, read, restarted) = resume_console(&plugin, 42, "42", None).await.unwrap();
 
         assert_eq!(log, CONSOLE_42.as_bytes());
+        assert_eq!(read, LogRead::replace(Some(console_cursor(42, 131))));
+        assert!(!restarted);
         assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn resumed_console_read_appends_only_the_new_text() {
+        let plugin = folder_plugin(Arc::new(AtomicUsize::new(0))).await;
+
+        let (log, read, restarted) =
+            resume_console(&plugin, 42, "42", Some(&console_cursor(42, 131)))
+                .await
+                .unwrap();
+
+        assert_eq!(log, b"done\n");
+        assert_eq!(read, LogRead::append(console_cursor(42, 136)));
+        assert!(!restarted);
+    }
+
+    #[tokio::test]
+    async fn resumed_console_read_with_nothing_new_writes_nothing() {
+        let plugin = folder_plugin(Arc::new(AtomicUsize::new(0))).await;
+
+        let (log, read, restarted) =
+            resume_console(&plugin, 42, "42", Some(&console_cursor(42, 136)))
+                .await
+                .unwrap();
+
+        assert!(log.is_empty());
+        assert_eq!(read, LogRead::append(console_cursor(42, 136)));
+        assert!(!restarted);
+    }
+
+    #[tokio::test]
+    async fn console_that_rolled_over_restarts_with_the_whole_log() {
+        let plugin = folder_plugin(Arc::new(AtomicUsize::new(0))).await;
+
+        let (log, read, restarted) =
+            resume_console(&plugin, 42, "42", Some(&console_cursor(42, 900)))
+                .await
+                .unwrap();
+
+        assert_eq!(log, CONSOLE_42.as_bytes());
+        assert_eq!(read, LogRead::replace(Some(console_cursor(42, 131))));
+        assert!(restarted);
+    }
+
+    #[tokio::test]
+    async fn cursor_of_another_build_or_unknown_shape_restarts_from_zero() {
+        let plugin = folder_plugin(Arc::new(AtomicUsize::new(0))).await;
+        let foreign = console_cursor(41, 136);
+        let malformed = LogCursor::new(&"junk").unwrap();
+
+        for cursor in [foreign, malformed] {
+            let (log, read, restarted) = resume_console(&plugin, 42, "42", Some(&cursor))
+                .await
+                .unwrap();
+
+            assert_eq!(log, CONSOLE_42.as_bytes(), "{cursor:?}");
+            assert_eq!(
+                read,
+                LogRead::replace(Some(console_cursor(42, 131))),
+                "{cursor:?}"
+            );
+            assert!(restarted, "{cursor:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn resumed_console_read_without_a_text_size_fails_instead_of_guessing() {
+        let plugin = folder_plugin(Arc::new(AtomicUsize::new(0))).await;
+
+        let error = resume_console(&plugin, 42, "42", Some(&console_cursor(42, 777)))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, PluginError::ApiError(_)), "{error:?}");
     }
 
     #[tokio::test]

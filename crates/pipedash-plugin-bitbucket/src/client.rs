@@ -5,6 +5,7 @@ use pipedash_plugin_api::{
     check_response,
     map_send_error,
     redact_url,
+    LogReadMode,
     LogSink,
     PaginatedResponse,
     PaginationParams,
@@ -232,8 +233,8 @@ impl BitbucketClient {
 
     pub async fn stream_step_log(
         &self, workspace: &str, repo_slug: &str, pipeline_uuid: &str, step_uuid: &str,
-        sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        offset: Option<u64>, sink: &mut LogSink,
+    ) -> PluginResult<(LogReadMode, u64)> {
         let url = Self::parse_url(&format!(
             "{}/repositories/{}/{}/pipelines/{}/steps/{}/log",
             self.api_url,
@@ -243,24 +244,34 @@ impl BitbucketClient {
             Self::encoded_uuid(step_uuid)
         ))?;
 
-        let response = self
-            .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .get(url.clone())
-                    .header(reqwest::header::AUTHORIZATION, &self.auth_value)
-                    .timeout(Duration::from_secs(900))
+        let url = &url;
+        sink.pipe_resumed(offset, |from| async move {
+            let response = self
+                .retry_policy
+                .retry_unsent(url, || {
+                    let request = self
+                        .http_client
+                        .get(url.clone())
+                        .header(reqwest::header::AUTHORIZATION, &self.auth_value)
+                        .timeout(Duration::from_secs(900));
+                    match from {
+                        Some(from) => {
+                            request.header(reqwest::header::RANGE, format!("bytes={from}-"))
+                        }
+                        None => request,
+                    }
                     .send()
-            })
-            .await?;
+                })
+                .await?;
 
-        if matches!(response.status().as_u16(), 404 | 410) {
-            return Err(PluginError::PipelineNotFound(format!(
-                "Log of step {step_uuid} is no longer available"
-            )));
-        }
-
-        sink.pipe(check_response(response).await?).await
+            if matches!(response.status().as_u16(), 404 | 410) {
+                return Err(PluginError::PipelineNotFound(format!(
+                    "Log of step {step_uuid} is no longer available"
+                )));
+            }
+            Ok(response)
+        })
+        .await
     }
 
     pub async fn trigger_pipeline(

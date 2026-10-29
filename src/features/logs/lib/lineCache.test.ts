@@ -22,12 +22,15 @@ interface Call {
   fail: (error: unknown) => void
 }
 
-const doc = (lineCount = 3_000_000): DocRef => ({
+const doc = (lineCount = 3_000_000, overrides: Partial<DocRef> = {}): DocRef => ({
   pipelineId: 'github__1__o/r/w',
   runNumber: 7,
   nodeId: '99',
   revision: 1,
   lineCount,
+  previousRevision: null,
+  stableLines: 0,
+  ...overrides,
 })
 
 const flush = () => {
@@ -308,4 +311,58 @@ test('a command error shaped as { error, code } also counts', async (context) =>
   reader.calls[0]?.fail({ error: 'gone', code: 'NOT_FOUND' })
   await waitFor(() => assert.deepEqual(gone, [doc()]))
   cache.clear()
+})
+
+test('a continuing revision reuses its stable lines and fetches only the new ones', async (context) => {
+  const reader = gatedReader(context)
+  const cache = new LogLineCache()
+  const owner = Symbol('a')
+  const first = doc(100)
+
+  cache.need(owner, first, [0, 1, 2])
+  await waitFor(() => assert.equal(reader.calls.length, 1))
+  reader.calls[0]?.release()
+  await waitFor(() => assert.equal(textOf(cache.line(first, 2)), 'line 2'))
+
+  const second = doc(150, { revision: 2, previousRevision: 1, stableLines: 100 })
+
+  cache.need(owner, second, [0, 1, 2, 120])
+  assert.equal(textOf(cache.line(second, 2)), 'line 2')
+  await waitFor(() => assert.equal(reader.calls.length, 2))
+  await flush()
+
+  assert.deepEqual(
+    reader.calls.map(({ start, count }) => [start, count]),
+    [
+      [0, 64],
+      [64, 64],
+    ]
+  )
+})
+
+test('lines at or after stable_lines and non-consecutive revisions are fetched again', async (context) => {
+  const reader = gatedReader(context)
+  const cache = new LogLineCache()
+  const owner = Symbol('a')
+  const first = doc(100)
+
+  cache.need(owner, first, [0, 1, 2])
+  await waitFor(() => assert.equal(reader.calls.length, 1))
+  reader.calls[0]?.release()
+  await waitFor(() => assert.equal(textOf(cache.line(first, 2)), 'line 2'))
+
+  const second = doc(100, { revision: 2, previousRevision: 1, stableLines: 2 })
+
+  cache.need(owner, second, [0, 2])
+  assert.equal(textOf(cache.line(second, 1)), 'line 1')
+  assert.equal(cache.line(second, 2), 'loading')
+  await waitFor(() => assert.equal(reader.calls.length, 2))
+  assert.deepEqual([reader.calls[1]?.start, reader.calls[1]?.count], [2, 62])
+  reader.calls[1]?.release()
+  await waitFor(() => assert.equal(textOf(cache.line(second, 2)), 'line 2'))
+
+  const skipped = doc(100, { revision: 4, previousRevision: 3, stableLines: 100 })
+
+  cache.need(owner, skipped, [0])
+  assert.equal(cache.line(skipped, 0), 'loading')
 })

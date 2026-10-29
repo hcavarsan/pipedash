@@ -4,7 +4,7 @@ import { StatusIcon } from '../../../components/atoms/StatusBadge'
 import { VirtualList } from '../../../components/common/VirtualList'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import type { RunLogNode } from '../../../types/logs'
-import { formatDuration } from '../../../utils/formatDuration'
+import { NodeDuration } from '../../logs/components/NodeDuration'
 import { groupLogNodes } from '../lib/logTree'
 
 type JobListItem = { kind: 'stage'; stage: string; key: string } | { kind: 'job'; node: RunLogNode; key: string }
@@ -48,7 +48,7 @@ export function MobileRunJobs({ nodes, onSelect }: MobileRunJobsProps): ReactNod
             <IosRow
               icon={<StatusIcon status={item.node.status} />}
               title={item.node.name}
-              value={formatDuration(item.node.duration_seconds)}
+              value={<NodeDuration node={item.node} />}
               chevron
               onClick={() => onSelect(item.node.id)}
             />

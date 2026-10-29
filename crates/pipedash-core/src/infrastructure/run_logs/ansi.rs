@@ -23,6 +23,15 @@ pub(crate) struct StyleTable {
 }
 
 impl StyleTable {
+    pub(crate) fn from_list(list: Vec<LogStyle>) -> Self {
+        let map = list.iter().cloned().zip(0u16..).collect();
+        Self { map, list }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.list.len()
+    }
+
     pub(crate) fn into_list(self) -> Vec<LogStyle> {
         self.list
     }
@@ -51,6 +60,7 @@ struct Sgr {
     underline: bool,
     strike: bool,
     inverse: bool,
+    conceal: bool,
 }
 
 impl Sgr {
@@ -84,7 +94,9 @@ pub(crate) fn render(
             .position(|&b| b < 0x20 && b != b'\t')
             .map_or(body.len(), |p| i + p);
         if run_end > i {
-            push_run(&body[i..run_end], current, text, spans);
+            if !sgr.conceal {
+                push_run(&body[i..run_end], current, text, spans);
+            }
             i = run_end;
             continue;
         }
@@ -195,6 +207,8 @@ fn apply_sgr(sgr: &mut Sgr, params: &[u8]) {
             4 => sgr.underline = true,
             9 => sgr.strike = true,
             7 => sgr.inverse = true,
+            8 => sgr.conceal = true,
+            28 => sgr.conceal = false,
             22 => {
                 sgr.bold = false;
                 sgr.dim = false;
@@ -359,6 +373,37 @@ mod tests {
         let (text, spans, _) = run(b"a\x1b]0;title\x07b\x1b]8;;x\x1b\\c\x08\x07d\x1b[2Ke\x1bXf\tg");
         assert_eq!(text, "abcdef\tg");
         assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn run_logs_ansi_drops_concealed_jenkins_notes() {
+        let note = "\x1b[8mha:////4IkPeNOtKgYQ==\x1b[0m";
+        assert_eq!(
+            run(format!("{note}[Pipeline] Start").as_bytes()).0,
+            "[Pipeline] Start"
+        );
+        assert_eq!(
+            run(format!("Started by user {note}admin").as_bytes()).0,
+            "Started by user admin"
+        );
+        assert_eq!(run(format!("{note}a{note}b").as_bytes()).0, "ab");
+    }
+
+    #[test]
+    fn run_logs_ansi_conceal_ends_at_28_or_reset_or_line_end() {
+        assert_eq!(run(b"a\x1b[8msecret\x1b[28mb").0, "ab");
+        assert_eq!(run(b"a\x1b[8msecret\x1b[0mb").0, "ab");
+        assert_eq!(run(b"a\x1b[8msecret\x1b[mb").0, "ab");
+        assert_eq!(run(b"a\x1b[8msecret to the end").0, "a");
+        assert_eq!(run(b"next line").0, "next line");
+    }
+
+    #[test]
+    fn run_logs_ansi_concealed_text_keeps_other_styles() {
+        let (text, spans, styles) = run(b"\x1b[31m\x1b[8mhidden\x1b[28mshown");
+        assert_eq!(text, "shown");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(styles[spans[0].style as usize].fg, Some(AnsiColor::Red));
     }
 
     #[test]

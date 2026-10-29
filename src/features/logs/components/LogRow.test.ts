@@ -36,6 +36,7 @@ const renderLine = (data: LineState) =>
         gutterCh: 3,
         timestamps: false,
         selected: false,
+        fresh: false,
         matches: undefined,
         current: null,
         onToggle: noop,

@@ -5,6 +5,7 @@ mod mapper;
 mod metadata;
 mod plugin;
 mod schema;
+mod step_log;
 mod types;
 
 pub use log_dialect::TektonLogDialect;

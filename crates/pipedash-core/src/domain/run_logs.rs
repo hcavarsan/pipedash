@@ -5,8 +5,11 @@ use chrono::{
 pub use pipedash_plugin_api::{
     LineMarker,
     LogAvailability,
+    LogCursor,
     LogDialect,
     LogNodeKind,
+    LogRead,
+    LogReadMode,
     LogSink,
     ParsedLine,
     PlainDialect,
@@ -31,14 +34,14 @@ pub struct LogNode {
     pub web_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunLogTree {
     pub nodes: Vec<RunLogNode>,
     pub default_node_id: Option<String>,
     pub complete: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunLogNode {
     pub id: String,
     pub parent_id: Option<String>,
@@ -79,6 +82,9 @@ pub struct LogDocumentMeta {
     pub error_total: u32,
     pub warning_total: u32,
     pub focus_line: Option<u32>,
+    pub updated_at_ms: i64,
+    pub stable_lines: u32,
+    pub previous_revision: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

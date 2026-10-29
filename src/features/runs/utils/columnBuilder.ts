@@ -3,7 +3,8 @@ import type { DataTableColumn } from 'mantine-datatable'
 import { logger } from '../../../lib/logger'
 import type { ColumnDefinition, PipelineRun } from '../../../types/domain'
 import { getRunStatusLabel } from '../../../utils/pipelinePresentation'
-import { renderCellValue } from './dynamicRenderers'
+import { isLiveRun } from '../../../utils/runTiming'
+import { renderCellValue, renderLiveRunDuration } from './dynamicRenderers'
 import { getValueByPath } from './objectPath'
 
 const RIGHT_ALIGNED_TYPES: ColumnDefinition['data_type'][] = ['Number', 'Duration']
@@ -29,6 +30,10 @@ export function buildColumnsFromSchema(
       toggleable: false,
       draggable: false,
       render: (record) => {
+        if (def.renderer === 'Duration' && def.field_path === 'duration_seconds' && isLiveRun(record)) {
+          return renderLiveRunDuration(record)
+        }
+
         const value = getValueByPath(record, def.field_path)
 
         return renderCellValue(def.renderer, value, getRunStatusLabel(record))

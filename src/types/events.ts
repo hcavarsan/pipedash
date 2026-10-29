@@ -1,4 +1,4 @@
-import type { Pipeline, ProviderHealthAlert, ProviderSummary } from './domain'
+import type { Pipeline, PipelineRun, ProviderHealthAlert, ProviderSummary } from './domain'
 
 export interface PipelinesUpdatedPayload {
   pipelines: Pipeline[]
@@ -46,4 +46,6 @@ export type EventPayloadMap = {
   'run-log-progress': { pipelineId: string; runNumber: number; nodeId: string; receivedBytes: number }
   'run-log-ready': { pipelineId: string; runNumber: number; nodeId: string; revision: number }
   'run-log-failed': { pipelineId: string; runNumber: number; nodeId: string; message: string }
+  'run-log-tree-changed': { pipelineId: string; runNumber: number }
+  'run-updated': { pipelineId: string; runNumber: number; run: PipelineRun }
 }

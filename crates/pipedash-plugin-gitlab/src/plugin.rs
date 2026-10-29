@@ -14,6 +14,12 @@ use crate::{
     types,
 };
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LogPosition {
+    job: String,
+    offset: u64,
+}
+
 pub struct GitLabPlugin {
     metadata: PluginMetadata,
     client: Option<client::GitLabClient>,
@@ -341,8 +347,8 @@ impl Plugin for GitLabPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         if node_id.is_empty() || !node_id.bytes().all(|b| b.is_ascii_digit()) {
             return Err(PluginError::InvalidConfig(format!(
                 "Invalid GitLab job ID: {node_id}"
@@ -350,9 +356,21 @@ impl Plugin for GitLabPlugin {
         }
         let (_, project_id) = config::parse_pipeline_id(run.pipeline_id)?;
 
-        self.client()?
-            .stream_job_log(project_id, node_id, sink)
-            .await
+        let position = from
+            .and_then(|cursor| cursor.parse::<LogPosition>())
+            .filter(|position| position.job == node_id);
+        if from.is_some() && position.is_none() {
+            sink.restart()?;
+        }
+        let (mode, offset) = self
+            .client()?
+            .stream_job_log(project_id, node_id, position.map(|p| p.offset), sink)
+            .await?;
+        let job = node_id.to_string();
+        Ok(LogRead {
+            mode,
+            cursor: Some(LogCursor::new(&LogPosition { job, offset })?),
+        })
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -883,13 +901,15 @@ mod tests {
         let metadata = HashMap::new();
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let mut sink = LogSink::new(tx);
-        let result = plugin.read_log(run_77(&metadata), node_id, &mut sink).await;
+        let result = plugin
+            .read_log(run_77(&metadata), node_id, None, &mut sink)
+            .await;
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result.map(|()| bytes)
+        result.map(|_| bytes)
     }
 
     async fn targets(requests: &Requests) -> Vec<String> {
@@ -1058,5 +1078,185 @@ mod tests {
         server.abort();
 
         assert!(requests.lock().await.is_empty());
+    }
+
+    struct Trace {
+        body: Vec<u8>,
+        honors_range: bool,
+        ranges: Vec<Option<String>>,
+    }
+
+    type SharedTrace = std::sync::Arc<std::sync::Mutex<Trace>>;
+
+    async fn stub_trace(
+        body: &[u8], honors_range: bool,
+    ) -> (GitLabPlugin, SharedTrace, tokio::task::JoinHandle<()>) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let trace = SharedTrace::new(std::sync::Mutex::new(Trace {
+            body: body.to_vec(),
+            honors_range,
+            ranges: Vec::new(),
+        }));
+        let state = trace.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 4096];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let count = stream.read(&mut buffer).await.unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                let range = request.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("range")
+                        .then(|| value.trim().to_string())
+                });
+                let (status, content_range, payload) = {
+                    let mut trace = state.lock().unwrap();
+                    trace.ranges.push(range.clone());
+                    let total = trace.body.len();
+                    let start = range
+                        .as_deref()
+                        .and_then(|value| {
+                            value
+                                .strip_prefix("bytes=")?
+                                .strip_suffix('-')?
+                                .parse()
+                                .ok()
+                        })
+                        .filter(|_| trace.honors_range);
+                    match start {
+                        Some(start) if start >= total => (
+                            "416 Range Not Satisfiable",
+                            format!("Content-Range: bytes */{total}\r\n"),
+                            Vec::new(),
+                        ),
+                        Some(start) => (
+                            "206 Partial Content",
+                            format!("Content-Range: bytes {start}-{}/{total}\r\n", total - 1),
+                            trace.body[start..].to_vec(),
+                        ),
+                        None => ("200 OK", String::new(), trace.body.clone()),
+                    }
+                };
+                let head = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: text/plain\r\n{content_range}Content-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                );
+                stream.write_all(head.as_bytes()).await.unwrap();
+                stream.write_all(&payload).await.unwrap();
+            }
+        });
+        let mut plugin = GitLabPlugin::new();
+        plugin
+            .initialize(
+                1,
+                HashMap::from([
+                    ("base_url".to_string(), format!("http://{addr}")),
+                    ("token".to_string(), "stub-token".to_string()),
+                ]),
+                None,
+            )
+            .unwrap();
+        (plugin, trace, server)
+    }
+
+    fn cursor(job: &str, offset: u64) -> LogCursor {
+        LogCursor::new(&serde_json::json!({"job": job, "offset": offset})).unwrap()
+    }
+
+    async fn read_trace(
+        plugin: &GitLabPlugin, from: Option<&LogCursor>,
+    ) -> (PluginResult<LogRead>, Vec<u8>, bool) {
+        let metadata = HashMap::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin
+            .read_log(run_77(&metadata), "40", from, &mut sink)
+            .await;
+        let restarted = sink.restarted();
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        (result, bytes, restarted)
+    }
+
+    fn ranges(trace: &SharedTrace) -> Vec<Option<String>> {
+        trace.lock().unwrap().ranges.clone()
+    }
+
+    #[tokio::test]
+    async fn resumed_trace_appends_only_the_new_bytes() {
+        let (plugin, trace, server) = stub_trace(b"a\nb\n", true).await;
+
+        let (first, bytes, restarted) = read_trace(&plugin, None).await;
+        assert_eq!(first.unwrap(), LogRead::replace(Some(cursor("40", 4))));
+        assert_eq!(bytes, b"a\nb\n");
+        assert!(!restarted);
+
+        trace.lock().unwrap().body.extend_from_slice(b"c\n");
+        let (second, bytes, restarted) = read_trace(&plugin, Some(&cursor("40", 4))).await;
+        assert_eq!(second.unwrap(), LogRead::append(cursor("40", 6)));
+        assert_eq!(bytes, b"c\n");
+        assert!(!restarted);
+
+        let (idle, bytes, restarted) = read_trace(&plugin, Some(&cursor("40", 6))).await;
+        server.abort();
+        assert_eq!(idle.unwrap(), LogRead::append(cursor("40", 6)));
+        assert!(bytes.is_empty() && !restarted);
+        assert_eq!(
+            ranges(&trace),
+            [None, Some("bytes=4-".into()), Some("bytes=6-".into())]
+        );
+    }
+
+    #[tokio::test]
+    async fn server_ignoring_range_restarts_with_the_whole_trace() {
+        let (plugin, trace, server) = stub_trace(b"a\nb\nc\n", false).await;
+
+        let (read, bytes, restarted) = read_trace(&plugin, Some(&cursor("40", 4))).await;
+        server.abort();
+
+        assert_eq!(read.unwrap(), LogRead::replace(Some(cursor("40", 6))));
+        assert_eq!(bytes, b"a\nb\nc\n");
+        assert!(restarted);
+        assert_eq!(ranges(&trace), [Some("bytes=4-".into())]);
+    }
+
+    #[tokio::test]
+    async fn shrunk_trace_restarts_with_the_whole_trace() {
+        let (plugin, trace, server) = stub_trace(b"a\n", true).await;
+
+        let (read, bytes, restarted) = read_trace(&plugin, Some(&cursor("40", 6))).await;
+        server.abort();
+
+        assert_eq!(read.unwrap(), LogRead::replace(Some(cursor("40", 2))));
+        assert_eq!(bytes, b"a\n");
+        assert!(restarted);
+        assert_eq!(ranges(&trace), [Some("bytes=6-".into()), None]);
+    }
+
+    #[tokio::test]
+    async fn unusable_cursors_restart_without_a_range_request() {
+        let (plugin, trace, server) = stub_trace(b"a\nb\n", true).await;
+
+        for stale in [LogCursor::new(&"garbage").unwrap(), cursor("39", 4)] {
+            let (read, bytes, restarted) = read_trace(&plugin, Some(&stale)).await;
+            assert_eq!(read.unwrap(), LogRead::replace(Some(cursor("40", 4))));
+            assert_eq!(bytes, b"a\nb\n");
+            assert!(restarted);
+        }
+        server.abort();
+
+        assert_eq!(ranges(&trace), [None, None]);
     }
 }

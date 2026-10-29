@@ -252,6 +252,10 @@ impl Document {
         })
     }
 
+    pub(super) fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     pub fn meta(&self) -> &StoredDocMeta {
         &self.meta
     }

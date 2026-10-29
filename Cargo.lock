@@ -4244,6 +4244,7 @@ name = "pipedash-plugin-azure-devops"
 version = "0.6.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "chrono",
  "futures",
  "pipedash-plugin-actions",

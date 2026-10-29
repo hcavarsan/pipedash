@@ -13,8 +13,10 @@ use crate::health::{
     StatusSource,
 };
 use crate::logs::{
+    LogCursor,
     LogDialect,
     LogNode,
+    LogRead,
     LogSink,
     PlainDialect,
     RunRef,
@@ -110,8 +112,8 @@ pub trait Plugin: Send + Sync {
     }
 
     async fn read_log(
-        &self, _run: RunRef<'_>, _node_id: &str, _sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, _run: RunRef<'_>, _node_id: &str, _from: Option<&LogCursor>, _sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         Err(crate::error::PluginError::NotSupported(
             "Run logs not supported by this provider".to_string(),
         ))

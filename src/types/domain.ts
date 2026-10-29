@@ -65,6 +65,7 @@ export interface Pipeline {
   workflow_file: string | null
   metadata?: Record<string, unknown>
   overdue_run?: string | null
+  typical_duration_seconds?: number
   resource_state?: ResourceState
 }
 

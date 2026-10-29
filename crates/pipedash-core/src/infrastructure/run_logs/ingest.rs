@@ -1,20 +1,32 @@
-use std::fs::File;
+use std::fs::{
+    self,
+    File,
+};
 use std::io::{
     self,
     BufWriter,
     Write,
 };
-use std::path::PathBuf;
+use std::path::{
+    Path,
+    PathBuf,
+};
 use std::sync::atomic::{
+    AtomicBool,
     AtomicU64,
     Ordering,
 };
 use std::sync::Arc;
 
 use bytes::Bytes;
+use chrono::Utc;
 use memchr::{
     memchr,
     memchr_iter,
+};
+use sha2::{
+    Digest,
+    Sha256,
 };
 use tokio::sync::mpsc;
 
@@ -27,12 +39,22 @@ use super::block::{
     BlockRef,
     BlockWriter,
 };
+use super::checkpoint::{
+    self,
+    copy_prefix,
+    steps_hash,
+    Base,
+    Checkpoint,
+    Resume,
+    TAIL_FILE,
+};
 use super::failure;
 use super::outline::{
     Outline,
     StepBound,
 };
 use super::store::{
+    short_hex,
     DocKey,
     StoredDocMeta,
     STORED_FORMAT,
@@ -46,7 +68,10 @@ use super::{
 use crate::domain::{
     LineKind,
     LineMarker,
+    LogCursor,
     LogDialect,
+    LogRead,
+    LogReadMode,
 };
 
 pub(super) const BLOCKS_FILE: &str = "blocks.bin";
@@ -80,12 +105,15 @@ pub struct Ingester {
     pub steps: Vec<StepBound>,
     pub received: Arc<AtomicU64>,
     pub limits: BlockLimits,
+    pub base: Option<Base>,
+    pub restart: Arc<AtomicBool>,
 }
 
 #[derive(Debug)]
 pub struct IngestOutcome {
     pub meta: StoredDocMeta,
     pub truncated: bool,
+    pub resumable: bool,
 }
 
 #[derive(PartialEq, Eq)]
@@ -94,51 +122,216 @@ enum Flow {
     Stop,
 }
 
+pub struct Ingested {
+    cfg: Ingester,
+    resumed: Option<bool>,
+    state: Option<State>,
+    steps_hash: String,
+}
+
 impl Ingester {
-    pub fn run(self, rx: &mut mpsc::Receiver<Bytes>) -> io::Result<IngestOutcome> {
-        let received = self.received.clone();
-        let mut state = State::new(self)?;
-        let mut pending: Vec<u8> = Vec::new();
-        'receive: while let Some(chunk) = rx.blocking_recv() {
+    pub fn run(self, rx: &mut mpsc::Receiver<Bytes>) -> io::Result<Ingested> {
+        let received = Arc::clone(&self.received);
+        let mut ingested = Ingested {
+            steps_hash: steps_hash(&self.steps),
+            cfg: self,
+            resumed: None,
+            state: None,
+        };
+        while let Some(chunk) = rx.blocking_recv() {
             received.fetch_add(chunk.len() as u64, Ordering::Relaxed);
-            let mut start = 0;
-            for end in memchr_iter(b'\n', &chunk) {
-                let flow = if pending.is_empty() {
-                    state.complete_line(&chunk[start..end])?
-                } else {
-                    pending.extend_from_slice(&chunk[start..end]);
-                    let flow = state.complete_line(&pending)?;
-                    pending.clear();
-                    flow
-                };
-                if flow == Flow::Stop {
-                    break 'receive;
-                }
-                start = end + 1;
-            }
-            pending.extend_from_slice(&chunk[start..]);
-            if pending.len() > MAX_LINE_BYTES {
-                let (consumed, flow) = state.split_long(&pending)?;
-                pending.drain(..consumed);
-                if flow == Flow::Stop {
-                    break;
-                }
+            if ingested.start()?.push(&chunk)? == Flow::Stop {
+                break;
             }
         }
-        if state.truncated {
-            rx.close();
-        } else if !pending.is_empty() {
-            state.complete_line(&pending)?;
+        if !ingested.decide() {
+            ingested.start()?;
         }
-        state.finish()
+        if let Some(state) = ingested.state.as_mut() {
+            state.seal();
+            if state.truncated {
+                rx.close();
+            }
+        }
+
+        Ok(ingested)
+    }
+}
+
+impl Ingested {
+    pub fn resumed(&self) -> bool {
+        self.resumed == Some(true)
+    }
+
+    pub fn truncated(&self) -> bool {
+        self.state.as_ref().is_some_and(|state| state.truncated)
+    }
+
+    pub fn unchanged(&self, read: &LogRead) -> bool {
+        let Some(base) = &self.cfg.base else {
+            return false;
+        };
+        let Some(prior) = &base.checkpoint else {
+            return false;
+        };
+        if base.document.meta().complete != self.cfg.complete || prior.steps_hash != self.steps_hash
+        {
+            return false;
+        }
+        let state = self.state.as_ref();
+        match read.mode {
+            LogReadMode::Append => {
+                state.is_none_or(|state| state.new_bytes == 0)
+                    && read.cursor.as_ref().is_some_and(|cursor| {
+                        prior
+                            .resume
+                            .as_ref()
+                            .is_some_and(|resume| &resume.cursor == cursor)
+                    })
+            }
+            LogReadMode::Replace => {
+                let hash = state.and_then(|state| state.raw_hash.as_deref());
+                hash.is_some() && hash == prior.raw_hash.as_deref()
+            }
+        }
+    }
+
+    pub fn finish(mut self, cursor: Option<LogCursor>) -> io::Result<IngestOutcome> {
+        self.start()?;
+        let Self {
+            cfg,
+            state,
+            steps_hash,
+            ..
+        } = self;
+        let mut state = state.ok_or_else(not_started)?;
+        let had_cursor = cursor.is_some();
+        let mut keep =
+            !cfg.complete && !state.truncated && (had_cursor || state.raw_hash.is_some());
+        if keep {
+            state.write_checkpoint(&cfg.dir, cursor, &steps_hash)?;
+        }
+        state.render_tail()?;
+        if keep && state.truncated {
+            checkpoint::remove(&cfg.dir);
+            keep = false;
+        }
+
+        state.finish(cfg, keep && had_cursor)
+    }
+
+    fn decide(&mut self) -> bool {
+        let Self { cfg, resumed, .. } = self;
+        *resumed.get_or_insert_with(|| {
+            cfg.base
+                .as_ref()
+                .is_some_and(|base| base.cursor(&cfg.steps).is_some())
+                && !cfg.restart.load(Ordering::SeqCst)
+        })
+    }
+
+    fn start(&mut self) -> io::Result<&mut State> {
+        if self.state.is_none() {
+            let start = if self.decide() {
+                Start::resume(&mut self.cfg)?
+            } else {
+                Start::fresh(&mut self.cfg)?
+            };
+            self.state = Some(State::new(&self.cfg, start));
+        }
+
+        self.state.as_mut().ok_or_else(not_started)
+    }
+}
+
+fn not_started() -> io::Error {
+    io::Error::other("The log ingest has not started")
+}
+
+struct Start {
+    outline: Outline,
+    styles: StyleTable,
+    blocks: File,
+    index: File,
+    blocks_len: u64,
+    index_len: u64,
+    line_count: u32,
+    text_bytes: u64,
+    first_ts: Option<i64>,
+    pending: Vec<u8>,
+    previous: Option<(i64, u32)>,
+}
+
+impl Start {
+    fn fresh(cfg: &mut Ingester) -> io::Result<Self> {
+        Ok(Self {
+            outline: Outline::new(std::mem::take(&mut cfg.steps), &cfg.dir),
+            styles: StyleTable::default(),
+            blocks: File::create(cfg.dir.join(BLOCKS_FILE))?,
+            index: File::create(cfg.dir.join(INDEX_FILE))?,
+            blocks_len: 0,
+            index_len: 0,
+            line_count: 0,
+            text_bytes: 0,
+            first_ts: None,
+            pending: Vec::new(),
+            previous: None,
+        })
+    }
+
+    fn resume(cfg: &mut Ingester) -> io::Result<Self> {
+        let missing = || {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "There is no log checkpoint to resume from",
+            )
+        };
+        let Base {
+            revision,
+            document,
+            checkpoint,
+            ..
+        } = cfg.base.as_mut().ok_or_else(missing)?;
+        let resume = checkpoint
+            .as_mut()
+            .and_then(|checkpoint| checkpoint.resume.as_mut())
+            .ok_or_else(missing)?;
+        let from = document.dir();
+        let pending = match fs::read(from.join(TAIL_FILE)) {
+            Ok(tail) => tail,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(e),
+        };
+
+        Ok(Self {
+            blocks: copy_prefix(
+                &from.join(BLOCKS_FILE),
+                &cfg.dir.join(BLOCKS_FILE),
+                resume.blocks_len,
+            )?,
+            index: copy_prefix(
+                &from.join(INDEX_FILE),
+                &cfg.dir.join(INDEX_FILE),
+                resume.index_len,
+            )?,
+            outline: std::mem::take(&mut resume.outline).resume(
+                std::mem::take(&mut cfg.steps),
+                from,
+                &cfg.dir,
+            )?,
+            styles: StyleTable::from_list(document.meta().styles[..resume.styles].to_vec()),
+            blocks_len: resume.blocks_len,
+            index_len: resume.index_len,
+            line_count: resume.line_count,
+            text_bytes: resume.text_bytes,
+            first_ts: resume.first_ts,
+            pending,
+            previous: Some((*revision, resume.line_count)),
+        })
     }
 }
 
 struct State {
-    key: DocKey,
-    revision: i64,
-    complete: bool,
-    dir: PathBuf,
     dialect: &'static dyn LogDialect,
     infer_errors: bool,
     max_doc_text_bytes: u64,
@@ -155,6 +348,11 @@ struct State {
     text_bytes: u64,
     first_ts: Option<i64>,
     truncated: bool,
+    pending: Vec<u8>,
+    hasher: Option<Sha256>,
+    raw_hash: Option<String>,
+    new_bytes: u64,
+    previous: Option<(i64, u32)>,
 }
 
 fn char_cut(buf: &[u8]) -> usize {
@@ -192,31 +390,110 @@ fn kind_of(marker: LineMarker) -> LineKind {
 }
 
 impl State {
-    fn new(ingester: Ingester) -> io::Result<Self> {
-        let blocks = File::create(ingester.dir.join(BLOCKS_FILE))?;
-        let index = File::create(ingester.dir.join(INDEX_FILE))?;
-        Ok(Self {
-            outline: Outline::new(ingester.steps, &ingester.dir),
-            writer: BlockWriter::new(ingester.limits.lines, ingester.limits.target_bytes),
-            key: ingester.key,
-            revision: ingester.revision,
-            complete: ingester.complete,
-            dir: ingester.dir,
-            dialect: ingester.dialect,
-            infer_errors: ingester.dialect.infers_errors(),
-            max_doc_text_bytes: ingester.limits.max_doc_text_bytes,
-            styles: StyleTable::default(),
-            blocks: BufWriter::with_capacity(BLOCKS_BUFFER_BYTES, blocks),
-            index: BufWriter::new(index),
-            blocks_len: 0,
-            index_len: 0,
+    fn new(cfg: &Ingester, start: Start) -> Self {
+        Self {
+            dialect: cfg.dialect,
+            infer_errors: cfg.dialect.infers_errors(),
+            max_doc_text_bytes: cfg.limits.max_doc_text_bytes,
+            styles: start.styles,
+            outline: start.outline,
+            writer: BlockWriter::new(cfg.limits.lines, cfg.limits.target_bytes),
+            blocks: BufWriter::with_capacity(BLOCKS_BUFFER_BYTES, start.blocks),
+            index: BufWriter::new(start.index),
+            blocks_len: start.blocks_len,
+            index_len: start.index_len,
             text: String::new(),
             spans: Vec::new(),
-            line_count: 0,
-            text_bytes: 0,
-            first_ts: None,
+            line_count: start.line_count,
+            text_bytes: start.text_bytes,
+            first_ts: start.first_ts,
             truncated: false,
-        })
+            pending: start.pending,
+            hasher: (!cfg.complete && start.previous.is_none()).then(Sha256::new),
+            raw_hash: None,
+            new_bytes: 0,
+            previous: start.previous,
+        }
+    }
+
+    fn push(&mut self, chunk: &[u8]) -> io::Result<Flow> {
+        self.new_bytes += chunk.len() as u64;
+        if let Some(hasher) = self.hasher.as_mut() {
+            hasher.update(chunk);
+        }
+        let mut start = 0;
+        for end in memchr_iter(b'\n', chunk) {
+            let flow = if self.pending.is_empty() {
+                self.complete_line(&chunk[start..end])?
+            } else {
+                let mut pending = std::mem::take(&mut self.pending);
+                pending.extend_from_slice(&chunk[start..end]);
+                let flow = self.complete_line(&pending)?;
+                pending.clear();
+                self.pending = pending;
+                flow
+            };
+            if flow == Flow::Stop {
+                return Ok(Flow::Stop);
+            }
+            start = end + 1;
+        }
+        self.pending.extend_from_slice(&chunk[start..]);
+        if self.pending.len() > MAX_LINE_BYTES {
+            let mut pending = std::mem::take(&mut self.pending);
+            let (consumed, flow) = self.split_long(&pending)?;
+            pending.drain(..consumed);
+            self.pending = pending;
+            return Ok(flow);
+        }
+
+        Ok(Flow::Continue)
+    }
+
+    fn seal(&mut self) {
+        self.raw_hash = self
+            .hasher
+            .take()
+            .map(|hasher| short_hex(&hasher.finalize()));
+    }
+
+    fn render_tail(&mut self) -> io::Result<()> {
+        if self.truncated || self.pending.is_empty() {
+            return Ok(());
+        }
+        let pending = std::mem::take(&mut self.pending);
+        self.complete_line(&pending).map(drop)
+    }
+
+    fn write_checkpoint(
+        &mut self, dir: &Path, cursor: Option<LogCursor>, steps_hash: &str,
+    ) -> io::Result<()> {
+        let resume = match cursor {
+            Some(cursor) => {
+                if self.writer.lines() > 0 {
+                    self.flush_block()?;
+                }
+                Some(Resume {
+                    cursor,
+                    line_count: self.line_count,
+                    text_bytes: self.text_bytes,
+                    first_ts: self.first_ts,
+                    blocks_len: self.blocks_len,
+                    index_len: self.index_len,
+                    styles: self.styles.len(),
+                    outline: &self.outline,
+                })
+            }
+            None => None,
+        };
+        let tail: &[u8] = if resume.is_some() { &self.pending } else { &[] };
+
+        Checkpoint {
+            steps_hash: steps_hash.to_string(),
+            raw_hash: self.raw_hash.clone(),
+            resume,
+        }
+        .write(dir, tail)
     }
 
     fn split_long(&mut self, raw: &[u8]) -> io::Result<(usize, Flow)> {
@@ -323,11 +600,14 @@ impl State {
         Ok(())
     }
 
-    fn finish(mut self) -> io::Result<IngestOutcome> {
+    fn finish(mut self, cfg: Ingester, resumable: bool) -> io::Result<IngestOutcome> {
         if self.writer.lines() > 0 {
             self.flush_block()?;
         }
         let outline = self.outline.finish(self.line_count)?;
+        if !resumable {
+            self.outline.discard_spool()?;
+        }
         self.blocks
             .into_inner()
             .map_err(|e| e.into_error())?
@@ -337,11 +617,15 @@ impl State {
             .map_err(|e| e.into_error())?
             .sync_all()?;
 
+        let (previous_revision, stable_lines) = match self.previous {
+            Some((revision, lines)) => (Some(revision), lines),
+            None => (None, 0),
+        };
         let meta = StoredDocMeta {
             format: STORED_FORMAT,
-            key: self.key,
-            revision: self.revision,
-            complete: self.complete,
+            key: cfg.key,
+            revision: cfg.revision,
+            complete: cfg.complete,
             truncated: self.truncated,
             line_count: self.line_count,
             text_bytes: self.text_bytes,
@@ -354,8 +638,11 @@ impl State {
             error_total: outline.error_total,
             warning_total: outline.warning_total,
             focus_line: outline.focus_line,
+            updated_at_ms: Utc::now().timestamp_millis(),
+            stable_lines,
+            previous_revision,
         };
-        let file = File::create(self.dir.join(META_FILE))?;
+        let file = File::create(cfg.dir.join(META_FILE))?;
         let mut writer = BufWriter::new(file);
         serde_json::to_writer(&mut writer, &meta).map_err(io::Error::from)?;
         writer
@@ -364,6 +651,7 @@ impl State {
             .sync_all()?;
         Ok(IngestOutcome {
             truncated: self.truncated,
+            resumable,
             meta,
         })
     }
@@ -417,7 +705,12 @@ mod tests {
             .expect("channel has room");
         drop(tx);
 
-        let meta = ingester.run(&mut rx).expect("ingest").meta;
+        let meta = ingester
+            .run(&mut rx)
+            .expect("ingest")
+            .finish(None)
+            .expect("finish")
+            .meta;
 
         let sections: Vec<_> = meta
             .sections
@@ -505,7 +798,12 @@ mod tests {
             .expect("channel has room");
         drop(tx);
 
-        let meta = ingester.run(&mut rx).expect("ingest").meta;
+        let meta = ingester
+            .run(&mut rx)
+            .expect("ingest")
+            .finish(None)
+            .expect("finish")
+            .meta;
 
         let sections = meta
             .sections
@@ -617,7 +915,12 @@ mod tests {
             .expect("channel has room");
         drop(tx);
 
-        let meta = ingester.run(&mut rx).expect("ingest").meta;
+        let meta = ingester
+            .run(&mut rx)
+            .expect("ingest")
+            .finish(None)
+            .expect("finish")
+            .meta;
 
         let text = Document::open(dir.path())
             .expect("open")
@@ -639,6 +942,47 @@ mod tests {
                 "{line:?} does not end with {suffix:?}"
             );
         }
+    }
+
+    #[test]
+    fn jenkins_console_notes_are_dropped_before_search_and_error_inference() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut ingester = ingester(dir.path(), doc_key(), 1, Vec::new(), BlockLimits::default());
+        ingester.dialect = &JENKINS;
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.try_send(Bytes::from_static(
+            concat!(
+                "\x1b[8mha:////4IkPeNOtKgYQ==\x1b[0m[Pipeline] Start of Pipeline\n",
+                "Started by user \x1b[8mha:////4O3qAAAA=\x1b[0madmin\n",
+                "\x1b[8mha:////4IkPeNOtKgYQ==\x1b[0mERROR: Job failed: exit code 1\n",
+            )
+            .as_bytes(),
+        ))
+        .expect("channel has room");
+        drop(tx);
+
+        let meta = ingester
+            .run(&mut rx)
+            .expect("ingest")
+            .finish(None)
+            .expect("finish")
+            .meta;
+
+        let text = Document::open(dir.path())
+            .expect("open")
+            .text_block(0)
+            .expect("block");
+        assert_eq!(
+            std::str::from_utf8(&text).expect("utf8"),
+            "[Pipeline] Start of Pipeline\nStarted by user admin\nERROR: Job failed: exit code 1\n"
+        );
+        assert!(meta.error_lines.is_empty());
+
+        let found = error_texts(
+            &PLAIN,
+            "\x1b[8mha:////4IkPeNOtKgYQ==\x1b[0mERROR: Job failed: exit code 1\n",
+        );
+        assert_eq!(found, ["ERROR: Job failed: exit code 1"]);
     }
 
     #[test]

@@ -1,17 +1,21 @@
 mod ansi;
 mod block;
+mod checkpoint;
 mod document;
 mod failure;
 mod ingest;
 mod outline;
 #[cfg(test)]
 mod perf;
+#[cfg(test)]
+mod resume;
 mod store;
 #[cfg(test)]
-mod testing;
+pub(crate) mod testing;
 
 use std::time::Duration;
 
+pub use checkpoint::Base;
 pub use document::{
     search_regex,
     BlockCache,
@@ -21,6 +25,7 @@ pub use document::{
 pub use ingest::{
     BlockLimits,
     IngestOutcome,
+    Ingested,
     Ingester,
 };
 pub use outline::StepBound;

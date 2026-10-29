@@ -14,6 +14,13 @@ use crate::{
     types,
 };
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LogPosition {
+    pipeline: String,
+    step: String,
+    offset: u64,
+}
+
 pub struct BitbucketPlugin {
     metadata: PluginMetadata,
     client: Option<client::BitbucketClient>,
@@ -325,8 +332,8 @@ impl Plugin for BitbucketPlugin {
     }
 
     async fn read_log(
-        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, run: RunRef<'_>, node_id: &str, from: Option<&LogCursor>, sink: &mut LogSink,
+    ) -> PluginResult<LogRead> {
         let (_, workspace, repo_slug) = config::parse_pipeline_id(run.pipeline_id)?;
         config::check_step_uuid(node_id)?;
         let client = self.client()?;
@@ -335,9 +342,30 @@ impl Plugin for BitbucketPlugin {
             .find_pipeline_by_build_number(&workspace, &repo_slug, run.run_number)
             .await?;
 
-        client
-            .stream_step_log(&workspace, &repo_slug, &pipeline.uuid, node_id, sink)
-            .await
+        let position = from
+            .and_then(|cursor| cursor.parse::<LogPosition>())
+            .filter(|position| position.pipeline == pipeline.uuid && position.step == node_id);
+        if from.is_some() && position.is_none() {
+            sink.restart()?;
+        }
+        let (mode, offset) = client
+            .stream_step_log(
+                &workspace,
+                &repo_slug,
+                &pipeline.uuid,
+                node_id,
+                position.map(|p| p.offset),
+                sink,
+            )
+            .await?;
+        Ok(LogRead {
+            mode,
+            cursor: Some(LogCursor::new(&LogPosition {
+                pipeline: pipeline.uuid,
+                step: node_id.to_string(),
+                offset,
+            })?),
+        })
     }
 
     fn log_dialect(&self) -> &'static dyn LogDialect {
@@ -913,13 +941,15 @@ mod tests {
         let metadata = HashMap::new();
         let (tx, mut rx) = tokio::sync::mpsc::channel(16);
         let mut sink = LogSink::new(tx);
-        let result = plugin.read_log(run_7(&metadata), node_id, &mut sink).await;
+        let result = plugin
+            .read_log(run_7(&metadata), node_id, None, &mut sink)
+            .await;
         drop(sink);
         let mut bytes = Vec::new();
         while let Some(chunk) = rx.recv().await {
             bytes.extend_from_slice(&chunk);
         }
-        result.map(|()| bytes)
+        result.map(|_| bytes)
     }
 
     #[tokio::test]
@@ -1055,5 +1085,234 @@ mod tests {
 
         assert!(requests.lock().await.is_empty());
         assert!(stored.lock().await.is_empty());
+    }
+
+    struct StepLog {
+        body: Vec<u8>,
+        honors_range: bool,
+        requests: Vec<(Option<String>, Option<String>)>,
+    }
+
+    type SharedStepLog = Arc<std::sync::Mutex<StepLog>>;
+
+    async fn serve_ranged_storage(log: SharedStepLog) -> SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut buffer = [0; 8192];
+                let count = stream.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..count]);
+                let header = |wanted: &str| {
+                    request
+                        .lines()
+                        .filter_map(|line| line.split_once(':'))
+                        .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
+                        .map(|(_, value)| value.trim().to_string())
+                };
+                let range = header("range");
+                let (status, content_range, payload) = {
+                    let mut log = log.lock().unwrap();
+                    log.requests.push((range.clone(), header("authorization")));
+                    let total = log.body.len();
+                    let start = range
+                        .as_deref()
+                        .and_then(|value| {
+                            value
+                                .strip_prefix("bytes=")?
+                                .strip_suffix('-')?
+                                .parse()
+                                .ok()
+                        })
+                        .filter(|_| log.honors_range);
+                    match start {
+                        Some(start) if start >= total => (
+                            "416 Range Not Satisfiable",
+                            format!("content-range: bytes */{total}\r\n"),
+                            Vec::new(),
+                        ),
+                        Some(start) => (
+                            "206 Partial Content",
+                            format!("content-range: bytes {start}-{}/{total}\r\n", total - 1),
+                            log.body[start..].to_vec(),
+                        ),
+                        None => ("200 OK", String::new(), log.body.clone()),
+                    }
+                };
+                let head = format!(
+                    "HTTP/1.1 {status}\r\n{content_range}content-length: {}\r\nconnection: close\r\n\r\n",
+                    payload.len()
+                );
+                stream.write_all(head.as_bytes()).await.unwrap();
+                stream.write_all(&payload).await.unwrap();
+            }
+        });
+        address
+    }
+
+    async fn serve_running_step(
+        body: &[u8], honors_range: bool,
+    ) -> (BitbucketPlugin, SharedStepLog) {
+        let log = SharedStepLog::new(std::sync::Mutex::new(StepLog {
+            body: body.to_vec(),
+            honors_range,
+            requests: Vec::new(),
+        }));
+        let storage = serve_ranged_storage(log.clone()).await;
+        let (api, _) = stub(move |target, _| {
+            let path = reqwest::Url::parse(&format!("http://api{target}"))
+                .unwrap()
+                .path()
+                .to_string();
+            if path == "/repositories/ws/repo/pipelines" {
+                reply("200 OK", &pipelines_page())
+            } else if path == log_path(STEP_DEPLOY) {
+                Reply {
+                    status: "307 Temporary Redirect",
+                    headers: vec![("location", format!("http://{storage}/storage/deploy.log"))],
+                    body: String::new(),
+                }
+            } else {
+                reply("404 Not Found", "{}")
+            }
+        })
+        .await;
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut plugin = BitbucketPlugin::new();
+        plugin.client = Some(client::BitbucketClient::new(
+            Arc::new(reqwest::Client::builder().no_proxy().build().unwrap()),
+            format!("http://{api}"),
+            "Basic stub".to_string(),
+        ));
+        plugin.provider_id = Some(1);
+        (plugin, log)
+    }
+
+    fn cursor(step: &str, offset: u64) -> LogCursor {
+        LogCursor::new(
+            &serde_json::json!({"pipeline": PIPELINE_UUID, "step": step, "offset": offset}),
+        )
+        .unwrap()
+    }
+
+    async fn read_running_step(
+        plugin: &BitbucketPlugin, from: Option<&LogCursor>,
+    ) -> (PluginResult<LogRead>, Vec<u8>, bool) {
+        let metadata = HashMap::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin
+            .read_log(run_7(&metadata), STEP_DEPLOY, from, &mut sink)
+            .await;
+        let restarted = sink.restarted();
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        (result, bytes, restarted)
+    }
+
+    fn storage_requests(log: &SharedStepLog) -> Vec<(Option<String>, Option<String>)> {
+        log.lock().unwrap().requests.clone()
+    }
+
+    #[tokio::test]
+    async fn resumed_step_log_appends_only_the_new_bytes_through_the_redirect() {
+        let (plugin, log) = serve_running_step(b"a\nb\n", true).await;
+
+        let (first, bytes, restarted) = read_running_step(&plugin, None).await;
+        assert_eq!(
+            first.unwrap(),
+            LogRead::replace(Some(cursor(STEP_DEPLOY, 4)))
+        );
+        assert_eq!(bytes, b"a\nb\n");
+        assert!(!restarted);
+
+        log.lock().unwrap().body.extend_from_slice(b"c\n");
+        let (second, bytes, restarted) =
+            read_running_step(&plugin, Some(&cursor(STEP_DEPLOY, 4))).await;
+        assert_eq!(second.unwrap(), LogRead::append(cursor(STEP_DEPLOY, 6)));
+        assert_eq!(bytes, b"c\n");
+        assert!(!restarted);
+
+        let (idle, bytes, restarted) =
+            read_running_step(&plugin, Some(&cursor(STEP_DEPLOY, 6))).await;
+        assert_eq!(idle.unwrap(), LogRead::append(cursor(STEP_DEPLOY, 6)));
+        assert!(bytes.is_empty() && !restarted);
+        assert_eq!(
+            storage_requests(&log),
+            [
+                (None, None),
+                (Some("bytes=4-".to_string()), None),
+                (Some("bytes=6-".to_string()), None)
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn storage_ignoring_range_restarts_with_the_whole_step_log() {
+        let (plugin, log) = serve_running_step(b"a\nb\nc\n", false).await;
+
+        let (read, bytes, restarted) =
+            read_running_step(&plugin, Some(&cursor(STEP_DEPLOY, 4))).await;
+
+        assert_eq!(
+            read.unwrap(),
+            LogRead::replace(Some(cursor(STEP_DEPLOY, 6)))
+        );
+        assert_eq!(bytes, b"a\nb\nc\n");
+        assert!(restarted);
+        assert_eq!(
+            storage_requests(&log),
+            [(Some("bytes=4-".to_string()), None)]
+        );
+    }
+
+    #[tokio::test]
+    async fn shrunk_step_log_restarts_with_the_whole_step_log() {
+        let (plugin, log) = serve_running_step(b"a\n", true).await;
+
+        let (read, bytes, restarted) =
+            read_running_step(&plugin, Some(&cursor(STEP_DEPLOY, 6))).await;
+
+        assert_eq!(
+            read.unwrap(),
+            LogRead::replace(Some(cursor(STEP_DEPLOY, 2)))
+        );
+        assert_eq!(bytes, b"a\n");
+        assert!(restarted);
+        assert_eq!(
+            storage_requests(&log),
+            [(Some("bytes=6-".to_string()), None), (None, None)]
+        );
+    }
+
+    #[tokio::test]
+    async fn cursors_of_another_step_or_shape_restart_without_a_range_request() {
+        let (plugin, log) = serve_running_step(b"a\nb\n", true).await;
+        let other_pipeline = LogCursor::new(
+            &serde_json::json!({"pipeline": "{other}", "step": STEP_DEPLOY, "offset": 4}),
+        )
+        .unwrap();
+
+        for stale in [
+            LogCursor::new(&"garbage").unwrap(),
+            cursor(STEP_TEST, 4),
+            other_pipeline,
+        ] {
+            let (read, bytes, restarted) = read_running_step(&plugin, Some(&stale)).await;
+            assert_eq!(
+                read.unwrap(),
+                LogRead::replace(Some(cursor(STEP_DEPLOY, 4)))
+            );
+            assert_eq!(bytes, b"a\nb\n");
+            assert!(restarted);
+        }
+
+        assert_eq!(
+            storage_requests(&log),
+            [(None, None), (None, None), (None, None)]
+        );
     }
 }

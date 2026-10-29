@@ -4,6 +4,7 @@ use std::collections::{
 };
 use std::future::Future;
 use std::io;
+use std::path::Path;
 use std::sync::atomic::{
     AtomicBool,
     AtomicU64,
@@ -32,6 +33,11 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use self::live::{
+    Interest,
+    Live,
+    RunKey,
+};
 use super::provider_service::{
     ProviderLease,
     ProviderService,
@@ -42,10 +48,10 @@ use crate::domain::{
     DomainResult,
     LogAvailability,
     LogCacheStats,
-    LogDocumentMeta,
     LogLinesPage,
     LogNode,
     LogNodeKind,
+    LogReadMode,
     LogSearchQuery,
     LogSearchResult,
     LogSink,
@@ -66,6 +72,7 @@ use crate::infrastructure::deduplication::{
 };
 use crate::infrastructure::run_logs::{
     search_regex,
+    Base,
     BlockLimits,
     CacheEpoch,
     DocError,
@@ -76,6 +83,7 @@ use crate::infrastructure::run_logs::{
     PublishOutcome,
     ReadLease,
     StepBound,
+    StoredDocMeta,
     StoredTree,
 };
 
@@ -87,11 +95,17 @@ const PROGRESS_TICK: Duration = Duration::from_millis(500);
 const COMPLETE_TREE_TTL: Duration = Duration::from_secs(60);
 const OPEN_TREE_TTL: Duration = Duration::from_secs(10);
 const FAILURE_COOLDOWN: Duration = Duration::from_secs(5 * 60);
-const PARTIAL_COOLDOWN: Duration = Duration::from_secs(10);
+const INTEREST_TTL: Duration = Duration::from_secs(45);
+const TREE_INTERVAL: Duration = Duration::from_secs(5);
+const TREE_BACKOFF_MAX: Duration = Duration::from_secs(60);
+const RESUMABLE_INTERVAL: Duration = Duration::from_secs(2);
+const SNAPSHOT_INTERVAL: Duration = Duration::from_secs(10);
 const SHUTDOWN_PATIENCE: Duration = Duration::from_secs(5);
 const REVISION_GONE: &str = "This log revision is no longer available";
 const EXPORT_INTERRUPTED: &str = "Pipedash stopped before the log finished downloading";
 const PROVIDER_CHANGED: &str = "The provider changed while the log was downloading. Open it again.";
+const PROVIDER_MISBEHAVED: &str =
+    "The provider returned the log in an unexpected way. Try again later.";
 
 type TreeKey = (i64, Generation, CacheEpoch, String, i64);
 type Built = (Arc<RunLogTree>, Arc<PipelineRun>);
@@ -109,11 +123,7 @@ struct AttemptRecord {
     epoch: CacheEpoch,
     at: Instant,
     failure: Option<String>,
-}
-
-enum Recent {
-    Failure(String),
-    Fresh,
+    resumable: bool,
 }
 
 enum Stop {
@@ -123,7 +133,8 @@ enum Stop {
 
 enum Finished {
     Stopped(Stop),
-    Published { revision: i64 },
+    Published { revision: i64, resumable: bool },
+    Unchanged { resumable: bool },
     Failed(String),
 }
 
@@ -167,6 +178,8 @@ pub struct LogService {
     inflight: DashMap<DocKey, Attempt>,
     attempts: DashMap<DocKey, AttemptRecord>,
     searches: DashMap<(DocKey, String), (u64, CancellationToken)>,
+    interests: DashMap<RunKey, Interest>,
+    lives: DashMap<RunKey, Live>,
     ingest_permits: Arc<Semaphore>,
     search_permits: Arc<Semaphore>,
     admission: Mutex<bool>,
@@ -211,6 +224,8 @@ impl LogService {
             pipeline_providers: DashMap::new(),
             inflight: DashMap::new(),
             attempts: DashMap::new(),
+            interests: DashMap::new(),
+            lives: DashMap::new(),
             searches: DashMap::new(),
             ingest_permits: Arc::new(Semaphore::new(INGEST_PERMITS)),
             search_permits: Arc::new(Semaphore::new(SEARCH_PERMITS)),
@@ -285,12 +300,16 @@ impl LogService {
     }
 
     pub async fn run_log_tree(
-        &self, pipeline_id: &str, run_number: i64,
+        self: &Arc<Self>, pipeline_id: &str, run_number: i64,
     ) -> DomainResult<RunLogTree> {
         let (lease, epoch) = self.lease_of(pipeline_id).await?;
-        let (tree, _) = self.tree_of(&lease, epoch, pipeline_id, run_number).await?;
+        let built = self.tree_of(&lease, epoch, pipeline_id, run_number).await?;
+        if !built.0.complete {
+            let run = (pipeline_id.to_string(), run_number);
+            self.watch(&lease, epoch, &run, None, &built)?;
+        }
 
-        Ok(RunLogTree::clone(&tree))
+        Ok(RunLogTree::clone(&built.0))
     }
 
     async fn tree_of(
@@ -440,10 +459,11 @@ impl LogService {
         self: &Arc<Self>, pipeline_id: &str, run_number: i64, node_id: &str, retry: bool,
     ) -> DomainResult<RunLogDocument> {
         let (lease, epoch) = self.lease_of(pipeline_id).await?;
-        let (tree, run) = match self.memoized(&lease, epoch, pipeline_id, run_number) {
+        let built = match self.memoized(&lease, epoch, pipeline_id, run_number) {
             Some(built) => built,
             None => self.tree_of(&lease, epoch, pipeline_id, run_number).await?,
         };
+        let (tree, run) = &built;
         let node = tree
             .nodes
             .iter()
@@ -457,7 +477,9 @@ impl LogService {
                 node.name
             )));
         };
+        let run_key = (pipeline_id.to_string(), run_number);
         if availability == LogAvailability::Pending {
+            self.watch(&lease, epoch, &run_key, Some(node_id), &built)?;
             return Ok(RunLogDocument::Pending);
         }
 
@@ -467,32 +489,31 @@ impl LogService {
             run_number,
             node_id: node_id.to_string(),
         };
-        let recent = self.recent_attempt(&key, &lease, epoch, retry);
-
-        if let Some(meta) = self.readable_meta(&key).await? {
-            if availability == LogAvailability::Ready && meta.complete {
-                return Ok(RunLogDocument::Ready(meta));
-            }
-            if recent.is_none() {
-                self.claim(&key, lease, epoch, node, &tree, run)?;
-            }
-
+        let failure = self.recent_failure(&key, &lease, epoch, retry);
+        let meta = self.stored(&key, StoredDocMeta::to_meta).await?;
+        let live = availability != LogAvailability::Ready
+            || meta.as_ref().is_some_and(|meta| !meta.complete);
+        if live {
+            self.watch(&lease, epoch, &run_key, Some(node_id), &built)?;
+        }
+        if let Some(meta) = meta {
             return Ok(RunLogDocument::Ready(meta));
         }
-
         if let Some(received_bytes) = self.running(&key, &lease, epoch) {
             return Ok(RunLogDocument::Loading { received_bytes });
         }
-        if let Some(Recent::Failure(message)) = recent {
+        if let Some(message) = failure {
             return Ok(RunLogDocument::Unavailable { message });
         }
 
         Ok(RunLogDocument::Loading {
-            received_bytes: self.claim(&key, lease, epoch, node, &tree, run)?,
+            received_bytes: self.claim(&key, lease, epoch, node, tree, Arc::clone(run))?,
         })
     }
 
-    async fn readable_meta(&self, key: &DocKey) -> DomainResult<Option<LogDocumentMeta>> {
+    async fn stored<T>(
+        &self, key: &DocKey, read: impl FnOnce(&StoredDocMeta) -> T,
+    ) -> DomainResult<Option<T>> {
         let Some(revision) = self.store.current(key) else {
             return Ok(None);
         };
@@ -501,24 +522,19 @@ impl LogService {
             .store
             .lease(key, revision)
             .await?
-            .map(|(doc, _lease)| doc.meta().to_meta()))
+            .map(|(doc, _lease)| read(doc.meta())))
     }
 
-    fn recent_attempt(
+    fn recent_failure(
         &self, key: &DocKey, lease: &ProviderLease, epoch: CacheEpoch, retry: bool,
-    ) -> Option<Recent> {
+    ) -> Option<String> {
         let record = self.attempts.get(key)?;
-        if record.generation != lease.generation || record.epoch != epoch {
+        if retry || record.generation != lease.generation || record.epoch != epoch {
             return None;
         }
         let age = Instant::now().saturating_duration_since(record.at);
 
-        match &record.failure {
-            Some(message) => {
-                (!retry && age < FAILURE_COOLDOWN).then(|| Recent::Failure(message.clone()))
-            }
-            None => (age < PARTIAL_COOLDOWN).then_some(Recent::Fresh),
-        }
+        record.failure.clone().filter(|_| age < FAILURE_COOLDOWN)
     }
 
     fn running(&self, key: &DocKey, lease: &ProviderLease, epoch: CacheEpoch) -> Option<u64> {
@@ -610,11 +626,12 @@ impl LogService {
         partial: bool,
     ) {
         let key = guard.key.clone();
-        let record = |failure: Option<String>| AttemptRecord {
+        let record = |failure: Option<String>, resumable: bool| AttemptRecord {
             generation,
             epoch,
             at: Instant::now(),
             failure,
+            resumable,
         };
         let failed = |message: String| CoreEvent::RunLogFailed {
             pipeline_id: key.pipeline_id.clone(),
@@ -625,9 +642,12 @@ impl LogService {
         let event = match finished {
             Finished::Stopped(Stop::Silent) => None,
             Finished::Stopped(Stop::ProviderChanged) => Some(failed(PROVIDER_CHANGED.to_string())),
-            Finished::Published { revision } => {
+            Finished::Published {
+                revision,
+                resumable,
+            } => {
                 if partial {
-                    self.attempts.insert(key.clone(), record(None));
+                    self.attempts.insert(key.clone(), record(None, resumable));
                 } else {
                     self.attempts.remove(&key);
                 }
@@ -638,13 +658,18 @@ impl LogService {
                     revision,
                 })
             }
+            Finished::Unchanged { resumable } => {
+                self.attempts.insert(key.clone(), record(None, resumable));
+                None
+            }
             Finished::Failed(message) => {
                 self.attempts
-                    .insert(key.clone(), record(Some(message.clone())));
+                    .insert(key.clone(), record(Some(message.clone()), false));
                 Some(failed(message))
             }
         };
         drop(guard);
+        self.wake(&key);
         if let Some(event) = event {
             self.event_bus.emit(event).await;
         }
@@ -777,9 +802,13 @@ impl LogService {
         for attempt in self.inflight.iter() {
             attempt.cancel.cancel();
         }
+        for live in self.lives.iter() {
+            live.cancel.cancel();
+        }
         for search in self.searches.iter() {
             search.value().1.cancel();
         }
+        self.interests.clear();
         self.tree_memo.clear();
         self.attempts.clear();
         self.searches.clear();
@@ -888,60 +917,75 @@ async fn ingest(guard: AttemptGuard, work: IngestWork) {
 }
 
 impl IngestWork {
-    async fn run(self) -> Finished {
-        let Self {
-            service,
-            lease,
-            epoch,
-            key,
-            node,
-            run,
-            steps,
-            revision,
-            cancel,
-            received,
-        } = self;
-        let provider_id = key.provider_id;
-        let interrupted = || service.interrupted(provider_id, epoch, &cancel);
-        let stopped = |stop: Option<Stop>| stop.map(Finished::Stopped);
+    async fn run(&self) -> Finished {
+        let service = &self.service;
+        let provider_id = self.key.provider_id;
+        let interrupted = || service.interrupted(provider_id, self.epoch, &self.cancel);
 
         let _permit = tokio::select! {
             permit = Arc::clone(&service.ingest_permits).acquire_owned() => permit,
-            _ = cancel.cancelled() => {
+            _ = self.cancel.cancelled() => {
                 return Finished::Stopped(interrupted().unwrap_or(Stop::Silent));
             }
         };
-        if let Some(finished) = stopped(interrupted()) {
-            return finished;
+        if let Some(stop) = interrupted() {
+            return Finished::Stopped(stop);
         }
 
         if let Err(e) = service.ensure_active(provider_id) {
             return Finished::Failed(failure_message(&e));
         }
 
+        let base = match service.store.base(&self.key).await {
+            Ok(base) => base,
+            Err(e) => return Finished::Failed(e.to_string()),
+        };
         let tmp = match service.store.tmp_dir().await {
             Ok(tmp) => tmp,
             Err(e) => return Finished::Failed(e.to_string()),
         };
+        let finished = self.transfer(&tmp, base).await;
+        if !matches!(finished, Finished::Published { .. }) {
+            service.store.discard(tmp).await;
+        }
+
+        finished
+    }
+
+    async fn transfer(&self, tmp: &Path, base: Option<Base>) -> Finished {
+        let service = &self.service;
+        let key = &self.key;
+        let provider_id = key.provider_id;
+        let interrupted = || service.interrupted(provider_id, self.epoch, &self.cancel);
+        let expected = base.as_ref().map(|base| base.revision);
+        let from = base
+            .as_ref()
+            .and_then(|base| base.cursor(&self.steps))
+            .cloned();
+
         let (tx, mut rx) = mpsc::channel::<Bytes>(INGEST_QUEUE);
+        let mut sink = LogSink::new(tx);
         let ingester = Ingester {
             key: key.clone(),
-            revision,
-            complete: node.log == Some(LogAvailability::Ready),
-            dir: tmp.clone(),
-            dialect: lease.provider.log_dialect(),
-            steps,
-            received: Arc::clone(&received),
+            revision: self.revision,
+            complete: self.node.log == Some(LogAvailability::Ready),
+            dir: tmp.to_path_buf(),
+            dialect: self.lease.provider.log_dialect(),
+            steps: self.steps.clone(),
+            received: Arc::clone(&self.received),
             limits: BlockLimits::default(),
+            base,
+            restart: sink.restart_signal(),
         };
         let writer = tokio::task::spawn_blocking(move || ingester.run(&mut rx));
 
         let read_result = {
-            let provider = Arc::clone(&lease.provider);
-            let node_id = key.node_id.clone();
-            let read = async move {
-                let mut sink = LogSink::new(tx);
-                let result = provider.read_log(&run, &node_id, &mut sink).await;
+            let read = async {
+                let result = self
+                    .lease
+                    .provider
+                    .read_log(&self.run, &key.node_id, from.as_ref(), &mut sink)
+                    .await;
                 drop(sink);
                 result
             };
@@ -953,9 +997,9 @@ impl IngestWork {
             loop {
                 tokio::select! {
                     result = &mut read => break Some(result),
-                    _ = cancel.cancelled() => break None,
+                    _ = self.cancel.cancelled() => break None,
                     _ = ticker.tick() => {
-                        let total = received.load(Ordering::Relaxed);
+                        let total = self.received.load(Ordering::Relaxed);
                         if total != reported {
                             reported = total;
                             service
@@ -968,8 +1012,8 @@ impl IngestWork {
                                 })
                                 .await;
                         }
-                        if service.store.epoch(provider_id) != epoch {
-                            cancel.cancel();
+                        if service.store.epoch(provider_id) != self.epoch {
+                            self.cancel.cancel();
                         }
                     }
                 }
@@ -978,49 +1022,59 @@ impl IngestWork {
 
         let written = writer.await;
         if let Some(stop) = interrupted() {
-            service.store.discard(tmp).await;
             return Finished::Stopped(stop);
         }
-        let outcome = match written {
-            Ok(Ok(outcome)) => outcome,
-            Ok(Err(e)) => {
-                service.store.discard(tmp).await;
-                return Finished::Failed(format!("Couldn't save the log: {e}"));
-            }
-            Err(e) => {
-                service.store.discard(tmp).await;
-                return Finished::Failed(format!("Couldn't save the log: {e}"));
-            }
+        let ingested = match written {
+            Ok(Ok(ingested)) => ingested,
+            Ok(Err(e)) => return Finished::Failed(format!("Couldn't save the log: {e}")),
+            Err(e) => return Finished::Failed(format!("Couldn't save the log: {e}")),
         };
-        if let Some(Err(e)) = read_result {
-            if !outcome.truncated {
-                service.store.discard(tmp).await;
-                service.note_limit(&lease, &e).await;
+        let read = match read_result {
+            Some(Ok(read)) => Some(read),
+            Some(Err(e)) if !ingested.truncated() => {
+                service.note_limit(&self.lease, &e).await;
                 return Finished::Failed(failure_message(&e));
             }
+            _ => None,
+        };
+        if let Some(read) = &read {
+            if ingested.resumed() != (read.mode == LogReadMode::Append) {
+                return Finished::Failed(PROVIDER_MISBEHAVED.to_string());
+            }
+            if ingested.unchanged(read) {
+                return Finished::Unchanged {
+                    resumable: read.cursor.is_some(),
+                };
+            }
         }
+
+        let cursor = read.and_then(|read| read.cursor);
+        let outcome = match tokio::task::spawn_blocking(move || ingested.finish(cursor)).await {
+            Ok(Ok(outcome)) => outcome,
+            Ok(Err(e)) => return Finished::Failed(format!("Couldn't save the log: {e}")),
+            Err(e) => return Finished::Failed(format!("Couldn't save the log: {e}")),
+        };
 
         let busy = service.busy_runs();
         let committed = service
             .provider_service
-            .commit(&lease, || {
-                service.store.publish(&key, &tmp, revision, epoch, busy)
+            .commit(&self.lease, || {
+                service
+                    .store
+                    .publish(key, tmp, self.revision, self.epoch, expected, busy)
             })
             .await;
         match committed {
-            Some(Ok(PublishOutcome::Published)) => Finished::Published { revision },
+            Some(Ok(PublishOutcome::Published)) => Finished::Published {
+                revision: self.revision,
+                resumable: outcome.resumable,
+            },
             Some(Ok(PublishOutcome::StaleEpoch)) => {
-                service.store.discard(tmp).await;
                 Finished::Stopped(interrupted().unwrap_or(Stop::ProviderChanged))
             }
-            Some(Err(e)) => {
-                service.store.discard(tmp).await;
-                Finished::Failed(e.to_string())
-            }
-            None => {
-                service.store.discard(tmp).await;
-                Finished::Stopped(Stop::ProviderChanged)
-            }
+            Some(Ok(PublishOutcome::StaleBase)) => Finished::Unchanged { resumable: false },
+            Some(Err(e)) => Finished::Failed(e.to_string()),
+            None => Finished::Stopped(Stop::ProviderChanged),
         }
     }
 }
@@ -1144,6 +1198,8 @@ fn tree_from_nodes(run: &PipelineRun, nodes: Vec<LogNode>) -> RunLogTree {
         complete,
     }
 }
+
+mod live;
 
 #[cfg(test)]
 mod tests;

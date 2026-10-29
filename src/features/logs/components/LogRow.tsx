@@ -34,6 +34,7 @@ export type LogRowProps = LogRowCommonProps &
         section: LogSection | null
         open: boolean
         selected: boolean
+        fresh: boolean
         matches: readonly MatchTriple[] | undefined
         current: MatchTriple | null
         onSelect: (line: number, extend: boolean) => void
@@ -194,14 +195,14 @@ export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
     return <StepHeader section={props.section} open={props.open} onToggle={props.onToggle} />
   }
 
-  const { line, data, section, open, selected, gutterCh, timestamps, onToggle, onSelect, onFullLine } = props
+  const { line, data, section, open, selected, fresh, gutterCh, timestamps, onToggle, onSelect, onFullLine } = props
   const loaded = typeof data === 'object' ? data : null
   const lineKind = loaded?.kind
   const Glyph = lineKind === 'error' ? IconCircleX : lineKind === 'warning' ? IconAlertTriangle : null
   const kindClass = lineKind && isOneOf(typedKeys(KIND_CLASS), lineKind) ? KIND_CLASS[lineKind] : null
   return (
     <div
-      className={join(classes.row, kindClass, selected && classes.selected)}
+      className={join(classes.row, kindClass, selected && classes.selected, fresh && classes.fresh)}
       style={{ '--log-gutter': gutterCh }}
       data-line={line}
       data-selectable

@@ -7,6 +7,8 @@ use pipedash_plugin_api::{
     map_send_error,
     AvailablePipeline,
     BuildArtifact,
+    ContentRange,
+    LogReadMode,
     LogSink,
     PaginatedResponse,
     PaginationParams,
@@ -16,8 +18,16 @@ use pipedash_plugin_api::{
     PluginResult,
     RetryPolicy,
 };
+use reqwest::header::{
+    ACCEPT,
+    ACCEPT_ENCODING,
+    AUTHORIZATION,
+    CONTENT_LENGTH,
+    RANGE,
+};
 use reqwest::{
     Client,
+    Method,
     Url,
 };
 use serde::de::DeserializeOwned;
@@ -29,6 +39,7 @@ use crate::{
 };
 
 const BASE_URL: &str = "https://api.buildkite.com/v2";
+const MAX_RESUME_ATTEMPTS: usize = 3;
 
 fn parse_url(url: &str) -> PluginResult<Url> {
     Url::parse(url).map_err(|e| PluginError::InvalidConfig(format!("Invalid Buildkite URL: {e}")))
@@ -222,26 +233,94 @@ impl BuildkiteClient {
     }
 
     pub async fn stream_job_log(
-        &self, org: &str, slug: &str, number: i64, job_id: &str, sink: &mut LogSink,
-    ) -> PluginResult<()> {
+        &self, org: &str, slug: &str, number: i64, job_id: &str, offset: Option<u64>,
+        sink: &mut LogSink,
+    ) -> PluginResult<(LogReadMode, u64)> {
         let url = parse_url(&format!(
-            "{}/organizations/{org}/pipelines/{slug}/builds/{number}/jobs/{job_id}/log.txt",
+            "{}/organizations/{org}/pipelines/{slug}/builds/{number}/jobs/{job_id}/log",
             self.base_url
         ))?;
 
+        if let Some(offset) = offset {
+            if let Some(next) = self.append_job_log(&url, job_id, offset, sink).await? {
+                return Ok((LogReadMode::Append, next));
+            }
+            sink.restart()?;
+        }
+
+        let response = self
+            .send_log(&url, job_id, || self.log_request(Method::GET, &url))
+            .await?;
+        sink.pipe(check_response(response).await?).await?;
+        Ok((LogReadMode::Replace, sink.bytes_written()))
+    }
+
+    async fn append_job_log(
+        &self, url: &Url, job_id: &str, offset: u64, sink: &mut LogSink,
+    ) -> PluginResult<Option<u64>> {
+        let head = self
+            .send_log(url, job_id, || {
+                self.log_request(Method::HEAD, url)
+                    .header(ACCEPT_ENCODING, "identity")
+            })
+            .await?;
+        let head = check_response(head).await?;
+        let Some(size) = head
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|size| *size >= offset)
+        else {
+            return Ok(None);
+        };
+        if size == offset {
+            return Ok(Some(offset));
+        }
+
+        let mut unseen = size - offset;
+        for _ in 0..MAX_RESUME_ATTEMPTS {
+            let response = self
+                .send_log(url, job_id, || {
+                    self.log_request(Method::GET, url)
+                        .header(ACCEPT_ENCODING, "identity")
+                        .header(RANGE, format!("bytes=-{unseen}"))
+                })
+                .await?;
+            if response.status().as_u16() == 416 {
+                return Ok(None);
+            }
+            let response = check_response(response).await?;
+            let Some(((start, _), total)) = ContentRange::parse(response.headers())
+                .and_then(|range| Some((range.span?, range.total?)))
+                .filter(|(_, total)| *total >= offset && response.status().as_u16() == 206)
+            else {
+                return Ok(None);
+            };
+            if start > offset {
+                unseen = total - offset;
+                continue;
+            }
+            sink.pipe_after(response, offset - start).await?;
+            return Ok(Some(offset + sink.bytes_written()));
+        }
+        Ok(None)
+    }
+
+    fn log_request(&self, method: Method, url: &Url) -> reqwest::RequestBuilder {
+        self.http_client
+            .request(method, url.clone())
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(ACCEPT, "text/plain")
+            .timeout(Duration::from_secs(900))
+    }
+
+    async fn send_log(
+        &self, url: &Url, job_id: &str, request: impl Fn() -> reqwest::RequestBuilder,
+    ) -> PluginResult<reqwest::Response> {
         let response = self
             .retry_policy
-            .retry_unsent(&url, || {
-                self.http_client
-                    .get(url.clone())
-                    .header(
-                        reqwest::header::AUTHORIZATION,
-                        format!("Bearer {}", self.token),
-                    )
-                    .header(reqwest::header::ACCEPT, "text/plain")
-                    .timeout(Duration::from_secs(900))
-                    .send()
-            })
+            .retry_unsent(url, || request().send())
             .await?;
 
         if matches!(response.status().as_u16(), 404 | 410) {
@@ -249,8 +328,7 @@ impl BuildkiteClient {
                 "Logs for job {job_id} are no longer available"
             )));
         }
-
-        sink.pipe(check_response(response).await?).await
+        Ok(response)
     }
 
     pub async fn trigger_build(

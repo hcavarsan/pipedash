@@ -8,6 +8,7 @@
 }
 
 .main {
+  position: relative;
   display: flex;
   flex: 1;
   min-width: 0;
@@ -163,6 +164,27 @@
   --row-bg: var(--mantine-color-blue-light);
 
   background: var(--row-bg);
+}
+
+.fresh {
+  animation: fresh-fade 1.5s ease-out;
+}
+
+@keyframes fresh-fade {
+  from {
+    background: var(--mantine-color-blue-light);
+  }
+
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fresh {
+    background: var(--mantine-color-blue-light);
+    animation: none;
+  }
 }
 
 .debug .text {
@@ -516,4 +538,72 @@
 
 .scroller[data-variant="phone"] .step {
   min-height: 44px;
+}
+
+.live {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0 var(--mantine-spacing-sm) 0.25em;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.live[data-variant="phone"] {
+  padding: 0 1em 0.25em;
+  color: var(--ios-secondary-label);
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
+}
+
+.liveDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mantine-color-green-filled);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot {
+    animation: none;
+  }
+}
+
+.jumpLatest {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.4em 0.9em;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 999px;
+  background: var(--mantine-color-body);
+  box-shadow: var(--mantine-shadow-md);
+  color: var(--mantine-color-blue-text);
+  font-size: var(--mantine-font-size-xs);
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.jumpLatest[data-variant="phone"] {
+  min-height: 44px;
+  padding: 0 1em;
+  border-color: color-mix(in srgb, var(--ios-label) 14%, transparent);
+  background: var(--ios-material-bar);
+  -webkit-backdrop-filter: var(--ios-material-filter);
+  backdrop-filter: var(--ios-material-filter);
+  color: var(--ios-tint);
+  font-size: var(--ios-fs-footnote);
 }

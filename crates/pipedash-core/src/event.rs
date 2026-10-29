@@ -8,6 +8,7 @@ use crate::domain::{
     provider::ProviderSummary,
     HealthLevel,
     Pipeline,
+    PipelineRun,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,6 +152,17 @@ pub enum CoreEvent {
         node_id: String,
         message: String,
     },
+
+    RunLogTreeChanged {
+        pipeline_id: String,
+        run_number: i64,
+    },
+
+    RunUpdated {
+        pipeline_id: String,
+        run_number: i64,
+        run: PipelineRun,
+    },
 }
 
 impl CoreEvent {
@@ -181,6 +193,8 @@ impl CoreEvent {
             CoreEvent::RunLogProgress { .. } => "run-log-progress",
             CoreEvent::RunLogReady { .. } => "run-log-ready",
             CoreEvent::RunLogFailed { .. } => "run-log-failed",
+            CoreEvent::RunLogTreeChanged { .. } => "run-log-tree-changed",
+            CoreEvent::RunUpdated { .. } => "run-updated",
         }
     }
 
@@ -330,6 +344,22 @@ impl CoreEvent {
                 "runNumber": run_number,
                 "nodeId": node_id,
                 "message": message,
+            }),
+            CoreEvent::RunLogTreeChanged {
+                pipeline_id,
+                run_number,
+            } => serde_json::json!({
+                "pipelineId": pipeline_id,
+                "runNumber": run_number,
+            }),
+            CoreEvent::RunUpdated {
+                pipeline_id,
+                run_number,
+                run,
+            } => serde_json::json!({
+                "pipelineId": pipeline_id,
+                "runNumber": run_number,
+                "run": run,
             }),
         }
     }

@@ -4,7 +4,7 @@ import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
-import type { LogDocumentMeta, RunLogDocument } from '../types/logs'
+import type { LogDocumentMeta, RunLogDocument, RunLogTree } from '../types/logs'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
@@ -15,7 +15,7 @@ const { environmentManager, notifyManager, QueryClient, QueryClientProvider, tim
 const { events } = await import('../services/service')
 const { apiService } = await import('../services/api')
 const { tauriService } = await import('../services/tauri')
-const { useRunLogDocument } = await import('./useRunLogQueries')
+const { useRunLogDocument, useRunLogTree } = await import('./useRunLogQueries')
 
 interface ManualTimer {
   at: number
@@ -111,6 +111,9 @@ const readyMeta: LogDocumentMeta = {
   error_total: 0,
   warning_total: 0,
   focus_line: null,
+  updated_at_ms: 0,
+  stable_lines: 0,
+  previous_revision: null,
 }
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -138,7 +141,7 @@ after(async () => {
   await GlobalRegistrator.unregister()
 })
 
-test('a pending job becomes ready after the 10 s refetch without reselection', async (context) => {
+test('a pending job becomes ready on the 30 s heartbeat without reselection', async (context) => {
   let current: RunLogDocument = { state: 'pending' }
   const opens = context.mock.fn(async () => current)
 
@@ -153,7 +156,7 @@ test('a pending job becomes ready after the 10 s refetch without reselection', a
   assert.equal(opens.mock.callCount(), 1)
 
   current = { state: 'ready', ...readyMeta }
-  await act(async () => advance(9999))
+  await act(async () => advance(29_999))
   assert.equal(result.current.data?.state, 'pending')
   assert.equal(opens.mock.callCount(), 1)
 
@@ -162,7 +165,26 @@ test('a pending job becomes ready after the 10 s refetch without reselection', a
   assert.equal(opens.mock.callCount(), 2)
 })
 
-type Handler = (payload: { pipelineId: string; runNumber: number; nodeId: string; receivedBytes?: number }) => void
+test('a complete document is never refetched on a timer', async (context) => {
+  context.mock.method(events, 'listen', async () => () => undefined)
+  const opens = stubOpen(context, async () => ({ state: 'ready', ...readyMeta }))
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { result } = renderHook(() => useRunLogDocument('github__1__o/r/w', 7, '99', true), { wrapper })
+
+  await waitFor(() => assert.equal(result.current.data?.state, 'ready'))
+  await act(async () => advance(300_000))
+
+  assert.equal(opens.mock.callCount(), 1)
+})
+
+type Handler = (payload: {
+  pipelineId: string
+  runNumber: number
+  nodeId?: string
+  receivedBytes?: number
+  revision?: number
+}) => void
 
 function captureListeners(context: TestContext, defer?: Promise<void>) {
   const handlers = new Map<string, Handler>()
@@ -247,5 +269,75 @@ test('listeners that register after unmount are released', async (context) => {
   unmount()
   gate.resolve()
 
-  await waitFor(() => assert.equal(unlisten.mock.callCount(), 3))
+  await waitFor(() => assert.equal(unlisten.mock.callCount(), 4))
+})
+
+test('a pending job opens when its run tree changes and a live one follows its own events', async (context) => {
+  const { handlers } = captureListeners(context)
+  let current: RunLogDocument = { state: 'pending' }
+  const opens = stubOpen(context, async () => current)
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const { result } = renderHook(() => useRunLogDocument(target.pipelineId, 7, '99', true), { wrapper })
+  await waitFor(() => assert.equal(result.current.data?.state, 'pending'))
+
+  await act(async () => handlers.get('run-log-tree-changed')?.({ pipelineId: 'other', runNumber: 7 }))
+  assert.equal(opens.mock.callCount(), 1)
+
+  current = { state: 'ready', ...readyMeta, complete: false }
+  await act(async () => handlers.get('run-log-tree-changed')?.({ pipelineId: target.pipelineId, runNumber: 7 }))
+  await waitFor(() => assert.equal(result.current.data?.state, 'ready'))
+  assert.equal(opens.mock.callCount(), 2)
+
+  await act(async () => handlers.get('run-log-tree-changed')?.({ pipelineId: target.pipelineId, runNumber: 7 }))
+  assert.equal(opens.mock.callCount(), 2)
+
+  current = { state: 'ready', ...readyMeta, complete: false, revision: 4, line_count: 20 }
+  await act(async () => handlers.get('run-log-ready')?.({ ...target, revision: 4 }))
+  await waitFor(() => assert.equal(result.current.data?.state === 'ready' && result.current.data.revision, 4))
+})
+
+function stubTree(context: TestContext, impl: () => Promise<RunLogTree>) {
+  const trees = context.mock.fn(impl)
+  context.mock.method(apiService, 'getRunLogTree', trees)
+  context.mock.method(tauriService, 'getRunLogTree', trees)
+
+  return trees
+}
+
+const tree = (complete: boolean): RunLogTree => ({ nodes: [], default_node_id: null, complete })
+
+test('a run-log-tree-changed event refetches only the tree of that run', async (context) => {
+  const { handlers } = captureListeners(context)
+  const trees = stubTree(context, async () => tree(false))
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  renderHook(() => useRunLogTree(target.pipelineId, 7, true), { wrapper })
+  await waitFor(() => assert.equal(trees.mock.callCount(), 1))
+
+  await act(async () => handlers.get('run-log-tree-changed')?.({ pipelineId: target.pipelineId, runNumber: 8 }))
+  assert.equal(trees.mock.callCount(), 1)
+
+  await act(async () => handlers.get('run-log-tree-changed')?.({ pipelineId: target.pipelineId, runNumber: 7 }))
+  await waitFor(() => assert.equal(trees.mock.callCount(), 2))
+})
+
+test('an incomplete tree beats every 30 s and a complete one never does', async (context) => {
+  context.mock.method(events, 'listen', async () => () => undefined)
+  let complete = false
+  const trees = stubTree(context, async () => tree(complete))
+  notifyManager.setNotifyFunction((callback) => act(callback))
+
+  const live = renderHook(() => useRunLogTree(target.pipelineId, 7, true), { wrapper })
+  await waitFor(() => assert.equal(trees.mock.callCount(), 1))
+
+  await act(async () => advance(29_999))
+  assert.equal(trees.mock.callCount(), 1)
+  complete = true
+  await act(async () => advance(1))
+  await waitFor(() => assert.equal(live.result.current.data?.complete, true))
+  assert.equal(trees.mock.callCount(), 2)
+
+  await act(async () => advance(300_000))
+  assert.equal(trees.mock.callCount(), 2)
 })

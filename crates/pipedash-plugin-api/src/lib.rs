@@ -36,15 +36,24 @@ pub use http::{
     truncate_chars,
 };
 pub use logs::{
+    content_hash,
+    extend_content_hash,
+    next_log_chunk,
+    ContentRange,
     LineMarker,
     LogAvailability,
+    LogCursor,
     LogDialect,
     LogNode,
     LogNodeKind,
+    LogRead,
+    LogReadMode,
     LogSink,
     ParsedLine,
     PlainDialect,
+    RangedRead,
     RunRef,
+    CONTENT_HASH_SEED,
     LOG_CHUNK_STALL_TIMEOUT,
 };
 pub use plugin::{

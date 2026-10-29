@@ -239,6 +239,7 @@ mod tests {
             resource_state: None,
             metadata: Default::default(),
             overdue_run: None,
+            typical_duration_seconds: None,
         }
     }
 
