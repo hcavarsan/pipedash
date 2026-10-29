@@ -1813,7 +1813,7 @@ mod tests {
         assert_eq!(last.marker, LineMarker::Warning);
         assert_eq!(
             last.body,
-            b"Only the last 10000 lines of this step are shown"
+            b"Pipedash reads at most the last 10000 lines of a step, so older lines may be missing"
         );
         assert!(lines[2..=limit]
             .iter()

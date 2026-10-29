@@ -59,7 +59,7 @@ pub(crate) fn truncation_notice(lines: usize) -> Vec<u8> {
     tagged_line(
         TRUNCATION_TAG,
         None,
-        &format!("Only the last {lines} lines of this step are shown"),
+        &format!("Pipedash reads at most the last {lines} lines of a step, so older lines may be missing"),
     )
 }
 
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(parsed.timestamp, None);
         assert_eq!(
             parsed.body,
-            b"Only the last 10000 lines of this step are shown"
+            b"Pipedash reads at most the last 10000 lines of a step, so older lines may be missing"
         );
         assert!(!TektonLogDialect.is_step_start(&parsed));
     }
