@@ -292,7 +292,11 @@ impl Outline {
             });
             match in_failed {
                 Some(nth) => self.nth_error(nth)?,
-                None => self.error_lines.first().copied(),
+                None => self
+                    .error_lines
+                    .first()
+                    .copied()
+                    .or_else(|| failed.and_then(|d| (d.start < d.end).then(|| d.end - 1))),
             }
         };
 
@@ -787,6 +791,22 @@ mod tests {
         let out = feed.finish();
         assert_eq!(out.focus_line, None);
         assert!(out.sections.is_empty());
+    }
+
+    #[test]
+    fn run_logs_outline_focus_lands_on_the_end_of_a_failed_step_without_error_lines() {
+        let mut feed = Feed::new(vec![
+            step("ok", PipelineStatus::Success, 1),
+            step("bad", PipelineStatus::Failed, 2),
+            step("after", PipelineStatus::Success, 3),
+        ]);
+        feed.plain(t(1, 0));
+        feed.plain(t(2, 0));
+        feed.plain(t(2, 1));
+        feed.plain(t(3, 0));
+        let out = feed.finish();
+        assert_eq!(out.error_total, 0);
+        assert_eq!(out.focus_line, Some(2));
     }
 
     #[test]

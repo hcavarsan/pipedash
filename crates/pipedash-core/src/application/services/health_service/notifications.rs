@@ -244,10 +244,10 @@ impl NotificationState {
         for pipeline in pipelines {
             let mut mark = PipelineMark::of(pipeline);
             if let Some(old) = previous.get(&pipeline.id) {
-                let failed = pipeline.status == PipelineStatus::Failed
-                    && (old.status != PipelineStatus::Failed || old.last_run != pipeline.last_run);
-                if failed {
-                    found.push(self.pipeline_notice(pipeline, format!("{} failed", pipeline.name)));
+                let needs_attention = pipeline.status.needs_attention()
+                    && (old.status != pipeline.status || old.last_run != pipeline.last_run);
+                if needs_attention {
+                    found.push(self.pipeline_notice(pipeline, attention_title(pipeline)));
                 }
                 if pipeline.overdue_run.is_some() && old.overdue != pipeline.overdue_run {
                     found.push(self.pipeline_notice(
@@ -273,12 +273,12 @@ impl NotificationState {
         let mut found = Vec::new();
         for pipeline in pipelines
             .iter()
-            .filter(|pipeline| pipeline.status == PipelineStatus::Failed)
+            .filter(|pipeline| pipeline.status.needs_attention())
         {
             let marks = self.pipelines.entry(pipeline.provider_id).or_default();
             let old = marks.get(&pipeline.id);
             let handled = old.is_some_and(|old| {
-                old.status == PipelineStatus::Failed && old.last_run == pipeline.last_run
+                old.status == pipeline.status && old.last_run == pipeline.last_run
             });
             let mut mark = PipelineMark::of(pipeline);
             if mark.overdue.is_none() {
@@ -287,7 +287,7 @@ impl NotificationState {
             mark.checked_at = old.and_then(|old| old.checked_at);
             marks.insert(pipeline.id.clone(), mark);
             if !handled {
-                found.push(self.pipeline_notice(pipeline, format!("{} failed", pipeline.name)));
+                found.push(self.pipeline_notice(pipeline, attention_title(pipeline)));
             }
         }
 
@@ -301,7 +301,12 @@ impl NotificationState {
             .map(|mark| mark.name.as_str())
             .filter(|name| !name.is_empty())
             .unwrap_or(&pipeline.provider_type);
-        let body = [pipeline.repository.as_str(), provider]
+        let message = pipeline
+            .resource_state
+            .as_ref()
+            .and_then(|state| state.message.as_deref())
+            .unwrap_or_default();
+        let body = [pipeline.repository.as_str(), provider, message]
             .iter()
             .filter(|part| !part.is_empty())
             .copied()
@@ -364,5 +369,12 @@ impl NotificationState {
                 )
             })
             .collect()
+    }
+}
+
+fn attention_title(pipeline: &Pipeline) -> String {
+    match pipeline.status {
+        PipelineStatus::Degraded => format!("{} is degraded", pipeline.name),
+        _ => format!("{} failed", pipeline.name),
     }
 }

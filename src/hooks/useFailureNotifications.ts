@@ -10,6 +10,9 @@ import type { Pipeline, ProviderSummary } from '../types/domain'
 import type { EventPayloadMap } from '../types/events'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
+const alertTitle = (pipeline: Pipeline) =>
+  pipeline.status === 'degraded' ? `${pipeline.name} is degraded` : `${pipeline.name} failed`
+
 const notify = (
   pipeline: Pipeline,
   tone: CenterNotificationTone,
@@ -17,7 +20,9 @@ const notify = (
   provider: ProviderSummary | undefined,
   system: boolean
 ) => {
-  const body = [pipeline.repository, provider?.name || pipeline.provider_type].filter(Boolean).join(' · ')
+  const body = [pipeline.repository, provider?.name || pipeline.provider_type, pipeline.resource_state?.message]
+    .filter(Boolean)
+    .join(' · ')
   const key = `pipeline:${pipeline.id}`
 
   useNotificationCenterStore.getState().push({
@@ -60,7 +65,7 @@ export function useFailureNotifications(): void {
 
           for (const pipeline of pipelines) {
             const provider = providers?.find((item) => item.id === pipeline.provider_id)
-            notify(pipeline, 'danger', `${pipeline.name} failed`, provider, enabled)
+            notify(pipeline, 'danger', alertTitle(pipeline), provider, enabled)
           }
         })
         .then((fn) => {
@@ -101,8 +106,8 @@ export function useFailureNotifications(): void {
         const failed =
           !native &&
           previous !== undefined &&
-          pipeline.status === 'failed' &&
-          (previous.status !== 'failed' || previous.last_run !== pipeline.last_run)
+          (pipeline.status === 'failed' || pipeline.status === 'degraded') &&
+          (previous.status !== pipeline.status || previous.last_run !== pipeline.last_run)
 
         lastPipelines.set(pipeline.id, pipeline)
         if (overdueRun) {
@@ -115,7 +120,7 @@ export function useFailureNotifications(): void {
 
         const provider = providers?.find((p) => p.id === pipeline.provider_id)
         if (failed) {
-          notify(pipeline, 'danger', `${pipeline.name} failed`, provider, enabled)
+          notify(pipeline, 'danger', alertTitle(pipeline), provider, enabled)
         }
         if (newOverdueRun) {
           notify(pipeline, 'warning', `${pipeline.name} is running longer than usual`, provider, enabled)

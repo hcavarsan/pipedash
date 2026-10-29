@@ -32,6 +32,10 @@ impl LogDialect for AzureDevOpsLogDialect {
         line.marker == (LineMarker::SectionStart { open: false })
             && line.body.starts_with(TASK_START)
     }
+
+    fn infers_errors(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

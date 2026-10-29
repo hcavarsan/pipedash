@@ -1,5 +1,5 @@
 import { STATUS_OPTIONS } from '../theme/status'
-import type { Pipeline } from '../types/domain'
+import type { Pipeline, PipelineRun } from '../types/domain'
 
 export interface PipelineLabels {
   item: string
@@ -43,23 +43,24 @@ const fluxLabels: PipelineLabels = {
 export const getPipelineLabels = (providerType?: string): PipelineLabels =>
   providerType === 'fluxcd' ? fluxLabels : pipelineLabels
 
-export const getStatusLabel = (resource: Pick<Pipeline, 'metadata' | 'overdue_run'>): string | undefined => {
-  if (resource.overdue_run) {
-    return 'Running longer than usual'
-  }
+export const getPipelineStatusLabel = (
+  pipeline: Pick<Pipeline, 'overdue_run' | 'resource_state'>
+): string | undefined => (pipeline.overdue_run ? 'Running longer than usual' : pipeline.resource_state?.label)
 
-  const label = resource.metadata?.status_label
+export const getRunStatusLabel = (run: Pick<PipelineRun, 'metadata'>): string | undefined => {
+  const label = run.metadata?.status_label
 
   if (typeof label !== 'string') {
     return undefined
   }
 
-  return resource.metadata?.archived === true ? `${label} (cached)` : label
+  return run.metadata?.archived === true ? `${label} (cached)` : label
 }
 
 const fluxStatusOptions = [
   { value: 'success', label: 'Ready' },
   { value: 'failed', label: 'Not ready' },
+  { value: 'degraded', label: 'Degraded' },
   { value: 'running', label: 'Reconciling' },
   { value: 'pending', label: 'Pending' },
   { value: 'skipped', label: 'Suspended' },

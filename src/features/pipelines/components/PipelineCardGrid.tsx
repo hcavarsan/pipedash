@@ -18,7 +18,7 @@ import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import type { ProviderSummary, ViewPipeline } from '../../../types/domain'
 import { formatDateTime } from '../../../utils/formatDateTime'
-import { getPipelineLabels, getStatusLabel } from '../../../utils/pipelinePresentation'
+import { getPipelineLabels, getPipelineStatusLabel } from '../../../utils/pipelinePresentation'
 
 const MOBILE_ROW_ESTIMATE = 64
 const CARD_ROW_ESTIMATE = 130
@@ -99,7 +99,7 @@ function IosPipelineItem({
   return (
     <IosPipelineRow
       status={pipeline.status}
-      statusText={getStatusLabel(pipeline)}
+      statusText={getPipelineStatusLabel(pipeline)}
       title={pipeline.name}
       subtitle={subtitle}
       hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}

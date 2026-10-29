@@ -8,7 +8,7 @@ import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { STATUS_META } from '../../../theme/status'
 import type { Pipeline } from '../../../types/domain'
-import { getStatusLabel } from '../../../utils/pipelinePresentation'
+import { getPipelineStatusLabel } from '../../../utils/pipelinePresentation'
 import { useRunActions } from './RunActionsContext'
 
 interface RunHistoryHeaderProps {
@@ -70,8 +70,8 @@ export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
   const { pipeline, isLoadingPipeline, onBack } = props
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const { isFlux, labels, openTrigger, triggerBlockedReason } = useRunActions()
-  const flux = isFlux && pipeline
+  const { labels, openTrigger, triggerBlockedReason } = useRunActions()
+  const state = pipeline?.resource_state && pipeline
 
   return (
     <>
@@ -84,23 +84,23 @@ export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
           mobileShell ? undefined : <HeaderActions {...props} showCustomize={props.showCustomize && !isMobile} />
         }
       />
-      {flux && mobileShell && (
+      {state && mobileShell && (
         <IosGroup>
           <IosRow
             title={
-              <Text component="span" fw={600} c={`var(--status-${STATUS_META[flux.status].tone})`}>
-                {getStatusLabel(flux) ?? STATUS_META[flux.status].label}
+              <Text component="span" fw={600} c={`var(--status-${STATUS_META[state.status].tone})`}>
+                {getPipelineStatusLabel(state) ?? STATUS_META[state.status].label}
               </Text>
             }
-            subtitle={String(flux.metadata?.message ?? '') || undefined}
+            subtitle={state.resource_state?.message}
           />
         </IosGroup>
       )}
-      {flux && !mobileShell && (
+      {state && !mobileShell && (
         <Group gap="sm" align="flex-start" mb="sm">
-          <StatusBadge status={flux.status} label={getStatusLabel(flux)} size="md" />
+          <StatusBadge status={state.status} label={getPipelineStatusLabel(state)} size="md" />
           <Text size="sm" style={{ overflowWrap: 'anywhere', flex: 1 }}>
-            {String(flux.metadata?.message ?? '')}
+            {state.resource_state?.message}
           </Text>
         </Group>
       )}

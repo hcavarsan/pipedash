@@ -57,8 +57,9 @@ pub(super) struct ResolvedView {
     pub excluded: HashSet<String>,
 }
 
-const SEVERITY: [PipelineStatus; 6] = [
+const SEVERITY: [PipelineStatus; 7] = [
     PipelineStatus::Failed,
+    PipelineStatus::Degraded,
     PipelineStatus::Running,
     PipelineStatus::Pending,
     PipelineStatus::Cancelled,

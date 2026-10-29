@@ -286,6 +286,7 @@ body,
 :root {
   --status-success: oklch(0.5 0.13 155);
   --status-failed: oklch(0.5 0.13 25);
+  --status-degraded: oklch(0.5 0.13 55);
   --status-running: oklch(0.5 0.13 255);
   --status-pending: oklch(0.5 0.13 85);
   --status-neutral: oklch(0.52 0.01 255);
@@ -294,6 +295,7 @@ body,
 [data-mantine-color-scheme="dark"] {
   --status-success: oklch(0.76 0.12 155);
   --status-failed: oklch(0.76 0.12 25);
+  --status-degraded: oklch(0.76 0.13 55);
   --status-running: oklch(0.76 0.12 255);
   --status-pending: oklch(0.76 0.12 85);
   --status-neutral: oklch(0.68 0.01 255);
@@ -518,6 +520,7 @@ html[data-ios][data-increase-contrast] {
   --ios-material-regular: rgb(242 242 247 / 0.97);
   --status-success: oklch(0.42 0.13 155);
   --status-failed: oklch(0.42 0.13 25);
+  --status-degraded: oklch(0.42 0.13 55);
   --status-running: oklch(0.42 0.13 255);
   --status-pending: oklch(0.42 0.1 85);
   --status-neutral: oklch(0.42 0.01 255);
@@ -536,6 +539,7 @@ html[data-ios][data-mantine-color-scheme="dark"][data-increase-contrast] {
   --ios-material-regular: rgb(28 28 30 / 0.97);
   --status-success: oklch(0.84 0.12 155);
   --status-failed: oklch(0.84 0.12 25);
+  --status-degraded: oklch(0.84 0.13 55);
   --status-running: oklch(0.84 0.12 255);
   --status-pending: oklch(0.84 0.12 85);
   --status-neutral: oklch(0.8 0.01 255);

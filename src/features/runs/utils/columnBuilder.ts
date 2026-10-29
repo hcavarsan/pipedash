@@ -2,7 +2,7 @@ import type { DataTableColumn } from 'mantine-datatable'
 
 import { logger } from '../../../lib/logger'
 import type { ColumnDefinition, PipelineRun } from '../../../types/domain'
-import { getStatusLabel } from '../../../utils/pipelinePresentation'
+import { getRunStatusLabel } from '../../../utils/pipelinePresentation'
 import { renderCellValue } from './dynamicRenderers'
 import { getValueByPath } from './objectPath'
 
@@ -31,7 +31,7 @@ export function buildColumnsFromSchema(
       render: (record) => {
         const value = getValueByPath(record, def.field_path)
 
-        return renderCellValue(def.renderer, value, getStatusLabel(record))
+        return renderCellValue(def.renderer, value, getRunStatusLabel(record))
       },
     }
 

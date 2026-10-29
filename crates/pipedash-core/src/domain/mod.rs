@@ -56,6 +56,7 @@ pub use pipeline::{
     Pipeline,
     PipelineRun,
     PipelineStatus,
+    ResourceState,
     TriggerParams,
 };
 pub use pipeline_view::{

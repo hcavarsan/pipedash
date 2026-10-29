@@ -348,6 +348,25 @@ fn updated_and_failed_events_for_one_failure_notify_once() {
 }
 
 #[test]
+fn a_degraded_pipeline_notice_says_why() {
+    let mut state = NotificationState::default();
+    state.seed(&[run(1, "api", PipelineStatus::Success, 1)], &[summary(1)]);
+    let mut degraded = run(1, "api", PipelineStatus::Degraded, 1);
+    degraded.resource_state = Some(crate::domain::ResourceState::new(
+        "Degraded",
+        Some("Pod apps/api-7f9c: CrashLoopBackOff"),
+    ));
+
+    let found = state.observe_event(&updated(1, vec![degraded]));
+
+    assert_eq!(titles(&found), ["api is degraded"]);
+    assert_eq!(
+        found[0].body,
+        format!("{BODY} · Pod apps/api-7f9c: CrashLoopBackOff")
+    );
+}
+
+#[test]
 fn seeding_is_silent_and_replaces_older_state() {
     let failed = run(1, "api", PipelineStatus::Failed, 1);
     let mut state = NotificationState::default();

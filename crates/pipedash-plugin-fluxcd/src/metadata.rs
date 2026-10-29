@@ -25,9 +25,10 @@ pub(crate) struct PermissionSpec {
     pub description: &'static str,
     pub required: bool,
     pub group: &'static str,
-    pub resource: &'static str,
+    pub resources: &'static [&'static str],
     pub verbs: &'static [&'static str],
     pub names: &'static [&'static str],
+    pub cluster_wide: bool,
 }
 
 impl PermissionSpec {
@@ -46,61 +47,78 @@ const RECONCILE_KUSTOMIZATIONS: &str = "Request Kustomization reconciliation";
 const RECONCILE_HELMRELEASES: &str = "Request HelmRelease reconciliation";
 const READ_CONTROLLERS: &str = "Read Flux controller deployments";
 const READ_EVENTS: &str = "Read Flux object events";
+const READ_WORKLOADS: &str = "Read managed workloads";
 
-pub(crate) const PERMISSIONS: [PermissionSpec; 6] = [
+pub(crate) const PERMISSIONS: [PermissionSpec; 7] = [
     PermissionSpec {
         name: READ_KUSTOMIZATIONS,
         description: "get and list kustomizations.kustomize.toolkit.fluxcd.io to show status, conditions and history",
         required: true,
         group: Kind::Kustomization.group(),
-        resource: Kind::Kustomization.plural(),
+        resources: &[Kind::Kustomization.plural()],
         verbs: &["get", "list"],
         names: &[],
+        cluster_wide: false,
     },
     PermissionSpec {
         name: READ_HELMRELEASES,
         description: "get and list helmreleases.helm.toolkit.fluxcd.io to show status, conditions and release history",
         required: true,
         group: Kind::HelmRelease.group(),
-        resource: Kind::HelmRelease.plural(),
+        resources: &[Kind::HelmRelease.plural()],
         verbs: &["get", "list"],
         names: &[],
+        cluster_wide: false,
     },
     PermissionSpec {
         name: RECONCILE_KUSTOMIZATIONS,
         description: "patch kustomizations.kustomize.toolkit.fluxcd.io to set the reconcile.fluxcd.io/requestedAt annotation",
         required: false,
         group: Kind::Kustomization.group(),
-        resource: Kind::Kustomization.plural(),
+        resources: &[Kind::Kustomization.plural()],
         verbs: &["patch"],
         names: &[],
+        cluster_wide: false,
     },
     PermissionSpec {
         name: RECONCILE_HELMRELEASES,
         description: "patch helmreleases.helm.toolkit.fluxcd.io to set the reconcile.fluxcd.io/requestedAt annotation",
         required: false,
         group: Kind::HelmRelease.group(),
-        resource: Kind::HelmRelease.plural(),
+        resources: &[Kind::HelmRelease.plural()],
         verbs: &["patch"],
         names: &[],
+        cluster_wide: false,
     },
     PermissionSpec {
         name: READ_CONTROLLERS,
         description: "get deployments.apps named source-controller, kustomize-controller and helm-controller in the Flux namespace to show controller health",
         required: false,
         group: "apps",
-        resource: "deployments",
+        resources: &["deployments"],
         verbs: &["get"],
         names: &config::CONTROLLERS,
+        cluster_wide: false,
     },
     PermissionSpec {
         name: READ_EVENTS,
         description: "list events in the namespace of each monitored resource to show the Kubernetes events of a Kustomization or HelmRelease",
         required: false,
         group: "",
-        resource: "events",
+        resources: &["events"],
         verbs: &["list"],
         names: &[],
+        cluster_wide: false,
+    },
+    PermissionSpec {
+        name: READ_WORKLOADS,
+        description: "list deployments, statefulsets and daemonsets in apps across all namespaces to report a Ready Flux resource as Degraded when the workloads it manages are unhealthy",
+        required: false,
+        group: "apps",
+        resources: &["deployments", "statefulsets", "daemonsets"],
+        verbs: &["list"],
+        names: &[],
+        cluster_wide: true,
     },
 ];
 

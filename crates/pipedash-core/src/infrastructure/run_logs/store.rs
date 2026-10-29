@@ -71,7 +71,7 @@ const DOCS_DIR: &str = "docs";
 const TOUCH_FILE: &str = ".touch";
 const TREE_FILE: &str = "tree.json";
 const TREE_TMP_FILE: &str = "tree.json.tmp";
-const STORED_FORMAT: u32 = 1;
+pub(super) const STORED_FORMAT: u32 = 2;
 
 type RunId = (i64, String);
 type TrimScope = (HashSet<RunId>, Option<(RunId, String)>);
@@ -1196,6 +1196,27 @@ mod tests {
         assert_eq!(doc.meta().to_meta().line_count, 2);
         assert_eq!(doc.meta().key, key);
         let _ = LineKind::Plain;
+    }
+
+    #[tokio::test]
+    async fn run_logs_store_drops_documents_indexed_before_error_inference() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let key = doc_key();
+        let store = LogStore::open(root(&dir), u64::MAX).await.expect("open");
+        let revision = publish_doc(&store, &key, "ERROR: Job failed: exit code 1\n").await;
+        let meta_path = rev_dir(&store, &key, revision).join(META_FILE);
+        let mut old: serde_json::Value =
+            serde_json::from_slice(&fs::read(&meta_path).expect("meta")).expect("json");
+        old["format"] = serde_json::json!(1);
+        old["error_lines"] = serde_json::json!([]);
+        old["error_total"] = serde_json::json!(0);
+        fs::write(&meta_path, serde_json::to_vec(&old).expect("encode")).expect("write");
+        drop(store);
+
+        let store = LogStore::open(root(&dir), u64::MAX).await.expect("reopen");
+
+        assert_eq!(store.current(&key), None);
+        assert!(!rev_dir(&store, &key, revision).exists());
     }
 
     #[tokio::test]

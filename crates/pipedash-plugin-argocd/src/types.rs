@@ -308,6 +308,16 @@ pub struct ResourceNode {
     #[serde(default)]
     pub name: String,
     pub health: Option<HealthStatus>,
+    #[serde(default, deserialize_with = "null_as_empty")]
+    pub info: Vec<InfoItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InfoItem {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub value: String,
 }
 
 #[derive(Debug, Deserialize)]

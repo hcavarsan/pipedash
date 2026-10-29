@@ -61,6 +61,7 @@ pub(crate) fn map_pipeline(
         repository: format!("{owner}/{repo}"),
         branch: latest_run.map(|run| run.head_branch.clone()),
         workflow_file: Some(workflow.path.clone()),
+        resource_state: None,
         metadata: HashMap::new(),
     }
 }

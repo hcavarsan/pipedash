@@ -8,7 +8,7 @@ import { useNotificationCenterStore } from '../../stores/notificationCenterStore
 import { STATUS_META } from '../../theme/status'
 import type { PipelineStatus, ProviderSummary } from '../../types/domain'
 import { staleNote } from '../../utils/fetchInfo'
-import { getPipelineLabels, getStatusLabel } from '../../utils/pipelinePresentation'
+import { getPipelineLabels, getPipelineStatusLabel } from '../../utils/pipelinePresentation'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import groupClasses from '../ios/IosList.module.css'
 import { SwipeActions } from '../ios/SwipeActions'
@@ -259,8 +259,7 @@ interface WorkflowRowViewProps {
 
 function WorkflowRowView({ row, now, getProvider, actions, selection }: WorkflowRowViewProps): ReactNode {
   const { pipeline } = row
-  const message =
-    pipeline.provider_type === 'fluxcd' && pipeline.metadata?.message ? String(pipeline.metadata.message) : ''
+  const message = pipeline.resource_state?.message ?? ''
   const nested = Boolean(row.depth)
   const subtitle = [nested ? '' : row.organization, pipeline.branch, relativeOrNever(row.lastRun, now), message]
     .filter(Boolean)
@@ -269,7 +268,7 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
   return (
     <IosPipelineRow
       status={row.status}
-      statusText={getStatusLabel(pipeline)}
+      statusText={getPipelineStatusLabel(pipeline)}
       title={row.name}
       subtitle={subtitle}
       hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}

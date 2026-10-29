@@ -88,6 +88,20 @@ test('reconnection refetch recovers a failure missed while WebSocket was disconn
   assert.equal(useNotificationCenterStore.getState().items[0]?.pipelineId, baseline.id)
 })
 
+test('a pipeline that becomes degraded notifies once with degraded wording', async () => {
+  await mount(baseline)
+  wsClient.disconnect()
+  backend = [{ ...baseline, status: 'degraded' }]
+  wsClient.manualReconnect()
+  Socket.instances.at(-1)?.open()
+  await waitFor(() => assert.equal(delivered.length, 1))
+  assert.equal(useNotificationCenterStore.getState().items[0]?.title, 'Build is degraded')
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
+  })
+  assert.equal(delivered.length, 1)
+})
+
 test('reconnection notices a newer failed run on an already-failed pipeline', async () => {
   await mount({ ...baseline, status: 'failed' })
   assert.deepEqual(delivered, [])

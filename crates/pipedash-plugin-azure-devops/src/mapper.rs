@@ -99,6 +99,7 @@ pub(crate) fn map_pipeline(
         repository: format!("{organization}/{project}"),
         branch: latest_build.and_then(branch_of),
         workflow_file: None,
+        resource_state: None,
         metadata: HashMap::new(),
     }
 }

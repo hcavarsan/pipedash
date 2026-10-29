@@ -7,6 +7,7 @@ use chrono::{
 pub use pipedash_plugin_api::{
     PaginatedAvailablePipelines,
     PaginationParams,
+    ResourceState,
 };
 use serde::{
     Deserialize,
@@ -18,6 +19,7 @@ use serde::{
 pub enum PipelineStatus {
     Success,
     Failed,
+    Degraded,
     Running,
     Pending,
     Cancelled,
@@ -30,15 +32,21 @@ impl PipelineStatus {
             self,
             PipelineStatus::Success
                 | PipelineStatus::Failed
+                | PipelineStatus::Degraded
                 | PipelineStatus::Cancelled
                 | PipelineStatus::Skipped
         )
+    }
+
+    pub fn needs_attention(&self) -> bool {
+        matches!(self, PipelineStatus::Failed | PipelineStatus::Degraded)
     }
 
     pub fn as_str(&self) -> &'static str {
         match self {
             PipelineStatus::Success => "success",
             PipelineStatus::Failed => "failed",
+            PipelineStatus::Degraded => "degraded",
             PipelineStatus::Running => "running",
             PipelineStatus::Pending => "pending",
             PipelineStatus::Cancelled => "cancelled",
@@ -59,6 +67,8 @@ pub struct Pipeline {
     pub repository: String,
     pub branch: Option<String>,
     pub workflow_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_state: Option<ResourceState>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub metadata: HashMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

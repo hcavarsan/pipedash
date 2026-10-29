@@ -6,7 +6,7 @@ import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { STATUS_META } from '../../../theme/status'
 import { TYPOGRAPHY } from '../../../theme/typography'
 import type { CellRenderer, PipelineRun, PipelineStatus } from '../../../types/domain'
-import { getStatusLabel } from '../../../utils/pipelinePresentation'
+import { getRunStatusLabel } from '../../../utils/pipelinePresentation'
 import { useTableDefinition } from '../queries/useTableSchemaQueries'
 import { filterVisibleColumns } from '../utils/columnBuilder'
 import { isCellValue, renderCellValue } from '../utils/dynamicRenderers'
@@ -58,7 +58,7 @@ export function useDetailRows(providerId: number | undefined, run: PipelineRun):
 
 function RunDetailValue({ field, value, run }: { field: DetailField; value: unknown; run: PipelineRun }): ReactNode {
   if (field.id === 'status' && isPipelineStatus(value)) {
-    return <StatusBadge status={value} label={getStatusLabel(run)} size="md" />
+    return <StatusBadge status={value} label={getRunStatusLabel(run)} size="md" />
   }
 
   if (field.id === 'message') {

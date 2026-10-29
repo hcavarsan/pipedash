@@ -6,7 +6,7 @@ import { TYPOGRAPHY } from '../../../theme/typography'
 import type { PipelineRun } from '../../../types/domain'
 import { formatDateTime } from '../../../utils/formatDateTime'
 import { formatDuration } from '../../../utils/formatDuration'
-import { getStatusLabel } from '../../../utils/pipelinePresentation'
+import { getRunStatusLabel } from '../../../utils/pipelinePresentation'
 import { TableCells } from '../../../utils/tableCells'
 
 import { RunActionButtons } from './RunActionControls'
@@ -61,7 +61,7 @@ export function RunHistoryCard({ run, selected, selectable, onSelectedChange }: 
                 <Text size={TYPOGRAPHY.ITEM_TITLE.size} fw={TYPOGRAPHY.ITEM_TITLE.weight}>
                   {isFlux ? String(run.metadata?.run_label ?? 'Reconciliation') : `#${run.run_number}`}
                 </Text>
-                <StatusBadge status={run.status} label={getStatusLabel(run)} />
+                <StatusBadge status={run.status} label={getRunStatusLabel(run)} />
               </Group>
             </UnstyledButton>
           </Group>

@@ -782,22 +782,28 @@ mod tests {
 
         let summary: Vec<_> = pipelines
             .iter()
-            .map(|pipeline| (pipeline.name.as_str(), pipeline.status))
+            .map(|pipeline| {
+                (
+                    pipeline.name.as_str(),
+                    pipeline.status,
+                    pipeline.resource_state.as_ref().unwrap().label.as_str(),
+                )
+            })
             .collect();
         assert_eq!(
             summary,
             [
-                ("stack-deploying", PipelineStatus::Running),
-                ("stack-running", PipelineStatus::Success),
-                ("stack-paused", PipelineStatus::Cancelled),
-                ("stack-stopped", PipelineStatus::Cancelled),
-                ("stack-created", PipelineStatus::Pending),
-                ("stack-restarting", PipelineStatus::Failed),
-                ("stack-dead", PipelineStatus::Failed),
-                ("stack-removing", PipelineStatus::Running),
-                ("stack-unhealthy", PipelineStatus::Failed),
-                ("stack-down", PipelineStatus::Cancelled),
-                ("stack-unknown", PipelineStatus::Pending),
+                ("stack-deploying", PipelineStatus::Running, "Deploying"),
+                ("stack-running", PipelineStatus::Success, "Up"),
+                ("stack-paused", PipelineStatus::Cancelled, "Paused"),
+                ("stack-stopped", PipelineStatus::Cancelled, "Stopped"),
+                ("stack-created", PipelineStatus::Pending, "Created"),
+                ("stack-restarting", PipelineStatus::Degraded, "Restarting"),
+                ("stack-dead", PipelineStatus::Failed, "Dead"),
+                ("stack-removing", PipelineStatus::Running, "Removing"),
+                ("stack-unhealthy", PipelineStatus::Degraded, "Unhealthy"),
+                ("stack-down", PipelineStatus::Cancelled, "Down"),
+                ("stack-unknown", PipelineStatus::Pending, "Unknown"),
             ]
         );
         assert_eq!(pipelines[0].id, "komodo__1__id-deploying");

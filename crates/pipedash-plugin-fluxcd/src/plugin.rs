@@ -34,6 +34,7 @@ use pipedash_plugin_api::{
     PluginError,
     PluginMetadata,
     PluginResult,
+    ResourceState,
     RunRef,
     StatusSource,
     TriggerParams,
@@ -66,6 +67,11 @@ use crate::{
         FluxResource,
         Kind,
     },
+    workloads::{
+        Lookup,
+        UnhealthyWorkloads,
+        WorkloadKind,
+    },
 };
 
 const CONCURRENCY: usize = 8;
@@ -76,6 +82,7 @@ pub struct FluxcdPlugin {
     provider_id: Option<i64>,
     settings: Option<Settings>,
     status_source: Option<StatusSource>,
+    unhealthy: std::sync::Mutex<UnhealthyWorkloads>,
 }
 
 impl Default for FluxcdPlugin {
@@ -106,14 +113,13 @@ fn missing_pipeline(target: &Target, provider_id: i64) -> Pipeline {
         repository: format!("{}/(missing)", target.namespace),
         branch: None,
         workflow_file: None,
+        resource_state: Some(ResourceState::new("Not found", Some(&message))),
         metadata: HashMap::from([
             ("kind".to_string(), json!(target.kind.as_str())),
             ("namespace".to_string(), json!(target.namespace)),
             ("name".to_string(), json!(target.name)),
             ("missing".to_string(), json!(true)),
             ("reason".to_string(), json!("ResourceNotFound")),
-            ("status_label".to_string(), json!("Not found")),
-            ("message".to_string(), json!(message)),
             ("history_scope".to_string(), json!("bounded_reconciliation")),
         ]),
     }
@@ -148,6 +154,7 @@ impl FluxcdPlugin {
             provider_id: None,
             settings: None,
             status_source: None,
+            unhealthy: std::sync::Mutex::default(),
         }
     }
 
@@ -315,6 +322,56 @@ impl FluxcdPlugin {
             namespaces.into_iter().map(Some).collect()
         })
     }
+
+    async fn workload_issues(&self, found: &[FluxResource]) -> HashMap<Target, Vec<String>> {
+        let Ok(client) = self.client().await else {
+            return HashMap::new();
+        };
+        let owners: BTreeSet<Kind> = found
+            .iter()
+            .filter(|resource| mapper::current_status(resource) == PipelineStatus::Success)
+            .map(|resource| resource.kind)
+            .collect();
+        let lookups: Vec<Lookup> = owners
+            .into_iter()
+            .flat_map(|owner| WorkloadKind::ALL.map(|kind| (owner, kind)))
+            .collect();
+
+        let results =
+            stream::iter(lookups)
+                .map(|lookup| async move {
+                    (lookup, client.unhealthy_workloads(lookup.0, lookup.1).await)
+                })
+                .buffer_unordered(CONCURRENCY)
+                .collect::<Vec<_>>()
+                .await;
+        let mut findings = Vec::new();
+        let mut failed = Vec::new();
+        for (lookup, result) in results {
+            match result {
+                Ok(found) => findings.extend(found),
+                Err(error) => {
+                    tracing::debug!(%error, "Workload health unavailable; keeping the Flux-reported state");
+                    failed.push(lookup);
+                }
+            }
+        }
+        let lasting = self
+            .unhealthy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .lasting(findings, &failed, std::time::Instant::now());
+        let mut issues: HashMap<Target, Vec<String>> = HashMap::new();
+        for finding in lasting {
+            issues
+                .entry(finding.owner)
+                .or_default()
+                .push(finding.message);
+        }
+        issues.values_mut().for_each(|found| found.sort());
+
+        issues
+    }
 }
 
 #[async_trait]
@@ -421,10 +478,16 @@ impl Plugin for FluxcdPlugin {
     async fn fetch_pipelines(&self) -> PluginResult<Vec<Pipeline>> {
         let provider_id = self.provider_id()?;
         let (found, missing) = self.monitored().await?;
+        let mut workload_issues = self.workload_issues(&found).await;
 
         Ok(found
             .iter()
-            .map(|resource| mapper::map_pipeline(resource, provider_id))
+            .map(|resource| {
+                let issues = workload_issues
+                    .remove(&mapper::target_of(resource))
+                    .unwrap_or_default();
+                mapper::map_pipeline(resource, provider_id, &issues)
+            })
             .chain(
                 missing
                     .iter()
@@ -542,21 +605,26 @@ impl Plugin for FluxcdPlugin {
         let client = self.client().await?;
         let scopes = self.scopes()?;
         let flux_scope = [Some(self.settings()?.flux_namespace.clone())];
+        let cluster_scope: [Option<String>; 1] = [None];
         let mut checks = Vec::new();
         for (index, spec) in PERMISSIONS.iter().enumerate() {
             let (spec_scopes, names): (&[Option<String>], Vec<Option<&str>>) =
-                if spec.names.is_empty() {
-                    (scopes.as_slice(), vec![None])
-                } else {
+                if !spec.names.is_empty() {
                     (
                         flux_scope.as_slice(),
                         spec.names.iter().copied().map(Some).collect(),
                     )
+                } else if spec.cluster_wide {
+                    (cluster_scope.as_slice(), vec![None])
+                } else {
+                    (scopes.as_slice(), vec![None])
                 };
-            for verb in spec.verbs {
-                for scope in spec_scopes {
-                    for name in &names {
-                        checks.push((index, spec, *verb, scope.as_deref(), *name));
+            for resource in spec.resources {
+                for verb in spec.verbs {
+                    for scope in spec_scopes {
+                        for name in &names {
+                            checks.push((index, spec, *resource, *verb, scope.as_deref(), *name));
+                        }
                     }
                 }
             }
@@ -564,9 +632,9 @@ impl Plugin for FluxcdPlugin {
         let mut reviews = Vec::with_capacity(checks.len());
         for batch in checks.chunks(CONCURRENCY) {
             let results = futures::future::try_join_all(batch.iter().map(
-                |(index, spec, verb, scope, name)| async move {
+                |(index, spec, resource, verb, scope, name)| async move {
                     let allowed = client
-                        .can_i(spec.group, spec.resource, *scope, verb, *name)
+                        .can_i(spec.group, resource, *scope, verb, *name)
                         .await?;
                     Ok::<_, PluginError>((*index, allowed))
                 },
@@ -1060,7 +1128,7 @@ mod tests {
                 "fluxcd__1__Kustomization__ci__other"
             ]
         );
-        assert_eq!(stub.recorded().len(), 1);
+        assert_eq!(cluster_requests(&stub.recorded()), 1);
     }
 
     #[tokio::test]
@@ -1095,10 +1163,19 @@ mod tests {
         assert_eq!(missing.workflow_file, None);
         assert_eq!(missing.metadata["missing"], json!(true));
         assert_eq!(missing.metadata["reason"], json!("ResourceNotFound"));
+        assert_eq!(
+            missing.resource_state,
+            Some(ResourceState::new(
+                "Not found",
+                Some("Kustomization ci/gone was not found in this cluster. Update your resource selection or recreate it in Flux.")
+            ))
+        );
+        assert!(!missing.metadata.contains_key("status_label"));
+        assert!(!missing.metadata.contains_key("message"));
         assert_eq!(missing.metadata["namespace"], json!("ci"));
         assert_eq!(missing.metadata["name"], json!("gone"));
         assert!(!missing.metadata.contains_key("uid"));
-        assert_eq!(stub.recorded().len(), 1);
+        assert_eq!(cluster_requests(&stub.recorded()), 1);
     }
 
     #[tokio::test]
@@ -1523,15 +1600,22 @@ mod tests {
                 ("Request HelmRelease reconciliation", false),
                 ("Read Flux controller deployments", false),
                 ("Read Flux object events", false),
+                ("Read managed workloads", false),
             ]
         );
         assert!(!status.all_granted);
         assert_eq!(status.metadata["scope"], "namespaces: ci");
         let reviewed = stub.recorded();
-        assert_eq!(reviewed.len(), 2 * 2 + 2 + 3 + 1);
+        assert_eq!(reviewed.len(), 2 * 2 + 2 + 3 + 1 + 3);
         assert!(reviewed.iter().all(|(method, _, body)| method == "POST"
             && (body.contains("\"namespace\":\"ci\"")
-                || body.contains("\"namespace\":\"flux-system\""))));
+                || body.contains("\"namespace\":\"flux-system\"")
+                || body.contains("\"namespace\":null"))));
+        let cluster_wide = reviewed
+            .iter()
+            .filter(|(_, _, body)| body.contains("\"namespace\":null"))
+            .count();
+        assert_eq!(cluster_wide, 3);
     }
 
     #[tokio::test]
@@ -1545,7 +1629,10 @@ mod tests {
         assert!(status
             .permissions
             .iter()
-            .filter(|check| check.permission.name != "Read Flux object events")
+            .filter(|check| {
+                !["Read Flux object events", "Read managed workloads"]
+                    .contains(&check.permission.name.as_str())
+            })
             .all(|check| !check.granted));
         assert!(!status.all_granted);
         assert_eq!(status.metadata["scope"], "all namespaces");
@@ -1859,14 +1946,16 @@ mod tests {
             .filter_map(|(_, _, body)| {
                 let review: Value = serde_json::from_str(&body).ok()?;
                 let attributes = &review["spec"]["resourceAttributes"];
-                (attributes["resource"] == "deployments").then(|| {
-                    format!(
-                        "{}/{}/{}",
-                        attributes["namespace"].as_str().unwrap_or_default(),
-                        attributes["verb"].as_str().unwrap_or_default(),
-                        attributes["name"].as_str().unwrap_or_default()
-                    )
-                })
+                (attributes["resource"] == "deployments" && attributes["verb"] == "get").then(
+                    || {
+                        format!(
+                            "{}/{}/{}",
+                            attributes["namespace"].as_str().unwrap_or_default(),
+                            attributes["verb"].as_str().unwrap_or_default(),
+                            attributes["name"].as_str().unwrap_or_default()
+                        )
+                    },
+                )
             })
             .collect();
         names.sort();
@@ -2563,5 +2652,426 @@ mod tests {
             granted(only.check_permissions().await.unwrap()),
             Some((true, false))
         );
+    }
+
+    const KUSTOMIZE: &str = "kustomize.toolkit.fluxcd.io";
+    const HELM: &str = "helm.toolkit.fluxcd.io";
+    const APPS: &str = "/apis/apps/v1/";
+
+    fn workload(group: &str, owner: &str, name: &str, spec: Value, status: Value) -> Value {
+        let labels = HashMap::from([
+            (format!("{group}/name"), owner),
+            (format!("{group}/namespace"), "ci"),
+        ]);
+
+        json!({
+            "metadata": { "name": name, "namespace": "apps", "generation": 1, "labels": labels },
+            "spec": spec,
+            "status": status,
+        })
+    }
+
+    fn unready_deployment(owner: &str, name: &str) -> (&'static str, Value) {
+        (
+            "deployments",
+            workload(
+                KUSTOMIZE,
+                owner,
+                name,
+                json!({ "replicas": 3 }),
+                json!({ "observedGeneration": 1, "updatedReplicas": 3, "readyReplicas": 1 }),
+            ),
+        )
+    }
+
+    fn apps_stub(
+        kustomizations: Vec<Value>, helm_releases: Vec<Value>,
+        workloads: Vec<(&'static str, Value)>,
+    ) -> Stub {
+        stub(move |_, target, _| {
+            let path = target.split('?').next().unwrap_or_default();
+            let Some(plural) = path.strip_prefix(APPS) else {
+                return serve(target, &kustomizations, &helm_releases);
+            };
+            let group = if target.contains(HELM) {
+                HELM
+            } else {
+                KUSTOMIZE
+            };
+            let items = workloads
+                .iter()
+                .filter(|(kind, item)| {
+                    *kind == plural
+                        && item["metadata"]["labels"][format!("{group}/name")].is_string()
+                })
+                .map(|(_, item)| item.clone())
+                .collect();
+
+            (200, list(items, None))
+        })
+    }
+
+    fn workload_requests(requests: &[Recorded]) -> Vec<String> {
+        requests
+            .iter()
+            .filter(|(_, target, _)| target.starts_with(APPS))
+            .map(|(_, target, _)| target.clone())
+            .collect()
+    }
+
+    fn cluster_requests(requests: &[Recorded]) -> usize {
+        requests.len() - workload_requests(requests).len()
+    }
+
+    fn without_grace(mut plugin: FluxcdPlugin) -> FluxcdPlugin {
+        plugin.unhealthy =
+            std::sync::Mutex::new(UnhealthyWorkloads::with_grace(std::time::Duration::ZERO));
+        plugin
+    }
+
+    async fn pipeline_with(workloads: Vec<(&'static str, Value)>) -> Pipeline {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = apps_stub(vec![kustomization("ci", "app")], vec![], workloads);
+        let mut pipelines = without_grace(plugin(&stub.server, &dir, &[]))
+            .fetch_pipelines()
+            .await
+            .unwrap();
+
+        pipelines.remove(0)
+    }
+
+    fn assert_flux_ready(pipeline: &Pipeline) {
+        assert_eq!(pipeline.status, PipelineStatus::Success);
+        assert_eq!(
+            pipeline.resource_state,
+            Some(ResourceState::new(
+                "Ready",
+                Some("Applied revision: main@sha1:abc")
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn unhealthy_managed_workloads_degrade_only_the_resource_that_owns_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = apps_stub(
+            vec![kustomization("ci", "app"), kustomization("ci", "other")],
+            vec![helm_release("ci", "chart")],
+            vec![
+                unready_deployment("app", "web"),
+                (
+                    "daemonsets",
+                    workload(
+                        KUSTOMIZE,
+                        "app",
+                        "agent",
+                        json!({}),
+                        json!({
+                            "observedGeneration": 1, "desiredNumberScheduled": 4,
+                            "updatedNumberScheduled": 4, "numberUnavailable": 1,
+                        }),
+                    ),
+                ),
+                (
+                    "deployments",
+                    workload(
+                        KUSTOMIZE,
+                        "other",
+                        "api",
+                        json!({ "replicas": 2 }),
+                        json!({ "observedGeneration": 1, "updatedReplicas": 2, "readyReplicas": 2 }),
+                    ),
+                ),
+                (
+                    "statefulsets",
+                    workload(
+                        HELM,
+                        "chart",
+                        "db",
+                        json!({ "replicas": 1 }),
+                        json!({
+                            "observedGeneration": 1,
+                            "currentRevision": "db-1", "updateRevision": "db-1",
+                        }),
+                    ),
+                ),
+            ],
+        );
+        let plugin = without_grace(plugin(&stub.server, &dir, &[]));
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+
+        let state = |name: &str| {
+            let pipeline = pipelines.iter().find(|p| p.name == name).unwrap();
+            let state = pipeline.resource_state.clone().unwrap();
+            (pipeline.status, state.label, state.message.unwrap())
+        };
+        assert_eq!(
+            state("Kustomization/app"),
+            (
+                PipelineStatus::Degraded,
+                "Degraded".to_string(),
+                "DaemonSet apps/agent: 3 of 4 pods available (+1 more)".to_string()
+            )
+        );
+        assert_eq!(
+            state("HelmRelease/chart"),
+            (
+                PipelineStatus::Degraded,
+                "Degraded".to_string(),
+                "StatefulSet apps/db: 0 of 1 replicas ready".to_string()
+            )
+        );
+        let other = pipelines.iter().find(|p| p.name == "Kustomization/other");
+        assert_flux_ready(other.unwrap());
+    }
+
+    #[tokio::test]
+    async fn pods_still_warming_up_after_an_update_keep_the_ready_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = apps_stub(
+            vec![kustomization("ci", "app")],
+            vec![],
+            vec![(
+                "daemonsets",
+                workload(
+                    KUSTOMIZE,
+                    "app",
+                    "agent",
+                    json!({}),
+                    json!({
+                        "observedGeneration": 1, "desiredNumberScheduled": 4,
+                        "updatedNumberScheduled": 4, "numberUnavailable": 1,
+                    }),
+                ),
+            )],
+        );
+        let plugin = plugin(&stub.server, &dir, &[]);
+
+        for _ in 0..2 {
+            let pipelines = plugin.fetch_pipelines().await.unwrap();
+            assert_flux_ready(&pipelines[0]);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_rollout_in_progress_keeps_the_ready_state() {
+        let pipeline = pipeline_with(vec![
+            (
+                "deployments",
+                workload(
+                    KUSTOMIZE,
+                    "app",
+                    "web",
+                    json!({ "replicas": 3 }),
+                    json!({ "observedGeneration": 1, "updatedReplicas": 1, "readyReplicas": 2 }),
+                ),
+            ),
+            (
+                "statefulsets",
+                workload(
+                    KUSTOMIZE,
+                    "app",
+                    "db",
+                    json!({ "replicas": 3 }),
+                    json!({
+                        "observedGeneration": 1, "readyReplicas": 1,
+                        "currentRevision": "db-1", "updateRevision": "db-2",
+                    }),
+                ),
+            ),
+            (
+                "daemonsets",
+                workload(
+                    KUSTOMIZE,
+                    "app",
+                    "agent",
+                    json!({}),
+                    json!({
+                        "observedGeneration": 1, "desiredNumberScheduled": 4,
+                        "updatedNumberScheduled": 2, "numberUnavailable": 2,
+                    }),
+                ),
+            ),
+        ])
+        .await;
+
+        assert_flux_ready(&pipeline);
+    }
+
+    #[tokio::test]
+    async fn workloads_scaled_to_zero_keep_the_ready_state() {
+        let pipeline = pipeline_with(vec![
+            (
+                "deployments",
+                workload(
+                    KUSTOMIZE,
+                    "app",
+                    "web",
+                    json!({ "replicas": 0 }),
+                    json!({ "observedGeneration": 1 }),
+                ),
+            ),
+            (
+                "statefulsets",
+                workload(
+                    KUSTOMIZE,
+                    "app",
+                    "db",
+                    json!({ "replicas": 0 }),
+                    json!({
+                        "observedGeneration": 1,
+                        "currentRevision": "db-1", "updateRevision": "db-1",
+                    }),
+                ),
+            ),
+        ])
+        .await;
+
+        assert_flux_ready(&pipeline);
+    }
+
+    #[tokio::test]
+    async fn forbidden_workload_lists_keep_the_flux_reported_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let all_forbidden = stub(|_, target, _| {
+            if target.starts_with(APPS) {
+                (
+                    403,
+                    status_json(403, "Forbidden", "deployments.apps is forbidden"),
+                )
+            } else {
+                serve(target, &[kustomization("ci", "app")], &[])
+            }
+        });
+        let only_deployments_forbidden = stub(|_, target, _| {
+            if target.starts_with("/apis/apps/v1/deployments") {
+                (
+                    403,
+                    status_json(403, "Forbidden", "deployments.apps is forbidden"),
+                )
+            } else if target.starts_with("/apis/apps/v1/statefulsets") {
+                (
+                    200,
+                    list(
+                        vec![workload(
+                            KUSTOMIZE,
+                            "app",
+                            "db",
+                            json!({ "replicas": 1 }),
+                            json!({
+                                "observedGeneration": 1,
+                                "currentRevision": "db-1", "updateRevision": "db-1",
+                            }),
+                        )],
+                        None,
+                    ),
+                )
+            } else if target.starts_with(APPS) {
+                (200, list(vec![], None))
+            } else {
+                serve(target, &[kustomization("ci", "app")], &[])
+            }
+        });
+
+        let kept = plugin(&all_forbidden.server, &dir, &[])
+            .fetch_pipelines()
+            .await
+            .unwrap();
+        let partial = without_grace(plugin(&only_deployments_forbidden.server, &dir, &[]))
+            .fetch_pipelines()
+            .await
+            .unwrap();
+
+        assert_eq!(kept.len(), 1);
+        assert_flux_ready(&kept[0]);
+        assert_eq!(partial[0].status, PipelineStatus::Degraded);
+    }
+
+    #[tokio::test]
+    async fn workload_lookups_are_a_fixed_number_of_lists_regardless_of_resource_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut lookups = Vec::new();
+        for resources in [1, 40] {
+            let stub = apps_stub(
+                (0..resources)
+                    .map(|i| kustomization("ci", &format!("k{i}")))
+                    .collect(),
+                (0..resources)
+                    .map(|i| helm_release("ci", &format!("h{i}")))
+                    .collect(),
+                vec![unready_deployment("k0", "web")],
+            );
+
+            let pipelines = plugin(&stub.server, &dir, &[])
+                .fetch_pipelines()
+                .await
+                .unwrap();
+
+            assert_eq!(pipelines.len(), 2 * resources);
+            lookups.push(workload_requests(&stub.recorded()));
+        }
+        assert_eq!(lookups[0], lookups[1]);
+        assert_eq!(lookups[0].len(), 6);
+        for group in [KUSTOMIZE, HELM] {
+            for plural in ["deployments", "statefulsets", "daemonsets"] {
+                let found = lookups[0]
+                    .iter()
+                    .filter(|target| {
+                        target.starts_with(&format!("{APPS}{plural}?"))
+                            && target.contains("labelSelector=")
+                            && target.contains(group)
+                    })
+                    .count();
+                assert_eq!(found, 1, "{group} {plural}");
+            }
+        }
+
+        let kustomizations_only = apps_stub(
+            vec![kustomization("ci", "app"), kustomization("ci", "other")],
+            vec![],
+            vec![],
+        );
+        plugin(&kustomizations_only.server, &dir, &[])
+            .fetch_pipelines()
+            .await
+            .unwrap();
+        assert_eq!(workload_requests(&kustomizations_only.recorded()).len(), 3);
+    }
+
+    #[tokio::test]
+    async fn only_ready_resources_trigger_workload_lookups() {
+        let dir = tempfile::tempdir().unwrap();
+        let failing = flux(
+            "Kustomization",
+            "ci",
+            "broken",
+            json!({}),
+            json!({
+                "observedGeneration": 1,
+                "conditions": [{
+                    "type": "Ready", "status": "False", "reason": "BuildFailed",
+                    "message": "build failed", "observedGeneration": 1,
+                    "lastTransitionTime": "2026-10-20T10:00:05Z",
+                }],
+            }),
+        );
+        let stub = apps_stub(
+            vec![failing],
+            vec![],
+            vec![unready_deployment("broken", "web")],
+        );
+
+        let pipelines = plugin(&stub.server, &dir, &[])
+            .fetch_pipelines()
+            .await
+            .unwrap();
+
+        assert_eq!(pipelines[0].status, PipelineStatus::Failed);
+        assert_eq!(
+            pipelines[0].resource_state,
+            Some(ResourceState::new("Not ready", Some("build failed")))
+        );
+        assert!(workload_requests(&stub.recorded()).is_empty());
     }
 }

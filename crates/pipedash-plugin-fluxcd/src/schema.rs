@@ -266,8 +266,8 @@ fn create_pipelines_table() -> TableDefinition {
             column(
                 "message",
                 "Message",
-                "Message of the Flux condition that explains the status",
-                "metadata.message",
+                "Message of the Flux condition that explains the status, or the unhealthy workloads behind a Degraded status",
+                "resource_state.message",
                 ColumnDataType::String,
                 CellRenderer::TruncatedText,
                 360,

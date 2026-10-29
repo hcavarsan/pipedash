@@ -96,6 +96,7 @@ pub(crate) fn map_pipeline(
         repository: format!("{}/{}", namespace, pipeline_name),
         branch,
         workflow_file: None,
+        resource_state: None,
         metadata,
     }
 }

@@ -10,7 +10,7 @@ const STAGE_END: &[u8] = b"// stage";
 const SHELL_STEP: &[u8] = b"sh";
 const PARALLEL_BRANCH: &[u8] = b"Branch: ";
 const ERROR_PREFIX: &[u8] = b"ERROR: ";
-const FAILED_BUILD: &[u8] = b"Finished: FAILURE";
+const FAILED_BUILDS: [&[u8]; 2] = [b"Finished: FAILURE", b"Finished: UNSTABLE"];
 const TRACED_COMMAND: &[u8] = b"+ ";
 
 pub struct JenkinsLogDialect;
@@ -26,6 +26,10 @@ impl LogDialect for JenkinsLogDialect {
             marker,
             body,
         }
+    }
+
+    fn infers_errors(&self) -> bool {
+        false
     }
 }
 
@@ -48,7 +52,7 @@ fn stage_name(step: &[u8]) -> Option<&[u8]> {
 }
 
 fn classify_output(line: &[u8]) -> LineMarker {
-    if line.starts_with(ERROR_PREFIX) || line == FAILED_BUILD {
+    if line.starts_with(ERROR_PREFIX) || FAILED_BUILDS.contains(&line) {
         LineMarker::Error
     } else if line.starts_with(TRACED_COMMAND) {
         LineMarker::Command
@@ -134,11 +138,12 @@ mod tests {
     }
 
     #[test]
-    fn error_lines_and_failed_result_are_errors() {
-        let lines: [&[u8]; 3] = [
+    fn error_lines_and_failed_results_are_errors() {
+        let lines: [&[u8]; 4] = [
             b"ERROR: script returned exit code 1",
             b"ERROR: Build step failed with exception",
             b"Finished: FAILURE",
+            b"Finished: UNSTABLE",
         ];
         for line in lines {
             let parsed = parse(line);
@@ -149,9 +154,8 @@ mod tests {
 
     #[test]
     fn other_results_and_look_alikes_are_output() {
-        let lines: [&[u8]; 6] = [
+        let lines: [&[u8]; 5] = [
             b"Finished: SUCCESS",
-            b"Finished: UNSTABLE",
             b"Finished: ABORTED",
             b"Finished: FAILURE twice",
             b"ERROR:",

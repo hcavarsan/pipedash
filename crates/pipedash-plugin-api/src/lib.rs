@@ -80,6 +80,7 @@ pub use types::{
     PipelineRun,
     PipelineStatus,
     RateLimit,
+    ResourceState,
     ReviewDecision,
     TriggerParams,
     WorkflowParameter,
