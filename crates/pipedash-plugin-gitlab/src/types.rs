@@ -45,6 +45,20 @@ pub struct Pipeline {
     pub source: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct Job {
+    pub id: i64,
+    pub name: String,
+    pub stage: String,
+    pub status: String,
+    #[serde(default)]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub finished_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub web_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineUser {
     pub username: String,

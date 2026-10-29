@@ -779,6 +779,7 @@ export interface VaultStatusResponse {
   requires_password: boolean
   is_first_time?: boolean
   app_lock?: AppLockStatus
+  demo_password?: string
 }
 
 export interface UnlockVaultResponse {

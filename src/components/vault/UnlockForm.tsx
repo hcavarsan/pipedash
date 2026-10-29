@@ -1,4 +1,4 @@
-import { Button, Divider, PasswordInput, Stack, Text } from '@mantine/core'
+import { Button, Code, Divider, PasswordInput, Stack, Text } from '@mantine/core'
 import { IconFaceId, IconFingerprint } from '@tabler/icons-react'
 import {
   type ChangeEvent,
@@ -180,6 +180,11 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
   } as const
 
   const plainUnlock = !requiresPassword && !biometricEnabled && appLock?.locked === true
+  const demoHint = vaultStatus?.demo_password ? (
+    <Text size="sm" c="dimmed" ta="center">
+      This is a demo. The password is <Code>{vaultStatus.demo_password}</Code>
+    </Text>
+  ) : null
 
   const handlePlainUnlock = async () => {
     setError(null)
@@ -221,6 +226,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
   if (mobileShell) {
     return (
       <Stack gap="md">
+        {demoHint}
         {requiresPassword && (
           <form noValidate onSubmit={handleSubmit}>
             <Stack gap="md">
@@ -276,6 +282,7 @@ export function UnlockForm({ onSuccess, onCancel, showCancelButton = false }: Un
 
   return (
     <Stack gap="lg">
+      {demoHint}
       {biometricEnabled && (
         <Button
           fullWidth

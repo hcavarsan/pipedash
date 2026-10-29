@@ -1,8 +1,10 @@
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
+    LogSink,
     PaginatedResponse,
     PaginationParams,
     PluginError,
@@ -12,6 +14,7 @@ use pipedash_plugin_api::{
 use reqwest::Url;
 
 use crate::types::{
+    Job,
     Pipeline,
     PipelineVariable,
     Project,
@@ -241,6 +244,62 @@ impl GitLabClient {
                 Self::json(response).await
             })
             .await
+    }
+
+    pub async fn get_pipeline_jobs(
+        &self, project_id: i64, pipeline_id: i64,
+    ) -> PluginResult<Vec<Job>> {
+        let mut jobs = Vec::new();
+        let mut page = 1;
+        loop {
+            let (batch, next) = self
+                .retry_policy
+                .retry(|| async {
+                    let response = self
+                        .get(&format!(
+                            "{}/projects/{}/pipelines/{}/jobs?per_page=100&include_retried=true&page={}",
+                            self.api_url, project_id, pipeline_id, page
+                        ))
+                        .await?;
+                    let next = Self::next_page(&response);
+                    Ok((Self::json::<Vec<Job>>(response).await?, next))
+                })
+                .await?;
+            jobs.extend(batch);
+            match next {
+                Some(next) if next > page => page = next,
+                _ => return Ok(jobs),
+            }
+        }
+    }
+
+    pub async fn stream_job_log(
+        &self, project_id: i64, job_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let url = Self::parse_url(&format!(
+            "{}/projects/{}/jobs/{}/trace",
+            self.api_url, project_id, job_id
+        ))?;
+
+        let response = self
+            .retry_policy
+            .retry_unsent(&url, || {
+                self.http_client
+                    .get(url.clone())
+                    .header("PRIVATE-TOKEN", &self.token)
+                    .header(reqwest::header::ACCEPT, "text/plain")
+                    .timeout(Duration::from_secs(900))
+                    .send()
+            })
+            .await?;
+
+        if matches!(response.status().as_u16(), 404 | 410) {
+            return Err(PluginError::PipelineNotFound(format!(
+                "Logs for job {job_id} are no longer available"
+            )));
+        }
+
+        sink.pipe(check_response(response).await?).await
     }
 
     pub async fn trigger_pipeline(

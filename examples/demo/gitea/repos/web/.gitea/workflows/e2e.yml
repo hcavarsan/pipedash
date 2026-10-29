@@ -1,0 +1,25 @@
+name: E2E tests
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/3 * * * *"
+
+defaults:
+  run:
+    shell: sh
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout flow
+        run: |
+          echo "Running checkout flow in Chromium"
+          sleep 15
+          if [ $(( $(date +%s) / 180 % 2 )) -eq 1 ]; then
+            echo "Timed out waiting for #pay-button"
+            exit 1
+          fi
+          echo "12 scenarios passed"

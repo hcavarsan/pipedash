@@ -93,3 +93,43 @@ impl Run {
 pub(crate) struct RunList {
     pub workflow_runs: Vec<Run>,
 }
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct JobStep {
+    pub number: i64,
+    pub name: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub conclusion: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct Job {
+    pub id: i64,
+    pub name: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub conclusion: Option<String>,
+    #[serde(default)]
+    pub html_url: String,
+    #[serde(default)]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub completed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub steps: Option<Vec<JobStep>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct JobList {
+    #[serde(default)]
+    pub jobs: Vec<Job>,
+    #[serde(default)]
+    pub total_count: Option<usize>,
+}
