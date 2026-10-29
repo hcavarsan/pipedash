@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use futures::future::try_join_all;
 use pipedash_plugin_api::*;
 
+use crate::log_dialect::AzureDevOpsLogDialect;
 use crate::{
     client,
     config,
@@ -82,6 +83,14 @@ impl AzureDevOpsPlugin {
             )));
         }
         Ok(build)
+    }
+
+    fn log_node_record_id(node_id: &str) -> PluginResult<&str> {
+        Some(node_id)
+            .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-'))
+            .ok_or_else(|| {
+                PluginError::InvalidConfig(format!("Invalid Azure DevOps log node ID: {node_id}"))
+            })
     }
 }
 
@@ -254,6 +263,37 @@ impl Plugin for AzureDevOpsPlugin {
         ))
     }
 
+    async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
+        let id = config::parse_pipeline_id(run.pipeline_id)?;
+        let timeline = self
+            .client()?
+            .get_timeline(id.project, run.run_number)
+            .await?;
+        Ok(mapper::timeline_to_log_nodes(&timeline))
+    }
+
+    async fn read_log(
+        &self, run: RunRef<'_>, node_id: &str, sink: &mut LogSink,
+    ) -> PluginResult<()> {
+        let id = config::parse_pipeline_id(run.pipeline_id)?;
+        let record_id = Self::log_node_record_id(node_id)?;
+        let client = self.client()?;
+        let timeline = client.get_timeline(id.project, run.run_number).await?;
+        let log_id = mapper::job_log_id(&timeline, record_id).ok_or_else(|| {
+            PluginError::PipelineNotFound(format!(
+                "Run #{} has no job log {node_id}",
+                run.run_number
+            ))
+        })?;
+        client
+            .stream_build_log(id.project, run.run_number, log_id, sink)
+            .await
+    }
+
+    fn log_dialect(&self) -> &'static dyn LogDialect {
+        &AzureDevOpsLogDialect
+    }
+
     async fn fetch_workflow_parameters(
         &self, workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {
@@ -366,6 +406,7 @@ mod tests {
         method: String,
         url: reqwest::Url,
         authorization: Option<String>,
+        accept: Option<String>,
         body: String,
     }
 
@@ -399,6 +440,15 @@ mod tests {
             Self {
                 status,
                 content_type: "text/html; charset=utf-8",
+                continuation: None,
+                body: body.to_string(),
+            }
+        }
+
+        fn text(status: u16, body: &str) -> Self {
+            Self {
+                status,
+                content_type: "text/plain; charset=utf-8",
                 continuation: None,
                 body: body.to_string(),
             }
@@ -492,6 +542,7 @@ mod tests {
             method,
             url: reqwest::Url::parse(&format!("http://{addr}{target}")).unwrap(),
             authorization: header("authorization"),
+            accept: header("accept"),
             body: String::from_utf8(raw[header_end..header_end + length].to_vec()).unwrap(),
         }
     }
@@ -1318,5 +1369,360 @@ mod tests {
         assert!(matches!(error, PluginError::ApiError(_)), "{error}");
         assert!(error.to_string().contains("more items"), "{error}");
         assert!(stub.requests().len() > 1);
+    }
+
+    const STAGE: &str = "a0000000-0000-4000-8000-000000000001";
+    const PHASE: &str = "b0000000-0000-4000-8000-000000000001";
+    const JOB_LINUX: &str = "c0000000-0000-4000-8000-000000000001";
+    const JOB_DOCS: &str = "c0000000-0000-4000-8000-000000000002";
+    const JOB_PRUNED: &str = "c0000000-0000-4000-8000-000000000003";
+    const JOB_EXPIRED: &str = "c0000000-0000-4000-8000-000000000004";
+    const TASK_INIT: &str = "d0000000-0000-4000-8000-000000000001";
+    const TASK_TESTS: &str = "d0000000-0000-4000-8000-000000000002";
+    const TASK_PUBLISH: &str = "d0000000-0000-4000-8000-000000000003";
+    const TASK_DOCS: &str = "d0000000-0000-4000-8000-000000000004";
+    const CHECKPOINT: &str = "e0000000-0000-4000-8000-000000000001";
+    const LINUX_LOG: &str =
+        "\u{feff}2026-10-28T10:00:00.0000000Z ##[section]Starting: Linux tests\n\
+        2026-10-28T10:00:01.1000000Z ##[section]Starting: Initialize job\n\
+        2026-10-28T10:00:02.0000000Z ##[section]Finishing: Initialize job\n\
+        2026-10-28T10:00:03.0000000Z ##[section]Starting: Run tests\n\
+        2026-10-28T10:00:03.1000000Z ##[command]make test\n\
+        2026-10-28T10:00:09.0000000Z ##[error]Bash exited with code '2'.\n\
+        2026-10-28T10:00:09.5000000Z ##[section]Finishing: Run tests\n";
+
+    type Outcome = (&'static str, Option<&'static str>);
+
+    const SUCCEEDED: Outcome = ("completed", Some("succeeded"));
+    const FAILED: Outcome = ("completed", Some("failed"));
+    const SKIPPED: Outcome = ("completed", Some("skipped"));
+
+    fn record(
+        id: &str, parent: Option<&str>, kind: &str, name: &str, order: i64, outcome: Outcome,
+        log: Option<i64>,
+    ) -> Value {
+        let mut record = json!({
+            "id": id,
+            "parentId": parent,
+            "type": kind,
+            "name": name,
+            "order": order,
+            "state": outcome.0,
+            "result": outcome.1,
+            "startTime": "2026-10-28T10:00:00.5000000Z",
+            "finishTime": "2026-10-28T10:00:09.5000000Z"
+        });
+        if let Some(log) = log {
+            record["log"] = json!({"id": log, "type": "Container"});
+        }
+        record
+    }
+
+    fn timeline_922() -> Value {
+        let mut publish = record(
+            TASK_PUBLISH,
+            Some(JOB_LINUX),
+            "Task",
+            "Publish results",
+            3,
+            SKIPPED,
+            None,
+        );
+        publish["startTime"] = Value::Null;
+        publish["finishTime"] = Value::Null;
+        json!({"id": "f0000000-0000-4000-8000-000000000001", "records": [
+            record(TASK_TESTS, Some(JOB_LINUX), "Task", "Run tests", 2, FAILED, Some(9)),
+            record(JOB_DOCS, Some(PHASE), "Job", "Docs", 2, SUCCEEDED, Some(12)),
+            record(STAGE, None, "Stage", "Build", 1, FAILED, None),
+            record(PHASE, Some(STAGE), "Phase", "Linux", 1, FAILED, None),
+            record(JOB_LINUX, Some(PHASE), "Job", "Linux tests", 1, FAILED, Some(7)),
+            record(CHECKPOINT, Some(STAGE), "Checkpoint", "Checkpoint", 0, SUCCEEDED, None),
+            record(TASK_INIT, Some(JOB_LINUX), "Task", "Initialize job", 1, SUCCEEDED, Some(8)),
+            publish,
+            record(TASK_DOCS, Some(JOB_DOCS), "Task", "Build docs", 1, SUCCEEDED, Some(13))
+        ]})
+    }
+
+    fn timeline_921() -> Value {
+        json!({"id": "f0000000-0000-4000-8000-000000000002", "records": [
+            record(PHASE, None, "Phase", "Phase 1", 1, FAILED, None),
+            record(JOB_PRUNED, Some(PHASE), "Job", "Build", 1, SUCCEEDED, Some(4)),
+            record(JOB_EXPIRED, Some(PHASE), "Job", "Test", 2, FAILED, Some(5))
+        ]})
+    }
+
+    fn log_reply(request: &Request) -> Reply {
+        match (request.method.as_str(), request.url.path()) {
+            ("GET", "/acme/Alpha/_apis/build/builds/922/timeline") => {
+                Reply::json(200, timeline_922())
+            }
+            ("GET", "/acme/Alpha/_apis/build/builds/922/logs/7") => Reply::text(200, LINUX_LOG),
+            ("GET", "/acme/Alpha/_apis/build/builds/921/timeline") => {
+                Reply::json(200, timeline_921())
+            }
+            ("GET", "/acme/Alpha/_apis/build/builds/921/logs/4") => {
+                Reply::json(404, json!({"message": "TF400898: log not found"}))
+            }
+            ("GET", "/acme/Alpha/_apis/build/builds/921/logs/5") => {
+                Reply::json(410, json!({"message": "log expired"}))
+            }
+            _ => Reply::not_found(request),
+        }
+    }
+
+    fn build_of_pipeline(run_number: i64, metadata: &HashMap<String, Value>) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: "azure-devops__1__Alpha/1",
+            run_number,
+            run_id: "azure-devops-run",
+            metadata,
+        }
+    }
+
+    async fn read_job_log(
+        plugin: &AzureDevOpsPlugin, run_number: i64, node_id: &str,
+    ) -> PluginResult<Vec<u8>> {
+        let metadata = HashMap::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let mut sink = LogSink::new(tx);
+        let result = plugin
+            .read_log(build_of_pipeline(run_number, &metadata), node_id, &mut sink)
+            .await;
+        drop(sink);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = rx.recv().await {
+            bytes.extend_from_slice(&chunk);
+        }
+        result.map(|()| bytes)
+    }
+
+    #[tokio::test]
+    async fn timeline_becomes_stage_job_and_step_nodes_in_order() {
+        let stub = serve(log_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+        let metadata = HashMap::new();
+
+        let nodes = plugin
+            .fetch_log_nodes(build_of_pipeline(922, &metadata))
+            .await
+            .unwrap();
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| {
+                (
+                    node.id.as_str(),
+                    node.parent_id.as_deref(),
+                    node.kind,
+                    node.name.as_str(),
+                    node.status,
+                    node.log,
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (
+                    STAGE,
+                    None,
+                    LogNodeKind::Stage,
+                    "Build",
+                    PipelineStatus::Failed,
+                    None
+                ),
+                (
+                    JOB_LINUX,
+                    Some(STAGE),
+                    LogNodeKind::Job,
+                    "Linux tests",
+                    PipelineStatus::Failed,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    TASK_INIT,
+                    Some(JOB_LINUX),
+                    LogNodeKind::Step,
+                    "Initialize job",
+                    PipelineStatus::Success,
+                    None
+                ),
+                (
+                    TASK_TESTS,
+                    Some(JOB_LINUX),
+                    LogNodeKind::Step,
+                    "Run tests",
+                    PipelineStatus::Failed,
+                    None
+                ),
+                (
+                    TASK_PUBLISH,
+                    Some(JOB_LINUX),
+                    LogNodeKind::Step,
+                    "Publish results",
+                    PipelineStatus::Skipped,
+                    None
+                ),
+                (
+                    JOB_DOCS,
+                    Some(STAGE),
+                    LogNodeKind::Job,
+                    "Docs",
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    TASK_DOCS,
+                    Some(JOB_DOCS),
+                    LogNodeKind::Step,
+                    "Build docs",
+                    PipelineStatus::Success,
+                    None
+                ),
+            ]
+        );
+        assert_eq!(
+            nodes[1].started_at.unwrap().to_rfc3339(),
+            "2026-10-28T10:00:00.500+00:00"
+        );
+        assert_eq!(nodes[4].started_at, None);
+        assert_eq!(nodes[4].finished_at, None);
+        let requests = stub.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].url.path(),
+            "/acme/Alpha/_apis/build/builds/922/timeline"
+        );
+        assert_eq!(requests[0].query("api-version").as_deref(), Some("7.0"));
+    }
+
+    #[tokio::test]
+    async fn build_without_stages_lists_its_jobs_at_the_top() {
+        let stub = serve(log_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+        let metadata = HashMap::new();
+
+        let nodes = plugin
+            .fetch_log_nodes(build_of_pipeline(921, &metadata))
+            .await
+            .unwrap();
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| (node.id.as_str(), node.parent_id.as_deref(), node.kind))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (JOB_PRUNED, None, LogNodeKind::Job),
+                (JOB_EXPIRED, None, LogNodeKind::Job)
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn build_without_a_timeline_has_no_log_nodes() {
+        let stub = serve(log_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+        let metadata = HashMap::new();
+
+        let error = plugin
+            .fetch_log_nodes(build_of_pipeline(999, &metadata))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, PluginError::PipelineNotFound(_)), "{error}");
+    }
+
+    #[tokio::test]
+    async fn job_log_streams_as_text_through_the_id_the_timeline_lists() {
+        let stub = serve(log_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+
+        let log = read_job_log(&plugin, 922, JOB_LINUX).await.unwrap();
+
+        assert_eq!(log, LINUX_LOG.as_bytes());
+        let requests = stub.requests();
+        let paths: Vec<_> = requests
+            .iter()
+            .map(|request| request.url.path().to_string())
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "/acme/Alpha/_apis/build/builds/922/timeline",
+                "/acme/Alpha/_apis/build/builds/922/logs/7"
+            ]
+        );
+        assert_eq!(requests[1].accept.as_deref(), Some("text/plain"));
+        assert_eq!(requests[1].query("api-version").as_deref(), Some("7.0"));
+        assert!(requests
+            .iter()
+            .all(|request| request.authorization.as_deref() == Some(BASIC_AUTH)));
+    }
+
+    #[tokio::test]
+    async fn log_the_server_no_longer_has_is_not_found() {
+        let stub = serve(log_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+
+        for job in [JOB_PRUNED, JOB_EXPIRED] {
+            let error = read_job_log(&plugin, 921, job).await.unwrap_err();
+            assert!(
+                matches!(&error, PluginError::PipelineNotFound(message) if message.contains("no longer available")),
+                "{job}: {error:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn node_ids_outside_the_guid_alphabet_are_rejected_without_a_request() {
+        let stub = serve(log_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+
+        let rejected = [
+            "",
+            "../../logs/7",
+            "c0000000-0000-4000-8000-000000000001/../x",
+            "x?y=1",
+            "c0000000 0000",
+            "c0000000-0000-4000-8000-00000000000g",
+            "7/../../builds/1",
+        ];
+        for node_id in rejected {
+            let error = read_job_log(&plugin, 922, node_id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::InvalidConfig(_)),
+                "{node_id}: {error:?}"
+            );
+        }
+        assert!(stub.requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn node_the_timeline_does_not_list_as_a_job_log_never_reaches_the_log_endpoint() {
+        let stub = serve(log_reply).await;
+        let plugin = plugin_for(&stub, "", "Alpha");
+
+        let unlisted = [
+            TASK_TESTS,
+            STAGE,
+            PHASE,
+            CHECKPOINT,
+            "ffffffff-0000-4000-8000-000000000000",
+            "7",
+        ];
+        for node_id in unlisted {
+            let error = read_job_log(&plugin, 922, node_id).await.unwrap_err();
+            assert!(
+                matches!(error, PluginError::PipelineNotFound(_)),
+                "{node_id}: {error:?}"
+            );
+        }
+        let requests = stub.requests();
+        assert_eq!(requests.len(), unlisted.len());
+        assert!(requests
+            .iter()
+            .all(|request| request.url.path().ends_with("/timeline")));
     }
 }

@@ -124,3 +124,38 @@ pub(crate) struct DefinitionDetail {
     #[serde(default)]
     pub variables: Option<BTreeMap<String, Variable>>,
 }
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LogRef {
+    pub id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TimelineRecord {
+    pub id: String,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default, rename = "type")]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub result: Option<String>,
+    #[serde(default)]
+    pub start_time: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub finish_time: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub order: Option<i64>,
+    #[serde(default)]
+    pub log: Option<LogRef>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct Timeline {
+    #[serde(default)]
+    pub records: Vec<TimelineRecord>,
+}
