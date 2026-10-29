@@ -471,29 +471,38 @@ impl PipelineViewRepository {
             self.now(),
             self.placeholder(2)
         );
-        let mut rewritten = Vec::new();
-        for view in self.list_views().await? {
-            if let Some(rules) = rules_without_provider(&view.rules, provider_id) {
-                rewritten.push((view.id, to_json(&rules)?));
-            }
-        }
+        let select_rules = match &self.pool {
+            DatabasePool::Sqlite(_) => "SELECT id, rules_json FROM pipeline_views",
+            DatabasePool::Postgres(_) => "SELECT id, rules_json FROM pipeline_views FOR UPDATE",
+        };
         on_pool!(&self.pool, |p| async {
-            let mut tx = p.begin().await?;
+            let mut tx = p.begin().await.map_err(db_error)?;
             sqlx::query(sqlx::AssertSqlSafe(delete_members.clone()))
                 .bind(provider_id)
                 .execute(&mut *tx)
-                .await?;
-            for (id, rules) in &rewritten {
+                .await
+                .map_err(db_error)?;
+            let views = sqlx::query_as::<_, (i64, String)>(select_rules)
+                .fetch_all(&mut *tx)
+                .await
+                .map_err(db_error)?;
+            for (id, rules_json) in views {
+                let Ok(rules) = serde_json::from_str::<ViewRules>(&rules_json) else {
+                    continue;
+                };
+                let Some(rules) = rules_without_provider(&rules, provider_id) else {
+                    continue;
+                };
                 sqlx::query(sqlx::AssertSqlSafe(update_rules.clone()))
-                    .bind(rules)
-                    .bind(*id)
+                    .bind(to_json(&rules)?)
+                    .bind(id)
                     .execute(&mut *tx)
-                    .await?;
+                    .await
+                    .map_err(db_error)?;
             }
-            tx.commit().await
+            tx.commit().await.map_err(db_error)
         }
         .await)
-        .map_err(db_error)
     }
 
     pub async fn reset(&self) -> DomainResult<()> {
