@@ -9,6 +9,9 @@ use chrono::{
 };
 use pipedash_plugin_api::{
     AvailablePipeline,
+    LogAvailability,
+    LogNode,
+    LogNodeKind,
     Pipeline,
     PipelineRun,
     PipelineStatus,
@@ -32,8 +35,11 @@ const REF_PREFIX: &str = "refs/";
 pub(crate) fn map_status(status: Option<&str>, result: Option<&str>) -> PipelineStatus {
     match (status, result) {
         (Some("completed"), Some("succeeded")) => PipelineStatus::Success,
-        (Some("completed"), Some("canceled")) => PipelineStatus::Cancelled,
-        (Some("completed"), Some("partiallySucceeded")) => PipelineStatus::Failed,
+        (Some("completed"), Some("canceled" | "abandoned")) => PipelineStatus::Cancelled,
+        (Some("completed"), Some("skipped")) => PipelineStatus::Skipped,
+        (Some("completed"), Some("partiallySucceeded" | "succeededWithIssues")) => {
+            PipelineStatus::Failed
+        }
         (Some("completed"), _) => PipelineStatus::Failed,
         (Some("inProgress" | "cancelling"), _) => PipelineStatus::Running,
         _ => PipelineStatus::Pending,
@@ -149,6 +155,93 @@ pub(crate) fn map_run(
             .map(|number| ("build_number".to_string(), json!(number)))
             .collect(),
     }
+}
+
+fn record_status(record: &types::TimelineRecord) -> PipelineStatus {
+    map_status(record.state.as_deref(), record.result.as_deref())
+}
+
+fn job_log(status: PipelineStatus, has_log: bool) -> Option<LogAvailability> {
+    match (status, has_log) {
+        (PipelineStatus::Pending, _) | (PipelineStatus::Running, false) => {
+            Some(LogAvailability::Pending)
+        }
+        (PipelineStatus::Running, true) => Some(LogAvailability::Partial),
+        (_, true) => Some(LogAvailability::Ready),
+        (_, false) => None,
+    }
+}
+
+fn log_node(
+    record: &types::TimelineRecord, parent_id: Option<&str>, kind: LogNodeKind,
+    log: Option<LogAvailability>,
+) -> LogNode {
+    LogNode {
+        id: record.id.clone(),
+        parent_id: parent_id.map(str::to_string),
+        kind,
+        name: record.name.clone().unwrap_or_default(),
+        status: record_status(record),
+        started_at: timestamp(record.start_time),
+        finished_at: timestamp(record.finish_time),
+        log,
+        web_url: None,
+    }
+}
+
+type Children<'a> = HashMap<Option<&'a str>, Vec<&'a types::TimelineRecord>>;
+
+fn collect_log_nodes<'a>(
+    children: &Children<'a>, parent: Option<&'a str>, stage: Option<&'a str>,
+    nodes: &mut Vec<LogNode>,
+) {
+    for record in children.get(&parent).into_iter().flatten() {
+        match record.kind.as_deref() {
+            Some("Stage") => {
+                nodes.push(log_node(record, None, LogNodeKind::Stage, None));
+                collect_log_nodes(children, Some(&record.id), Some(&record.id), nodes);
+            }
+            Some("Phase") => collect_log_nodes(children, Some(&record.id), stage, nodes),
+            Some("Job") => {
+                let log = job_log(record_status(record), record.log.is_some());
+                nodes.push(log_node(record, stage, LogNodeKind::Job, log));
+                for task in children
+                    .get(&Some(record.id.as_str()))
+                    .into_iter()
+                    .flatten()
+                    .filter(|task| task.kind.as_deref() == Some("Task"))
+                {
+                    nodes.push(log_node(task, Some(&record.id), LogNodeKind::Step, None));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub(crate) fn timeline_to_log_nodes(timeline: &types::Timeline) -> Vec<LogNode> {
+    let mut children = Children::new();
+    for record in &timeline.records {
+        children
+            .entry(record.parent_id.as_deref())
+            .or_default()
+            .push(record);
+    }
+    for siblings in children.values_mut() {
+        siblings.sort_by_key(|record| record.order.unwrap_or(i64::MAX));
+    }
+    let mut nodes = Vec::with_capacity(timeline.records.len());
+    collect_log_nodes(&children, None, None, &mut nodes);
+    nodes
+}
+
+pub(crate) fn job_log_id(timeline: &types::Timeline, record_id: &str) -> Option<i64> {
+    timeline
+        .records
+        .iter()
+        .find(|record| record.id == record_id && record.kind.as_deref() == Some("Job"))
+        .and_then(|record| record.log.as_ref())
+        .map(|log| log.id)
 }
 
 pub(crate) fn source_branch(branch: &str) -> String {
@@ -506,5 +599,151 @@ mod tests {
         );
         assert_eq!(body["sourceBranch"], "refs/heads/main");
         assert!(body.get("parameters").is_none());
+    }
+
+    const RECORD_RESULTS: [&str; 6] = [
+        "succeeded",
+        "succeededWithIssues",
+        "failed",
+        "canceled",
+        "skipped",
+        "abandoned",
+    ];
+
+    fn timeline(json: &str) -> types::Timeline {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn completed_records_map_by_each_documented_result() {
+        let cases = [
+            ("succeeded", PipelineStatus::Success),
+            ("succeededWithIssues", PipelineStatus::Failed),
+            ("failed", PipelineStatus::Failed),
+            ("canceled", PipelineStatus::Cancelled),
+            ("skipped", PipelineStatus::Skipped),
+            ("abandoned", PipelineStatus::Cancelled),
+        ];
+        for (result, expected) in cases {
+            assert_eq!(
+                map_status(Some("completed"), Some(result)),
+                expected,
+                "completed/{result}"
+            );
+        }
+        assert_eq!(
+            sorted(cases.iter().map(|(result, _)| *result)),
+            sorted(RECORD_RESULTS)
+        );
+    }
+
+    #[test]
+    fn unfinished_records_map_by_state() {
+        assert_eq!(map_status(Some("pending"), None), PipelineStatus::Pending);
+        assert_eq!(
+            map_status(Some("inProgress"), None),
+            PipelineStatus::Running
+        );
+    }
+
+    #[test]
+    fn jobs_show_a_log_by_state_and_by_whether_the_timeline_lists_one() {
+        let nodes = timeline_to_log_nodes(&timeline(
+            r#"{"records": [
+                {"id": "j1", "type": "Job", "name": "done", "state": "completed", "result": "succeeded", "startTime": "2026-10-28T10:00:00Z", "log": {"id": 1}},
+                {"id": "j2", "type": "Job", "name": "live", "state": "inProgress", "startTime": "2026-10-28T10:00:00Z", "log": {"id": 2}},
+                {"id": "j3", "type": "Job", "name": "live without a log yet", "state": "inProgress", "startTime": "2026-10-28T10:00:00Z"},
+                {"id": "j4", "type": "Job", "name": "queued", "state": "pending"},
+                {"id": "j5", "type": "Job", "name": "skipped", "state": "completed", "result": "skipped"},
+                {"id": "j6", "type": "Job", "name": "canceled in the queue", "state": "completed", "result": "canceled"},
+                {"id": "j7", "type": "Job", "name": "canceled mid-run", "state": "completed", "result": "canceled", "startTime": "2026-10-28T10:00:00Z", "log": {"id": 7}}
+            ]}"#,
+        ));
+
+        let summary: Vec<_> = nodes
+            .iter()
+            .map(|node| (node.name.as_str(), node.status, node.log))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (
+                    "done",
+                    PipelineStatus::Success,
+                    Some(LogAvailability::Ready)
+                ),
+                (
+                    "live",
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Partial)
+                ),
+                (
+                    "live without a log yet",
+                    PipelineStatus::Running,
+                    Some(LogAvailability::Pending)
+                ),
+                (
+                    "queued",
+                    PipelineStatus::Pending,
+                    Some(LogAvailability::Pending)
+                ),
+                ("skipped", PipelineStatus::Skipped, None),
+                ("canceled in the queue", PipelineStatus::Cancelled, None),
+                (
+                    "canceled mid-run",
+                    PipelineStatus::Cancelled,
+                    Some(LogAvailability::Ready)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn siblings_sort_by_order_and_records_without_one_go_last() {
+        let nodes = timeline_to_log_nodes(&timeline(
+            r#"{"records": [
+                {"id": "t3", "parentId": "j", "type": "Task", "name": "unordered"},
+                {"id": "t2", "parentId": "j", "type": "Task", "name": "second", "order": 2},
+                {"id": "j", "type": "Job", "name": "job", "order": 1},
+                {"id": "t1", "parentId": "j", "type": "Task", "name": "first", "order": 1}
+            ]}"#,
+        ));
+
+        let names: Vec<_> = nodes.iter().map(|node| node.name.as_str()).collect();
+        assert_eq!(names, ["job", "first", "second", "unordered"]);
+    }
+
+    #[test]
+    fn records_of_other_types_and_records_without_a_type_are_left_out() {
+        let nodes = timeline_to_log_nodes(&timeline(
+            r#"{"records": [
+                {"id": "s", "type": "Stage", "name": "stage"},
+                {"id": "c", "parentId": "s", "type": "Checkpoint", "name": "checkpoint"},
+                {"id": "a", "parentId": "s", "type": "Checkpoint.Approval", "name": "approval"},
+                {"id": "x", "parentId": "s"},
+                {"id": "orphan-task", "parentId": "missing", "type": "Task", "name": "orphan"}
+            ]}"#,
+        ));
+
+        let names: Vec<_> = nodes.iter().map(|node| node.name.as_str()).collect();
+        assert_eq!(names, ["stage"]);
+        assert!(timeline_to_log_nodes(&timeline("{}")).is_empty());
+    }
+
+    #[test]
+    fn only_a_job_record_with_a_log_gives_a_log_id() {
+        let timeline = timeline(
+            r#"{"records": [
+                {"id": "job", "type": "Job", "log": {"id": 7}},
+                {"id": "bare-job", "type": "Job"},
+                {"id": "task", "parentId": "job", "type": "Task", "log": {"id": 8}},
+                {"id": "stage", "type": "Stage", "log": {"id": 9}}
+            ]}"#,
+        );
+
+        assert_eq!(job_log_id(&timeline, "job"), Some(7));
+        for record_id in ["bare-job", "task", "stage", "missing", "7"] {
+            assert_eq!(job_log_id(&timeline, record_id), None, "{record_id}");
+        }
     }
 }
