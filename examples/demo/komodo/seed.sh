@@ -12,10 +12,18 @@ call() {
   curl -fsS "$core/$1" -H "Authorization: $jwt" -H 'Content-Type: application/json' -d "$2"
 }
 
-if [ ! -s /shared/komodo-api-secret ]; then
-  credentials=$(call auth/manage/CreateApiKey '{"name":"pipedash","expires":0}')
-  printf '%s' "$(echo "$credentials" | jq -er .key)" > /shared/komodo-api-key
-  printf '%s' "$(echo "$credentials" | jq -er .secret)" > /shared/komodo-api-secret
+user_id='.id // (._id | if type == "object" then ."$oid" else . end)'
+
+if [ ! -s /credentials/komodo-api-secret ]; then
+  reader=$(call read/ListUsers '{}' | jq -r ".[] | select(.username == \"pipedash\") | $user_id")
+  if [ -z "$reader" ]; then
+    reader=$(call write/CreateServiceUser '{"username":"pipedash","description":"Read-only demo access"}' |
+      jq -er "$user_id")
+  fi
+  credentials=$(call write/CreateApiKeyForServiceUser \
+    "$(jq -n --arg user "$reader" '{user_id: $user, name: "pipedash", expires: 0}')")
+  printf '%s' "$(echo "$credentials" | jq -er .key)" > /credentials/komodo-api-key
+  printf '%s' "$(echo "$credentials" | jq -er .secret)" > /credentials/komodo-api-secret
 fi
 
 until [ "$(call read/ListServers '{}' | jq -r '.[] | select(.name == "demo") | .info.state')" = Ok ]; do

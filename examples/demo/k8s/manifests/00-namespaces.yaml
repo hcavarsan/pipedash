@@ -22,3 +22,8 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: broken
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pipedash

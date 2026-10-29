@@ -26,6 +26,8 @@ pub struct VaultStatusResponse {
     pub backend: String,
     pub requires_password: bool,
     pub is_first_time: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub demo_password: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -82,8 +84,11 @@ async fn get_vault_status(State(state): State<AppState>) -> Json<VaultStatusResp
         is_unlocked,
         password_source,
         backend,
-        requires_password: requires_password && !crate::demo::enabled(),
+        requires_password,
         is_first_time,
+        demo_password: crate::demo::enabled()
+            .then(|| state.api_token().map(|token| token.to_string()))
+            .flatten(),
     })
 }
 

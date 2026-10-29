@@ -31,11 +31,12 @@ pub fn is_blocked(method: &Method, path: &str) -> bool {
             || route.starts_with("push/");
     }
 
-    !(*method == Method::POST && is_query(route))
+    !(*method == Method::POST && allows_post(route))
 }
 
-fn is_query(route: &str) -> bool {
-    route == "refresh/all"
+fn allows_post(route: &str) -> bool {
+    route == "vault/unlock"
+        || route == "refresh/all"
         || route == "metrics/aggregated"
         || (route.starts_with("providers/") && route.ends_with("/refresh"))
         || (route.starts_with("metrics/pipelines/") && route.ends_with("/query"))
@@ -89,7 +90,7 @@ mod tests {
                 Method::PUT,
                 "/api/v1/preferences/table/1/pipeline_runs".to_string(),
             ),
-            (Method::POST, "/api/v1/vault/unlock".to_string()),
+            (Method::POST, "/api/v1/vault/lock".to_string()),
             (Method::POST, "/api/v1/setup/config".to_string()),
             (Method::DELETE, "/api/v1/cache".to_string()),
             (Method::GET, "/api/v1/storage/config/content".to_string()),
@@ -123,6 +124,7 @@ mod tests {
             (Method::POST, "/api/v1/metrics/pipelines/p/query"),
             (Method::POST, "/api/v1/providers/1/refresh"),
             (Method::POST, "/api/v1/refresh/all"),
+            (Method::POST, "/api/v1/vault/unlock"),
         ];
 
         for (method, path) in allowed {
