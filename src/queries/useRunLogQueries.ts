@@ -11,7 +11,7 @@ import { useDebounce } from '../hooks/useDebounce'
 import { GC_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
-import { events, service } from '../services'
+import { events, service } from '../services/service'
 import type { EventPayloadMap } from '../types/events'
 import type { LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 

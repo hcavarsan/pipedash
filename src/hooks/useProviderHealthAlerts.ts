@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 
 import { logger } from '../lib/logger'
-import { events, isTauri } from '../services'
+import { isTauri } from '../services/isTauri'
+import { events } from '../services/service'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 import type { EventPayloadMap } from '../types/events'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'

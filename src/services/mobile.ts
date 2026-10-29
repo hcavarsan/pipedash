@@ -1,15 +1,15 @@
 import { invoke } from '@tauri-apps/api/core'
 
-import {
-  type AppLockStatus,
-  type BuildWatchStatus,
-  type ExportFileResult,
-  type LocalNotificationSettings,
-  type NativeIntent,
-  type PushStatus,
-  toPipedashError,
-  type UnlockVaultResponse,
-} from '../types'
+import type {
+  AppLockStatus,
+  BuildWatchStatus,
+  ExportFileResult,
+  LocalNotificationSettings,
+  NativeIntent,
+  PushStatus,
+  UnlockVaultResponse,
+} from '../types/domain'
+import { toPipedashError } from '../types/errors'
 
 export const NATIVE_INTENT_EVENT = 'native-intent'
 export const STATUS_BAR_TAP_EVENT = 'native-status-bar-tap'

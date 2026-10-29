@@ -4,14 +4,15 @@ import { after, afterEach, beforeEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
-import type { PipelineStatus } from '../types'
+import type { PipelineStatus } from '../types/domain'
 import type { RunLogNode, RunLogTree } from '../types/logs'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const { act, cleanup, renderHook, waitFor } = await import('@testing-library/react')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
-const { apiService, tauriService } = await import('../services')
+const { apiService } = await import('../services/api')
+const { tauriService } = await import('../services/tauri')
 const { useRerunFailedJobs, useRerunRun } = await import('./useRunHistoryQueries')
 const { useRunLogTree } = await import('./useRunLogQueries')
 

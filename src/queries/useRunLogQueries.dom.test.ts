@@ -12,7 +12,9 @@ const { act, cleanup, renderHook, waitFor } = await import('@testing-library/rea
 const { environmentManager, notifyManager, QueryClient, QueryClientProvider, timeoutManager } = await import(
   '@tanstack/react-query'
 )
-const { apiService, events, tauriService } = await import('../services')
+const { events } = await import('../services/service')
+const { apiService } = await import('../services/api')
+const { tauriService } = await import('../services/tauri')
 const { useRunLogDocument } = await import('./useRunLogQueries')
 
 interface ManualTimer {

@@ -55,7 +55,7 @@ import type {
   ViewPatch,
   ViewRef,
   WorkflowParameter,
-} from '../types'
+} from '../types/domain'
 import { getErrorCode, getHttpStatus } from '../types/errors'
 import type { LogLinesPage, LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 import { DEFAULT_RETRY_CONFIG, withRetry } from '../utils/retryLogic'

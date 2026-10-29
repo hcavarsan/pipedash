@@ -1,4 +1,4 @@
-import type { PipelineView, ViewPipeline } from '../types'
+import type { PipelineView, ViewPipeline } from '../types/domain'
 
 const MAX_VIEW_DEPTH = 3
 

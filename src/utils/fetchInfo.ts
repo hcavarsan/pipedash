@@ -1,4 +1,4 @@
-import type { ProviderSummary } from '../types'
+import type { ProviderSummary } from '../types/domain'
 
 import { formatDateTime } from './formatDateTime'
 import { formatRelativeTime } from './formatRelativeTime'

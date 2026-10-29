@@ -9,8 +9,8 @@ import { act, cleanup, render } from '@testing-library/react'
 import { createElement } from 'react'
 
 import { queryKeys } from '../lib/queryKeys'
-import { wsClient } from '../services'
-import type { Pipeline } from '../types'
+import { wsClient } from '../services/websocket'
+import type { Pipeline } from '../types/domain'
 
 import { Socket } from './fixtures/notificationWebEnvironment'
 import { useEventSync } from './useEventSync'

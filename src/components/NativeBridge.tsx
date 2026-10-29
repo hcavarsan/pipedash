@@ -4,11 +4,11 @@ import { type NavigateFunction, useNavigate } from 'react-router-dom'
 
 import { isMobileShell } from '../hooks/useIsMobile'
 import { logger } from '../lib/logger'
-import { isTauri } from '../services'
+import { isTauri } from '../services/isTauri'
 import { mobileService, NATIVE_INTENT_EVENT, STATUS_BAR_TAP_EVENT } from '../services/mobile'
 import { useModalStore } from '../stores/modalStore'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
-import type { NativeIntent } from '../types'
+import type { NativeIntent } from '../types/domain'
 import { isMobilePlatform } from '../utils/platform'
 import { openNotificationDetails } from '../utils/systemNotifications'
 

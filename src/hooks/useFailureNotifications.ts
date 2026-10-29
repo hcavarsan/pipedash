@@ -3,9 +3,10 @@ import { useEffect } from 'react'
 
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
-import { events, isTauri } from '../services'
+import { isTauri } from '../services/isTauri'
+import { events } from '../services/service'
 import { type CenterNotificationTone, useNotificationCenterStore } from '../stores/notificationCenterStore'
-import type { Pipeline, ProviderSummary } from '../types'
+import type { Pipeline, ProviderSummary } from '../types/domain'
 import type { EventPayloadMap } from '../types/events'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 

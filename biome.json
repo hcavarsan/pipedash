@@ -61,7 +61,9 @@
         "useJsxKeyInIterable": "error"
       },
       "performance": {
-        "noNamespaceImport": "error"
+        "noNamespaceImport": "error",
+        "noBarrelFile": "error",
+        "noReExportAll": "error"
       },
       "suspicious": {
         "noExplicitAny": "error",

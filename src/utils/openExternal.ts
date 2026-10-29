@@ -1,4 +1,4 @@
-import { service } from '../services'
+import { service } from '../services/service'
 
 export const isHttpUrl = (url: string): boolean => {
   if (!URL.canParse(url)) {

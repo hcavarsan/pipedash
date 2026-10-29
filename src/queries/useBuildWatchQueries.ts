@@ -5,9 +5,9 @@ import { useEffect } from 'react'
 
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
-import { isTauri } from '../services'
+import { isTauri } from '../services/isTauri'
 import { mobileService } from '../services/mobile'
-import type { BuildWatchStatus } from '../types'
+import type { BuildWatchStatus } from '../types/domain'
 import { displayErrorNotification } from '../utils/errorDisplay'
 
 const mutationKey = [...queryKeys.buildWatch.all, 'change']

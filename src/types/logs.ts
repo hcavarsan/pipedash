@@ -1,4 +1,4 @@
-import type { PipelineStatus } from './index'
+import type { PipelineStatus } from './domain'
 
 export type LogNodeKind = 'stage' | 'job' | 'step'
 

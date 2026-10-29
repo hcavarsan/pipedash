@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { pipelineViewFixture, viewPipelineFixture } from '../testing/fixtures'
-import type { PipelineView, ViewMembership } from '../types'
+import type { PipelineView, ViewMembership } from '../types/domain'
 import {
   canAddSubView,
   childViews,

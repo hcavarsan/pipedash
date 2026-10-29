@@ -10,7 +10,7 @@ import {
 
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
-import { service } from '../services'
+import { service } from '../services/service'
 import { useAuthStore } from '../stores/authStore'
 import type {
   ConfigContentResponse,
@@ -20,7 +20,7 @@ import type {
   PipedashConfig,
   StorageConfigResponse,
   StoragePathsResponse,
-} from '../types'
+} from '../types/domain'
 import { getHttpStatus } from '../types/errors'
 import { errorMessage } from '../utils/errorDisplay'
 import { formatCount } from '../utils/formatCount'

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { providerSummaryFixture } from '../testing/fixtures'
-import type { RefreshResult } from '../types'
+import type { RefreshResult } from '../types/domain'
 
 import { describeRefreshResult, summarizeRefresh } from './refreshSummary'
 

@@ -1,4 +1,4 @@
-import type { Pipeline, PipelineView, PipelineViewPage, ProviderSummary, ViewPipeline } from '../types'
+import type { Pipeline, PipelineView, PipelineViewPage, ProviderSummary, ViewPipeline } from '../types/domain'
 
 export function providerSummaryFixture(overrides: Partial<ProviderSummary> = {}): ProviderSummary {
   return {

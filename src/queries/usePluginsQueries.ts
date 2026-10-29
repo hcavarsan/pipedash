@@ -3,8 +3,8 @@ import { type UseQueryResult, useQuery } from '@tanstack/react-query'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
-import { service } from '../services'
-import type { PluginMetadata } from '../types'
+import { service } from '../services/service'
+import type { PluginMetadata } from '../types/domain'
 import { getHttpStatus } from '../types/errors'
 
 export function usePlugins(): UseQueryResult<PluginMetadata[], Error> {

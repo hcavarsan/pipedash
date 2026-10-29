@@ -13,22 +13,23 @@ import type {
   ProviderConfig,
   ProviderSummary,
   RefreshResult,
-} from '../types'
+} from '../types/domain'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const { act, cleanup, renderHook, waitFor } = await import('@testing-library/react')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter } = await import('react-router-dom')
-const { apiService, tauriService } = await import('../services')
+const { apiService } = await import('../services/api')
+const { tauriService } = await import('../services/tauri')
 const { queryKeys } = await import('../lib/queryKeys')
-const { useAggregatedMetrics } = await import('./useMetricsQueries')
+const { useAggregatedMetrics } = await import('../features/metrics/queries/useMetricsQueries')
 const { useRunHistory, useSaveTablePreferences } = await import('./useRunHistoryQueries')
-const { useToggleHidden, useTogglePin } = await import('./usePipelineViewQueries')
+const { useToggleHidden, useTogglePin } = await import('../features/pipelines/queries/usePipelineViewQueries')
 const { useAddProvider, useUpdateProvider } = await import('./useProvidersQueries')
 const { useRefreshProviders } = await import('./useRefreshQueries')
-const { useRerunWorkflow } = await import('./useRunDetailsQuery')
-const { useFactoryReset } = await import('./usePlatformQueries')
+const { useRerunWorkflow } = await import('../features/runs/queries/useRunDetailsQuery')
+const { useFactoryReset } = await import('../features/settings/queries/usePlatformQueries')
 const { useLogViewerPrefs } = await import('../stores/logViewerPrefsStore')
 const { useNotificationCenterStore } = await import('../stores/notificationCenterStore')
 

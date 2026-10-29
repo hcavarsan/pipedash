@@ -15,10 +15,9 @@ import {
   Tabs,
   v8CssVariablesResolver,
 } from '@mantine/core'
-
-import { baseTheme as theme } from './index'
 import classes from './ios.module.css'
 import { iosOverlayClasses, iosOverlayComponents } from './iosOverlays'
+import { baseTheme as theme } from './theme'
 
 const SYSTEM_FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif'
 

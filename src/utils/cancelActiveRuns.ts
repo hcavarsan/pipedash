@@ -1,6 +1,6 @@
 import type { NotificationData } from '@mantine/notifications'
 
-import type { PaginatedRunHistory, Pipeline, PipelineRun, PipelineStatus } from '../types'
+import type { PaginatedRunHistory, Pipeline, PipelineRun, PipelineStatus } from '../types/domain'
 
 import { formatCount } from './formatCount'
 

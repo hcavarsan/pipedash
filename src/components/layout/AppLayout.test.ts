@@ -5,7 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { createElement } from 'react'
 
-import type { ProviderSummary } from '../../types'
+import type { ProviderSummary } from '../../types/domain'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
 Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' } })
@@ -37,7 +37,7 @@ const { MantineProvider } = await import('@mantine/core')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { MemoryRouter, useLocation, useNavigate, useSearchParams } = await import('react-router-dom')
 const { AppLayout } = await import('./AppLayout')
-const { service } = await import('../../services')
+const { service } = await import('../../services/service')
 const view = () => within(document.body)
 const clients = new Set<InstanceType<typeof QueryClient>>()
 

@@ -1,22 +1,22 @@
 import { lazy, type ReactNode, Suspense } from 'react'
 
 import { LoadingState } from './components/common/LoadingState'
-import { ErrorBoundary } from './components/ErrorBoundary'
+import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary'
 import { usePlugins } from './queries/usePluginsQueries'
 import { useRefreshProvider } from './queries/useRefreshQueries'
 import { useModalStore } from './stores/modalStore'
-import type { Pipeline } from './types'
+import type { Pipeline } from './types/domain'
 import { canRerunInPlace, getReconcileBlockReason } from './utils/pipelinePresentation'
 import { getPluginByType } from './utils/pluginHelpers'
 
 const TriggerWorkflowModal = lazy(() =>
-  import('./components/pipeline/TriggerWorkflowModal').then((m) => ({
+  import('./features/runs/components/TriggerWorkflowModal').then((m) => ({
     default: m.TriggerWorkflowModal,
   }))
 )
 
 const WorkflowLogsModal = lazy(() =>
-  import('./components/pipeline/WorkflowLogsModal').then((m) => ({
+  import('./features/runs/components/WorkflowLogsModal').then((m) => ({
     default: m.WorkflowLogsModal,
   }))
 )

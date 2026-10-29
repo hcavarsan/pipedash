@@ -7,34 +7,34 @@ import { LazyRoute } from './components/common/LazyRoute'
 import { PageContainer } from './components/common/PageContainer'
 import { PageHeader } from './components/common/PageHeader'
 import { useMobileShell } from './hooks/useIsMobile'
-import type { Pipeline, ProviderSummary } from './types'
+import type { Pipeline, ProviderSummary } from './types/domain'
 
 const UnifiedPipelinesView = lazy(() =>
-  import('./components/table/UnifiedPipelinesView').then((m) => ({
+  import('./features/pipelines/components/UnifiedPipelinesView').then((m) => ({
     default: m.UnifiedPipelinesView,
   }))
 )
 
 const PipelineDetailRoute = lazy(() =>
-  import('./routes/PipelineDetailRoute').then((m) => ({
+  import('./features/runs/routes/PipelineDetailRoute').then((m) => ({
     default: m.PipelineDetailRoute,
   }))
 )
 
 const SettingsRoute = lazy(() =>
-  import('./routes/SettingsRoute').then((m) => ({
+  import('./features/settings/routes/SettingsRoute').then((m) => ({
     default: m.SettingsRoute,
   }))
 )
 
 const ProvidersPage = lazy(() =>
-  import('./components/provider/ProvidersPage').then((m) => ({
+  import('./features/providers/components/ProvidersPage').then((m) => ({
     default: m.ProvidersPage,
   }))
 )
 
 const NotificationsPage = lazy(() =>
-  import('./components/notifications/NotificationCenter').then((m) => ({
+  import('./features/notifications/components/NotificationCenter').then((m) => ({
     default: m.NotificationsPage,
   }))
 )

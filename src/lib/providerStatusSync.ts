@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query'
 
-import type { ProviderSummary } from '../types'
+import type { ProviderSummary } from '../types/domain'
 import { patchProviderList } from '../utils/patchProviderList'
 
 import { queryKeys } from './queryKeys'

@@ -9,10 +9,10 @@ import {
 
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
-import { service } from '../services'
 import { mobileService } from '../services/mobile'
+import { service } from '../services/service'
 import { useAuthStore } from '../stores/authStore'
-import type { AppLockStatus, UnlockVaultResponse, VaultStatusResponse } from '../types'
+import type { AppLockStatus, UnlockVaultResponse, VaultStatusResponse } from '../types/domain'
 import { getHttpStatus } from '../types/errors'
 import { displayErrorNotification, errorMessage } from '../utils/errorDisplay'
 

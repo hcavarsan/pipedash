@@ -1,4 +1,4 @@
-import type { Pipeline, PipelineRun } from '../types'
+import type { Pipeline, PipelineRun } from '../types/domain'
 
 import { deployTarget } from './actionTarget'
 

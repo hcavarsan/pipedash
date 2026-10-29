@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 
 import { STATUS_META } from '../theme/status'
-import type { PipelineStatus, PipelineViewQuery } from '../types'
+import type { PipelineStatus, PipelineViewQuery } from '../types/domain'
 import { isDateRange } from '../utils/dateRange'
 
 const parseStatuses = (value: string | null): PipelineStatus[] =>

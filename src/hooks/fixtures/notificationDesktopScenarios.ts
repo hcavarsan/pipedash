@@ -8,10 +8,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
 
-import { useLocalNotificationsLifecycle } from '../../queries/useLocalNotificationQueries'
+import { useLocalNotificationsLifecycle } from '../../features/notifications/queries/useLocalNotificationQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../stores/notificationStore'
-import type { Pipeline, ProviderHealthAlert } from '../../types'
+import type { Pipeline, ProviderHealthAlert } from '../../types/domain'
 import { useFailureNotifications } from '../useFailureNotifications'
 import { useProviderHealthAlerts } from '../useProviderHealthAlerts'
 

@@ -9,7 +9,7 @@ import {
 } from '@tabler/icons-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-
+import { NotificationCenter } from '../../features/notifications/components/NotificationCenter'
 import { useAppShortcuts } from '../../hooks/useAppShortcuts'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useRefresh } from '../../hooks/useRefresh'
@@ -23,7 +23,6 @@ import { AppLogo } from '../atoms/AppLogo'
 import { ConnectionStatus } from '../common/ConnectionStatus'
 import { RefreshButton } from '../common/RefreshButton'
 import { WindowControls } from '../common/WindowControls'
-import { NotificationCenter } from '../notifications/NotificationCenter'
 
 interface HeaderProps {
   onToggleNavbar?: (() => void) | undefined

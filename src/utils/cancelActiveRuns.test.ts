@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { PaginatedRunHistory, Pipeline, PipelineRun } from '../types'
+import type { PaginatedRunHistory, Pipeline, PipelineRun } from '../types/domain'
 
 import {
   buildCancelGroups,

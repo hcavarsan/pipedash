@@ -1,4 +1,4 @@
-import type { FailureKind, HealthLevel, HealthSignal, ProviderRecovery, ProviderSummary } from '../types'
+import type { FailureKind, HealthLevel, HealthSignal, ProviderRecovery, ProviderSummary } from '../types/domain'
 
 import { formatTime } from './formatDateTime'
 

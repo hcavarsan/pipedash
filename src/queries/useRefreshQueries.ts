@@ -2,8 +2,9 @@ import { notifications } from '@mantine/notifications'
 import { type UseMutationResult, useMutation, useMutationState, useQueryClient } from '@tanstack/react-query'
 
 import { queryKeys } from '../lib/queryKeys'
-import { isTauri, service } from '../services'
-import type { ProviderSummary, RefreshResult } from '../types'
+import { isTauri } from '../services/isTauri'
+import { service } from '../services/service'
+import type { ProviderSummary, RefreshResult } from '../types/domain'
 import { displayErrorNotification } from '../utils/errorDisplay'
 import { summarizeRefresh } from '../utils/refreshSummary'
 

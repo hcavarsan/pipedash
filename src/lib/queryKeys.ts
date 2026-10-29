@@ -1,4 +1,4 @@
-import type { PipelineViewQuery } from '../types'
+import type { PipelineViewQuery } from '../types/domain'
 import type { LogSearchQuery } from '../types/logs'
 
 export const queryKeys = {

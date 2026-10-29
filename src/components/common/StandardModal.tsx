@@ -9,7 +9,7 @@ import { PRESENT_EASING } from '../../lib/motion'
 import type { SheetDetent } from '../../lib/sheetDetents'
 import { iosClasses } from '../../theme/ios'
 import { TYPOGRAPHY } from '../../theme/typography'
-import type { ModalBaseProps } from '../../types'
+import type { ModalBaseProps } from '../../types/components'
 import { confirmDiscard } from '../../utils/confirm'
 import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
 

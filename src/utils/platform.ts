@@ -1,6 +1,6 @@
 import { platform as tauriOsPlatform } from '@tauri-apps/plugin-os'
 
-import { isTauri } from '../services'
+import { isTauri } from '../services/isTauri'
 
 import { isOneOf } from './isOneOf'
 import { isRecord } from './isRecord'

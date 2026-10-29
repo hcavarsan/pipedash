@@ -1,10 +1,9 @@
 import { IconBell, IconPinned, IconPlug, IconSettings, IconStack2 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-
+import { useUnreadNotifications } from '../../features/notifications/components/NotificationCenter'
 import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
 import { resumeRoute, useMobileNavStore } from '../../stores/mobileNavStore'
-import { useUnreadNotifications } from '../notifications/NotificationCenter'
 import classes from './MobileTabBar.module.css'
 import { type MobileTab, mobileChrome } from './mobileChrome'
 import { tabAction } from './navigation'

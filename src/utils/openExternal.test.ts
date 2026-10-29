@@ -26,7 +26,7 @@ Object.assign(globalThis, {
 })
 
 const { isHttpUrl, openExternal } = await import('./openExternal')
-const { service } = await import('../services')
+const { service } = await import('../services/service')
 
 beforeEach(() => {
   opened.length = 0

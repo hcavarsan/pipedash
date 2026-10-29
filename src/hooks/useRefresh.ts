@@ -2,7 +2,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useEffect } from 'react'
 
 import { logger } from '../lib/logger'
-import { isTauri, tauriService } from '../services'
+import { isTauri } from '../services/isTauri'
+import { tauriService } from '../services/tauri'
 
 export const useRefresh = (): void => {
   useEffect(() => {

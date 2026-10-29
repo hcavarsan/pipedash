@@ -2,10 +2,11 @@ import { invoke } from '@tauri-apps/api/core'
 import { requestPermission } from '@tauri-apps/plugin-notification'
 
 import { logger } from '../lib/logger'
-import { isTauri, tauriService } from '../services'
+import { isTauri } from '../services/isTauri'
+import { tauriService } from '../services/tauri'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 import { useNotificationStore } from '../stores/notificationStore'
-import type { NotificationTarget } from '../types'
+import type { NotificationTarget } from '../types/domain'
 
 import { isIosPlatform, isMobilePlatform } from './platform'
 

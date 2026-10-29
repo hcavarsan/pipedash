@@ -8,17 +8,16 @@ import { notifications } from '@mantine/notifications'
 import { QueryClient, QueryClientProvider, type UseMutationResult } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
-
-import { queryKeys } from '../../lib/queryKeys'
 import {
   useLocalNotificationSettings,
   useLocalNotificationsLifecycle,
   useSetLocalNotifications,
-} from '../../queries/useLocalNotificationQueries'
+} from '../../features/notifications/queries/useLocalNotificationQueries'
+import { queryKeys } from '../../lib/queryKeys'
 import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../stores/notificationStore'
-import type { LocalNotificationSettings, Pipeline, ProviderHealthAlert } from '../../types'
+import type { LocalNotificationSettings, Pipeline, ProviderHealthAlert } from '../../types/domain'
 import { showSystemNotification } from '../../utils/systemNotifications'
 import { useFailureNotifications } from '../useFailureNotifications'
 import { useProviderHealthAlerts } from '../useProviderHealthAlerts'

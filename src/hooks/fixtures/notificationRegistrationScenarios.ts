@@ -7,7 +7,7 @@ import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import type { Pipeline } from '../../types'
+import type { Pipeline } from '../../types/domain'
 
 import { callbacks, delivered, listeners, registration } from './notificationEnvironment'
 

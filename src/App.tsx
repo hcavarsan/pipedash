@@ -4,23 +4,23 @@ import { lazy, type ReactNode, Suspense, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
 import { AppContent } from './AppContent'
-import { RequireAuth } from './components/auth'
 import { ErrorState } from './components/common/ErrorState'
 import { LazyRoute } from './components/common/LazyRoute'
 import { LoadingState } from './components/common/LoadingState'
-import { ErrorBoundary } from './components/ErrorBoundary'
-import { ConfigErrorScreen } from './components/setup/ConfigErrorScreen'
+import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary'
+import { ConfigErrorScreen } from './features/setup/components/ConfigErrorScreen'
+import { RequireAuth } from './features/vault/components/RequireAuth'
 import { queryKeys } from './lib/queryKeys'
-import { service } from './services'
+import { service } from './services/service'
 
 const UnlockRoute = lazy(() =>
-  import('./routes/UnlockRoute').then((m) => ({
+  import('./features/vault/routes/UnlockRoute').then((m) => ({
     default: m.UnlockRoute,
   }))
 )
 
 const SetupWizard = lazy(() =>
-  import('./components/setup/SetupWizard').then((m) => ({
+  import('./features/setup/components/SetupWizard/SetupWizard').then((m) => ({
     default: m.SetupWizard,
   }))
 )

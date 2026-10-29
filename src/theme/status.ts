@@ -12,7 +12,7 @@ import {
   IconTool,
 } from '@tabler/icons-react'
 
-import type { HealthLevel, PipelineStatus } from '../types'
+import type { HealthLevel, PipelineStatus } from '../types/domain'
 import { typedKeys } from '../utils/typedKeys'
 
 type StatusTone = 'success' | 'failed' | 'running' | 'pending' | 'neutral'

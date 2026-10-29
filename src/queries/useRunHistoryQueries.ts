@@ -10,13 +10,12 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-
 import { confirmBody } from '../components/common/ActionTargetRows'
 import { PAGE_SIZES } from '../constants/pagination'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { queryKeys } from '../lib/queryKeys'
-import { service } from '../services'
-import type { PaginatedRunHistory, Pipeline, PipelineRun, ReviewDecision } from '../types'
+import { service } from '../services/service'
+import type { PaginatedRunHistory, Pipeline, PipelineRun, ReviewDecision } from '../types/domain'
 import { actionTarget, type TargetPipeline } from '../utils/actionTarget'
 import { findUnfinishedRuns, type UnfinishedRuns } from '../utils/cancelActiveRuns'
 import { openConfirm } from '../utils/confirm'

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { QueryClient } from '@tanstack/react-query'
 
-import type { ProviderConfig, ProviderSummary } from '../types'
+import type { ProviderConfig, ProviderSummary } from '../types/domain'
 
 import { applyProviderStatus } from './providerStatusSync'
 import { queryKeys } from './queryKeys'

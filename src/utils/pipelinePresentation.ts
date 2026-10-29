@@ -1,5 +1,5 @@
 import { STATUS_OPTIONS } from '../theme/status'
-import type { Pipeline } from '../types'
+import type { Pipeline } from '../types/domain'
 
 export interface PipelineLabels {
   item: string

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { providerSummaryFixture } from '../testing/fixtures'
-import type { ProviderSummary } from '../types'
+import type { ProviderSummary } from '../types/domain'
 
 import { dataAge, describeFetch, providerTone, staleNote, worstTone } from './fetchInfo'
 import { formatRelativeTime } from './formatRelativeTime'

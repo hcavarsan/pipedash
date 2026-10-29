@@ -1,7 +1,7 @@
 import { type ReactNode, Suspense } from 'react'
 import { useLocation } from 'react-router-dom'
 
-import { ErrorBoundary } from '../ErrorBoundary'
+import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
 
 import { LoadingState } from './LoadingState'
 

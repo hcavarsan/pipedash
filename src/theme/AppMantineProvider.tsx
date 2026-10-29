@@ -9,9 +9,8 @@ import { useNativeChrome } from '../hooks/useNativeChrome'
 import { useSheetDrag } from '../hooks/useSheetDrag'
 import { mobileService } from '../services/mobile'
 import { isMobilePlatform } from '../utils/platform'
-
-import { theme } from './index'
 import { iosCssVariablesResolver, iosTheme } from './ios'
+import { theme } from './theme'
 
 function NativeAppearanceSync(): ReactNode {
   const { colorScheme } = useMantineColorScheme()
