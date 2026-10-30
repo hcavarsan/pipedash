@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use axum::{
     extract::State,
     routing::{
@@ -60,11 +62,36 @@ pub fn router() -> Router<AppState> {
         .route("/config", post(create_initial_config))
 }
 
-async fn get_setup_status() -> Json<SetupStatusResponse> {
+async fn get_setup_status(State(state): State<AppState>) -> Json<SetupStatusResponse> {
     let config_path = ConfigLoader::discover_config_path();
-    let data_dir = config_path.parent().unwrap_or(std::path::Path::new("."));
-    let status = ConfigLoader::get_setup_status(data_dir);
+    let data_dir = config_path.parent().unwrap_or(Path::new("."));
+    let mut status = ConfigLoader::get_setup_status(data_dir);
+
+    if status.config_valid && state.inner.read().await.config_error.is_some() {
+        if let Err(err) = start_core_from_fixed_config(&state, &config_path).await {
+            tracing::error!(
+                "Failed to start with the fixed config: {}",
+                err.error.message
+            );
+            status.config_valid = false;
+            status.validation_errors = vec![err.error.message];
+        }
+    }
+
     Json(status.into())
+}
+
+async fn start_core_from_fixed_config(state: &AppState, config_path: &Path) -> ApiResult<()> {
+    let _setup_guard = state.setup_lock.lock().await;
+    if state.inner.read().await.config_error.is_none() {
+        return Ok(());
+    }
+
+    tracing::info!("Configuration fixed - initializing services");
+    let config = ConfigLoader::load(config_path)
+        .map_err(|e| AppError::internal(format!("Failed to load config: {}", e)))?;
+
+    start_core(state, config).await
 }
 
 async fn create_initial_config(
@@ -97,6 +124,24 @@ async fn create_initial_config(
 
     tracing::info!("Initial configuration created at {:?}", config_path);
 
+    start_core(&state, config).await?;
+
+    if let Some(password) = req.vault_password.as_deref() {
+        if state.api_token().is_none() {
+            state.set_api_token(password);
+        }
+    }
+
+    tracing::info!("Application state updated - setup complete!");
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Configuration created and system initialized successfully",
+        "config_path": config_path.to_string_lossy()
+    })))
+}
+
+async fn start_core(state: &AppState, config: PipedashConfig) -> ApiResult<()> {
     tracing::info!(
         "Initializing with storage backend: {}",
         config.storage.backend,
@@ -115,7 +160,7 @@ async fn create_initial_config(
         tracing::info!("PostgreSQL migrations completed");
     }
 
-    let storage_manager = StorageManager::from_config_allow_locked(config.clone(), false)
+    let storage_manager = StorageManager::from_config_allow_locked(config, false)
         .await
         .map_err(|e| AppError::internal(format!("Failed to initialize storage manager: {}", e)))?;
 
@@ -160,26 +205,19 @@ async fn create_initial_config(
         inner.token_store_ready = token_store_ready;
     }
 
-    if let Some(password) = req.vault_password.as_deref() {
-        if state.api_token().is_none() {
-            state.set_api_token(password);
-        }
-    }
-
-    tracing::info!("Application state updated - setup complete!");
-
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "message": "Configuration created and system initialized successfully",
-        "config_path": config_path.to_string_lossy()
-    })))
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use axum::http::StatusCode;
+    use axum::body::Body;
+    use axum::http::{
+        Request,
+        StatusCode,
+    };
+    use tower::ServiceExt;
 
     use super::*;
     use crate::ws::WebSocketEventBus;
@@ -222,5 +260,53 @@ mod tests {
         let _ = std::fs::remove_dir_all(&config_dir);
 
         assert_eq!(result.unwrap_err().status, StatusCode::CONFLICT);
+    }
+
+    async fn get_json(app: &Router, uri: &str) -> (StatusCode, serde_json::Value) {
+        let response = app
+            .clone()
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+
+        (status, serde_json::from_slice(&body).unwrap_or_default())
+    }
+
+    #[tokio::test]
+    async fn status_check_after_fixing_the_config_starts_the_services() {
+        let _env = crate::routes::CONFIG_ENV.lock().await;
+        let data_dir =
+            std::env::temp_dir().join(format!("pipedash-config-fixed-{}", std::process::id()));
+        let config_path = data_dir.join("config.toml");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        std::fs::write(&config_path, "[storage\nbackend = \"sqlite\"\n").unwrap();
+        std::env::set_var("PIPEDASH_CONFIG_PATH", &config_path);
+        let app = Router::new()
+            .nest("/setup", router())
+            .nest("/providers", crate::routes::providers::router())
+            .with_state(AppState::config_error(
+                Arc::new(WebSocketEventBus::new()),
+                "invalid".into(),
+            ));
+
+        let (broken_status, broken_body) = get_json(&app, "/setup/status").await;
+        let mut config = PipedashConfig::default();
+        config.storage.backend = StorageBackendType::Sqlite;
+        config.storage.data_dir = data_dir.display().to_string();
+        config.storage.vault_password = Some("vault-password".into());
+        std::fs::write(&config_path, ConfigLoader::to_toml(&config).unwrap()).unwrap();
+        let (fixed_status, fixed_body) = get_json(&app, "/setup/status").await;
+        let (providers_status, providers_body) = get_json(&app, "/providers").await;
+        let _ = std::fs::remove_dir_all(&data_dir);
+
+        assert_eq!(broken_status, StatusCode::OK);
+        assert_eq!(broken_body["config_valid"], false, "{broken_body}");
+        assert_eq!(fixed_status, StatusCode::OK);
+        assert_eq!(fixed_body["config_valid"], true, "{fixed_body}");
+        assert_eq!(providers_status, StatusCode::OK, "{providers_body}");
     }
 }
