@@ -23,9 +23,12 @@ pub fn create_metadata() -> PluginMetadata {
     }
 }
 
-fn field(key: &str, label: &str, field_type: ConfigFieldType, description: &str) -> ConfigField {
+fn field(
+    key: &str, section: ConfigSection, label: &str, field_type: ConfigFieldType, description: &str,
+) -> ConfigField {
     ConfigField {
         key: key.to_string(),
+        section,
         label: label.to_string(),
         description: Some(description.to_string()),
         field_type,
@@ -65,6 +68,7 @@ fn create_config_schema() -> ConfigSchema {
             default_value: text(config::DEFAULT_DECK_URL),
             ..field(
                 config::DECK_URL,
+                ConfigSection::Connection,
                 "Deck URL",
                 ConfigFieldType::Text,
                 "Address of Prow's Deck dashboard, for example https://prow.k8s.io",
@@ -74,6 +78,7 @@ fn create_config_schema() -> ConfigSchema {
             default_value: Some(Value::Bool(false)),
             ..field(
                 config::INSECURE,
+                ConfigSection::Connection,
                 "Skip TLS Verification",
                 ConfigFieldType::Boolean,
                 "Skip TLS certificate verification (useful for self-signed certificates)",
@@ -86,6 +91,7 @@ fn create_config_schema() -> ConfigSchema {
                 options: options(&["bearer", "basic", "cookie"]),
                 ..field(
                     config::AUTH_SCHEME,
+                    ConfigSection::Authentication,
                     "Token type",
                     ConfigFieldType::Select,
                     "How Pipedash sends the token: bearer sends Authorization: Bearer (OAuth2 \
@@ -98,6 +104,7 @@ fn create_config_schema() -> ConfigSchema {
             required: true,
             ..field(
                 config::TOKEN,
+                ConfigSection::Authentication,
                 "Access token",
                 ConfigFieldType::Password,
                 "Credential for a Deck behind OAuth2 Proxy or an API gateway. Choose No auth for \
@@ -110,6 +117,7 @@ fn create_config_schema() -> ConfigSchema {
                 required: true,
                 ..field(
                     config::SSO_ISSUER,
+                    ConfigSection::Authentication,
                     "Identity provider URL",
                     ConfigFieldType::Text,
                     "OpenID Connect issuer that protects Deck, for example \
@@ -123,6 +131,7 @@ fn create_config_schema() -> ConfigSchema {
                 required: true,
                 ..field(
                     config::SSO_CLIENT_ID,
+                    ConfigSection::Authentication,
                     "Client ID",
                     ConfigFieldType::Text,
                     "Public client registered for Pipedash with PKCE and the redirect URI below",
@@ -135,6 +144,7 @@ fn create_config_schema() -> ConfigSchema {
                 default_value: text(config::DEFAULT_SCOPES),
                 ..field(
                     config::SSO_SCOPES,
+                    ConfigSection::Authentication,
                     "Scopes",
                     ConfigFieldType::Text,
                     "Space-separated scopes to request",
@@ -148,6 +158,7 @@ fn create_config_schema() -> ConfigSchema {
                 options: options(&["id_token", "access_token"]),
                 ..field(
                     config::SSO_TOKEN,
+                    ConfigSection::Authentication,
                     "Token sent to Deck",
                     ConfigFieldType::Select,
                     "id_token suits OAuth2 Proxy and most gateways; choose access_token when the \
@@ -161,6 +172,7 @@ fn create_config_schema() -> ConfigSchema {
                 default_value: text(config::DEFAULT_REDIRECT_URI),
                 ..field(
                     config::SSO_REDIRECT_URI,
+                    ConfigSection::Authentication,
                     "Redirect URI",
                     ConfigFieldType::Text,
                     "Must match a redirect URI of the client. An http://localhost:<port> address \
@@ -172,6 +184,7 @@ fn create_config_schema() -> ConfigSchema {
             SIGN_IN,
             field(
                 config::SSO_PARAMS,
+                ConfigSection::Authentication,
                 "Extra sign-in parameters (optional)",
                 ConfigFieldType::Text,
                 "Extra authorization parameters as key=value pairs joined by &, for example \
@@ -183,6 +196,7 @@ fn create_config_schema() -> ConfigSchema {
             options: options(&["deck", "storage"]),
             ..field(
                 config::HISTORY_SOURCE,
+                ConfigSection::Settings,
                 "Run history",
                 ConfigFieldType::Select,
                 "deck shows the runs Deck still lists, usually the last 2 to 7 days. storage \
@@ -191,6 +205,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(url_field(field(
             config::STORAGE_URL,
+            ConfigSection::Settings,
             "Artifact storage URL (optional)",
             ConfigFieldType::Text,
             "Where finished build logs are read from as <url>/<bucket>/<path>. Leave empty for \
@@ -198,6 +213,7 @@ fn create_config_schema() -> ConfigSchema {
         )))
         .add_field(field(
             config::STORAGE_BUCKET,
+            ConfigSection::Settings,
             "Storage bucket (optional)",
             ConfigFieldType::Text,
             "Bucket Prow uploads to, for example gs://kubernetes-ci-logs. Used when Deck no \
@@ -207,6 +223,7 @@ fn create_config_schema() -> ConfigSchema {
             SIGNED,
             field(
                 config::KUBECONFIG_PATH,
+                ConfigSection::Authentication,
                 "Kubeconfig for actions (optional)",
                 ConfigFieldType::Text,
                 "Path to a kubeconfig for the cluster that runs Prow. When set, Pipedash starts \
@@ -220,6 +237,7 @@ fn create_config_schema() -> ConfigSchema {
                 options: Some(Vec::new()),
                 ..field(
                     config::KUBE_CONTEXT,
+                    ConfigSection::Authentication,
                     "Kubernetes context",
                     ConfigFieldType::Select,
                     "Leave empty to use the kubeconfig's current context",

@@ -68,6 +68,7 @@ pub use schema::{
     ConfigField,
     ConfigFieldType,
     ConfigSchema,
+    ConfigSection,
     AUTH_MODE_KEY,
 };
 pub use sign_in::{

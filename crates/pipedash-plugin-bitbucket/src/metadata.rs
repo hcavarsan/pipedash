@@ -22,6 +22,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "email".to_string(),
+            section: ConfigSection::Authentication,
             label: "Email".to_string(),
             description: Some(
                 "Your Atlassian account email (found in Bitbucket Personal settings > Email)"
@@ -36,6 +37,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "api_token".to_string(),
+            section: ConfigSection::Authentication,
             label: "API Token".to_string(),
             description: Some(
                 "Bitbucket API token with Repository:Read, Workspace:Read, and Pipelines:Read/Write scopes"

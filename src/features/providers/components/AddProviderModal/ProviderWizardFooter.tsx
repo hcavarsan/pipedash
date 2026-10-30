@@ -21,6 +21,7 @@ interface ProviderWizardFooterProps {
   isPending: boolean
   onBack: () => void
   onCancel: () => void
+  onSaveCredentials: () => void
   onSaveSelection: () => void
 }
 
@@ -40,12 +41,51 @@ export function ProviderWizardFooter({
   isPending,
   onBack,
   onCancel,
+  onSaveCredentials,
   onSaveSelection,
 }: ProviderWizardFooterProps): ReactNode {
+  const cancel = (
+    <Button variant="default" size="sm" onClick={onCancel} disabled={isPending}>
+      Cancel
+    </Button>
+  )
+  const back = (
+    <Button variant="default" size="sm" onClick={onBack} disabled={isPending}>
+      Back
+    </Button>
+  )
+  const detailsBlocked = !providerSelected || !providerNameValid
+
+  if (step === 'provider') {
+    return (
+      <Group justify="flex-end" gap="xs">
+        {cancel}
+        {editMode && (
+          <Button size="sm" onClick={onSaveCredentials} loading={isPending} disabled={detailsBlocked || !saveOnly}>
+            Save
+          </Button>
+        )}
+        <Button
+          variant={editMode ? 'default' : 'filled'}
+          size="sm"
+          type="submit"
+          form={formId}
+          name="intent"
+          value="continue"
+          loading={isPending && !editMode}
+          disabled={detailsBlocked || isPending}
+        >
+          {isMobile ? 'Next' : 'Next: credentials'}
+        </Button>
+      </Group>
+    )
+  }
+
   if (step === 'credentials') {
     return (
       <Group justify="space-between" gap="xs">
         <Group gap="xs">
+          {back}
           {permissionRow}
           {selectionNeedsRefresh && (
             <Text size="xs" c="dimmed">
@@ -55,9 +95,7 @@ export function ProviderWizardFooter({
         </Group>
 
         <Group gap="xs">
-          <Button variant="default" size="sm" onClick={onCancel} disabled={isPending}>
-            Cancel
-          </Button>
+          {cancel}
           {editMode && (
             <Button
               size="sm"
@@ -66,7 +104,7 @@ export function ProviderWizardFooter({
               name="intent"
               value="save-credentials"
               loading={isPending}
-              disabled={!providerSelected || !providerNameValid || selectionNeedsRefresh}
+              disabled={detailsBlocked || selectionNeedsRefresh}
             >
               Save
             </Button>
@@ -79,7 +117,7 @@ export function ProviderWizardFooter({
             name="intent"
             value="continue"
             loading={isPending && !editMode}
-            disabled={!providerSelected || !providerNameValid || isPending}
+            disabled={detailsBlocked || isPending}
           >
             {isMobile ? 'Next' : `Next: select ${labels.items}`}
           </Button>
@@ -91,9 +129,7 @@ export function ProviderWizardFooter({
   return (
     <Group justify="space-between">
       <Group gap="sm">
-        <Button variant="default" size="sm" onClick={onBack} disabled={isPending}>
-          Back
-        </Button>
+        {back}
         {selectedCount > 0 && (
           <Text size="sm" c="dimmed">
             {selectedCount} selected
@@ -101,9 +137,7 @@ export function ProviderWizardFooter({
         )}
       </Group>
       <Group gap="xs">
-        <Button variant="default" size="sm" onClick={onCancel} disabled={isPending}>
-          Cancel
-        </Button>
+        {cancel}
         <Button size="sm" onClick={onSaveSelection} loading={isPending} disabled={selectedCount === 0 || selectingAll}>
           {editMode ? (isMobile ? 'Update' : 'Update provider') : isMobile ? 'Add' : 'Add provider'}
         </Button>

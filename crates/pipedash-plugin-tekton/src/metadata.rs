@@ -46,6 +46,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "kubeconfig_path".to_string(),
+            section: ConfigSection::Authentication,
             label: "Kubeconfig Path".to_string(),
             description: Some(
                 "Path to your Kubernetes config file(s). Multiple paths can be separated by ':' (Unix) or ';' (Windows). Uses $KUBECONFIG env var if set. Ignored when Kubeconfig Content is set."
@@ -60,6 +61,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: config::KUBECONFIG_CONTENT_KEY.to_string(),
+            section: ConfigSection::Authentication,
             label: "Kubeconfig Content".to_string(),
             description: Some(
                 "Paste the kubeconfig YAML instead of using a file path, for example on iOS and Android where no kubeconfig file exists. When set, it is used instead of the path above and is stored with your other credentials. Use token or client certificate authentication: exec credential plugins (aws, gke-gcloud-auth-plugin, kubelogin) are not supported on iOS and Android."
@@ -74,6 +76,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "context".to_string(),
+            section: ConfigSection::Authentication,
             label: "Kubernetes Context".to_string(),
             description: Some(
                 "Select a context from your kubeconfig. Leave empty to use current-context."
@@ -88,6 +91,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "namespace_mode".to_string(),
+            section: ConfigSection::Settings,
             label: "Namespace Discovery Mode".to_string(),
             description: Some(
                 "How to discover namespaces containing Tekton pipelines:\n• 'all' - Automatically discover all namespaces (requires cluster-wide namespace list permissions)\n• 'custom' - Manually specify namespaces (recommended for users without admin permissions or on OpenShift/RHOS)\n\nIf you see a '403 Forbidden' error during validation, switch to 'custom' mode and specify namespaces manually."
@@ -105,6 +109,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "namespaces".to_string(),
+            section: ConfigSection::Settings,
             label: "Namespaces".to_string(),
             description: Some(
                 "Comma-separated list of namespaces to monitor (e.g., 'default,prod,staging'). Required when namespace mode is 'custom'. Leave empty when mode is 'all' to auto-discover. Each namespace must be a valid Kubernetes namespace name (lowercase alphanumeric, hyphens, max 63 chars). Run logs need 'get' permission on pods and pods/log in each monitored namespace."
@@ -121,6 +126,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "tekton_namespace".to_string(),
+            section: ConfigSection::Settings,
             label: "Tekton controller namespace".to_string(),
             description: Some(
                 "Namespace where the Tekton Pipelines controller and webhook run. Pipedash reads the tekton-pipelines-controller and tekton-pipelines-webhook Deployments there to report controller health. Defaults to tekton-pipelines. Needs 'get' permission on Deployments in that namespace; without it, controller health is unavailable."

@@ -8,6 +8,8 @@ import { getPipelineLabels } from '../../../../utils/pipelinePresentation'
 
 import { CredentialsStep } from './CredentialsStep'
 import { PipelinesStep } from './PipelinesStep'
+import { ProviderStep } from './ProviderStep'
+import { STEP_ORDER } from './types'
 import type { ProviderFormModel } from './useProviderFormAction'
 
 interface ProviderWizardFormProps {
@@ -45,7 +47,8 @@ export function ProviderWizardForm({
   const { step, selectedPlugin, error, fieldErrors } = state
   const labels = getPipelineLabels(selectedPlugin?.provider_type)
   const announcement = useErrorAnnouncement(fieldErrors)
-  const position = `Step ${step === 'credentials' ? 1 : 2} of 2`
+  const position = `Step ${STEP_ORDER.indexOf(step) + 1} of ${STEP_ORDER.length}`
+  const title = step === 'provider' ? 'Provider' : step === 'credentials' ? 'Credentials' : `Select ${labels.items}`
 
   const secondaryRow =
     mobileShell && saveOnly && step === 'credentials' ? (
@@ -70,17 +73,26 @@ export function ProviderWizardForm({
       <StepRegion
         stepKey={step}
         position={position}
-        title={step === 'credentials' ? 'Credentials' : `Select ${labels.items}`}
+        title={title}
         hiddenHeading={!mobileShell}
         style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
-        {step === 'credentials' ? (
-          <CredentialsStep
+        {step === 'provider' ? (
+          <ProviderStep
             state={state}
             dispatch={dispatch}
             plugins={plugins}
             pluginsLoading={pluginsLoading}
             editMode={editMode}
+            isMobile={isMobile}
+            submitting={isPending}
+            formRef={formRef}
+            formId={formId}
+          />
+        ) : step === 'credentials' ? (
+          <CredentialsStep
+            state={state}
+            dispatch={dispatch}
             isMobile={isMobile}
             submitting={isPending}
             formRef={formRef}

@@ -44,6 +44,7 @@ const configField = (key: string): ConfigField => ({
   options: null,
   validation_regex: null,
   validation_message: null,
+  section: 'connection',
 })
 
 test('sign-in mode drops the token field and needs a completed sign-in', () => {

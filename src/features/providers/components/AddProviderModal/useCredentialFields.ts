@@ -1,5 +1,5 @@
 import { useQueries } from '@tanstack/react-query'
-import type { Dispatch } from 'react'
+import { type Dispatch, useMemo } from 'react'
 
 import { DEBOUNCE_DELAYS } from '../../../../constants/intervals'
 import { useDebounce } from '../../../../hooks/useDebounce'
@@ -8,7 +8,7 @@ import type { ConfigField, PluginMetadata } from '../../../../types/domain'
 import { type FieldAttributes, type FieldInputKind, fieldAttributes } from '../../../../utils/formFields'
 
 import type { FormAction } from './types'
-import { validateConfigField, validateProviderName } from './validation'
+import { type FieldStep, STEP_SECTIONS, validateConfigField, validateProviderName } from './validation'
 
 const INPUT_KINDS: Partial<Record<ConfigField['field_type'], FieldInputKind>> = {
   Password: 'password',
@@ -30,6 +30,7 @@ interface UseCredentialFieldsParams {
   configValues: Record<string, string>
   fieldErrors: Record<string, string>
   dispatch: Dispatch<FormAction>
+  step: FieldStep
 }
 
 interface UseCredentialFieldsResult {
@@ -50,9 +51,14 @@ export function useCredentialFields({
   configValues,
   fieldErrors,
   dispatch,
+  step,
 }: UseCredentialFieldsParams): UseCredentialFieldsResult {
   const debouncedConfigValues = useDebounce(configValues, DEBOUNCE_DELAYS.FILTER)
-  const fields = selectedPlugin?.config_schema.fields ?? NO_FIELDS
+  const schemaFields = selectedPlugin?.config_schema.fields ?? NO_FIELDS
+  const fields = useMemo(
+    () => STEP_SECTIONS[step].flatMap((section) => schemaFields.filter((field) => field.section === section)),
+    [schemaFields, step]
+  )
   const lastTextKey = fields.findLast((field) => field.field_type !== 'Boolean')?.key
   const dynamicFields = fields.filter(
     (field) => (field.field_type === 'Select' || field.field_type === 'MultiSelect') && !field.options?.length

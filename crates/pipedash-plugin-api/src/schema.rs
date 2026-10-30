@@ -19,6 +19,14 @@ pub enum ConfigFieldType {
     Number,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigSection {
+    Authentication,
+    Connection,
+    Settings,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigField {
     pub key: String,
@@ -30,6 +38,7 @@ pub struct ConfigField {
     pub options: Option<Vec<String>>,
     pub validation_regex: Option<String>,
     pub validation_message: Option<String>,
+    pub section: ConfigSection,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -202,6 +211,7 @@ mod tests {
             options: None,
             validation_regex: None,
             validation_message: None,
+            section: ConfigSection::Connection,
         }
     }
 
@@ -231,5 +241,15 @@ mod tests {
         assert!(is_no_auth(&config("none")));
         assert!(!is_no_auth(&config("token")));
         assert!(!is_no_auth(&HashMap::new()));
+    }
+
+    #[test]
+    fn fields_serialize_their_section_in_snake_case() {
+        let mut auth = field("token");
+        auth.section = ConfigSection::Authentication;
+        assert_eq!(
+            serde_json::to_value(&auth).unwrap()["section"],
+            json!("authentication")
+        );
     }
 }

@@ -33,6 +33,13 @@
   color: var(--mantine-color-dimmed);
 }
 
+.sectionTitle {
+  margin: 8px 0 -8px;
+  font-size: var(--ios-fs-headline, 1.0625rem);
+  font-weight: 600;
+  line-height: var(--ios-lh-headline, 1.3);
+}
+
 .control {
   display: flex;
   align-items: center;

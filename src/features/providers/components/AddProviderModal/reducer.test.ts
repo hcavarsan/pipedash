@@ -254,6 +254,7 @@ test('selecting a provider type applies schema defaults and clears stale selecti
           options: null,
           validation_regex: null,
           validation_message: null,
+          section: 'settings' as const,
         },
       ],
     },

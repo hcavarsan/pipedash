@@ -1,6 +1,8 @@
 import type { AuthMode, PluginMetadata, ProviderConfig } from '../../../../types/domain'
 
-export type Step = 'credentials' | 'pipelines'
+export type Step = 'provider' | 'credentials' | 'pipelines'
+
+export const STEP_ORDER: readonly Step[] = ['provider', 'credentials', 'pipelines']
 
 export interface FormState {
   step: Step
@@ -71,7 +73,7 @@ export interface ProviderFormActionState {
 export const initialActionState: ProviderFormActionState = { error: null, fieldErrors: {} }
 
 export const initialFormState: FormState = {
-  step: 'credentials',
+  step: 'provider',
   selectedPlugin: null,
   providerName: '',
   authMode: 'token',

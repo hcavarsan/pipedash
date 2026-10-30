@@ -15,12 +15,11 @@ import { PermissionCheckModal } from '../PermissionCheckModal'
 
 import { ProviderWizardFooter } from './ProviderWizardFooter'
 import { ProviderWizardForm } from './ProviderWizardForm'
-import type { AddProviderModalProps } from './types'
+import { type AddProviderModalProps, STEP_ORDER, type Step } from './types'
 import { usePermissionCheck } from './usePermissionCheck'
 import { useProviderFormAction } from './useProviderFormAction'
 
 const NO_PLUGINS: PluginMetadata[] = []
-const STEP_DOTS = ['provider', 'credentials', 'pipelines'] as const
 
 type WizardSessionProps = AddProviderModalProps & { plugins: PluginMetadata[] }
 
@@ -43,7 +42,7 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
   const permission = usePermissionCheck({ selectedPlugin, providerConfig })
   const labels = getPipelineLabels(selectedPlugin?.provider_type)
   const isFlux = selectedPlugin?.provider_type === 'fluxcd'
-  const activeStepIndex = step === 'pipelines' ? 2 : selectedPlugin ? 1 : 0
+  const activeStepIndex = STEP_ORDER.indexOf(step)
   const stepNames = ['Provider', 'Credentials', `Select ${labels.items}`]
   const providerSelected = !!selectedPlugin
   const providerNameValid = !!providerName.trim()
@@ -58,24 +57,27 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
     ) : undefined
 
   const primaryAction =
-    step === 'credentials'
+    step === 'pipelines'
       ? {
-          label: saveOnly ? 'Save' : 'Next',
-          onClick: () => formRef.current?.requestSubmit(),
-          loading: isPending,
-          disabled: !providerSelected || !providerNameValid,
-        }
-      : {
           label: editMode ? 'Update' : 'Add',
           onClick: () => model.submitIntent('save-selection'),
           loading: isPending,
           disabled: selectedPipelines.size === 0 || selectingAll,
         }
+      : {
+          label: step === 'credentials' && saveOnly ? 'Save' : 'Next',
+          onClick: () => formRef.current?.requestSubmit(),
+          loading: isPending,
+          disabled: !providerSelected || !providerNameValid,
+        }
 
-  const backAction =
-    step === 'pipelines'
-      ? { label: 'Back', onClick: () => !isPending && dispatch({ type: 'SET_STEP', step: 'credentials' }) }
-      : undefined
+  const previousStep = STEP_ORDER[activeStepIndex - 1]
+  const goTo = (target: Step | undefined): void => {
+    if (target && !isPending) {
+      dispatch({ type: 'SET_STEP', step: target })
+    }
+  }
+  const backAction = previousStep ? { label: 'Back', onClick: () => goTo(previousStep) } : undefined
 
   return (
     <StandardModal
@@ -100,8 +102,9 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
           labels={labels}
           permissionRow={permissionRow}
           isPending={isPending}
-          onBack={() => dispatch({ type: 'SET_STEP', step: 'credentials' })}
+          onBack={() => goTo(previousStep)}
           onCancel={requestClose}
+          onSaveCredentials={() => model.submitIntent('save-credentials')}
           onSaveSelection={() => model.submitIntent('save-selection')}
         />
       )}
@@ -121,9 +124,9 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
                 gap={6}
                 justify="center"
                 role="img"
-                aria-label={`Step ${activeStepIndex + 1} of ${STEP_DOTS.length}`}
+                aria-label={`Step ${activeStepIndex + 1} of ${STEP_ORDER.length}`}
               >
-                {STEP_DOTS.map((name, index) => (
+                {STEP_ORDER.map((name, index) => (
                   <Box
                     key={name}
                     className={iosClasses.stepperStepIcon}
@@ -133,7 +136,13 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
                 ))}
               </Group>
             ) : (
-              <Stepper active={activeStepIndex} size={isMobile ? 'xs' : 'sm'} iconSize={isMobile ? 32 : 42}>
+              <Stepper
+                active={activeStepIndex}
+                size={isMobile ? 'xs' : 'sm'}
+                iconSize={isMobile ? 32 : 42}
+                allowNextStepsSelect={false}
+                onStepClick={(index) => goTo(STEP_ORDER[index])}
+              >
                 <Stepper.Step
                   aria-label="Step 1: Provider"
                   label={isMobile ? undefined : 'Provider'}
@@ -161,7 +170,7 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
             )}
             {isMobile && !mobileShell && (
               <Text size="sm" fw={500} ta="center" mt="xs">
-                Step {activeStepIndex + 1} of {STEP_DOTS.length}: {stepNames[activeStepIndex]}
+                Step {activeStepIndex + 1} of {STEP_ORDER.length}: {stepNames[activeStepIndex]}
               </Text>
             )}
           </Box>

@@ -20,6 +20,8 @@ import {
   activeConfigFields,
   activeConfigValues,
   mapProviderFieldErrors,
+  stepOfField,
+  stepWithErrors,
   validateProviderCredentials,
   validateSignIn,
 } from './validation'
@@ -89,15 +91,19 @@ export function useProviderFormAction({
     return { error, fieldErrors }
   }
 
-  const validateCredentials = (plugin: PluginMetadata): ProviderFormActionState | null => {
-    const errors = validateProviderCredentials({
+  const validateCredentials = (plugin: PluginMetadata, onlyProviderStep: boolean): ProviderFormActionState | null => {
+    const fields = plugin.config_schema.fields
+    const allErrors = validateProviderCredentials({
       providerName,
-      fields: plugin.config_schema.fields,
+      fields,
       authMode,
       authModes: plugin.config_schema.auth_modes,
       configValues,
       signInStatus,
     })
+    const errors = onlyProviderStep
+      ? Object.fromEntries(Object.entries(allErrors).filter(([key]) => stepOfField(key, fields) === 'provider'))
+      : allErrors
 
     dispatch({ type: 'SET_FIELD_ERRORS', errors })
 
@@ -105,6 +111,7 @@ export function useProviderFormAction({
       return null
     }
 
+    dispatch({ type: 'SET_STEP', step: stepWithErrors(errors, fields) })
     focusFirstInvalid()
 
     return { error: null, fieldErrors: errors }
@@ -152,7 +159,7 @@ export function useProviderFormAction({
       )
 
       if (Object.keys(fieldErrors).length > 0) {
-        dispatch({ type: 'SET_STEP', step: 'credentials' })
+        dispatch({ type: 'SET_STEP', step: stepWithErrors(fieldErrors, plugin.config_schema.fields) })
         focusFirstInvalid()
       }
 
@@ -167,7 +174,7 @@ export function useProviderFormAction({
       return initialActionState
     }
 
-    const intent = requested ?? (saveOnly ? 'save-credentials' : 'continue')
+    const intent = requested ?? (step === 'credentials' && saveOnly ? 'save-credentials' : 'continue')
 
     if (!selectedPlugin) {
       return fail('Please select a provider type', {})
@@ -184,7 +191,7 @@ export function useProviderFormAction({
       return save(selectedPlugin, true)
     }
 
-    const invalid = validateCredentials(selectedPlugin)
+    const invalid = validateCredentials(selectedPlugin, intent === 'continue' && step === 'provider')
 
     if (invalid) {
       return invalid
@@ -195,7 +202,7 @@ export function useProviderFormAction({
     }
 
     dispatch({ type: 'SET_ERROR', error: null })
-    dispatch({ type: 'SET_STEP', step: 'pipelines' })
+    dispatch({ type: 'SET_STEP', step: step === 'provider' ? 'credentials' : 'pipelines' })
 
     return initialActionState
   }

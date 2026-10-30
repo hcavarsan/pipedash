@@ -1,5 +1,7 @@
-import type { AuthMode, ConfigField, SignInStatus } from '../../../../types/domain'
+import type { AuthMode, ConfigField, ConfigSection, SignInStatus } from '../../../../types/domain'
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
+
+import type { Step } from './types'
 
 type ValidatedField = Pick<ConfigField, 'label' | 'required' | 'validation_regex' | 'validation_message'>
 
@@ -48,6 +50,21 @@ export const activeConfigFields = (
   fields.filter(
     (field) => (field.key !== TOKEN_KEY || authMode === 'token') && (authModes?.[field.key]?.includes(authMode) ?? true)
   )
+
+export type FieldStep = Exclude<Step, 'pipelines'>
+
+export const STEP_SECTIONS: Record<FieldStep, readonly ConfigSection[]> = {
+  provider: ['settings'],
+  credentials: ['connection', 'authentication'],
+}
+
+export const stepOfField = (key: string, fields: ConfigField[]): FieldStep =>
+  key === 'providerName' || fields.find((field) => field.key === key)?.section === 'settings'
+    ? 'provider'
+    : 'credentials'
+
+export const stepWithErrors = (errors: Record<string, string>, fields: ConfigField[]): FieldStep =>
+  Object.keys(errors).some((key) => stepOfField(key, fields) === 'provider') ? 'provider' : 'credentials'
 
 export const activeConfigValues = (
   configValues: Record<string, string>,

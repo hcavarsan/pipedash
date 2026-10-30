@@ -22,6 +22,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "token".to_string(),
+            section: ConfigSection::Authentication,
             label: "API Token".to_string(),
             description: Some(
                 "Classic PAT: repo (private repositories) or public_repo (public only), plus workflow. Fine-grained token: Actions read/write and Contents read on each selected repository."

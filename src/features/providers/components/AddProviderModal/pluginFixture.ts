@@ -11,6 +11,7 @@ export function configFieldFixture(overrides: Partial<ConfigField> = {}): Config
     options: null,
     validation_regex: null,
     validation_message: null,
+    section: 'authentication',
     ...overrides,
   }
 }

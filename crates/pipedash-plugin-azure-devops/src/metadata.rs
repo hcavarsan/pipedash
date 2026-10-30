@@ -25,6 +25,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "server_url".to_string(),
+            section: ConfigSection::Connection,
             label: "Organization URL".to_string(),
             description: Some(
                 "URL of your Azure DevOps organization (e.g., https://dev.azure.com/my-org) or of an Azure DevOps Server collection (e.g., https://tfs.example.com/DefaultCollection)"
@@ -39,6 +40,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "token".to_string(),
+            section: ConfigSection::Authentication,
             label: "Personal Access Token".to_string(),
             description: Some(
                 "Azure DevOps personal access token with the scopes Build (Read & execute) and Project and Team (Read)"

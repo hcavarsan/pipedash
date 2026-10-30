@@ -28,6 +28,15 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
         fields: [
           configFieldFixture({ key: 'token', label: 'Token', field_type: 'Password', required: true }),
           configFieldFixture({ key: 'note', label: 'Note', field_type: 'Text', required: false }),
+          configFieldFixture({
+            key: 'status_page_url',
+            label: 'Status page URL',
+            field_type: 'Text',
+            required: false,
+            validation_regex: '^https://',
+            validation_message: 'Must be an https URL',
+            section: 'settings',
+          }),
         ],
       },
     }),
@@ -138,6 +147,7 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
       await gate.promise
     })
 
+    await user.click(await view().findByRole('button', { name: /^Next/ }))
     const note = await view().findByRole('textbox', { name: 'Note' })
     await user.clear(note)
     await user.type(note, 'new')
@@ -146,7 +156,7 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
     await waitFor(() => assert.equal(saved.length, 1))
     assert.ok(note instanceof HTMLInputElement)
     assert.equal(note.disabled, true)
-    assert.equal(view().getByRole('textbox', { name: 'Provider name' }).hasAttribute('disabled'), true)
+    assert.equal(view().getByRole('button', { name: 'Back' }).hasAttribute('disabled'), true)
     assert.equal(view().getByRole('button', { name: /^Next/ }).hasAttribute('disabled'), true)
     assert.equal(closed.value, false)
 
@@ -165,6 +175,7 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
       }
     })
 
+    await user.click(await view().findByRole('button', { name: /^Next/ }))
     const note = await view().findByRole('textbox', { name: 'Note' })
     await user.clear(note)
     await user.type(note, 'kept')
@@ -181,10 +192,7 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
     assert.equal(attempts, 2)
   })
 
-  test('a required credential blocks the continue step and reports the field', async () => {
-    const user = userEvent.setup({ document })
-    const closed = { value: false }
-
+  function renderAdd(onAdd: (config: ProviderConfig) => Promise<void>): void {
     render(
       createElement(
         MantineProvider,
@@ -192,22 +200,36 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
         createElement(
           QueryClientProvider,
           { client },
-          createElement(AddProviderModal, {
-            opened: true,
-            onClose: () => {
-              closed.value = true
-            },
-            onAdd: async () => undefined,
-          })
+          createElement(AddProviderModal, { opened: true, onClose: () => undefined, onAdd })
         )
       )
     )
+  }
+
+  test('the provider step checks only its own fields, then a required credential blocks the next step', async () => {
+    const user = userEvent.setup({ document })
+    renderAdd(async () => undefined)
 
     await user.click(await view().findByRole('button', { name: 'GitHub' }))
+    await user.click(view().getByRole('button', { name: 'Advanced settings' }))
+    await user.type(view().getByRole('textbox', { name: 'Status page URL' }), 'http://status.example.com')
+    await user.click(view().getByRole('button', { name: 'Advanced settings' }))
     await user.click(view().getByRole('button', { name: /^Next/ }))
 
+    assert.ok((await view().findAllByText('Must be an https URL')).length > 0)
+    assert.equal(view().getByRole('button', { name: 'Advanced settings' }).getAttribute('aria-expanded'), 'true')
+    assert.equal(view().queryByText('Token is required'), null)
+
+    const statusPage = view().getByRole('textbox', { name: 'Status page URL' })
+    await user.clear(statusPage)
+    await user.type(statusPage, 'https://status.example.com')
+    await user.click(view().getByRole('button', { name: /^Next/ }))
+
+    await view().findByLabelText(/^Token/)
+    assert.equal(view().queryByText('Token is required'), null)
+
+    await user.click(view().getByRole('button', { name: /^Next/ }))
     assert.ok((await view().findAllByText('Token is required')).length > 0)
-    assert.equal(closed.value, false)
   })
 
   test('the provider cannot be added while select all is still loading pages', async () => {
@@ -219,25 +241,12 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
       const added: ProviderConfig[] = []
       secondPage.requests = 0
 
-      render(
-        createElement(
-          MantineProvider,
-          null,
-          createElement(
-            QueryClientProvider,
-            { client },
-            createElement(AddProviderModal, {
-              opened: true,
-              onClose: () => undefined,
-              onAdd: async (config) => {
-                added.push(config)
-              },
-            })
-          )
-        )
-      )
+      renderAdd(async (config) => {
+        added.push(config)
+      })
 
       await user.click(await view().findByRole('button', { name: 'GitHub' }))
+      await user.click(view().getByRole('button', { name: /^Next/ }))
       await user.type(await view().findByLabelText(/^Token/), 'secret')
       await user.click(view().getByRole('button', { name: /^Next/ }))
       await user.click(await view().findByRole('checkbox', { name: 'a' }))

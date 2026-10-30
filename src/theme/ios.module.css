@@ -7,7 +7,7 @@
   display: flex;
   gap: 0;
   padding: 2px;
-  border-radius: 9px;
+  border-radius: var(--ios-radius-grouped);
   background: var(--ios-fill);
 }
 
@@ -19,11 +19,11 @@
   position: relative;
   flex: 1 1 0;
   justify-content: center;
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 0.75em;
   border: 0;
   outline: 0;
-  border-radius: 7px;
+  border-radius: calc(var(--ios-radius-grouped) - 2px);
   font-size: var(--ios-fs-footnote);
   line-height: var(--ios-lh-footnote);
   font-weight: 500;
@@ -36,7 +36,7 @@
 .tab::after {
   content: "";
   position: absolute;
-  inset: -6px 0;
+  inset: -2px 0;
 }
 
 .tab[data-active] {
@@ -57,7 +57,7 @@
 
 .segmentRoot {
   padding: 2px;
-  border-radius: 9px;
+  border-radius: var(--ios-radius-grouped);
   min-height: 44px;
   align-items: center;
   border: 0;
@@ -68,7 +68,7 @@
 .segmentIndicator {
   border: 0;
   outline: 0;
-  border-radius: 7px;
+  border-radius: calc(var(--ios-radius-grouped) - 2px);
   background: var(--ios-segment-active);
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
 }
@@ -80,7 +80,7 @@
   justify-content: center;
   border: 0;
   outline: 0;
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 0.75em;
   font-size: var(--ios-fs-footnote);
   line-height: var(--ios-lh-footnote);
@@ -92,7 +92,7 @@
 .segmentLabel::after {
   content: "";
   position: absolute;
-  inset: -6px 0;
+  inset: -2px 0;
 }
 
 .segmentLabel[data-active] {

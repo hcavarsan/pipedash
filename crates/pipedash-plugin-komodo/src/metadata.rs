@@ -22,6 +22,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "server_url".to_string(),
+            section: ConfigSection::Connection,
             label: "Komodo Core URL".to_string(),
             description: Some(
                 "URL of your Komodo Core (e.g., https://komodo.example.com)".to_string(),
@@ -35,6 +36,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "api_key".to_string(),
+            section: ConfigSection::Authentication,
             label: "API Key".to_string(),
             description: Some(
                 "Komodo API key, created under Profile > API Keys. Needs read access to the \
@@ -50,6 +52,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "token".to_string(),
+            section: ConfigSection::Authentication,
             label: "API Secret".to_string(),
             description: Some("Secret that belongs to the API key".to_string()),
             field_type: ConfigFieldType::Password,
@@ -61,6 +64,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "insecure".to_string(),
+            section: ConfigSection::Connection,
             label: "Skip TLS Verification".to_string(),
             description: Some(
                 "Skip TLS certificate verification (useful for self-signed certificates)"
