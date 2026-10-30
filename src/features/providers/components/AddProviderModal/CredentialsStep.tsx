@@ -1,5 +1,5 @@
-import { Box, Input, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core'
-import { type ChangeEvent, type Dispatch, Fragment, type ReactNode, type RefObject } from 'react'
+import { Box, Input, SegmentedControl, Stack, Text, TextInput } from '@mantine/core'
+import { type ChangeEvent, type Dispatch, Fragment, type ReactNode, type RefObject, useMemo, useRef } from 'react'
 import { ProviderIcon } from '../../../../components/atoms/ProviderIcon'
 import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import shell from '../../../../components/forms/ShellForm.module.css'
@@ -10,6 +10,7 @@ import type { AuthMode, ConfigField, PluginMetadata } from '../../../../types/do
 import { fieldA11y } from '../../../../utils/formFields'
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 import { ProviderConfigField } from './ProviderConfigField'
+import { ProviderTypeCards, SelectedProviderType } from './ProviderTypeCards'
 import { ShellField, StepHeading } from './ShellForm'
 import { SignInField } from './SignInField'
 import type { FormAction, FormState } from './types'
@@ -50,6 +51,8 @@ export function CredentialsStep({
   useFormEnterNavigation(formRef)
   const mobileShell = useMobileShell()
   const { selectedPlugin, providerName, authMode, configValues, fieldErrors } = state
+  const sortedPlugins = useMemo(() => plugins.toSorted((a, b) => a.name.localeCompare(b.name)), [plugins])
+  const pickedProvider = useRef(false)
   const { fields, lastTextKey, fieldStateFor, handleConfigChange, handleConfigBlur, handleNameChange, handleNameBlur } =
     useCredentialFields({ selectedPlugin, providerName, configValues, fieldErrors, dispatch })
   const authModes = selectedPlugin?.config_schema.auth_modes
@@ -65,6 +68,7 @@ export function CredentialsStep({
   })
 
   const handlePluginSelect = (providerType: string | null): void => {
+    pickedProvider.current = true
     if (!providerType) {
       dispatch({ type: 'CLEAR_PLUGIN' })
 
@@ -242,7 +246,7 @@ export function CredentialsStep({
             <StepHeading title="Choose a provider" subtitle="Select the service whose pipelines you want to monitor" />
             {plugins.length > 0 ? (
               <IosGroup>
-                {plugins.map((plugin) => (
+                {sortedPlugins.map((plugin) => (
                   <IosRow
                     key={plugin.provider_type}
                     icon={<ProviderIcon name={plugin.name} icon={plugin.icon} size={30} />}
@@ -267,21 +271,13 @@ export function CredentialsStep({
     <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <FillScrollArea type="auto">
         <Stack gap={isMobile ? 'xs' : 'md'} px="lg" pb="lg" pt="xs">
-          <Select
-            label="Provider type"
-            placeholder="Select a provider type"
-            data={plugins.map((p) => ({ value: p.provider_type, label: p.name }))}
-            value={selectedPlugin?.provider_type || null}
-            onChange={handlePluginSelect}
-            required
-            disabled={submitting || editMode}
-          />
-
           {selectedPlugin ? (
             <Stack gap={isMobile ? 'xs' : 'md'}>
-              <Text size="sm" c="dimmed">
-                {selectedPlugin.description}
-              </Text>
+              <SelectedProviderType
+                plugin={selectedPlugin}
+                disabled={submitting}
+                onChange={editMode ? undefined : () => handlePluginSelect(null)}
+              />
 
               <TextInput
                 label="Provider name"
@@ -289,16 +285,24 @@ export function CredentialsStep({
                 {...nameProps}
                 error={fieldErrors.providerName}
                 required
+                autoFocus={pickedProvider.current}
               />
 
               {sharedFields.map((field) => (
                 <Fragment key={field.key}>{renderAuthField(field)}</Fragment>
               ))}
             </Stack>
+          ) : sortedPlugins.length > 0 ? (
+            <ProviderTypeCards
+              plugins={sortedPlugins}
+              disabled={submitting}
+              autoFocus={pickedProvider.current}
+              onSelect={handlePluginSelect}
+            />
           ) : (
             !pluginsLoading && (
               <Text size="sm" c="dimmed" ta="center" py="xl">
-                Select a provider type to continue
+                No provider types are available.
               </Text>
             )
           )}

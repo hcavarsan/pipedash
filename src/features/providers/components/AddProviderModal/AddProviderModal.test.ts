@@ -179,8 +179,7 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
       )
     )
 
-    await user.click(await view().findByRole('combobox', { name: /Provider type/ }))
-    await user.click(await view().findByRole('option', { name: 'GitHub', hidden: true }))
+    await user.click(await view().findByRole('button', { name: 'GitHub' }))
     await user.click(view().getByRole('button', { name: /^Next/ }))
 
     assert.ok((await view().findAllByText('Token is required')).length > 0)
