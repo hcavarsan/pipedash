@@ -9,7 +9,6 @@ import {
   Select,
   Stack,
   Text,
-  TextInput,
   Tooltip,
 } from '@mantine/core'
 import { IconBuildingSkyscraper, IconSearch, IconStack2 } from '@tabler/icons-react'
@@ -17,6 +16,7 @@ import { type Dispatch, type ReactNode, useMemo, useRef } from 'react'
 import { EmptyState } from '../../../../components/common/EmptyState'
 import { ErrorState } from '../../../../components/common/ErrorState'
 import { LoadingState } from '../../../../components/common/LoadingState'
+import { PhoneSearchField } from '../../../../components/common/PhoneSearchField'
 import { SearchInput } from '../../../../components/common/SearchInput'
 import { VirtualList } from '../../../../components/common/VirtualList'
 import { VirtualTable, type VirtualTableColumn } from '../../../../components/common/VirtualTable'
@@ -328,26 +328,14 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
             />
           </ShellField>
         )}
-        {ready && (
+        {ready && effectiveOrganization && (
           <div className={shell.search}>
-            <TextInput
-              aria-label={`Search ${labels.items}`}
-              placeholder={`Search ${labels.items}`}
+            <PhoneSearchField
               value={repositorySearch}
-              onChange={(e) => handleSearchChange(e.currentTarget.value)}
-              leftSection={
-                searching ? (
-                  <Loader size={16} aria-label={`Searching ${labels.items}`} />
-                ) : (
-                  <IconSearch size={16} aria-hidden />
-                )
-              }
-              disabled={!effectiveOrganization}
-              type="search"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              enterKeyHint="search"
+              placeholder={`Search ${labels.items}`}
+              onChange={handleSearchChange}
+              onClear={() => handleSearchChange('')}
+              cancelable={false}
             />
           </div>
         )}
@@ -505,6 +493,7 @@ function ShellPipelineList({
   pipelines,
   selectedPipelines,
   dispatch,
+  labels,
   hasMore,
   onSelectAll,
   onEndReached,
@@ -512,14 +501,14 @@ function ShellPipelineList({
   const allSelected = !hasMore && pipelines.every((pipeline) => selectedPipelines.has(pipeline.id))
 
   return (
-    <IosGroup>
-      <IosRow
-        title={allSelected ? 'Deselect all' : 'Select all'}
-        value={selectedPipelines.size > 0 ? `${selectedPipelines.size} selected` : undefined}
-        accessory={<CheckCircle checked={allSelected} />}
-        selected={allSelected}
-        onClick={onSelectAll}
-      />
+    <IosGroup
+      header={selectedPipelines.size > 0 ? `${selectedPipelines.size} selected` : labels.items}
+      headerAction={
+        <button type="button" className={shell.headerAction} onClick={onSelectAll}>
+          {allSelected ? 'Deselect all' : 'Select all'}
+        </button>
+      }
+    >
       <VirtualList
         items={pipelines}
         getKey={getPipelineId}

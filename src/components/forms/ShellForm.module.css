@@ -74,11 +74,31 @@
 
 .search {
   position: sticky;
-  top: 0;
+  top: -8px;
   z-index: 1;
   margin: -8px 0;
   padding: 8px 0;
   background: var(--ios-sheet);
+}
+
+.headerAction {
+  min-width: 44px;
+  min-height: 44px;
+  margin-block: -14px;
+  margin-inline-end: -0.5em;
+  padding: 0 0.5em;
+  border: 0;
+  background: transparent;
+  color: var(--ios-tint);
+  font-family: inherit;
+  font-size: var(--ios-fs-subheadline);
+  line-height: var(--ios-lh-subheadline);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.headerAction:active {
+  opacity: 0.5;
 }
 
 .check {

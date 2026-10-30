@@ -9,6 +9,7 @@ interface PhoneSearchFieldProps {
   onChange: (value: string) => void
   onClear: () => void
   onSubmit?: (() => void) | undefined
+  cancelable?: boolean | undefined
 }
 
 export function PhoneSearchField({
@@ -17,6 +18,7 @@ export function PhoneSearchField({
   onChange,
   onClear,
   onSubmit,
+  cancelable = true,
 }: PhoneSearchFieldProps): ReactNode {
   const inputRef = useRef<HTMLInputElement>(null)
   const [active, setActive] = useState(false)
@@ -39,7 +41,7 @@ export function PhoneSearchField({
 
   return (
     <search className={classes.search}>
-      <form className={classes.form} action={submitSearch}>
+      <div className={classes.form}>
         <div className={classes.field}>
           <IconSearch className={classes.icon} size="1.1em" aria-hidden />
           <input
@@ -55,6 +57,12 @@ export function PhoneSearchField({
             spellCheck={false}
             enterKeyHint="search"
             onChange={(event) => onChange(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                submitSearch()
+              }
+            }}
             onFocus={() => setActive(true)}
             onBlur={() => {
               if (!value) {
@@ -77,12 +85,12 @@ export function PhoneSearchField({
             </button>
           )}
         </div>
-        {active && (
+        {cancelable && active && (
           <button type="button" className={classes.cancel} onClick={cancel}>
             Cancel
           </button>
         )}
-      </form>
+      </div>
     </search>
   )
 }
