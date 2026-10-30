@@ -463,10 +463,6 @@ class ApiClient {
     return this.get<PluginMetadata[]>('/plugins')
   }
 
-  async clearRunHistoryCache(pipelineId: string): Promise<void> {
-    await this.requestVoid('DELETE', `/cache/run-history/${encodeURIComponent(pipelineId)}`)
-  }
-
   async getCacheStats(): Promise<{
     pipelines_count: number
     run_history_count: number

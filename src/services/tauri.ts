@@ -393,10 +393,6 @@ export const tauriService = {
     return invoke<PluginMetadata[]>('get_available_plugins')
   },
 
-  clearRunHistoryCache: async (pipelineId: string): Promise<void> => {
-    return invoke<void>('clear_run_history_cache', { pipelineId })
-  },
-
   getGlobalMetricsConfig: async (): Promise<GlobalMetricsConfig> => {
     return invoke<GlobalMetricsConfig>('get_global_metrics_config')
   },

@@ -975,7 +975,7 @@ impl PipelineService {
         Ok(PaginatedRunHistory {
             runs,
             total_count,
-            has_more: !is_complete,
+            has_more: end_idx < total_count || !is_complete,
             is_complete,
             page,
             page_size,
@@ -2265,5 +2265,38 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+
+    #[tokio::test]
+    async fn first_page_of_a_cold_history_says_more_runs_follow() {
+        let h = Harness::new().await;
+        let (id, _) = h
+            .add_stub(|id| {
+                let pipeline_id = format!("github__{id}__web");
+                let runs = (1..=35).map(|n| stub_run(&pipeline_id, n, 60)).collect();
+                StubProvider::new(id).with_runs(runs)
+            })
+            .await;
+        h.fetch_directly(id).await;
+        let pipeline_id = format!("github__{id}__web");
+
+        let first = h
+            .pipeline_service
+            .fetch_run_history_paginated(&pipeline_id, 1, 20)
+            .await
+            .unwrap();
+        h.pipeline_service.settle().await;
+        let last = h
+            .pipeline_service
+            .fetch_run_history_paginated(&pipeline_id, 2, 20)
+            .await
+            .unwrap();
+        h.pipeline_service.settle().await;
+
+        assert_eq!(first.runs.len(), 20);
+        assert_eq!(first.total_count, 35);
+        assert!(first.has_more, "page 1 has_more={}", first.has_more);
+        assert_eq!(last.runs.len(), 15);
+        assert!(!last.has_more, "page 2 has_more={}", last.has_more);
     }
 }
