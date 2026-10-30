@@ -186,8 +186,8 @@
   position: relative;
   display: flex;
   align-items: center;
-  padding-top: 1.4em;
-  padding-bottom: 0.35em;
+  padding-top: 0.6em;
+  padding-bottom: 0;
 }
 
 .sectionHeader[data-first] {
@@ -208,13 +208,17 @@
 .sectionToggle {
   display: flex;
   align-items: center;
-  gap: 0.5em;
+  gap: 0.35em;
   width: 100%;
   min-height: 44px;
   padding: 0 1.2em;
   border: 0;
   background: transparent;
-  color: var(--ios-label);
+  color: var(--ios-secondary-label);
+  font-size: var(--ios-fs-footnote);
+  line-height: var(--ios-lh-footnote);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
   font-family: inherit;
   text-align: left;
 }
@@ -226,25 +230,7 @@
 }
 
 .sectionTitle {
-  flex-shrink: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: var(--ios-fs-headline);
-  font-weight: 600;
-  line-height: var(--ios-lh-headline);
-}
-
-.sectionMeta,
-.sectionCount {
-  font-size: var(--ios-fs-footnote);
-  line-height: var(--ios-lh-footnote);
-  color: var(--ios-secondary-label);
-}
-
-.sectionMeta {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -253,12 +239,12 @@
 
 .sectionCount {
   flex-shrink: 0;
-  margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
 
 .sectionChevron {
   flex-shrink: 0;
+  margin-left: auto;
   width: 1em;
   height: 1em;
   color: var(--ios-secondary-label);
@@ -282,4 +268,25 @@
   line-height: var(--ios-lh-footnote);
   color: var(--ios-secondary-label);
   white-space: pre-line;
+}
+
+.reorder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  margin-right: 0.25em;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ios-secondary-label);
+  touch-action: none;
+  cursor: grab;
+}
+
+.cell[data-dragging] {
+  position: relative;
+  z-index: 3;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
 }

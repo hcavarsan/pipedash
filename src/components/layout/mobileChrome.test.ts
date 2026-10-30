@@ -3,10 +3,10 @@ import { test } from 'node:test'
 
 import { fromOf, mobileChrome, routeKey, splitLocation } from './mobileChrome'
 
-test('tabs follow the top-level route and the pinned view', () => {
+test('tabs follow the top-level route', () => {
   assert.equal(mobileChrome('/pipelines', '').tab, 'pipelines')
   assert.equal(mobileChrome('/pipelines', '?provider=3').tab, 'pipelines')
-  assert.equal(mobileChrome('/pipelines', '?view=pinned').tab, 'pinned')
+  assert.equal(mobileChrome('/pipelines', '?view=pinned').tab, 'pipelines')
   assert.equal(mobileChrome('/pipelines/abc', '?view=pinned').tab, 'pipelines')
   assert.equal(mobileChrome('/providers', '').tab, 'providers')
   assert.equal(mobileChrome('/notifications', '').tab, 'notifications')
@@ -24,7 +24,7 @@ test('settings sections push a back button to the settings root', () => {
 })
 
 test('titles name the screen', () => {
-  assert.equal(mobileChrome('/pipelines', '?view=pinned').title, 'Pinned')
+  assert.equal(mobileChrome('/pipelines', '?view=pinned').title, 'Pipelines')
   assert.equal(mobileChrome('/pipelines', '').title, 'Pipelines')
   assert.equal(mobileChrome('/providers', '').title, 'Providers')
   assert.equal(mobileChrome('/notifications', '').title, 'Notifications')
@@ -35,14 +35,6 @@ test('a pipeline route pushes a back button to the list', () => {
     title: 'History',
     back: { to: '/pipelines', label: 'Pipelines' },
     tab: 'pipelines',
-  })
-})
-
-test('a detail opened from pinned keeps the pinned tab and label', () => {
-  assert.deepEqual(mobileChrome('/pipelines/abc', '', { from: '/pipelines?view=pinned' }), {
-    title: 'History',
-    back: { to: '/pipelines?view=pinned', label: 'Pinned' },
-    tab: 'pinned',
   })
 })
 
@@ -78,6 +70,6 @@ test('locations split into path and query', () => {
 })
 
 test('route keys separate the same path under different tabs', () => {
-  assert.notEqual(routeKey('/pipelines/abc', '', { from: '/pipelines?view=pinned' }), routeKey('/pipelines/abc', ''))
+  assert.notEqual(routeKey('/pipelines/abc', '', { from: '/notifications' }), routeKey('/pipelines/abc', ''))
   assert.equal(routeKey('/pipelines', '?provider=1'), routeKey('/pipelines', ''))
 })

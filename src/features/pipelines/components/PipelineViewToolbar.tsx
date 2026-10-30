@@ -74,7 +74,7 @@ function PipelineNavMenu({ model, onDisplayChange, onOpenFilters }: PipelineView
 export function PipelineViewNav({ model }: { model: PipelineViewPageModel }): ReactNode {
   return (
     <>
-      {model.mobileShell ? model.query.view !== 'pinned' && <PipelineViewStrip /> : <PipelineViewTabs />}
+      {model.mobileShell ? <PipelineViewStrip /> : <PipelineViewTabs />}
       <SubViewBar />
     </>
   )

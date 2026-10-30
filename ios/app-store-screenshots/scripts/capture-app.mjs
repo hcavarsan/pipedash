@@ -40,7 +40,7 @@ let browser
 const devices = {
   iphone: { width: 440, height: 956, scale: 3, mobile: true, phone: true, safeArea: { top: '62px', bottom: '34px' }, folder: 'apple/iphone', agent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X' },
   ipad: { width: 1032, height: 1376, scale: 2, mobile: true, folder: 'apple/ipad', agent: 'iPad; CPU OS 18_0 like Mac OS X' },
-  'android-phone': { width: 360, height: 780, scale: 3, mobile: true, phone: true, safeArea: { top: '32px', bottom: '24px' }, folder: 'android/phone', agent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X' },
+  'android-phone': { width: 360, height: 780, scale: 3, mobile: true, phone: true, safeArea: { top: '32px', bottom: '24px' }, folder: 'android/phone', agent: 'Linux; Android 15; Pixel 9' },
   'android-tablet': { width: 800, height: 1280, scale: 2, mobile: true, folder: 'android/tablet', agent: 'iPad; CPU OS 18_0 like Mac OS X' },
   desktop: { width: 1280, height: 800, scale: 2, mobile: false, folder: 'desktop', agent: 'Macintosh; Intel Mac OS X 10_15_7' },
 }

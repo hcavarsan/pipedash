@@ -1,22 +1,7 @@
-.reveal {
-  --reveal-gap: var(--stack-gap, var(--mantine-spacing-md));
-  flex-shrink: 0;
-  height: 0;
-  margin-bottom: calc(var(--reveal-gap) * -1);
-  overflow: hidden;
-}
-
-.reveal[data-open],
-.reveal[data-pinned],
-.reveal:focus-within {
-  height: auto;
-}
-
 .bar {
   display: flex;
   align-items: center;
   gap: 0.5em;
-  padding-bottom: var(--reveal-gap);
   font-size: var(--ios-fs-body);
 }
 
@@ -24,8 +9,8 @@
   display: flex;
   align-items: center;
   gap: 0.5em;
-  margin-top: calc(var(--reveal-gap) * -0.5);
-  padding: 0 0.2em var(--reveal-gap) 1.2em;
+  margin-top: calc(var(--stack-gap, var(--mantine-spacing-md)) * -0.5);
+  padding: 0 0.2em 0 1.2em;
   font-size: var(--ios-fs-footnote);
   line-height: var(--ios-lh-footnote);
   color: var(--ios-secondary-label);

@@ -1,10 +1,38 @@
 import type { TableRow } from '../../../components/common/PipelineRowParts'
 import { STATUS_META } from '../../../theme/status'
-import type { PipelineViewPage, ProviderSummary, SectionMode, ViewSection, ViewSortKey } from '../../../types/domain'
+import type {
+  PinnedBlock,
+  PipelineViewPage,
+  ProviderSummary,
+  SectionMode,
+  ViewPipeline,
+  ViewSection,
+  ViewSortKey,
+} from '../../../types/domain'
 import type { PipelineLabels } from '../../../utils/pipelinePresentation'
 import { typedKeys } from '../../../utils/typedKeys'
 
 export const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+
+export interface BlockPin {
+  pipeline: ViewPipeline
+  block: PinnedBlock
+}
+
+export function pinnedFromBlocks(pinned: ViewPipeline[], blocks: PinnedBlock[]): BlockPin[] {
+  const seen = new Set(pinned.map((pipeline) => pipeline.id))
+
+  return blocks.flatMap((block) =>
+    block.pipelines.flatMap((pipeline) => {
+      if (seen.has(pipeline.id)) {
+        return []
+      }
+      seen.add(pipeline.id)
+
+      return [{ pipeline, block }]
+    })
+  )
+}
 
 export const SORT_ACCESSORS: Record<ViewSortKey, string | undefined> = {
   manual: undefined,

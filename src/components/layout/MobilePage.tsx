@@ -60,7 +60,7 @@ export function MobilePage({ children }: { children: ReactNode }): ReactNode {
   })
   useMobilePageSnapshots({ content, routeKey: key, scrollTop, collapse })
   useMobileSwipeBack({ layers, motion, back: chrome.back, goBack, swiped })
-  useMobilePullRefresh({ host, page, content, spinner, status, refresh })
+  useMobilePullRefresh({ host, content, spinner, status, refresh })
 
   return (
     <PullRefreshContext value={registry}>

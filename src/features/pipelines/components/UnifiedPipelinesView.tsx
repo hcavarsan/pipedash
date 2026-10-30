@@ -39,13 +39,26 @@ export function UnifiedPipelinesView({
     onViewHistory,
     onViewMetrics,
   })
+  const nav = <PipelineViewNav model={model} />
+  const filters = (
+    <PipelineViewFilters model={model} sheet={{ opened: filtersOpen, onClose: () => setFiltersOpen(false) }} />
+  )
 
   return (
     <PipelineViewStatus model={model} onRetry={onRetry} onViewRun={onViewRun} onDisplayChange={changeDisplay}>
       <PageContainer>
         <PipelineViewToolbar model={model} onDisplayChange={changeDisplay} onOpenFilters={() => setFiltersOpen(true)} />
-        <PipelineViewNav model={model} />
-        <PipelineViewFilters model={model} sheet={{ opened: filtersOpen, onClose: () => setFiltersOpen(false) }} />
+        {model.mobileShell ? (
+          <>
+            {filters}
+            {nav}
+          </>
+        ) : (
+          <>
+            {nav}
+            {filters}
+          </>
+        )}
         <PipelineBuildWatch model={model} onViewRun={onViewRun} />
         <PipelineViewSelection model={model} actions={actions} />
         {cancelDialog}

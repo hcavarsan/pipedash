@@ -1,4 +1,3 @@
-import { notifications } from '@mantine/notifications'
 import {
   type QueryClient,
   type UseMutationResult,
@@ -7,8 +6,8 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
+import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services/service'
 import { useAuthStore } from '../stores/authStore'

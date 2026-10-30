@@ -1,11 +1,12 @@
 import {
   type Icon,
   IconAlertTriangle,
+  IconBan,
   IconCircleCaretRightFilled,
   IconCircleCheck,
   IconCircleCheckFilled,
   IconCircleChevronsRight,
-  IconCircleRectangleFilled,
+  IconCircleDashed,
   IconCircleXFilled,
   IconClockFilled,
   IconCloudOff,
@@ -17,15 +18,23 @@ import { typedKeys } from '../utils/typedKeys'
 
 type StatusTone = 'success' | 'failed' | 'degraded' | 'running' | 'pending' | 'neutral'
 
-export const STATUS_META: Record<PipelineStatus, { label: string; tone: StatusTone; icon: Icon }> = {
+export type StatusMeta = { label: string; tone: StatusTone; icon: Icon }
+
+export const STATUS_META: Record<PipelineStatus, StatusMeta> = {
   success: { label: 'Success', tone: 'success', icon: IconCircleCheckFilled },
   failed: { label: 'Failed', tone: 'failed', icon: IconCircleXFilled },
   degraded: { label: 'Degraded', tone: 'degraded', icon: IconAlertTriangle },
   running: { label: 'Running', tone: 'running', icon: IconCircleCaretRightFilled },
   pending: { label: 'Pending', tone: 'pending', icon: IconClockFilled },
-  cancelled: { label: 'Cancelled', tone: 'neutral', icon: IconCircleRectangleFilled },
+  cancelled: { label: 'Cancelled', tone: 'neutral', icon: IconBan },
   skipped: { label: 'Skipped', tone: 'neutral', icon: IconCircleChevronsRight },
 }
+
+export type StatusKey = PipelineStatus | 'never'
+
+const NEVER_RUN: StatusMeta = { label: 'Never run', tone: 'neutral', icon: IconCircleDashed }
+
+export const statusMeta = (status: StatusKey): StatusMeta => (status === 'never' ? NEVER_RUN : STATUS_META[status])
 
 export const STATUS_OPTIONS = typedKeys(STATUS_META).map((status) => ({
   value: status,

@@ -1,5 +1,5 @@
-import { notifications } from '@mantine/notifications'
 import { type UseMutationResult, useMutation, useMutationState, useQueryClient } from '@tanstack/react-query'
+import { notifications } from '../lib/notifications'
 
 import { queryKeys } from '../lib/queryKeys'
 import { isTauri } from '../services/isTauri'

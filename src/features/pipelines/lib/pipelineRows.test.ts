@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { pipelineViewPageFixture, providerSummaryFixture, viewPipelineFixture } from '../../../testing/fixtures'
 import type { ProviderSummary, ViewSection } from '../../../types/domain'
 
-import { accessorSort, buildPipelineRows } from './pipelineRows'
+import { accessorSort, buildPipelineRows, pinnedFromBlocks } from './pipelineRows'
 
 const providers = [providerSummaryFixture({ id: 1, name: 'Zeta' }), providerSummaryFixture({ id: 2, name: 'Alpha' })]
 const getProvider = (id: number): ProviderSummary | undefined => providers.find((provider) => provider.id === id)
@@ -100,4 +100,27 @@ test('accessorSort maps column ids to sort keys and ignores the actions column',
   assert.equal(accessorSort('organization'), 'organization')
   assert.equal(accessorSort('lastRun'), 'last_run')
   assert.equal(accessorSort('actions'), undefined)
+})
+
+test('repository pins skip pinned workflows, appear once and keep block order', () => {
+  const a = viewPipelineFixture({ id: 'a' })
+  const b = viewPipelineFixture({ id: 'b' })
+  const c = viewPipelineFixture({ id: 'c' })
+  const d = viewPipelineFixture({ id: 'd' })
+  const extras = pinnedFromBlocks(
+    [b],
+    [
+      { kind: 'repository', ref: 'org/one', name: 'org/one', pipelines: [c, b, a] },
+      { kind: 'repository', ref: 'org/two', name: 'org/two', pipelines: [a, d] },
+    ]
+  )
+
+  assert.deepEqual(
+    extras.map((extra) => [extra.block.ref, extra.pipeline.id]),
+    [
+      ['org/one', 'c'],
+      ['org/one', 'a'],
+      ['org/two', 'd'],
+    ]
+  )
 })

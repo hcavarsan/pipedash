@@ -1,6 +1,6 @@
-import { notifications } from '@mantine/notifications'
 import { create } from 'zustand'
 import { devtools, subscribeWithSelector } from 'zustand/middleware'
+import { notifications } from '../lib/notifications'
 
 const STORAGE_KEY = 'pipedash_vault_password'
 const FAILURE_THRESHOLD = 3

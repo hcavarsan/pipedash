@@ -445,14 +445,15 @@
 .menuItem {
   --corner-top: 0px;
   --corner-bottom: 0px;
-  justify-content: center;
-  min-height: 57px;
-  padding: 0.35em 1em;
+  justify-content: flex-start;
+  gap: 0.75em;
+  min-height: 50px;
+  padding: 0.6em 1em;
   border-radius: var(--corner-top) var(--corner-top) var(--corner-bottom) var(--corner-bottom);
-  color: var(--ios-tint);
-  font-size: var(--ios-fs-title3);
-  line-height: var(--ios-lh-title3);
-  text-align: center;
+  color: var(--ios-label);
+  font-size: var(--ios-fs-body);
+  line-height: var(--ios-lh-body);
+  text-align: start;
 }
 
 .menuItem[style*="--menu-item-color"] {
@@ -496,11 +497,21 @@
 }
 
 .menuItemLabel {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .menuItemSection {
-  display: none;
+  display: flex;
+  flex-shrink: 0;
+  order: 1;
+  margin: 0;
+  color: inherit;
+}
+
+.menuItemSection svg {
+  width: 1.15em;
+  height: 1.15em;
 }
 
 .menuLabel {
@@ -523,8 +534,14 @@
   --corner-top: var(--ios-radius-grouped);
   --corner-bottom: var(--ios-radius-grouped);
   margin-top: 8px;
+  justify-content: center;
+  color: var(--ios-tint);
   border-top: 0;
   font-weight: 600;
+}
+
+.menuCancel .menuItemLabel {
+  flex-grow: 0;
 }
 
 .pickerDropdown {
@@ -579,16 +596,4 @@
 
 .pickerOption:active {
   background: var(--ios-fill);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sheetContent,
-  .alertContent,
-  .toast,
-  .menuDropdown,
-  .pickerDropdown {
-    transform: none !important;
-    transition-property: opacity !important;
-    transition-duration: 200ms !important;
-  }
 }

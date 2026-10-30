@@ -1,4 +1,3 @@
-import { notifications } from '@mantine/notifications'
 import {
   type QueryClient,
   type QueryKey,
@@ -10,9 +9,9 @@ import {
 } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
 import { logger } from '../../../lib/logger'
+import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { service } from '../../../services/service'
 import type {
@@ -281,6 +280,34 @@ export function useTogglePin(): UseMutationResult<void, Error, ViewPipeline, Pag
     onError: (error: Error, _pipeline, snapshots) => {
       restorePages(queryClient, snapshots)
       notifyError("Couldn't update pin", error, 'Try pinning the workflow again.')
+    },
+    onSettled: () => invalidateViews(queryClient),
+  })
+}
+
+export function useReorderPinned(): UseMutationResult<PipelineView, Error, string[], PageSnapshots> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (members: string[]) => service.updatePipelineView('pinned', { members }),
+    onMutate: async (members) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.pages() })
+      const snapshots = snapshotPages(queryClient)
+      const rank = (id: string) => {
+        const index = members.indexOf(id)
+
+        return index < 0 ? members.length : index
+      }
+      updatePages(queryClient, (page) => ({
+        ...page,
+        pinned: [...page.pinned].sort((a, b) => rank(a.id) - rank(b.id)),
+      }))
+
+      return snapshots
+    },
+    onError: (error: Error, _members, snapshots) => {
+      restorePages(queryClient, snapshots)
+      notifyError("Couldn't reorder pinned workflows", error, 'Try moving it again.')
     },
     onSettled: () => invalidateViews(queryClient),
   })

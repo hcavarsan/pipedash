@@ -145,6 +145,7 @@ function SelectionControls({ model, actions, view }: SelectionControlsProps): Re
             {items.map((item) => (
               <Menu.Item
                 key={item.label}
+                leftSection={item.icon}
                 {...(item.color === undefined ? {} : { color: item.color })}
                 onClick={item.onClick}
               >

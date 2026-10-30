@@ -109,10 +109,6 @@
   outline: 0;
 }
 
-:global(html[data-ios]:not([data-keyboard-focus])) input:focus + .segmentLabel {
-  outline: 0;
-}
-
 :global(html[data-ios]) :global(.mantine-Button-root):hover:not(:disabled, [data-variant="transparent"]),
 :global(html[data-ios]) :global(.mantine-ActionIcon-root):hover:not(:disabled, [data-variant="transparent"]) {
   background: var(--button-bg, var(--ai-bg, transparent));
@@ -261,6 +257,10 @@ input:disabled + .switchTrack {
 :global(html[data-keyboard-focus]) input:focus-visible + .segmentLabel {
   outline: 2px solid var(--ios-tint);
   outline-offset: 2px;
+}
+
+:global(html[data-ios]:not([data-keyboard-focus])) input:focus + .segmentLabel {
+  outline: 0;
 }
 
 /* ---------- Stepper (wizard progress) ---------- */

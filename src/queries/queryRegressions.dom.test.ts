@@ -25,7 +25,9 @@ const { tauriService } = await import('../services/tauri')
 const { queryKeys } = await import('../lib/queryKeys')
 const { useAggregatedMetrics } = await import('../features/metrics/queries/useMetricsQueries')
 const { useRunHistory, useSaveTablePreferences } = await import('./useRunHistoryQueries')
-const { useToggleHidden, useTogglePin } = await import('../features/pipelines/queries/usePipelineViewQueries')
+const { useReorderPinned, useToggleHidden, useTogglePin } = await import(
+  '../features/pipelines/queries/usePipelineViewQueries'
+)
 const { useAddProvider, useUpdateProvider } = await import('./useProvidersQueries')
 const { useRefreshProviders } = await import('./useRefreshQueries')
 const { useRerunWorkflow } = await import('../features/runs/queries/useRunDetailsQuery')
@@ -45,6 +47,7 @@ type Stubbed =
   | 'saveTablePreferences'
   | 'setPipelineViewMembership'
   | 'setPipelineHidden'
+  | 'updatePipelineView'
   | 'updateProvider'
   | 'addProvider'
   | 'refreshProvider'
@@ -180,6 +183,31 @@ for (const [name, useToggle, method] of [
     assert.deepEqual([restored?.pinned, restored?.hidden], [false, false])
   })
 }
+
+test('a rejected pinned reorder restores the cached pinned order', async (context) => {
+  const request = Promise.withResolvers<never>()
+  stub(context, 'updatePipelineView', () => request.promise)
+  const pinnedIds = () =>
+    client.getQueryData<PipelineViewPage>(queryKeys.pipelines.page(viewQuery))?.pinned.map((pipeline) => pipeline.id)
+  client.setQueryData(queryKeys.pipelines.page(viewQuery), {
+    ...viewPage(),
+    pinned: [viewPipelineFixture({ id: 'a', pinned: true }), viewPipelineFixture({ id: 'b', pinned: true })],
+  })
+  const { result } = renderHook(() => useReorderPinned(), { wrapper })
+
+  let mutation: Promise<unknown> = Promise.resolve()
+  act(() => {
+    mutation = result.current.mutateAsync(['b', 'a']).catch(() => undefined)
+  })
+  await waitFor(() => assert.deepEqual(pinnedIds(), ['b', 'a']))
+
+  await act(async () => {
+    request.reject(new Error('nope'))
+    await mutation
+  })
+
+  assert.deepEqual(pinnedIds(), ['a', 'b'])
+})
 
 test('provider edit does not seed an absent list and keeps credentials out of summaries', async (context) => {
   stub(context, 'updateProvider', async () => undefined)

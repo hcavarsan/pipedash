@@ -268,17 +268,6 @@ body,
   --mantine-color-dimmed: color-mix(in srgb, var(--mantine-color-text) 85%, var(--mantine-color-body));
 }
 
-:root:not([data-ios]) .desktop-toast {
-  transform: none !important;
-  transition-timing-function: var(--desktop-present-easing) !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root:not([data-ios]) :is(.mantine-Modal-content, .mantine-Drawer-content) {
-    transform: none !important;
-  }
-}
-
 .nav-item {
   border-radius: var(--mantine-radius-sm);
 }
@@ -446,6 +435,7 @@ body,
   --ios-checkbox-border: rgb(60 60 67 / 0.3);
 
   --ios-material-bar: rgb(249 249 249 / 0.78);
+  --ios-material-glass: rgb(250 250 252 / 0.6);
   --ios-material-thick: rgb(249 249 249 / 0.92);
   --ios-material-regular: rgb(242 242 247 / 0.86);
   --ios-material-filter: blur(20px) saturate(180%);
@@ -502,6 +492,7 @@ body,
   --ios-checkbox-border: rgb(235 235 245 / 0.3);
 
   --ios-material-bar: rgb(22 22 24 / 0.78);
+  --ios-material-glass: rgb(28 28 30 / 0.55);
   --ios-material-thick: rgb(44 44 46 / 0.92);
   --ios-material-regular: rgb(28 28 30 / 0.86);
 }
@@ -516,6 +507,7 @@ html[data-ios][data-increase-contrast] {
   --ios-separator: #c6c6c8;
   --ios-material-edge: var(--ios-separator);
   --ios-material-bar: rgb(249 249 249 / 0.97);
+  --ios-material-glass: rgb(249 249 249 / 0.97);
   --ios-material-thick: rgb(249 249 249 / 0.98);
   --ios-material-regular: rgb(242 242 247 / 0.97);
   --status-success: oklch(0.42 0.13 155);
@@ -535,6 +527,7 @@ html[data-ios][data-mantine-color-scheme="dark"][data-increase-contrast] {
   --ios-secondary-label: rgb(235 235 245 / 0.68);
   --ios-separator: #38383a;
   --ios-material-bar: rgb(22 22 24 / 0.97);
+  --ios-material-glass: rgb(22 22 24 / 0.97);
   --ios-material-thick: rgb(44 44 46 / 0.98);
   --ios-material-regular: rgb(28 28 30 / 0.97);
   --status-success: oklch(0.84 0.12 155);
@@ -547,6 +540,7 @@ html[data-ios][data-mantine-color-scheme="dark"][data-increase-contrast] {
 
 html[data-ios][data-reduce-transparency] {
   --ios-material-bar: #f9f9f9;
+  --ios-material-glass: #f9f9f9;
   --ios-material-thick: #f9f9f9;
   --ios-material-regular: #f2f2f7;
   --ios-material-filter: none;
@@ -554,6 +548,7 @@ html[data-ios][data-reduce-transparency] {
 
 html[data-ios][data-mantine-color-scheme="dark"][data-reduce-transparency] {
   --ios-material-bar: #161618;
+  --ios-material-glass: #161618;
   --ios-material-thick: #2c2c2e;
   --ios-material-regular: #1c1c1e;
 }
@@ -680,12 +675,19 @@ html[data-ios],
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-delay: 0s !important;
-    animation-iteration-count: 1 !important;
-    transition-property: opacity, color, background-color, border-color, box-shadow, fill, stroke !important;
-    transition-duration: 120ms !important;
-    transition-delay: 0s !important;
-    scroll-behavior: auto !important;
+    animation-duration: 0.01ms;
+    animation-delay: 0s;
+    animation-iteration-count: 1;
+    transition-property: opacity, color, background-color, border-color, box-shadow, fill, stroke;
+    transition-duration: 120ms;
+    transition-delay: 0s;
+  }
+
+  .mantine-AppShell-navbar {
+    transition: none;
+  }
+
+  [data-refreshing] svg {
+    animation: none;
   }
 }
