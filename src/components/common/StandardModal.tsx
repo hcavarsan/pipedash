@@ -35,7 +35,7 @@ interface StandardModalProps extends ModalBaseProps {
   disableScrollArea?: boolean
   fullHeight?: boolean
   primaryAction?: ModalAction
-  backAction?: { label: string; onClick: () => void }
+  backAction?: { label: string; onClick: () => void; minimal?: boolean }
   dirty?: boolean
   detents?: SheetDetent[]
 }
@@ -53,6 +53,7 @@ const columnStyle = { display: 'flex', flexDirection: 'column', minHeight: 0, ov
 
 interface HeaderButtonProps {
   children: ReactNode
+  ariaLabel?: string | undefined
   onClick: () => void
   strong?: boolean | undefined
   destructive?: boolean | undefined
@@ -60,7 +61,7 @@ interface HeaderButtonProps {
   loading?: boolean | undefined
 }
 
-const HeaderButton = ({ children, onClick, strong, destructive, disabled, loading }: HeaderButtonProps) => (
+const HeaderButton = ({ children, ariaLabel, onClick, strong, destructive, disabled, loading }: HeaderButtonProps) => (
   <UnstyledButton
     type="button"
     className={iosClasses.sheetAction}
@@ -69,6 +70,7 @@ const HeaderButton = ({ children, onClick, strong, destructive, disabled, loadin
     data-loading={loading || undefined}
     disabled={disabled || loading}
     aria-busy={loading || undefined}
+    aria-label={ariaLabel}
     onClick={onClick}
   >
     <span className={iosClasses.sheetActionLabel}>{children}</span>
@@ -271,9 +273,13 @@ export const StandardModal = ({
           <Modal.Header>
             <div className={iosClasses.sheetLeading}>
               {backAction ? (
-                <HeaderButton onClick={backAction.onClick} disabled={busy}>
+                <HeaderButton
+                  onClick={backAction.onClick}
+                  disabled={busy}
+                  ariaLabel={backAction.minimal ? backAction.label : undefined}
+                >
                   <IconChevronLeft size={22} aria-hidden className={iosClasses.sheetBackIcon} />
-                  {backAction.label}
+                  {!backAction.minimal && backAction.label}
                 </HeaderButton>
               ) : (
                 showCancel && (
