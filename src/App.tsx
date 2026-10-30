@@ -1,5 +1,5 @@
 import { Center } from '@mantine/core'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, type ReactNode, Suspense, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 
@@ -10,8 +10,10 @@ import { LoadingState } from './components/common/LoadingState'
 import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary'
 import { ConfigErrorScreen } from './features/setup/components/ConfigErrorScreen'
 import { RequireAuth } from './features/vault/components/RequireAuth'
+import { logger } from './lib/logger'
 import { queryKeys } from './lib/queryKeys'
 import { service } from './services/service'
+import { formatErrorMessage } from './types/errors'
 
 const UnlockRoute = lazy(() =>
   import('./features/vault/routes/UnlockRoute').then((m) => ({
@@ -62,6 +64,18 @@ export function App(): ReactNode {
     void refetchSetupStatus()
   }
 
+  const retryConfig = useMutation({
+    mutationFn: async (): Promise<void> => {
+      const status = await service.checkSetupStatus()
+
+      if (status.config_valid) {
+        await service.restartApp()
+      }
+    },
+    onError: (error) => logger.error('App', 'Failed to restart after the config was fixed', error),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.setup.status() }),
+  })
+
   if (checkingSetup) {
     return <LoadingState variant="page" message="Loading Pipedash" />
   }
@@ -83,7 +97,11 @@ export function App(): ReactNode {
 
   if (setupStatus?.config_exists && !setupStatus.config_valid) {
     return (
-      <ConfigErrorScreen errors={setupStatus.validation_errors} onRetry={retrySetupStatus} retrying={refetchingSetup} />
+      <ConfigErrorScreen
+        errors={retryConfig.isError ? [formatErrorMessage(retryConfig.error)] : setupStatus.validation_errors}
+        onRetry={() => retryConfig.mutate()}
+        retrying={retryConfig.isPending}
+      />
     )
   }
 
