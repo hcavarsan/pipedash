@@ -134,7 +134,8 @@ try {
 
     await prepare()
     if (phone) {
-      await page.getByRole('button', { name: 'Actions for Release iOS app' }).click()
+      // The row covers its menu button on phones, where a swipe reveals it, so the click is dispatched.
+      await page.getByRole('button', { name: 'Actions for Release iOS app' }).first().dispatchEvent('click')
       await page.getByRole('menuitem', { name: 'Trigger', exact: true }).click()
     } else {
       await page.getByRole('button', { name: 'Trigger Release iOS app', exact: true }).first().click()
@@ -144,6 +145,7 @@ try {
     await capture('05', 'Run tests before release')
 
     await prepare(`${history}?tab=metrics&dateRange=7d&period=daily`, 'API integration tests')
+    await page.getByText('Loading chart', { exact: false }).first().waitFor({ state: 'detached' })
     await capture('06', 'Total runs per day')
 
     await prepare()

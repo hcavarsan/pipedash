@@ -131,7 +131,7 @@ const logDocument = {
   state: 'ready', node_id: logJob.id, revision: 1, complete: true, truncated: false, line_count: logLines.length,
   text_bytes: logLines.reduce((total, line) => total + line.text.length + 1, 0), first_timestamp_ms: now - 8 * 60_000,
   styles: logStyles, sections: logSections, error_lines: errorLines, warning_lines: [], error_total: errorLines.length,
-  warning_total: 0, focus_line: errorLines[0],
+  warning_total: 0, focus_line: errorLines[0], updated_at_ms: now - 4 * 60_000, stable_lines: logLines.length, previous_revision: null,
 }
 const metricSeries = {
   run_duration: [262, 248, 255, 291, 244, 238, 242],
