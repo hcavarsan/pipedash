@@ -59,8 +59,14 @@ function Picker(): ReactNode {
   return createElement(
     Fragment,
     null,
-    createElement(PipelinesStep, { state, dispatch, providerConfig, isMobile: false }),
-    createElement('output', { 'aria-label': 'Selected' }, [...state.selectedPipelines].sort().join(','))
+    state.step === 'pipelines' && createElement(PipelinesStep, { state, dispatch, providerConfig, isMobile: false }),
+    createElement(
+      'button',
+      { type: 'button', onClick: () => dispatch({ type: 'SET_STEP', step: 'credentials' }) },
+      'Back'
+    ),
+    createElement('output', { 'aria-label': 'Selected' }, [...state.selectedPipelines].sort().join(',')),
+    createElement('output', { 'aria-label': 'Selecting' }, String(state.selectingAll))
   )
 }
 
@@ -144,6 +150,20 @@ test('changing the search while select all waits for a page selects nothing', as
   await user.type(view().getByRole('textbox', { name: 'Search pipelines' }), 'x')
   await act(async () => deck.releaseSecondPage())
   await waitFor(() => assert.equal(view().queryAllByText(/Selecting all/).length, 0))
+
+  assert.equal(view().getByRole('status', { name: 'Selected' }).textContent, '')
+})
+
+test('going back while select all waits for a page selects nothing', async (context) => {
+  const user = userEvent.setup({ document })
+  const deck = mockDeck(context)
+  renderPicker()
+
+  await user.click(await view().findByRole('checkbox', { name: 'Select all' }))
+  await waitFor(() => assert.ok(deck.secondPageRequests() > 0))
+  await user.click(view().getByRole('button', { name: 'Back' }))
+  await act(async () => deck.releaseSecondPage())
+  await waitFor(() => assert.equal(view().getByRole('status', { name: 'Selecting' }).textContent, 'false'))
 
   assert.equal(view().getByRole('status', { name: 'Selected' }).textContent, '')
 })

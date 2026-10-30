@@ -18,6 +18,7 @@ export interface FormState {
   selectedPipelines: Set<string>
   repositorySearch: string
   selectingAll: boolean
+  selectAllRun: number
 
   error: string | null
   fieldErrors: Record<string, string>
@@ -36,7 +37,8 @@ export type FormAction =
   | { type: 'TOGGLE_PIPELINE'; pipelineId: string }
   | { type: 'SELECT_ALL_PIPELINES'; pipelineIds: string[] }
   | { type: 'DESELECT_PIPELINES'; pipelineIds: string[] }
-  | { type: 'SET_SELECTING_ALL'; selecting: boolean }
+  | { type: 'START_SELECT_ALL'; run: number }
+  | { type: 'FINISH_SELECT_ALL'; run: number; pipelineIds: string[] | null }
   | { type: 'SET_REPOSITORY_SEARCH'; search: string }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'SET_FIELD_ERROR'; key: string; error: string }
@@ -82,6 +84,7 @@ export const initialFormState: FormState = {
   selectedPipelines: new Set(),
   repositorySearch: '',
   selectingAll: false,
+  selectAllRun: 0,
   error: null,
   fieldErrors: {},
 }

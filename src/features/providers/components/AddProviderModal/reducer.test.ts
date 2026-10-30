@@ -44,6 +44,27 @@ test('selecting resources in another namespace preserves earlier selections', ()
   assert.deepEqual([...previous], ['Kustomization__team-a__web'])
 })
 
+test('a select all run that outlives a step change cannot finish the next run', () => {
+  const steps = (state: typeof initialFormState, ...actions: Parameters<typeof formReducer>[1][]) =>
+    actions.reduce(formReducer, state)
+  const second = steps(
+    { ...initialFormState, step: 'pipelines' },
+    { type: 'START_SELECT_ALL', run: 1 },
+    { type: 'SET_STEP', step: 'credentials' },
+    { type: 'SET_STEP', step: 'pipelines' },
+    { type: 'START_SELECT_ALL', run: 2 }
+  )
+  const stale = formReducer(second, { type: 'FINISH_SELECT_ALL', run: 1, pipelineIds: ['old'] })
+
+  assert.equal(stale.selectingAll, true)
+  assert.deepEqual([...stale.selectedPipelines], [])
+
+  const done = formReducer(stale, { type: 'FINISH_SELECT_ALL', run: 2, pipelineIds: ['new'] })
+
+  assert.equal(done.selectingAll, false)
+  assert.deepEqual([...done.selectedPipelines], ['new'])
+})
+
 test('initial edit selection comes from saved resource ids before discovery finishes', () => {
   const next = formReducer(initialFormState, {
     type: 'INIT_EDIT_MODE',

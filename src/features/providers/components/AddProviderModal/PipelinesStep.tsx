@@ -135,9 +135,10 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
     dispatch({ type: 'SET_REPOSITORY_SEARCH', search: value })
   }
 
-  const selectEveryMatch = async (): Promise<void> => {
+  const selectEveryMatch = async (run: number): Promise<void> => {
     const listVersion = listChanges.current
-    dispatch({ type: 'SET_SELECTING_ALL', selecting: true })
+    let pipelineIds: string[] | null = null
+    dispatch({ type: 'START_SELECT_ALL', run })
     try {
       let pages = pipelinesData?.pages ?? []
       let more = hasMore
@@ -149,9 +150,9 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
         pages = result.data?.pages ?? pages
         more = result.hasNextPage
       }
-      dispatch({ type: 'SELECT_ALL_PIPELINES', pipelineIds: pages.flatMap((page) => page.items.map(getPipelineId)) })
+      pipelineIds = pages.flatMap((page) => page.items.map(getPipelineId))
     } finally {
-      dispatch({ type: 'SET_SELECTING_ALL', selecting: false })
+      dispatch({ type: 'FINISH_SELECT_ALL', run, pipelineIds })
     }
   }
 
@@ -163,7 +164,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
       dispatch({ type: 'DESELECT_PIPELINES', pipelineIds: availablePipelines.map(getPipelineId) })
       return
     }
-    void selectEveryMatch()
+    void selectEveryMatch(state.selectAllRun + 1)
   }
 
   const handleLoadMore = (): void => {

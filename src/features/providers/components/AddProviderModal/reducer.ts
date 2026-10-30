@@ -6,7 +6,7 @@ import { type FormAction, type FormState, initialFormState } from './types'
 export function formReducer(state: FormState, action: FormAction): FormState {
   switch (action.type) {
     case 'SET_STEP':
-      return { ...state, step: action.step }
+      return { ...state, step: action.step, selectingAll: false }
 
     case 'SELECT_PLUGIN': {
       const initialConfig: Record<string, string> = {}
@@ -124,6 +124,7 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         selectedOrganization: action.organization,
         repositorySearch: '',
+        selectingAll: false,
       }
 
     case 'TOGGLE_PIPELINE': {
@@ -151,11 +152,24 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       return { ...state, selectedPipelines }
     }
 
-    case 'SET_SELECTING_ALL':
-      return { ...state, selectingAll: action.selecting }
+    case 'START_SELECT_ALL':
+      return { ...state, selectingAll: true, selectAllRun: action.run }
+
+    case 'FINISH_SELECT_ALL':
+      if (!state.selectingAll || action.run !== state.selectAllRun) {
+        return state
+      }
+
+      return {
+        ...state,
+        selectingAll: false,
+        selectedPipelines: action.pipelineIds
+          ? new Set([...state.selectedPipelines, ...action.pipelineIds])
+          : state.selectedPipelines,
+      }
 
     case 'SET_REPOSITORY_SEARCH':
-      return { ...state, repositorySearch: action.search }
+      return { ...state, repositorySearch: action.search, selectingAll: false }
 
     case 'SET_ERROR':
       return { ...state, error: action.error }
