@@ -91,7 +91,6 @@ export const PipelineMetricsView = ({ pipelineId, pipelineName, repository }: Pi
     const { data: freshConfig } = await refetchConfig()
 
     if (freshConfig?.enabled) {
-      await service.clearRunHistoryCache(pipelineId)
       await service.fetchRunHistory(pipelineId, 1, 50)
 
       void refetchAll()
