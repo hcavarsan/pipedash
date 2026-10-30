@@ -35,7 +35,7 @@ export function PhoneLogSearch({
   onPrevMatch,
 }: PhoneLogSearchProps): ReactNode {
   return (
-    <>
+    <div className={classes.phoneReveal} data-search-reveal data-pinned={queryText ? true : undefined}>
       <div className={classes.phoneSearch}>
         <PhoneSearchField
           value={queryText}
@@ -70,7 +70,7 @@ export function PhoneLogSearch({
           </Group>
         </div>
       )}
-    </>
+    </div>
   )
 }
 

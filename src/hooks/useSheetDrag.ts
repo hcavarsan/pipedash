@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 
+import { createSearchReveal, type Reveal } from '../components/layout/searchReveal'
+import { springFor } from '../components/layout/springValue'
 import { nearestStop } from '../lib/gestures'
 import { prefersReducedMotion } from '../lib/motion'
 import {
@@ -48,6 +50,8 @@ interface SheetDrag {
   overlayDuration: string
   parent: HTMLElement | null
   locks: { element: HTMLElement; overflow: string }[]
+  reveal: Reveal | null
+  revealOrigin: number | null
 }
 
 interface Settling {
@@ -58,6 +62,8 @@ interface Settling {
 const settling = new WeakMap<HTMLElement, Settling>()
 const live = new Set<SheetDrag>()
 let candidate: SheetDrag | null = null
+let revealRoot: HTMLElement | null = null
+const reveals = createSearchReveal(() => revealRoot)
 
 function lastOverlay(): HTMLElement | null {
   const overlays = document.querySelectorAll<HTMLElement>(OVERLAY_SELECTOR)
@@ -127,6 +133,8 @@ function begin({ target }: GestureStart): SheetDrag | null {
   }
 
   const detents = sheet.dataset.detents?.split(',') ?? []
+  revealRoot = sheet
+  const reveal = inHeader ? null : reveals.closed()
 
   candidate = {
     sheet,
@@ -147,6 +155,8 @@ function begin({ target }: GestureStart): SheetDrag | null {
     overlayDuration: '',
     parent: null,
     locks: [],
+    reveal,
+    revealOrigin: null,
   }
 
   return candidate
@@ -376,18 +386,45 @@ export function useSheetDrag(active: boolean): void {
       begin,
       accept: (_dx, dy) => dy > 0 || (candidate?.expandable === true && dy < 0),
       move: (drag, { dy }) => {
-        if (!drag.active) {
-          activate(drag, dy)
+        let travel = dy
+
+        if (drag.reveal) {
+          drag.revealOrigin ??= drag.reveal.spring.grab()
+          const shown = Math.min(Math.max(drag.revealOrigin + dy, 0), drag.reveal.full)
+
+          drag.reveal.spring.set(shown)
+          travel = drag.revealOrigin + dy - shown
+
+          if (!drag.active && travel === 0) {
+            return
+          }
         }
 
-        drag.current = displayPosition(drag.base + dy - drag.anchor, drag.top, drag.floor)
+        if (!drag.active) {
+          activate(drag, travel)
+        }
+
+        drag.current = displayPosition(drag.base + travel - drag.anchor, drag.top, drag.floor)
         render(drag, drag.current)
       },
       end: (drag, _gesture, { vy }) => {
-        void release(drag, vy)
+        if (drag.reveal && drag.revealOrigin !== null) {
+          const shown = drag.reveal.spring.value
+          const open = shown >= drag.reveal.full / 2 || (vy > FLICK_SPEED && shown > 0)
+
+          void reveals.settle(drag.reveal, open, vy, springFor(vy))
+        }
+
+        if (drag.active) {
+          void release(drag, vy)
+        }
       },
       cancel: (drag) => {
-        if (!disposed) {
+        if (drag.reveal && drag.revealOrigin !== null) {
+          void reveals.settle(drag.reveal, false, 0, SPRING_DEFAULT)
+        }
+
+        if (!disposed && drag.active) {
           void settleTo(drag, restStop(drag), 0)
         }
       },
@@ -396,6 +433,7 @@ export function useSheetDrag(active: boolean): void {
     return () => {
       disposed = true
       stopTracking()
+      reveals.stop()
 
       for (const drag of live) {
         drag.disposed = true

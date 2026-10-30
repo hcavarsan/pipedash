@@ -414,6 +414,18 @@
   pointer-events: none;
 }
 
+.phoneReveal {
+  flex: none;
+  height: 0;
+  overflow: hidden;
+}
+
+.phoneReveal[data-open],
+.phoneReveal[data-pinned],
+.phoneReveal:focus-within {
+  height: auto;
+}
+
 .phoneSearch {
   display: flex;
   flex: none;
