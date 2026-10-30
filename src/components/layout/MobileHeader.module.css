@@ -111,13 +111,6 @@
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.title:focus {
-  outline: none;
-}
-
-.title[data-root] {
   opacity: var(--title-collapse, 0);
   transform: translateY(calc((1 - var(--title-collapse, 0)) * 6px));
 }

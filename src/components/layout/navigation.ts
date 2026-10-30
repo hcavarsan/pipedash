@@ -65,6 +65,29 @@ export function scrollEdge(scrollTop: number): number {
   return clamp01(scrollTop / EDGE_RANGE)
 }
 
+export interface TabBarScroll {
+  minimized: boolean
+  anchor: number
+}
+
+const MINIMIZE_DISTANCE = 12
+
+export function tabBarScroll(state: TabBarScroll, top: number): TabBarScroll {
+  if (top <= 0) {
+    return { minimized: false, anchor: 0 }
+  }
+
+  if (state.minimized ? top > state.anchor : top < state.anchor) {
+    return { minimized: state.minimized, anchor: top }
+  }
+
+  if (Math.abs(top - state.anchor) < MINIMIZE_DISTANCE) {
+    return state
+  }
+
+  return { minimized: top > state.anchor, anchor: top }
+}
+
 export function edgeOffset(raw: number, width: number): number {
   if (raw < 0) {
     return rubberband(raw, width)

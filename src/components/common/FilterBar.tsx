@@ -223,30 +223,24 @@ export const FilterBar = ({ filters, onClearAll, sheet }: FilterBarProps): React
 
     return (
       <>
-        <div
-          className={classes.reveal}
-          data-search-reveal
-          data-pinned={searchValue || activeLabels.length > 0 || sheetOpen ? true : undefined}
-        >
-          {filters.search && (
-            <div className={classes.bar}>
-              <PhoneSearchField
-                value={searchValue}
-                placeholder={filters.search.placeholder}
-                onChange={filters.search.onChange}
-                onClear={() => filters.search?.onChange('')}
-              />
-            </div>
-          )}
-          {activeLabels.length > 0 && (
-            <div className={classes.active} role="status">
-              <span className={classes.activeText}>Filtered by {activeLabels.join(', ')}</span>
-              <button type="button" className={classes.clear} onClick={clearSheetFilters}>
-                Clear
-              </button>
-            </div>
-          )}
-        </div>
+        {filters.search && (
+          <div className={classes.bar}>
+            <PhoneSearchField
+              value={searchValue}
+              placeholder={filters.search.placeholder}
+              onChange={filters.search.onChange}
+              onClear={() => filters.search?.onChange('')}
+            />
+          </div>
+        )}
+        {activeLabels.length > 0 && (
+          <div className={classes.active} role="status">
+            <span className={classes.activeText}>Filtered by {activeLabels.join(', ')}</span>
+            <button type="button" className={classes.clear} onClick={clearSheetFilters}>
+              Clear
+            </button>
+          </div>
+        )}
 
         <StandardModal opened={sheetOpen} onClose={() => sheet?.onClose()} title="Filters" size="md">
           <Stack gap="lg">

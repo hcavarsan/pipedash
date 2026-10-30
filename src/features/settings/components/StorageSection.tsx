@@ -1,5 +1,4 @@
 import { Alert, Box, Button, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
 import { IconAlertCircle, IconCheck, IconCloudUpload, IconLock, IconSettings } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
@@ -11,6 +10,7 @@ import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../../constants/storageLabels'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { logger } from '../../../lib/logger'
+import { notifications } from '../../../lib/notifications'
 import {
   useConfigContent,
   useStorageConfig,

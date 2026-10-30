@@ -1,5 +1,5 @@
 import { ActionIcon, Button, Menu, Stack } from '@mantine/core'
-import { IconDots, IconEdit, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
+import { IconDots, IconEdit, IconFolder, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
@@ -7,14 +7,15 @@ import { LoadingState } from '../../../components/common/LoadingState'
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { SwipeActions } from '../../../components/ios/SwipeActions'
+import { providerPath } from '../../../components/layout/mobileChrome'
 import { useRowMenuLongPress } from '../../../hooks/useLongPress'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import { useProviderStore } from '../../../stores/providerStore'
-import type { ProviderSummary } from '../../../types/domain'
-import { formatCount } from '../../../utils/formatCount'
+import type { PipelineView, ProviderSummary } from '../../../types/domain'
+import { usePipelineViews } from '../../pipelines/queries/usePipelineViewQueries'
+import classes from './BrowsePage.module.css'
 import { useConfirmRemoveProvider } from './ProviderModals'
 import { ProviderAvatar, ProviderStatusLine } from './ProviderPresentation'
-import classes from './ProvidersPage.module.css'
 
 const AVATAR = 30
 
@@ -39,7 +40,7 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
           icon={<ProviderAvatar provider={provider} size={AVATAR} />}
           title={provider.name}
           subtitle={<ProviderStatusLine provider={provider} />}
-          to={`/pipelines?provider=${provider.id}`}
+          to={providerPath(provider.id)}
         />
         <Menu position="bottom-end" withinPortal>
           <Menu.Target>
@@ -63,12 +64,28 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
   )
 }
 
-export function ProvidersPage(): ReactNode {
+const browsable = (view: PipelineView) =>
+  view.parent === null && (view.kind === 'all' || view.kind === 'custom' || view.kind === 'config')
+
+function ViewRow({ view }: { view: PipelineView }): ReactNode {
+  const all = view.kind === 'all'
+
+  return (
+    <IosRow
+      icon={all ? <IconStack2 size={18} /> : <IconFolder size={18} />}
+      title={all ? 'All pipelines' : view.name}
+      value={String(view.count)}
+      to={all ? '/pipelines' : `/pipelines?view=${encodeURIComponent(view.id)}`}
+    />
+  )
+}
+
+export function BrowsePage(): ReactNode {
   const { data: providers = [], isLoading, error, refetch, isRefetching } = useProviders()
   const openAddProviderModal = useProviderStore((s) => s.openAddProviderModal)
   const requestEditProvider = useProviderStore((s) => s.requestEditProvider)
   const confirmRemove = useConfirmRemoveProvider()
-  const totalPipelines = providers.reduce((sum, provider) => sum + provider.pipeline_count, 0)
+  const { data: views = [] } = usePipelineViews()
 
   if (isLoading) {
     return <LoadingState message="Loading providers" />
@@ -98,16 +115,13 @@ export function ProvidersPage(): ReactNode {
 
   return (
     <Stack gap="md" pb="md">
-      <IosGroup>
-        <IosRow
-          icon={<IconStack2 size={18} />}
-          title="All providers"
-          subtitle={formatCount(totalPipelines, 'pipeline')}
-          to="/pipelines"
-        />
+      <IosGroup header="Views">
+        {views.filter(browsable).map((view) => (
+          <ViewRow key={view.id} view={view} />
+        ))}
       </IosGroup>
 
-      <IosGroup>
+      <IosGroup header="Providers">
         {providers.map((provider) => (
           <ProviderRow
             key={provider.id}

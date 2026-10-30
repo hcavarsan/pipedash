@@ -30,7 +30,6 @@ afterEach(() => {
 const mount = (refresh: () => Promise<unknown>) => {
   const main = document.createElement('main')
   const host = document.createElement('div')
-  const page = document.createElement('div')
   const content = document.createElement('div')
   const spinner = document.createElement('div')
   const status = document.createElement('div')
@@ -39,13 +38,12 @@ const mount = (refresh: () => Promise<unknown>) => {
   Object.defineProperty(main, 'clientHeight', { value: 800 })
   main.hasPointerCapture = () => true
   main.setPointerCapture = () => undefined
-  main.append(host, page, content)
+  main.append(host, content)
   document.body.append(main, spinner, status)
 
   const view = renderHook(() =>
     useMobilePullRefresh({
       host: { current: host },
-      page: { current: page },
       content: { current: content },
       spinner: { current: spinner },
       status: { current: status },

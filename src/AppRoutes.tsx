@@ -27,9 +27,9 @@ const SettingsRoute = lazy(() =>
   }))
 )
 
-const ProvidersPage = lazy(() =>
-  import('./features/providers/components/ProvidersPage').then((m) => ({
-    default: m.ProvidersPage,
+const BrowsePage = lazy(() =>
+  import('./features/providers/components/BrowsePage').then((m) => ({
+    default: m.BrowsePage,
   }))
 )
 
@@ -66,30 +66,30 @@ export function AppRoutes({
 }: AppRoutesProps): ReactNode {
   const navigate = useNavigate()
   const mobileShell = useMobileShell()
+  const pipelinesPage = (
+    <LazyRoute>
+      <UnifiedPipelinesView
+        providers={providers}
+        loading={loading}
+        error={error}
+        onRetry={() => {
+          void onRetry()
+        }}
+        onViewHistory={onViewHistory}
+        onViewRun={onViewRun}
+        onTrigger={onTrigger}
+        onViewMetrics={onViewMetrics}
+      />
+    </LazyRoute>
+  )
 
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/pipelines" replace />} />
 
-      <Route
-        path="/pipelines"
-        element={
-          <LazyRoute>
-            <UnifiedPipelinesView
-              providers={providers}
-              loading={loading}
-              error={error}
-              onRetry={() => {
-                void onRetry()
-              }}
-              onViewHistory={onViewHistory}
-              onViewRun={onViewRun}
-              onTrigger={onTrigger}
-              onViewMetrics={onViewMetrics}
-            />
-          </LazyRoute>
-        }
-      />
+      <Route path="/pipelines" element={pipelinesPage} />
+
+      <Route path="/pipelines/groups/:group" element={pipelinesPage} />
 
       <Route
         path="/pipelines/:pipelineId"
@@ -114,17 +114,19 @@ export function AppRoutes({
       />
 
       <Route
-        path="/providers"
+        path="/browse"
         element={
           mobileShell ? (
             <LazyRoute>
-              <ProvidersPage />
+              <BrowsePage />
             </LazyRoute>
           ) : (
             <Navigate to="/pipelines" replace />
           )
         }
       />
+
+      <Route path="/providers" element={<Navigate to={mobileShell ? '/browse' : '/pipelines'} replace />} />
 
       <Route
         path="/notifications"

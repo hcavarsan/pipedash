@@ -6,7 +6,7 @@ export const MOBILE_BREAKPOINT = 768
 
 const NARROW_QUERY = `(max-width: ${MOBILE_BREAKPOINT}px)`
 
-export const isPhone = (): boolean => /iPhone|iPod/.test(navigator.userAgent)
+export const isPhone = (): boolean => /iPhone|iPod|Android.+Mobile/.test(navigator.userAgent)
 
 interface IsMobileResult {
   isMobile: boolean

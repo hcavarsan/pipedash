@@ -1,10 +1,51 @@
 import type { TableRow } from '../../../components/common/PipelineRowParts'
 import { STATUS_META } from '../../../theme/status'
-import type { PipelineViewPage, ProviderSummary, SectionMode, ViewSection, ViewSortKey } from '../../../types/domain'
-import type { PipelineLabels } from '../../../utils/pipelinePresentation'
+import type {
+  PinnedBlock,
+  PipelineViewPage,
+  ProviderSummary,
+  SectionMode,
+  ViewMember,
+  ViewPipeline,
+  ViewSection,
+  ViewSortKey,
+} from '../../../types/domain'
+import { type PipelineLabels, pipelineStatusKey } from '../../../utils/pipelinePresentation'
 import { typedKeys } from '../../../utils/typedKeys'
 
 export const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+
+export interface BlockPin {
+  pipeline: ViewPipeline
+  block: PinnedBlock
+}
+
+export function pinnedFromBlocks(pinned: ViewPipeline[], blocks: PinnedBlock[]): BlockPin[] {
+  const seen = new Set(pinned.map((pipeline) => pipeline.id))
+
+  return blocks.flatMap((block) =>
+    block.pipelines.flatMap((pipeline) => {
+      if (seen.has(pipeline.id)) {
+        return []
+      }
+      seen.add(pipeline.id)
+
+      return [{ pipeline, block }]
+    })
+  )
+}
+
+export function inMemberOrder(sections: ViewSection[], members: ViewMember[] | undefined): ViewPipeline[] {
+  const pipelines = sections.flatMap((section) => section.pipelines)
+
+  if (!members) {
+    return pipelines
+  }
+
+  const rank = new Map(members.map((member, index) => [member.pipeline_id, index]))
+
+  return pipelines.sort((a, b) => (rank.get(a.id) ?? members.length) - (rank.get(b.id) ?? members.length))
+}
 
 export const SORT_ACCESSORS: Record<ViewSortKey, string | undefined> = {
   manual: undefined,
@@ -34,15 +75,9 @@ interface BuildPipelineRowsInput {
   page: PipelineViewPage | undefined
   isOpen: (id: string, fallback: boolean) => boolean
   getProvider: (id: number) => ProviderSummary | undefined
-  defaultOpen?: boolean | undefined
 }
 
-export function buildPipelineRows({
-  page,
-  isOpen,
-  getProvider,
-  defaultOpen = false,
-}: BuildPipelineRowsInput): TableRow[] {
+export function buildPipelineRows({ page, isOpen, getProvider }: BuildPipelineRowsInput): TableRow[] {
   const rows: TableRow[] = []
   const providerLabel = (ids: number[]): string =>
     ids
@@ -52,9 +87,11 @@ export function buildPipelineRows({
 
   for (const section of page?.sections ?? []) {
     const flat = section.kind === 'none'
-    const expanded = isOpen(section.id, defaultOpen)
+    const expanded = isOpen(section.id, false)
 
     if (!flat) {
+      const lead = section.pipelines.find((pipeline) => pipeline.id === section.status_pipeline_id)
+
       rows.push({
         id: section.id,
         type: 'section',
@@ -65,6 +102,7 @@ export function buildPipelineRows({
         providerIds: new Set(section.provider_ids),
         providerLabel: providerLabel(section.provider_ids),
         hasPendingFetch: section.pending_fetch,
+        status: section.kind !== 'status' && lead ? pipelineStatusKey(lead) : section.status,
         lastRun: section.last_run,
         expanded,
         pipelines: section.pipelines,
@@ -92,4 +130,24 @@ export function buildPipelineRows({
   }
 
   return rows
+}
+
+interface PhoneRowsInput {
+  page: PipelineViewPage | undefined
+  getProvider: (id: number) => ProviderSummary | undefined
+  group: string | null
+}
+
+export function buildPhoneRows({ page, getProvider, group }: PhoneRowsInput): TableRow[] {
+  if (!group && page?.view.kind !== 'pinned') {
+    return buildPipelineRows({ page, isOpen: () => false, getProvider })
+  }
+
+  const sections = group ? page?.sections.filter((section) => section.id === group) : page?.sections
+
+  return buildPipelineRows({
+    page: page && { ...page, sections: sections ?? [] },
+    isOpen: () => true,
+    getProvider,
+  }).filter((row) => row.type === 'workflow')
 }

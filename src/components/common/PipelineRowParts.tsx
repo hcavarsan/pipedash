@@ -20,11 +20,16 @@ import { type ReactNode, useId } from 'react'
 import { ToneDot } from '../../features/pipelines/components/ToneDot'
 import { useNow } from '../../hooks/useNow'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
+import type { StatusKey } from '../../theme/status'
 import type { PinKind, Pipeline, PipelineStatus, ProviderSummary, SectionMode, ViewPipeline } from '../../types/domain'
 import { dataAge, describeFetch, providerTone, TONE_META, worstTone } from '../../utils/fetchInfo'
 import { formatDateTime } from '../../utils/formatDateTime'
-import { getPipelineLabels, getPipelineStatusLabel, getTriggerBlockReason } from '../../utils/pipelinePresentation'
-import { providerAttention } from '../../utils/providerAttention'
+import {
+  getPipelineLabels,
+  getPipelineStatusLabel,
+  getTriggerBlockReason,
+  pipelineStatusKey,
+} from '../../utils/pipelinePresentation'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import type { SwipeAction } from '../ios/swipeAction'
@@ -120,6 +125,7 @@ export interface SectionRow extends BaseTableRow {
   expanded: boolean
   pipelineCount: number
   hasPendingFetch: boolean
+  status: StatusKey | null
   pipelines: ViewPipeline[]
 }
 
@@ -157,7 +163,7 @@ export function PipelineStatusBadge({
       }
     >
       <Group component="span" gap={4} wrap="nowrap" display="inline-flex" data-raised>
-        <StatusBadge status={pipeline.status} label={getPipelineStatusLabel(pipeline)} />
+        <StatusBadge status={pipelineStatusKey(pipeline)} label={getPipelineStatusLabel(pipeline)} />
         {age && age.tone !== 'fresh' && (
           <>
             <ToneDot tone={age.tone} />
@@ -291,6 +297,18 @@ export interface PipelineSelection {
 
 type WorkflowMenuItem = Extract<ContextMenuItem, { label: string }>
 
+export interface PinToggle {
+  pinned: boolean
+  label: string
+  onToggle: () => void
+}
+
+export const workflowPin = (pipeline: ViewPipeline, actions: PipelineActions): PinToggle => ({
+  pinned: pipeline.pinned,
+  label: pipeline.pinned ? 'Unpin' : 'Pin',
+  onToggle: () => actions.onTogglePin(pipeline),
+})
+
 export const triggerIcon = (pipeline: Pipeline): ReactNode =>
   pipeline.provider_type === 'fluxcd' ? (
     <IconRefresh size={16} aria-hidden />
@@ -331,7 +349,11 @@ export const rowMenuItems = (row: WorkflowRow | SectionMenuTarget, actions: Pipe
   return cancel ? [...items, cancel] : items
 }
 
-export function workflowMenuItems(pipeline: ViewPipeline, actions: PipelineActions): WorkflowMenuItem[] {
+export function workflowMenuItems(
+  pipeline: ViewPipeline,
+  actions: PipelineActions,
+  pin: PinToggle = workflowPin(pipeline, actions)
+): WorkflowMenuItem[] {
   const labels = getPipelineLabels(pipeline.provider_type)
   const { onViewMetrics, onRemoveFromView } = actions
   const items: WorkflowMenuItem[] = [
@@ -350,18 +372,20 @@ export function workflowMenuItems(pipeline: ViewPipeline, actions: PipelineActio
     })
   }
 
-  items.push(
-    {
+  if (!getTriggerBlockReason(pipeline)) {
+    items.push({
       label: labels.trigger,
       icon: triggerIcon(pipeline),
-      disabled: Boolean(getTriggerBlockReason(pipeline)),
       onClick: () => actions.onTrigger(pipeline),
-    },
+    })
+  }
+
+  items.push(
     refreshItem([pipeline.provider_id], actions),
     {
-      label: pipeline.pinned ? 'Unpin' : 'Pin',
-      icon: pipeline.pinned ? <IconPinFilled size={16} aria-hidden /> : <IconPin size={16} aria-hidden />,
-      onClick: () => actions.onTogglePin(pipeline),
+      label: pin.label,
+      icon: pin.pinned ? <IconPinFilled size={16} aria-hidden /> : <IconPin size={16} aria-hidden />,
+      onClick: pin.onToggle,
     },
     {
       label: 'Add to view…',
@@ -491,15 +515,15 @@ export function WorkflowActionMenu({
   pipeline,
   provider,
   actions,
+  pin,
 }: {
   pipeline: ViewPipeline
   provider?: ProviderSummary | undefined
   actions: PipelineActions
+  pin?: PinToggle | undefined
 }): ReactNode {
   const openNotifications = useNotificationCenterStore((state) => state.open)
-  const items = workflowMenuItems(pipeline, actions)
-  const blockedReason = getTriggerBlockReason(pipeline)
-  const headline = provider ? providerAttention(provider).headline : null
+  const items = workflowMenuItems(pipeline, actions, pin)
 
   return (
     <Menu position="bottom">
@@ -510,15 +534,22 @@ export function WorkflowActionMenu({
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Label>{pipeline.name}</Menu.Label>
-        {blockedReason && <Menu.Label>{blockedReason}</Menu.Label>}
         {items.map((action) => (
-          <Menu.Item key={action.label} disabled={action.disabled ?? false} onClick={action.onClick}>
+          <Menu.Item
+            key={action.label}
+            leftSection={action.icon}
+            disabled={action.disabled ?? false}
+            onClick={action.onClick}
+          >
             {action.label}
           </Menu.Item>
         ))}
         {provider && (
-          <Menu.Item onClick={() => openNotifications({ type: 'provider', providerId: provider.id })}>
-            {provider.name} service status{headline ? ` · ${headline}` : ''}
+          <Menu.Item
+            leftSection={<IconInfoCircle size={16} aria-hidden />}
+            onClick={() => openNotifications({ type: 'provider', providerId: provider.id })}
+          >
+            Provider status
           </Menu.Item>
         )}
         <ActionSheetCancel />
@@ -527,20 +558,24 @@ export function WorkflowActionMenu({
   )
 }
 
-export function workflowSwipeActions(pipeline: ViewPipeline, actions: PipelineActions): SwipeAction[] {
-  const pin: SwipeAction = {
+export function workflowSwipeActions(
+  pipeline: ViewPipeline,
+  actions: PipelineActions,
+  pin: PinToggle = workflowPin(pipeline, actions)
+): SwipeAction[] {
+  const pinAction: SwipeAction = {
     key: 'pin',
-    label: pipeline.pinned ? 'Unpin' : 'Pin',
+    label: pin.pinned ? 'Unpin' : 'Pin',
     tone: 'orange',
-    onSelect: () => actions.onTogglePin(pipeline),
+    onSelect: pin.onToggle,
   }
 
   if (getTriggerBlockReason(pipeline)) {
-    return [pin]
+    return [pinAction]
   }
 
   return [
-    pin,
+    pinAction,
     {
       key: 'trigger',
       label: getPipelineLabels(pipeline.provider_type).trigger,
