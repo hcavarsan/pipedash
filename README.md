@@ -5,6 +5,8 @@
   <p>One dashboard for the CI/CD pipelines of every provider you use.</p>
   <a href="https://pipedash.app">Website</a> | <a href="https://pipedash.app/downloads">Downloads</a> | <a href="https://pipedash.app/docs">Docs</a>
   <br><br>
+  <a href="https://trendshift.io/repositories/17107?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-17107" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/17107/daily?language=Rust" alt="hcavarsan%2Fpipedash | Trendshift" width="250" height="55"/></a>
+  <br><br>
   <a href="https://github.com/hcavarsan/pipedash/releases">
     <img src="https://img.shields.io/github/v/release/hcavarsan/pipedash?style=for-the-badge" alt="Latest release">
   </a>
@@ -14,7 +16,7 @@
   <a href="https://crates.io/crates/pipedash-web">
     <img src="https://img.shields.io/crates/v/pipedash-web?style=for-the-badge&logo=rust" alt="pipedash-web on crates.io">
   </a>
-  <br><br>
+  <br>
   <a href="https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB">
     <img src="https://img.shields.io/badge/iOS-App%20Store-0D96F6?style=for-the-badge&logo=apple&logoColor=white" alt="iOS app on the App Store" height="40">
   </a>

@@ -165,6 +165,7 @@ try {
     await capture('08', 'API integration tests failed')
 
     await prepare(phone ? '/browse' : '/settings/providers', 'Argo CD')
+    if (!phone) await page.getByRole('button', { name: 'Edit refresh interval for GitHub', exact: true }).waitFor()
     await capture('09', 'Jenkins')
     await context.close()
   }
