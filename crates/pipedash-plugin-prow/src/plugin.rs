@@ -1499,6 +1499,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn builds_from_before_2018_list_and_open() {
+        let old = crate::types::snowflake_at(1_464_739_200_000).unwrap();
+        let new = crate::types::snowflake_at(Utc::now().timestamp_millis() - 60_000).unwrap();
+        let mut objects = stored_build("ci-o", old, 1_464_739_200);
+        objects.extend(stored_build("ci-o", new, 1_700_000_000));
+        let (storage, _) = serve(gcs(objects));
+        let (deck, _) = deck_serving(|_| Vec::new(), |_| Response::text(404, "missing"));
+        let plugin = plugin_with(
+            &deck,
+            &[
+                ("history_source", "storage"),
+                ("storage_url", &storage),
+                ("storage_bucket", "gs://bucket"),
+            ],
+        );
+        let pipeline_id = "prow__1__kubernetes/test-infra/ci-o";
+
+        let runs = plugin.fetch_run_history(pipeline_id, 5).await.unwrap();
+        let ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
+        assert_eq!(ids, [new.to_string(), old.to_string()]);
+
+        for run in &runs {
+            let details = plugin
+                .fetch_run_details(pipeline_id, run.run_number)
+                .await
+                .unwrap();
+            assert_eq!(details.id, run.id);
+        }
+    }
+
+    #[tokio::test]
     async fn storage_history_lists_recent_windows_and_widens_until_it_has_enough() {
         let now = Utc::now().timestamp_millis();
         let hours_ago = |hours: i64| now - hours * 60 * 60 * 1000;

@@ -251,9 +251,10 @@ impl StorageClient {
         let list_url = Url::parse(&format!("{base}/storage/v1/b/{}/o", bucket.name))
             .map_err(|e| PluginError::InvalidConfig(format!("Invalid storage URL: {e}")))?;
         let prefix = format!("{}/", root.key(job));
+        let lexical = from.is_some_and(|from| from >= MIN_LISTING_FLOOR);
         let offset = |bound: Option<i64>| {
             bound
-                .filter(|bound| *bound >= MIN_LISTING_FLOOR)
+                .filter(|_| lexical)
                 .map(|bound| format!("{prefix}{bound}"))
         };
         let (start_offset, end_offset) = (offset(from), offset(until));
@@ -322,23 +323,45 @@ impl StorageClient {
     pub(crate) async fn find_build(
         &self, bucket: &Bucket, root: HistoryRoot, job: &str, run_number: i64,
     ) -> PluginResult<Option<StoredBuild>> {
-        if let Some((start, end)) =
-            snowflake_span(run_number).filter(|(start, _)| *start >= MIN_LISTING_FLOOR)
-        {
-            let listed = self
-                .build_numbers(bucket, root, job, Some(start), Some(end))
-                .await?;
-            if let Some(build_id) = listed
-                .into_iter()
-                .find(|build_id| run_number_of(*build_id) == run_number)
+        let span = snowflake_span(run_number);
+        let bounded = span.is_some_and(|(start, _)| start >= MIN_LISTING_FLOOR);
+        if bounded {
+            if let Some(build_id) = self
+                .listed_build(bucket, root, job, run_number, span)
+                .await?
             {
                 return self.build(bucket, root, job, build_id).await;
             }
         }
-        if run_number_of(run_number) != run_number {
+        if run_number_of(run_number) == run_number {
+            if let Some(build) = self.build(bucket, root, job, run_number).await? {
+                return Ok(Some(build));
+            }
+        }
+        if bounded {
             return Ok(None);
         }
-        self.build(bucket, root, job, run_number).await
+        match self
+            .listed_build(bucket, root, job, run_number, span)
+            .await?
+        {
+            Some(build_id) => self.build(bucket, root, job, build_id).await,
+            None => Ok(None),
+        }
+    }
+
+    async fn listed_build(
+        &self, bucket: &Bucket, root: HistoryRoot, job: &str, run_number: i64,
+        span: Option<(i64, i64)>,
+    ) -> PluginResult<Option<i64>> {
+        let Some((start, end)) = span else {
+            return Ok(None);
+        };
+        Ok(self
+            .build_numbers(bucket, root, job, Some(start), Some(end))
+            .await?
+            .into_iter()
+            .find(|build_id| run_number_of(*build_id) == run_number))
     }
 
     pub(crate) async fn build(
