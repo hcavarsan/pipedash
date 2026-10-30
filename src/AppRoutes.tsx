@@ -34,7 +34,7 @@ const BrowsePage = lazy(() =>
 )
 
 const NotificationsPage = lazy(() =>
-  import('./features/notifications/components/NotificationCenter').then((m) => ({
+  import('./features/notifications/components/NotificationsPage').then((m) => ({
     default: m.NotificationsPage,
   }))
 )
