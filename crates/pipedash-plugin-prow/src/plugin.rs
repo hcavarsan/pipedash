@@ -7,6 +7,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use futures::{
+    StreamExt,
+    TryStreamExt,
+};
 use pipedash_plugin_api::*;
 use serde::{
     Deserialize,
@@ -57,6 +61,7 @@ use crate::types::{
 const DEFAULT_PAGE_SIZE: usize = 100;
 const HISTORY_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 const HISTORY_WINDOW_GROWTH: i64 = 4;
+const HISTORY_CONCURRENCY: usize = 4;
 
 impl LogSource {
     fn other(self) -> Self {
@@ -555,40 +560,28 @@ impl Plugin for ProwPlugin {
             }
         }
         let lists =
-            futures::future::join_all(scopes.iter().map(|scope| self.scope_jobs(*scope))).await;
-        let mut jobs_by_scope: HashMap<Option<&Scope>, Vec<ProwJob>> = HashMap::new();
-        let mut first_error = None;
-        for (scope, jobs) in scopes.into_iter().zip(lists) {
-            match jobs {
-                Ok(jobs) => {
-                    jobs_by_scope.insert(scope, jobs);
-                }
-                Err(error) => {
-                    first_error.get_or_insert(error);
-                }
-            }
-        }
-        if jobs_by_scope.is_empty() {
-            if let Some(error) = first_error {
-                return Err(error);
-            }
-        }
+            futures::future::try_join_all(scopes.iter().map(|scope| self.scope_jobs(*scope)))
+                .await?;
+        let jobs_by_scope: HashMap<Option<&Scope>, Vec<ProwJob>> =
+            scopes.into_iter().zip(lists).collect();
 
-        let histories =
-            futures::future::join_all(selections.iter().filter_map(|(id, selection)| {
-                let jobs = jobs_by_scope.get(&selection.scope.as_ref())?;
-                Some(async move {
-                    (
-                        (*id).clone(),
-                        self.history_from(jobs, selection, id, limit).await,
-                    )
-                })
-            }))
-            .await;
-        Ok(histories
-            .into_iter()
-            .filter_map(|(id, runs)| runs.ok().map(|runs| (id, runs)))
-            .collect())
+        let histories: Vec<_> = selections
+            .iter()
+            .map(|(id, selection)| {
+                let jobs = jobs_by_scope
+                    .get(&selection.scope.as_ref())
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                async move {
+                    let runs = self.history_from(jobs, selection, id, limit).await?;
+                    Ok::<_, PluginError>(((*id).clone(), runs))
+                }
+            })
+            .collect();
+        futures::stream::iter(histories)
+            .buffered(HISTORY_CONCURRENCY)
+            .try_collect()
+            .await
     }
 
     async fn fetch_run_details(
@@ -1072,6 +1065,27 @@ mod tests {
         assert_eq!(numbers(&ids[2]), [7]);
         assert!(!runs.contains_key(&ids[3]));
         assert_eq!(sent(&requests, "GET", "/prowjobs.js").len(), 2);
+    }
+
+    #[tokio::test]
+    async fn recent_runs_fail_as_a_whole_when_one_scope_fails() {
+        let body = jobs_body(&[prowjob("a-300", "ci-a", "300", "success", "periodic", "")]);
+        let (deck, _) = serve(move |request| {
+            if request.target.contains("repo=other") {
+                Response::text(403, "forbidden")
+            } else {
+                Response::json(200, &body)
+            }
+        });
+        let plugin = plugin_with(&deck, &[]);
+        let ids = [
+            CI_A.to_string(),
+            "prow__1__kubernetes/other/ci-z".to_string(),
+        ];
+
+        let result = plugin.fetch_recent_runs(&ids, 10).await;
+
+        assert!(matches!(result, Err(PluginError::PermissionDenied(_))));
     }
 
     #[tokio::test]
