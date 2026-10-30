@@ -48,6 +48,10 @@ body,
   #root {
     overflow: hidden;
   }
+
+  .mantine-AppShell-root {
+    height: 100%;
+  }
 }
 
 .mantine-AppShell-main {
