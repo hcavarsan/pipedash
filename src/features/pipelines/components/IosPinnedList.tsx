@@ -9,15 +9,23 @@ import {
   WorkflowActionMenu,
   workflowSwipeActions,
 } from '../../../components/common/PipelineRowParts'
+import { VirtualList } from '../../../components/common/VirtualList'
 import { IosGroup } from '../../../components/ios/IosList'
 import { useNow } from '../../../hooks/useNow'
 import type { ProviderSummary, ViewPipeline } from '../../../types/domain'
 import { getPipelineLabels, getPipelineStatusLabel, pipelineStatusKey } from '../../../utils/pipelinePresentation'
 import { reorderSlots } from '../../../utils/viewTree'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
-import { pinnedFromBlocks } from '../lib/pipelineRows'
+import { inMemberOrder, pinnedFromBlocks } from '../lib/pipelineRows'
 import { useReorderPinned, useViewMembers } from '../queries/usePipelineViewQueries'
 import { SortableList } from './SortableList'
+
+const ROW_ESTIMATE = 64
+
+interface PinnedEntry {
+  pipeline: ViewPipeline
+  pin?: PinToggle
+}
 
 interface PinnedRowProps {
   pipeline: ViewPipeline
@@ -67,10 +75,11 @@ export function IosPinnedList({
 }): ReactNode {
   const { page, view, pinnedBlocks, getProvider, selection } = model
   const now = useNow(30_000)
-  const pinned = page?.sections.flatMap((section) => section.pipelines) ?? []
+  const manual = view?.display.sort === 'manual'
+  const { data: members } = useViewMembers('pinned', manual)
+  const pinned = inMemberOrder(page?.sections ?? [], manual ? members : undefined)
   const extras = pinnedFromBlocks(pinned, pinnedBlocks)
-  const reorderable = Boolean(selection) && view?.display.sort === 'manual' && pinned.length > 1
-  const { data: members } = useViewMembers('pinned', reorderable)
+  const reorderable = Boolean(selection) && manual && pinned.length > 1
   const { mutate: reorder } = useReorderPinned()
 
   if (pinned.length + extras.length === 0) {
@@ -88,16 +97,29 @@ export function IosPinnedList({
       reorderHandle={reorderHandle}
     />
   )
+  const entries: PinnedEntry[] = [
+    ...pinned.map((pipeline) => ({ pipeline })),
+    ...extras.map(({ pipeline, block }) => ({
+      pipeline,
+      pin: {
+        pinned: true,
+        label: 'Unpin repository',
+        onToggle: () => actions.pinItem('repository', block.ref).onClick(),
+      },
+    })),
+  ]
   const footer = staleFooter(
-    [...pinned, ...extras.map((extra) => extra.pipeline)].map((pipeline) => pipeline.provider_id),
+    entries.map((entry) => entry.pipeline.provider_id),
     getProvider,
     now
   )
-  const lastId = extras.at(-1)?.pipeline.id ?? pinned.at(-1)?.id
+  const sorting = reorderable && members
+  const offset = sorting ? pinned.length : 0
+  const lastId = entries.at(-1)?.pipeline.id
 
   return (
     <IosGroup footer={footer}>
-      {reorderable && members ? (
+      {sorting && (
         <SortableList
           items={pinned}
           getId={(pipeline) => pipeline.id}
@@ -138,32 +160,21 @@ export function IosPinnedList({
             </div>
           )}
         </SortableList>
-      ) : (
-        pinned.map((pipeline, index) => (
-          <div
-            key={pipeline.id}
-            className={rowClasses.cell}
-            data-first={index === 0 || undefined}
-            data-last={pipeline.id === lastId || undefined}
-          >
-            {row(pipeline)}
-          </div>
-        ))
       )}
-      {extras.map((extra, index) => (
-        <div
-          key={extra.pipeline.id}
-          className={rowClasses.cell}
-          data-first={pinned.length + index === 0 || undefined}
-          data-last={extra.pipeline.id === lastId || undefined}
-        >
-          {row(extra.pipeline, {
-            pinned: true,
-            label: 'Unpin repository',
-            onToggle: () => actions.pinItem('repository', extra.block.ref).onClick(),
-          })}
-        </div>
-      ))}
+      <VirtualList
+        items={entries.slice(offset)}
+        getKey={(entry) => entry.pipeline.id}
+        estimateSize={ROW_ESTIMATE}
+        renderItem={(entry, index) => (
+          <div
+            className={rowClasses.cell}
+            data-first={offset + index === 0 || undefined}
+            data-last={entry.pipeline.id === lastId || undefined}
+          >
+            {row(entry.pipeline, entry.pin)}
+          </div>
+        )}
+      />
     </IosGroup>
   )
 }

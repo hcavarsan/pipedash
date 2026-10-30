@@ -185,8 +185,10 @@ function SectionRowView({
   row: SectionTableRow
   onToggleRepo: (repoId: string) => void
 }): ReactNode {
+  const summary = !row.expanded
+
   return (
-    <div className={classes.row} data-glyph={row.status ? '' : undefined}>
+    <div className={classes.row} data-glyph="">
       <h3 className={classes.sectionHeading}>
         <button
           type="button"
@@ -194,15 +196,19 @@ function SectionRowView({
           aria-expanded={row.expanded}
           onClick={() => onToggleRepo(row.id)}
         >
-          {row.status && <StatusGlyph status={row.status} />}
+          {summary && row.status ? (
+            <StatusGlyph status={row.status} />
+          ) : (
+            <span className={classes.glyphSlot} aria-hidden />
+          )}
           <span className={classes.text}>
-            <span className={`${classes.title} ${classes.sectionTitle}`}>{row.name}</span>
-            {row.status && <span className={classes.srOnly}>, {statusMeta(row.status).label}</span>}
+            <span className={classes.title}>{row.name}</span>
+            {summary && row.status && <span className={classes.srOnly}>, {statusMeta(row.status).label}</span>}
           </span>
           {row.hasPendingFetch ? (
             <Loader size={14} aria-label="Fetching pipelines" />
           ) : (
-            <span className={classes.value}>{row.pipelineCount}</span>
+            summary && <span className={classes.value}>{row.pipelineCount}</span>
           )}
           <IconChevronRight className={classes.sectionChevron} data-open={row.expanded || undefined} aria-hidden />
         </button>

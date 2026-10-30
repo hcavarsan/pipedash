@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { pipelineViewPageFixture, providerSummaryFixture, viewPipelineFixture } from '../../../testing/fixtures'
-import type { ProviderSummary, ViewSection } from '../../../types/domain'
+import type { ProviderSummary, ViewMember, ViewSection } from '../../../types/domain'
 
-import { accessorSort, buildPipelineRows, pinnedFromBlocks } from './pipelineRows'
+import { accessorSort, buildPipelineRows, inMemberOrder, pinnedFromBlocks } from './pipelineRows'
 
 const providers = [providerSummaryFixture({ id: 1, name: 'Zeta' }), providerSummaryFixture({ id: 2, name: 'Alpha' })]
 const getProvider = (id: number): ProviderSummary | undefined => providers.find((provider) => provider.id === id)
@@ -122,5 +122,32 @@ test('repository pins skip pinned workflows, appear once and keep block order', 
       ['org/one', 'a'],
       ['org/two', 'd'],
     ]
+  )
+})
+
+test('a grouped pinned view lists pipelines in the global member order across sections', () => {
+  const member = (id: string): ViewMember => ({
+    pipeline_id: id,
+    name: null,
+    repository: null,
+    provider_id: 1,
+    available: true,
+  })
+  const sections = [
+    section({ id: 'repo:org/one', pipelines: [viewPipelineFixture({ id: 'a' }), viewPipelineFixture({ id: 'b' })] }),
+    section({ id: 'repo:org/two', pipelines: [viewPipelineFixture({ id: 'c' })] }),
+  ]
+
+  assert.deepEqual(
+    inMemberOrder(sections, [member('a'), member('c'), member('b')]).map((pipeline) => pipeline.id),
+    ['a', 'c', 'b']
+  )
+  assert.deepEqual(
+    inMemberOrder(sections, [member('c'), member('a')]).map((pipeline) => pipeline.id),
+    ['c', 'a', 'b']
+  )
+  assert.deepEqual(
+    inMemberOrder(sections, undefined).map((pipeline) => pipeline.id),
+    ['a', 'b', 'c']
   )
 })

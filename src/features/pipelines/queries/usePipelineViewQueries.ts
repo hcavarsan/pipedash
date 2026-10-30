@@ -285,30 +285,25 @@ export function useTogglePin(): UseMutationResult<void, Error, ViewPipeline, Pag
   })
 }
 
-export function useReorderPinned(): UseMutationResult<PipelineView, Error, string[], PageSnapshots> {
+export function useReorderPinned(): UseMutationResult<PipelineView, Error, string[], ViewMember[] | undefined> {
   const queryClient = useQueryClient()
+  const key = queryKeys.pipelines.viewMembers('pinned')
 
   return useMutation({
     mutationFn: (members: string[]) => service.updatePipelineView('pinned', { members }),
     onMutate: async (members) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.pipelines.pages() })
-      const snapshots = snapshotPages(queryClient)
-      const rank = (id: string) => {
-        const index = members.indexOf(id)
-
-        return index < 0 ? members.length : index
-      }
-      const order = (pipelines: ViewPipeline[]) => [...pipelines].sort((a, b) => rank(a.id) - rank(b.id))
-      updatePages(queryClient, (page) =>
-        page.view.kind === 'pinned'
-          ? { ...page, sections: page.sections.map((section) => ({ ...section, pipelines: order(section.pipelines) })) }
-          : page
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<ViewMember[]>(key)
+      const byId = new Map(previous?.map((member) => [member.pipeline_id, member]))
+      queryClient.setQueryData(
+        key,
+        members.flatMap((id) => byId.get(id) ?? [])
       )
 
-      return snapshots
+      return previous
     },
-    onError: (error: Error, _members, snapshots) => {
-      restorePages(queryClient, snapshots)
+    onError: (error: Error, _members, previous) => {
+      queryClient.setQueryData(key, previous)
       notifyError("Couldn't reorder pinned workflows", error, 'Try moving it again.')
     },
     onSettled: () => invalidateViews(queryClient),

@@ -2,7 +2,6 @@ import { notifications as mantine, type NotificationData } from '@mantine/notifi
 
 import { PRESENT_EASING } from './motion'
 
-// Mantine sets the slide-in transform inline; a notification's own style is the only layer merged after it.
 const DESKTOP_PRESENT = { transform: 'translateX(0)', transitionTimingFunction: PRESENT_EASING }
 
 const present = (data: NotificationData): NotificationData =>

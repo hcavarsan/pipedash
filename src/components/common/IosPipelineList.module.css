@@ -195,8 +195,9 @@
   font: inherit;
 }
 
-.sectionTitle {
-  font-weight: 600;
+.glyphSlot {
+  flex-shrink: 0;
+  width: var(--glyph);
 }
 
 .sectionChevron {

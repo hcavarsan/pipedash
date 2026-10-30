@@ -13,6 +13,7 @@ import type {
   ProviderConfig,
   ProviderSummary,
   RefreshResult,
+  ViewMember,
 } from '../types/domain'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
@@ -184,45 +185,33 @@ for (const [name, useToggle, method] of [
   })
 }
 
-test('a rejected pinned reorder restores the cached pinned order', async (context) => {
+test('a pinned reorder across sections moves the member order and a rejection restores it', async (context) => {
   const request = Promise.withResolvers<never>()
   stub(context, 'updatePipelineView', () => request.promise)
-  const pinnedIds = () =>
-    client
-      .getQueryData<PipelineViewPage>(queryKeys.pipelines.page(viewQuery))
-      ?.sections[0]?.pipelines.map((pipeline) => pipeline.id)
-  client.setQueryData(queryKeys.pipelines.page(viewQuery), {
-    ...viewPage(),
-    view: pipelineViewFixture({ id: 'pinned', kind: 'pinned' }),
-    sections: [
-      {
-        id: 'none',
-        kind: 'none',
-        title: 'All',
-        organization: null,
-        provider_ids: [],
-        status: null,
-        status_pipeline_id: null,
-        last_run: null,
-        pending_fetch: false,
-        pipelines: [viewPipelineFixture({ id: 'a', pinned: true }), viewPipelineFixture({ id: 'b', pinned: true })],
-      },
-    ],
+  const key = queryKeys.pipelines.viewMembers('pinned')
+  const member = (id: string): ViewMember => ({
+    pipeline_id: id,
+    name: null,
+    repository: null,
+    provider_id: 1,
+    available: true,
   })
+  const memberIds = () => client.getQueryData<ViewMember[]>(key)?.map((item) => item.pipeline_id)
+  client.setQueryData(key, [member('a'), member('b'), member('c')])
   const { result } = renderHook(() => useReorderPinned(), { wrapper })
 
   let mutation: Promise<unknown> = Promise.resolve()
   act(() => {
-    mutation = result.current.mutateAsync(['b', 'a']).catch(() => undefined)
+    mutation = result.current.mutateAsync(['a', 'c', 'b']).catch(() => undefined)
   })
-  await waitFor(() => assert.deepEqual(pinnedIds(), ['b', 'a']))
+  await waitFor(() => assert.deepEqual(memberIds(), ['a', 'c', 'b']))
 
   await act(async () => {
     request.reject(new Error('nope'))
     await mutation
   })
 
-  assert.deepEqual(pinnedIds(), ['a', 'b'])
+  assert.deepEqual(memberIds(), ['a', 'b', 'c'])
 })
 
 test('provider edit does not seed an absent list and keeps credentials out of summaries', async (context) => {

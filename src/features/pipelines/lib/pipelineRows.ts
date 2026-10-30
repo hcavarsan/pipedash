@@ -5,6 +5,7 @@ import type {
   PipelineViewPage,
   ProviderSummary,
   SectionMode,
+  ViewMember,
   ViewPipeline,
   ViewSection,
   ViewSortKey,
@@ -32,6 +33,18 @@ export function pinnedFromBlocks(pinned: ViewPipeline[], blocks: PinnedBlock[]):
       return [{ pipeline, block }]
     })
   )
+}
+
+export function inMemberOrder(sections: ViewSection[], members: ViewMember[] | undefined): ViewPipeline[] {
+  const pipelines = sections.flatMap((section) => section.pipelines)
+
+  if (!members) {
+    return pipelines
+  }
+
+  const rank = new Map(members.map((member, index) => [member.pipeline_id, index]))
+
+  return pipelines.sort((a, b) => (rank.get(a.id) ?? members.length) - (rank.get(b.id) ?? members.length))
 }
 
 export const SORT_ACCESSORS: Record<ViewSortKey, string | undefined> = {
