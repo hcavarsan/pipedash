@@ -289,7 +289,6 @@ pub(crate) fn map_available(job: &ProwJob, deck_host: &str) -> AvailablePipeline
 
 pub(crate) fn log_node(
     status: PipelineStatus, availability: LogAvailability, web_url: Option<String>,
-    started: Option<DateTime<Utc>>, finished: Option<DateTime<Utc>>,
 ) -> LogNode {
     LogNode {
         id: LOG_NODE.to_string(),
@@ -297,8 +296,8 @@ pub(crate) fn log_node(
         kind: LogNodeKind::Job,
         name: "Build log".to_string(),
         status,
-        started_at: started,
-        finished_at: finished,
+        started_at: None,
+        finished_at: None,
         log: Some(availability),
         web_url,
     }

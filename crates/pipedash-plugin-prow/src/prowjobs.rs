@@ -34,6 +34,9 @@ const FIELD_MANAGER: &str = "pipedash";
 const BUILD_ID_LABEL: &str = "prow.k8s.io/build-id";
 const STARTED: &str = "Started again from Pipedash.";
 const ABORTED: &str = "Aborted from Pipedash.";
+const ACTIVE_STATES: [&str; 3] = ["scheduling", "triggered", "pending"];
+const CONFLICT_ATTEMPTS: usize = 3;
+const CONFLICT: u16 = 409;
 
 pub(crate) struct ProwJobClient {
     client: kube::Client,
@@ -90,6 +93,23 @@ fn prowjobs(namespace: &str) -> Request {
     Request::new(format!(
         "/apis/prow.k8s.io/v1/namespaces/{namespace}/prowjobs"
     ))
+}
+
+fn is_conflict(error: &kube::Error) -> bool {
+    matches!(error, kube::Error::Api(status) if status.code == CONFLICT)
+}
+
+fn abort_patch(object: &Value) -> PluginResult<Patch<Value>> {
+    let version = object["metadata"]["resourceVersion"]
+        .as_str()
+        .filter(|version| !version.is_empty())
+        .ok_or_else(|| {
+            PluginError::SerializationError("The ProwJob has no resourceVersion".to_string())
+        })?;
+    Ok(Patch::Merge(json!({
+        "metadata": { "resourceVersion": version },
+        "status": { "state": "aborted", "description": ABORTED },
+    })))
 }
 
 pub(crate) fn rerun_object(original: &Value, now: DateTime<Utc>) -> PluginResult<Value> {
@@ -173,15 +193,20 @@ impl ProwJobClient {
         Ok(Self { client })
     }
 
-    async fn exec<T: DeserializeOwned>(
+    async fn send<T: DeserializeOwned>(
         &self, request: Result<http::Request<Vec<u8>>, kube::core::request::Error>, context: &str,
-    ) -> PluginResult<T> {
+    ) -> PluginResult<Result<T, kube::Error>> {
         let request =
             request.map_err(|error| PluginError::InvalidConfig(format!("{context}: {error}")))?;
 
-        self.client
-            .request(request)
-            .await
+        Ok(self.client.request(request).await)
+    }
+
+    async fn exec<T: DeserializeOwned>(
+        &self, request: Result<http::Request<Vec<u8>>, kube::core::request::Error>, context: &str,
+    ) -> PluginResult<T> {
+        self.send(request, context)
+            .await?
             .map_err(|error| map_error(error, context))
     }
 
@@ -218,26 +243,55 @@ impl ProwJobClient {
 
     pub(crate) async fn abort(&self, namespace: &str, name: &str) -> PluginResult<()> {
         let request = prowjobs(namespace);
-        let patch = Patch::Merge(json!({
-            "status": { "state": "aborted", "description": ABORTED }
-        }));
         let params = PatchParams {
             field_manager: Some(FIELD_MANAGER.to_string()),
             ..Default::default()
         };
         let context = format!("abort ProwJob {name}");
-        let patched: Value = self
-            .exec(request.patch(name, &params, &patch), &context)
-            .await?;
-        if patched["status"]["state"] == "aborted" {
-            return Ok(());
+
+        for _ in 0..CONFLICT_ATTEMPTS {
+            let current: Value = self
+                .exec(
+                    request.get(name, &GetParams::default()),
+                    &format!("read ProwJob {name}"),
+                )
+                .await?;
+            let state = current["status"]["state"].as_str().unwrap_or_default();
+            if !ACTIVE_STATES.contains(&state) {
+                return Err(PluginError::ApiError(format!(
+                    "ProwJob {name} already finished ({state})"
+                )));
+            }
+
+            let patched: Value = match self
+                .send(
+                    request.patch(name, &params, &abort_patch(&current)?),
+                    &context,
+                )
+                .await?
+            {
+                Ok(patched) => patched,
+                Err(error) if is_conflict(&error) => continue,
+                Err(error) => return Err(map_error(error, &context)),
+            };
+            if patched["status"]["state"] == "aborted" {
+                return Ok(());
+            }
+            match self
+                .send::<Value>(
+                    request.patch_subresource("status", name, &params, &abort_patch(&patched)?),
+                    &context,
+                )
+                .await?
+            {
+                Ok(_) => return Ok(()),
+                Err(error) if is_conflict(&error) => continue,
+                Err(error) => return Err(map_error(error, &context)),
+            }
         }
-        self.exec::<Value>(
-            request.patch_subresource("status", name, &params, &patch),
-            &context,
-        )
-        .await?;
-        Ok(())
+        Err(PluginError::ApiError(format!(
+            "ProwJob {name} kept changing while Pipedash tried to abort it. Try again."
+        )))
     }
 }
 

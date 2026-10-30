@@ -20,8 +20,14 @@ use reqwest::Url;
 use serde::de::DeserializeOwned;
 
 use crate::config::Bucket;
-use crate::deck::DeckClient;
+use crate::deck::{
+    is_html,
+    DeckClient,
+};
 use crate::types::{
+    run_number_of,
+    snowflake_at,
+    snowflake_span,
     Finished,
     ObjectList,
     Started,
@@ -29,9 +35,15 @@ use crate::types::{
 
 const GCS_URL: &str = "https://storage.googleapis.com";
 const BUILD_LOG: &str = "build-log.txt";
-const MAX_LIST_PAGES: usize = 25;
+const MIN_LISTING_FLOOR: i64 = 1_000_000_000_000_000_000;
+const STORAGE_SIGNED_OUT: &str = "Artifact storage answered with a sign-in page instead of the \
+                                  build log. Check the artifact storage URL and the token.";
 const CONCURRENCY: usize = 8;
 const LOG_TIMEOUT: Duration = Duration::from_secs(900);
+
+pub(crate) fn listing_floor(unix_ms: i64) -> Option<i64> {
+    snowflake_at(unix_ms).filter(|floor| *floor >= MIN_LISTING_FLOOR)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Artifacts {
@@ -182,6 +194,11 @@ impl StorageClient {
                     redact_url(url)
                 )));
             }
+            if response.status().is_success() && is_html(&response) {
+                return Err(PluginError::AuthenticationFailed(
+                    STORAGE_SIGNED_OUT.to_string(),
+                ));
+            }
             Ok(response)
         })
         .await
@@ -200,11 +217,13 @@ impl StorageClient {
                 if response.status() == reqwest::StatusCode::NOT_FOUND {
                     return Ok(None);
                 }
-                let body = check_response(response)
-                    .await?
-                    .bytes()
-                    .await
-                    .map_err(|e| map_send_error(e, url))?;
+                let response = check_response(response).await?;
+                if is_html(&response) {
+                    return Err(PluginError::AuthenticationFailed(
+                        STORAGE_SIGNED_OUT.to_string(),
+                    ));
+                }
+                let body = response.bytes().await.map_err(|e| map_send_error(e, url))?;
                 Ok(Some(body.to_vec()))
             })
             .await
@@ -221,7 +240,7 @@ impl StorageClient {
     }
 
     pub(crate) async fn build_numbers(
-        &self, bucket: &Bucket, root: HistoryRoot, job: &str,
+        &self, bucket: &Bucket, root: HistoryRoot, job: &str, from: Option<i64>, until: Option<i64>,
     ) -> PluginResult<Vec<i64>> {
         let Some(base) = self
             .base(&bucket.provider)
@@ -232,10 +251,16 @@ impl StorageClient {
         let list_url = Url::parse(&format!("{base}/storage/v1/b/{}/o", bucket.name))
             .map_err(|e| PluginError::InvalidConfig(format!("Invalid storage URL: {e}")))?;
         let prefix = format!("{}/", root.key(job));
+        let offset = |bound: Option<i64>| {
+            bound
+                .filter(|bound| *bound >= MIN_LISTING_FLOOR)
+                .map(|bound| format!("{prefix}{bound}"))
+        };
+        let (start_offset, end_offset) = (offset(from), offset(until));
         let mut numbers: Vec<i64> = Vec::new();
         let mut page_token: Option<String> = None;
 
-        for _ in 0..MAX_LIST_PAGES {
+        loop {
             let mut url = list_url.clone();
             {
                 let mut query = url.query_pairs_mut();
@@ -250,6 +275,12 @@ impl StorageClient {
                         query.append_pair("fields", "items(name),nextPageToken")
                     }
                 };
+                if let Some(start) = &start_offset {
+                    query.append_pair("startOffset", start);
+                }
+                if let Some(end) = &end_offset {
+                    query.append_pair("endOffset", end);
+                }
                 if let Some(token) = &page_token {
                     query.append_pair("pageToken", token);
                 }
@@ -278,10 +309,36 @@ impl StorageClient {
             }
         }
 
-        numbers.retain(|number| *number > 0);
+        numbers.retain(|number| {
+            *number > 0
+                && from.is_none_or(|from| *number >= from)
+                && until.is_none_or(|until| *number < until)
+        });
         numbers.sort_unstable_by(|a, b| b.cmp(a));
         numbers.dedup();
         Ok(numbers)
+    }
+
+    pub(crate) async fn find_build(
+        &self, bucket: &Bucket, root: HistoryRoot, job: &str, run_number: i64,
+    ) -> PluginResult<Option<StoredBuild>> {
+        if let Some((start, end)) =
+            snowflake_span(run_number).filter(|(start, _)| *start >= MIN_LISTING_FLOOR)
+        {
+            let listed = self
+                .build_numbers(bucket, root, job, Some(start), Some(end))
+                .await?;
+            if let Some(build_id) = listed
+                .into_iter()
+                .find(|build_id| run_number_of(*build_id) == run_number)
+            {
+                return self.build(bucket, root, job, build_id).await;
+            }
+        }
+        if run_number_of(run_number) != run_number {
+            return Ok(None);
+        }
+        self.build(bucket, root, job, run_number).await
     }
 
     pub(crate) async fn build(

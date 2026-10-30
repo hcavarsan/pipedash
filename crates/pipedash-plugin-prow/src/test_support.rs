@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{
     Read,
     Write,
@@ -10,6 +11,7 @@ use std::sync::{
 
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use serde_json::json;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Request {
@@ -125,4 +127,59 @@ pub(crate) fn serve(
         }
     });
     (format!("http://{addr}"), requests)
+}
+
+const GCS_PAGE_SIZE: usize = 2;
+
+pub(crate) fn gcs(objects: Vec<(String, String)>) -> impl Fn(&Request) -> Response + Send + Sync {
+    move |request| {
+        let url = reqwest::Url::parse(&format!("http://stub{}", request.target)).unwrap();
+        if url.path() == "/storage/v1/b/bucket/o" {
+            let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
+            return Response::json(200, &gcs_listing(&objects, &query));
+        }
+        url.path()
+            .strip_prefix("/bucket/")
+            .and_then(|name| objects.iter().find(|(key, _)| key == name))
+            .map_or_else(
+                || Response::text(404, "No such object"),
+                |(_, body)| Response::text(200, body),
+            )
+    }
+}
+
+fn gcs_listing(objects: &[(String, String)], query: &HashMap<String, String>) -> String {
+    let get = |key: &str| query.get(key).map(String::as_str);
+    let prefix = get("prefix").unwrap_or_default();
+    let mut names: Vec<&str> = objects
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .filter(|name| name.starts_with(prefix))
+        .filter(|name| get("startOffset").is_none_or(|start| *name >= start))
+        .filter(|name| get("endOffset").is_none_or(|end| *name < end))
+        .collect();
+    names.sort_unstable();
+    let delimiter = get("delimiter");
+    let mut entries: Vec<String> = match delimiter {
+        Some(delimiter) => names
+            .iter()
+            .filter_map(|name| name[prefix.len()..].split_once(delimiter))
+            .map(|(head, _)| format!("{prefix}{head}{delimiter}"))
+            .collect(),
+        None => names.iter().map(|name| name.to_string()).collect(),
+    };
+    entries.dedup();
+    let start: usize = get("pageToken")
+        .and_then(|token| token.parse().ok())
+        .unwrap_or(0);
+    let page = entries.iter().skip(start).take(GCS_PAGE_SIZE);
+    let next = (start + GCS_PAGE_SIZE < entries.len()).then(|| (start + GCS_PAGE_SIZE).to_string());
+    match delimiter {
+        Some(_) => json!({ "prefixes": page.collect::<Vec<_>>(), "nextPageToken": next }),
+        None => json!({
+            "items": page.map(|name| json!({ "name": name })).collect::<Vec<_>>(),
+            "nextPageToken": next,
+        }),
+    }
+    .to_string()
 }

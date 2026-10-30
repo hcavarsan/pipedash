@@ -91,6 +91,7 @@ pub(crate) struct ProwJobStatus {
 }
 
 const JAVASCRIPT_SAFE_LIMIT: i64 = 1 << 53;
+const SNOWFLAKE_EPOCH_MS: i64 = 1_288_834_974_657;
 const SNOWFLAKE_TIME_SHIFT: u32 = 22;
 const SNOWFLAKE_NODE_SHIFT: u32 = 12;
 const SNOWFLAKE_STEP_MASK: i64 = 0xFFF;
@@ -100,6 +101,20 @@ pub(crate) fn run_number_of(build_id: i64) -> i64 {
         return build_id;
     }
     ((build_id >> SNOWFLAKE_TIME_SHIFT) << SNOWFLAKE_NODE_SHIFT) | (build_id & SNOWFLAKE_STEP_MASK)
+}
+
+pub(crate) fn snowflake_at(unix_ms: i64) -> Option<i64> {
+    unix_ms
+        .checked_sub(SNOWFLAKE_EPOCH_MS)
+        .filter(|since| *since > 0)?
+        .checked_mul(1 << SNOWFLAKE_TIME_SHIFT)
+}
+
+pub(crate) fn snowflake_span(run_number: i64) -> Option<(i64, i64)> {
+    let start = (run_number >> SNOWFLAKE_NODE_SHIFT)
+        .checked_mul(1 << SNOWFLAKE_TIME_SHIFT)
+        .filter(|start| *start > 0)?;
+    Some((start, start.checked_add(1 << SNOWFLAKE_TIME_SHIFT)?))
 }
 
 impl ProwJob {
@@ -186,5 +201,19 @@ mod tests {
         for sequential in [4_521, 4_294_967_296, JAVASCRIPT_SAFE_LIMIT - 1] {
             assert_eq!(run_number_of(sequential), sequential);
         }
+    }
+
+    #[test]
+    fn snowflake_bounds_bracket_a_build() {
+        let build_id = 2_116_011_604_377_079_811_i64;
+        let (start, end) = snowflake_span(run_number_of(build_id)).unwrap();
+        assert!(start <= build_id && build_id < end);
+
+        let millis = (build_id >> SNOWFLAKE_TIME_SHIFT) + SNOWFLAKE_EPOCH_MS;
+        assert!(snowflake_at(millis).unwrap() <= build_id);
+        assert!(build_id < snowflake_at(millis + 1).unwrap());
+
+        assert_eq!(snowflake_at(SNOWFLAKE_EPOCH_MS), None);
+        assert_eq!(snowflake_span(i64::MAX), None);
     }
 }

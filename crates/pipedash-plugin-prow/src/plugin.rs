@@ -6,10 +6,7 @@ use std::collections::{
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{
-    DateTime,
-    Utc,
-};
+use chrono::Utc;
 use pipedash_plugin_api::*;
 use serde::{
     Deserialize,
@@ -46,6 +43,7 @@ use crate::metadata;
 use crate::prowjobs::ProwJobClient;
 use crate::sign_in;
 use crate::storage::{
+    self,
     Artifacts,
     HistoryRoot,
     StorageClient,
@@ -57,6 +55,17 @@ use crate::types::{
 };
 
 const DEFAULT_PAGE_SIZE: usize = 100;
+const HISTORY_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
+const HISTORY_WINDOW_GROWTH: i64 = 4;
+
+impl LogSource {
+    fn other(self) -> Self {
+        match self {
+            Self::Deck => Self::Storage,
+            Self::Storage => Self::Deck,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -78,8 +87,6 @@ struct RunTarget {
     artifacts: Option<Artifacts>,
     status: PipelineStatus,
     web_url: Option<String>,
-    started: Option<DateTime<Utc>>,
-    finished: Option<DateTime<Utc>>,
 }
 
 pub struct ProwPlugin {
@@ -144,7 +151,7 @@ impl ProwPlugin {
             .map(Some)
     }
 
-    async fn scope_jobs(&self, scope: Option<&Scope>) -> PluginResult<Arc<[ProwJob]>> {
+    async fn scope_jobs(&self, scope: Option<&Scope>) -> PluginResult<Vec<ProwJob>> {
         self.deck()?
             .jobs(
                 scope.map(|scope| scope.org.as_str()),
@@ -189,27 +196,18 @@ impl ProwPlugin {
         })
     }
 
-    async fn locate(&self, run: &RunRef<'_>) -> PluginResult<RunTarget> {
+    fn target(&self, run: &RunRef<'_>) -> PluginResult<RunTarget> {
         let selection = config::parse_pipeline_id(run.pipeline_id)?;
         let deck = self.deck()?;
-        let jobs = self.scope_jobs(selection.scope.as_ref()).await?;
-
-        if let Some(job) = Self::find_build(&jobs, &selection.job, run.run_number) {
-            return Ok(RunTarget {
-                job: selection.job,
-                build_id: job.status.build_id.clone(),
-                state: Some(job.status.state.clone()),
-                artifacts: Artifacts::from_view_url(&job.status.url),
-                status: mapper::map_state(&job.status.state),
-                web_url: Some(job.status.url.clone()).filter(|url| !url.is_empty()),
-                started: job.status.start_time,
-                finished: job.status.completion_time,
-            });
-        }
-
-        let text = |key: &str| run.metadata.get(key).and_then(Value::as_str);
+        let text = |key: &str| {
+            run.metadata
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+        };
+        let state = text("state").map(str::to_string);
         let artifacts = text("artifacts").and_then(Artifacts::from_metadata);
-        let status = match (text("state"), text("result")) {
+        let status = match (state.as_deref(), text("result")) {
             (Some(state), _) => mapper::map_state(state),
             (None, Some(result)) => mapper::map_result(result, None).0,
             (None, None) => PipelineStatus::Pending,
@@ -224,15 +222,88 @@ impl ProwPlugin {
         Ok(RunTarget {
             job: selection.job,
             build_id,
-            state: None,
+            state,
             web_url: artifacts
                 .as_ref()
                 .map(|artifacts| artifacts.view_url(deck.base())),
             artifacts,
             status,
-            started: None,
-            finished: None,
         })
+    }
+
+    async fn stream_from(
+        &self, source: LogSource, target: &RunTarget, offset: Option<u64>, sink: &mut LogSink,
+    ) -> PluginResult<(LogReadMode, u64)> {
+        let deck = self.deck()?;
+        match (source, &target.artifacts) {
+            (LogSource::Storage, Some(artifacts)) => {
+                self.storage()?
+                    .stream_build_log(deck, artifacts, offset, sink)
+                    .await
+            }
+            _ => {
+                deck.stream_pod_log(&target.job, &target.build_id, offset, sink)
+                    .await
+            }
+        }
+    }
+
+    async fn stored_runs(
+        &self, bucket: &Bucket, roots: &[HistoryRoot], selection: &Selection, pipeline_id: &str,
+        deck_runs: &[PipelineRun], limit: usize,
+    ) -> PluginResult<Vec<PipelineRun>> {
+        let storage = self.storage()?;
+        let deck = self.deck()?;
+        let floor = deck_runs
+            .get(limit.saturating_sub(1))
+            .filter(|_| limit > 0)
+            .map_or(i64::MIN, |run| run.run_number);
+        let now = Utc::now().timestamp_millis();
+
+        for root in roots {
+            let mut seen: HashSet<i64> = deck_runs.iter().map(|run| run.run_number).collect();
+            let mut stored: Vec<PipelineRun> = Vec::new();
+            let mut listed_any = false;
+            let mut span = HISTORY_WINDOW_MS;
+            loop {
+                let from = storage::listing_floor(now.saturating_sub(span));
+                let numbers = storage
+                    .build_numbers(bucket, *root, &selection.job, from, None)
+                    .await?;
+                listed_any |= !numbers.is_empty();
+                let candidates: Vec<i64> = numbers
+                    .into_iter()
+                    .filter(|build_id| {
+                        let run_number = run_number_of(*build_id);
+                        run_number > floor && seen.insert(run_number)
+                    })
+                    .collect();
+                for chunk in candidates.chunks(limit.max(1)) {
+                    let builds = storage
+                        .builds(bucket, *root, &selection.job, chunk.to_vec())
+                        .await?;
+                    stored.extend(builds.iter().map(|build| {
+                        mapper::map_stored_run(
+                            build,
+                            pipeline_id,
+                            selection.scope.as_ref(),
+                            deck.base(),
+                        )
+                    }));
+                    if stored.len() >= limit {
+                        return Ok(stored);
+                    }
+                }
+                if from.is_none_or(|from| run_number_of(from) <= floor) {
+                    break;
+                }
+                span = span.saturating_mul(HISTORY_WINDOW_GROWTH);
+            }
+            if listed_any {
+                return Ok(stored);
+            }
+        }
+        Ok(Vec::new())
     }
 }
 
@@ -391,7 +462,7 @@ impl Plugin for ProwPlugin {
         let lists =
             futures::future::try_join_all(scopes.iter().map(|scope| self.scope_jobs(*scope)))
                 .await?;
-        let jobs_by_scope: HashMap<Option<&Scope>, Arc<[ProwJob]>> =
+        let jobs_by_scope: HashMap<Option<&Scope>, Vec<ProwJob>> =
             scopes.into_iter().zip(lists).collect();
         let newest: Vec<Option<&ProwJob>> = self
             .selections
@@ -448,38 +519,10 @@ impl Plugin for ProwPlugin {
             if let Some((bucket, roots)) =
                 self.history_location(mapper::newest(&jobs, &selection.job))
             {
-                let storage = self.storage()?;
-                for root in roots {
-                    let numbers = storage.build_numbers(&bucket, root, &selection.job).await?;
-                    if numbers.is_empty() {
-                        continue;
-                    }
-                    let known: HashSet<i64> = runs.iter().map(|run| run.run_number).collect();
-                    let floor = runs
-                        .get(limit.saturating_sub(1))
-                        .filter(|_| limit > 0)
-                        .map_or(i64::MIN, |run| run.run_number);
-                    let missing: Vec<i64> = numbers
-                        .into_iter()
-                        .filter(|number| {
-                            let run_number = run_number_of(*number);
-                            run_number > floor && !known.contains(&run_number)
-                        })
-                        .take(limit)
-                        .collect();
-                    let builds = storage
-                        .builds(&bucket, root, &selection.job, missing)
-                        .await?;
-                    runs.extend(builds.iter().map(|build| {
-                        mapper::map_stored_run(
-                            build,
-                            pipeline_id,
-                            selection.scope.as_ref(),
-                            deck.base(),
-                        )
-                    }));
-                    break;
-                }
+                let stored = self
+                    .stored_runs(&bucket, &roots, &selection, pipeline_id, &runs, limit)
+                    .await?;
+                runs.extend(stored);
             }
         }
 
@@ -510,16 +553,8 @@ impl Plugin for ProwPlugin {
             {
                 let storage = self.storage()?;
                 for root in roots {
-                    let listed = storage
-                        .build_numbers(&bucket, root, &selection.job)
-                        .await?
-                        .into_iter()
-                        .find(|build_id| run_number_of(*build_id) == run_number);
-                    let Some(build_id) = listed else {
-                        continue;
-                    };
                     if let Some(build) = storage
-                        .build(&bucket, root, &selection.job, build_id)
+                        .find_build(&bucket, root, &selection.job, run_number)
                         .await?
                     {
                         return Ok(mapper::map_stored_run(
@@ -625,7 +660,6 @@ impl Plugin for ProwPlugin {
                 )
             }
         };
-        deck.invalidate();
         info!(job, "Prow job started again");
 
         Ok(json!({ "message": message, "prowjob": created }).to_string())
@@ -655,13 +689,12 @@ impl Plugin for ProwPlugin {
             }
             None => deck.abort(&target.metadata.name).await?,
         }
-        deck.invalidate();
         info!(job, run_number, "Prow job aborted");
         Ok(())
     }
 
     async fn fetch_log_nodes(&self, run: RunRef<'_>) -> PluginResult<Vec<LogNode>> {
-        let target = self.locate(&run).await?;
+        let target = self.target(&run)?;
         let availability = match target.state.as_deref() {
             Some("scheduling" | "triggered") => LogAvailability::Pending,
             Some("pending") => LogAvailability::Partial,
@@ -671,8 +704,6 @@ impl Plugin for ProwPlugin {
             target.status,
             availability,
             target.web_url,
-            target.started,
-            target.finished,
         )])
     }
 
@@ -684,7 +715,7 @@ impl Plugin for ProwPlugin {
                 "Invalid Prow log node: {node_id}"
             )));
         }
-        let target = self.locate(&run).await?;
+        let target = self.target(&run)?;
         let state = target.state.as_deref();
         if matches!(state, Some("scheduling" | "triggered")) {
             return Err(PluginError::PipelineNotFound(format!(
@@ -692,49 +723,34 @@ impl Plugin for ProwPlugin {
                 target.build_id
             )));
         }
-        let deck = self.deck()?;
         let storage = self.storage()?;
-        let stored_log = target
-            .artifacts
-            .as_ref()
-            .filter(|artifacts| state != Some("pending") && storage.log_url(artifacts).is_some());
-        let source = match stored_log {
-            Some(_) => LogSource::Storage,
-            None => LogSource::Deck,
+        let stored = state != Some("pending")
+            && target
+                .artifacts
+                .as_ref()
+                .is_some_and(|artifacts| storage.log_url(artifacts).is_some());
+        let previous = from.and_then(|cursor| cursor.parse::<LogPosition>());
+        let source = match (stored, &previous) {
+            (false, _) => LogSource::Deck,
+            (true, Some(previous)) => previous.source,
+            (true, None) => LogSource::Storage,
         };
-
-        let position = from
-            .and_then(|cursor| cursor.parse::<LogPosition>())
-            .filter(|position| position.source == source);
-        if from.is_some() && position.is_none() {
+        let offset = previous
+            .filter(|previous| previous.source == source)
+            .map(|previous| previous.offset);
+        if from.is_some() && offset.is_none() {
             sink.restart()?;
         }
-        let offset = position.map(|position| position.offset);
 
-        let read = match stored_log {
-            Some(artifacts) => {
-                storage
-                    .stream_build_log(deck, artifacts, offset, sink)
-                    .await
-            }
-            None => {
-                deck.stream_pod_log(&target.job, &target.build_id, offset, sink)
-                    .await
-            }
-        };
-        let (source, (mode, offset)) = match read {
+        let (source, (mode, offset)) = match self.stream_from(source, &target, offset, sink).await {
             Ok(read) => (source, read),
-            Err(PluginError::PipelineNotFound(_))
-                if source == LogSource::Storage && sink.bytes_written() == 0 =>
-            {
+            Err(PluginError::PipelineNotFound(_)) if stored && sink.bytes_written() == 0 => {
                 if from.is_some() && !sink.restarted() {
                     sink.restart()?;
                 }
-                match deck
-                    .stream_pod_log(&target.job, &target.build_id, None, sink)
-                    .await
-                {
-                    Ok(read) => (LogSource::Deck, read),
+                let fallback = source.other();
+                match self.stream_from(fallback, &target, None, sink).await {
+                    Ok(read) => (fallback, read),
                     Err(PluginError::PipelineNotFound(_)) => {
                         return Err(PluginError::PipelineNotFound(format!(
                             "The log of build {} is no longer available",
@@ -782,6 +798,7 @@ impl Plugin for ProwPlugin {
 mod tests {
     use super::*;
     use crate::test_support::{
+        gcs,
         serve,
         Request,
         Requests,
@@ -864,28 +881,26 @@ mod tests {
     async fn read(
         plugin: &ProwPlugin, pipeline_id: &str, run_number: i64, from: Option<&LogCursor>,
     ) -> PluginResult<(LogRead, String)> {
-        let metadata = HashMap::new();
-        let run_id = run_number.to_string();
-        read_run(
-            plugin,
-            RunRef {
-                pipeline_id,
-                run_number,
-                run_id: &run_id,
-                metadata: &metadata,
-            },
-            from,
-        )
-        .await
+        let run = plugin.fetch_run_details(pipeline_id, run_number).await?;
+        read_run(plugin, &run, from).await
+    }
+
+    fn run_ref(run: &PipelineRun) -> RunRef<'_> {
+        RunRef {
+            pipeline_id: &run.pipeline_id,
+            run_number: run.run_number,
+            run_id: &run.id,
+            metadata: &run.metadata,
+        }
     }
 
     async fn read_run(
-        plugin: &ProwPlugin, run: RunRef<'_>, from: Option<&LogCursor>,
+        plugin: &ProwPlugin, run: &PipelineRun, from: Option<&LogCursor>,
     ) -> PluginResult<(LogRead, String)> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
         let mut sink = LogSink::new(tx);
         let result = plugin
-            .read_log(run, mapper::LOG_NODE, from, &mut sink)
+            .read_log(run_ref(run), mapper::LOG_NODE, from, &mut sink)
             .await;
         drop(sink);
         let mut text = Vec::new();
@@ -1192,18 +1207,10 @@ mod tests {
             },
         );
         let plugin = plugin_with(&deck, &[]);
-        let metadata = HashMap::new();
+        let run = plugin.fetch_run_details(CI_A, 300).await.unwrap();
 
-        let nodes = plugin
-            .fetch_log_nodes(RunRef {
-                pipeline_id: CI_A,
-                run_number: 300,
-                run_id: "300",
-                metadata: &metadata,
-            })
-            .await
-            .unwrap();
-        let (read, text) = read(&plugin, CI_A, 300, None).await.unwrap();
+        let nodes = plugin.fetch_log_nodes(run_ref(&run)).await.unwrap();
+        let (read, text) = read_run(&plugin, &run, None).await.unwrap();
 
         assert_eq!(nodes[0].log, Some(LogAvailability::Partial));
         assert_eq!(nodes[0].status, PipelineStatus::Running);
@@ -1211,6 +1218,7 @@ mod tests {
         assert_eq!(read.mode, LogReadMode::Replace);
         assert_eq!(source_of(&read), LogSource::Deck);
         assert_eq!(sent(&requests, "GET", "/log").len(), 1);
+        assert_eq!(sent(&requests, "GET", "/prowjobs.js").len(), 1);
     }
 
     #[tokio::test]
@@ -1266,9 +1274,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_storage_log_falls_back_to_deck() {
-        let (storage, _) = serve(|_| Response::text(404, "No such object"));
-        let (deck, _) = deck_serving(
+    async fn missing_storage_log_falls_back_to_deck_and_stays_there() {
+        let (storage, storage_requests) = serve(|_| Response::text(404, "No such object"));
+        let (deck, deck_requests) = deck_serving(
             |deck| {
                 vec![prowjob(
                     "a-300",
@@ -1288,68 +1296,100 @@ mod tests {
             },
         );
         let plugin = plugin_with(&deck, &[("storage_url", &storage)]);
+        let run = plugin.fetch_run_details(CI_A, 300).await.unwrap();
 
-        let (read, text) = read(&plugin, CI_A, 300, None).await.unwrap();
-
+        let (first, text) = read_run(&plugin, &run, None).await.unwrap();
         assert_eq!(text, "from the pod\n");
-        assert_eq!(read.mode, LogReadMode::Replace);
-        assert_eq!(source_of(&read), LogSource::Deck);
+        assert_eq!(first.mode, LogReadMode::Replace);
+        assert_eq!(source_of(&first), LogSource::Deck);
+
+        let (second, _) = read_run(&plugin, &run, first.cursor.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(source_of(&second), LogSource::Deck);
+        assert_eq!(storage_requests.lock().unwrap().len(), 1);
+        assert_eq!(sent(&deck_requests, "GET", "/log").len(), 2);
     }
 
-    fn stored_object(path: &str) -> Response {
-        let started = |seconds: i64| {
-            format!(
-                r#"{{"timestamp":{seconds},"repos":{{"kubernetes/test-infra":"main:abc"}},"repo-commit":"c{seconds}"}}"#
-            )
-        };
-        let finished = |seconds: i64, result: &str| {
-            format!(r#"{{"timestamp":{seconds},"passed":false,"result":"{result}"}}"#)
-        };
-        match path {
-            "/bucket/logs/ci-a/100/started.json" => Response::json(200, &started(1_000)),
-            "/bucket/logs/ci-a/100/finished.json" => {
-                Response::json(200, &finished(1_060, "SUCCESS"))
-            }
-            "/bucket/logs/ci-a/200/started.json" => Response::json(200, &started(2_000)),
-            "/bucket/logs/ci-a/200/finished.json" => {
-                Response::json(200, &finished(2_090, "FAILURE"))
-            }
-            "/bucket/logs/ci-a/250/started.json" => Response::json(200, &started(2_500)),
-            "/bucket/pr-logs/directory/pull-x/400.txt" => Response::text(
-                200,
-                "gs://bucket/pr-logs/pull/kubernetes_test-infra/8/pull-x/400\n",
+    #[tokio::test]
+    async fn storage_sign_in_page_is_an_authentication_error() {
+        let (storage, _) = serve(|_| Response::html(200, "<html>Sign in</html>"));
+        let (deck, _) = deck_serving(
+            |deck| {
+                vec![prowjob(
+                    "a-300",
+                    "ci-a",
+                    "300",
+                    "success",
+                    "periodic",
+                    &view(deck, "logs/ci-a/300"),
+                )]
+            },
+            |_| Response::text(200, "from the pod\n"),
+        );
+        let plugin = plugin_with(&deck, &[("storage_url", &storage)]);
+
+        let result = read(&plugin, CI_A, 300, None).await;
+
+        assert!(matches!(result, Err(PluginError::AuthenticationFailed(_))));
+    }
+
+    fn object(name: &str, body: &str) -> (String, String) {
+        (name.to_string(), body.to_string())
+    }
+
+    fn started(seconds: i64) -> String {
+        format!(
+            r#"{{"timestamp":{seconds},"repos":{{"kubernetes/test-infra":"main:abc"}},"repo-commit":"c{seconds}"}}"#
+        )
+    }
+
+    fn finished(seconds: i64, result: &str) -> String {
+        format!(r#"{{"timestamp":{seconds},"passed":false,"result":"{result}"}}"#)
+    }
+
+    fn stored_build(job: &str, build_id: i64, started_at: i64) -> Vec<(String, String)> {
+        vec![
+            object(
+                &format!("logs/{job}/{build_id}/started.json"),
+                &started(started_at),
             ),
-            "/bucket/pr-logs/pull/kubernetes_test-infra/8/pull-x/400/started.json" => {
-                Response::json(200, &started(4_000))
-            }
-            "/bucket/pr-logs/pull/kubernetes_test-infra/8/pull-x/400/finished.json" => {
-                Response::json(200, &finished(4_010, "ABORTED"))
-            }
-            _ => Response::text(404, "No such object"),
-        }
+            object(
+                &format!("logs/{job}/{build_id}/finished.json"),
+                &finished(started_at + 60, "SUCCESS"),
+            ),
+        ]
     }
 
     #[tokio::test]
     async fn storage_history_merges_older_builds_and_skips_unfinished() {
-        let (storage, _) = serve(|request| {
-            let target = request.target.as_str();
-            if target.starts_with("/storage/v1/b/bucket/o?") {
-                if target.contains("prefix=logs%2Fci-a%2F") && target.contains("delimiter=%2F") {
-                    return Response::json(
-                        200,
-                        r#"{"prefixes":["logs/ci-a/100/","logs/ci-a/200/","logs/ci-a/250/","logs/ci-a/300/"]}"#,
-                    );
-                }
-                if target.contains("prefix=pr-logs%2Fdirectory%2Fpull-x%2F") {
-                    return Response::json(
-                        200,
-                        r#"{"items":[{"name":"pr-logs/directory/pull-x/400.txt"},{"name":"pr-logs/directory/pull-x/latest-build.txt"}]}"#,
-                    );
-                }
-                return Response::json(200, "{}");
-            }
-            stored_object(target)
-        });
+        let objects = vec![
+            object("logs/ci-a/100/started.json", &started(1_000)),
+            object("logs/ci-a/100/finished.json", &finished(1_060, "SUCCESS")),
+            object("logs/ci-a/200/started.json", &started(2_000)),
+            object("logs/ci-a/200/finished.json", &finished(2_090, "FAILURE")),
+            object("logs/ci-a/250/started.json", &started(2_500)),
+            object("logs/ci-a/300/build-log.txt", "done\n"),
+            object("logs/ci-b/300/started.json", &started(3_000)),
+            object("logs/ci-b/200/started.json", &started(2_000)),
+            object("logs/ci-b/200/finished.json", &finished(2_030, "SUCCESS")),
+            object("logs/ci-b/100/started.json", &started(1_000)),
+            object("logs/ci-b/100/finished.json", &finished(1_030, "SUCCESS")),
+            object(
+                "pr-logs/directory/pull-x/400.txt",
+                "gs://bucket/pr-logs/pull/kubernetes_test-infra/8/pull-x/400\n",
+            ),
+            object("pr-logs/directory/pull-x/latest-build.txt", "400"),
+            object(
+                "pr-logs/pull/kubernetes_test-infra/8/pull-x/400/started.json",
+                &started(4_000),
+            ),
+            object(
+                "pr-logs/pull/kubernetes_test-infra/8/pull-x/400/finished.json",
+                &finished(4_010, "ABORTED"),
+            ),
+        ];
+        let (storage, _) = serve(gcs(objects));
         let (deck, _) = deck_serving(
             |deck| {
                 vec![
@@ -1375,7 +1415,11 @@ mod tests {
         );
         let plugin = plugin_with(
             &deck,
-            &[("history_source", "storage"), ("storage_url", &storage)],
+            &[
+                ("history_source", "storage"),
+                ("storage_url", &storage),
+                ("storage_bucket", "gs://bucket"),
+            ],
         );
 
         let runs = plugin.fetch_run_history(CI_A, 10).await.unwrap();
@@ -1388,6 +1432,13 @@ mod tests {
         assert_eq!(older.duration_seconds, Some(90));
         assert_eq!(older.logs_url, view(&deck, "logs/ci-a/200"));
 
+        let only_storage = plugin
+            .fetch_run_history("prow__1__kubernetes/test-infra/ci-b", 2)
+            .await
+            .unwrap();
+        let numbers: Vec<i64> = only_storage.iter().map(|run| run.run_number).collect();
+        assert_eq!(numbers, [200, 100]);
+
         let pulls = plugin.fetch_run_history(PULL_X, 10).await.unwrap();
         let numbers: Vec<i64> = pulls.iter().map(|run| run.run_number).collect();
         assert_eq!(numbers, [500, 400]);
@@ -1399,6 +1450,97 @@ mod tests {
 
         let details = plugin.fetch_run_details(CI_A, 100).await.unwrap();
         assert_eq!(details.status, PipelineStatus::Success);
+    }
+
+    #[tokio::test]
+    async fn storage_history_stops_widening_once_deck_fills_the_page() {
+        let now = Utc::now().timestamp_millis();
+        let snowflake = |hours: i64| {
+            crate::types::snowflake_at(now - hours * 60 * 60 * 1000)
+                .unwrap()
+                .to_string()
+        };
+        let (recent, older) = (snowflake(1), snowflake(2));
+        let mut objects = stored_build("ci-a", snowflake(10 * 24).parse().unwrap(), 1_000);
+        objects.extend(stored_build(
+            "ci-a",
+            snowflake(400 * 24).parse().unwrap(),
+            900,
+        ));
+        let (storage, storage_requests) = serve(gcs(objects));
+        let (deck, _) = deck_serving(
+            move |deck| {
+                [&recent, &older]
+                    .iter()
+                    .map(|id| {
+                        let url = view(deck, &format!("logs/ci-a/{id}"));
+                        prowjob(&format!("a-{id}"), "ci-a", id, "success", "periodic", &url)
+                    })
+                    .collect()
+            },
+            |_| Response::text(404, "missing"),
+        );
+        let plugin = plugin_with(
+            &deck,
+            &[
+                ("history_source", "storage"),
+                ("storage_url", &storage),
+                ("storage_bucket", "gs://bucket"),
+            ],
+        );
+
+        let runs = plugin.fetch_run_history(CI_A, 2).await.unwrap();
+
+        assert_eq!(runs.len(), 2);
+        assert_eq!(
+            sent(&storage_requests, "GET", "/storage/v1/b/bucket/o").len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn storage_history_lists_recent_windows_and_widens_until_it_has_enough() {
+        let now = Utc::now().timestamp_millis();
+        let hours_ago = |hours: i64| now - hours * 60 * 60 * 1000;
+        let builds: Vec<(i64, i64)> = [1, 3 * 24, 10 * 24, 400 * 24]
+            .into_iter()
+            .map(|hours| {
+                let at = hours_ago(hours);
+                (crate::types::snowflake_at(at).unwrap(), at / 1000)
+            })
+            .collect();
+        let objects: Vec<(String, String)> = builds
+            .iter()
+            .flat_map(|(build_id, started_at)| stored_build("ci-w", *build_id, *started_at))
+            .collect();
+        let (storage, storage_requests) = serve(gcs(objects));
+        let (deck, _) = deck_serving(|_| Vec::new(), |_| Response::text(404, "missing"));
+        let plugin = plugin_with(
+            &deck,
+            &[
+                ("history_source", "storage"),
+                ("storage_url", &storage),
+                ("storage_bucket", "gs://bucket"),
+            ],
+        );
+
+        let runs = plugin
+            .fetch_run_history("prow__1__kubernetes/test-infra/ci-w", 3)
+            .await
+            .unwrap();
+
+        let ids: Vec<String> = runs.iter().map(|run| run.id.clone()).collect();
+        let expected: Vec<String> = builds[..3].iter().map(|(id, _)| id.to_string()).collect();
+        assert_eq!(ids, expected);
+        let listings = sent(&storage_requests, "GET", "/storage/v1/b/bucket/o");
+        assert!(listings
+            .iter()
+            .all(|listing| listing.target.contains("startOffset=")));
+        assert!(storage_requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|request| !request.target.contains(&builds[3].0.to_string())));
     }
 
     #[tokio::test]
@@ -1501,18 +1643,7 @@ mod tests {
         assert_eq!(details.id, BUILD.to_string());
         assert_eq!(details.status, PipelineStatus::Failed);
 
-        let (_, text) = read_run(
-            &plugin,
-            RunRef {
-                pipeline_id: CI_A,
-                run_number: runs[0].run_number,
-                run_id: &runs[0].id,
-                metadata: &runs[0].metadata,
-            },
-            None,
-        )
-        .await
-        .unwrap();
+        let (_, text) = read_run(&plugin, &runs[0], None).await.unwrap();
         assert_eq!(text, "from the pod\n");
         let logs = sent(&deck_requests, "GET", "/log");
         assert_eq!(logs[0].target, format!("/log?job=ci-a&id={BUILD}"));
@@ -1520,7 +1651,8 @@ mod tests {
             .lock()
             .unwrap()
             .iter()
-            .all(|request| !request.target.contains("4398046515200")));
+            .filter(|request| request.target.ends_with("started.json"))
+            .all(|request| request.target == format!("/bucket/logs/ci-a/{BUILD}/started.json")));
     }
 
     fn kube_plugin(deck: &str, apiserver: &str, dir: &tempfile::TempDir) -> ProwPlugin {
@@ -1582,18 +1714,19 @@ mod tests {
         assert_eq!(body["status"]["state"], "triggered");
     }
 
+    fn running_prowjob(version: &str, state: &str) -> String {
+        format!(
+            r#"{{"metadata":{{"name":"a-300","namespace":"default","resourceVersion":"{version}"}},"status":{{"state":"{state}"}}}}"#
+        )
+    }
+
     #[tokio::test]
-    async fn kube_cancel_merge_patches_status_aborted() {
+    async fn kube_cancel_merge_patches_status_aborted_at_the_read_version() {
         let dir = tempfile::tempdir().unwrap();
-        let (apiserver, kube_requests) = serve(|request| {
-            if request.method == "PATCH" {
-                Response::json(
-                    200,
-                    r#"{"metadata":{"name":"a-300"},"status":{"state":"aborted"}}"#,
-                )
-            } else {
-                Response::json(404, r#"{"kind":"Status","code":404,"message":"not found"}"#)
-            }
+        let (apiserver, kube_requests) = serve(|request| match request.method.as_str() {
+            "GET" => Response::json(200, &running_prowjob("7", "pending")),
+            "PATCH" => Response::json(200, &running_prowjob("8", "aborted")),
+            _ => Response::json(404, r#"{"kind":"Status","code":404,"message":"not found"}"#),
         });
         let (deck, deck_requests) =
             action_deck(|_| Response::text(200, "Job successfully aborted."));
@@ -1613,5 +1746,44 @@ mod tests {
         );
         let body: Value = serde_json::from_slice(&patches[0].body).unwrap();
         assert_eq!(body["status"]["state"], "aborted");
+        assert_eq!(body["metadata"]["resourceVersion"], "7");
+    }
+
+    #[tokio::test]
+    async fn kube_cancel_rereads_after_a_conflict_and_keeps_a_finished_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&reads);
+        let (apiserver, kube_requests) = serve(move |request| match request.method.as_str() {
+            "GET" => match counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+                0 => Response::json(200, &running_prowjob("7", "pending")),
+                _ => Response::json(200, &running_prowjob("8", "success")),
+            },
+            "PATCH" => Response::json(
+                409,
+                r#"{"kind":"Status","apiVersion":"v1","status":"Failure","message":"the object has been modified","reason":"Conflict","code":409}"#,
+            ),
+            _ => Response::json(404, r#"{"kind":"Status","code":404,"message":"not found"}"#),
+        });
+        let (deck, _) = action_deck(|_| Response::text(200, "Job successfully aborted."));
+        let plugin = kube_plugin(&deck, &apiserver, &dir);
+
+        let result = plugin.cancel_run(CI_A, 300).await;
+
+        assert!(
+            matches!(result, Err(PluginError::ApiError(message)) if message.contains("already finished (success)"))
+        );
+        assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(sent(&kube_requests, "PATCH", PROWJOBS_PATH).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn deck_sign_in_page_on_an_action_is_an_authentication_error() {
+        let (deck, _) = action_deck(|_| Response::html(200, "<html>Sign in</html>"));
+        let plugin = plugin_with(&deck, &[]);
+
+        let result = plugin.cancel_run(CI_A, 300).await;
+
+        assert!(matches!(result, Err(PluginError::AuthenticationFailed(_))));
     }
 }

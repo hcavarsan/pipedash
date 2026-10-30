@@ -1,9 +1,4 @@
-use std::collections::HashMap;
-use std::sync::{
-    Arc,
-    Mutex,
-    PoisonError,
-};
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -35,8 +30,6 @@ use reqwest::{
     Response,
     Url,
 };
-use tokio::sync::OnceCell;
-use tokio::time::Instant;
 
 use crate::types::{
     ProwJob,
@@ -46,7 +39,6 @@ use crate::types::{
 const OMIT: &str = "annotations,labels,decoration_config,pod_spec";
 const LIST_TIMEOUT: Duration = Duration::from_secs(120);
 const LOG_TIMEOUT: Duration = Duration::from_secs(900);
-const CACHE_TTL: Duration = Duration::from_secs(10);
 const PROBE_JOB: &str = "pipedash-credential-check";
 const BODY_PREVIEW_CHARS: usize = 300;
 
@@ -60,13 +52,6 @@ const ACTION_DENIED: &str = "Deck refused to start or abort this job. Deck only 
                              kubeconfig in the provider settings to manage ProwJobs through \
                              Kubernetes instead.";
 
-type CacheKey = (Option<String>, Option<String>);
-
-struct CacheEntry {
-    created: Instant,
-    jobs: OnceCell<Arc<[ProwJob]>>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RerunMode {
     Latest,
@@ -78,7 +63,6 @@ pub(crate) struct DeckClient {
     base: Url,
     auth: Option<(HeaderName, HeaderValue)>,
     retry_policy: RetryPolicy,
-    cache: Mutex<HashMap<CacheKey, Arc<CacheEntry>>>,
 }
 
 impl DeckClient {
@@ -90,7 +74,6 @@ impl DeckClient {
             base,
             auth,
             retry_policy: RetryPolicy::default(),
-            cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -149,38 +132,7 @@ impl DeckClient {
 
     pub(crate) async fn jobs(
         &self, org: Option<&str>, repo: Option<&str>,
-    ) -> PluginResult<Arc<[ProwJob]>> {
-        let entry = {
-            let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
-            cache.retain(|_, entry| entry.created.elapsed() < CACHE_TTL);
-            Arc::clone(
-                cache
-                    .entry((org.map(str::to_string), repo.map(str::to_string)))
-                    .or_insert_with(|| {
-                        Arc::new(CacheEntry {
-                            created: Instant::now(),
-                            jobs: OnceCell::new(),
-                        })
-                    }),
-            )
-        };
-        entry
-            .jobs
-            .get_or_try_init(|| self.fetch_jobs(org, repo))
-            .await
-            .cloned()
-    }
-
-    pub(crate) fn invalidate(&self) {
-        self.cache
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
-    }
-
-    async fn fetch_jobs(
-        &self, org: Option<&str>, repo: Option<&str>,
-    ) -> PluginResult<Arc<[ProwJob]>> {
+    ) -> PluginResult<Vec<ProwJob>> {
         let mut url = self.endpoint("prowjobs.js")?;
         {
             let mut query = url.query_pairs_mut();
@@ -216,12 +168,9 @@ impl DeckClient {
             })
             .await?;
 
-        let jobs = tokio::task::spawn_blocking(move || decode_jobs(gzip, &body))
+        tokio::task::spawn_blocking(move || decode_jobs(gzip, &body))
             .await
-            .map_err(|e| {
-                PluginError::Internal(format!("Decoding Deck's job list failed: {e}"))
-            })??;
-        Ok(jobs.into())
+            .map_err(|e| PluginError::Internal(format!("Decoding Deck's job list failed: {e}")))?
     }
 
     pub(crate) async fn rerun(&self, prowjob: &str, mode: RerunMode) -> PluginResult<()> {
@@ -301,8 +250,12 @@ fn content_type(response: &Response) -> String {
         .to_ascii_lowercase()
 }
 
+pub(crate) fn is_html(response: &Response) -> bool {
+    content_type(response).contains("text/html")
+}
+
 fn reject_sign_in_page(response: &Response) -> PluginResult<()> {
-    if content_type(response).contains("text/html") {
+    if is_html(response) {
         return Err(PluginError::AuthenticationFailed(SIGNED_OUT.to_string()));
     }
     Ok(())
@@ -319,26 +272,26 @@ fn decode_jobs(gzip: bool, body: &[u8]) -> PluginResult<Vec<ProwJob>> {
 }
 
 async fn action_outcome(response: Response) -> PluginResult<()> {
-    let url = response.url().clone();
     let status = response.status().as_u16();
+    if response.status().is_success() {
+        return reject_sign_in_page(&response);
+    }
+    let url = response.url().clone();
     let retry = retry_after(response.headers(), Utc::now());
     let body = response.text().await.map_err(|e| map_send_error(e, &url))?;
     let preview = truncate_chars(body.trim(), BODY_PREVIEW_CHARS);
-    let denied = || PluginError::PermissionDenied(format!("{ACTION_DENIED} Deck said: {preview}"));
 
-    match status {
-        200..=299 if body.contains("successfully") => Ok(()),
-        200..=299 | 401 | 403 => Err(denied()),
-        500 if body.contains("GitHub oauth") => Err(denied()),
-        405 => Err(PluginError::NotSupported(RERUN_DISABLED.to_string())),
-        400 => Err(PluginError::ApiError(format!("Deck refused: {preview}"))),
-        404 => Err(PluginError::PipelineNotFound(format!(
-            "Deck no longer lists this ProwJob: {preview}"
-        ))),
-        _ => Err(from_status(
+    Err(match status {
+        401 | 403 => PluginError::PermissionDenied(format!("{ACTION_DENIED} Deck said: {preview}")),
+        405 => PluginError::NotSupported(RERUN_DISABLED.to_string()),
+        400 => PluginError::ApiError(format!("Deck refused: {preview}")),
+        404 => {
+            PluginError::PipelineNotFound(format!("Deck no longer lists this ProwJob: {preview}"))
+        }
+        _ => from_status(
             status,
             format!("{status} from {}: {preview}", redact_url(&url)),
             retry,
-        )),
-    }
+        ),
+    })
 }
