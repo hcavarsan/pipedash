@@ -13,7 +13,7 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { IconBuildingSkyscraper, IconSearch, IconStack2 } from '@tabler/icons-react'
-import { type Dispatch, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type Dispatch, type ReactNode, useMemo, useRef, useState } from 'react'
 import { EmptyState } from '../../../../components/common/EmptyState'
 import { ErrorState } from '../../../../components/common/ErrorState'
 import { LoadingState } from '../../../../components/common/LoadingState'
@@ -111,18 +111,11 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
   const availablePipelines = useMemo(() => pipelinesData?.pages.flatMap((page) => page.items) ?? [], [pipelinesData])
   const hasMore = !!hasNextPage
   const [selectingAll, setSelectingAll] = useState(false)
-  const queryKey = `${effectiveOrganization}\n${debouncedSearch}`
-  const currentQuery = useRef(queryKey)
-
-  useEffect(() => {
-    currentQuery.current = queryKey
-  })
+  const listChanges = useRef(0)
+  const searchPending = repositorySearch !== debouncedSearch
 
   const searching =
-    !!effectiveOrganization &&
-    !loadingPipelines &&
-    !loadingMore &&
-    (searchingPipelines || repositorySearch !== debouncedSearch)
+    !!effectiveOrganization && !loadingPipelines && !loadingMore && (searchingPipelines || searchPending)
   const status = selectingAll
     ? `Selecting all ${labels.items}`
     : searching
@@ -133,23 +126,25 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
 
   const handleOrganizationSelect = (org: string | null): void => {
     if (org) {
+      listChanges.current += 1
       dispatch({ type: 'SET_ORGANIZATION', organization: org })
     }
   }
 
   const handleSearchChange = (value: string): void => {
+    listChanges.current += 1
     dispatch({ type: 'SET_REPOSITORY_SEARCH', search: value })
   }
 
   const selectEveryMatch = async (): Promise<void> => {
-    const query = queryKey
+    const listVersion = listChanges.current
     setSelectingAll(true)
     try {
       let pages = pipelinesData?.pages ?? []
       let more = hasMore
       while (more) {
         const result = await fetchNextPage()
-        if (result.isError || currentQuery.current !== query) {
+        if (result.isError || listChanges.current !== listVersion) {
           return
         }
         pages = result.data?.pages ?? pages
@@ -162,7 +157,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
   }
 
   const handleSelectAll = (): void => {
-    if (selectingAll) {
+    if (selectingAll || searchPending) {
       return
     }
     if (!hasMore && availablePipelines.every((pipeline) => selectedPipelines.has(pipeline.id))) {
