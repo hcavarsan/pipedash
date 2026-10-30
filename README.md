@@ -114,6 +114,7 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 - Add a public Prow Deck such as prow.k8s.io with No auth. Pipedash reads its jobs, runs and logs without credentials and turns off starting and stopping runs.
 - Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
 - Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
+- See when GitHub disables a workflow and why: after 60 days without repository activity, by hand or in a fork. Enable it again from its row menu with a token that can trigger workflows.
 - Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage.
 - Keep provider tokens in the system keyring or in a database encrypted with AES-256-GCM. Pipedash sends no analytics or telemetry.
 

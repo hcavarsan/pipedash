@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import type { PluginMetadata } from '../types/domain'
 import {
   canCancelPipeline,
+  canEnablePipeline,
   getPipelineStatusLabel,
   getReconcileBlockReason,
   getRunStatusLabel,
@@ -11,6 +12,13 @@ import {
   pipelineStatusKey,
   READ_ONLY_REASON,
 } from './pipelinePresentation'
+
+test('enable is offered only when the provider flags the pipeline and it is not read-only', () => {
+  assert.equal(canEnablePipeline({ metadata: { can_enable: true } }), true)
+  assert.equal(canEnablePipeline({ metadata: { can_enable: 'yes' } }), false)
+  assert.equal(canEnablePipeline({ metadata: { can_enable: true, read_only: true } }), false)
+  assert.equal(canEnablePipeline({ metadata: {} }), false)
+})
 
 test('pipeline label prefers overdue over the resource state label', () => {
   assert.equal(

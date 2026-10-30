@@ -231,6 +231,8 @@ pub trait Provider: Send + Sync {
 
     async fn rerun_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()>;
 
+    async fn enable_pipeline(&self, pipeline_id: &str) -> DomainResult<()>;
+
     async fn get_workflow_parameters(
         &self, workflow_id: &str,
     ) -> DomainResult<Vec<pipedash_plugin_api::WorkflowParameter>>;

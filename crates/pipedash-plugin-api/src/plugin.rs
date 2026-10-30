@@ -227,6 +227,12 @@ pub trait Plugin: Send + Sync {
         ))
     }
 
+    async fn enable_pipeline(&self, _pipeline_id: &str) -> PluginResult<()> {
+        Err(crate::error::PluginError::NotSupported(
+            "Enabling pipelines not supported by this provider".to_string(),
+        ))
+    }
+
     async fn fetch_workflow_parameters(
         &self, _workflow_id: &str,
     ) -> PluginResult<Vec<WorkflowParameter>> {

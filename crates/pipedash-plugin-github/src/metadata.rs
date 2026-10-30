@@ -119,6 +119,12 @@ fn create_features() -> Vec<Feature> {
             required_permissions: vec!["repo".to_string()],
         },
         Feature {
+            id: "enable_workflows".to_string(),
+            name: "Enable disabled workflows".to_string(),
+            description: "PUT /repos/{owner}/{repo}/actions/workflows/{id}/enable - Turn a workflow back on after GitHub or someone on the repository disables it".to_string(),
+            required_permissions: vec!["workflow".to_string()],
+        },
+        Feature {
             id: "filter_by_org".to_string(),
             name: "Filter repos by organization".to_string(),
             description: "List and filter repositories by organization. Without this permission, you can still access all your personal repositories.".to_string(),

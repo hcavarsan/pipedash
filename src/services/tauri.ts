@@ -385,6 +385,12 @@ export const tauriService = {
     })
   },
 
+  enablePipeline: async (pipelineId: string): Promise<void> => {
+    return invoke<void>('enable_pipeline', {
+      pipelineId,
+    })
+  },
+
   openUrl: async (url: string): Promise<void> => {
     await openUrl(url, ['ios', 'android'].includes(platform()) ? 'inAppBrowser' : undefined)
   },

@@ -1120,6 +1120,21 @@ impl PipelineService {
         Ok(())
     }
 
+    pub async fn enable_pipeline(&self, pipeline_id: &str) -> DomainResult<()> {
+        let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
+        let pipeline = cached_pipelines
+            .iter()
+            .find(|p| p.id == pipeline_id)
+            .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+        self.refuse_read_only(pipeline.provider_id).await?;
+
+        let provider = self
+            .provider_service
+            .get_provider(pipeline.provider_id)
+            .await?;
+        provider.enable_pipeline(pipeline_id).await
+    }
+
     async fn refuse_read_only(&self, provider_id: i64) -> DomainResult<()> {
         let config = self
             .provider_service
@@ -1642,6 +1657,7 @@ mod tests {
                 .review_run(&public, 1, pipedash_plugin_api::ReviewDecision::Approve)
                 .await
         ));
+        assert!(refused(service.enable_pipeline(&public).await));
         assert!(!refused(service.cancel_run(&signed, 1).await));
     }
 

@@ -513,16 +513,24 @@ impl GitHubClient {
                         .get(&workflow.id)
                         .and_then(|runs| runs.items.first());
 
-                    let status = latest_run
-                        .map(|run| {
-                            mapper::map_status(run.status.as_str(), run.conclusion.as_deref())
-                        })
-                        .unwrap_or(pipedash_plugin_api::PipelineStatus::Pending);
+                    let resource_state = mapper::disabled_state(&workflow.state);
+                    let status = if resource_state.is_some() {
+                        pipedash_plugin_api::PipelineStatus::Skipped
+                    } else {
+                        latest_run
+                            .map(|run| {
+                                mapper::map_status(run.status.as_str(), run.conclusion.as_deref())
+                            })
+                            .unwrap_or(pipedash_plugin_api::PipelineStatus::Pending)
+                    };
 
                     let last_run = latest_run.map(|run| run.created_at.with_timezone(&Utc));
 
                     let mut metadata = HashMap::new();
                     metadata.insert("workflow_id".to_string(), serde_json::json!(workflow.id));
+                    if resource_state.is_some() {
+                        metadata.insert("can_enable".to_string(), serde_json::json!(true));
+                    }
 
                     let pipeline = Pipeline {
                         id: format!(
@@ -538,7 +546,7 @@ impl GitHubClient {
                         repository: repo_full_name.clone(),
                         branch: latest_run.map(|run| run.head_branch.clone()),
                         workflow_file: Some(workflow.path),
-                        resource_state: None,
+                        resource_state,
                         metadata,
                     };
 
@@ -803,6 +811,18 @@ impl GitHubClient {
             .map_err(|e| map_octocrab_error(action, e))?;
 
         Ok(())
+    }
+
+    pub async fn enable_workflow(
+        &self, owner: &str, repo: &str, workflow_id: u64,
+    ) -> PluginResult<()> {
+        debug!("Enabling workflow {workflow_id} for {owner}/{repo}");
+
+        self.octocrab
+            .workflows(owner, repo)
+            .enable_workflow(workflow_id.to_string())
+            .await
+            .map_err(|e| map_octocrab_error("Failed to enable workflow", e))
     }
 
     pub async fn review_pending_deployments(

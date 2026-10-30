@@ -14,6 +14,7 @@ import {
   IconPin,
   IconPinFilled,
   IconPlayerPlayFilled,
+  IconPower,
   IconRefresh,
 } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
@@ -25,6 +26,7 @@ import type { PinKind, Pipeline, PipelineStatus, ProviderSummary, SectionMode, V
 import { dataAge, describeFetch, providerTone, TONE_META, worstTone } from '../../utils/fetchInfo'
 import { formatDateTime } from '../../utils/formatDateTime'
 import {
+  canEnablePipeline,
   getPipelineLabels,
   getPipelineStatusLabel,
   getTriggerBlockReason,
@@ -281,6 +283,7 @@ export interface PipelineActions {
   onRemoveFromView?: ((p: ViewPipeline) => void) | undefined
   removeLabel?: string | undefined
   onTrigger: (p: Pipeline) => void
+  onEnable: (p: Pipeline) => void
   onViewMetrics?: ((p: Pipeline) => void) | undefined
   onViewHistory: (p: Pipeline) => void
   onOpenView: (viewId: string) => void
@@ -377,6 +380,14 @@ export function workflowMenuItems(
       label: labels.trigger,
       icon: triggerIcon(pipeline),
       onClick: () => actions.onTrigger(pipeline),
+    })
+  }
+
+  if (canEnablePipeline(pipeline)) {
+    items.push({
+      label: 'Enable',
+      icon: <IconPower size={16} aria-hidden />,
+      onClick: () => actions.onEnable(pipeline),
     })
   }
 

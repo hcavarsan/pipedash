@@ -4,6 +4,7 @@ use pipedash_plugin_api::{
     LogNode,
     LogNodeKind,
     PipelineStatus,
+    ResourceState,
 };
 use serde::Serialize;
 
@@ -16,6 +17,18 @@ pub(crate) fn map_status(status: &str, conclusion: Option<&str>) -> PipelineStat
         ("in_progress", _) | ("queued", _) => PipelineStatus::Running,
         _ => PipelineStatus::Pending,
     }
+}
+
+pub(crate) fn disabled_state(workflow_state: &str) -> Option<ResourceState> {
+    let reason = match workflow_state {
+        "disabled_inactivity" => {
+            "GitHub disabled this workflow after 60 days without repository activity"
+        }
+        "disabled_manually" => "Someone disabled this workflow on GitHub",
+        "disabled_fork" => "GitHub disables workflows in a fork until you enable them",
+        _ => return None,
+    };
+    Some(ResourceState::new("Disabled", Some(reason)))
 }
 
 fn wire<T: Serialize>(value: &T) -> String {
@@ -108,6 +121,33 @@ mod tests {
                 map_status(status, None),
                 PipelineStatus::Pending,
                 "status {status}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_documented_workflow_state_maps_to_its_disabled_reason() {
+        let cases = [
+            ("active", None),
+            ("deleted", None),
+            (
+                "disabled_inactivity",
+                Some("GitHub disabled this workflow after 60 days without repository activity"),
+            ),
+            (
+                "disabled_manually",
+                Some("Someone disabled this workflow on GitHub"),
+            ),
+            (
+                "disabled_fork",
+                Some("GitHub disables workflows in a fork until you enable them"),
+            ),
+        ];
+        for (workflow_state, reason) in cases {
+            assert_eq!(
+                disabled_state(workflow_state),
+                reason.map(|reason| ResourceState::new("Disabled", Some(reason))),
+                "state {workflow_state}"
             );
         }
     }
