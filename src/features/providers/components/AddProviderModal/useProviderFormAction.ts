@@ -16,7 +16,13 @@ import {
   type ProviderFormActionState,
   type ProviderSubmitIntent,
 } from './types'
-import { activeConfigFields, mapProviderFieldErrors, validateProviderCredentials, validateSignIn } from './validation'
+import {
+  activeConfigFields,
+  activeConfigValues,
+  mapProviderFieldErrors,
+  validateProviderCredentials,
+  validateSignIn,
+} from './validation'
 
 interface UseProviderFormActionParams {
   mode: AddProviderModalProps
@@ -59,17 +65,20 @@ export function useProviderFormAction({
   const selectionNeedsRefresh = editMode && !!existingProvider?.config.selected_items && !configValues.selected_items
   const saveOnly = editMode && !selectionNeedsRefresh
   const fields = selectedPlugin?.config_schema.fields ?? []
+  const authModes = selectedPlugin?.config_schema.auth_modes
 
   const credentialsIncomplete =
     !!selectedPlugin &&
-    (activeConfigFields(fields, authMode).some((field) => field.required && !configValues[field.key]?.trim()) ||
+    (activeConfigFields(fields, authMode, authModes).some(
+      (field) => field.required && !configValues[field.key]?.trim()
+    ) ||
       validateSignIn(authMode, configValues, signInStatus) !== null)
 
   const providerConfig: ProviderConfig = {
     name: providerName,
     provider_type: selectedPlugin?.provider_type || '',
     token: configValues[TOKEN_KEY] || '',
-    config: configValues,
+    config: activeConfigValues(configValues, authMode, authModes),
     refresh_interval: 300,
   }
 
@@ -85,6 +94,7 @@ export function useProviderFormAction({
       providerName,
       fields: plugin.config_schema.fields,
       authMode,
+      authModes: plugin.config_schema.auth_modes,
       configValues,
       signInStatus,
     })
@@ -101,7 +111,11 @@ export function useProviderFormAction({
   }
 
   const save = async (plugin: PluginMetadata, includeSelection: boolean): Promise<ProviderFormActionState> => {
-    const { [TOKEN_KEY]: token = '', ...config } = configValues
+    const { [TOKEN_KEY]: token = '', ...config } = activeConfigValues(
+      configValues,
+      authMode,
+      plugin.config_schema.auth_modes
+    )
 
     if (includeSelection) {
       config.selected_items = Array.from(selectedPipelines).join(',')

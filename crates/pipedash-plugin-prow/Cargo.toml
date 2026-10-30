@@ -1,0 +1,29 @@
+[package]
+name = "pipedash-plugin-prow"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Prow plugin for Pipedash"
+repository = "https://github.com/hcavarsan/pipedash"
+license = "GPL-3.0"
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+chrono.workspace = true
+flate2.workspace = true
+futures.workspace = true
+http.workspace = true
+kube.workspace = true
+pipedash-plugin-api.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+shellexpand.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+k8s-openapi.workspace = true
+rustls.workspace = true
+tempfile.workspace = true

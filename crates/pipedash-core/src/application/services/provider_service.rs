@@ -1423,7 +1423,7 @@ fn configured_repositories(config: &ProviderConfig) -> Vec<String> {
         .map(|items| {
             if matches!(
                 config.provider_type.as_str(),
-                "argocd" | "fluxcd" | "komodo"
+                "argocd" | "fluxcd" | "komodo" | "prow"
             ) {
                 return Vec::new();
             }

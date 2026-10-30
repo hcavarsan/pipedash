@@ -15,6 +15,7 @@ members = [
   "crates/pipedash-plugin-gitlab",
   "crates/pipedash-plugin-jenkins",
   "crates/pipedash-plugin-komodo",
+  "crates/pipedash-plugin-prow",
   "crates/pipedash-plugin-tekton",
   "crates/pipedash-push-relay",
   "crates/pipedash-web",
@@ -38,6 +39,7 @@ bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
 dashmap = "6"
 dirs = "7.0"
+flate2 = "1"
 futures = "0.3"
 futures-util = "0.3"
 glob = "0.3"
@@ -76,6 +78,7 @@ pipedash-plugin-gitea = { version = "0.7.0", path = "crates/pipedash-plugin-gite
 pipedash-plugin-gitlab = { version = "0.7.0", path = "crates/pipedash-plugin-gitlab" }
 pipedash-plugin-jenkins = { version = "0.7.0", path = "crates/pipedash-plugin-jenkins" }
 pipedash-plugin-komodo = { version = "0.7.0", path = "crates/pipedash-plugin-komodo" }
+pipedash-plugin-prow = { version = "0.7.0", path = "crates/pipedash-plugin-prow" }
 pipedash-plugin-tekton = { version = "0.7.0", path = "crates/pipedash-plugin-tekton" }
 rand = "0.10"
 regex = "1.13"
@@ -143,4 +146,5 @@ pipedash-plugin-gitea = { path = "crates/pipedash-plugin-gitea" }
 pipedash-plugin-gitlab = { path = "crates/pipedash-plugin-gitlab" }
 pipedash-plugin-jenkins = { path = "crates/pipedash-plugin-jenkins" }
 pipedash-plugin-komodo = { path = "crates/pipedash-plugin-komodo" }
+pipedash-plugin-prow = { path = "crates/pipedash-plugin-prow" }
 pipedash-plugin-tekton = { path = "crates/pipedash-plugin-tekton" }

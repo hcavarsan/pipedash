@@ -4120,6 +4120,7 @@ dependencies = [
  "pipedash-plugin-gitlab",
  "pipedash-plugin-jenkins",
  "pipedash-plugin-komodo",
+ "pipedash-plugin-prow",
  "pipedash-plugin-tekton",
  "rand 0.10.3",
  "regex",
@@ -4170,6 +4171,7 @@ dependencies = [
  "pipedash-plugin-gitlab",
  "pipedash-plugin-jenkins",
  "pipedash-plugin-komodo",
+ "pipedash-plugin-prow",
  "pipedash-plugin-tekton",
  "rand 0.10.3",
  "reqwest",
@@ -4391,6 +4393,29 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "pipedash-plugin-prow"
+version = "0.7.0"
+dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "chrono",
+ "flate2",
+ "futures",
+ "http",
+ "k8s-openapi",
+ "kube",
+ "pipedash-plugin-api",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "shellexpand",
+ "tempfile",
  "tokio",
  "tracing",
 ]

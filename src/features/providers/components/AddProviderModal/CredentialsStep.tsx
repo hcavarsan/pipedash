@@ -51,6 +51,9 @@ export function CredentialsStep({
   const { selectedPlugin, providerName, authMode, configValues, fieldErrors } = state
   const { fields, lastTextKey, fieldStateFor, handleConfigChange, handleConfigBlur, handleNameChange, handleNameBlur } =
     useCredentialFields({ selectedPlugin, providerName, configValues, fieldErrors, dispatch })
+  const authModes = selectedPlugin?.config_schema.auth_modes
+  const sharedFields = fields.filter((field) => !authModes?.[field.key])
+  const modeFields = fields.filter((field) => authModes?.[field.key] === authMode)
 
   const handlePluginSelect = (providerType: string | null): void => {
     if (!providerType) {
@@ -95,8 +98,19 @@ export function CredentialsStep({
   const renderAuthField = (field: ConfigField): ReactNode => {
     const input = renderField(field)
 
-    if (field.key !== TOKEN_KEY || !selectedPlugin?.capabilities.sign_in) {
+    if (field.key !== TOKEN_KEY) {
       return input
+    }
+
+    const scoped = modeFields.map((modeField) => <Fragment key={modeField.key}>{renderField(modeField)}</Fragment>)
+
+    if (!selectedPlugin?.capabilities.sign_in) {
+      return (
+        <>
+          {scoped}
+          {input}
+        </>
+      )
     }
 
     const authControl = (
@@ -118,7 +132,7 @@ export function CredentialsStep({
           id={`${formId}-${SIGN_IN_KEY}`}
           providerType={selectedPlugin.provider_type}
           configValues={configValues}
-          ready={activeConfigFields(fields, 'sign_in').every(
+          ready={activeConfigFields(fields, 'sign_in', authModes).every(
             (config) => validateConfigField(config, configValues[config.key] || '') === null
           )}
           error={fieldErrors[SIGN_IN_KEY]}
@@ -133,6 +147,7 @@ export function CredentialsStep({
     return mobileShell ? (
       <>
         <IosGroup header="Authentication">{authControl}</IosGroup>
+        {scoped}
         {body}
       </>
     ) : (
@@ -140,6 +155,7 @@ export function CredentialsStep({
         <Input.Wrapper label="Authentication">
           <Box mt="xs">{authControl}</Box>
         </Input.Wrapper>
+        {scoped}
         {body}
       </>
     )
@@ -186,7 +202,7 @@ export function CredentialsStep({
               />
             </ShellField>
 
-            {fields.map((field) => (
+            {sharedFields.map((field) => (
               <Fragment key={field.key}>{renderAuthField(field)}</Fragment>
             ))}
 
@@ -248,7 +264,7 @@ export function CredentialsStep({
                 required
               />
 
-              {fields.map((field) => (
+              {sharedFields.map((field) => (
                 <Fragment key={field.key}>{renderAuthField(field)}</Fragment>
               ))}
             </Stack>

@@ -63,6 +63,7 @@ pub use plugin::{
 };
 pub use registry::PluginRegistry;
 pub use schema::{
+    AuthMode,
     ConfigField,
     ConfigFieldType,
     ConfigSchema,

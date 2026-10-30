@@ -1,7 +1,5 @@
-import type { ConfigField, SignInStatus } from '../../../../types/domain'
+import type { AuthMode, ConfigField, SignInStatus } from '../../../../types/domain'
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
-
-import type { AuthMode } from './types'
 
 type ValidatedField = Pick<ConfigField, 'label' | 'required' | 'validation_regex' | 'validation_message'>
 
@@ -42,8 +40,21 @@ export function mapProviderFieldErrors(
   return fields
 }
 
-export const activeConfigFields = (fields: ConfigField[], authMode: AuthMode): ConfigField[] =>
-  authMode === 'sign_in' ? fields.filter((field) => field.key !== TOKEN_KEY) : fields
+export const activeConfigFields = (
+  fields: ConfigField[],
+  authMode: AuthMode,
+  authModes: Record<string, AuthMode> | undefined
+): ConfigField[] =>
+  fields.filter(
+    (field) => !(authMode === 'sign_in' && field.key === TOKEN_KEY) && (authModes?.[field.key] ?? authMode) === authMode
+  )
+
+export const activeConfigValues = (
+  configValues: Record<string, string>,
+  authMode: AuthMode,
+  authModes: Record<string, AuthMode> | undefined
+): Record<string, string> =>
+  Object.fromEntries(Object.entries(configValues).filter(([key]) => (authModes?.[key] ?? authMode) === authMode))
 
 export function validateSignIn(
   authMode: AuthMode,
@@ -65,6 +76,7 @@ interface CredentialsDraft {
   providerName: string
   fields: ConfigField[]
   authMode: AuthMode
+  authModes: Record<string, AuthMode> | undefined
   configValues: Record<string, string>
   signInStatus: SignInStatus | undefined
 }
@@ -73,6 +85,7 @@ export function validateProviderCredentials({
   providerName,
   fields,
   authMode,
+  authModes,
   configValues,
   signInStatus,
 }: CredentialsDraft): Record<string, string> {
@@ -83,7 +96,7 @@ export function validateProviderCredentials({
     errors.providerName = nameError
   }
 
-  for (const field of activeConfigFields(fields, authMode)) {
+  for (const field of activeConfigFields(fields, authMode, authModes)) {
     const fieldError = validateConfigField(field, configValues[field.key] || '')
 
     if (fieldError) {

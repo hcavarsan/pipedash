@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { ConfigField } from '../../../../types/domain'
+import type { AuthMode, ConfigField } from '../../../../types/domain'
 
 import {
   activeConfigFields,
+  activeConfigValues,
   mapProviderFieldErrors,
   validateConfigField,
   validateProviderCredentials,
@@ -49,10 +50,10 @@ test('sign-in mode drops the token field and needs a completed sign-in', () => {
   const fields = [configField('server_url'), configField('token')]
 
   assert.deepEqual(
-    activeConfigFields(fields, 'sign_in').map((field) => field.key),
+    activeConfigFields(fields, 'sign_in', undefined).map((field) => field.key),
     ['server_url']
   )
-  assert.equal(activeConfigFields(fields, 'token').length, 2)
+  assert.equal(activeConfigFields(fields, 'token', undefined).length, 2)
   assert.equal(validateSignIn('sign_in', {}, undefined), 'Sign in to continue')
   assert.equal(validateSignIn('sign_in', { sign_in: 'abc' }, { state: 'pending' }), 'Finish signing in to continue')
   assert.equal(validateSignIn('sign_in', { sign_in: 'abc' }, { state: 'completed', account: null }), null)
@@ -87,6 +88,7 @@ test('credentials draft collects name, field and sign-in errors together', () =>
       providerName: '',
       fields,
       authMode: 'token',
+      authModes: undefined,
       configValues: {},
       signInStatus: undefined,
     }),
@@ -97,9 +99,44 @@ test('credentials draft collects name, field and sign-in errors together', () =>
       providerName: 'A',
       fields,
       authMode: 'sign_in',
+      authModes: undefined,
       configValues: {},
       signInStatus: undefined,
     }),
     { sign_in: 'Sign in to continue' }
+  )
+})
+
+test('auth-scoped fields count only in their own mode', () => {
+  const fields = [
+    configField('deck_url'),
+    { ...configField('sso_issuer'), required: true },
+    configField('auth_scheme'),
+    configField('token'),
+  ]
+  const authModes: Record<string, AuthMode> = { sso_issuer: 'sign_in', auth_scheme: 'token' }
+
+  assert.deepEqual(
+    activeConfigFields(fields, 'token', authModes).map((field) => field.key),
+    ['deck_url', 'auth_scheme', 'token']
+  )
+  assert.deepEqual(
+    activeConfigFields(fields, 'sign_in', authModes).map((field) => field.key),
+    ['deck_url', 'sso_issuer']
+  )
+  assert.deepEqual(activeConfigValues({ deck_url: 'd', sso_issuer: 'i', auth_scheme: 'basic' }, 'sign_in', authModes), {
+    deck_url: 'd',
+    sso_issuer: 'i',
+  })
+  assert.deepEqual(
+    validateProviderCredentials({
+      providerName: 'P',
+      fields,
+      authMode: 'token',
+      authModes,
+      configValues: {},
+      signInStatus: undefined,
+    }),
+    {}
   )
 })

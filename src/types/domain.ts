@@ -426,8 +426,11 @@ export interface ConfigField {
   validation_message: string | null
 }
 
+export type AuthMode = 'token' | 'sign_in'
+
 interface ConfigSchema {
   fields: ConfigField[]
+  auth_modes?: Record<string, AuthMode>
 }
 
 export type ColumnDataType =

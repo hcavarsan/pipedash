@@ -1,8 +1,6 @@
-import type { PluginMetadata, ProviderConfig } from '../../../../types/domain'
+import type { AuthMode, PluginMetadata, ProviderConfig } from '../../../../types/domain'
 
 export type Step = 'credentials' | 'pipelines'
-
-export type AuthMode = 'token' | 'sign_in'
 
 export interface FormState {
   step: Step
