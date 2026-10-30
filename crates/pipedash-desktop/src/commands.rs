@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use pipedash_core::{
     application::{
-        DiscoveryError,
         PipelineService,
         RefreshMode,
     },
@@ -62,19 +61,6 @@ impl From<pipedash_core::DomainError> for ErrorResponse {
             error: err.to_string(),
             details: None,
             code: Some(err.code().to_owned()),
-        }
-    }
-}
-
-impl From<DiscoveryError> for ErrorResponse {
-    fn from(err: DiscoveryError) -> Self {
-        match err {
-            DiscoveryError::Init(e) => e.into(),
-            DiscoveryError::Failed(error) => ErrorResponse {
-                error,
-                details: None,
-                code: None,
-            },
         }
     }
 }

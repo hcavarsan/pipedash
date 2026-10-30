@@ -89,8 +89,6 @@ use crate::infrastructure::{
 use crate::plugins;
 mod discovery;
 
-pub use discovery::DiscoveryError;
-
 const QUOTA_PAUSE_PERCENT: u64 = 10;
 const ACQUIRE_ATTEMPTS: usize = 3;
 

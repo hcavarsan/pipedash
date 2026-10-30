@@ -56,6 +56,8 @@ impl ResourceState {
     }
 }
 
+pub const READ_ONLY_METADATA_KEY: &str = "read_only";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: String,

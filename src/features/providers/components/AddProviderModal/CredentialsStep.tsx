@@ -52,8 +52,16 @@ export function CredentialsStep({
   const { fields, lastTextKey, fieldStateFor, handleConfigChange, handleConfigBlur, handleNameChange, handleNameBlur } =
     useCredentialFields({ selectedPlugin, providerName, configValues, fieldErrors, dispatch })
   const authModes = selectedPlugin?.config_schema.auth_modes
-  const sharedFields = fields.filter((field) => !authModes?.[field.key])
-  const modeFields = fields.filter((field) => authModes?.[field.key]?.includes(authMode))
+  const sharedFields = fields.filter((field) => {
+    const modes = authModes?.[field.key]
+
+    return !modes || (modes.length > 1 && modes.includes(authMode))
+  })
+  const modeFields = fields.filter((field) => {
+    const modes = authModes?.[field.key]
+
+    return modes?.length === 1 && modes[0] === authMode
+  })
 
   const handlePluginSelect = (providerType: string | null): void => {
     if (!providerType) {

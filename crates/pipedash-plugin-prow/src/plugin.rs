@@ -61,8 +61,7 @@ const DEFAULT_PAGE_SIZE: usize = 100;
 const HISTORY_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 const HISTORY_WINDOW_GROWTH: i64 = 4;
 const HISTORY_CONCURRENCY: usize = 4;
-const READ_ONLY: &str = "This provider connects without credentials, so it is read-only. Edit \
-                         it and choose an access token or single sign-on to start or abort jobs.";
+const READ_ONLY: &str = "Prow is connected without credentials, which is read-only";
 
 impl LogSource {
     fn other(self) -> Self {

@@ -98,6 +98,7 @@ pub use types::{
     TriggerParams,
     WorkflowParameter,
     WorkflowParameterType,
+    READ_ONLY_METADATA_KEY,
 };
 pub use utils::{
     retain_with_ci,

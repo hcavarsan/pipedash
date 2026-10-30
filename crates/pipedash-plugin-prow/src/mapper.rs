@@ -19,6 +19,7 @@ use pipedash_plugin_api::{
     PipelineRun,
     PipelineStatus,
     ResourceState,
+    READ_ONLY_METADATA_KEY,
 };
 use reqwest::Url;
 use serde_json::{
@@ -253,7 +254,7 @@ pub(crate) fn map_pipeline(
             .and_then(|refs| non_empty(&refs.base_ref));
     }
     if read_only {
-        metadata.insert("read_only".to_string(), Value::Bool(true));
+        metadata.insert(READ_ONLY_METADATA_KEY.to_string(), Value::Bool(true));
     }
 
     Pipeline {

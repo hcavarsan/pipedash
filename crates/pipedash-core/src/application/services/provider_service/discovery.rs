@@ -24,22 +24,20 @@ use tokio::sync::OnceCell;
 use tokio::time::Instant;
 
 use super::ProviderService;
-use crate::domain::DomainError;
+use crate::domain::{
+    DomainError,
+    DomainResult,
+};
+use crate::infrastructure::providers::PluginAdapter;
 
 const CATALOG_TTL: Duration = Duration::from_secs(300);
 const CATALOG_MAX_ENTRIES: usize = 8;
 const DEFAULT_PAGE_SIZE: usize = 100;
 const SELECTION_KEY: &str = "selected_items";
 
-#[derive(Debug, Clone)]
-pub enum DiscoveryError {
-    Init(DomainError),
-    Failed(String),
-}
-
 enum Miss {
     Unsupported(Box<dyn PluginTrait>),
-    Failed(DiscoveryError),
+    Failed(DomainError),
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -238,15 +236,13 @@ fn serve_pipelines(
 impl ProviderService {
     pub async fn discover_organizations(
         &self, provider_type: &str, config: HashMap<String, String>,
-    ) -> Result<Vec<Organization>, DiscoveryError> {
-        const FAILURE: &str = "Failed to fetch organizations";
-
-        match self.catalog(provider_type, config, FAILURE).await {
+    ) -> DomainResult<Vec<Organization>> {
+        match self.catalog(provider_type, config).await {
             Ok(catalog) => Ok(catalog.organizations.clone()),
             Err(Miss::Unsupported(plugin)) => plugin
                 .fetch_organizations()
                 .await
-                .map_err(|e| DiscoveryError::Failed(format!("{FAILURE}: {e}"))),
+                .map_err(PluginAdapter::map_error),
             Err(Miss::Failed(e)) => Err(e),
         }
     }
@@ -254,10 +250,8 @@ impl ProviderService {
     pub async fn discover_pipelines(
         &self, provider_type: &str, config: HashMap<String, String>, org: Option<String>,
         search: Option<String>, params: PaginationParams,
-    ) -> Result<PaginatedAvailablePipelines, DiscoveryError> {
-        const FAILURE: &str = "Failed to fetch available pipelines";
-
-        match self.catalog(provider_type, config, FAILURE).await {
+    ) -> DomainResult<PaginatedAvailablePipelines> {
+        match self.catalog(provider_type, config).await {
             Ok(catalog) => Ok(serve_pipelines(
                 &catalog,
                 org.as_deref(),
@@ -267,13 +261,13 @@ impl ProviderService {
             Err(Miss::Unsupported(plugin)) => plugin
                 .fetch_available_pipelines_filtered(org, search, Some(params))
                 .await
-                .map_err(|e| DiscoveryError::Failed(format!("{FAILURE}: {e}"))),
+                .map_err(PluginAdapter::map_error),
             Err(Miss::Failed(e)) => Err(e),
         }
     }
 
     async fn catalog(
-        &self, provider_type: &str, config: HashMap<String, String>, failure: &str,
+        &self, provider_type: &str, config: HashMap<String, String>,
     ) -> Result<Arc<PipelineCatalog>, Miss> {
         let key = CatalogKey::new(provider_type, &config);
 
@@ -282,25 +276,19 @@ impl ProviderService {
                 let plugin = self
                     .init_plugin(provider_type, config, 0)
                     .await
-                    .map_err(|e| Miss::Failed(DiscoveryError::Init(e)))?;
+                    .map_err(Miss::Failed)?;
 
                 let (validated, catalog) = tokio::join!(
                     plugin.validate_credentials(),
                     plugin.fetch_pipeline_catalog()
                 );
 
-                validated.map_err(|e| {
-                    Miss::Failed(DiscoveryError::Failed(format!(
-                        "Failed to validate credentials: {e}"
-                    )))
-                })?;
+                validated.map_err(|e| Miss::Failed(PluginAdapter::map_error(e)))?;
 
                 match catalog {
                     Ok(catalog) => Ok(catalog),
                     Err(PluginError::NotSupported(_)) => Err(Miss::Unsupported(plugin)),
-                    Err(e) => Err(Miss::Failed(DiscoveryError::Failed(format!(
-                        "{failure}: {e}"
-                    )))),
+                    Err(e) => Err(Miss::Failed(PluginAdapter::map_error(e))),
                 }
             })
             .await

@@ -43,7 +43,6 @@ pub use services::pipeline_service::{
 };
 pub use services::pipeline_view_service::PipelineViewService;
 pub use services::provider_service::{
-    DiscoveryError,
     ProviderLease,
     ProviderService,
 };

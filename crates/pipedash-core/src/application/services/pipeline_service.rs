@@ -19,6 +19,7 @@ use futures::future::{
     FutureExt,
     Shared,
 };
+use pipedash_plugin_api::READ_ONLY_METADATA_KEY;
 pub use run_watch::{
     RunWatch,
     WatchedRun,
@@ -45,6 +46,9 @@ const OVERDUE_MIN_SUCCESSFUL_RUNS: usize = 3;
 pub(crate) const OVERDUE_RECENT_RUNS: usize = 20;
 pub(crate) const OVERDUE_CONCURRENT_CHECKS: usize = 4;
 const OVERDUE_HISTORY_FETCH: usize = 100;
+const READ_ONLY_PROVIDER: &str = "This provider connects without credentials, so it is read-only. \
+                                  Edit it and choose an access token or single sign-on to start \
+                                  or stop runs.";
 
 use super::health_service::{
     HealthHandle,
@@ -1020,6 +1024,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == params.workflow_id)
             .ok_or_else(|| DomainError::PipelineNotFound(params.workflow_id.clone()))?;
+        refuse_read_only(pipeline)?;
 
         let provider = self
             .provider_service
@@ -1042,6 +1047,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+        refuse_read_only(pipeline)?;
 
         let provider = self
             .provider_service
@@ -1066,6 +1072,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+        refuse_read_only(pipeline)?;
 
         let provider = self
             .provider_service
@@ -1096,6 +1103,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+        refuse_read_only(pipeline)?;
 
         let provider = self
             .provider_service
@@ -1175,6 +1183,13 @@ fn not_found(provider_id: i64) -> RefreshResult {
 
 fn provider_id_of(pipeline_id: &str) -> Option<i64> {
     pipeline_id.split("__").nth(1)?.parse().ok()
+}
+
+fn refuse_read_only(pipeline: &Pipeline) -> DomainResult<()> {
+    if pipeline.metadata.get(READ_ONLY_METADATA_KEY) == Some(&serde_json::Value::Bool(true)) {
+        return Err(DomainError::NotSupported(READ_ONLY_PROVIDER.to_string()));
+    }
+    Ok(())
 }
 
 fn needing_attention(old: &HashMap<&str, &Pipeline>, new: &[Pipeline]) -> Vec<Pipeline> {
@@ -1573,6 +1588,55 @@ mod tests {
                     > 0
             );
         }
+    }
+
+    #[tokio::test]
+    async fn read_only_pipelines_refuse_actions_before_the_provider_is_called() {
+        let h = Harness::new().await;
+        let (provider_id, _) = h.add_stub(StubProvider::new).await;
+        let pipelines: Vec<Pipeline> = [("public", true), ("signed", false)]
+            .iter()
+            .map(|(name, read_only)| {
+                let metadata = if *read_only {
+                    json!({ "read_only": true })
+                } else {
+                    json!({})
+                };
+                serde_json::from_value(json!({
+                    "id": format!("stub__{provider_id}__{name}"), "provider_id": provider_id,
+                    "provider_type": "stub", "name": name, "status": "running",
+                    "repository": name, "last_updated": Utc::now(), "metadata": metadata
+                }))
+                .unwrap()
+            })
+            .collect();
+        h.repository
+            .update_pipelines_cache(provider_id, &pipelines)
+            .await
+            .unwrap();
+        let public = format!("stub__{provider_id}__public");
+        let signed = format!("stub__{provider_id}__signed");
+        let refused = |result: DomainResult<()>| matches!(result, Err(DomainError::NotSupported(message)) if message == READ_ONLY_PROVIDER);
+        let service = &h.pipeline_service;
+
+        let triggered = service
+            .trigger_pipeline(TriggerParams {
+                workflow_id: public.clone(),
+                inputs: None,
+            })
+            .await
+            .map(|_| ());
+
+        assert!(refused(triggered));
+        assert!(refused(service.cancel_run(&public, 1).await));
+        assert!(refused(service.rerun_run(&public, 1).await));
+        assert!(refused(service.rerun_failed_jobs(&public, 1).await));
+        assert!(refused(
+            service
+                .review_run(&public, 1, pipedash_plugin_api::ReviewDecision::Approve)
+                .await
+        ));
+        assert!(!refused(service.cancel_run(&signed, 1).await));
     }
 
     #[tokio::test]

@@ -14,10 +14,7 @@ use axum::{
     Json,
     Router,
 };
-use pipedash_core::application::{
-    DiscoveryError,
-    PipelineService,
-};
+use pipedash_core::application::PipelineService;
 use pipedash_core::domain::{
     PaginatedAvailablePipelines,
     PaginationParams,
@@ -492,15 +489,6 @@ async fn preview_pipelines(
         .await?;
 
     Ok(Json(result))
-}
-
-impl From<DiscoveryError> for AppError {
-    fn from(err: DiscoveryError) -> Self {
-        match err {
-            DiscoveryError::Init(e) => e.into(),
-            DiscoveryError::Failed(message) => AppError::internal(message),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
