@@ -1,0 +1,5 @@
+- Logs and status of running jobs update live, and runs show how long they usually take.
+- ArgoCD, FluxCD and Komodo show what their live resources are doing, and failing workloads show as Degraded.
+- Alerts for failed pipelines arrive in the background, and tokens stay in the Android Keystore.
+- Lists use two-line rows and a More menu for Select, Filter, Sort by and Group by.
+- Fixes for GitLab, Komodo and view rules, and Pipedash sends a failed trigger or rerun only once.
