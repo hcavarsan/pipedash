@@ -19,7 +19,7 @@ use futures::future::{
     FutureExt,
     Shared,
 };
-use pipedash_plugin_api::READ_ONLY_METADATA_KEY;
+use pipedash_plugin_api::is_no_auth;
 pub use run_watch::{
     RunWatch,
     WatchedRun,
@@ -1024,7 +1024,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == params.workflow_id)
             .ok_or_else(|| DomainError::PipelineNotFound(params.workflow_id.clone()))?;
-        refuse_read_only(pipeline)?;
+        self.refuse_read_only(pipeline.provider_id).await?;
 
         let provider = self
             .provider_service
@@ -1047,7 +1047,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
-        refuse_read_only(pipeline)?;
+        self.refuse_read_only(pipeline.provider_id).await?;
 
         let provider = self
             .provider_service
@@ -1072,7 +1072,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
-        refuse_read_only(pipeline)?;
+        self.refuse_read_only(pipeline.provider_id).await?;
 
         let provider = self
             .provider_service
@@ -1103,7 +1103,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
-        refuse_read_only(pipeline)?;
+        self.refuse_read_only(pipeline.provider_id).await?;
 
         let provider = self
             .provider_service
@@ -1117,6 +1117,17 @@ impl PipelineService {
 
         self.invalidate_run_cache(pipeline_id).await;
 
+        Ok(())
+    }
+
+    async fn refuse_read_only(&self, provider_id: i64) -> DomainResult<()> {
+        let config = self
+            .provider_service
+            .get_provider_config(provider_id)
+            .await?;
+        if is_no_auth(&config.config) {
+            return Err(DomainError::NotSupported(READ_ONLY_PROVIDER.to_string()));
+        }
         Ok(())
     }
 
@@ -1183,13 +1194,6 @@ fn not_found(provider_id: i64) -> RefreshResult {
 
 fn provider_id_of(pipeline_id: &str) -> Option<i64> {
     pipeline_id.split("__").nth(1)?.parse().ok()
-}
-
-fn refuse_read_only(pipeline: &Pipeline) -> DomainResult<()> {
-    if pipeline.metadata.get(READ_ONLY_METADATA_KEY) == Some(&serde_json::Value::Bool(true)) {
-        return Err(DomainError::NotSupported(READ_ONLY_PROVIDER.to_string()));
-    }
-    Ok(())
 }
 
 fn needing_attention(old: &HashMap<&str, &Pipeline>, new: &[Pipeline]) -> Vec<Pipeline> {
@@ -1591,31 +1595,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn read_only_pipelines_refuse_actions_before_the_provider_is_called() {
+    async fn no_auth_providers_refuse_actions_from_their_saved_config() {
         let h = Harness::new().await;
-        let (provider_id, _) = h.add_stub(StubProvider::new).await;
-        let pipelines: Vec<Pipeline> = [("public", true), ("signed", false)]
-            .iter()
-            .map(|(name, read_only)| {
-                let metadata = if *read_only {
-                    json!({ "read_only": true })
-                } else {
-                    json!({})
-                };
-                serde_json::from_value(json!({
-                    "id": format!("stub__{provider_id}__{name}"), "provider_id": provider_id,
-                    "provider_type": "stub", "name": name, "status": "running",
-                    "repository": name, "last_updated": Utc::now(), "metadata": metadata
-                }))
-                .unwrap()
-            })
-            .collect();
+        let (public_id, _) = h.add_stub(StubProvider::new).await;
+        let (signed_id, _) = h.add_stub(StubProvider::new).await;
+        let mut public_config = h.repository.get_provider(public_id).await.unwrap();
+        public_config
+            .config
+            .insert("auth_mode".to_string(), "none".to_string());
         h.repository
-            .update_pipelines_cache(provider_id, &pipelines)
+            .update_provider(public_id, &public_config)
             .await
             .unwrap();
-        let public = format!("stub__{provider_id}__public");
-        let signed = format!("stub__{provider_id}__signed");
+        for provider_id in [public_id, signed_id] {
+            let stale: Pipeline = serde_json::from_value(json!({
+                "id": format!("stub__{provider_id}__build"), "provider_id": provider_id,
+                "provider_type": "stub", "name": "build", "status": "running",
+                "repository": "build", "last_updated": Utc::now(),
+                "metadata": { "read_only": true }
+            }))
+            .unwrap();
+            h.repository
+                .update_pipelines_cache(provider_id, &[stale])
+                .await
+                .unwrap();
+        }
+        let public = format!("stub__{public_id}__build");
+        let signed = format!("stub__{signed_id}__build");
         let refused = |result: DomainResult<()>| matches!(result, Err(DomainError::NotSupported(message)) if message == READ_ONLY_PROVIDER);
         let service = &h.pipeline_service;
 
