@@ -1,0 +1,8 @@
+- Add Prow jobs and see their runs and build logs, with no sign-in for a public Deck, an access token or single sign-on.
+- Browse lists your views and providers, and each repository opens its own page with its workflows.
+- Pinned workflows and repositories get their own Pinned tab, and you can reorder pinned workflows in Select.
+- The tab bar turns into a glass bar that shrinks while you scroll, and back buttons name the page they return to.
+- Adding a provider takes three steps, and the pipeline picker has a search field and Select all.
+- Search build logs from the bottom bar, with the current match highlighted.
+- Pipelines that never ran show Never run, and Trigger moves into the run history menu.
+- Run history keeps loading past the first 20 runs, and saving metrics settings no longer deletes older FluxCD runs.
