@@ -63,10 +63,12 @@ pub use plugin::{
 };
 pub use registry::PluginRegistry;
 pub use schema::{
+    is_no_auth,
     AuthMode,
     ConfigField,
     ConfigFieldType,
     ConfigSchema,
+    AUTH_MODE_KEY,
 };
 pub use sign_in::{
     SignInClient,
@@ -87,6 +89,7 @@ pub use types::{
     PermissionCheck,
     PermissionStatus,
     Pipeline,
+    PipelineCatalog,
     PipelineRun,
     PipelineStatus,
     RateLimit,

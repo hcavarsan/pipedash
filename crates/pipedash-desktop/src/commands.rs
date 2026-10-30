@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use pipedash_core::{
     application::{
+        DiscoveryError,
         PipelineService,
         RefreshMode,
     },
@@ -61,6 +62,19 @@ impl From<pipedash_core::DomainError> for ErrorResponse {
             error: err.to_string(),
             details: None,
             code: Some(err.code().to_owned()),
+        }
+    }
+}
+
+impl From<DiscoveryError> for ErrorResponse {
+    fn from(err: DiscoveryError) -> Self {
+        match err {
+            DiscoveryError::Init(e) => e.into(),
+            DiscoveryError::Failed(error) => ErrorResponse {
+                error,
+                details: None,
+                code: None,
+            },
         }
     }
 }
@@ -304,28 +318,10 @@ pub async fn fetch_provider_organizations(
         details: None,
         code: None,
     })?;
-    let plugin = core
+    Ok(core
         .provider_service
-        .init_plugin(&provider_type, config, 0)
-        .await?;
-
-    plugin
-        .validate_credentials()
-        .await
-        .map_err(|e| ErrorResponse {
-            error: format!("Failed to validate credentials: {e}"),
-            details: None,
-            code: None,
-        })?;
-
-    plugin
-        .fetch_organizations()
-        .await
-        .map_err(|e| ErrorResponse {
-            error: format!("Failed to fetch organizations: {e}"),
-            details: None,
-            code: None,
-        })
+        .discover_organizations(&provider_type, config)
+        .await?)
 }
 
 #[tauri::command]
@@ -339,19 +335,6 @@ pub async fn preview_provider_pipelines(
         details: None,
         code: None,
     })?;
-    let plugin = core
-        .provider_service
-        .init_plugin(&provider_type, config, 0)
-        .await?;
-
-    plugin
-        .validate_credentials()
-        .await
-        .map_err(|e| ErrorResponse {
-            error: format!("Failed to validate credentials: {e}"),
-            details: None,
-            code: None,
-        })?;
 
     let params = PaginationParams {
         page: page.unwrap_or(1).max(1),
@@ -366,14 +349,10 @@ pub async fn preview_provider_pipelines(
         });
     }
 
-    plugin
-        .fetch_available_pipelines_filtered(org, search, Some(params))
-        .await
-        .map_err(|e| ErrorResponse {
-            error: format!("Failed to fetch available pipelines: {e}"),
-            details: None,
-            code: None,
-        })
+    Ok(core
+        .provider_service
+        .discover_pipelines(&provider_type, config, org, search, params)
+        .await?)
 }
 
 #[tauri::command]

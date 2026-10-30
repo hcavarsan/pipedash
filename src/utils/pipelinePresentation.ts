@@ -1,5 +1,6 @@
 import { STATUS_OPTIONS } from '../theme/status'
-import type { Pipeline, PipelineRun } from '../types/domain'
+import type { Pipeline, PipelineRun, PluginMetadata } from '../types/domain'
+import { getPluginByType } from './pluginHelpers'
 
 export interface PipelineLabels {
   item: string
@@ -75,7 +76,21 @@ const isDynamicGitHubWorkflow = (pipeline: Pick<Pipeline, 'provider_type' | 'wor
 export const canRerunInPlace = (pipeline: Pick<Pipeline, 'provider_type'>): boolean =>
   pipeline.provider_type === 'github'
 
+export const READ_ONLY_REASON =
+  'This provider connects without credentials, so it is read-only. Edit it and choose an access token or single sign-on to start or stop runs.'
+
+export const isReadOnlyPipeline = (pipeline: Pick<Pipeline, 'metadata'>): boolean =>
+  pipeline.metadata?.read_only === true
+
+export const canCancelPipeline = (
+  plugins: PluginMetadata[] | undefined,
+  pipeline: Pick<Pipeline, 'metadata' | 'provider_type'>
+): boolean => !isReadOnlyPipeline(pipeline) && !!getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel
+
 export const getReconcileBlockReason = (pipeline: Pick<Pipeline, 'metadata'>): string | undefined => {
+  if (isReadOnlyPipeline(pipeline)) {
+    return READ_ONLY_REASON
+  }
   if (pipeline.metadata?.missing === true) {
     return 'This resource was not found. Update the selection or recreate it in Flux.'
   }

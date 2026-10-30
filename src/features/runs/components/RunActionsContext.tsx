@@ -12,12 +12,12 @@ import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/domai
 import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { isRecord } from '../../../utils/isRecord'
 import {
+  canCancelPipeline,
   canRerunInPlace,
   getPipelineLabels,
   getReconcileBlockReason,
   getTriggerBlockReason,
 } from '../../../utils/pipelinePresentation'
-import { getPluginByType } from '../../../utils/pluginHelpers'
 import type { RerunMode } from '../../../utils/rerunSummary'
 
 import type { RunActionsValue } from '../lib/runActions'
@@ -135,7 +135,7 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
     labels: getPipelineLabels(pipeline?.provider_type),
     isFlux: pipeline?.provider_type === 'fluxcd',
     canRerun: !!pipeline && !getReconcileBlockReason(pipeline),
-    canCancel: !!pipeline && !!getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel,
+    canCancel: !!pipeline && canCancelPipeline(plugins, pipeline),
     cancellingRun: pendingNumber(cancelRun),
     reviewingRun: pendingNumber(reviewRun),
     rerunningFailedRun: pendingNumber(rerunFailedJobs),

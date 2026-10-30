@@ -19,7 +19,8 @@ import {
 } from '../../../utils/cancelActiveRuns'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { formatCount } from '../../../utils/formatCount'
-import { getPluginByType, getPluginDisplayName } from '../../../utils/pluginHelpers'
+import { canCancelPipeline } from '../../../utils/pipelinePresentation'
+import { getPluginDisplayName } from '../../../utils/pluginHelpers'
 
 import { CancelRunTargets } from './CancelRunTargets'
 
@@ -47,8 +48,7 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
   const formId = useId()
 
   const { candidates, skippedNote } = useMemo(() => {
-    const cancelCapable = (pipeline: Pipeline) =>
-      Boolean(getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel)
+    const cancelCapable = (pipeline: Pipeline) => canCancelPipeline(plugins, pipeline)
     const pipelines = scope?.pipelines ?? []
     const skipped = new Map<string, number>()
 
@@ -77,7 +77,7 @@ export const CancelActiveRunsModal = ({ opened, scope, onClose, onConfirm }: Can
     () =>
       buildCancelGroups(candidates, search.data?.runs ?? {}, (pipeline) => ({
         name: getPluginDisplayName(plugins, pipeline.provider_type),
-        canCancel: Boolean(getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel),
+        canCancel: canCancelPipeline(plugins, pipeline),
       })),
     [candidates, search.data, plugins]
   )

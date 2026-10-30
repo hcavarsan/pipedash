@@ -1,5 +1,4 @@
 use std::collections::{
-    BTreeSet,
     HashMap,
     HashSet,
 };
@@ -62,6 +61,8 @@ const DEFAULT_PAGE_SIZE: usize = 100;
 const HISTORY_WINDOW_MS: i64 = 24 * 60 * 60 * 1000;
 const HISTORY_WINDOW_GROWTH: i64 = 4;
 const HISTORY_CONCURRENCY: usize = 4;
+const READ_ONLY: &str = "This provider connects without credentials, so it is read-only. Edit \
+                         it and choose an access token or single sign-on to start or abort jobs.";
 
 impl LogSource {
     fn other(self) -> Self {
@@ -102,6 +103,7 @@ pub struct ProwPlugin {
     history: HistorySource,
     storage_bucket: Option<Bucket>,
     selections: Vec<Selection>,
+    read_only: bool,
     kube_settings: Option<KubeSettings>,
     kube: OnceCell<ProwJobClient>,
     status_source: Option<StatusSource>,
@@ -123,6 +125,7 @@ impl ProwPlugin {
             history: HistorySource::Deck,
             storage_bucket: None,
             selections: Vec::new(),
+            read_only: false,
             kube_settings: None,
             kube: OnceCell::new(),
             status_source: None,
@@ -144,6 +147,13 @@ impl ProwPlugin {
     fn provider_id(&self) -> PluginResult<i64> {
         self.provider_id
             .ok_or_else(|| PluginError::Internal("Provider ID not set".to_string()))
+    }
+
+    fn writable(&self) -> PluginResult<()> {
+        if self.read_only {
+            return Err(PluginError::NotSupported(READ_ONLY.to_string()));
+        }
+        Ok(())
     }
 
     async fn kube(&self) -> PluginResult<Option<&ProwJobClient>> {
@@ -361,12 +371,17 @@ impl Plugin for ProwPlugin {
 
         let status_source = custom_status_source(&config)?;
         let base = config::deck_url(&config)?;
-        let auth = config::auth_header(&config)?;
+        let read_only = is_no_auth(&config);
+        let auth = if read_only {
+            None
+        } else {
+            config::auth_header(&config)?
+        };
         let history = config::history_source(&config)?;
         let storage_url = config::storage_url(&config)?;
         let storage_bucket = config::storage_bucket(&config)?;
         let selections = config::selections(&config)?;
-        let kube_settings = config::kube_settings(&config);
+        let kube_settings = config::kube_settings(&config).filter(|_| !read_only);
         if config::is_insecure(&config) {
             warn!("Insecure TLS mode enabled - certificate verification disabled");
         }
@@ -380,6 +395,7 @@ impl Plugin for ProwPlugin {
         self.history = history;
         self.storage_bucket = storage_bucket;
         self.selections = selections;
+        self.read_only = read_only;
         self.kube_settings = kube_settings;
         self.kube = OnceCell::new();
         self.status_source = status_source;
@@ -393,25 +409,13 @@ impl Plugin for ProwPlugin {
     }
 
     async fn fetch_organizations(&self) -> PluginResult<Vec<Organization>> {
+        Ok(self.fetch_pipeline_catalog().await?.organizations)
+    }
+
+    async fn fetch_pipeline_catalog(&self) -> PluginResult<PipelineCatalog> {
         let deck = self.deck()?;
         let jobs = deck.jobs(None, None).await?;
-        let orgs: BTreeSet<String> = jobs
-            .iter()
-            .map(|job| {
-                mapper::scope_of(job)
-                    .map(|scope| scope.org)
-                    .unwrap_or_else(|| deck.host().to_string())
-            })
-            .collect();
-
-        Ok(orgs
-            .into_iter()
-            .map(|org| Organization {
-                name: config::display_org(&org).to_string(),
-                id: org,
-                description: None,
-            })
-            .collect())
+        Ok(mapper::catalog(&jobs, deck.host()))
     }
 
     async fn fetch_available_pipelines(
@@ -429,16 +433,10 @@ impl Plugin for ProwPlugin {
             Some(org) if org != deck.host() => deck.jobs(Some(org), None).await?,
             _ => deck.jobs(None, None).await?,
         };
-        let mut newest_first: Vec<&ProwJob> =
-            jobs.iter().filter(|job| !job.spec.job.is_empty()).collect();
-        newest_first.sort_by_key(|job| std::cmp::Reverse(job.status.start_time));
-
         let search = search.map(|term| term.to_lowercase());
-        let mut seen = HashSet::new();
-        let mut matching: Vec<AvailablePipeline> = newest_first
+        let matching: Vec<AvailablePipeline> = mapper::catalog(&jobs, deck.host())
+            .pipelines
             .into_iter()
-            .map(|job| mapper::map_available(job, deck.host()))
-            .filter(|pipeline| seen.insert(pipeline.id.clone()))
             .filter(|pipeline| org.is_none() || pipeline.organization == org)
             .filter(|pipeline| {
                 search.as_ref().is_none_or(|term| {
@@ -450,7 +448,6 @@ impl Plugin for ProwPlugin {
                 })
             })
             .collect();
-        matching.sort_by(|a, b| a.name.cmp(&b.name));
 
         let total_count = matching.len();
         let params = params.unwrap_or_default();
@@ -524,7 +521,7 @@ impl Plugin for ProwPlugin {
                     (None, Some(build)) => Latest::Storage(build),
                     (None, None) => Latest::None,
                 };
-                mapper::map_pipeline(provider_id, selection, latest, deck.base())
+                mapper::map_pipeline(provider_id, selection, latest, deck.base(), self.read_only)
             })
             .collect();
 
@@ -661,6 +658,7 @@ impl Plugin for ProwPlugin {
     }
 
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String> {
+        self.writable()?;
         let selection = config::parse_pipeline_id(&params.workflow_id)?;
         let job = selection.job.as_str();
         let input = |key: &str| {
@@ -719,6 +717,7 @@ impl Plugin for ProwPlugin {
     }
 
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
+        self.writable()?;
         let selection = config::parse_pipeline_id(pipeline_id)?;
         let job = selection.job.as_str();
         let deck = self.deck()?;
@@ -1292,6 +1291,85 @@ mod tests {
             .map(|request| request.target)
             .collect();
         assert_eq!(posts, ["/abort?prowjob=a-300"]);
+    }
+
+    #[tokio::test]
+    async fn no_auth_reads_without_credentials_and_refuses_actions() {
+        let (deck, requests) = action_deck(|_| Response::text(200, "Job successfully triggered."));
+        let public = plugin_with(&deck, &[("auth_mode", "none"), ("token", "secret")]);
+        let signed = plugin_with(&deck, &[("token", "secret")]);
+
+        let pipelines = public.fetch_pipelines().await.unwrap();
+        let started = public.trigger_pipeline(trigger(None)).await;
+        let aborted = public.cancel_run(CI_A, 300).await;
+
+        assert_eq!(pipelines[0].metadata["read_only"], json!(true));
+        assert!(matches!(started, Err(PluginError::NotSupported(_))));
+        assert!(matches!(aborted, Err(PluginError::NotSupported(_))));
+        let sent_publicly = requests.lock().unwrap().clone();
+        assert!(!sent_publicly.is_empty());
+        assert!(sent_publicly
+            .iter()
+            .all(|request| request.method == "GET" && request.header("authorization").is_none()));
+
+        let pipelines = signed.fetch_pipelines().await.unwrap();
+        assert!(!pipelines[0].metadata.contains_key("read_only"));
+    }
+
+    #[tokio::test]
+    async fn catalog_lists_each_job_once_with_its_organization_from_one_request() {
+        let refless = r#"{"metadata":{"name":"n-7","namespace":"default"},"spec":{"type":"periodic","job":"ci-noref"},"status":{"startTime":"2026-10-30T10:00:00Z","state":"pending","build_id":"7"}}"#;
+        let gerrit = r#"{"metadata":{"name":"g-1","namespace":"default"},"spec":{"type":"postsubmit","job":"post-g","refs":{"org":"https://gerrit.example.com","repo":"proj"}},"status":{"startTime":"2026-10-30T10:00:00Z","state":"success","build_id":"1"}}"#;
+        let body = jobs_body(&[
+            prowjob("a-300", "ci-a", "300", "success", "periodic", ""),
+            prowjob("a-299", "ci-a", "299", "failure", "periodic", ""),
+            prowjob("p-1", "pull-x", "1", "pending", "presubmit", ""),
+            refless.to_string(),
+            gerrit.to_string(),
+        ]);
+        let (deck, requests) = serve(move |_| Response::gzip_json(&body));
+        let plugin = plugin_with(&deck, &[]);
+        let host = reqwest::Url::parse(&deck)
+            .unwrap()
+            .host_str()
+            .unwrap()
+            .to_string();
+
+        let catalog = plugin.fetch_pipeline_catalog().await.unwrap();
+
+        let organizations: Vec<(&str, &str)> = catalog
+            .organizations
+            .iter()
+            .map(|org| (org.id.as_str(), org.name.as_str()))
+            .collect();
+        assert_eq!(
+            organizations,
+            [
+                (host.as_str(), host.as_str()),
+                ("https://gerrit.example.com", "gerrit.example.com"),
+                ("kubernetes", "kubernetes"),
+            ]
+        );
+        let pipelines: Vec<(&str, Option<&str>)> = catalog
+            .pipelines
+            .iter()
+            .map(|pipeline| (pipeline.id.as_str(), pipeline.organization.as_deref()))
+            .collect();
+        assert_eq!(
+            pipelines,
+            [
+                ("kubernetes/test-infra/ci-a", Some("kubernetes")),
+                ("ci-noref", Some(host.as_str())),
+                (
+                    "https://gerrit.example.com/proj/post-g",
+                    Some("https://gerrit.example.com")
+                ),
+                ("kubernetes/test-infra/pull-x", Some("kubernetes")),
+            ]
+        );
+        let lists = sent(&requests, "GET", "/prowjobs.js");
+        assert_eq!(lists.len(), 1);
+        assert!(!lists[0].target.contains("org="));
     }
 
     #[tokio::test]

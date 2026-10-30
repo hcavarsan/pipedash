@@ -5,7 +5,7 @@ import shell from '../../../../components/forms/ShellForm.module.css'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { useFormEnterNavigation } from '../../../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
-import type { ConfigField, PluginMetadata } from '../../../../types/domain'
+import type { AuthMode, ConfigField, PluginMetadata } from '../../../../types/domain'
 import { fieldA11y } from '../../../../utils/formFields'
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 import { ProviderConfigField } from './ProviderConfigField'
@@ -53,7 +53,7 @@ export function CredentialsStep({
     useCredentialFields({ selectedPlugin, providerName, configValues, fieldErrors, dispatch })
   const authModes = selectedPlugin?.config_schema.auth_modes
   const sharedFields = fields.filter((field) => !authModes?.[field.key])
-  const modeFields = fields.filter((field) => authModes?.[field.key] === authMode)
+  const modeFields = fields.filter((field) => authModes?.[field.key]?.includes(authMode))
 
   const handlePluginSelect = (providerType: string | null): void => {
     if (!providerType) {
@@ -103,8 +103,13 @@ export function CredentialsStep({
     }
 
     const scoped = modeFields.map((modeField) => <Fragment key={modeField.key}>{renderField(modeField)}</Fragment>)
+    const options: { value: AuthMode; label: string }[] = [
+      ...(selectedPlugin?.config_schema.no_auth ? [{ value: 'none' as const, label: 'No auth' }] : []),
+      { value: 'token', label: field.label },
+      ...(selectedPlugin?.capabilities.sign_in ? [{ value: 'sign_in' as const, label: 'Single sign-on' }] : []),
+    ]
 
-    if (!selectedPlugin?.capabilities.sign_in) {
+    if (!selectedPlugin || options.length < 2) {
       return (
         <>
           {scoped}
@@ -117,17 +122,31 @@ export function CredentialsStep({
       <SegmentedControl
         aria-label="Authentication"
         fullWidth
-        data={[
-          { value: 'token', label: field.label },
-          { value: 'sign_in', label: 'Single sign-on' },
-        ]}
+        data={options}
         value={authMode}
         disabled={submitting}
-        onChange={(value) => dispatch({ type: 'SET_AUTH_MODE', mode: value === 'sign_in' ? 'sign_in' : 'token' })}
+        onChange={(value) => {
+          const mode = options.find((option) => option.value === value)?.value
+
+          if (mode) {
+            dispatch({ type: 'SET_AUTH_MODE', mode })
+          }
+        }}
       />
     )
-    const body =
-      authMode === 'sign_in' ? (
+    const noAuthNote = 'Connects without credentials. Read-only: starting and stopping runs is turned off.'
+    let body: ReactNode = input
+
+    if (authMode === 'none') {
+      body = mobileShell ? (
+        <p className={shell.note}>{noAuthNote}</p>
+      ) : (
+        <Text size="sm" c="dimmed">
+          {noAuthNote}
+        </Text>
+      )
+    } else if (authMode === 'sign_in') {
+      body = (
         <SignInField
           id={`${formId}-${SIGN_IN_KEY}`}
           providerType={selectedPlugin.provider_type}
@@ -140,9 +159,8 @@ export function CredentialsStep({
           shell={mobileShell}
           onChange={(reference) => dispatch({ type: 'SET_SIGN_IN', reference })}
         />
-      ) : (
-        input
       )
+    }
 
     return mobileShell ? (
       <>

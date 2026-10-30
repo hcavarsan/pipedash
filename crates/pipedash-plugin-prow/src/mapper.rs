@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{
+    BTreeSet,
+    HashMap,
+    HashSet,
+};
 
 use chrono::{
     DateTime,
@@ -9,7 +13,9 @@ use pipedash_plugin_api::{
     LogAvailability,
     LogNode,
     LogNodeKind,
+    Organization,
     Pipeline,
+    PipelineCatalog,
     PipelineRun,
     PipelineStatus,
     ResourceState,
@@ -227,7 +233,7 @@ pub(crate) enum Latest<'a> {
 }
 
 pub(crate) fn map_pipeline(
-    provider_id: i64, selection: &Selection, latest: Latest<'_>, deck: &Url,
+    provider_id: i64, selection: &Selection, latest: Latest<'_>, deck: &Url, read_only: bool,
 ) -> Pipeline {
     let (status, last_run) = match &latest {
         Latest::Deck(job) => (map_state(&job.status.state), job.status.start_time),
@@ -245,6 +251,9 @@ pub(crate) fn map_pipeline(
         branch = job
             .primary_refs()
             .and_then(|refs| non_empty(&refs.base_ref));
+    }
+    if read_only {
+        metadata.insert("read_only".to_string(), Value::Bool(true));
     }
 
     Pipeline {
@@ -268,7 +277,7 @@ pub(crate) fn map_pipeline(
     }
 }
 
-pub(crate) fn map_available(job: &ProwJob, deck_host: &str) -> AvailablePipeline {
+fn map_available(job: &ProwJob, deck_host: &str) -> AvailablePipeline {
     let scope = scope_of(job);
     let (organization, repository) = match &scope {
         Some(scope) => (scope.org.clone(), scope.repository()),
@@ -284,6 +293,37 @@ pub(crate) fn map_available(job: &ProwJob, deck_host: &str) -> AvailablePipeline
         description: Some(format!("{} job", job.spec.job_type)),
         organization: Some(organization),
         repository: Some(repository),
+    }
+}
+
+pub(crate) fn catalog(jobs: &[ProwJob], deck_host: &str) -> PipelineCatalog {
+    let mut newest_first: Vec<&ProwJob> =
+        jobs.iter().filter(|job| !job.spec.job.is_empty()).collect();
+    newest_first.sort_by_key(|job| std::cmp::Reverse(job.status.start_time));
+
+    let mut seen = HashSet::new();
+    let mut pipelines: Vec<AvailablePipeline> = newest_first
+        .into_iter()
+        .map(|job| map_available(job, deck_host))
+        .filter(|pipeline| seen.insert(pipeline.id.clone()))
+        .collect();
+    pipelines.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let organizations = pipelines
+        .iter()
+        .filter_map(|pipeline| pipeline.organization.as_deref())
+        .collect::<BTreeSet<&str>>()
+        .into_iter()
+        .map(|org| Organization {
+            id: org.to_string(),
+            name: config::display_org(org).to_string(),
+            description: None,
+        })
+        .collect();
+
+    PipelineCatalog {
+        organizations,
+        pipelines,
     }
 }
 

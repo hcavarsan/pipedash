@@ -87,6 +87,9 @@ use crate::infrastructure::{
     TokenStore,
 };
 use crate::plugins;
+mod discovery;
+
+pub use discovery::DiscoveryError;
 
 const QUOTA_PAUSE_PERCENT: u64 = 10;
 const ACQUIRE_ATTEMPTS: usize = 3;
@@ -153,6 +156,7 @@ pub struct ProviderService {
     sign_ins: Arc<SignInService>,
     plugin_registry: Arc<PluginRegistry>,
     parameter_fetches: DashMap<String, Arc<Mutex<()>>>,
+    discovery: discovery::DiscoveryCache,
     event_bus: Arc<dyn EventBus>,
     scheduler: Arc<FetchScheduler>,
     health: HealthHandle,
@@ -186,6 +190,7 @@ impl ProviderService {
             sign_ins: Arc::new(SignInService::default()),
             plugin_registry,
             parameter_fetches: DashMap::new(),
+            discovery: discovery::DiscoveryCache::default(),
             event_bus,
             scheduler,
             health,

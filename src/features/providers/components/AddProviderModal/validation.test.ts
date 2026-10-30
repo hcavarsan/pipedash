@@ -114,7 +114,7 @@ test('auth-scoped fields count only in their own mode', () => {
     configField('auth_scheme'),
     configField('token'),
   ]
-  const authModes: Record<string, AuthMode> = { sso_issuer: 'sign_in', auth_scheme: 'token' }
+  const authModes: Record<string, AuthMode[]> = { sso_issuer: ['sign_in'], auth_scheme: ['token'] }
 
   assert.deepEqual(
     activeConfigFields(fields, 'token', authModes).map((field) => field.key),
@@ -135,6 +135,35 @@ test('auth-scoped fields count only in their own mode', () => {
       authMode: 'token',
       authModes,
       configValues: {},
+      signInStatus: undefined,
+    }),
+    {}
+  )
+})
+
+test('none mode hides the token and mode-scoped fields, keeps unscoped fields and auth_mode', () => {
+  const fields = [configField('deck_url'), configField('token'), configField('sso_issuer'), configField('auth_scheme')]
+  const authModes: Record<string, AuthMode[]> = { sso_issuer: ['sign_in'], auth_scheme: ['token', 'sign_in'] }
+
+  assert.deepEqual(
+    activeConfigFields(fields, 'none', authModes).map((field) => field.key),
+    ['deck_url']
+  )
+  assert.deepEqual(
+    activeConfigFields(fields, 'sign_in', authModes).map((field) => field.key),
+    ['deck_url', 'sso_issuer', 'auth_scheme']
+  )
+  assert.deepEqual(
+    activeConfigValues({ deck_url: 'd', sso_issuer: 'i', auth_scheme: 'basic', auth_mode: 'none' }, 'none', authModes),
+    { deck_url: 'd', auth_mode: 'none' }
+  )
+  assert.deepEqual(
+    validateProviderCredentials({
+      providerName: 'P',
+      fields: fields.map((field) => ({ ...field, required: true })),
+      authMode: 'none',
+      authModes,
+      configValues: { deck_url: 'd' },
       signInStatus: undefined,
     }),
     {}

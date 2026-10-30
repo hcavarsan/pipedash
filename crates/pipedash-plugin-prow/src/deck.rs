@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -262,13 +263,20 @@ fn reject_sign_in_page(response: &Response) -> PluginResult<()> {
 }
 
 fn decode_jobs(gzip: bool, body: &[u8]) -> PluginResult<Vec<ProwJob>> {
-    let list: Result<ProwJobList, serde_json::Error> = if gzip {
-        serde_json::from_reader(flate2::read::GzDecoder::new(body))
+    let unreadable =
+        |e: String| PluginError::SerializationError(format!("Couldn't read Deck's job list: {e}"));
+    let mut inflated = Vec::new();
+    let json = if gzip {
+        flate2::read::GzDecoder::new(body)
+            .read_to_end(&mut inflated)
+            .map_err(|e| unreadable(e.to_string()))?;
+        inflated.as_slice()
     } else {
-        serde_json::from_slice(body)
+        body
     };
-    list.map(|list| list.items)
-        .map_err(|e| PluginError::SerializationError(format!("Couldn't read Deck's job list: {e}")))
+    serde_json::from_slice::<ProwJobList>(json)
+        .map(|list| list.items)
+        .map_err(|e| unreadable(e.to_string()))
 }
 
 async fn action_outcome(response: Response) -> PluginResult<()> {

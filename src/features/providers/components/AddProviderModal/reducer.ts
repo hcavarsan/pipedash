@@ -1,5 +1,5 @@
 import type { ProviderConfig } from '../../../../types/domain'
-import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
+import { AUTH_MODE_KEY, SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 
 import { type FormAction, type FormState, initialFormState } from './types'
 
@@ -11,17 +11,23 @@ export function formReducer(state: FormState, action: FormAction): FormState {
     case 'SELECT_PLUGIN': {
       const initialConfig: Record<string, string> = {}
 
+      const noAuth = action.plugin.config_schema.no_auth === true
+
       action.plugin.config_schema.fields.forEach((field) => {
         if (field.default_value !== null && field.default_value !== undefined) {
           initialConfig[field.key] = String(field.default_value)
         }
       })
 
+      if (noAuth) {
+        initialConfig[AUTH_MODE_KEY] = 'none'
+      }
+
       return {
         ...state,
         selectedPlugin: action.plugin,
         providerName: action.isEditMode ? state.providerName : action.plugin.name,
-        authMode: 'token',
+        authMode: noAuth ? 'none' : 'token',
         configValues: initialConfig,
         selectedOrganization: '',
         selectedPipelines: new Set(),
@@ -82,7 +88,17 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       const configValues = { ...state.configValues }
       const fieldErrors = { ...state.fieldErrors }
 
-      delete configValues[action.mode === 'token' ? SIGN_IN_KEY : TOKEN_KEY]
+      if (action.mode !== 'token') {
+        delete configValues[TOKEN_KEY]
+      }
+      if (action.mode !== 'sign_in') {
+        delete configValues[SIGN_IN_KEY]
+      }
+      if (action.mode === 'none') {
+        configValues[AUTH_MODE_KEY] = 'none'
+      } else {
+        delete configValues[AUTH_MODE_KEY]
+      }
       delete fieldErrors[SIGN_IN_KEY]
       delete fieldErrors[TOKEN_KEY]
 
@@ -172,7 +188,7 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         selectedPlugin: action.plugin,
         providerName: action.provider.config.display_name || action.provider.name,
-        authMode: SIGN_IN_KEY in initialConfig ? 'sign_in' : 'token',
+        authMode: initialConfig[AUTH_MODE_KEY] === 'none' ? 'none' : SIGN_IN_KEY in initialConfig ? 'sign_in' : 'token',
         configValues: initialConfig,
         selectedPipelines: new Set(
           (initialConfig.selected_items ?? '')

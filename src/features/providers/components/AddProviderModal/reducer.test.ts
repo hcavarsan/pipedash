@@ -286,3 +286,65 @@ test('clearing the provider type and resetting return to an empty form', () => {
   assert.equal(cleared.selectedPipelines.size, 0)
   assert.deepEqual(formReducer(filled, { type: 'RESET' }), initialFormState)
 })
+
+const noAuthPlugin = {
+  ...fluxPlugin,
+  provider_type: 'prow',
+  name: 'Prow',
+  config_schema: { fields: [], no_auth: true },
+}
+
+test('a provider type that offers no auth starts in none mode, others start in token mode', () => {
+  const none = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: noAuthPlugin, isEditMode: false })
+  const token = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: fluxPlugin, isEditMode: false })
+
+  assert.equal(none.authMode, 'none')
+  assert.equal(none.configValues.auth_mode, 'none')
+  assert.equal(token.authMode, 'token')
+  assert.equal('auth_mode' in token.configValues, false)
+})
+
+test('switching auth mode drops the other credentials and tracks auth_mode', () => {
+  const base = {
+    ...initialFormState,
+    configValues: { token: 'abc', sign_in: 'provider:1', deck_url: 'https://deck' },
+    fieldErrors: { token: 'bad', sign_in: 'bad', deck_url: 'bad' },
+  }
+  const none = formReducer(base, { type: 'SET_AUTH_MODE', mode: 'none' })
+
+  assert.equal(none.authMode, 'none')
+  assert.deepEqual(none.configValues, { deck_url: 'https://deck', auth_mode: 'none' })
+  assert.deepEqual(none.fieldErrors, { deck_url: 'bad' })
+
+  const token = formReducer(
+    { ...none, configValues: { ...none.configValues, sign_in: 'provider:1' } },
+    { type: 'SET_AUTH_MODE', mode: 'token' }
+  )
+
+  assert.deepEqual(token.configValues, { deck_url: 'https://deck' })
+
+  const signIn = formReducer(
+    { ...none, configValues: { ...none.configValues, token: 'abc' } },
+    { type: 'SET_AUTH_MODE', mode: 'sign_in' }
+  )
+
+  assert.deepEqual(signIn.configValues, { deck_url: 'https://deck' })
+})
+
+test('editing a provider saved without credentials restores none mode', () => {
+  const next = formReducer(initialFormState, {
+    type: 'INIT_EDIT_MODE',
+    plugin: noAuthPlugin,
+    provider: {
+      id: 4,
+      name: 'Prow',
+      provider_type: 'prow',
+      token: '',
+      refresh_interval: 30,
+      config: { auth_mode: 'none' },
+    },
+  })
+
+  assert.equal(next.authMode, 'none')
+  assert.equal(next.configValues.auth_mode, 'none')
+})

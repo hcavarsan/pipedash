@@ -1,4 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{
+    BTreeMap,
+    HashMap,
+};
 
 use serde::{
     Deserialize,
@@ -32,15 +35,26 @@ pub struct ConfigField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthMode {
+    None,
     Token,
     SignIn,
+}
+
+pub const AUTH_MODE_KEY: &str = "auth_mode";
+
+pub fn is_no_auth(config: &HashMap<String, String>) -> bool {
+    config
+        .get(AUTH_MODE_KEY)
+        .is_some_and(|mode| mode.trim() == "none")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigSchema {
     pub fields: Vec<ConfigField>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub auth_modes: BTreeMap<String, AuthMode>,
+    pub auth_modes: BTreeMap<String, Vec<AuthMode>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_auth: bool,
 }
 
 impl ConfigSchema {
@@ -48,6 +62,7 @@ impl ConfigSchema {
         Self {
             fields: Vec::new(),
             auth_modes: BTreeMap::new(),
+            no_auth: false,
         }
     }
 
@@ -56,9 +71,14 @@ impl ConfigSchema {
         self
     }
 
-    pub fn add_auth_field(mut self, mode: AuthMode, field: ConfigField) -> Self {
-        self.auth_modes.insert(field.key.clone(), mode);
+    pub fn add_auth_field(mut self, modes: &[AuthMode], field: ConfigField) -> Self {
+        self.auth_modes.insert(field.key.clone(), modes.to_vec());
         self.fields.push(field);
+        self
+    }
+
+    pub fn allow_no_auth(mut self) -> Self {
+        self.no_auth = true;
         self
     }
 }
@@ -186,15 +206,30 @@ mod tests {
     }
 
     #[test]
-    fn auth_fields_serialize_their_mode_by_key() {
+    fn auth_fields_serialize_their_modes_by_key() {
         let schema = ConfigSchema::new()
+            .allow_no_auth()
             .add_field(field("deck_url"))
-            .add_auth_field(AuthMode::SignIn, field("sso_issuer"));
+            .add_auth_field(&[AuthMode::SignIn], field("sso_issuer"))
+            .add_auth_field(&[AuthMode::Token, AuthMode::SignIn], field("kubeconfig"));
         let value = serde_json::to_value(&schema).unwrap();
-        assert_eq!(value["auth_modes"], json!({"sso_issuer": "sign_in"}));
-        assert_eq!(value["fields"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            value["auth_modes"],
+            json!({"sso_issuer": ["sign_in"], "kubeconfig": ["token", "sign_in"]})
+        );
+        assert_eq!(value["no_auth"], json!(true));
+        assert_eq!(value["fields"].as_array().unwrap().len(), 3);
 
         let plain = serde_json::to_value(ConfigSchema::new()).unwrap();
         assert!(plain.get("auth_modes").is_none());
+        assert!(plain.get("no_auth").is_none());
+    }
+
+    #[test]
+    fn no_auth_is_read_from_the_auth_mode_key() {
+        let config = |mode: &str| HashMap::from([(AUTH_MODE_KEY.to_string(), mode.to_string())]);
+        assert!(is_no_auth(&config("none")));
+        assert!(!is_no_auth(&config("token")));
+        assert!(!is_no_auth(&HashMap::new()));
     }
 }

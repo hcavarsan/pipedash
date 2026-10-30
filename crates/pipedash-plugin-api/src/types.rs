@@ -137,6 +137,12 @@ pub struct Organization {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PipelineCatalog {
+    pub organizations: Vec<Organization>,
+    pub pipelines: Vec<AvailablePipeline>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum WorkflowParameterType {

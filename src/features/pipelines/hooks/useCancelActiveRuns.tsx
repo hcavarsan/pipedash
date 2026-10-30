@@ -17,7 +17,7 @@ import {
   unfinishedPipelines,
 } from '../../../utils/cancelActiveRuns'
 import { errorMessage } from '../../../utils/errorDisplay'
-import { getPluginByType } from '../../../utils/pluginHelpers'
+import { canCancelPipeline, isReadOnlyPipeline } from '../../../utils/pipelinePresentation'
 import { CancelActiveRunsModal, type CancelScope } from '../../runs/components/CancelActiveRunsModal'
 
 type CancelItem = Extract<ContextMenuItem, { label: string }>
@@ -65,9 +65,11 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
     notifications.show(summarizeCancellation(results))
   }
 
-  const cancelItem = (label: string, pipelines: Pipeline[]): CancelItem | null =>
-    unfinishedPipelines(pipelines).length === 0 &&
-    !pipelines.some((pipeline) => getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel)
+  const cancelItem = (label: string, all: Pipeline[]): CancelItem | null => {
+    const pipelines = all.filter((pipeline) => !isReadOnlyPipeline(pipeline))
+
+    return unfinishedPipelines(pipelines).length === 0 &&
+      !pipelines.some((pipeline) => canCancelPipeline(plugins, pipeline))
       ? null
       : {
           label: 'Cancel running…',
@@ -78,6 +80,7 @@ export function useCancelActiveRuns(): CancelActiveRunsResult {
             setOpened(true)
           },
         }
+  }
 
   const dialog = (
     <CancelActiveRunsModal opened={opened} scope={scope} onClose={() => setOpened(false)} onConfirm={cancelGroups} />

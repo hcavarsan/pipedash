@@ -97,6 +97,12 @@ pub trait Plugin: Send + Sync {
         Ok(Vec::new())
     }
 
+    async fn fetch_pipeline_catalog(&self) -> PluginResult<crate::types::PipelineCatalog> {
+        Err(crate::error::PluginError::NotSupported(
+            "Pipeline catalog not supported by this provider".to_string(),
+        ))
+    }
+
     async fn ids_with_ci(&self, ids: Vec<String>) -> PluginResult<Vec<String>> {
         Ok(ids)
     }

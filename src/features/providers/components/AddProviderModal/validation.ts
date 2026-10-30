@@ -43,18 +43,18 @@ export function mapProviderFieldErrors(
 export const activeConfigFields = (
   fields: ConfigField[],
   authMode: AuthMode,
-  authModes: Record<string, AuthMode> | undefined
+  authModes: Record<string, AuthMode[]> | undefined
 ): ConfigField[] =>
   fields.filter(
-    (field) => !(authMode === 'sign_in' && field.key === TOKEN_KEY) && (authModes?.[field.key] ?? authMode) === authMode
+    (field) => (field.key !== TOKEN_KEY || authMode === 'token') && (authModes?.[field.key]?.includes(authMode) ?? true)
   )
 
 export const activeConfigValues = (
   configValues: Record<string, string>,
   authMode: AuthMode,
-  authModes: Record<string, AuthMode> | undefined
+  authModes: Record<string, AuthMode[]> | undefined
 ): Record<string, string> =>
-  Object.fromEntries(Object.entries(configValues).filter(([key]) => (authModes?.[key] ?? authMode) === authMode))
+  Object.fromEntries(Object.entries(configValues).filter(([key]) => authModes?.[key]?.includes(authMode) ?? true))
 
 export function validateSignIn(
   authMode: AuthMode,
@@ -76,7 +76,7 @@ interface CredentialsDraft {
   providerName: string
   fields: ConfigField[]
   authMode: AuthMode
-  authModes: Record<string, AuthMode> | undefined
+  authModes: Record<string, AuthMode[]> | undefined
   configValues: Record<string, string>
   signInStatus: SignInStatus | undefined
 }

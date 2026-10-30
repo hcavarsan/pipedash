@@ -54,7 +54,12 @@ fn url_field(field: ConfigField) -> ConfigField {
 }
 
 fn create_config_schema() -> ConfigSchema {
+    const TOKEN: &[AuthMode] = &[AuthMode::Token];
+    const SIGN_IN: &[AuthMode] = &[AuthMode::SignIn];
+    const SIGNED: &[AuthMode] = &[AuthMode::Token, AuthMode::SignIn];
+
     ConfigSchema::new()
+        .allow_no_auth()
         .add_field(url_field(ConfigField {
             required: true,
             default_value: text(config::DEFAULT_DECK_URL),
@@ -75,7 +80,7 @@ fn create_config_schema() -> ConfigSchema {
             )
         })
         .add_auth_field(
-            AuthMode::Token,
+            TOKEN,
             ConfigField {
                 default_value: text("bearer"),
                 options: options(&["bearer", "basic", "cookie"]),
@@ -89,14 +94,18 @@ fn create_config_schema() -> ConfigSchema {
                 )
             },
         )
-        .add_field(field(
-            config::TOKEN,
-            "Access token (optional)",
-            ConfigFieldType::Password,
-            "Leave empty for public Deck instances such as prow.k8s.io",
-        ))
+        .add_field(ConfigField {
+            required: true,
+            ..field(
+                config::TOKEN,
+                "Access token",
+                ConfigFieldType::Password,
+                "Credential for a Deck behind OAuth2 Proxy or an API gateway. Choose No auth for \
+                 public Deck instances such as prow.k8s.io",
+            )
+        })
         .add_auth_field(
-            AuthMode::SignIn,
+            SIGN_IN,
             url_field(ConfigField {
                 required: true,
                 ..field(
@@ -109,7 +118,7 @@ fn create_config_schema() -> ConfigSchema {
             }),
         )
         .add_auth_field(
-            AuthMode::SignIn,
+            SIGN_IN,
             ConfigField {
                 required: true,
                 ..field(
@@ -121,7 +130,7 @@ fn create_config_schema() -> ConfigSchema {
             },
         )
         .add_auth_field(
-            AuthMode::SignIn,
+            SIGN_IN,
             ConfigField {
                 default_value: text(config::DEFAULT_SCOPES),
                 ..field(
@@ -133,7 +142,7 @@ fn create_config_schema() -> ConfigSchema {
             },
         )
         .add_auth_field(
-            AuthMode::SignIn,
+            SIGN_IN,
             ConfigField {
                 default_value: text("id_token"),
                 options: options(&["id_token", "access_token"]),
@@ -147,7 +156,7 @@ fn create_config_schema() -> ConfigSchema {
             },
         )
         .add_auth_field(
-            AuthMode::SignIn,
+            SIGN_IN,
             url_field(ConfigField {
                 default_value: text(config::DEFAULT_REDIRECT_URI),
                 ..field(
@@ -160,7 +169,7 @@ fn create_config_schema() -> ConfigSchema {
             }),
         )
         .add_auth_field(
-            AuthMode::SignIn,
+            SIGN_IN,
             field(
                 config::SSO_PARAMS,
                 "Extra sign-in parameters (optional)",
@@ -194,23 +203,29 @@ fn create_config_schema() -> ConfigSchema {
             "Bucket Prow uploads to, for example gs://kubernetes-ci-logs. Used when Deck no \
              longer lists any run of a job",
         ))
-        .add_field(field(
-            config::KUBECONFIG_PATH,
-            "Kubeconfig for actions (optional)",
-            ConfigFieldType::Text,
-            "Path to a kubeconfig for the cluster that runs Prow. When set, Pipedash starts and \
-             aborts jobs by creating and patching ProwJobs instead of calling Deck. Desktop and \
-             web server only",
-        ))
-        .add_field(ConfigField {
-            options: Some(Vec::new()),
-            ..field(
-                config::KUBE_CONTEXT,
-                "Kubernetes context",
-                ConfigFieldType::Select,
-                "Leave empty to use the kubeconfig's current context",
-            )
-        })
+        .add_auth_field(
+            SIGNED,
+            field(
+                config::KUBECONFIG_PATH,
+                "Kubeconfig for actions (optional)",
+                ConfigFieldType::Text,
+                "Path to a kubeconfig for the cluster that runs Prow. When set, Pipedash starts \
+                 and aborts jobs by creating and patching ProwJobs instead of calling Deck. \
+                 Desktop and web server only",
+            ),
+        )
+        .add_auth_field(
+            SIGNED,
+            ConfigField {
+                options: Some(Vec::new()),
+                ..field(
+                    config::KUBE_CONTEXT,
+                    "Kubernetes context",
+                    ConfigFieldType::Select,
+                    "Leave empty to use the kubeconfig's current context",
+                )
+            },
+        )
         .add_field(status_page_field())
 }
 
