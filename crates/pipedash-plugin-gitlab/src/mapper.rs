@@ -17,7 +17,7 @@ pub(crate) fn map_status(gitlab_status: &str) -> PipelineStatus {
     match gitlab_status {
         "success" => PipelineStatus::Success,
         "failed" => PipelineStatus::Failed,
-        "running" | "pending" => PipelineStatus::Running,
+        "running" | "pending" | "canceling" => PipelineStatus::Running,
         "canceled" => PipelineStatus::Cancelled,
         "skipped" => PipelineStatus::Skipped,
         _ => PipelineStatus::Pending,
@@ -284,7 +284,7 @@ mod tests {
             (
                 "canceling",
                 true,
-                PipelineStatus::Pending,
+                PipelineStatus::Running,
                 Some(LogAvailability::Partial),
             ),
             ("skipped", false, PipelineStatus::Skipped, None),
@@ -306,6 +306,18 @@ mod tests {
             assert_eq!(nodes[1].status, status, "{word}");
             assert_eq!(nodes[1].log, log, "{word} started={started}");
         }
+    }
+
+    #[test]
+    fn a_canceling_pipeline_still_counts_as_running() {
+        let pipeline: types::Pipeline = serde_json::from_str(
+            r#"{"id":7,"status":"canceling","ref":"main","sha":"abc","web_url":"https://gitlab.example/p/-/pipelines/7","created_at":"2026-10-29T10:00:00Z","updated_at":"2026-10-29T10:05:00Z","started_at":"2026-10-29T10:00:05Z","finished_at":null,"duration":null,"user":null}"#,
+        )
+        .unwrap();
+
+        let run = map_pipeline_run(&pipeline, 1, 1, None);
+
+        assert_eq!(run.status, PipelineStatus::Running);
     }
 
     #[test]
