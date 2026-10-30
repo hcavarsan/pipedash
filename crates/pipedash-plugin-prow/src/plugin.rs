@@ -52,7 +52,6 @@ use crate::storage::{
     StoredBuild,
 };
 use crate::types::{
-    build_id_of,
     run_number_of,
     ProwJob,
 };
@@ -215,9 +214,16 @@ impl ProwPlugin {
             (None, Some(result)) => mapper::map_result(result, None).0,
             (None, None) => PipelineStatus::Pending,
         };
+        let build_id = Some(run.run_id)
+            .filter(|id| !id.is_empty())
+            .or_else(|| text("build_id"))
+            .ok_or_else(|| {
+                PluginError::PipelineNotFound("This run has no Prow build ID".to_string())
+            })?
+            .to_string();
         Ok(RunTarget {
             job: selection.job,
-            build_id: build_id_of(run.run_number).to_string(),
+            build_id,
             state: None,
             web_url: artifacts
                 .as_ref()
@@ -497,7 +503,6 @@ impl Plugin for ProwPlugin {
                 ))
             });
         }
-        let build_id = build_id_of(run_number);
 
         if self.history == HistorySource::Storage {
             if let Some((bucket, roots)) =
@@ -505,6 +510,14 @@ impl Plugin for ProwPlugin {
             {
                 let storage = self.storage()?;
                 for root in roots {
+                    let listed = storage
+                        .build_numbers(&bucket, root, &selection.job)
+                        .await?
+                        .into_iter()
+                        .find(|build_id| run_number_of(*build_id) == run_number);
+                    let Some(build_id) = listed else {
+                        continue;
+                    };
                     if let Some(build) = storage
                         .build(&bucket, root, &selection.job, build_id)
                         .await?
@@ -521,7 +534,7 @@ impl Plugin for ProwPlugin {
         }
 
         Err(PluginError::PipelineNotFound(format!(
-            "Build {build_id} of {} is no longer listed by Deck",
+            "This build of {} is no longer listed by Deck",
             selection.job
         )))
     }
@@ -625,8 +638,7 @@ impl Plugin for ProwPlugin {
         let jobs = self.scope_jobs(selection.scope.as_ref()).await?;
         let target = Self::find_build(&jobs, job, run_number).ok_or_else(|| {
             PluginError::PipelineNotFound(format!(
-                "Build {} of {job} is no longer listed by Deck",
-                build_id_of(run_number)
+                "This build of {job} is no longer listed by Deck"
             ))
         })?;
         if !target.is_active() {
@@ -854,20 +866,26 @@ mod tests {
     ) -> PluginResult<(LogRead, String)> {
         let metadata = HashMap::new();
         let run_id = run_number.to_string();
+        read_run(
+            plugin,
+            RunRef {
+                pipeline_id,
+                run_number,
+                run_id: &run_id,
+                metadata: &metadata,
+            },
+            from,
+        )
+        .await
+    }
+
+    async fn read_run(
+        plugin: &ProwPlugin, run: RunRef<'_>, from: Option<&LogCursor>,
+    ) -> PluginResult<(LogRead, String)> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
         let mut sink = LogSink::new(tx);
         let result = plugin
-            .read_log(
-                RunRef {
-                    pipeline_id,
-                    run_number,
-                    run_id: &run_id,
-                    metadata: &metadata,
-                },
-                mapper::LOG_NODE,
-                from,
-                &mut sink,
-            )
+            .read_log(run, mapper::LOG_NODE, from, &mut sink)
             .await;
         drop(sink);
         let mut text = Vec::new();
@@ -1439,6 +1457,70 @@ mod tests {
             .unwrap()
             .iter()
             .any(|request| request.target == format!("/bucket/logs/ci-a/{OLDER}/started.json")));
+    }
+
+    #[tokio::test]
+    async fn sequential_build_ids_above_u32_resolve_their_own_build() {
+        const BUILD: i64 = 4_294_967_296;
+        let (storage, storage_requests) = serve(|request| {
+            let target = request.target.as_str();
+            if target.starts_with("/storage/v1/b/bucket/o?") && target.contains("delimiter") {
+                return Response::json(200, &format!(r#"{{"prefixes":["logs/ci-a/{BUILD}/"]}}"#));
+            }
+            if target == format!("/bucket/logs/ci-a/{BUILD}/started.json") {
+                return Response::json(200, r#"{"timestamp":1000}"#);
+            }
+            if target == format!("/bucket/logs/ci-a/{BUILD}/finished.json") {
+                return Response::json(200, r#"{"timestamp":1030,"result":"FAILURE"}"#);
+            }
+            Response::text(404, "No such object")
+        });
+        let (deck, deck_requests) = deck_serving(
+            |_| Vec::new(),
+            |request| {
+                if request.target.starts_with("/log?") {
+                    Response::text(200, "from the pod\n")
+                } else {
+                    Response::text(404, "missing")
+                }
+            },
+        );
+        let plugin = plugin_with(
+            &deck,
+            &[
+                ("history_source", "storage"),
+                ("storage_url", &storage),
+                ("storage_bucket", "gs://bucket"),
+            ],
+        );
+
+        let runs = plugin.fetch_run_history(CI_A, 10).await.unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].run_number, BUILD);
+        let details = plugin.fetch_run_details(CI_A, BUILD).await.unwrap();
+        assert_eq!(details.id, BUILD.to_string());
+        assert_eq!(details.status, PipelineStatus::Failed);
+
+        let (_, text) = read_run(
+            &plugin,
+            RunRef {
+                pipeline_id: CI_A,
+                run_number: runs[0].run_number,
+                run_id: &runs[0].id,
+                metadata: &runs[0].metadata,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(text, "from the pod\n");
+        let logs = sent(&deck_requests, "GET", "/log");
+        assert_eq!(logs[0].target, format!("/log?job=ci-a&id={BUILD}"));
+        assert!(storage_requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|request| !request.target.contains("4398046515200")));
     }
 
     fn kube_plugin(deck: &str, apiserver: &str, dir: &tempfile::TempDir) -> ProwPlugin {

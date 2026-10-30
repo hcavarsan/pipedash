@@ -91,26 +91,15 @@ pub(crate) struct ProwJobStatus {
 }
 
 const JAVASCRIPT_SAFE_LIMIT: i64 = 1 << 53;
-const COMPACT_MIN: i64 = 1 << 32;
 const SNOWFLAKE_TIME_SHIFT: u32 = 22;
 const SNOWFLAKE_NODE_SHIFT: u32 = 12;
 const SNOWFLAKE_STEP_MASK: i64 = 0xFFF;
-const PROW_SNOWFLAKE_NODE: i64 = 1;
 
 pub(crate) fn run_number_of(build_id: i64) -> i64 {
     if build_id < JAVASCRIPT_SAFE_LIMIT {
         return build_id;
     }
     ((build_id >> SNOWFLAKE_TIME_SHIFT) << SNOWFLAKE_NODE_SHIFT) | (build_id & SNOWFLAKE_STEP_MASK)
-}
-
-pub(crate) fn build_id_of(run_number: i64) -> i64 {
-    if run_number < COMPACT_MIN {
-        return run_number;
-    }
-    ((run_number >> SNOWFLAKE_NODE_SHIFT) << SNOWFLAKE_TIME_SHIFT)
-        | (PROW_SNOWFLAKE_NODE << SNOWFLAKE_NODE_SHIFT)
-        | (run_number & SNOWFLAKE_STEP_MASK)
 }
 
 impl ProwJob {
@@ -183,21 +172,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn snowflake_build_ids_map_to_exact_javascript_numbers_and_back() {
+    fn run_numbers_are_exact_javascript_numbers_in_build_order() {
         let older = 2_116_011_604_377_079_808_i64;
         let newer = 2_116_011_604_377_079_811_i64;
         let next_ms = 2_116_011_604_381_274_112_i64;
 
         for build_id in [older, newer, next_ms] {
-            let run_number = run_number_of(build_id);
-            assert!(run_number < JAVASCRIPT_SAFE_LIMIT);
-            assert!(run_number >= COMPACT_MIN);
-            assert_eq!(build_id_of(run_number), build_id);
+            assert!(run_number_of(build_id) < JAVASCRIPT_SAFE_LIMIT);
         }
         assert!(run_number_of(older) < run_number_of(newer));
         assert!(run_number_of(newer) < run_number_of(next_ms));
 
-        assert_eq!(run_number_of(4_521), 4_521);
-        assert_eq!(build_id_of(4_521), 4_521);
+        for sequential in [4_521, 4_294_967_296, JAVASCRIPT_SAFE_LIMIT - 1] {
+            assert_eq!(run_number_of(sequential), sequential);
+        }
     }
 }
