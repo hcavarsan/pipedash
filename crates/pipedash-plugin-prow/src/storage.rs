@@ -8,6 +8,7 @@ use futures::{
 use pipedash_plugin_api::{
     check_response,
     map_send_error,
+    read_prefix,
     redact_url,
     LogReadMode,
     LogSink,
@@ -40,6 +41,7 @@ const STORAGE_SIGNED_OUT: &str = "Artifact storage answered with a sign-in page 
                                   build log. Check the artifact storage URL and the token.";
 const CONCURRENCY: usize = 8;
 const LOG_TIMEOUT: Duration = Duration::from_secs(900);
+const MAX_OBJECT_BYTES: usize = 16 << 20;
 
 pub(crate) fn listing_floor(unix_ms: i64) -> Option<i64> {
     snowflake_at(unix_ms).filter(|floor| *floor >= MIN_LISTING_FLOOR)
@@ -228,8 +230,17 @@ impl StorageClient {
                         STORAGE_SIGNED_OUT.to_string(),
                     ));
                 }
-                let body = response.bytes().await.map_err(|e| map_send_error(e, url))?;
-                Ok(Some(body.to_vec()))
+                let body = read_prefix(response, MAX_OBJECT_BYTES + 1)
+                    .await
+                    .map_err(|e| map_send_error(e, url))?;
+                if body.len() > MAX_OBJECT_BYTES {
+                    return Err(PluginError::ApiError(format!(
+                        "Artifact storage sent {} larger than the {} MiB limit",
+                        redact_url(url),
+                        MAX_OBJECT_BYTES >> 20
+                    )));
+                }
+                Ok(Some(body))
             })
             .await
     }

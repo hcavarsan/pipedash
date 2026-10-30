@@ -28,9 +28,11 @@ pub use health::{
     STATUS_PAGE_URL_KEY,
 };
 pub use http::{
+    body_preview,
     check_response,
     from_status,
     map_send_error,
+    read_prefix,
     redact_url,
     retry_after,
     truncate_chars,

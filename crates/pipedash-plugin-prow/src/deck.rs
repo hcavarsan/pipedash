@@ -4,12 +4,13 @@ use std::time::Duration;
 
 use chrono::Utc;
 use pipedash_plugin_api::{
+    body_preview,
     check_response,
     from_status,
     map_send_error,
+    read_prefix,
     redact_url,
     retry_after,
-    truncate_chars,
     LogReadMode,
     LogSink,
     PluginError,
@@ -41,7 +42,6 @@ const OMIT: &str = "annotations,labels,decoration_config,pod_spec";
 const LIST_TIMEOUT: Duration = Duration::from_secs(120);
 const LOG_TIMEOUT: Duration = Duration::from_secs(900);
 const PROBE_JOB: &str = "pipedash-credential-check";
-const BODY_PREVIEW_CHARS: usize = 300;
 const MAX_BODY_BYTES: usize = 64 << 20;
 const MAX_DECODED_BYTES: usize = 256 << 20;
 
@@ -166,15 +166,11 @@ impl DeckClient {
                     .get(CONTENT_ENCODING)
                     .and_then(|value| value.to_str().ok())
                     .is_some_and(|value| value.trim().eq_ignore_ascii_case("gzip"));
-                let mut response = response;
-                let mut body = Vec::new();
-                while let Some(chunk) =
-                    response.chunk().await.map_err(|e| map_send_error(e, url))?
-                {
-                    if body.len() + chunk.len() > MAX_BODY_BYTES {
-                        return Err(too_large(self.host(), "download", MAX_BODY_BYTES));
-                    }
-                    body.extend_from_slice(&chunk);
+                let body = read_prefix(response, MAX_BODY_BYTES + 1)
+                    .await
+                    .map_err(|e| map_send_error(e, url))?;
+                if body.len() > MAX_BODY_BYTES {
+                    return Err(too_large(self.host(), "download", MAX_BODY_BYTES));
                 }
                 Ok((gzip, body))
             })
@@ -309,8 +305,7 @@ async fn action_outcome(response: Response) -> PluginResult<()> {
     }
     let url = response.url().clone();
     let retry = retry_after(response.headers(), Utc::now());
-    let body = response.text().await.map_err(|e| map_send_error(e, &url))?;
-    let preview = truncate_chars(body.trim(), BODY_PREVIEW_CHARS);
+    let preview = body_preview(response).await;
 
     Err(match status {
         401 | 403 => PluginError::PermissionDenied(format!("{ACTION_DENIED} Deck said: {preview}")),
