@@ -42,6 +42,8 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(120);
 const LOG_TIMEOUT: Duration = Duration::from_secs(900);
 const PROBE_JOB: &str = "pipedash-credential-check";
 const BODY_PREVIEW_CHARS: usize = 300;
+const MAX_BODY_BYTES: usize = 64 << 20;
+const MAX_DECODED_BYTES: usize = 256 << 20;
 
 const SIGNED_OUT: &str =
     "Deck answered with a sign-in page instead of data. Check the token, or sign in again.";
@@ -164,12 +166,22 @@ impl DeckClient {
                     .get(CONTENT_ENCODING)
                     .and_then(|value| value.to_str().ok())
                     .is_some_and(|value| value.trim().eq_ignore_ascii_case("gzip"));
-                let body = response.bytes().await.map_err(|e| map_send_error(e, url))?;
+                let mut response = response;
+                let mut body = Vec::new();
+                while let Some(chunk) =
+                    response.chunk().await.map_err(|e| map_send_error(e, url))?
+                {
+                    if body.len() + chunk.len() > MAX_BODY_BYTES {
+                        return Err(too_large(self.host(), "download", MAX_BODY_BYTES));
+                    }
+                    body.extend_from_slice(&chunk);
+                }
                 Ok((gzip, body))
             })
             .await?;
 
-        tokio::task::spawn_blocking(move || decode_jobs(gzip, &body))
+        let host = self.host().to_string();
+        tokio::task::spawn_blocking(move || decode_jobs(gzip, &body, &host, MAX_DECODED_BYTES))
             .await
             .map_err(|e| PluginError::Internal(format!("Decoding Deck's job list failed: {e}")))?
     }
@@ -262,14 +274,18 @@ fn reject_sign_in_page(response: &Response) -> PluginResult<()> {
     Ok(())
 }
 
-fn decode_jobs(gzip: bool, body: &[u8]) -> PluginResult<Vec<ProwJob>> {
+fn decode_jobs(gzip: bool, body: &[u8], host: &str, limit: usize) -> PluginResult<Vec<ProwJob>> {
     let unreadable =
         |e: String| PluginError::SerializationError(format!("Couldn't read Deck's job list: {e}"));
     let mut inflated = Vec::new();
     let json = if gzip {
         flate2::read::GzDecoder::new(body)
+            .take(limit as u64 + 1)
             .read_to_end(&mut inflated)
             .map_err(|e| unreadable(e.to_string()))?;
+        if inflated.len() > limit {
+            return Err(too_large(host, "unpacked", limit));
+        }
         inflated.as_slice()
     } else {
         body
@@ -277,6 +293,13 @@ fn decode_jobs(gzip: bool, body: &[u8]) -> PluginResult<Vec<ProwJob>> {
     serde_json::from_slice::<ProwJobList>(json)
         .map(|list| list.items)
         .map_err(|e| unreadable(e.to_string()))
+}
+
+fn too_large(host: &str, what: &str, limit: usize) -> PluginError {
+    PluginError::ApiError(format!(
+        "Deck at {host} sent a job list larger than the {} MiB {what} limit",
+        limit >> 20
+    ))
 }
 
 async fn action_outcome(response: Response) -> PluginResult<()> {
@@ -302,4 +325,29 @@ async fn action_outcome(response: Response) -> PluginResult<()> {
             retry,
         ),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+
+    use super::*;
+
+    #[test]
+    fn job_list_that_unpacks_past_the_limit_is_refused() {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&[b'x'; 2 << 20]).unwrap();
+        let body = encoder.finish().unwrap();
+
+        match decode_jobs(true, &body, "deck.example", 1 << 20) {
+            Err(PluginError::ApiError(message)) => {
+                assert!(message.contains("1 MiB unpacked limit"), "{message}");
+                assert!(message.contains("deck.example"), "{message}");
+            }
+            other => panic!("expected the size limit error, got {other:?}"),
+        }
+    }
 }
