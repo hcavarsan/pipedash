@@ -16,7 +16,7 @@
   </a>
   <br><br>
   <a href="https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB">
-    <img src="https://developer.apple.com/app-store/marketing/guidelines/images/badge-download-on-the-app-store.svg" alt="Download on the App Store" height="40">
+    <img src="https://img.shields.io/badge/iOS-App%20Store-0D96F6?style=for-the-badge&logo=apple&logoColor=white" alt="iOS app on the App Store" height="40">
   </a>
   <a href="https://pipedash.app/android">
     <img src="https://img.shields.io/badge/Android-closed%20beta-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android closed beta" height="40">
@@ -82,7 +82,7 @@
 
 Pipedash shows the pipelines of all your CI/CD providers in one table, so you stop switching between dashboards to find the build that failed. It polls each provider with the token or kubeconfig you add and caches the results. From the same table you open, trigger, rerun and cancel runs.
 
-It runs as a desktop app, as a self-hosted web server in Docker or as an iOS app. All three share one Rust core.
+It runs as a desktop app, as a self-hosted web server in Docker or as an iOS and [Android](https://pipedash.app/android) app. All of them share one Rust core.
 
 ```mermaid
 flowchart LR
@@ -96,7 +96,7 @@ flowchart LR
   Core <--> DB[(SQLite or PostgreSQL)]
   Core --> Desktop[Desktop app]
   Core --> Web[Web server]
-  Core --> iOS[iOS app]
+  Core --> Mobile[iOS and Android apps]
 ```
 
 ## Supported providers
@@ -118,7 +118,7 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 
 ## Get started
 
-Download the [desktop app](https://pipedash.app/downloads), install the [iOS app](https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB) or run the [Docker image](https://pipedash.app/docs/deployment/docker). The [quick start](https://pipedash.app/docs/getting-started/quick-start) walks through your first provider.
+Download the [desktop app](https://pipedash.app/downloads), install the [iOS app](https://apps.apple.com/br/app/pipedash-ci-cd-monitoring/id6757285870?l=en-GB), join the [Android beta](https://pipedash.app/android) or run the [Docker image](https://pipedash.app/docs/deployment/docker). The [quick start](https://pipedash.app/docs/getting-started/quick-start) walks through your first provider.
 
 - [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables and secrets.
 - [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
