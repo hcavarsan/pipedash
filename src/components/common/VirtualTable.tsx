@@ -1,9 +1,11 @@
 import { Checkbox, Group, ScrollArea, Table, UnstyledButton } from '@mantine/core'
 import { IconArrowDown, IconArrowUp, IconSelector } from '@tabler/icons-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { type HTMLAttributes, type MouseEvent, type ReactNode, useRef } from 'react'
+import { type HTMLAttributes, type MouseEvent, type ReactNode, useEffect, useEffectEvent, useRef } from 'react'
+import { FillScrollArea } from './FillScrollArea'
 
 const INTERACTIVE_TARGET = 'button, a, input, label, [role="checkbox"]'
+const END_THRESHOLD = 5
 
 const HEADER_STYLE = {
   fontSize: 'var(--mantine-font-size-sm)',
@@ -36,13 +38,15 @@ interface VirtualTableSelection<T> {
   isSelectable: (record: T) => boolean
   onChange: (keys: Set<string>) => void
   label: (record: T) => string
+  hasMore?: boolean | undefined
+  onToggleAll?: (() => void) | undefined
 }
 
 interface VirtualTableProps<T> {
   records: readonly T[]
   columns: readonly VirtualTableColumn<T>[]
   getKey: (record: T) => string
-  height: number | string
+  height: number | string | 'fill'
   rowHeight: number
   label: string
   sort?: VirtualTableSort | undefined
@@ -50,6 +54,7 @@ interface VirtualTableProps<T> {
   onRowClick?: ((record: T) => void) | undefined
   rowAttributes?: ((record: T) => HTMLAttributes<HTMLTableRowElement>) | undefined
   selection?: VirtualTableSelection<T> | undefined
+  onEndReached?: (() => void) | undefined
 }
 
 function nextSort(current: VirtualTableSort | undefined, columnId: string): VirtualTableSort {
@@ -88,6 +93,7 @@ export function VirtualTable<T>({
   onRowClick,
   rowAttributes,
   selection,
+  onEndReached,
 }: VirtualTableProps<T>): ReactNode {
   const viewportRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
@@ -110,11 +116,25 @@ export function VirtualTable<T>({
   const bottomSpace = last ? virtualizer.getTotalSize() - last.end : 0
   const selectable = selection ? records.filter(selection.isSelectable) : []
   const selectedCount = selection ? selectable.filter((record) => selection.selectedKeys.has(getKey(record))).length : 0
-  const allSelected = selectable.length > 0 && selectedCount === selectable.length
+  const allSelected = selectable.length > 0 && selectedCount === selectable.length && !selection?.hasMore
   const columnCount = columns.length + (selection ? 1 : 0)
+  const lastIndex = last?.index ?? -1
+  const reachEnd = useEffectEvent(() => {
+    onEndReached?.()
+  })
+
+  useEffect(() => {
+    if (records.length > 0 && lastIndex >= records.length - END_THRESHOLD) {
+      reachEnd()
+    }
+  })
 
   const toggleAll = () => {
     if (!selection) {
+      return
+    }
+    if (selection.onToggleAll) {
+      selection.onToggleAll()
       return
     }
     selection.onChange(allSelected ? new Set() : new Set(selectable.map(getKey)))
@@ -139,8 +159,16 @@ export function VirtualTable<T>({
     }
   }
 
+  const Scroll = height === 'fill' ? FillScrollArea : ScrollArea
+
   return (
-    <ScrollArea h={height} viewportRef={viewportRef} type="auto" scrollbarSize={10} scrollHideDelay={0}>
+    <Scroll
+      {...(height === 'fill' ? {} : { h: height })}
+      viewportRef={viewportRef}
+      type="auto"
+      scrollbarSize={10}
+      scrollHideDelay={0}
+    >
       <Table
         stickyHeader
         verticalSpacing="xs"
@@ -233,6 +261,6 @@ export function VirtualTable<T>({
           )}
         </Table.Tbody>
       </Table>
-    </ScrollArea>
+    </Scroll>
   )
 }

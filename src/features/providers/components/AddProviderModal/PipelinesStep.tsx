@@ -13,10 +13,9 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { IconBuildingSkyscraper, IconSearch, IconStack2 } from '@tabler/icons-react'
-import { type Dispatch, type ReactNode, useMemo } from 'react'
+import { type Dispatch, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { EmptyState } from '../../../../components/common/EmptyState'
 import { ErrorState } from '../../../../components/common/ErrorState'
-import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import { LoadingState } from '../../../../components/common/LoadingState'
 import { SearchInput } from '../../../../components/common/SearchInput'
 import { VirtualList } from '../../../../components/common/VirtualList'
@@ -46,12 +45,15 @@ interface PipelineListProps {
   selectedPipelines: Set<string>
   dispatch: Dispatch<FormAction>
   labels: PipelineLabels
+  hasMore: boolean
+  onSelectAll: () => void
+  onEndReached: () => void
 }
 
 const getPipelineId = (pipeline: AvailablePipeline): string => pipeline.id
 
 function toggleSelection(
-  { pipelines, selectedPipelines, dispatch }: Omit<PipelineListProps, 'labels'>,
+  { pipelines, selectedPipelines, dispatch }: Pick<PipelineListProps, 'pipelines' | 'selectedPipelines' | 'dispatch'>,
   next: Set<string>
 ): void {
   const visible = pipelines.map(getPipelineId)
@@ -107,17 +109,27 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
   )
 
   const availablePipelines = useMemo(() => pipelinesData?.pages.flatMap((page) => page.items) ?? [], [pipelinesData])
-  const lastPage = pipelinesData?.pages.at(-1) ?? null
+  const hasMore = !!hasNextPage
+  const [selectingAll, setSelectingAll] = useState(false)
+  const queryKey = `${effectiveOrganization}\n${debouncedSearch}`
+  const currentQuery = useRef(queryKey)
+
+  useEffect(() => {
+    currentQuery.current = queryKey
+  })
+
   const searching =
     !!effectiveOrganization &&
     !loadingPipelines &&
     !loadingMore &&
     (searchingPipelines || repositorySearch !== debouncedSearch)
-  const status = searching
-    ? `Searching ${labels.items}`
-    : effectiveOrganization && !loadingPipelines
-      ? `${availablePipelines.length} ${labels.items} listed`
-      : ''
+  const status = selectingAll
+    ? `Selecting all ${labels.items}`
+    : searching
+      ? `Searching ${labels.items}`
+      : effectiveOrganization && !loadingPipelines
+        ? `${availablePipelines.length} ${labels.items} listed`
+        : ''
 
   const handleOrganizationSelect = (org: string | null): void => {
     if (org) {
@@ -129,17 +141,39 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
     dispatch({ type: 'SET_REPOSITORY_SEARCH', search: value })
   }
 
+  const selectEveryMatch = async (): Promise<void> => {
+    const query = queryKey
+    setSelectingAll(true)
+    try {
+      let pages = pipelinesData?.pages ?? []
+      let more = hasMore
+      while (more) {
+        const result = await fetchNextPage()
+        if (result.isError || currentQuery.current !== query) {
+          return
+        }
+        pages = result.data?.pages ?? pages
+        more = result.hasNextPage
+      }
+      dispatch({ type: 'SELECT_ALL_PIPELINES', pipelineIds: pages.flatMap((page) => page.items.map(getPipelineId)) })
+    } finally {
+      setSelectingAll(false)
+    }
+  }
+
   const handleSelectAll = (): void => {
-    dispatch({
-      type: availablePipelines.every((pipeline) => selectedPipelines.has(pipeline.id))
-        ? 'DESELECT_PIPELINES'
-        : 'SELECT_ALL_PIPELINES',
-      pipelineIds: availablePipelines.map(getPipelineId),
-    })
+    if (selectingAll) {
+      return
+    }
+    if (!hasMore && availablePipelines.every((pipeline) => selectedPipelines.has(pipeline.id))) {
+      dispatch({ type: 'DESELECT_PIPELINES', pipelineIds: availablePipelines.map(getPipelineId) })
+      return
+    }
+    void selectEveryMatch()
   }
 
   const handleLoadMore = (): void => {
-    if (hasNextPage && !loadingMore) {
+    if (hasMore && !loadingMore && !selectingAll) {
       void fetchNextPage()
     }
   }
@@ -170,27 +204,40 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
       )
     }
 
-    const list = { pipelines: availablePipelines, selectedPipelines, dispatch, labels }
+    const list = {
+      pipelines: availablePipelines,
+      selectedPipelines,
+      dispatch,
+      labels,
+      hasMore,
+      onSelectAll: handleSelectAll,
+      onEndReached: handleLoadMore,
+    }
 
     if (mobileShell) {
-      return <ShellPipelineList {...list} onSelectAll={handleSelectAll} />
+      return <ShellPipelineList {...list} />
     }
 
     if (isMobile) {
       return (
-        <FillScrollArea type="auto">
-          <Stack gap="xs">
-            {availablePipelines.map((pipeline) => (
-              <MobilePipelineCard
-                key={pipeline.id}
-                labels={labels}
-                pipeline={pipeline}
-                isSelected={selectedPipelines.has(pipeline.id)}
-                onToggle={() => dispatch({ type: 'TOGGLE_PIPELINE', pipelineId: pipeline.id })}
-              />
-            ))}
-          </Stack>
-        </FillScrollArea>
+        <Box style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <VirtualList
+            items={availablePipelines}
+            getKey={getPipelineId}
+            estimateSize={104}
+            onEndReached={handleLoadMore}
+            renderItem={(pipeline) => (
+              <Box pb="xs">
+                <MobilePipelineCard
+                  labels={labels}
+                  pipeline={pipeline}
+                  isSelected={selectedPipelines.has(pipeline.id)}
+                  onToggle={() => dispatch({ type: 'TOGGLE_PIPELINE', pipelineId: pipeline.id })}
+                />
+              </Box>
+            )}
+          />
+        </Box>
       )
     }
 
@@ -255,18 +302,12 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
     return (
       <>
         {renderResults()}
-        {lastPage?.has_more && (
-          <Group justify="center" pt={mobileShell ? 4 : '3xs'}>
-            <Button
-              size={mobileShell ? 'md' : 'sm'}
-              variant="default"
-              fullWidth={mobileShell}
-              onClick={handleLoadMore}
-              loading={loadingMore}
-              disabled={loadingMore}
-            >
-              Load more
-            </Button>
+        {(loadingMore || selectingAll) && (
+          <Group justify="center" gap="xs" py="3xs" style={{ flexShrink: 0 }}>
+            <Loader size="xs" aria-hidden />
+            <Text size="sm" c="dimmed">
+              {selectingAll ? `Selecting all ${labels.items}…` : `Loading more ${labels.items}…`}
+            </Text>
           </Group>
         )}
       </>
@@ -409,7 +450,15 @@ function MobilePipelineCard({ pipeline, isSelected, onToggle, labels }: MobilePi
 
 const TABLE_FIELDS = ['name', 'organization', 'repository', 'description'] as const
 
-function PipelinesTable({ pipelines, selectedPipelines, dispatch, labels }: PipelineListProps): ReactNode {
+function PipelinesTable({
+  pipelines,
+  selectedPipelines,
+  dispatch,
+  labels,
+  hasMore,
+  onSelectAll,
+  onEndReached,
+}: PipelineListProps): ReactNode {
   const titles = {
     name: 'Name',
     organization: labels.groupTitle,
@@ -436,19 +485,22 @@ function PipelinesTable({ pipelines, selectedPipelines, dispatch, labels }: Pipe
   }))
 
   return (
-    <Box style={{ flex: 1, minHeight: 0 }}>
+    <Box style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <VirtualTable
         records={pipelines}
         columns={columns}
         getKey={getPipelineId}
-        height="100%"
+        height="fill"
         rowHeight={44}
         label={`Available ${labels.items}`}
+        onEndReached={onEndReached}
         selection={{
           selectedKeys: selectedPipelines,
           isSelectable: () => true,
           onChange: (next) => toggleSelection({ pipelines, selectedPipelines, dispatch }, next),
           label: (pipeline) => pipeline.name,
+          hasMore,
+          onToggleAll: onSelectAll,
         }}
       />
     </Box>
@@ -459,9 +511,11 @@ function ShellPipelineList({
   pipelines,
   selectedPipelines,
   dispatch,
+  hasMore,
   onSelectAll,
-}: PipelineListProps & { onSelectAll: () => void }): ReactNode {
-  const allSelected = pipelines.every((pipeline) => selectedPipelines.has(pipeline.id))
+  onEndReached,
+}: PipelineListProps): ReactNode {
+  const allSelected = !hasMore && pipelines.every((pipeline) => selectedPipelines.has(pipeline.id))
 
   return (
     <IosGroup>
@@ -476,6 +530,7 @@ function ShellPipelineList({
         items={pipelines}
         getKey={getPipelineId}
         estimateSize={64}
+        onEndReached={onEndReached}
         renderItem={(pipeline) => {
           const selected = selectedPipelines.has(pipeline.id)
           const source = [pipeline.organization, pipeline.repository].filter(Boolean).join(' · ')
