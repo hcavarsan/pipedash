@@ -1,0 +1,1 @@
+Watch logs and status of running jobs update live, and see how long each run usually takes.

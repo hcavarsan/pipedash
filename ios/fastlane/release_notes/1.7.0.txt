@@ -1,0 +1,8 @@
+- Logs and status of running jobs update live, with a Live marker and Jump to latest when you scroll up. GitHub logs still arrive when the job ends.
+- Running runs show their elapsed time and how long they usually take.
+- ArgoCD, FluxCD and Komodo pipelines show what their live resources are doing, and workloads with failing pods show as Degraded.
+- Lists follow iOS patterns: two-line rows, repositories as sections, and a More menu in the toolbar for Select, Filter, Sort by and Group by.
+- Failed GitLab, Gitea, Bitbucket, Tekton and Jenkins logs point at their error lines instead of saying No errors.
+- With Lock when leaving the app on, the previous screen no longer shows before the lock screen when you come back.
+- A canceling GitLab pipeline shows as running, and Komodo shows the last run of quiet stacks again.
+- Pipedash sends a failed trigger, rerun or cancel only once, and view rules stay editable after you remove one of their providers.
