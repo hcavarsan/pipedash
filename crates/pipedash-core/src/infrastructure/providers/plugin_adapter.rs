@@ -251,6 +251,13 @@ impl Provider for PluginAdapter {
             .map_err(Self::map_error)
     }
 
+    async fn enable_pipeline(&self, pipeline_id: &str) -> DomainResult<()> {
+        self.plugin
+            .enable_pipeline(pipeline_id)
+            .await
+            .map_err(Self::map_error)
+    }
+
     async fn get_workflow_parameters(
         &self, workflow_id: &str,
     ) -> DomainResult<Vec<pipedash_plugin_api::WorkflowParameter>> {

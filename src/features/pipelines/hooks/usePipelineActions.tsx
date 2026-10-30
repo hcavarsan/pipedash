@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import type { PipelineActions } from '../../../components/common/PipelineRowParts'
 import { useRefreshProviders } from '../../../queries/useRefreshQueries'
 import type { Pipeline, PipelineView, ViewDisplay } from '../../../types/domain'
+import { useEnableWorkflow } from '../../runs/queries/useWorkflowQueries'
 import {
   useSetViewMembership,
   useToggleHidden,
@@ -37,6 +38,7 @@ export function usePipelineActions({
   const { mutate: setMembership } = useSetViewMembership()
   const { mutate: updateView } = useUpdatePipelineView()
   const { refresh: refreshProviders, refreshing } = useRefreshProviders()
+  const { mutate: enableWorkflow } = useEnableWorkflow()
   const pinItem = usePinning()
   const { cancelItem, dialog: cancelDialog } = useCancelActiveRuns()
   const [, setSearchParams] = useSearchParams()
@@ -62,6 +64,7 @@ export function usePipelineActions({
       view && canRemove ? (p) => setMembership({ id: view.id, pipelineIds: [p.id], member: false }) : undefined,
     removeLabel: view && canRemove ? `Remove from ${view.name}` : undefined,
     onTrigger,
+    onEnable: (p) => enableWorkflow(p),
     onViewMetrics,
     onViewHistory,
     onOpenView: openView,

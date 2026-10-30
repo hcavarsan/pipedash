@@ -90,6 +90,9 @@ export const canCancelPipeline = (
   pipeline: Pick<Pipeline, 'metadata' | 'provider_type'>
 ): boolean => !isReadOnlyPipeline(pipeline) && !!getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel
 
+export const canEnablePipeline = (pipeline: Pick<Pipeline, 'metadata'>): boolean =>
+  !isReadOnlyPipeline(pipeline) && pipeline.metadata?.can_enable === true
+
 export const getReconcileBlockReason = (pipeline: Pick<Pipeline, 'metadata'>): string | undefined => {
   if (isReadOnlyPipeline(pipeline)) {
     return READ_ONLY_REASON

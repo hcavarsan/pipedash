@@ -455,6 +455,10 @@ class ApiClient {
     await this.requestVoid('POST', `/pipelines/${encodeURIComponent(pipelineId)}/runs/${runNumber}/rerun`)
   }
 
+  async enablePipeline(pipelineId: string): Promise<void> {
+    await this.requestVoid('POST', `/pipelines/${encodeURIComponent(pipelineId)}/enable`)
+  }
+
   async openUrl(url: string): Promise<void> {
     window.open(url, '_blank', 'noopener,noreferrer')
   }

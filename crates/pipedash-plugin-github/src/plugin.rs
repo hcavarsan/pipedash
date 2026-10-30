@@ -41,6 +41,7 @@ mod permission_mapping {
         ("trigger_dispatch", &["Actions (Write)", "Contents (Read)"]),
         ("cancel_workflows", &["Actions (Write)"]),
         ("rerun_failed_jobs", &["Actions (Write)"]),
+        ("enable_workflows", &["Actions (Write)"]),
         (
             "access_org_repos",
             &["Organization members and teams (Read)"],
@@ -592,6 +593,18 @@ impl Plugin for GitHubPlugin {
 
     async fn rerun_run(&self, pipeline_id: &str, run_number: i64) -> PluginResult<()> {
         self.rerun(pipeline_id, run_number, false).await
+    }
+
+    async fn enable_pipeline(&self, pipeline_id: &str) -> PluginResult<()> {
+        let (owner, repo) = Self::repo_of(pipeline_id)?;
+        let workflow_id_str = pipeline_id.rsplit("__").next().unwrap_or_default();
+        let workflow_id: u64 = workflow_id_str.parse().map_err(|_| {
+            PluginError::InvalidConfig(format!("Invalid workflow ID: {workflow_id_str}"))
+        })?;
+
+        self.client()?
+            .enable_workflow(owner, repo, workflow_id)
+            .await
     }
 
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {
@@ -1322,6 +1335,91 @@ mod tests {
         let error = plugin.fetch_pipelines().await.unwrap_err();
 
         assert!(matches!(error, PluginError::RateLimited { .. }), "{error}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn disabled_workflow_shows_why_and_offers_enable_instead_of_its_last_status() {
+        let (plugin, _recorded, server) =
+            serve(&[("selected_items", "acme/app")], |_, path| match path {
+                "/api/v3/repos/acme/app/actions/workflows" => {
+                    let mut nightly = workflow(43);
+                    nightly["state"] = serde_json::json!("disabled_inactivity");
+                    ok(serde_json::json!({"total_count": 2, "workflows": [workflow(42), nightly]}))
+                }
+                "/api/v3/repos/acme/app/actions/workflows/42/runs"
+                | "/api/v3/repos/acme/app/actions/workflows/43/runs" => ok(serde_json::json!({
+                    "total_count": 1,
+                    "workflow_runs": [finished_run(9001, 7, "completed", Some("success"))]
+                })),
+                path => panic!("Unexpected stub request: {path}"),
+            })
+            .await;
+
+        let pipelines = plugin.fetch_pipelines().await.unwrap();
+        let workflow_with = |id: &str| pipelines.iter().find(|p| p.id.ends_with(id)).unwrap();
+        let (active, nightly) = (workflow_with("__42"), workflow_with("__43"));
+
+        assert_eq!(active.status, PipelineStatus::Success);
+        assert_eq!(active.resource_state, None);
+        assert!(!active.metadata.contains_key("can_enable"));
+        assert_eq!(nightly.status, PipelineStatus::Skipped);
+        assert_eq!(
+            nightly.resource_state,
+            Some(ResourceState::new(
+                "Disabled",
+                Some("GitHub disabled this workflow after 60 days without repository activity")
+            ))
+        );
+        assert_eq!(nightly.metadata["can_enable"], serde_json::json!(true));
+        assert_eq!(nightly.last_run, active.last_run);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn enable_puts_the_enable_endpoint_of_that_workflow() {
+        let (plugin, recorded, server) = serve(&[], |method, path| match (method, path) {
+            ("PUT", "/api/v3/repos/acme/app/actions/workflows/42/enable") => Reply {
+                status: 204,
+                headers: Vec::new(),
+                body: serde_json::Value::Null,
+            },
+            (method, path) => panic!("Unexpected stub request: {method} {path}"),
+        })
+        .await;
+
+        plugin.enable_pipeline(PIPELINE_ID).await.unwrap();
+
+        let requests: Vec<(String, String)> = recorded
+            .lock()
+            .await
+            .iter()
+            .map(|(method, path, _)| (method.clone(), path.clone()))
+            .collect();
+        assert_eq!(
+            requests,
+            [(
+                "PUT".to_string(),
+                "/api/v3/repos/acme/app/actions/workflows/42/enable".to_string()
+            )]
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn enable_returns_the_github_refusal() {
+        let (plugin, _recorded, server) = serve(&[], |_, _| {
+            failure(403, "Resource not accessible by personal access token", &[])
+        })
+        .await;
+
+        let error = plugin.enable_pipeline(PIPELINE_ID).await.unwrap_err();
+
+        assert!(matches!(error, PluginError::PermissionDenied(_)), "{error}");
+        assert!(
+            error.to_string().contains("Resource not accessible"),
+            "{error}"
+        );
         server.abort();
     }
 

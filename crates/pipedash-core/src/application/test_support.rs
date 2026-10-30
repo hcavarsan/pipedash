@@ -433,6 +433,10 @@ impl Provider for StubProvider {
         Err(DomainError::NotSupported("stub".to_string()))
     }
 
+    async fn enable_pipeline(&self, _pipeline_id: &str) -> DomainResult<()> {
+        Err(DomainError::NotSupported("stub".to_string()))
+    }
+
     async fn get_workflow_parameters(
         &self, _workflow_id: &str,
     ) -> DomainResult<Vec<WorkflowParameter>> {

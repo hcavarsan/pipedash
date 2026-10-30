@@ -8,8 +8,9 @@ import {
 import { GC_TIMES, STALE_TIMES } from '../../../lib/cacheConfig'
 import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
+import { useRefreshProvider } from '../../../queries/useRefreshQueries'
 import { service } from '../../../services/service'
-import type { TriggerParams, WorkflowParameter } from '../../../types/domain'
+import type { Pipeline, TriggerParams, WorkflowParameter } from '../../../types/domain'
 import { errorMessage } from '../../../utils/errorDisplay'
 
 export function useWorkflowParameters(
@@ -52,6 +53,32 @@ export function useTriggerWorkflow(): UseMutationResult<string, Error, TriggerPa
         title: variables.workflow_id.startsWith('fluxcd__')
           ? "Couldn't request reconciliation"
           : "Couldn't trigger workflow",
+        message: errorMessage(error, 'Check your provider connection and try again.'),
+        color: 'red',
+      })
+    },
+  })
+}
+
+export function useEnableWorkflow(): UseMutationResult<void, Error, Pipeline, unknown> {
+  const { mutate: refreshProvider } = useRefreshProvider()
+
+  return useMutation({
+    mutationFn: (pipeline: Pipeline) => service.enablePipeline(pipeline.id),
+
+    onSuccess: (_data, pipeline) => {
+      refreshProvider(pipeline.provider_id)
+
+      notifications.show({
+        title: 'Workflow enabled',
+        message: `${pipeline.name} runs on its triggers again`,
+        color: 'green',
+      })
+    },
+
+    onError: (error: Error) => {
+      notifications.show({
+        title: "Couldn't enable workflow",
         message: errorMessage(error, 'Check your provider connection and try again.'),
         color: 'red',
       })
