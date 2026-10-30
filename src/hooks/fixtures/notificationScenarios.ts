@@ -4,7 +4,6 @@ import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import { notifications } from '@mantine/notifications'
 import { QueryClient, QueryClientProvider, type UseMutationResult } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
@@ -13,6 +12,7 @@ import {
   useLocalNotificationsLifecycle,
   useSetLocalNotifications,
 } from '../../features/notifications/queries/useLocalNotificationQueries'
+import { notifications } from '../../lib/notifications'
 import { queryKeys } from '../../lib/queryKeys'
 import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'

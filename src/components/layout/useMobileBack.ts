@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
+import { useMobileNavStore } from '../../stores/mobileNavStore'
 import { mobileChrome } from './mobileChrome'
 import { historyIndex, previousEntry, recordEntry, resolveBack } from './navigation'
 
@@ -11,8 +12,10 @@ export interface BackTarget {
 
 export function useMobileBack(): BackTarget | null {
   const { pathname, search, state } = useLocation()
+  const pageTitles = useMobileNavStore((s) => s.pageTitles)
+  const back = mobileChrome(pathname, search, state).back
 
-  return mobileChrome(pathname, search, state).back
+  return back && { to: back.to, label: pageTitles[back.to] ?? back.label }
 }
 
 export function useRecordHistory(): void {

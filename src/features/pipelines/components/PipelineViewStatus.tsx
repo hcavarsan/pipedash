@@ -47,7 +47,7 @@ interface PipelineBuildWatchProps {
 }
 
 export function PipelineBuildWatch({ model, onViewRun }: PipelineBuildWatchProps): ReactNode {
-  if (model.query.view !== 'all' || model.filters.provider !== null) {
+  if (model.query.view !== 'all' || model.filters.provider !== null || model.pushed) {
     return null
   }
 

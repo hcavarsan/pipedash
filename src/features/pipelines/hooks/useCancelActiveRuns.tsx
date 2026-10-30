@@ -1,9 +1,8 @@
-import { notifications } from '@mantine/notifications'
 import { IconSquare } from '@tabler/icons-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useState } from 'react'
-
 import type { ContextMenuItem } from '../../../components/common/ContextMenu'
+import { notifications } from '../../../lib/notifications'
 import { queryKeys } from '../../../lib/queryKeys'
 import { usePipelines } from '../../../queries/usePipelinesQueries'
 import { usePlugins } from '../../../queries/usePluginsQueries'

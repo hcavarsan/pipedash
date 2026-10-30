@@ -3,6 +3,7 @@ import { type MouseEventHandler, type ReactNode, useId } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { useRowMenuLongPress } from '../../hooks/useLongPress'
+import { pushState } from '../layout/mobileChrome'
 
 import classes from './IosList.module.css'
 import { SwipeActions } from './SwipeActions'
@@ -10,13 +11,12 @@ import type { SwipeAction } from './swipeAction'
 
 interface IosGroupProps {
   header?: ReactNode
-  headerAction?: ReactNode
   headingLevel?: 2 | 3
   footer?: ReactNode
   children: ReactNode
 }
 
-export function IosGroup({ header, headerAction, headingLevel = 2, footer, children }: IosGroupProps): ReactNode {
+export function IosGroup({ header, headingLevel = 2, footer, children }: IosGroupProps): ReactNode {
   const id = useId()
   const headingId = `${id}-heading`
   const footerId = `${id}-footer`
@@ -27,14 +27,11 @@ export function IosGroup({ header, headerAction, headingLevel = 2, footer, child
       aria-labelledby={header ? headingId : undefined}
       aria-describedby={footer ? footerId : undefined}
     >
-      {(header || headerAction) && (
+      {header && (
         <div className={classes.headerRow}>
-          {header && (
-            <Heading id={headingId} className={classes.header}>
-              {header}
-            </Heading>
-          )}
-          {headerAction}
+          <Heading id={headingId} className={classes.header}>
+            {header}
+          </Heading>
         </div>
       )}
       <div className={classes.group}>{children}</div>
@@ -122,7 +119,7 @@ export function IosRow(props: IosRowProps): ReactNode {
     props.to ? (
       <Link
         to={props.to}
-        state={{ from: `${location.pathname}${location.search}` }}
+        state={pushState(location.pathname, location.search, location.state)}
         {...shared}
         aria-current={selected ? 'true' : undefined}
         className={className}

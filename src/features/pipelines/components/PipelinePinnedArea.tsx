@@ -1,7 +1,6 @@
 import { ActionIcon, Stack, Tooltip } from '@mantine/core'
 import { IconFolder, IconPinFilled, IconPinnedOff } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
-import toolbarClasses from '../../../components/common/IosRunList.module.css'
 import {
   type PipelineActions,
   type PipelineSelection,
@@ -9,13 +8,13 @@ import {
 } from '../../../components/common/PipelineRowParts'
 import type { PinnedBlock, ProviderSummary } from '../../../types/domain'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
+import { IosPinnedList } from './IosPinnedList'
 import { PipelineCardGrid } from './PipelineCardGrid'
 
 interface PinnedRepositoryBlockProps {
   block: PinnedBlock
   expanded: boolean
   onToggle: () => void
-  mobileShell: boolean
   getProvider: (id: number) => ProviderSummary | undefined
   actions: PipelineActions
   selection?: PipelineSelection | undefined
@@ -25,31 +24,11 @@ function PinnedRepositoryBlock({
   block,
   expanded,
   onToggle,
-  mobileShell,
   getProvider,
   actions,
   selection,
 }: PinnedRepositoryBlockProps): ReactNode {
   const unpin = () => actions.pinItem(block.kind, block.ref).onClick()
-  const grid = (header?: string, headerAction?: ReactNode) => (
-    <PipelineCardGrid
-      header={header}
-      headerAction={headerAction}
-      pipelines={block.pipelines}
-      getProvider={getProvider}
-      actions={actions}
-      selection={selection}
-    />
-  )
-
-  if (mobileShell) {
-    return grid(
-      block.name,
-      <button type="button" className={toolbarClasses.headerAction} onClick={unpin}>
-        Unpin
-      </button>
-    )
-  }
 
   return (
     <Stack gap="sm" component="section">
@@ -67,7 +46,14 @@ function PinnedRepositoryBlock({
           </Tooltip>
         }
       />
-      {expanded && grid()}
+      {expanded && (
+        <PipelineCardGrid
+          pipelines={block.pipelines}
+          getProvider={getProvider}
+          actions={actions}
+          selection={selection}
+        />
+      )}
     </Stack>
   )
 }
@@ -80,35 +66,29 @@ export function PipelinePinnedArea({
   actions: PipelineActions
 }): ReactNode {
   const pinnedTitleId = useId()
-  const { pinned, pinnedBlocks, mobileShell, isOpen, toggleOpen, getProvider, selection } = model
-  const pinnedGrid = (header?: string) => (
-    <PipelineCardGrid
-      header={header}
-      pipelines={pinned}
-      getProvider={getProvider}
-      actions={actions}
-      selection={selection}
-    />
-  )
+  const { pinned, pinnedBlocks, mobileShell, kind, isOpen, toggleOpen, getProvider, selection } = model
+
+  if (mobileShell) {
+    return kind === 'pinned' && <IosPinnedList model={model} actions={actions} />
+  }
 
   return (
     <>
-      {pinned.length > 0 &&
-        (mobileShell ? (
-          pinnedGrid('Pinned')
-        ) : (
-          <Stack gap="sm" component="section" aria-labelledby={pinnedTitleId}>
-            <SectionHeading
-              id={pinnedTitleId}
-              icon={<IconPinFilled size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
-              label="Pinned"
-              count={pinned.length}
-              expanded={isOpen('__pinned', true)}
-              onToggle={() => toggleOpen('__pinned', true)}
-            />
-            {isOpen('__pinned', true) && pinnedGrid()}
-          </Stack>
-        ))}
+      {pinned.length > 0 && (
+        <Stack gap="sm" component="section" aria-labelledby={pinnedTitleId}>
+          <SectionHeading
+            id={pinnedTitleId}
+            icon={<IconPinFilled size={16} color="var(--mantine-color-dimmed)" aria-hidden />}
+            label="Pinned"
+            count={pinned.length}
+            expanded={isOpen('__pinned', true)}
+            onToggle={() => toggleOpen('__pinned', true)}
+          />
+          {isOpen('__pinned', true) && (
+            <PipelineCardGrid pipelines={pinned} getProvider={getProvider} actions={actions} selection={selection} />
+          )}
+        </Stack>
+      )}
 
       {pinnedBlocks.map((block) => {
         const blockId = `pin:${block.kind}:${block.ref}`
@@ -119,7 +99,6 @@ export function PipelinePinnedArea({
             block={block}
             expanded={isOpen(blockId, true)}
             onToggle={() => toggleOpen(blockId, true)}
-            mobileShell={mobileShell}
             getProvider={getProvider}
             actions={actions}
             selection={selection}

@@ -26,7 +26,6 @@ function BarLayer({ snapshot, depth, live, layout, backTo }: LayerProps) {
   const goBack = useGoBack()
   const setNavSlot = useMobileNavStore((s) => s.setNavSlot)
   const pushed = snapshot.backLabel !== null
-  const Title = live && pushed ? 'h1' : 'div'
   const style = live ? undefined : { '--title-collapse': snapshot.collapse }
 
   return (
@@ -66,15 +65,9 @@ function BarLayer({ snapshot, depth, live, layout, backTo }: LayerProps) {
           ))}
       </div>
 
-      <Title
-        className={classes.title}
-        data-root={pushed ? undefined : ''}
-        data-page-heading={live && pushed ? '' : undefined}
-        tabIndex={live && pushed ? -1 : undefined}
-        aria-hidden={pushed ? undefined : true}
-      >
+      <div className={classes.title} aria-hidden>
         {snapshot.title}
-      </Title>
+      </div>
 
       <div className={classes.trailing} data-trailing>
         {live && <span className={classes.slot} ref={setNavSlot} />}

@@ -18,13 +18,13 @@ test('each tab remembers its last route, including a pushed detail', () => {
 })
 
 test('an unvisited tab resumes at its root', () => {
-  assert.deepEqual(resumeRoute({}, 'providers', '/providers'), { path: '/providers', from: null })
+  assert.deepEqual(resumeRoute({}, 'settings', '/settings'), { path: '/settings', from: null })
 })
 
 test('remembering an identical route keeps the same object', () => {
-  const tabs = rememberRoute({}, 'providers', { path: '/providers', from: null })
+  const tabs = rememberRoute({}, 'settings', { path: '/settings', from: null })
 
-  assert.equal(rememberRoute(tabs, 'providers', { path: '/providers', from: null }), tabs)
+  assert.equal(rememberRoute(tabs, 'settings', { path: '/settings', from: null }), tabs)
 })
 
 test('scroll offsets are stored per route and dropped at the top', () => {

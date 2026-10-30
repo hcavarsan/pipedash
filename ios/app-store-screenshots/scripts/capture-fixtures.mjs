@@ -154,12 +154,16 @@ export const pipelineViews = [
   { id: 'all', kind: 'all', name: 'All pipelines', rules: viewRules, display: { sort: 'name', direction: 'asc', sections: 'repository', layout: 'table' }, capabilities: viewCapabilities(false), count: pipelines.length, parent: null },
   { id: 'pinned', kind: 'pinned', name: 'Pinned', rules: viewRules, display: { sort: 'manual', direction: 'asc', sections: 'none', layout: 'cards' }, capabilities: viewCapabilities(true), count: pinnedPipelines.length, parent: null },
 ]
-const viewSection = (id, kind, title, members) => ({
-  id, kind, title, organization: kind === 'none' ? null : members[0].repository.split('/')[0],
-  provider_ids: [...new Set(members.map((pipeline) => pipeline.provider_id))].sort((a, b) => a - b),
-  status: null, status_pipeline_id: null, last_run: members.map((pipeline) => pipeline.last_run).sort().at(-1) ?? null,
-  pending_fetch: false, pipelines: members.map(viewPipeline),
-})
+const SEVERITY = ['failed', 'degraded', 'running', 'pending', 'cancelled', 'success', 'skipped']
+const viewSection = (id, kind, title, members) => {
+  const lead = [...members].sort((a, b) => SEVERITY.indexOf(a.status) - SEVERITY.indexOf(b.status))[0]
+  return {
+    id, kind, title, organization: kind === 'none' ? null : members[0].repository.split('/')[0],
+    provider_ids: [...new Set(members.map((pipeline) => pipeline.provider_id))].sort((a, b) => a - b),
+    status: lead?.status ?? null, status_pipeline_id: lead?.id ?? null, last_run: members.map((pipeline) => pipeline.last_run).sort().at(-1) ?? null,
+    pending_fetch: false, pipelines: members.map(viewPipeline),
+  }
+}
 function pipelinePage(viewId) {
   const pinned = viewId === 'pinned'
   const members = pinned ? pinnedPipelines : pipelines

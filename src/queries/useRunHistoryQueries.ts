@@ -1,4 +1,3 @@
-import { notifications } from '@mantine/notifications'
 import {
   type InfiniteData,
   type UseInfiniteQueryResult,
@@ -13,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { confirmBody } from '../components/common/ActionTargetRows'
 import { PAGE_SIZES } from '../constants/pagination'
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
+import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services/service'
 import type { PaginatedRunHistory, Pipeline, PipelineRun, ReviewDecision } from '../types/domain'

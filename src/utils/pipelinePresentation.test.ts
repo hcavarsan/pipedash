@@ -8,6 +8,7 @@ import {
   getReconcileBlockReason,
   getRunStatusLabel,
   getTriggerBlockReason,
+  pipelineStatusKey,
   READ_ONLY_REASON,
 } from './pipelinePresentation'
 
@@ -64,4 +65,14 @@ test('read-only pipelines block triggering with the reason and refuse cancelling
   assert.equal(canCancelPipeline(plugins, readOnly), false)
   assert.equal(canCancelPipeline(plugins, open), true)
   assert.equal(canCancelPipeline(plugin(false), open), false)
+})
+
+test('only a pending pipeline with no run and no resource state has never run', () => {
+  assert.equal(pipelineStatusKey({ status: 'pending', last_run: null }), 'never')
+  assert.equal(pipelineStatusKey({ status: 'pending', last_run: '2026-01-01T00:00:00Z' }), 'pending')
+  assert.equal(
+    pipelineStatusKey({ status: 'pending', last_run: null, resource_state: { label: 'Waiting' } }),
+    'pending'
+  )
+  assert.equal(pipelineStatusKey({ status: 'failed', last_run: null }), 'failed')
 })

@@ -1,9 +1,8 @@
-import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useEffectEvent, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-
 import { logger } from '../lib/logger'
+import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
 import type { ProviderSummary } from '../types/domain'
 

@@ -5,7 +5,7 @@ import { overlayOpen } from '../../lib/overlays'
 import { trackTouches } from '../../lib/touchTracker'
 import { type BarSnapshot, useMobileNavStore } from '../../stores/mobileNavStore'
 import classes from './MobilePage.module.css'
-import { mobileChrome, routeKey, splitLocation } from './mobileChrome'
+import { type MobileTab, mobileChrome, routeKey, splitLocation } from './mobileChrome'
 import { edgeOffset } from './navigation'
 import { mountSnapshot, snapshotCollapse } from './snapshots'
 import { springFor } from './springValue'
@@ -23,14 +23,16 @@ interface MobileSwipeBackProps {
   layers: MobilePageLayers
   motion: MobilePageMotion
   back: BackTarget | null
+  tab: MobileTab
   goBack: (to: string) => void
   swiped: RefObject<boolean>
 }
 
-export function useMobileSwipeBack({ layers, motion, back, goBack, swiped }: MobileSwipeBackProps): void {
+export function useMobileSwipeBack({ layers, motion, back, tab, goBack, swiped }: MobileSwipeBackProps): void {
   const { underlay } = layers
   const { motion: spring, mode, width, engage, clearLayers } = motion
   const currentBack = useEffectEvent(() => back)
+  const currentTab = useEffectEvent(() => tab)
   const leave = useEffectEvent((to: string) => goBack(to))
 
   useEffect(() => {
@@ -39,16 +41,18 @@ export function useMobileSwipeBack({ layers, motion, back, goBack, swiped }: Mob
 
     const prepare = (target: BackTarget): BarSnapshot => {
       const parent = splitLocation(target.to)
-      const parentChrome = mobileChrome(parent.pathname, parent.search)
-      const parentKey = routeKey(parent.pathname, parent.search)
+      const parentChrome = mobileChrome(parent.pathname, parent.search, { tab: currentTab() })
+      const parentKey = routeKey(parent.pathname, parent.search, { tab: currentTab() })
+      const { pageTitles } = useMobileNavStore.getState()
+      const title = pageTitles[target.to] ?? parentChrome.title
 
       if (underlay.current) {
-        mountSnapshot(underlay.current, parentKey, parentChrome.title, classes.placeholder)
+        mountSnapshot(underlay.current, parentKey, title, classes.placeholder)
       }
 
       return {
-        title: parentChrome.title,
-        backLabel: parentChrome.back?.label ?? null,
+        title,
+        backLabel: parentChrome.back ? (pageTitles[parentChrome.back.to] ?? parentChrome.back.label) : null,
         collapse: snapshotCollapse(parentKey),
       }
     }

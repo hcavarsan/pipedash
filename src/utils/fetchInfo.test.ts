@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { providerSummaryFixture } from '../testing/fixtures'
 import type { ProviderSummary } from '../types/domain'
 
-import { dataAge, describeFetch, providerTone, staleNote, worstTone } from './fetchInfo'
+import { dataAge, describeFetch, providerTone, worstTone } from './fetchInfo'
 import { formatRelativeTime } from './formatRelativeTime'
 
 const NOW = Date.parse('2026-10-28T12:00:00Z')
@@ -71,7 +71,7 @@ test('the worst tone wins', () => {
   assert.equal(worstTone([]), 'fresh')
 })
 
-test('data age counts from the last successful fetch and only notes a stale or down state', () => {
+test('data age counts from the last successful fetch and names a stale or down state', () => {
   const at = '2026-10-28T10:00:00Z'
   const ago = formatRelativeTime(at, NOW)
   const withAge = (overrides: Partial<ProviderSummary>) => provider({ last_success_at: at, ...overrides })
@@ -83,14 +83,17 @@ test('data age counts from the last successful fetch and only notes a stale or d
   })
 
   assert.equal(dataAge(withAge({}), NOW).label, `Data checked ${ago}`)
-  assert.equal(staleNote(withAge({}), NOW), undefined)
-  assert.equal(staleNote(stale, NOW), `Stale · data checked ${ago}`)
-  assert.equal(staleNote(down, NOW), `Down · data checked ${ago}`)
+  assert.equal(dataAge(withAge({}), NOW).tone, 'fresh')
+  assert.equal(dataAge(stale, NOW).label, `Stale · data checked ${ago}`)
+  assert.equal(dataAge(down, NOW).label, `Down · data checked ${ago}`)
   assert.equal(
     dataAge(withAge({ last_success_at: null, freshness: { state: 'never', stale_at: null } }), NOW).label,
     'Never fetched'
   )
-  assert.equal(staleNote(withAge({ last_success_at: null, freshness: { state: 'down', stale_at: null } }), NOW), 'Down')
+  assert.equal(
+    dataAge(withAge({ last_success_at: null, freshness: { state: 'down', stale_at: null } }), NOW).label,
+    'Down'
+  )
 })
 
 test('a missing success time only claims no data when the provider never fetched', () => {

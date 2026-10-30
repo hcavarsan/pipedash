@@ -76,9 +76,3 @@ export const dataAge = (provider: ProviderSummary, now: number): DataAge => {
         : 'Last successful fetch time unknown',
   }
 }
-
-export const staleNote = (provider: ProviderSummary, now: number): string | undefined => {
-  const age = dataAge(provider, now)
-
-  return age.tone === 'fresh' ? undefined : age.label
-}
