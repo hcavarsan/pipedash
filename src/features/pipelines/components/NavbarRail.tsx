@@ -1,11 +1,12 @@
 import { ActionIcon, Center, Divider, Loader, ScrollArea, Stack, Tooltip } from '@mantine/core'
 import { IconAlertTriangle, IconStack2 } from '@tabler/icons-react'
-import type { ReactNode } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import type { PipelineView, ProviderSummary } from '../../../types/domain'
 import { formatCount } from '../../../utils/formatCount'
 import { ProviderAvatar, providerStatus } from '../../providers/components/ProviderPresentation'
+import { useProviderNavigation } from '../../providers/queries/useProviderNavigation'
 import type { NavNode } from '../utils/navTree'
 import { ICON_TILE, type MenuProps, NavTile, VIEW_ICONS } from './NavbarTreeRow'
 import { PINNED_ID, viewTo } from './NavbarViewRows'
@@ -30,14 +31,16 @@ interface RailItemProps {
   active: boolean
   icon: ReactNode
   menu?: MenuProps | undefined
+  onClick?: ((event: MouseEvent<HTMLAnchorElement>) => void) | undefined
 }
 
-const RailItem = ({ label, to, active, icon, menu }: RailItemProps): ReactNode => (
+const RailItem = ({ label, to, active, icon, menu, onClick }: RailItemProps): ReactNode => (
   <Tooltip label={label} position="right">
     <ActionIcon
       {...menu}
       component={Link}
       to={to}
+      onClick={onClick}
       size={44}
       radius="sm"
       className="interactive-surface"
@@ -64,6 +67,7 @@ export const NavbarRail = ({
   providerMenu,
   viewMenu,
 }: NavbarRailProps): ReactNode => {
+  const openProvider = useProviderNavigation()
   const totalPipelines = providers.reduce((sum, p) => sum + p.pipeline_count, 0)
 
   return (
@@ -112,6 +116,7 @@ export const NavbarRail = ({
               active={providerId === String(provider.id)}
               icon={<ProviderAvatar provider={provider} size={ICON_TILE.rail} />}
               menu={providerMenu(provider)}
+              onClick={(event) => openProvider(provider, event)}
             />
           ))
         )}

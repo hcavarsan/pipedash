@@ -25,7 +25,10 @@ use crate::schema::{
     ConfigSchema,
     TableSchema,
 };
-use crate::sign_in::SignInClient;
+use crate::sign_in::{
+    SignInClient,
+    SignInRefreshRejection,
+};
 use crate::types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,6 +284,10 @@ pub trait Plugin: Send + Sync {
         Err(crate::error::PluginError::NotSupported(
             "Sign-in is not supported by this provider".to_string(),
         ))
+    }
+
+    fn sign_in_refresh_rejections(&self) -> &'static [SignInRefreshRejection] {
+        &[]
     }
 
     async fn check_permissions(&self) -> PluginResult<PermissionStatus> {

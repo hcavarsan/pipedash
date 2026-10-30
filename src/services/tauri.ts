@@ -268,6 +268,14 @@ export const tauriService = {
     return invokeWithTimeout<SignInStart>('start_sign_in', { providerType, config }, undefined, false)
   },
 
+  startProviderSignIn: async (id: number): Promise<SignInStart> => {
+    return invokeWithTimeout<SignInStart>('start_provider_sign_in', { id }, undefined, false)
+  },
+
+  reconnectProvider: async (id: number, flowId: string): Promise<void> => {
+    return invokeWithTimeout<void>('reconnect_provider', { id, flowId }, undefined, false)
+  },
+
   signInStatus: async (id: string): Promise<SignInStatus> => {
     return invokeWithTimeout<SignInStatus>('sign_in_status', { id })
   },

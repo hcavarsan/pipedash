@@ -57,3 +57,48 @@ test('a read that hits a 5xx is sent again and returns the next answer', async (
   assert.deepEqual(await apiService.listProviders(), [])
   assert.equal(sent, 2)
 })
+
+test('provider recovery opens a tab synchronously before starting the provider-bound flow', async (context) => {
+  const events: string[] = []
+  const start = {
+    id: 'provider-flow',
+    authorize_url: 'https://argo.example.com/api/dex/auth',
+    label: 'GitHub',
+    manual: false,
+  }
+  context.mock.method(window, 'open', () => {
+    events.push('open')
+
+    return null
+  })
+  context.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
+    events.push(`${init.method} ${url}`)
+    assert.equal(init.body, undefined)
+
+    return new Response(JSON.stringify(start), { status: 200 })
+  })
+
+  const pending = apiService.startProviderSignIn(7)
+
+  assert.equal(events[0], 'open')
+  assert.deepEqual(await pending, start)
+  assert.deepEqual(events, ['open', 'POST /api/v1/providers/7/sign-in'])
+})
+
+test('reconnecting sends only the completed flow and never automatically retries a failed commit', async (context) => {
+  const sent: { url: string; method: string | undefined; body: unknown }[] = []
+  context.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
+    sent.push({ url, method: init.method, body: init.body })
+
+    return providerError()
+  })
+
+  await assert.rejects(apiService.reconnectProvider(7, 'completed-flow'))
+  assert.deepEqual(sent, [
+    {
+      url: '/api/v1/providers/7/sign-in/complete',
+      method: 'POST',
+      body: JSON.stringify({ flow_id: 'completed-flow' }),
+    },
+  ])
+})

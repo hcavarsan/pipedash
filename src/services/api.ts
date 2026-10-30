@@ -347,10 +347,22 @@ class ApiClient {
   }
 
   async startSignIn(providerType: string, config: Record<string, string>): Promise<SignInStart> {
+    return this.openSignIn('/sign-in', { provider_type: providerType, config })
+  }
+
+  async startProviderSignIn(id: number): Promise<SignInStart> {
+    return this.openSignIn(`/providers/${id}/sign-in`)
+  }
+
+  async reconnectProvider(id: number, flowId: string): Promise<void> {
+    await this.requestVoid('POST', `/providers/${id}/sign-in/complete`, { flow_id: flowId })
+  }
+
+  private async openSignIn(path: string, body?: unknown): Promise<SignInStart> {
     const tab = window.open('', '_blank')
 
     try {
-      const start = await this.post<SignInStart>('/sign-in', { provider_type: providerType, config })
+      const start = await this.post<SignInStart>(path, body)
 
       if (tab) {
         tab.opener = null

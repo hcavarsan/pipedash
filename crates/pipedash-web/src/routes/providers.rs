@@ -22,6 +22,7 @@ use pipedash_core::domain::{
     ProviderImportResult,
     RefreshResult,
     RefreshState,
+    SignInStart,
 };
 use pipedash_plugin_api::{
     FeatureAvailability,
@@ -136,6 +137,11 @@ pub struct ImportProvidersRequest {
     pub content: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ReconnectProviderRequest {
+    pub flow_id: String,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_providers))
@@ -147,6 +153,8 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", delete(remove_provider))
         .route("/{id}/validate", post(validate_existing_credentials))
         .route("/{id}/refresh", post(refresh_provider))
+        .route("/{id}/sign-in", post(start_provider_sign_in))
+        .route("/{id}/sign-in/complete", post(reconnect_provider))
         .route("/{id}/refresh-interval", put(update_refresh_interval))
         .route("/{id}/organizations", get(get_provider_organizations))
         .route("/{id}/permissions", get(get_provider_permissions))
@@ -157,6 +165,31 @@ pub fn router() -> Router<AppState> {
         .route("/permissions/check", post(check_permissions))
         .route("/preview", post(preview_pipelines))
         .route("/field-options", post(get_field_options))
+}
+
+async fn start_provider_sign_in(
+    State(state): State<AppState>, Path(id): Path<i64>,
+) -> ApiResult<Json<SignInStart>> {
+    let start = state
+        .provider_service()
+        .await?
+        .start_provider_sign_in(id)
+        .await?;
+    Ok(Json(SignInStart {
+        manual: true,
+        ..start
+    }))
+}
+
+async fn reconnect_provider(
+    State(state): State<AppState>, Path(id): Path<i64>, Json(req): Json<ReconnectProviderRequest>,
+) -> ApiResult<()> {
+    state
+        .provider_service()
+        .await?
+        .reconnect_provider(id, &req.flow_id)
+        .await?;
+    Ok(())
 }
 
 async fn refresh_provider(

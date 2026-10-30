@@ -20,6 +20,7 @@ import { LoadingState } from '../../../components/common/LoadingState'
 import type { PinnedItem, PipelineView, ProviderSummary } from '../../../types/domain'
 import { formatCount } from '../../../utils/formatCount'
 import { ProviderAvatar, ProviderStatusLine } from '../../providers/components/ProviderPresentation'
+import { useProviderNavigation } from '../../providers/queries/useProviderNavigation'
 import { ancestorKeys, filterNavTree, matchesQuery, type NavNode, pinTo } from '../utils/navTree'
 import { ICON_TILE, type MenuProps, NavbarTreeRow, NavTile, PIN_ICONS, VIEW_ICONS } from './NavbarTreeRow'
 import { activeRootOf, flattenNavbarViewRows, PINNED_ID, viewNodesOf, viewTo } from './NavbarViewRows'
@@ -73,6 +74,8 @@ const ProviderRows = ({
   onEditProvider,
   onRemoveProvider,
 }: ProviderRowsProps): ReactNode => {
+  const openProvider = useProviderNavigation()
+
   if (loading) {
     return <LoadingState message="Loading providers" />
   }
@@ -103,6 +106,7 @@ const ProviderRows = ({
       active={providerId === String(provider.id)}
       menu={providerMenu(provider)}
       to={`/pipelines?provider=${provider.id}`}
+      onClick={(event) => openProvider(provider, event)}
       actions={
         <Group gap="4xs" wrap="nowrap" className="nav-item-actions">
           <Tooltip label={`Edit ${provider.name}`}>

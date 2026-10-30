@@ -314,6 +314,15 @@ function ShellProviderStatus({ provider, now, onNavigate }: ShellProviderStatusP
 
   return (
     <>
+      <IosGroup
+        header="Pipedash connection"
+        footer={notes.length > 0 ? notes.map((note) => <div key={note}>{note}</div>) : undefined}
+      >
+        <IosRow title={connectionState(provider, connection?.title, now)} />
+        <Group gap="xs" p="sm" style={{ borderTop: '0.5px solid var(--ios-separator)' }}>
+          <ProviderRecoveryActions providerId={provider.id} recovery={attention.recovery} onNavigate={onNavigate} />
+        </Group>
+      </IosGroup>
       {page ? (
         <IosGroup
           header={`${page.name} status`}
@@ -365,16 +374,6 @@ function ShellProviderStatus({ provider, now, onNavigate }: ShellProviderStatusP
           <ShellComponentRows components={instance.components} />
         </IosGroup>
       )}
-
-      <IosGroup
-        header="Pipedash connection"
-        footer={notes.length > 0 ? notes.map((note) => <div key={note}>{note}</div>) : undefined}
-      >
-        <IosRow title={connectionState(provider, connection?.title, now)} />
-        <Group gap="xs" p="sm" style={{ borderTop: '0.5px solid var(--ios-separator)' }}>
-          <ProviderRecoveryActions providerId={provider.id} recovery={attention.recovery} onNavigate={onNavigate} />
-        </Group>
-      </IosGroup>
     </>
   )
 }
@@ -449,13 +448,13 @@ export function ProviderStatusModal(): ReactNode {
       {provider && (
         <Stack gap="md">
           <LiveStatus message={statusSummary(provider, attention?.headline)} />
+          <Connection provider={provider} now={now} onNavigate={close} />
           <Section
             title={provider.health.status_page ? `${provider.health.status_page.name} status` : 'Service status'}
           >
             <ServiceStatus provider={provider} now={now} />
           </Section>
           <Controllers provider={provider} />
-          <Connection provider={provider} now={now} onNavigate={close} />
         </Stack>
       )}
     </StandardModal>

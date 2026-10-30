@@ -20,3 +20,10 @@ pub struct SignInClient {
     pub authorize_params: Vec<(String, String)>,
     pub token: SignInToken,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SignInRefreshRejection {
+    pub status: u16,
+    pub error: &'static str,
+    pub description: &'static str,
+}

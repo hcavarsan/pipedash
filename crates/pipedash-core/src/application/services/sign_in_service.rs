@@ -9,7 +9,10 @@ use std::sync::{
 use std::time::Duration;
 
 use chrono::Utc;
-use pipedash_plugin_api::SignInClient;
+use pipedash_plugin_api::{
+    SignInClient,
+    SignInRefreshRejection,
+};
 use reqwest::Url;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -49,6 +52,14 @@ struct Pending {
     client: SignInClient,
 }
 
+#[derive(Clone)]
+pub(crate) struct ProviderSignIn {
+    pub id: i64,
+    pub provider_type: String,
+    pub token: String,
+    pub client: SignInClient,
+}
+
 struct Flow {
     status: watch::Sender<SignInStatus>,
     pending: Option<Pending>,
@@ -57,6 +68,8 @@ struct Flow {
     redirect_uri: Url,
     expires_at: Instant,
     listener: Option<JoinHandle<()>>,
+    rejections: &'static [SignInRefreshRejection],
+    owner: Option<ProviderSignIn>,
 }
 
 impl Flow {
@@ -94,6 +107,7 @@ impl SignInService {
 
     pub(crate) async fn start(
         self: &Arc<Self>, client: SignInClient, http: Arc<reqwest::Client>,
+        rejections: &'static [SignInRefreshRejection], owner: Option<ProviderSignIn>,
     ) -> DomainResult<SignInStart> {
         self.prune();
         let endpoints = oauth::discover(&http, &client.issuer).await?;
@@ -128,6 +142,8 @@ impl SignInService {
             redirect_uri,
             expires_at,
             listener: None,
+            rejections,
+            owner,
         });
         flow.into_mut().listener = loopback
             .map(|loopback| tokio::spawn(listen(Arc::downgrade(self), id, loopback, expires_at)));
@@ -139,6 +155,38 @@ impl SignInService {
         self.flows()
             .get(id)
             .map_or(SignInStatus::Expired, |flow| flow.status.borrow().clone())
+    }
+
+    pub(crate) fn provider_flow(&self, id: &str, provider_id: i64) -> DomainResult<ProviderSignIn> {
+        self.prune();
+        self.flows()
+            .get(id)
+            .and_then(|flow| flow.owner.as_ref())
+            .filter(|owner| owner.id == provider_id)
+            .cloned()
+            .ok_or_else(|| {
+                DomainError::InvalidConfig(
+                    "This sign-in belongs to another provider or expired".into(),
+                )
+            })
+    }
+
+    pub(crate) fn check_owner(&self, id: &str, provider_id: Option<i64>) -> DomainResult<()> {
+        self.prune();
+        let flows = self.flows();
+        let flow = flows
+            .get(id)
+            .ok_or_else(|| DomainError::ProviderAuthenticationFailed(SIGN_IN_EXPIRED.into()))?;
+        if flow
+            .owner
+            .as_ref()
+            .is_some_and(|owner| Some(owner.id) != provider_id)
+        {
+            return Err(DomainError::InvalidConfig(
+                "This sign-in belongs to another provider".into(),
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) async fn wait(&self, id: &str) -> SignInStatus {
@@ -254,7 +302,10 @@ impl SignInService {
     pub(crate) async fn cancel(&self, id: &str) {
         let listener = {
             let mut flows = self.flows();
-            if flows.get(id).is_some_and(|flow| flow.credential.is_some()) {
+            if flows
+                .get(id)
+                .is_some_and(|flow| flow.credential.is_some() && flow.owner.is_none())
+            {
                 return;
             }
             flows.remove(id).and_then(|mut flow| flow.close())
@@ -266,19 +317,25 @@ impl SignInService {
 
     pub(crate) async fn credential(&self, id: &str) -> DomainResult<SignInCredential> {
         let _renewal = self.renewal.lock().await;
-        let (current, http) = self.completed(id)?;
+        let (current, http, rejections) = self.completed(id)?;
         if !current.renew_at().is_some_and(|at| at <= Utc::now()) {
             return Ok(current);
         }
 
-        let renewed = oauth::refresh(&http, &current).await?;
+        let renewed = oauth::refresh(&http, &current, rejections).await?;
         if let Some(flow) = self.flows().get_mut(id) {
             flow.credential = Some(renewed.clone());
         }
         Ok(renewed)
     }
 
-    fn completed(&self, id: &str) -> DomainResult<(SignInCredential, Arc<reqwest::Client>)> {
+    fn completed(
+        &self, id: &str,
+    ) -> DomainResult<(
+        SignInCredential,
+        Arc<reqwest::Client>,
+        &'static [SignInRefreshRejection],
+    )> {
         self.prune();
         let flows = self.flows();
         let Some(flow) = flows.get(id) else {
@@ -287,7 +344,7 @@ impl SignInService {
             ));
         };
         if let Some(credential) = &flow.credential {
-            return Ok((credential.clone(), Arc::clone(&flow.http)));
+            return Ok((credential.clone(), Arc::clone(&flow.http), flow.rejections));
         }
         let status = flow.status.borrow().clone();
         Err(match status {
@@ -406,7 +463,7 @@ mod tests {
     async fn browser_redirect_completes_the_flow() {
         let (service, _idp, client) = setup().await;
         let start = service
-            .start(client.clone(), Arc::new(reqwest::Client::new()))
+            .start(client.clone(), Arc::new(reqwest::Client::new()), &[], None)
             .await
             .unwrap();
         assert!(!start.manual);
@@ -434,7 +491,7 @@ mod tests {
     async fn foreign_state_keeps_waiting_and_provider_errors_fail() {
         let (service, _idp, client) = setup().await;
         let start = service
-            .start(client.clone(), Arc::new(reqwest::Client::new()))
+            .start(client.clone(), Arc::new(reqwest::Client::new()), &[], None)
             .await
             .unwrap();
 
@@ -462,7 +519,7 @@ mod tests {
     async fn pasted_address_completes_only_for_the_redirect() {
         let (service, _idp, client) = setup().await;
         let start = service
-            .start(client.clone(), Arc::new(reqwest::Client::new()))
+            .start(client.clone(), Arc::new(reqwest::Client::new()), &[], None)
             .await
             .unwrap();
 
@@ -483,13 +540,16 @@ mod tests {
     async fn cancel_frees_the_redirect_port_and_expires_the_flow() {
         let (service, _idp, client) = setup().await;
         let http = Arc::new(reqwest::Client::new());
-        let first = service.start(client.clone(), http.clone()).await.unwrap();
+        let first = service
+            .start(client.clone(), http.clone(), &[], None)
+            .await
+            .unwrap();
 
         service.cancel(&first.id).await;
 
         assert_eq!(service.status(&first.id), SignInStatus::Expired);
         assert!(service.credential(&first.id).await.is_err());
-        let second = service.start(client, http).await.unwrap();
+        let second = service.start(client, http, &[], None).await.unwrap();
         assert!(!second.manual);
     }
 
@@ -497,7 +557,7 @@ mod tests {
     async fn cancel_keeps_a_completed_sign_in_for_saving() {
         let (service, _idp, client) = setup().await;
         let start = service
-            .start(client.clone(), Arc::new(reqwest::Client::new()))
+            .start(client.clone(), Arc::new(reqwest::Client::new()), &[], None)
             .await
             .unwrap();
         let pasted = callback(&client, &start, "code=c&state={state}");
@@ -521,7 +581,7 @@ mod tests {
             json!({"access_token": "a", "id_token": expired, "refresh_token": "r1"}),
         );
         let start = service
-            .start(client.clone(), Arc::new(reqwest::Client::new()))
+            .start(client.clone(), Arc::new(reqwest::Client::new()), &[], None)
             .await
             .unwrap();
         let pasted = callback(&client, &start, "code=c&state={state}");

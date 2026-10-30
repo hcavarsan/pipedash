@@ -2,6 +2,7 @@ use pipedash_plugin_api::{
     PluginError,
     PluginResult,
     SignInClient,
+    SignInRefreshRejection,
     SignInToken,
 };
 
@@ -15,6 +16,19 @@ const DEX_FEDERATED_SCOPE: &str = "federated:id";
 const GENERIC_LABEL: &str = "SSO";
 const NO_SSO: &str =
     "This Argo CD server has no SSO configured. Use an authentication token instead.";
+
+pub(crate) const REFRESH_REJECTIONS: &[SignInRefreshRejection] = &[
+    SignInRefreshRejection {
+        status: 400,
+        error: "invalid_request",
+        description: "Refresh token is invalid or has already been claimed by another client.",
+    },
+    SignInRefreshRejection {
+        status: 400,
+        error: "invalid_request",
+        description: "Refresh token expired.",
+    },
+];
 
 fn default_scopes() -> Vec<String> {
     DEFAULT_SCOPES.iter().map(|s| s.to_string()).collect()

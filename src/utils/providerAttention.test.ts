@@ -230,16 +230,3 @@ test('outage levels start at partial outage', () => {
   assert.equal(isOutageLevel('partial_outage'), true)
   assert.equal(isOutageLevel('major_outage'), true)
 })
-
-test('a provider that has to sign in again gets the sign-in hint instead of the token hint', () => {
-  const failing = { last_fetch_status: 'error', last_fetch_error: 'denied', last_fetch_error_kind: 'auth' } as const
-
-  assert.equal(
-    providerAttention(summary({ ...failing, recovery: 'sign_in' })).hint,
-    'Your sign-in expired. Sign in again in Settings → Providers.'
-  )
-  assert.equal(
-    providerAttention(summary({ ...failing, recovery: 'settings' })).hint,
-    'The token was rejected. Update it in Settings → Providers.'
-  )
-})

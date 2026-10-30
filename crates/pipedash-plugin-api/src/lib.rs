@@ -75,6 +75,7 @@ pub use schema::{
 };
 pub use sign_in::{
     SignInClient,
+    SignInRefreshRejection,
     SignInToken,
 };
 pub use types::{

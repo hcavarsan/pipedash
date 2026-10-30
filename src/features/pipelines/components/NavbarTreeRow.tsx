@@ -43,6 +43,7 @@ interface NavbarTreeRowProps {
   expandable?: boolean | undefined
   open?: boolean | undefined
   onToggle?: (() => void) | undefined
+  onClick?: ((event: MouseEvent<HTMLAnchorElement>) => void) | undefined
   menu?: MenuProps | undefined
   actions?: ReactNode
 }
@@ -57,6 +58,7 @@ export const NavbarTreeRow = ({
   expandable,
   open,
   onToggle,
+  onClick,
   menu,
   actions,
 }: NavbarTreeRowProps): ReactNode => {
@@ -96,7 +98,14 @@ export const NavbarTreeRow = ({
         <Box w={18} flex="none" />
       )}
       {to ? (
-        <NavLink {...row} active={active} aria-current={active ? 'page' : undefined} component={Link} to={to} />
+        <NavLink
+          {...row}
+          active={active}
+          aria-current={active ? 'page' : undefined}
+          component={Link}
+          to={to}
+          {...(onClick ? { onClick } : {})}
+        />
       ) : (
         <NavLink
           {...row}

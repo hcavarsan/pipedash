@@ -312,7 +312,9 @@ use run_logs::{
 use sign_in::{
     cancel_sign_in,
     complete_sign_in,
+    reconnect_provider,
     sign_in_status,
+    start_provider_sign_in,
     start_sign_in,
 };
 
@@ -468,6 +470,8 @@ pub fn run() {
             validate_provider_credentials,
             check_provider_permissions,
             start_sign_in,
+            start_provider_sign_in,
+            reconnect_provider,
             sign_in_status,
             complete_sign_in,
             cancel_sign_in,

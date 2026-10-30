@@ -32,7 +32,7 @@ const TRANSIENT_KINDS: Partial<Record<FailureKind, true>> = {
 }
 
 const UNREACHABLE_HINT = "Pipedash can't reach this provider. Check the network or VPN of the machine running Pipedash."
-const SIGN_IN_HINT = 'Your sign-in expired. Sign in again in Settings → Providers.'
+const SIGN_IN_HINT = 'Your sign-in expired. Sign in again to reconnect.'
 const SETTINGS_HINT = 'Check the provider URL and certificate settings.'
 
 const HINTS: Partial<Record<FailureKind, string>> = {

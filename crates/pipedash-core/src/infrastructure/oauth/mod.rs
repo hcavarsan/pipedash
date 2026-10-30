@@ -13,6 +13,7 @@ use pipedash_plugin_api::{
     redact_url,
     truncate_chars,
     SignInClient,
+    SignInRefreshRejection,
     SignInToken,
 };
 use reqwest::Url;
@@ -211,7 +212,7 @@ pub(crate) async fn exchange(
         ("client_id", client.client_id.as_str()),
         ("code_verifier", verifier),
     ];
-    let response = request_token(http, token_endpoint, &form, Grant::Exchange).await?;
+    let response = request_token(http, token_endpoint, &form, Grant::Exchange, &[]).await?;
     credential(
         response,
         client.token,
@@ -222,7 +223,7 @@ pub(crate) async fn exchange(
 }
 
 pub(crate) async fn refresh(
-    http: &reqwest::Client, current: &SignInCredential,
+    http: &reqwest::Client, current: &SignInCredential, rejections: &[SignInRefreshRejection],
 ) -> DomainResult<SignInCredential> {
     let refresh_token = current
         .refresh_token
@@ -234,7 +235,7 @@ pub(crate) async fn refresh(
         ("refresh_token", refresh_token),
         ("client_id", current.client_id.as_str()),
     ];
-    let response = request_token(http, &token_endpoint, &form, Grant::Refresh).await?;
+    let response = request_token(http, &token_endpoint, &form, Grant::Refresh, rejections).await?;
     credential(
         response,
         current.kind,
@@ -246,6 +247,7 @@ pub(crate) async fn refresh(
 
 async fn request_token(
     http: &reqwest::Client, endpoint: &Url, form: &[(&str, &str)], grant: Grant,
+    rejections: &[SignInRefreshRejection],
 ) -> DomainResult<TokenResponse> {
     let response = http
         .post(endpoint.clone())
@@ -266,7 +268,14 @@ async fn request_token(
 
     if let Ok(error) = serde_json::from_str::<OAuthError>(&body) {
         match grant {
-            Grant::Refresh if EXPIRED_GRANT_ERRORS.contains(&error.error.as_str()) => {
+            Grant::Refresh
+                if EXPIRED_GRANT_ERRORS.contains(&error.error.as_str())
+                    || rejections.iter().any(|rejection| {
+                        rejection.status == status.as_u16()
+                            && rejection.error == error.error
+                            && Some(rejection.description) == error.error_description.as_deref()
+                    }) =>
+            {
                 return Err(DomainError::ProviderAuthenticationFailed(
                     SIGN_IN_EXPIRED.into(),
                 ));
@@ -613,7 +622,7 @@ mod tests {
         let idp = Idp::start().await;
         idp.reply(200, json!({"access_token": "new", "expires_in": 3600}));
 
-        let renewed = refresh(&reqwest::Client::new(), &stored(&idp))
+        let renewed = refresh(&reqwest::Client::new(), &stored(&idp), &[])
             .await
             .unwrap();
 
@@ -631,7 +640,7 @@ mod tests {
         let idp = Idp::start().await;
         idp.reply(400, json!({"error": "invalid_grant"}));
 
-        let error = refresh(&reqwest::Client::new(), &stored(&idp))
+        let error = refresh(&reqwest::Client::new(), &stored(&idp), &[])
             .await
             .unwrap_err();
 
@@ -645,7 +654,7 @@ mod tests {
         let idp = Idp::start().await;
         idp.reply(503, json!({"error": "temporarily_unavailable"}));
 
-        let error = refresh(&reqwest::Client::new(), &stored(&idp))
+        let error = refresh(&reqwest::Client::new(), &stored(&idp), &[])
             .await
             .unwrap_err();
 

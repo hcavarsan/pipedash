@@ -16,6 +16,7 @@ import { openConfirm } from '../../../utils/confirm'
 import { useProviderDetails } from '../queries/useProviderDetailsQuery'
 
 import { AddProviderModal } from './AddProviderModal/AddProviderModal'
+import { ProviderSignInModal } from './ProviderSignInModal'
 
 export function useConfirmRemoveProvider(): (id: number, name: string) => void {
   const { mutateAsync: removeProvider } = useRemoveProvider()
@@ -76,6 +77,7 @@ export function ProviderModals(): ReactNode {
 
   return (
     <>
+      <ProviderSignInModal />
       {addProviderModal.open && <AddProviderModal opened onClose={handleCloseAdd} onAdd={handleAdd} />}
 
       <StandardModal

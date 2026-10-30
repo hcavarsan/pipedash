@@ -667,6 +667,10 @@ impl Plugin for ArgocdPlugin {
         let settings = client::ArgocdClient::fetch_settings(http_client, &server_url).await?;
         sign_in::client_for(&settings, &server_url)
     }
+
+    fn sign_in_refresh_rejections(&self) -> &'static [SignInRefreshRejection] {
+        sign_in::REFRESH_REJECTIONS
+    }
 }
 
 #[cfg(test)]

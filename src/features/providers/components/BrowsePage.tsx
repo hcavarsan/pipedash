@@ -1,17 +1,28 @@
 import { ActionIcon, Menu, Stack } from '@mantine/core'
-import { IconDots, IconEdit, IconFolder, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
+import {
+  IconActivity,
+  IconDots,
+  IconEdit,
+  IconFolder,
+  IconLogin,
+  IconPlus,
+  IconStack2,
+  IconTrash,
+} from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { SwipeActions } from '../../../components/ios/SwipeActions'
-import { providerPath } from '../../../components/layout/mobileChrome'
 import { useRowMenuLongPress } from '../../../hooks/useLongPress'
 import { useProviders } from '../../../queries/useProvidersQueries'
+import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import { useProviderStore } from '../../../stores/providerStore'
 import type { PipelineView, ProviderSummary } from '../../../types/domain'
 import { usePipelineViews } from '../../pipelines/queries/usePipelineViewQueries'
+import { useProviderNavigation } from '../queries/useProviderNavigation'
+import { useProviderSignIn } from '../queries/useProviderSignIn'
 import classes from './BrowsePage.module.css'
 import { useConfirmRemoveProvider } from './ProviderModals'
 import { ProviderAvatar, ProviderStatusLine } from './ProviderPresentation'
@@ -26,6 +37,9 @@ interface ProviderRowProps {
 
 function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
   const pressRef = useRowMenuLongPress()
+  const openProvider = useProviderNavigation()
+  const signIn = useProviderSignIn()
+  const openStatus = useNotificationCenterStore((state) => state.open)
 
   return (
     <div ref={pressRef} className={classes.shell}>
@@ -39,7 +53,8 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
           icon={<ProviderAvatar provider={provider} size={AVATAR} />}
           title={provider.name}
           subtitle={<ProviderStatusLine provider={provider} />}
-          to={providerPath(provider.id)}
+          chevron
+          onClick={() => openProvider(provider)}
         />
         <Menu position="bottom-end" withinPortal>
           <Menu.Target>
@@ -49,6 +64,17 @@ function ProviderRow({ provider, onEdit, onRemove }: ProviderRowProps) {
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Label>{provider.name}</Menu.Label>
+            {provider.recovery === 'sign_in' && (
+              <Menu.Item leftSection={<IconLogin size={16} aria-hidden />} onClick={() => signIn(provider.id)}>
+                Sign in
+              </Menu.Item>
+            )}
+            <Menu.Item
+              leftSection={<IconActivity size={16} aria-hidden />}
+              onClick={() => openStatus({ type: 'provider', providerId: provider.id })}
+            >
+              Provider status
+            </Menu.Item>
             <Menu.Item leftSection={<IconEdit size={16} aria-hidden />} onClick={onEdit}>
               Edit
             </Menu.Item>

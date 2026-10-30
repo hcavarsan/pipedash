@@ -36,6 +36,26 @@ pub async fn start_sign_in(
 }
 
 #[tauri::command]
+pub async fn start_provider_sign_in(
+    app: AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
+) -> Result<SignInStart, ErrorResponse> {
+    let service = provider_service(&maybe_core).await?;
+    let start = service.start_provider_sign_in(id).await?;
+    open_sign_in(&app, service, &start);
+    Ok(start)
+}
+
+#[tauri::command]
+pub async fn reconnect_provider(
+    maybe_core: State<'_, crate::MaybeCoreContext>, id: i64, flow_id: String,
+) -> Result<(), ErrorResponse> {
+    Ok(provider_service(&maybe_core)
+        .await?
+        .reconnect_provider(id, &flow_id)
+        .await?)
+}
+
+#[tauri::command]
 pub async fn sign_in_status(
     maybe_core: State<'_, crate::MaybeCoreContext>, id: String,
 ) -> Result<SignInStatus, ErrorResponse> {

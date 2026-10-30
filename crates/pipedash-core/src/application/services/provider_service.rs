@@ -31,7 +31,10 @@ use super::health_service::{
     HealthInput,
     ProviderHealthInput,
 };
-use super::sign_in_service::SignInService;
+use super::sign_in_service::{
+    ProviderSignIn,
+    SignInService,
+};
 use crate::application::fetch_scheduler::{
     FetchScheduler,
     ForcedClaim,
@@ -297,6 +300,7 @@ impl ProviderService {
         };
         match SignInRef::parse(&reference) {
             SignInRef::Flow(flow) => {
+                self.sign_ins.check_owner(&flow, owner)?;
                 config.token = self.sign_ins.credential(&flow).await?.encode()?;
                 Ok(TakenSignIn::Flow(flow))
             }
@@ -320,12 +324,14 @@ impl ProviderService {
             return Ok(config);
         };
 
-        let (_, http) = build_plugin(
+        let (plugin, http) = build_plugin(
             &self.http_client_manager,
             &config.provider_type,
             &config.config,
         )?;
-        let token = oauth::refresh(&http, &current).await?.encode()?;
+        let token = oauth::refresh(&http, &current, plugin.sign_in_refresh_rejections())
+            .await?
+            .encode()?;
 
         let commit = self.commit_lock(id);
         let _commit = commit.lock().await;
@@ -377,12 +383,108 @@ impl ProviderService {
     pub async fn start_sign_in(
         &self, provider_type: &str, config: HashMap<String, String>,
     ) -> DomainResult<SignInStart> {
+        self.start_sign_in_with_owner(provider_type, config, None)
+            .await
+    }
+
+    pub async fn start_provider_sign_in(&self, id: i64) -> DomainResult<SignInStart> {
+        let config = self.repository.get_provider(id).await?;
+        self.start_sign_in_with_owner(
+            &config.provider_type,
+            config.config,
+            Some((id, config.token)),
+        )
+        .await
+    }
+
+    async fn start_sign_in_with_owner(
+        &self, provider_type: &str, config: HashMap<String, String>, owner: Option<(i64, String)>,
+    ) -> DomainResult<SignInStart> {
         let (plugin, http) = build_plugin(&self.http_client_manager, provider_type, &config)?;
         let client = plugin
             .sign_in_client(&config, &http)
             .await
             .map_err(PluginAdapter::map_error)?;
-        self.sign_ins.start(client, http).await
+        let owner = owner.map(|(id, token)| ProviderSignIn {
+            id,
+            provider_type: provider_type.to_string(),
+            token,
+            client: client.clone(),
+        });
+        self.sign_ins
+            .start(client, http, plugin.sign_in_refresh_rejections(), owner)
+            .await
+    }
+
+    pub async fn reconnect_provider(&self, id: i64, flow: &str) -> DomainResult<()> {
+        let owner = self.sign_ins.provider_flow(flow, id)?;
+        let token = self.sign_ins.credential(flow).await?.encode()?;
+
+        for _ in 0..ACQUIRE_ATTEMPTS {
+            let config = self.repository.get_provider(id).await?;
+            if config.provider_type != owner.provider_type || config.token != owner.token {
+                return Err(DomainError::ConcurrentModification(
+                    "This provider's authentication changed. Start signing in again.".into(),
+                ));
+            }
+            let (plugin, http) = build_plugin(
+                &self.http_client_manager,
+                &config.provider_type,
+                &config.config,
+            )?;
+            let client = plugin
+                .sign_in_client(&config.config, &http)
+                .await
+                .map_err(PluginAdapter::map_error)?;
+            if client != owner.client {
+                return Err(DomainError::ConcurrentModification(
+                    "This provider's sign-in settings changed. Start signing in again.".into(),
+                ));
+            }
+
+            let lock = self.commit_lock(id);
+            let guard = lock.lock().await;
+            self.sign_ins.check_owner(flow, Some(id))?;
+            let mut latest = self.repository.get_provider(id).await?;
+            if latest.provider_type != config.provider_type
+                || latest.config != config.config
+                || latest.token != config.token
+            {
+                continue;
+            }
+            latest.token.clone_from(&token);
+            let provider = (self.provider_factory)(&latest)?;
+            self.repository.store_token(id, &token).await?;
+            if let Err(e) = self.repository.reset_provider_fetch_status(id).await {
+                tracing::warn!(provider_id = id, error = %e, "Failed to reset fetch status");
+            }
+            let lease = self.replace(id, provider, latest.refresh_interval).await;
+            self.health.send(HealthInput::ProvidersChanged {
+                changed: vec![self.health_input(&latest, &lease)],
+            });
+            match self.summary_of(id).await {
+                Ok(provider) => {
+                    self.event_bus
+                        .emit(CoreEvent::ProviderUpdated {
+                            provider,
+                            timestamp: Utc::now().timestamp_millis(),
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    tracing::warn!(provider_id = id, error = %e, "Failed to build updated provider summary");
+                    self.event_bus.emit(CoreEvent::ProvidersChanged).await;
+                }
+            }
+            self.sign_ins.forget(flow);
+            drop(guard);
+            self.queue_fetch(&lease);
+            return Ok(());
+        }
+
+        Err(DomainError::ConcurrentModification(format!(
+            "Provider {id} kept changing while it was reconnected"
+        )))
     }
 
     pub async fn sign_in_status(&self, reference: &str) -> DomainResult<SignInStatus> {
@@ -1475,7 +1577,10 @@ mod tests {
     use crate::application::FetchResult;
     use crate::domain::PipelineStatus;
     use crate::infrastructure::config::ConfigLoader;
-    use crate::infrastructure::oauth::test_idp::Idp;
+    use crate::infrastructure::oauth::test_idp::{
+        jwt,
+        Idp,
+    };
     use crate::test_env::EnvGuard;
 
     const GITHUB_SECRET: &str = "ghp_exampleSECRET0123456789";
@@ -2918,6 +3023,341 @@ type = "travis"
         SignInCredential::decode(&h.repository.get_provider(id).await.unwrap().token).unwrap()
     }
 
+    async fn recovery_provider(h: &Harness) -> (i64, Idp, FeedStub) {
+        let idp = Idp::start().await;
+        idp.reply(
+            200,
+            serde_json::json!({
+                "access_token": "fresh-access",
+                "id_token": jwt(serde_json::json!({"email": "new@example.com", "exp": Utc::now().timestamp() + 3600})),
+                "refresh_token": "fresh-refresh",
+            }),
+        );
+        let argocd = FeedStub::start().await;
+        argocd.respond_json(serde_json::json!({
+            "oidcConfig": {"issuer": idp.base_url, "clientID": "cli"},
+        }));
+        let mut config = h.config("sso", 30);
+        config
+            .config
+            .insert("server_url".into(), argocd.base_url.clone());
+        config.token = sign_in(idp.token_endpoint(), chrono::Duration::minutes(30))
+            .encode()
+            .unwrap();
+        let id = h.repository.add_provider(&config).await.unwrap();
+        (id, idp, argocd)
+    }
+
+    async fn complete_login(h: &Harness, start: &SignInStart) {
+        let authorize = reqwest::Url::parse(&start.authorize_url).unwrap();
+        let query: HashMap<_, _> = authorize.query_pairs().into_owned().collect();
+        let mut callback = reqwest::Url::parse(&query["redirect_uri"]).unwrap();
+        callback
+            .query_pairs_mut()
+            .append_pair("code", "code")
+            .append_pair("state", &query["state"]);
+        assert!(matches!(
+            h.provider_service
+                .complete_sign_in(&start.id, callback.as_str())
+                .await
+                .unwrap(),
+            SignInStatus::Completed { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn provider_sign_in_starts_without_renewing_the_expired_credentials() {
+        let h = Harness::new().await;
+        let (id, idp, _argocd) = recovery_provider(&h).await;
+        let expired = sign_in(idp.token_endpoint(), chrono::Duration::minutes(-1));
+        h.repository
+            .store_token(id, &expired.encode().unwrap())
+            .await
+            .unwrap();
+        idp.reply(400, serde_json::json!({"error": "invalid_grant"}));
+
+        let start = h.provider_service.start_provider_sign_in(id).await.unwrap();
+
+        assert!(idp.forms.lock().unwrap().is_empty());
+        assert_eq!(stored_sign_in(&h, id).await, expired);
+        h.provider_service.cancel_sign_in(&start.id).await;
+    }
+
+    #[tokio::test]
+    async fn reconnect_preserves_concurrent_configuration_and_queues_a_fetch() {
+        let h = Harness::new().await;
+        let (id, _idp, argocd) = recovery_provider(&h).await;
+        h.stubs.queue(
+            StubProvider::new(id)
+                .failing(DomainError::ProviderAuthenticationFailed("expired".into())),
+        );
+        h.fetch_directly(id).await;
+        let generation = h.provider_service.generation_of(id).await.unwrap();
+        let start = h.provider_service.start_provider_sign_in(id).await.unwrap();
+        complete_login(&h, &start).await;
+        let settings = Gate::new();
+        argocd.set_gate(Some(&settings));
+        let fetch = Gate::new();
+        h.stubs.queue(StubProvider::new(id).gated(&fetch));
+        h.start().await;
+        let reconnect = tokio::spawn({
+            let service = Arc::clone(&h.provider_service);
+            let flow = start.id.clone();
+            async move { service.reconnect_provider(id, &flow).await }
+        });
+        settings.arrived().await;
+        let lock = h.provider_service.commit_lock(id);
+        let guard = lock.lock().await;
+        let mut edited = h.repository.get_provider(id).await.unwrap();
+        edited.name = "Renamed while signing in".into();
+        edited.refresh_interval = 90;
+        edited
+            .config
+            .insert("selected_items".into(), "new-app".into());
+        h.repository.update_provider(id, &edited).await.unwrap();
+        let edited = h.repository.get_provider(id).await.unwrap();
+        drop(guard);
+        settings.open();
+        reconnect.await.unwrap().unwrap();
+        fetch.arrived().await;
+
+        let saved = h.repository.get_provider(id).await.unwrap();
+        assert_eq!(saved.name, edited.name);
+        assert_eq!(saved.refresh_interval, edited.refresh_interval);
+        assert_eq!(saved.config, edited.config);
+        assert_eq!(saved.version, edited.version);
+        assert_eq!(
+            stored_sign_in(&h, id).await.account.as_deref(),
+            Some("new@example.com")
+        );
+        assert_eq!(
+            stored_sign_in(&h, id).await.refresh_token.as_deref(),
+            Some("fresh-refresh")
+        );
+        assert_ne!(
+            h.provider_service.generation_of(id).await.unwrap(),
+            generation
+        );
+        let schedule = h.scheduler.view(id, Instant::now()).unwrap();
+        assert_eq!(
+            (schedule.failures, schedule.last_failure, schedule.in_flight),
+            (0, None, true)
+        );
+        assert_eq!(h.bus.count("provider-updated"), 1);
+        assert!(h.bus.events().iter().any(|event| matches!(
+            event,
+            CoreEvent::ProviderUpdated { provider, .. }
+                if matches!(provider.last_fetch_status, FetchStatus::Never)
+                    && provider.last_fetch_error.is_none()
+                    && provider.recovery.is_none()
+        )));
+        assert_eq!(
+            h.provider_service.sign_in_status(&start.id).await.unwrap(),
+            SignInStatus::Expired
+        );
+        fetch.open();
+        h.bus
+            .wait_for("the reconnected provider fetch", |events| {
+                events
+                    .iter()
+                    .any(|event| matches!(event, CoreEvent::PipelinesUpdated { .. }))
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn reconnect_retains_the_flow_and_runtime_when_token_persistence_fails() {
+        let h = Harness::new().await;
+        let (id, _idp, _argocd) = recovery_provider(&h).await;
+        let original = h.repository.get_provider(id).await.unwrap();
+        let lease = h.provider_service.acquire(id).await.unwrap();
+        let start = h.provider_service.start_provider_sign_in(id).await.unwrap();
+        complete_login(&h, &start).await;
+        h.token_store.fail_next_store();
+
+        assert!(h
+            .provider_service
+            .reconnect_provider(id, &start.id)
+            .await
+            .is_err());
+
+        assert_eq!(
+            h.repository.get_provider(id).await.unwrap().token,
+            original.token
+        );
+        assert_eq!(
+            h.provider_service.generation_of(id).await,
+            Some(lease.generation)
+        );
+        assert_eq!(h.bus.count("provider-updated"), 0);
+        assert!(matches!(
+            h.provider_service.sign_in_status(&start.id).await.unwrap(),
+            SignInStatus::Completed { .. }
+        ));
+        h.provider_service
+            .reconnect_provider(id, &start.id)
+            .await
+            .unwrap();
+        assert_eq!(h.bus.count("provider-updated"), 1);
+        assert_eq!(
+            h.provider_service.sign_in_status(&start.id).await.unwrap(),
+            SignInStatus::Expired
+        );
+    }
+
+    #[tokio::test]
+    async fn reconnect_rejects_other_providers_setup_flows_and_deleted_providers() {
+        let h = Harness::new().await;
+        let (id, _idp, _argocd) = recovery_provider(&h).await;
+        let other = h.add_provider("other").await;
+        let start = h.provider_service.start_provider_sign_in(id).await.unwrap();
+        complete_login(&h, &start).await;
+
+        assert!(matches!(
+            h.provider_service
+                .reconnect_provider(other, &start.id)
+                .await,
+            Err(DomainError::InvalidConfig(_))
+        ));
+        let mut stolen = h.repository.get_provider(other).await.unwrap();
+        stolen
+            .config
+            .insert(SIGN_IN_CONFIG_KEY.into(), start.id.clone());
+        assert!(matches!(
+            h.provider_service.update_provider(other, stolen).await,
+            Err(DomainError::InvalidConfig(_))
+        ));
+        let config = h.repository.get_provider(id).await.unwrap();
+        let setup = h
+            .provider_service
+            .start_sign_in(&config.provider_type, config.config)
+            .await
+            .unwrap();
+        complete_login(&h, &setup).await;
+        assert!(matches!(
+            h.provider_service.reconnect_provider(id, &setup.id).await,
+            Err(DomainError::InvalidConfig(_))
+        ));
+        h.provider_service.remove_provider(id).await.unwrap();
+        assert!(matches!(
+            h.provider_service.reconnect_provider(id, &start.id).await,
+            Err(DomainError::ProviderNotFound(_))
+        ));
+        assert_eq!(h.bus.count("provider-updated"), 0);
+        assert_eq!(
+            h.repository.get_provider(other).await.unwrap().token,
+            "token"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_during_reconnect_does_not_restore_the_provider() {
+        let h = Harness::new().await;
+        let (id, _idp, argocd) = recovery_provider(&h).await;
+        let start = h.provider_service.start_provider_sign_in(id).await.unwrap();
+        complete_login(&h, &start).await;
+        let settings = Gate::new();
+        argocd.set_gate(Some(&settings));
+        let reconnect = tokio::spawn({
+            let service = Arc::clone(&h.provider_service);
+            async move { service.reconnect_provider(id, &start.id).await }
+        });
+        settings.arrived().await;
+
+        h.provider_service.remove_provider(id).await.unwrap();
+        settings.open();
+
+        assert!(matches!(
+            reconnect.await.unwrap(),
+            Err(DomainError::ProviderNotFound(_))
+        ));
+        assert!(h.repository.get_provider(id).await.is_err());
+        assert!(h.provider_service.generation_of(id).await.is_none());
+        assert!(h.scheduler.view(id, Instant::now()).is_none());
+        assert_eq!(h.bus.count("provider-updated"), 0);
+    }
+
+    #[tokio::test]
+    async fn reconnect_rejects_replaced_credentials_and_changed_sign_in_settings() {
+        let h = Harness::new().await;
+        let (id, _idp, argocd) = recovery_provider(&h).await;
+        let original = h.repository.get_provider(id).await.unwrap();
+        let start = h.provider_service.start_provider_sign_in(id).await.unwrap();
+        complete_login(&h, &start).await;
+        h.repository
+            .store_token(id, "changed-by-another-client")
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            h.provider_service.reconnect_provider(id, &start.id).await,
+            Err(DomainError::ConcurrentModification(_))
+        ));
+        assert_eq!(
+            h.repository.get_provider(id).await.unwrap().token,
+            "changed-by-another-client"
+        );
+        h.repository.store_token(id, &original.token).await.unwrap();
+        argocd.respond_json(serde_json::json!({
+            "oidcConfig": {"issuer": "https://different.example.com", "clientID": "different"},
+        }));
+        assert!(matches!(
+            h.provider_service.reconnect_provider(id, &start.id).await,
+            Err(DomainError::ConcurrentModification(_))
+        ));
+        assert_eq!(
+            h.repository.get_provider(id).await.unwrap().token,
+            original.token
+        );
+        assert_eq!(h.bus.count("provider-updated"), 0);
+    }
+
+    #[tokio::test]
+    async fn concurrent_reconnects_commit_a_completed_flow_only_once() {
+        let h = Harness::new().await;
+        let (id, _idp, _argocd) = recovery_provider(&h).await;
+        let start = h.provider_service.start_provider_sign_in(id).await.unwrap();
+        complete_login(&h, &start).await;
+
+        let (first, second) = tokio::join!(
+            h.provider_service.reconnect_provider(id, &start.id),
+            h.provider_service.reconnect_provider(id, &start.id),
+        );
+
+        assert_ne!(first.is_ok(), second.is_ok());
+        assert_eq!(h.bus.count("provider-updated"), 1);
+        assert_eq!(
+            h.provider_service.sign_in_status(&start.id).await.unwrap(),
+            SignInStatus::Expired
+        );
+    }
+
+    #[tokio::test]
+    async fn reconnect_requires_completion_and_cancel_discards_completed_recovery() {
+        let h = Harness::new().await;
+        let (id, _idp, _argocd) = recovery_provider(&h).await;
+        let original = h.repository.get_provider(id).await.unwrap().token;
+        let start = h.provider_service.start_provider_sign_in(id).await.unwrap();
+
+        assert!(matches!(
+            h.provider_service.reconnect_provider(id, &start.id).await,
+            Err(DomainError::InvalidConfig(_))
+        ));
+        complete_login(&h, &start).await;
+        h.provider_service.cancel_sign_in(&start.id).await;
+        assert_eq!(
+            h.provider_service.sign_in_status(&start.id).await.unwrap(),
+            SignInStatus::Expired
+        );
+        assert!(h
+            .provider_service
+            .reconnect_provider(id, &start.id)
+            .await
+            .is_err());
+        assert_eq!(h.repository.get_provider(id).await.unwrap().token, original);
+        assert_eq!(h.bus.count("provider-updated"), 0);
+    }
+
     #[tokio::test]
     async fn renew_is_scheduled_a_minute_before_the_sign_in_expires() {
         let h = Harness::with_real_plugins().await;
@@ -2979,6 +3419,83 @@ type = "travis"
         assert!(
             matches!(error, DomainError::ProviderAuthenticationFailed(m) if m == crate::domain::SIGN_IN_EXPIRED)
         );
+    }
+
+    #[tokio::test]
+    async fn stored_dex_refresh_rejections_ask_to_sign_in_again() {
+        let h = Harness::new().await;
+        let idp = Idp::start().await;
+        let id = h.add_provider("sso").await;
+        let expired = sign_in(idp.token_endpoint(), chrono::Duration::minutes(-1));
+        h.repository
+            .store_token(id, &expired.encode().unwrap())
+            .await
+            .unwrap();
+
+        for description in [
+            "Refresh token is invalid or has already been claimed by another client.",
+            "Refresh token expired.",
+        ] {
+            idp.reply(
+                400,
+                serde_json::json!({"error": "invalid_request", "error_description": description}),
+            );
+
+            let error = h.provider_service.acquire(id).await.err().unwrap();
+
+            assert!(matches!(
+                error,
+                DomainError::ProviderAuthenticationFailed(_)
+            ));
+            assert_eq!(
+                ProviderRecovery::for_failure(Some(error.failure_kind()), true),
+                Some(ProviderRecovery::SignIn)
+            );
+            assert_eq!(stored_sign_in(&h, id).await, expired);
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_dex_invalid_request_stays_an_api_error() {
+        let h = Harness::new().await;
+        let idp = Idp::start().await;
+        idp.reply(
+            400,
+            serde_json::json!({"error": "invalid_request", "error_description": "Unknown request"}),
+        );
+        let id = h.add_provider("sso").await;
+        let expired = sign_in(idp.token_endpoint(), chrono::Duration::minutes(-1));
+        h.repository
+            .store_token(id, &expired.encode().unwrap())
+            .await
+            .unwrap();
+
+        let error = h.provider_service.acquire(id).await.err().unwrap();
+
+        assert!(matches!(error, DomainError::ApiError(_)));
+    }
+
+    #[tokio::test]
+    async fn dex_invalid_request_server_errors_stay_transient() {
+        let h = Harness::new().await;
+        let idp = Idp::start().await;
+        idp.reply(
+            503,
+            serde_json::json!({
+                "error": "invalid_request",
+                "error_description": "Refresh token expired.",
+            }),
+        );
+        let id = h.add_provider("sso").await;
+        let expired = sign_in(idp.token_endpoint(), chrono::Duration::minutes(-1));
+        h.repository
+            .store_token(id, &expired.encode().unwrap())
+            .await
+            .unwrap();
+
+        let error = h.provider_service.acquire(id).await.err().unwrap();
+
+        assert!(matches!(error, DomainError::ServiceUnavailable { .. }));
     }
 
     #[tokio::test]

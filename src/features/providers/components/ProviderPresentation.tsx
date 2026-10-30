@@ -11,7 +11,7 @@ export const providerStatus = (provider: ProviderSummary): { text: string; faile
     return { text: `Paused until ${formatTime(provider.paused_until)}`, failed: false }
   }
   if (provider.last_fetch_status === 'error') {
-    return { text: 'Fetch failed', failed: true }
+    return { text: provider.recovery === 'sign_in' ? 'Sign in required' : 'Fetch failed', failed: true }
   }
 
   return { text: formatCount(provider.pipeline_count, 'pipeline'), failed: false }

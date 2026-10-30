@@ -3,9 +3,9 @@ import { IconLogin, IconRefresh, IconSettings } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
+import { useProviderSignIn } from '../../features/providers/queries/useProviderSignIn'
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useRefreshProvider } from '../../queries/useRefreshQueries'
-import { useProviderStore } from '../../stores/providerStore'
 import type { ProviderRecovery } from '../../types/domain'
 import { displayErrorNotification } from '../../utils/errorDisplay'
 import { describeRefreshResult } from '../../utils/refreshSummary'
@@ -19,21 +19,23 @@ interface ProviderRecoveryActionsProps {
 export function ProviderRecoveryActions({ providerId, recovery, onNavigate }: ProviderRecoveryActionsProps): ReactNode {
   const refresh = useRefreshProvider()
   const buttonSize = useMobileShell() ? 'sm' : 'compact-xs'
-  const requestEditProvider = useProviderStore((state) => state.requestEditProvider)
+  const signIn = useProviderSignIn()
 
   return (
     <>
-      <Button
-        size={buttonSize}
-        variant="default"
-        leftSection={<IconRefresh size={14} aria-hidden />}
-        loading={refresh.isPending}
-        onClick={() =>
-          refresh.mutate(providerId, { onError: (error) => displayErrorNotification(error, "Couldn't refresh") })
-        }
-      >
-        Retry now
-      </Button>
+      {recovery !== 'sign_in' && (
+        <Button
+          size={buttonSize}
+          variant="default"
+          leftSection={<IconRefresh size={14} aria-hidden />}
+          loading={refresh.isPending}
+          onClick={() =>
+            refresh.mutate(providerId, { onError: (error) => displayErrorNotification(error, "Couldn't refresh") })
+          }
+        >
+          Retry now
+        </Button>
+      )}
       {recovery === 'settings' && (
         <Button
           component={Link}
@@ -49,14 +51,14 @@ export function ProviderRecoveryActions({ providerId, recovery, onNavigate }: Pr
       {recovery === 'sign_in' && (
         <Button
           size={buttonSize}
-          variant="default"
+          variant="filled"
           leftSection={<IconLogin size={14} aria-hidden />}
           onClick={() => {
             onNavigate?.()
-            requestEditProvider(providerId)
+            signIn(providerId)
           }}
         >
-          Sign in again
+          Sign in
         </Button>
       )}
       <Text size="xs" c="dimmed" role="status" aria-live="polite">
