@@ -7,7 +7,6 @@ import { useRowMenuLongPress } from '../../hooks/useLongPress'
 import { useNow } from '../../hooks/useNow'
 import { type StatusKey, statusMeta } from '../../theme/status'
 import type { ProviderSummary } from '../../types/domain'
-import { staleNote } from '../../utils/fetchInfo'
 import { getPipelineLabels, getPipelineStatusLabel, pipelineStatusKey } from '../../utils/pipelinePresentation'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import groupClasses from '../ios/IosList.module.css'
@@ -123,21 +122,6 @@ const compactRelative = (value: string, now: number) => {
 export const relativeOrNever = (value: string | null | undefined, now: number): string =>
   value ? compactRelative(value, now) : 'Never run'
 
-export function staleFooter(
-  providerIds: Iterable<number>,
-  getProvider: (providerId: number) => ProviderSummary | undefined,
-  now: number
-): string | undefined {
-  const notes = Array.from(new Set(providerIds)).flatMap((id) => {
-    const provider = getProvider(id)
-    const note = provider && staleNote(provider, now)
-
-    return provider && note ? [`${provider.name}: ${note}`] : []
-  })
-
-  return notes.length > 0 ? notes.join('\n') : undefined
-}
-
 const ROW_ESTIMATE = 58
 
 interface IosPipelineListProps {
@@ -146,27 +130,20 @@ interface IosPipelineListProps {
   getProvider: (providerId: number) => ProviderSummary | undefined
   actions: PipelineActions
   selection?: PipelineSelection | undefined
-  stale?: boolean | undefined
 }
 
 type SectionTableRow = Extract<TableRow, { type: 'section' }>
 type WorkflowTableRow = Extract<TableRow, { type: 'workflow' }>
 
-type ListItem =
-  | { type: 'cell'; id: string; row: TableRow; first: boolean; last: boolean }
-  | { type: 'footer'; id: string; text: string }
-
-function listItems(rows: TableRow[], footer: string | undefined): ListItem[] {
-  const items: ListItem[] = rows.map((row, index) => ({
-    type: 'cell',
-    id: row.id,
-    row,
-    first: index === 0,
-    last: index === rows.length - 1,
-  }))
-
-  return footer ? [...items, { type: 'footer', id: 'footer', text: footer }] : items
+interface ListItem {
+  id: string
+  row: TableRow
+  first: boolean
+  last: boolean
 }
+
+const listItems = (rows: TableRow[]): ListItem[] =>
+  rows.map((row, index) => ({ id: row.id, row, first: index === 0, last: index === rows.length - 1 }))
 
 function SectionRowView({ row }: { row: SectionTableRow }): ReactNode {
   const { pathname, search, state } = useLocation()
@@ -224,23 +201,9 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
   )
 }
 
-export function IosPipelineList({
-  header,
-  rows,
-  getProvider,
-  actions,
-  selection,
-  stale,
-}: IosPipelineListProps): ReactNode {
+export function IosPipelineList({ header, rows, getProvider, actions, selection }: IosPipelineListProps): ReactNode {
   const now = useNow(30_000)
-  const footer = stale
-    ? staleFooter(
-        rows.flatMap((row) => [...row.providerIds]),
-        getProvider,
-        now
-      )
-    : undefined
-  const items = listItems(rows, footer)
+  const items = listItems(rows)
 
   return (
     <section className={groupClasses.section}>
@@ -253,25 +216,21 @@ export function IosPipelineList({
         items={items}
         getKey={(item) => item.id}
         estimateSize={ROW_ESTIMATE}
-        renderItem={(item) =>
-          item.type === 'footer' ? (
-            <p className={classes.sectionFooter}>{item.text}</p>
-          ) : (
-            <div className={classes.cell} data-first={item.first || undefined} data-last={item.last || undefined}>
-              {item.row.type === 'section' ? (
-                <SectionRowView row={item.row} />
-              ) : (
-                <WorkflowRowView
-                  row={item.row}
-                  now={now}
-                  getProvider={getProvider}
-                  actions={actions}
-                  selection={selection}
-                />
-              )}
-            </div>
-          )
-        }
+        renderItem={(item) => (
+          <div className={classes.cell} data-first={item.first || undefined} data-last={item.last || undefined}>
+            {item.row.type === 'section' ? (
+              <SectionRowView row={item.row} />
+            ) : (
+              <WorkflowRowView
+                row={item.row}
+                now={now}
+                getProvider={getProvider}
+                actions={actions}
+                selection={selection}
+              />
+            )}
+          </div>
+        )}
       />
     </section>
   )

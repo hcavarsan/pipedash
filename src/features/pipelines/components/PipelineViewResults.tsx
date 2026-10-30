@@ -43,7 +43,6 @@ function PipelineResultsBody({ model, actions, emptyState, onDisplayChange }: Pi
         getProvider={model.getProvider}
         actions={actions}
         selection={model.selection}
-        stale={model.pushed}
       />
     )
   }

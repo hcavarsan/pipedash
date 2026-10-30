@@ -183,15 +183,6 @@
   display: block;
 }
 
-.sectionFooter {
-  margin: 0;
-  padding: 0.5em 1.2em 0;
-  font-size: var(--ios-fs-footnote);
-  line-height: var(--ios-lh-footnote);
-  color: var(--ios-secondary-label);
-  white-space: pre-line;
-}
-
 .reorder {
   display: flex;
   align-items: center;

@@ -30,7 +30,6 @@ import {
   getTriggerBlockReason,
   pipelineStatusKey,
 } from '../../utils/pipelinePresentation'
-import { providerAttention } from '../../utils/providerAttention'
 import { StatusBadge } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import type { SwipeAction } from '../ios/swipeAction'
@@ -373,13 +372,15 @@ export function workflowMenuItems(
     })
   }
 
-  items.push(
-    {
+  if (!getTriggerBlockReason(pipeline)) {
+    items.push({
       label: labels.trigger,
       icon: triggerIcon(pipeline),
-      disabled: Boolean(getTriggerBlockReason(pipeline)),
       onClick: () => actions.onTrigger(pipeline),
-    },
+    })
+  }
+
+  items.push(
     refreshItem([pipeline.provider_id], actions),
     {
       label: pin.label,
@@ -523,8 +524,6 @@ export function WorkflowActionMenu({
 }): ReactNode {
   const openNotifications = useNotificationCenterStore((state) => state.open)
   const items = workflowMenuItems(pipeline, actions, pin)
-  const blockedReason = getTriggerBlockReason(pipeline)
-  const headline = provider ? providerAttention(provider).headline : null
 
   return (
     <Menu position="bottom">
@@ -535,7 +534,6 @@ export function WorkflowActionMenu({
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Label>{pipeline.name}</Menu.Label>
-        {blockedReason && <Menu.Label>{blockedReason}</Menu.Label>}
         {items.map((action) => (
           <Menu.Item
             key={action.label}
@@ -551,7 +549,7 @@ export function WorkflowActionMenu({
             leftSection={<IconInfoCircle size={16} aria-hidden />}
             onClick={() => openNotifications({ type: 'provider', providerId: provider.id })}
           >
-            {provider.name} service status{headline ? ` · ${headline}` : ''}
+            Provider status
           </Menu.Item>
         )}
         <ActionSheetCancel />
