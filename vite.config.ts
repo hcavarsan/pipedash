@@ -73,7 +73,6 @@ export default defineConfig({
     outDir: 'crates/pipedash-web/dist',
     emptyOutDir: false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
-    // Monaco is one lazy 3.8 MB chunk; splitting it breaks its class inheritance at load.
     chunkSizeWarningLimit: 4096,
     rolldownOptions: {
       output: {
