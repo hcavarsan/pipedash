@@ -151,6 +151,9 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       return { ...state, selectedPipelines }
     }
 
+    case 'SET_SELECTING_ALL':
+      return { ...state, selectingAll: action.selecting }
+
     case 'SET_REPOSITORY_SEARCH':
       return { ...state, repositorySearch: action.search }
 

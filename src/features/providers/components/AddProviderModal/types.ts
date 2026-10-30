@@ -15,6 +15,7 @@ export interface FormState {
   selectedOrganization: string
   selectedPipelines: Set<string>
   repositorySearch: string
+  selectingAll: boolean
 
   error: string | null
   fieldErrors: Record<string, string>
@@ -33,6 +34,7 @@ export type FormAction =
   | { type: 'TOGGLE_PIPELINE'; pipelineId: string }
   | { type: 'SELECT_ALL_PIPELINES'; pipelineIds: string[] }
   | { type: 'DESELECT_PIPELINES'; pipelineIds: string[] }
+  | { type: 'SET_SELECTING_ALL'; selecting: boolean }
   | { type: 'SET_REPOSITORY_SEARCH'; search: string }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'SET_FIELD_ERROR'; key: string; error: string }
@@ -77,6 +79,7 @@ export const initialFormState: FormState = {
   selectedOrganization: '',
   selectedPipelines: new Set(),
   repositorySearch: '',
+  selectingAll: false,
   error: null,
   fieldErrors: {},
 }

@@ -13,7 +13,7 @@ import {
   Tooltip,
 } from '@mantine/core'
 import { IconBuildingSkyscraper, IconSearch, IconStack2 } from '@tabler/icons-react'
-import { type Dispatch, type ReactNode, useMemo, useRef, useState } from 'react'
+import { type Dispatch, type ReactNode, useMemo, useRef } from 'react'
 import { EmptyState } from '../../../../components/common/EmptyState'
 import { ErrorState } from '../../../../components/common/ErrorState'
 import { LoadingState } from '../../../../components/common/LoadingState'
@@ -71,7 +71,7 @@ function toggleSelection(
 
 export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: PipelinesStepProps): ReactNode {
   const mobileShell = useMobileShell()
-  const { selectedPlugin, selectedOrganization, selectedPipelines, repositorySearch } = state
+  const { selectedPlugin, selectedOrganization, selectedPipelines, repositorySearch, selectingAll } = state
   const labels = getPipelineLabels(selectedPlugin?.provider_type)
 
   const debouncedSearch = useDebounce(repositorySearch, DEBOUNCE_DELAYS.FILTER)
@@ -110,7 +110,6 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
 
   const availablePipelines = useMemo(() => pipelinesData?.pages.flatMap((page) => page.items) ?? [], [pipelinesData])
   const hasMore = !!hasNextPage
-  const [selectingAll, setSelectingAll] = useState(false)
   const listChanges = useRef(0)
   const searchPending = repositorySearch !== debouncedSearch
 
@@ -138,7 +137,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
 
   const selectEveryMatch = async (): Promise<void> => {
     const listVersion = listChanges.current
-    setSelectingAll(true)
+    dispatch({ type: 'SET_SELECTING_ALL', selecting: true })
     try {
       let pages = pipelinesData?.pages ?? []
       let more = hasMore
@@ -152,7 +151,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
       }
       dispatch({ type: 'SELECT_ALL_PIPELINES', pipelineIds: pages.flatMap((page) => page.items.map(getPipelineId)) })
     } finally {
-      setSelectingAll(false)
+      dispatch({ type: 'SET_SELECTING_ALL', selecting: false })
     }
   }
 

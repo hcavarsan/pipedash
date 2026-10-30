@@ -33,12 +33,36 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
     }),
   ]
 
+  const secondPage: { waiting: (() => void)[]; requests: number } = { waiting: [], requests: 0 }
+  const job = (id: string) => ({ id, name: id, description: null, organization: 'org', repository: 'org/repo' })
+  const page = (ids: string[], number: number, hasMore: boolean) => ({
+    items: ids.map(job),
+    page: number,
+    page_size: 2,
+    total_count: 4,
+    total_pages: 2,
+    has_more: hasMore,
+  })
+
   Object.assign(window, {
     __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
     __TAURI_INTERNALS__: {
-      invoke: async (command: string) => {
+      invoke: async (command: string, args?: { page?: number }) => {
         if (command === 'get_available_plugins') {
           return plugins
+        }
+        if (command === 'fetch_provider_organizations') {
+          return [{ id: 'org', name: 'org', description: null }]
+        }
+        if (command === 'preview_provider_pipelines') {
+          if (args?.page !== 2) {
+            return page(['a', 'b'], 1, true)
+          }
+          secondPage.requests += 1
+          const { promise, resolve } = Promise.withResolvers<void>()
+          secondPage.waiting.push(resolve)
+          await promise
+          return page(['c', 'd'], 2, false)
         }
         throw new Error(`Unexpected command: ${command}`)
       },
@@ -184,5 +208,60 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
 
     assert.ok((await view().findAllByText('Token is required')).length > 0)
     assert.equal(closed.value, false)
+  })
+
+  test('the provider cannot be added while select all is still loading pages', async () => {
+    const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 600 })
+
+    try {
+      const user = userEvent.setup({ document })
+      const added: ProviderConfig[] = []
+      secondPage.requests = 0
+
+      render(
+        createElement(
+          MantineProvider,
+          null,
+          createElement(
+            QueryClientProvider,
+            { client },
+            createElement(AddProviderModal, {
+              opened: true,
+              onClose: () => undefined,
+              onAdd: async (config) => {
+                added.push(config)
+              },
+            })
+          )
+        )
+      )
+
+      await user.click(await view().findByRole('button', { name: 'GitHub' }))
+      await user.type(await view().findByLabelText(/^Token/), 'secret')
+      await user.click(view().getByRole('button', { name: /^Next/ }))
+      await user.click(await view().findByRole('checkbox', { name: 'a' }))
+      await user.click(view().getByRole('checkbox', { name: 'Select all' }))
+      await waitFor(() => assert.ok(secondPage.requests > 0))
+
+      assert.equal(view().getByRole('button', { name: 'Add provider' }).hasAttribute('disabled'), true)
+
+      await act(async () => {
+        for (const release of secondPage.waiting.splice(0)) {
+          release()
+        }
+      })
+      await view().findByText('4 selected')
+      await user.click(view().getByRole('button', { name: 'Add provider' }))
+
+      await waitFor(() => assert.equal(added.length, 1))
+      assert.deepEqual(added[0]?.config.selected_items?.split(',').sort(), ['a', 'b', 'c', 'd'])
+    } finally {
+      if (clientHeight) {
+        Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeight)
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight')
+      }
+    }
   })
 }

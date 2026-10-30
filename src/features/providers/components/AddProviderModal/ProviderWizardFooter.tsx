@@ -15,6 +15,7 @@ interface ProviderWizardFooterProps {
   providerSelected: boolean
   providerNameValid: boolean
   selectedCount: number
+  selectingAll: boolean
   labels: PipelineLabels
   permissionRow: ReactNode
   isPending: boolean
@@ -33,6 +34,7 @@ export function ProviderWizardFooter({
   providerSelected,
   providerNameValid,
   selectedCount,
+  selectingAll,
   labels,
   permissionRow,
   isPending,
@@ -102,7 +104,7 @@ export function ProviderWizardFooter({
         <Button variant="default" size="sm" onClick={onCancel} disabled={isPending}>
           Cancel
         </Button>
-        <Button size="sm" onClick={onSaveSelection} loading={isPending} disabled={selectedCount === 0}>
+        <Button size="sm" onClick={onSaveSelection} loading={isPending} disabled={selectedCount === 0 || selectingAll}>
           {editMode ? (isMobile ? 'Update' : 'Update provider') : isMobile ? 'Add' : 'Add provider'}
         </Button>
       </Group>

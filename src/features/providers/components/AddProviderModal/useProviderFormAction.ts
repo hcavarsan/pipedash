@@ -174,6 +174,9 @@ export function useProviderFormAction({
     }
 
     if (intent === 'save-selection') {
+      if (state.selectingAll) {
+        return initialActionState
+      }
       if (selectedPipelines.size === 0) {
         return fail(`Please select at least one ${getPipelineLabels(selectedPlugin.provider_type).item}`, {})
       }
