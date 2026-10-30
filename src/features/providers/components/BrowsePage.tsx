@@ -1,7 +1,6 @@
-import { ActionIcon, Button, Menu, Stack } from '@mantine/core'
+import { ActionIcon, Menu, Stack } from '@mantine/core'
 import { IconDots, IconEdit, IconFolder, IconPlus, IconStack2, IconTrash } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
@@ -103,25 +102,22 @@ export function BrowsePage(): ReactNode {
     )
   }
 
-  if (providers.length === 0) {
-    return (
-      <EmptyState
-        title="No providers yet"
-        description="Add a provider to see its pipelines here."
-        action={<Button onClick={openAddProviderModal}>Add provider</Button>}
-      />
-    )
-  }
+  const browsableViews = views.filter(browsable)
 
   return (
     <Stack gap="md" pb="md">
-      <IosGroup header="Views">
-        {views.filter(browsable).map((view) => (
-          <ViewRow key={view.id} view={view} />
-        ))}
-      </IosGroup>
+      {providers.length > 0 && browsableViews.length > 0 && (
+        <IosGroup header="Views">
+          {browsableViews.map((view) => (
+            <ViewRow key={view.id} view={view} />
+          ))}
+        </IosGroup>
+      )}
 
-      <IosGroup header="Providers">
+      <IosGroup
+        header="Providers"
+        footer={providers.length === 0 ? 'Add a provider to see its pipelines here.' : undefined}
+      >
         {providers.map((provider) => (
           <ProviderRow
             key={provider.id}
@@ -130,9 +126,6 @@ export function BrowsePage(): ReactNode {
             onRemove={() => confirmRemove(provider.id, provider.name)}
           />
         ))}
-      </IosGroup>
-
-      <IosGroup>
         <IosRow
           icon={<IconPlus size={18} />}
           title={<span className={classes.addTitle}>Add provider</span>}
