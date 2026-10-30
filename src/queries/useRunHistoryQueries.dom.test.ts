@@ -11,6 +11,7 @@ GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const { act, cleanup, renderHook, waitFor } = await import('@testing-library/react')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+const { events } = await import('../services/service')
 const { apiService } = await import('../services/api')
 const { tauriService } = await import('../services/tauri')
 const { useRerunFailedJobs, useRerunRun } = await import('./useRunHistoryQueries')
@@ -66,6 +67,7 @@ for (const [hookName, method, useRerun] of rerunHooks) {
     context.mock.method(tauriService, 'getRunLogTree', trees)
     context.mock.method(apiService, method, async () => undefined)
     context.mock.method(tauriService, method, async () => undefined)
+    context.mock.method(events, 'listen', async () => () => undefined)
     notifyManager.setNotifyFunction((callback) => act(callback))
 
     const first = renderHook(() => useRunLogTree(pipelineId, 7, true), { wrapper })
@@ -111,6 +113,7 @@ test('a rejected rerun keeps the previous log tree and exposes the error', async
   context.mock.method(tauriService, 'getRunLogTree', trees)
   context.mock.method(apiService, 'rerunRun', failing)
   context.mock.method(tauriService, 'rerunRun', failing)
+  context.mock.method(events, 'listen', async () => () => undefined)
   notifyManager.setNotifyFunction((callback) => act(callback))
 
   const tree = renderHook(() => useRunLogTree(pipelineId, 7, true), { wrapper })
@@ -155,6 +158,7 @@ test('an empty log tree after rerun is shown as empty', async (context) => {
   context.mock.method(tauriService, 'getRunLogTree', trees)
   context.mock.method(apiService, 'rerunRun', done)
   context.mock.method(tauriService, 'rerunRun', done)
+  context.mock.method(events, 'listen', async () => () => undefined)
   notifyManager.setNotifyFunction((callback) => act(callback))
 
   const tree = renderHook(() => useRunLogTree(pipelineId, 7, true), { wrapper })
