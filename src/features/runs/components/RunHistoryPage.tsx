@@ -3,6 +3,7 @@ import { IconChartLine, IconHistory } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { LoadingState } from '../../../components/common/LoadingState'
 import { PageContainer } from '../../../components/common/PageContainer'
+import { triggerIcon } from '../../../components/common/PipelineRowParts'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { NavBarMenu } from '../../../components/layout/NavBarMenu'
 import { PullToRefresh } from '../../../components/layout/PullRefreshContext'
@@ -41,7 +42,7 @@ export function RunHistoryPage({
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
   const { data: plugins } = usePlugins()
-  const { labels, canCancel, cancellingRun } = useRunActions()
+  const { labels, canCancel, cancellingRun, openTrigger, triggerBlockedReason } = useRunActions()
   const data = useRunHistoryPageData(pipeline)
   const columns = useRunHistoryColumns(pipeline?.provider_id)
   const [customization, setCustomization] = useState({ session: 0, opened: false })
@@ -66,14 +67,21 @@ export function RunHistoryPage({
 
   const historyLoading = isLoadingPipeline || data.isLoading || columns.loading || !pipeline?.id
   const canSelect = !selecting && data.runs.some(selection.isRunCancellable)
+  const historyMenu = tab === 'history' && !historyLoading
+  const canTrigger = !!pipeline && !triggerBlockedReason
 
   return (
     <PageContainer>
       {mobileShell && <PullToRefresh refresh={data.refetch} />}
-      {mobileShell && tab === 'history' && !historyLoading && (
+      {mobileShell && (canTrigger || historyMenu) && (
         <NavBarMenu label="More">
-          {canSelect && <Menu.Item onClick={() => setSelecting(true)}>Select</Menu.Item>}
-          <Menu.Item onClick={() => setFiltersOpen(true)}>Filter</Menu.Item>
+          {canTrigger && (
+            <Menu.Item leftSection={triggerIcon(pipeline)} onClick={openTrigger}>
+              {labels.trigger}
+            </Menu.Item>
+          )}
+          {historyMenu && canSelect && <Menu.Item onClick={() => setSelecting(true)}>Select</Menu.Item>}
+          {historyMenu && <Menu.Item onClick={() => setFiltersOpen(true)}>Filter</Menu.Item>}
         </NavBarMenu>
       )}
       <RunHistoryHeader

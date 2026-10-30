@@ -70,7 +70,6 @@ export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
   const { pipeline, isLoadingPipeline, onBack } = props
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
-  const { labels, openTrigger, triggerBlockedReason } = useRunActions()
   const state = pipeline?.resource_state && pipeline
 
   return (
@@ -103,19 +102,6 @@ export function RunHistoryHeader(props: RunHistoryHeaderProps): ReactNode {
             {state.resource_state?.message}
           </Text>
         </Group>
-      )}
-      {pipeline && mobileShell && (
-        <IosGroup footer={triggerBlockedReason}>
-          <IosRow
-            title={
-              <Text component="span" inherit c={triggerBlockedReason ? 'dimmed' : 'blue'}>
-                {labels.trigger}
-              </Text>
-            }
-            disabled={!!triggerBlockedReason}
-            onClick={openTrigger}
-          />
-        </IosGroup>
       )}
       {pipeline?.metadata?.history_scope === 'bounded_reconciliation' && (
         <Text size={mobileShell ? 'xs' : 'sm'} c="dimmed" {...(mobileShell ? { px: 'md' } : { mb: 'sm' })}>
