@@ -59,7 +59,7 @@
   appearance: none;
 }
 
-.field:focus-within {
+:global(html[data-keyboard-focus]) .field:focus-within {
   outline: 2px solid var(--ios-tint);
   outline-offset: -2px;
 }

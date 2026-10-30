@@ -137,6 +137,46 @@ test('select all picks only selectable rows and clears on the second click', asy
   assert.deepEqual(selections.at(-1), [])
 })
 
+test('with more pages left, select all stays unchecked and hands the choice to the caller', async () => {
+  const user = userEvent.setup({ document })
+  const toggles: string[] = []
+  let endReached = 0
+
+  render(
+    createElement(
+      MantineProvider,
+      null,
+      createElement(VirtualTable<Row>, {
+        records: ROWS,
+        getKey: (row) => row.id,
+        height: 400,
+        rowHeight: 48,
+        label: 'Rows',
+        onEndReached: () => {
+          endReached += 1
+        },
+        selection: {
+          selectedKeys: new Set(['a', 'b', 'c']),
+          isSelectable: () => true,
+          onChange: () => toggles.push('change'),
+          label: (row) => `Select ${row.name}`,
+          hasMore: true,
+          onToggleAll: () => toggles.push('all'),
+        },
+        columns: [{ id: 'name', title: 'Name', render: (row) => row.name }],
+      })
+    )
+  )
+
+  const selectAll = view().getByRole('checkbox', { name: 'Select all' })
+  assert.ok(selectAll instanceof HTMLInputElement)
+  assert.equal(selectAll.checked, false)
+
+  await user.click(selectAll)
+  assert.deepEqual(toggles, ['all'])
+  assert.ok(endReached > 0)
+})
+
 test('rows taller than the estimate are measured so only the visible window renders', async () => {
   const offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {

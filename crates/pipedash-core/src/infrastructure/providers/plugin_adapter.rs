@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -191,6 +192,21 @@ impl Provider for PluginAdapter {
             .map_err(Self::map_error)?;
 
         Ok(Self::convert_run(run))
+    }
+
+    async fn fetch_recent_runs(
+        &self, pipeline_ids: &[String], limit: usize,
+    ) -> DomainResult<HashMap<String, Vec<PipelineRun>>> {
+        let runs = self
+            .plugin
+            .fetch_recent_runs(pipeline_ids, limit)
+            .await
+            .map_err(Self::map_error)?;
+
+        Ok(runs
+            .into_iter()
+            .map(|(id, runs)| (id, runs.into_iter().map(Self::convert_run).collect()))
+            .collect())
     }
 
     async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<String> {

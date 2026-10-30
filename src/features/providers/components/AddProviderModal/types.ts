@@ -1,8 +1,8 @@
-import type { PluginMetadata, ProviderConfig } from '../../../../types/domain'
+import type { AuthMode, PluginMetadata, ProviderConfig } from '../../../../types/domain'
 
-export type Step = 'credentials' | 'pipelines'
+export type Step = 'provider' | 'credentials' | 'pipelines'
 
-export type AuthMode = 'token' | 'sign_in'
+export const STEP_ORDER: readonly Step[] = ['provider', 'credentials', 'pipelines']
 
 export interface FormState {
   step: Step
@@ -17,6 +17,8 @@ export interface FormState {
   selectedOrganization: string
   selectedPipelines: Set<string>
   repositorySearch: string
+  selectingAll: boolean
+  selectAllRun: number
 
   error: string | null
   fieldErrors: Record<string, string>
@@ -35,6 +37,8 @@ export type FormAction =
   | { type: 'TOGGLE_PIPELINE'; pipelineId: string }
   | { type: 'SELECT_ALL_PIPELINES'; pipelineIds: string[] }
   | { type: 'DESELECT_PIPELINES'; pipelineIds: string[] }
+  | { type: 'START_SELECT_ALL'; run: number }
+  | { type: 'FINISH_SELECT_ALL'; run: number; pipelineIds: string[] | null }
   | { type: 'SET_REPOSITORY_SEARCH'; search: string }
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'SET_FIELD_ERROR'; key: string; error: string }
@@ -71,7 +75,7 @@ export interface ProviderFormActionState {
 export const initialActionState: ProviderFormActionState = { error: null, fieldErrors: {} }
 
 export const initialFormState: FormState = {
-  step: 'credentials',
+  step: 'provider',
   selectedPlugin: null,
   providerName: '',
   authMode: 'token',
@@ -79,6 +83,8 @@ export const initialFormState: FormState = {
   selectedOrganization: '',
   selectedPipelines: new Set(),
   repositorySearch: '',
+  selectingAll: false,
+  selectAllRun: 0,
   error: null,
   fieldErrors: {},
 }

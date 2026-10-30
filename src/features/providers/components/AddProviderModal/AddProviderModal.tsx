@@ -1,5 +1,5 @@
 import { Box, Group, Stack, Stepper, Text } from '@mantine/core'
-import { IconCheck, IconKey, IconList } from '@tabler/icons-react'
+import { IconCheck, IconKey, IconList, IconPlug } from '@tabler/icons-react'
 import { type ReactNode, useId, useRef } from 'react'
 import { LoadingState } from '../../../../components/common/LoadingState'
 import { StandardModal } from '../../../../components/common/StandardModal'
@@ -15,12 +15,11 @@ import { PermissionCheckModal } from '../PermissionCheckModal'
 
 import { ProviderWizardFooter } from './ProviderWizardFooter'
 import { ProviderWizardForm } from './ProviderWizardForm'
-import type { AddProviderModalProps } from './types'
+import { type AddProviderModalProps, STEP_ORDER, type Step } from './types'
 import { usePermissionCheck } from './usePermissionCheck'
 import { useProviderFormAction } from './useProviderFormAction'
 
 const NO_PLUGINS: PluginMetadata[] = []
-const STEP_DOTS = ['credentials', 'pipelines'] as const
 
 type WizardSessionProps = AddProviderModalProps & { plugins: PluginMetadata[] }
 
@@ -39,11 +38,12 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
   const model = useProviderFormAction({ mode: props, initialPlugin, focusFirstInvalid })
   const { state, dispatch, dirty, isPending, providerConfig, credentialsIncomplete, selectionNeedsRefresh, saveOnly } =
     model
-  const { step, selectedPlugin, providerName, selectedPipelines } = state
+  const { step, selectedPlugin, providerName, selectedPipelines, selectingAll } = state
   const permission = usePermissionCheck({ selectedPlugin, providerConfig })
   const labels = getPipelineLabels(selectedPlugin?.provider_type)
   const isFlux = selectedPlugin?.provider_type === 'fluxcd'
-  const activeStepIndex = step === 'credentials' ? 0 : 1
+  const activeStepIndex = STEP_ORDER.indexOf(step)
+  const stepNames = ['Provider', 'Credentials', `Select ${labels.items}`]
   const providerSelected = !!selectedPlugin
   const providerNameValid = !!providerName.trim()
 
@@ -57,24 +57,27 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
     ) : undefined
 
   const primaryAction =
-    step === 'credentials'
+    step === 'pipelines'
       ? {
-          label: saveOnly ? 'Save' : 'Next',
+          label: editMode ? 'Update' : 'Add',
+          onClick: () => model.submitIntent('save-selection'),
+          loading: isPending,
+          disabled: selectedPipelines.size === 0 || selectingAll,
+        }
+      : {
+          label: step === 'credentials' && saveOnly ? 'Save' : 'Next',
           onClick: () => formRef.current?.requestSubmit(),
           loading: isPending,
           disabled: !providerSelected || !providerNameValid,
         }
-      : {
-          label: editMode ? 'Update' : 'Add',
-          onClick: () => model.submitIntent('save-selection'),
-          loading: isPending,
-          disabled: selectedPipelines.size === 0,
-        }
 
-  const backAction =
-    step === 'pipelines'
-      ? { label: 'Back', onClick: () => !isPending && dispatch({ type: 'SET_STEP', step: 'credentials' }) }
-      : undefined
+  const previousStep = STEP_ORDER[activeStepIndex - 1]
+  const goTo = (target: Step | undefined): void => {
+    if (target && !isPending) {
+      dispatch({ type: 'SET_STEP', step: target })
+    }
+  }
+  const backAction = previousStep ? { label: 'Back', onClick: () => goTo(previousStep) } : undefined
 
   return (
     <StandardModal
@@ -95,11 +98,13 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
           providerSelected={providerSelected}
           providerNameValid={providerNameValid}
           selectedCount={selectedPipelines.size}
+          selectingAll={selectingAll}
           labels={labels}
           permissionRow={permissionRow}
           isPending={isPending}
-          onBack={() => dispatch({ type: 'SET_STEP', step: 'credentials' })}
+          onBack={() => goTo(previousStep)}
           onCancel={requestClose}
+          onSaveCredentials={() => model.submitIntent('save-credentials')}
           onSaveSelection={() => model.submitIntent('save-selection')}
         />
       )}
@@ -119,9 +124,9 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
                 gap={6}
                 justify="center"
                 role="img"
-                aria-label={`Step ${activeStepIndex + 1} of 2`}
+                aria-label={`Step ${activeStepIndex + 1} of ${STEP_ORDER.length}`}
               >
-                {STEP_DOTS.map((name, index) => (
+                {STEP_ORDER.map((name, index) => (
                   <Box
                     key={name}
                     className={iosClasses.stepperStepIcon}
@@ -131,9 +136,22 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
                 ))}
               </Group>
             ) : (
-              <Stepper active={activeStepIndex} size={isMobile ? 'xs' : 'sm'} iconSize={isMobile ? 32 : 42}>
+              <Stepper
+                active={activeStepIndex}
+                size={isMobile ? 'xs' : 'sm'}
+                iconSize={isMobile ? 32 : 42}
+                allowNextStepsSelect={false}
+                onStepClick={(index) => goTo(STEP_ORDER[index])}
+              >
                 <Stepper.Step
-                  aria-label="Step 1: Credentials"
+                  aria-label="Step 1: Provider"
+                  label={isMobile ? undefined : 'Provider'}
+                  description={isMobile ? undefined : (selectedPlugin?.name ?? 'Choose the service to monitor')}
+                  icon={<IconPlug size={18} aria-hidden />}
+                  completedIcon={<IconCheck size={18} aria-hidden />}
+                />
+                <Stepper.Step
+                  aria-label="Step 2: Credentials"
                   label={isMobile ? undefined : 'Credentials'}
                   description={
                     isMobile ? undefined : isFlux ? 'Connect to your Kubernetes cluster' : 'Enter your API credentials'
@@ -142,7 +160,7 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
                   completedIcon={<IconCheck size={18} aria-hidden />}
                 />
                 <Stepper.Step
-                  aria-label={`Step 2: Select ${labels.items}`}
+                  aria-label={`Step 3: Select ${labels.items}`}
                   label={isMobile ? undefined : `Select ${labels.items}`}
                   description={isMobile ? undefined : `Choose ${labels.items} to monitor`}
                   icon={<IconList size={18} aria-hidden />}
@@ -152,7 +170,7 @@ function ProviderWizardSession(props: WizardSessionProps): ReactNode {
             )}
             {isMobile && !mobileShell && (
               <Text size="sm" fw={500} ta="center" mt="xs">
-                Step {activeStepIndex + 1} of 2: {activeStepIndex === 0 ? 'Credentials' : `Select ${labels.items}`}
+                Step {activeStepIndex + 1} of {STEP_ORDER.length}: {stepNames[activeStepIndex]}
               </Text>
             )}
           </Box>

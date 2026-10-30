@@ -414,6 +414,8 @@ interface PluginCapabilities {
 
 type ConfigFieldType = 'Text' | 'Password' | 'TextArea' | 'Boolean' | 'Select' | 'MultiSelect' | 'Number'
 
+export type ConfigSection = 'authentication' | 'connection' | 'settings'
+
 export interface ConfigField {
   key: string
   label: string
@@ -424,10 +426,15 @@ export interface ConfigField {
   options: string[] | null
   validation_regex: string | null
   validation_message: string | null
+  section: ConfigSection
 }
+
+export type AuthMode = 'none' | 'token' | 'sign_in'
 
 interface ConfigSchema {
   fields: ConfigField[]
+  auth_modes?: Record<string, AuthMode[]>
+  no_auth?: boolean
 }
 
 export type ColumnDataType =

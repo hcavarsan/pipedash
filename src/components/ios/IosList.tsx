@@ -11,12 +11,13 @@ import type { SwipeAction } from './swipeAction'
 
 interface IosGroupProps {
   header?: ReactNode
+  headerAction?: ReactNode
   headingLevel?: 2 | 3
   footer?: ReactNode
   children: ReactNode
 }
 
-export function IosGroup({ header, headingLevel = 2, footer, children }: IosGroupProps): ReactNode {
+export function IosGroup({ header, headerAction, headingLevel = 2, footer, children }: IosGroupProps): ReactNode {
   const id = useId()
   const headingId = `${id}-heading`
   const footerId = `${id}-footer`
@@ -32,6 +33,7 @@ export function IosGroup({ header, headingLevel = 2, footer, children }: IosGrou
           <Heading id={headingId} className={classes.header}>
             {header}
           </Heading>
+          {headerAction}
         </div>
       )}
       <div className={classes.group}>{children}</div>

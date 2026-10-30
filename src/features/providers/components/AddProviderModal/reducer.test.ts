@@ -44,6 +44,27 @@ test('selecting resources in another namespace preserves earlier selections', ()
   assert.deepEqual([...previous], ['Kustomization__team-a__web'])
 })
 
+test('a select all run that outlives a step change cannot finish the next run', () => {
+  const steps = (state: typeof initialFormState, ...actions: Parameters<typeof formReducer>[1][]) =>
+    actions.reduce(formReducer, state)
+  const second = steps(
+    { ...initialFormState, step: 'pipelines' },
+    { type: 'START_SELECT_ALL', run: 1 },
+    { type: 'SET_STEP', step: 'credentials' },
+    { type: 'SET_STEP', step: 'pipelines' },
+    { type: 'START_SELECT_ALL', run: 2 }
+  )
+  const stale = formReducer(second, { type: 'FINISH_SELECT_ALL', run: 1, pipelineIds: ['old'] })
+
+  assert.equal(stale.selectingAll, true)
+  assert.deepEqual([...stale.selectedPipelines], [])
+
+  const done = formReducer(stale, { type: 'FINISH_SELECT_ALL', run: 2, pipelineIds: ['new'] })
+
+  assert.equal(done.selectingAll, false)
+  assert.deepEqual([...done.selectedPipelines], ['new'])
+})
+
 test('initial edit selection comes from saved resource ids before discovery finishes', () => {
   const next = formReducer(initialFormState, {
     type: 'INIT_EDIT_MODE',
@@ -254,6 +275,7 @@ test('selecting a provider type applies schema defaults and clears stale selecti
           options: null,
           validation_regex: null,
           validation_message: null,
+          section: 'settings' as const,
         },
       ],
     },
@@ -285,4 +307,66 @@ test('clearing the provider type and resetting return to an empty form', () => {
   assert.deepEqual(cleared.configValues, {})
   assert.equal(cleared.selectedPipelines.size, 0)
   assert.deepEqual(formReducer(filled, { type: 'RESET' }), initialFormState)
+})
+
+const noAuthPlugin = {
+  ...fluxPlugin,
+  provider_type: 'prow',
+  name: 'Prow',
+  config_schema: { fields: [], no_auth: true },
+}
+
+test('a provider type that offers no auth starts in none mode, others start in token mode', () => {
+  const none = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: noAuthPlugin, isEditMode: false })
+  const token = formReducer(initialFormState, { type: 'SELECT_PLUGIN', plugin: fluxPlugin, isEditMode: false })
+
+  assert.equal(none.authMode, 'none')
+  assert.equal(none.configValues.auth_mode, 'none')
+  assert.equal(token.authMode, 'token')
+  assert.equal('auth_mode' in token.configValues, false)
+})
+
+test('switching auth mode drops the other credentials and tracks auth_mode', () => {
+  const base = {
+    ...initialFormState,
+    configValues: { token: 'abc', sign_in: 'provider:1', deck_url: 'https://deck' },
+    fieldErrors: { token: 'bad', sign_in: 'bad', deck_url: 'bad' },
+  }
+  const none = formReducer(base, { type: 'SET_AUTH_MODE', mode: 'none' })
+
+  assert.equal(none.authMode, 'none')
+  assert.deepEqual(none.configValues, { deck_url: 'https://deck', auth_mode: 'none' })
+  assert.deepEqual(none.fieldErrors, { deck_url: 'bad' })
+
+  const token = formReducer(
+    { ...none, configValues: { ...none.configValues, sign_in: 'provider:1' } },
+    { type: 'SET_AUTH_MODE', mode: 'token' }
+  )
+
+  assert.deepEqual(token.configValues, { deck_url: 'https://deck' })
+
+  const signIn = formReducer(
+    { ...none, configValues: { ...none.configValues, token: 'abc' } },
+    { type: 'SET_AUTH_MODE', mode: 'sign_in' }
+  )
+
+  assert.deepEqual(signIn.configValues, { deck_url: 'https://deck' })
+})
+
+test('editing a provider saved without credentials restores none mode', () => {
+  const next = formReducer(initialFormState, {
+    type: 'INIT_EDIT_MODE',
+    plugin: noAuthPlugin,
+    provider: {
+      id: 4,
+      name: 'Prow',
+      provider_type: 'prow',
+      token: '',
+      refresh_interval: 30,
+      config: { auth_mode: 'none' },
+    },
+  })
+
+  assert.equal(next.authMode, 'none')
+  assert.equal(next.configValues.auth_mode, 'none')
 })

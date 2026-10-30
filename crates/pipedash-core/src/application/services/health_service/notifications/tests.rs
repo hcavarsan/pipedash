@@ -858,6 +858,25 @@ async fn providers_beyond_the_overdue_cap_get_checks_on_the_next_scan() {
 }
 
 #[tokio::test]
+async fn overdue_checks_ask_a_batching_provider_once_per_scan() {
+    let mut rig = Rig::new();
+    let running: Vec<Pipeline> = (0..3)
+        .map(|n| run(1, &format!("p{n}"), PipelineStatus::Running, 1))
+        .collect();
+    let stub = rig.stub(1, |stub| stub.batching().returning(running));
+
+    rig.scan(&[1]).await;
+
+    let checked = rig.state.pipelines[&1]
+        .values()
+        .filter(|mark| mark.checked_at.is_some())
+        .count();
+    assert_eq!(checked, 3);
+    assert_eq!(stub.batch_fetch_count(), 1);
+    assert_eq!(stub.history_fetch_count(), 0);
+}
+
+#[tokio::test]
 async fn a_pipeline_already_overdue_at_the_first_scan_stays_silent() {
     let mut rig = Rig::new();
     rig.stub(1, |stub| {

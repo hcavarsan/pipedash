@@ -22,6 +22,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "server_url".to_string(),
+            section: ConfigSection::Connection,
             label: "Jenkins Server URL".to_string(),
             description: Some(
                 "Your Jenkins server URL (e.g., https://jenkins.example.com)".to_string(),
@@ -35,6 +36,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "username".to_string(),
+            section: ConfigSection::Authentication,
             label: "Username".to_string(),
             description: Some("Your Jenkins username".to_string()),
             field_type: ConfigFieldType::Text,
@@ -46,6 +48,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "token".to_string(),
+            section: ConfigSection::Authentication,
             label: "API Token".to_string(),
             description: Some("Jenkins API token (not your password)".to_string()),
             field_type: ConfigFieldType::Password,

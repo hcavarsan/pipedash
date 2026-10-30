@@ -21,6 +21,7 @@ pub fn create_metadata() -> PluginMetadata {
 fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new().add_field(ConfigField {
         key: "token".to_string(),
+        section: ConfigSection::Authentication,
         label: "API Token".to_string(),
         description: Some(
             "Buildkite API Access Token with read_builds, read_build_logs, read_pipelines, and read_organizations scopes"

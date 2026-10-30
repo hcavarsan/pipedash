@@ -7,7 +7,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 const mode = process.env.PIPEDASH_PLATFORM_TEST
 
 if (mode === undefined) {
-  for (const name of ['browser', 'ios']) {
+  for (const name of ['browser', 'ios', 'linux-tablet', 'android-browser']) {
     test(`platform detection in an isolated ${name} runtime`, () => {
       const result = spawnSync(process.execPath, ['test', import.meta.filename], {
         env: { ...process.env, PIPEDASH_PLATFORM_TEST: name },
@@ -18,14 +18,20 @@ if (mode === undefined) {
     })
   }
 } else {
+  const userAgents: Record<string, string> = {
+    'linux-tablet':
+      'Mozilla/5.0 (Linux; like Android 4.4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Mobile Safari/605.1.15',
+    'android-browser':
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36',
+  }
   GlobalRegistrator.register({
     url: 'http://localhost/',
-    settings: { navigator: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)' } },
+    settings: { navigator: { userAgent: userAgents[mode] ?? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)' } },
   })
-  if (mode === 'ios') {
+  if (mode === 'ios' || mode === 'linux-tablet') {
     Object.assign(window, {
       __TAURI_INTERNALS__: {},
-      __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'ios' },
+      __TAURI_OS_PLUGIN_INTERNALS__: { platform: mode === 'ios' ? 'ios' : 'linux' },
     })
   }
   after(() => GlobalRegistrator.unregister())
@@ -57,13 +63,21 @@ if (mode === undefined) {
       assert.equal(await platform(), 'macos')
       localStorage.removeItem('platform-override')
     })
-  } else {
+  } else if (mode === 'ios') {
     test('a native mobile runtime ignores the stored override', async () => {
       localStorage.setItem('platform-override', 'windows')
 
       assert.equal(isMobilePlatform(), true)
       assert.equal(isDesktopTauri(), false)
       assert.equal(await platform(), 'ios')
+    })
+  } else {
+    const { isMobileShell, isPhone } = await import('../hooks/useIsMobile')
+    const phone = mode === 'android-browser'
+
+    test(`the ${mode} user agent ${phone ? 'gets' : 'does not get'} the phone shell`, () => {
+      assert.equal(isPhone(), phone)
+      assert.equal(isMobileShell(), phone)
     })
   }
 }

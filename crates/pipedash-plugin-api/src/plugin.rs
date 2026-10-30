@@ -97,6 +97,12 @@ pub trait Plugin: Send + Sync {
         Ok(Vec::new())
     }
 
+    async fn fetch_pipeline_catalog(&self) -> PluginResult<crate::types::PipelineCatalog> {
+        Err(crate::error::PluginError::NotSupported(
+            "Pipeline catalog not supported by this provider".to_string(),
+        ))
+    }
+
     async fn ids_with_ci(&self, ids: Vec<String>) -> PluginResult<Vec<String>> {
         Ok(ids)
     }
@@ -184,6 +190,14 @@ pub trait Plugin: Send + Sync {
     async fn fetch_run_details(
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun>;
+
+    async fn fetch_recent_runs(
+        &self, _pipeline_ids: &[String], _limit: usize,
+    ) -> PluginResult<HashMap<String, Vec<PipelineRun>>> {
+        Err(crate::error::PluginError::NotSupported(
+            "Batched run history not supported by this provider".to_string(),
+        ))
+    }
 
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String>;
 

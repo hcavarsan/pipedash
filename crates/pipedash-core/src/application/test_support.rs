@@ -168,6 +168,9 @@ pub(crate) struct StubProvider {
     pub(crate) parameter_gate: Option<Arc<Gate>>,
     pub(crate) fetches: AtomicUsize,
     pub(crate) run_fetches: AtomicUsize,
+    pub(crate) history_fetches: AtomicUsize,
+    pub(crate) batch_fetches: AtomicUsize,
+    pub(crate) batching: bool,
     pub(crate) parameter_fetches: AtomicUsize,
     pub(crate) pipelines: Mutex<DomainResult<Vec<Pipeline>>>,
     pub(crate) runs: Mutex<Vec<PipelineRun>>,
@@ -200,6 +203,9 @@ impl StubProvider {
             parameter_gate: None,
             fetches: AtomicUsize::new(0),
             run_fetches: AtomicUsize::new(0),
+            history_fetches: AtomicUsize::new(0),
+            batch_fetches: AtomicUsize::new(0),
+            batching: false,
             parameter_fetches: AtomicUsize::new(0),
             pipelines: Mutex::new(Ok(vec![pipeline(
                 provider_id,
@@ -261,6 +267,19 @@ impl StubProvider {
     pub(crate) fn with_runs(self, runs: Vec<PipelineRun>) -> Self {
         *self.runs.lock().unwrap() = runs;
         self
+    }
+
+    pub(crate) fn batching(mut self) -> Self {
+        self.batching = true;
+        self
+    }
+
+    pub(crate) fn history_fetch_count(&self) -> usize {
+        self.history_fetches.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn batch_fetch_count(&self) -> usize {
+        self.batch_fetches.load(Ordering::SeqCst)
     }
 
     pub(crate) fn set_pipelines(&self, pipelines: Vec<Pipeline>) {
@@ -352,10 +371,25 @@ impl Provider for StubProvider {
     async fn fetch_run_history(
         &self, _pipeline_id: &str, _limit: usize,
     ) -> DomainResult<Vec<PipelineRun>> {
+        self.history_fetches.fetch_add(1, Ordering::SeqCst);
         if let Some(gate) = &self.run_gate {
             gate.pass().await;
         }
         Ok(self.runs.lock().unwrap().clone())
+    }
+
+    async fn fetch_recent_runs(
+        &self, pipeline_ids: &[String], _limit: usize,
+    ) -> DomainResult<HashMap<String, Vec<PipelineRun>>> {
+        if !self.batching {
+            return Err(DomainError::NotSupported("stub".to_string()));
+        }
+        self.batch_fetches.fetch_add(1, Ordering::SeqCst);
+        let runs = self.runs.lock().unwrap().clone();
+        Ok(pipeline_ids
+            .iter()
+            .map(|id| (id.clone(), runs.clone()))
+            .collect())
     }
 
     async fn fetch_run_details(

@@ -23,7 +23,7 @@ interface SignInFieldProps {
   id: string
   providerType: string
   configValues: Record<string, string>
-  ready: boolean
+  missing: string[]
   error?: string | undefined
   disabled: boolean
   shell: boolean
@@ -34,7 +34,7 @@ export function SignInField({
   id,
   providerType,
   configValues,
-  ready,
+  missing,
   error,
   disabled,
   shell,
@@ -137,7 +137,11 @@ export function SignInField({
   const pasteVisible = waiting && flow !== null && (flow.manual || pasteOpen)
   const pasteLinkVisible = waiting && flow !== null && !pasteVisible
   const pasteError = complete.error ? errorMessage(complete.error, "Couldn't finish the sign-in") : undefined
-  const blocked = !ready || disabled || start.isPending
+  const blocked = missing.length > 0 || disabled || start.isPending
+  const description =
+    missing.length > 0 && !signedIn && !waiting
+      ? `Fill in ${new Intl.ListFormat('en', { type: 'conjunction' }).format(missing)} to sign in.`
+      : DESCRIPTION
 
   const pasteInput = (
     <TextInput
@@ -161,7 +165,7 @@ export function SignInField({
   if (shell) {
     return (
       <>
-        <ShellField id={id} description={DESCRIPTION} error={shownError}>
+        <ShellField id={id} description={description} error={shownError}>
           {waiting ? (
             <>
               <IosRow title={waitingText} accessory={<Loader size="xs" aria-hidden />} />
@@ -202,7 +206,7 @@ export function SignInField({
   }
 
   return (
-    <Input.Wrapper id={id} labelElement="div" label={LABEL} description={DESCRIPTION} error={shownError}>
+    <Input.Wrapper id={id} labelElement="div" label={LABEL} description={description} error={shownError}>
       <Stack gap="xs" mt="xs">
         {waiting ? (
           <>

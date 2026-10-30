@@ -3,6 +3,7 @@ use pipedash_plugin_api::{
     ConfigField,
     ConfigFieldType,
     ConfigSchema,
+    ConfigSection,
     Feature,
     Permission,
     PluginCapabilities,
@@ -142,6 +143,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "kubeconfig".to_string(),
+            section: ConfigSection::Authentication,
             label: "Kubeconfig".to_string(),
             description: Some(
                 "Path on the machine running Pipedash, not in your browser. Defaults to $KUBECONFIG or ~/.kube/config. Separate files with ':' (';' on Windows). Ignored when Kubeconfig content is set. Monitoring needs get/list permissions. Reconciliation also needs patch permission. Run logs also need list on events in each monitored namespace."
@@ -156,6 +158,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: config::KUBECONFIG_CONTENT_KEY.to_string(),
+            section: ConfigSection::Authentication,
             label: "Kubeconfig content".to_string(),
             description: Some(
                 "Paste the kubeconfig YAML instead of using a file path, for example on iOS and Android where no kubeconfig file exists. When set, it is used instead of the path above and is stored with your other credentials. Use token or client certificate authentication: exec credential plugins (aws, gke-gcloud-auth-plugin, kubelogin) are not supported on iOS and Android."
@@ -170,6 +173,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "context".to_string(),
+            section: ConfigSection::Authentication,
             label: "Kubernetes context".to_string(),
             description: Some(
                 "Context from the kubeconfig that points at the Flux cluster. Leave empty to use current-context."
@@ -184,6 +188,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "namespaces".to_string(),
+            section: ConfigSection::Settings,
             label: "Namespaces".to_string(),
             description: Some(
                 "Comma-separated namespaces to monitor, for example flux-system,apps. Leave empty to monitor Kustomizations and HelmReleases in every namespace, which needs cluster-wide list permission. List your namespaces when your RBAC is namespace-scoped."
@@ -201,6 +206,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "flux_namespace".to_string(),
+            section: ConfigSection::Settings,
             label: "Flux namespace".to_string(),
             description: Some(
                 "Namespace where the Flux controllers run. Pipedash reads the source-controller, kustomize-controller and helm-controller deployments there to report controller health. Leave empty to use flux-system."

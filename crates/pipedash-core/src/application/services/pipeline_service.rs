@@ -19,6 +19,7 @@ use futures::future::{
     FutureExt,
     Shared,
 };
+use pipedash_plugin_api::is_no_auth;
 pub use run_watch::{
     RunWatch,
     WatchedRun,
@@ -44,6 +45,10 @@ const OVERDUE_FACTOR: i64 = 3;
 const OVERDUE_MIN_SUCCESSFUL_RUNS: usize = 3;
 pub(crate) const OVERDUE_RECENT_RUNS: usize = 20;
 pub(crate) const OVERDUE_CONCURRENT_CHECKS: usize = 4;
+const OVERDUE_HISTORY_FETCH: usize = 100;
+const READ_ONLY_PROVIDER: &str = "This provider connects without credentials, so it is read-only. \
+                                  Edit it and choose an access token or single sign-on to start \
+                                  or stop runs.";
 
 use super::health_service::{
     HealthHandle,
@@ -559,31 +564,37 @@ impl PipelineService {
             }
         };
         let now = Utc::now();
+        let tracked: Vec<&Pipeline> = pipelines.iter().filter(|p| tracks_overdue(p)).collect();
+        let prefetched = self.prefetch_recent_runs(provider_id, &tracked).await;
         let permits = Semaphore::new(OVERDUE_CONCURRENT_CHECKS);
-        let checks = pipelines
-            .iter()
-            .filter(|p| tracks_overdue(p))
-            .map(|pipeline| {
-                let permits = &permits;
-                async move {
-                    let _permit = permits.acquire().await.ok()?;
-                    match self.recent_runs(&pipeline.id).await {
-                        Ok(runs) => typical_duration(&runs).map(|typical| {
-                            (
-                                pipeline.id.clone(),
-                                RunTiming {
-                                    typical,
-                                    overdue: overdue_run(&runs, now),
-                                },
-                            )
-                        }),
-                        Err(e) => {
-                            tracing::debug!(pipeline_id = %pipeline.id, error = %e, "Overdue check failed");
-                            None
+        let checks = tracked.into_iter().map(|pipeline| {
+            let permits = &permits;
+            let prefetched = &prefetched;
+            async move {
+                let runs = match prefetched.get(&pipeline.id) {
+                    Some(batched) => batched.clone(),
+                    None => {
+                        let _permit = permits.acquire().await.ok()?;
+                        match self.recent_runs(&pipeline.id).await {
+                            Ok(runs) => Some(runs),
+                            Err(e) => {
+                                tracing::debug!(pipeline_id = %pipeline.id, error = %e, "Overdue check failed");
+                                None
+                            }
                         }
                     }
-                }
-            });
+                }?;
+                typical_duration(&runs).map(|typical| {
+                    (
+                        pipeline.id.clone(),
+                        RunTiming {
+                            typical,
+                            overdue: overdue_run(&runs, now),
+                        },
+                    )
+                })
+            }
+        });
         let timings: HashMap<String, RunTiming> = futures::future::join_all(checks)
             .await
             .into_iter()
@@ -601,6 +612,59 @@ impl PipelineService {
         }
 
         changed
+    }
+
+    async fn prefetch_recent_runs(
+        &self, provider_id: i64, pipelines: &[&Pipeline],
+    ) -> HashMap<String, Option<Vec<PipelineRun>>> {
+        let mut uncached = Vec::new();
+        for pipeline in pipelines {
+            if matches!(
+                self.repository.get_cached_run_count(&pipeline.id).await,
+                Ok(0)
+            ) {
+                uncached.push(*pipeline);
+            }
+        }
+        if uncached.is_empty() {
+            return HashMap::new();
+        }
+        let Ok(lease) = self.provider_service.acquire(provider_id).await else {
+            return HashMap::new();
+        };
+        let ids: Vec<String> = uncached.iter().map(|p| p.id.clone()).collect();
+        let mut fetched = match lease
+            .provider
+            .fetch_recent_runs(&ids, OVERDUE_HISTORY_FETCH)
+            .await
+        {
+            Ok(fetched) => fetched,
+            Err(DomainError::NotSupported(_)) => return HashMap::new(),
+            Err(e) => {
+                tracing::debug!(provider_id, error = %e, "Batched overdue check failed");
+                return ids.into_iter().map(|id| (id, None)).collect();
+            }
+        };
+
+        let mut prefetched = HashMap::new();
+        for pipeline in uncached {
+            let runs = fetched.remove(&pipeline.id);
+            if let Some(api_runs) = &runs {
+                if let Some(Err(e)) = self
+                    .provider_service
+                    .commit(&lease, || self.merge_run_cache(pipeline, api_runs))
+                    .await
+                {
+                    tracing::debug!(pipeline_id = %pipeline.id, error = %e, "Failed to cache batched runs");
+                }
+                self.spawn_metrics(lease.clone(), pipeline.id.clone(), Some(api_runs.clone()));
+            }
+            prefetched.insert(
+                pipeline.id.clone(),
+                runs.map(|runs| runs.into_iter().take(OVERDUE_RECENT_RUNS).collect()),
+            );
+        }
+        prefetched
     }
 
     async fn recent_runs(&self, pipeline_id: &str) -> DomainResult<Vec<PipelineRun>> {
@@ -960,6 +1024,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == params.workflow_id)
             .ok_or_else(|| DomainError::PipelineNotFound(params.workflow_id.clone()))?;
+        self.refuse_read_only(pipeline.provider_id).await?;
 
         let provider = self
             .provider_service
@@ -982,6 +1047,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+        self.refuse_read_only(pipeline.provider_id).await?;
 
         let provider = self
             .provider_service
@@ -1006,6 +1072,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+        self.refuse_read_only(pipeline.provider_id).await?;
 
         let provider = self
             .provider_service
@@ -1036,6 +1103,7 @@ impl PipelineService {
             .iter()
             .find(|p| p.id == pipeline_id)
             .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+        self.refuse_read_only(pipeline.provider_id).await?;
 
         let provider = self
             .provider_service
@@ -1049,6 +1117,17 @@ impl PipelineService {
 
         self.invalidate_run_cache(pipeline_id).await;
 
+        Ok(())
+    }
+
+    async fn refuse_read_only(&self, provider_id: i64) -> DomainResult<()> {
+        let config = self
+            .provider_service
+            .get_provider_config(provider_id)
+            .await?;
+        if is_no_auth(&config.config) {
+            return Err(DomainError::NotSupported(READ_ONLY_PROVIDER.to_string()));
+        }
         Ok(())
     }
 
@@ -1461,6 +1540,109 @@ mod tests {
         assert!(after_failed_lookup);
         assert_eq!(unknown[0].overdue_run, None);
         assert_eq!(again[0].overdue_run.as_deref(), Some("5"));
+    }
+
+    #[tokio::test]
+    async fn overdue_timing_fetches_uncached_pipelines_in_one_batch() {
+        let h = Harness::new().await;
+        let (provider_id, stub) = h
+            .add_stub(|id| {
+                StubProvider::new(id)
+                    .batching()
+                    .with_runs(ten_minute_history(45))
+            })
+            .await;
+        let running: Vec<Pipeline> = ["build", "test"]
+            .iter()
+            .map(|name| {
+                serde_json::from_value(json!({
+                    "id": format!("stub__{provider_id}__{name}"), "provider_id": provider_id,
+                    "provider_type": "stub", "name": name, "status": "running",
+                    "repository": name, "last_updated": Utc::now()
+                }))
+                .unwrap()
+            })
+            .collect();
+        h.repository
+            .update_pipelines_cache(provider_id, &running)
+            .await
+            .unwrap();
+
+        let changed = h
+            .pipeline_service
+            .update_overdue_pipelines(provider_id)
+            .await;
+        let cached = h
+            .pipeline_service
+            .get_cached_pipelines(Some(provider_id))
+            .await
+            .unwrap();
+
+        assert!(changed);
+        assert_eq!(stub.batch_fetch_count(), 1);
+        assert_eq!(stub.history_fetch_count(), 0);
+        for pipeline in &cached {
+            assert_eq!(pipeline.typical_duration_seconds, Some(600));
+            assert_eq!(pipeline.overdue_run.as_deref(), Some("5"));
+            assert!(
+                h.repository
+                    .get_cached_run_count(&pipeline.id)
+                    .await
+                    .unwrap()
+                    > 0
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn no_auth_providers_refuse_actions_from_their_saved_config() {
+        let h = Harness::new().await;
+        let (public_id, _) = h.add_stub(StubProvider::new).await;
+        let (signed_id, _) = h.add_stub(StubProvider::new).await;
+        let mut public_config = h.repository.get_provider(public_id).await.unwrap();
+        public_config
+            .config
+            .insert("auth_mode".to_string(), "none".to_string());
+        h.repository
+            .update_provider(public_id, &public_config)
+            .await
+            .unwrap();
+        for provider_id in [public_id, signed_id] {
+            let stale: Pipeline = serde_json::from_value(json!({
+                "id": format!("stub__{provider_id}__build"), "provider_id": provider_id,
+                "provider_type": "stub", "name": "build", "status": "running",
+                "repository": "build", "last_updated": Utc::now(),
+                "metadata": { "read_only": true }
+            }))
+            .unwrap();
+            h.repository
+                .update_pipelines_cache(provider_id, &[stale])
+                .await
+                .unwrap();
+        }
+        let public = format!("stub__{public_id}__build");
+        let signed = format!("stub__{signed_id}__build");
+        let refused = |result: DomainResult<()>| matches!(result, Err(DomainError::NotSupported(message)) if message == READ_ONLY_PROVIDER);
+        let service = &h.pipeline_service;
+
+        let triggered = service
+            .trigger_pipeline(TriggerParams {
+                workflow_id: public.clone(),
+                inputs: None,
+            })
+            .await
+            .map(|_| ());
+
+        assert!(refused(triggered));
+        assert!(refused(service.cancel_run(&public, 1).await));
+        assert!(refused(service.rerun_run(&public, 1).await));
+        assert!(refused(service.rerun_failed_jobs(&public, 1).await));
+        assert!(refused(
+            service
+                .review_run(&public, 1, pipedash_plugin_api::ReviewDecision::Approve)
+                .await
+        ));
+        assert!(!refused(service.cancel_run(&signed, 1).await));
     }
 
     #[tokio::test]

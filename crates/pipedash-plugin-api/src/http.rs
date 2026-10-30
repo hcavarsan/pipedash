@@ -17,6 +17,26 @@ use crate::error::{
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(3600);
 const EPOCH_THRESHOLD: u64 = 1_000_000_000;
 const BODY_PREVIEW_CHARS: usize = 300;
+const BODY_PREVIEW_BYTES: usize = BODY_PREVIEW_CHARS * 4;
+
+pub async fn read_prefix(mut resp: reqwest::Response, limit: usize) -> reqwest::Result<Vec<u8>> {
+    let mut body = Vec::new();
+    while body.len() < limit {
+        let Some(chunk) = resp.chunk().await? else {
+            break;
+        };
+        let take = chunk.len().min(limit - body.len());
+        body.extend_from_slice(&chunk[..take]);
+    }
+    Ok(body)
+}
+
+pub async fn body_preview(resp: reqwest::Response) -> String {
+    let body = read_prefix(resp, BODY_PREVIEW_BYTES)
+        .await
+        .unwrap_or_default();
+    truncate_chars(String::from_utf8_lossy(&body).trim(), BODY_PREVIEW_CHARS).into_owned()
+}
 
 pub async fn check_response(resp: reqwest::Response) -> PluginResult<reqwest::Response> {
     let status = resp.status();
@@ -32,13 +52,8 @@ pub async fn check_response(resp: reqwest::Response) -> PluginResult<reqwest::Re
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.trim() == "0");
     let has_retry_after = resp.headers().contains_key(reqwest::header::RETRY_AFTER);
-    let body = resp.text().await.unwrap_or_default();
-    let message = format!(
-        "{} from {}: {}",
-        status.as_u16(),
-        url,
-        truncate_chars(body.trim(), BODY_PREVIEW_CHARS)
-    );
+    let body = body_preview(resp).await;
+    let message = format!("{} from {}: {}", status.as_u16(), url, body);
 
     if status.as_u16() == 403 && (rate_limit_exhausted || has_retry_after) {
         return Err(PluginError::RateLimited {
@@ -284,6 +299,50 @@ mod tests {
             }
         });
         Url::parse(&format!("http://{addr}/path?token=secret")).unwrap()
+    }
+
+    fn serve_held_open(head: &'static str, sent: usize) -> Url {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(&vec![b'x'; sent]);
+                let _ = stream.read(&mut buf);
+            }
+        });
+        Url::parse(&format!("http://{addr}/")).unwrap()
+    }
+
+    #[tokio::test]
+    async fn reads_stop_at_the_limit_without_waiting_for_a_huge_body() {
+        let huge = "HTTP/1.1 200 OK\r\nContent-Length: 1073741824\r\n\r\n";
+        let resp = client()
+            .get(serve_held_open(huge, 8_000))
+            .send()
+            .await
+            .unwrap();
+        let body = tokio::time::timeout(Duration::from_secs(5), read_prefix(resp, 5_000))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(body.len(), 5_000);
+
+        let failed = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 1073741824\r\n\r\n";
+        let resp = client()
+            .get(serve_held_open(failed, 8_000))
+            .send()
+            .await
+            .unwrap();
+        let err = tokio::time::timeout(Duration::from_secs(5), check_response(resp))
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains(&format!("{}…", "x".repeat(BODY_PREVIEW_CHARS))));
     }
 
     async fn status_error(response: impl Into<String>) -> PluginError {

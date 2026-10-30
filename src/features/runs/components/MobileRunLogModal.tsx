@@ -33,7 +33,7 @@ export function MobileRunLogModal({
       opened
       onClose={onClose}
       title={node.name}
-      backAction={{ label: `#${runNumber}`, onClick: onClose }}
+      backAction={{ label: `Back to run #${runNumber}`, onClick: onClose, minimal: true }}
       disableScrollArea
       contentPadding={false}
       fullHeight

@@ -22,6 +22,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "token".to_string(),
+            section: ConfigSection::Authentication,
             label: "API Token".to_string(),
             description: Some("GitLab Personal Access Token with api scope".to_string()),
             field_type: ConfigFieldType::Password,
@@ -33,6 +34,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "base_url".to_string(),
+            section: ConfigSection::Connection,
             label: "GitLab Base URL (optional)".to_string(),
             description: Some(
                 "Leave empty for GitLab.com, or enter your self-hosted GitLab URL (e.g., https://gitlab.example.com)"

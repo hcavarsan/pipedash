@@ -438,21 +438,11 @@ async fn validate_credentials(
 async fn fetch_organizations(
     State(state): State<AppState>, Json(req): Json<FetchOrganizationsRequest>,
 ) -> ApiResult<Json<Vec<Organization>>> {
-    let plugin = state
+    let orgs = state
         .provider_service()
         .await?
-        .init_plugin(&req.provider_type, req.config, 0)
+        .discover_organizations(&req.provider_type, req.config)
         .await?;
-
-    plugin
-        .validate_credentials()
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to validate credentials: {e}")))?;
-
-    let orgs = plugin
-        .fetch_organizations()
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch organizations: {e}")))?;
 
     Ok(Json(orgs))
 }
@@ -483,17 +473,6 @@ async fn check_permissions(
 async fn preview_pipelines(
     State(state): State<AppState>, Json(req): Json<PreviewPipelinesRequest>,
 ) -> ApiResult<Json<PaginatedAvailablePipelines>> {
-    let plugin = state
-        .provider_service()
-        .await?
-        .init_plugin(&req.provider_type, req.config, 0)
-        .await?;
-
-    plugin
-        .validate_credentials()
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to validate credentials: {e}")))?;
-
     let params = PaginationParams {
         page: req.page.unwrap_or(1).max(1),
         page_size: req.page_size.unwrap_or(100).clamp(10, 200),
@@ -503,10 +482,11 @@ async fn preview_pipelines(
         return Err(AppError::bad_request(validation_error));
     }
 
-    let result = plugin
-        .fetch_available_pipelines_filtered(req.org, req.search, Some(params))
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch available pipelines: {e}")))?;
+    let result = state
+        .provider_service()
+        .await?
+        .discover_pipelines(&req.provider_type, req.config, req.org, req.search, params)
+        .await?;
 
     Ok(Json(result))
 }

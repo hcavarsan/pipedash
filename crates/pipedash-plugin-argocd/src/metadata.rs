@@ -22,6 +22,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "server_url".to_string(),
+            section: ConfigSection::Connection,
             label: "ArgoCD Server URL".to_string(),
             description: Some(
                 "ArgoCD API server URL (e.g., https://argocd.example.com)".to_string(),
@@ -35,6 +36,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "insecure".to_string(),
+            section: ConfigSection::Connection,
             label: "Skip TLS Verification".to_string(),
             description: Some(
                 "Skip TLS certificate verification (useful for self-signed certificates)"
@@ -49,6 +51,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "token".to_string(),
+            section: ConfigSection::Authentication,
             label: "Authentication Token".to_string(),
             description: Some(
                 "ArgoCD authentication token or Kubernetes service account token".to_string(),
@@ -57,20 +60,6 @@ fn create_config_schema() -> ConfigSchema {
             required: true,
             default_value: None,
             options: None,
-            validation_regex: None,
-            validation_message: None,
-        })
-        .add_field(ConfigField {
-            key: "organizations".to_string(),
-            label: "Git Organizations Filter (optional)".to_string(),
-            description: Some(
-                "Select Git organizations to filter applications (leave empty to show all)"
-                    .to_string(),
-            ),
-            field_type: ConfigFieldType::MultiSelect,
-            required: false,
-            default_value: None,
-            options: None, // Will be populated dynamically via get_field_options
             validation_regex: None,
             validation_message: None,
         })

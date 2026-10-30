@@ -28,17 +28,50 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
         fields: [
           configFieldFixture({ key: 'token', label: 'Token', field_type: 'Password', required: true }),
           configFieldFixture({ key: 'note', label: 'Note', field_type: 'Text', required: false }),
+          configFieldFixture({
+            key: 'status_page_url',
+            label: 'Status page URL',
+            field_type: 'Text',
+            required: false,
+            validation_regex: '^https://',
+            validation_message: 'Must be an https URL',
+            section: 'settings',
+          }),
         ],
       },
     }),
   ]
 
+  const secondPage: { waiting: (() => void)[]; requests: number } = { waiting: [], requests: 0 }
+  const job = (id: string) => ({ id, name: id, description: null, organization: 'org', repository: 'org/repo' })
+  const page = (ids: string[], number: number, hasMore: boolean) => ({
+    items: ids.map(job),
+    page: number,
+    page_size: 2,
+    total_count: 4,
+    total_pages: 2,
+    has_more: hasMore,
+  })
+
   Object.assign(window, {
     __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
     __TAURI_INTERNALS__: {
-      invoke: async (command: string) => {
+      invoke: async (command: string, args?: { page?: number }) => {
         if (command === 'get_available_plugins') {
           return plugins
+        }
+        if (command === 'fetch_provider_organizations') {
+          return [{ id: 'org', name: 'org', description: null }]
+        }
+        if (command === 'preview_provider_pipelines') {
+          if (args?.page !== 2) {
+            return page(['a', 'b'], 1, true)
+          }
+          secondPage.requests += 1
+          const { promise, resolve } = Promise.withResolvers<void>()
+          secondPage.waiting.push(resolve)
+          await promise
+          return page(['c', 'd'], 2, false)
         }
         throw new Error(`Unexpected command: ${command}`)
       },
@@ -114,6 +147,7 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
       await gate.promise
     })
 
+    await user.click(await view().findByRole('button', { name: /^Next/ }))
     const note = await view().findByRole('textbox', { name: 'Note' })
     await user.clear(note)
     await user.type(note, 'new')
@@ -122,7 +156,7 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
     await waitFor(() => assert.equal(saved.length, 1))
     assert.ok(note instanceof HTMLInputElement)
     assert.equal(note.disabled, true)
-    assert.equal(view().getByRole('textbox', { name: 'Provider name' }).hasAttribute('disabled'), true)
+    assert.equal(view().getByRole('button', { name: 'Back' }).hasAttribute('disabled'), true)
     assert.equal(view().getByRole('button', { name: /^Next/ }).hasAttribute('disabled'), true)
     assert.equal(closed.value, false)
 
@@ -141,6 +175,7 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
       }
     })
 
+    await user.click(await view().findByRole('button', { name: /^Next/ }))
     const note = await view().findByRole('textbox', { name: 'Note' })
     await user.clear(note)
     await user.type(note, 'kept')
@@ -157,10 +192,7 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
     assert.equal(attempts, 2)
   })
 
-  test('a required credential blocks the continue step and reports the field', async () => {
-    const user = userEvent.setup({ document })
-    const closed = { value: false }
-
+  function renderAdd(onAdd: (config: ProviderConfig) => Promise<void>): void {
     render(
       createElement(
         MantineProvider,
@@ -168,22 +200,77 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
         createElement(
           QueryClientProvider,
           { client },
-          createElement(AddProviderModal, {
-            opened: true,
-            onClose: () => {
-              closed.value = true
-            },
-            onAdd: async () => undefined,
-          })
+          createElement(AddProviderModal, { opened: true, onClose: () => undefined, onAdd })
         )
       )
     )
+  }
 
-    await user.click(await view().findByRole('combobox', { name: /Provider type/ }))
-    await user.click(await view().findByRole('option', { name: 'GitHub', hidden: true }))
+  test('the provider step checks only its own fields, then a required credential blocks the next step', async () => {
+    const user = userEvent.setup({ document })
+    renderAdd(async () => undefined)
+
+    await user.click(await view().findByRole('button', { name: 'GitHub' }))
+    await user.click(view().getByRole('button', { name: 'Advanced settings' }))
+    await user.type(view().getByRole('textbox', { name: 'Status page URL' }), 'http://status.example.com')
+    await user.click(view().getByRole('button', { name: 'Advanced settings' }))
     await user.click(view().getByRole('button', { name: /^Next/ }))
 
+    assert.ok((await view().findAllByText('Must be an https URL')).length > 0)
+    assert.equal(view().getByRole('button', { name: 'Advanced settings' }).getAttribute('aria-expanded'), 'true')
+    assert.equal(view().queryByText('Token is required'), null)
+
+    const statusPage = view().getByRole('textbox', { name: 'Status page URL' })
+    await user.clear(statusPage)
+    await user.type(statusPage, 'https://status.example.com')
+    await user.click(view().getByRole('button', { name: /^Next/ }))
+
+    await view().findByLabelText(/^Token/)
+    assert.equal(view().queryByText('Token is required'), null)
+
+    await user.click(view().getByRole('button', { name: /^Next/ }))
     assert.ok((await view().findAllByText('Token is required')).length > 0)
-    assert.equal(closed.value, false)
+  })
+
+  test('the provider cannot be added while select all is still loading pages', async () => {
+    const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight')
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => 600 })
+
+    try {
+      const user = userEvent.setup({ document })
+      const added: ProviderConfig[] = []
+      secondPage.requests = 0
+
+      renderAdd(async (config) => {
+        added.push(config)
+      })
+
+      await user.click(await view().findByRole('button', { name: 'GitHub' }))
+      await user.click(view().getByRole('button', { name: /^Next/ }))
+      await user.type(await view().findByLabelText(/^Token/), 'secret')
+      await user.click(view().getByRole('button', { name: /^Next/ }))
+      await user.click(await view().findByRole('checkbox', { name: 'a' }))
+      await user.click(view().getByRole('checkbox', { name: 'Select all' }))
+      await waitFor(() => assert.ok(secondPage.requests > 0))
+
+      assert.equal(view().getByRole('button', { name: 'Add provider' }).hasAttribute('disabled'), true)
+
+      await act(async () => {
+        for (const release of secondPage.waiting.splice(0)) {
+          release()
+        }
+      })
+      await view().findByText('4 selected')
+      await user.click(view().getByRole('button', { name: 'Add provider' }))
+
+      await waitFor(() => assert.equal(added.length, 1))
+      assert.deepEqual(added[0]?.config.selected_items?.split(',').sort(), ['a', 'b', 'c', 'd'])
+    } finally {
+      if (clientHeight) {
+        Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeight)
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight')
+      }
+    }
   })
 }

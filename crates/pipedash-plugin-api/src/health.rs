@@ -13,6 +13,7 @@ use crate::error::{
 use crate::schema::{
     ConfigField,
     ConfigFieldType,
+    ConfigSection,
 };
 
 pub const STATUS_PAGE_URL_KEY: &str = "status_page_url";
@@ -84,6 +85,7 @@ pub fn status_page_field() -> ConfigField {
         validation_message: Some(
             "Must be an https URL without credentials, query or fragment".to_string(),
         ),
+        section: ConfigSection::Settings,
     }
 }
 

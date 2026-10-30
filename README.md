@@ -89,7 +89,7 @@ flowchart LR
   subgraph Providers
     GH[GitHub Actions]
     GL[GitLab CI]
-    K8S[Tekton, ArgoCD, FluxCD]
+    K8S[Tekton, ArgoCD, FluxCD, Prow]
     More[Gitea, Bitbucket, Buildkite, Jenkins, Azure DevOps, Komodo]
   end
   Providers -- API polling --> Core[pipedash-core]
@@ -101,7 +101,7 @@ flowchart LR
 
 ## Supported providers
 
-GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Azure DevOps Pipelines, Tekton CD, ArgoCD, FluxCD and Komodo Stacks. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
+GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Azure DevOps Pipelines, Tekton CD, ArgoCD, FluxCD, Prow and Komodo Stacks. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
 
 ## Features
 
@@ -110,7 +110,8 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 - Open the run history with commits, branches and durations, and track build metrics per pipeline.
 - Read, search and download job logs runs without leaving Pipedash.
 - Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
-- Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider) instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
+- Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider), or to a Prow Deck behind any OpenID Connect provider, instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
+- Add a public Prow Deck such as prow.k8s.io with No auth. Pipedash reads its jobs, runs and logs without credentials and turns off starting and stopping runs.
 - Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
 - Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
 - Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage.

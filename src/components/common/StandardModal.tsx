@@ -1,4 +1,4 @@
-import { Box, Drawer, Loader, Modal, ScrollArea, UnstyledButton } from '@mantine/core'
+import { Box, Drawer, Loader, Modal, UnstyledButton } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
 import { IconChevronLeft } from '@tabler/icons-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -12,6 +12,7 @@ import { TYPOGRAPHY } from '../../theme/typography'
 import type { ModalBaseProps } from '../../types/components'
 import { confirmDiscard } from '../../utils/confirm'
 import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
+import { FillScrollArea } from './FillScrollArea'
 
 type ModalSize = 'md' | 'lg' | 'xl' | 'full'
 
@@ -34,7 +35,7 @@ interface StandardModalProps extends ModalBaseProps {
   disableScrollArea?: boolean
   fullHeight?: boolean
   primaryAction?: ModalAction
-  backAction?: { label: string; onClick: () => void }
+  backAction?: { label: string; onClick: () => void; minimal?: boolean }
   dirty?: boolean
   detents?: SheetDetent[]
 }
@@ -52,6 +53,7 @@ const columnStyle = { display: 'flex', flexDirection: 'column', minHeight: 0, ov
 
 interface HeaderButtonProps {
   children: ReactNode
+  ariaLabel?: string | undefined
   onClick: () => void
   strong?: boolean | undefined
   destructive?: boolean | undefined
@@ -59,7 +61,7 @@ interface HeaderButtonProps {
   loading?: boolean | undefined
 }
 
-const HeaderButton = ({ children, onClick, strong, destructive, disabled, loading }: HeaderButtonProps) => (
+const HeaderButton = ({ children, ariaLabel, onClick, strong, destructive, disabled, loading }: HeaderButtonProps) => (
   <UnstyledButton
     type="button"
     className={iosClasses.sheetAction}
@@ -68,6 +70,7 @@ const HeaderButton = ({ children, onClick, strong, destructive, disabled, loadin
     data-loading={loading || undefined}
     disabled={disabled || loading}
     aria-busy={loading || undefined}
+    aria-label={ariaLabel}
     onClick={onClick}
   >
     <span className={iosClasses.sheetActionLabel}>{children}</span>
@@ -192,16 +195,14 @@ export const StandardModal = ({
       {disableScrollArea ? (
         <Box style={{ ...columnStyle, flex: 1, padding, paddingBottom: bottomInset }}>{body}</Box>
       ) : (
-        <ScrollArea
+        <FillScrollArea
           type={mobileShell ? 'scroll' : 'auto'}
           {...(mobileShell ? { scrollbarSize: 3, scrollHideDelay: 200 } : {})}
-          style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-          styles={{ viewport: { flex: 1, minHeight: 0, height: 'auto' } }}
         >
           <Box p={padding} {...(bottomInset === undefined ? {} : { pb: bottomInset })}>
             {body}
           </Box>
-        </ScrollArea>
+        </FillScrollArea>
       )}
       {hasFooter && (
         <Box
@@ -272,9 +273,13 @@ export const StandardModal = ({
           <Modal.Header>
             <div className={iosClasses.sheetLeading}>
               {backAction ? (
-                <HeaderButton onClick={backAction.onClick} disabled={busy}>
+                <HeaderButton
+                  onClick={backAction.onClick}
+                  disabled={busy}
+                  ariaLabel={backAction.minimal ? backAction.label : undefined}
+                >
                   <IconChevronLeft size={22} aria-hidden className={iosClasses.sheetBackIcon} />
-                  {backAction.label}
+                  {!backAction.minimal && backAction.label}
                 </HeaderButton>
               ) : (
                 showCancel && (

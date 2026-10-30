@@ -1,28 +1,26 @@
-import { Box, Input, ScrollArea, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core'
-import { type ChangeEvent, type Dispatch, Fragment, type ReactNode, type RefObject } from 'react'
-import { ProviderIcon } from '../../../../components/atoms/ProviderIcon'
+import { Box, SegmentedControl, Stack, Text } from '@mantine/core'
+import { type Dispatch, Fragment, type ReactNode, type RefObject } from 'react'
+import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import shell from '../../../../components/forms/ShellForm.module.css'
-import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { useFormEnterNavigation } from '../../../../hooks/useFormEnterNavigation'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
-import type { ConfigField, PluginMetadata } from '../../../../types/domain'
-import { fieldA11y } from '../../../../utils/formFields'
+import type { AuthMode, ConfigField, ConfigSection } from '../../../../types/domain'
 import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 import { ProviderConfigField } from './ProviderConfigField'
-import { ShellField, StepHeading } from './ShellForm'
+import { StepHeading } from './ShellForm'
 import { SignInField } from './SignInField'
 import type { FormAction, FormState } from './types'
 import { useCredentialFields } from './useCredentialFields'
-import { activeConfigFields, validateConfigField } from './validation'
+import { activeConfigFields, STEP_SECTIONS, validateConfigField } from './validation'
 
-const NAME_HINT = 'A friendly name to identify this provider'
+const SECTION_TITLES: Partial<Record<ConfigSection, string>> = {
+  connection: 'Connection',
+  authentication: 'Authentication',
+}
 
 interface CredentialsStepProps {
   state: FormState
   dispatch: Dispatch<FormAction>
-  plugins: PluginMetadata[]
-  pluginsLoading: boolean
-  editMode: boolean
   isMobile: boolean
   submitting: boolean
   formRef: RefObject<HTMLFormElement | null>
@@ -35,9 +33,6 @@ interface CredentialsStepProps {
 export function CredentialsStep({
   state,
   dispatch,
-  plugins,
-  pluginsLoading,
-  editMode,
   isMobile,
   submitting,
   formRef,
@@ -49,36 +44,24 @@ export function CredentialsStep({
   useFormEnterNavigation(formRef)
   const mobileShell = useMobileShell()
   const { selectedPlugin, providerName, authMode, configValues, fieldErrors } = state
-  const { fields, lastTextKey, fieldStateFor, handleConfigChange, handleConfigBlur, handleNameChange, handleNameBlur } =
-    useCredentialFields({ selectedPlugin, providerName, configValues, fieldErrors, dispatch })
-
-  const handlePluginSelect = (providerType: string | null): void => {
-    if (!providerType) {
-      dispatch({ type: 'CLEAR_PLUGIN' })
-
-      return
-    }
-
-    const plugin = plugins.find((p) => p.provider_type === providerType)
-
-    if (plugin) {
-      dispatch({ type: 'SELECT_PLUGIN', plugin, isEditMode: editMode })
-    }
-  }
-
-  const nameProps = {
-    autoCapitalize: 'words',
-    autoCorrect: 'off',
-    spellCheck: false,
-    autoComplete: 'off',
-    enterKeyHint: lastTextKey ? 'next' : 'go',
-    name: 'providerName',
-    placeholder: selectedPlugin?.provider_type === 'fluxcd' ? 'e.g. FluxCD (production)' : 'e.g. GitHub (work)',
-    value: providerName,
-    onChange: (event: ChangeEvent<HTMLInputElement>) => handleNameChange(event.currentTarget.value),
-    onBlur: handleNameBlur,
-    disabled: submitting,
-  } as const
+  const { fields, fieldStateFor, handleConfigChange, handleConfigBlur } = useCredentialFields({
+    selectedPlugin,
+    providerName,
+    configValues,
+    fieldErrors,
+    dispatch,
+    step: 'credentials',
+  })
+  const authModes = selectedPlugin?.config_schema.auth_modes
+  const tokenField = fields.find((field) => field.key === TOKEN_KEY)
+  const visibleFields = fields.filter((field) => authModes?.[field.key]?.includes(authMode) ?? true)
+  const inAuthBlock = (field: ConfigField): boolean =>
+    authModes?.[field.key]?.length === 1 && field.section === tokenField?.section
+  const modeFields = visibleFields.filter(inAuthBlock)
+  const sections = STEP_SECTIONS.credentials.map((section) => ({
+    section,
+    items: visibleFields.filter((field) => !inAuthBlock(field) && field.section === section),
+  }))
 
   const renderField = (field: ConfigField): ReactNode => (
     <ProviderConfigField
@@ -95,172 +78,131 @@ export function CredentialsStep({
   const renderAuthField = (field: ConfigField): ReactNode => {
     const input = renderField(field)
 
-    if (field.key !== TOKEN_KEY || !selectedPlugin?.capabilities.sign_in) {
+    if (field.key !== TOKEN_KEY) {
       return input
+    }
+
+    const scoped = modeFields.map((modeField) => <Fragment key={modeField.key}>{renderField(modeField)}</Fragment>)
+    const options: { value: AuthMode; label: string }[] = [
+      ...(selectedPlugin?.config_schema.no_auth ? [{ value: 'none' as const, label: 'No auth' }] : []),
+      { value: 'token', label: field.label },
+      ...(selectedPlugin?.capabilities.sign_in ? [{ value: 'sign_in' as const, label: 'Single sign-on' }] : []),
+    ]
+
+    if (!selectedPlugin || options.length < 2) {
+      return (
+        <>
+          {scoped}
+          {input}
+        </>
+      )
     }
 
     const authControl = (
       <SegmentedControl
-        aria-label="Authentication"
+        aria-label="Authentication method"
         fullWidth
-        data={[
-          { value: 'token', label: field.label },
-          { value: 'sign_in', label: 'Single sign-on' },
-        ]}
+        data={options}
         value={authMode}
         disabled={submitting}
-        onChange={(value) => dispatch({ type: 'SET_AUTH_MODE', mode: value === 'sign_in' ? 'sign_in' : 'token' })}
+        onChange={(value) => {
+          const mode = options.find((option) => option.value === value)?.value
+
+          if (mode) {
+            dispatch({ type: 'SET_AUTH_MODE', mode })
+          }
+        }}
       />
     )
-    const body =
-      authMode === 'sign_in' ? (
+    const noAuthNote = 'Connects without credentials. Read-only: starting and stopping runs is turned off.'
+    let body: ReactNode = input
+
+    if (authMode === 'none') {
+      body = mobileShell ? (
+        <p className={shell.note}>{noAuthNote}</p>
+      ) : (
+        <Text size="sm" c="dimmed">
+          {noAuthNote}
+        </Text>
+      )
+    } else if (authMode === 'sign_in') {
+      body = (
         <SignInField
           id={`${formId}-${SIGN_IN_KEY}`}
           providerType={selectedPlugin.provider_type}
           configValues={configValues}
-          ready={activeConfigFields(fields, 'sign_in').every(
-            (config) => validateConfigField(config, configValues[config.key] || '') === null
-          )}
+          missing={activeConfigFields(fields, 'sign_in', authModes)
+            .filter((config) => validateConfigField(config, configValues[config.key] || '') !== null)
+            .map((config) => config.label)}
           error={fieldErrors[SIGN_IN_KEY]}
           disabled={submitting}
           shell={mobileShell}
           onChange={(reference) => dispatch({ type: 'SET_SIGN_IN', reference })}
         />
-      ) : (
-        input
       )
+    }
 
-    return mobileShell ? (
+    return (
       <>
-        <IosGroup header="Authentication">{authControl}</IosGroup>
-        {body}
-      </>
-    ) : (
-      <>
-        <Input.Wrapper label="Authentication">
-          <Box mt="xs">{authControl}</Box>
-        </Input.Wrapper>
+        {authControl}
+        {scoped}
         {body}
       </>
     )
   }
 
-  if (mobileShell) {
-    const nameId = `${formId}-providerName`
+  const renderSections = (): ReactNode =>
+    sections.map(({ section, items }) => {
+      if (items.length === 0) {
+        return null
+      }
 
+      const headingId = `${formId}-${section}`
+      const content = items.map((field) => <Fragment key={field.key}>{renderAuthField(field)}</Fragment>)
+
+      return mobileShell ? (
+        <Fragment key={section}>
+          <h2 id={headingId} className={shell.sectionTitle}>
+            {SECTION_TITLES[section]}
+          </h2>
+          {content}
+        </Fragment>
+      ) : (
+        <Stack key={section} component="section" gap="sm" aria-labelledby={headingId}>
+          <Text id={headingId} component="h3" size="sm" fw={600} m={0}>
+            {SECTION_TITLES[section]}
+          </Text>
+          {content}
+        </Stack>
+      )
+    })
+
+  if (mobileShell) {
     return (
       <div className={shell.step}>
-        {selectedPlugin ? (
-          <>
-            <StepHeading
-              title="Credentials"
-              subtitle={
-                selectedPlugin.provider_type === 'fluxcd'
-                  ? 'Connect to your Kubernetes cluster'
-                  : 'Enter your API credentials'
-              }
-            />
-
-            <IosGroup header="Provider type" footer={selectedPlugin.description}>
-              <IosRow
-                icon={<ProviderIcon name={selectedPlugin.name} icon={selectedPlugin.icon} size={30} />}
-                title={selectedPlugin.name}
-                chevron={!editMode}
-                {...(editMode ? {} : { onClick: () => handlePluginSelect(null) })}
-                disabled={submitting}
-              />
-            </IosGroup>
-
-            <ShellField
-              id={nameId}
-              label="Provider name"
-              required
-              description={NAME_HINT}
-              error={fieldErrors.providerName}
-            >
-              <TextInput
-                variant="unstyled"
-                aria-label="Provider name"
-                {...fieldA11y(nameId, { required: true, error: fieldErrors.providerName, description: NAME_HINT })}
-                {...nameProps}
-              />
-            </ShellField>
-
-            {fields.map((field) => (
-              <Fragment key={field.key}>{renderAuthField(field)}</Fragment>
-            ))}
-
-            {permissionRow}
-            {scopeNote && <p className={shell.note}>{scopeNote}</p>}
-            {secondaryRow}
-          </>
-        ) : (
-          <>
-            <StepHeading title="Choose a provider" subtitle="Select the service whose pipelines you want to monitor" />
-            {plugins.length > 0 ? (
-              <IosGroup>
-                {plugins.map((plugin) => (
-                  <IosRow
-                    key={plugin.provider_type}
-                    icon={<ProviderIcon name={plugin.name} icon={plugin.icon} size={30} />}
-                    title={plugin.name}
-                    subtitle={plugin.description}
-                    chevron
-                    onClick={() => handlePluginSelect(plugin.provider_type)}
-                    disabled={submitting}
-                  />
-                ))}
-              </IosGroup>
-            ) : (
-              !pluginsLoading && <p className={shell.note}>No provider types are available.</p>
-            )}
-          </>
-        )}
+        <StepHeading
+          title="Credentials"
+          subtitle={
+            selectedPlugin?.provider_type === 'fluxcd'
+              ? 'Connect to your Kubernetes cluster'
+              : 'Enter your API credentials'
+          }
+        />
+        {renderSections()}
+        {permissionRow}
+        {scopeNote && <p className={shell.note}>{scopeNote}</p>}
+        {secondaryRow}
       </div>
     )
   }
 
   return (
     <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <ScrollArea style={{ flex: 1 }} type="auto">
-        <Stack gap={isMobile ? 'xs' : 'md'} px="lg" pb="lg" pt="xs">
-          <Select
-            label="Provider type"
-            placeholder="Select a provider type"
-            data={plugins.map((p) => ({ value: p.provider_type, label: p.name }))}
-            value={selectedPlugin?.provider_type || null}
-            onChange={handlePluginSelect}
-            required
-            disabled={submitting || editMode}
-          />
-
-          {selectedPlugin ? (
-            <Stack gap={isMobile ? 'xs' : 'md'}>
-              <Text size="sm" c="dimmed">
-                {selectedPlugin.description}
-              </Text>
-
-              <TextInput
-                label="Provider name"
-                description={NAME_HINT}
-                {...nameProps}
-                error={fieldErrors.providerName}
-                required
-              />
-
-              {fields.map((field) => (
-                <Fragment key={field.key}>{renderAuthField(field)}</Fragment>
-              ))}
-            </Stack>
-          ) : (
-            !pluginsLoading && (
-              <Text size="sm" c="dimmed" ta="center" py="xl">
-                Select a provider type to continue
-              </Text>
-            )
-          )}
+      <FillScrollArea type="auto">
+        <Stack gap={isMobile ? 'lg' : 'xl'} px="lg" pb="lg" pt="xs">
+          {renderSections()}
         </Stack>
-      </ScrollArea>
+      </FillScrollArea>
     </Box>
   )
 }

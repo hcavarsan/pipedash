@@ -211,6 +211,14 @@ pub trait Provider: Send + Sync {
         &self, pipeline_id: &str, run_number: i64,
     ) -> DomainResult<PipelineRun>;
 
+    async fn fetch_recent_runs(
+        &self, _pipeline_ids: &[String], _limit: usize,
+    ) -> DomainResult<HashMap<String, Vec<PipelineRun>>> {
+        Err(DomainError::NotSupported(
+            "Batched run history is not supported by this provider".into(),
+        ))
+    }
+
     async fn trigger_pipeline(&self, params: TriggerParams) -> DomainResult<String>;
 
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()>;

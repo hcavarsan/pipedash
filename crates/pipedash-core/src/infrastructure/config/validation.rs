@@ -182,6 +182,7 @@ impl ConfigValidator {
                     "argocd",
                     "fluxcd",
                     "komodo",
+                    "prow",
                 ];
                 if !valid_types.contains(&provider.provider_type.as_str()) {
                     result.add_warning(ConfigWarning {

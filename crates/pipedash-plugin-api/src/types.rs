@@ -56,6 +56,8 @@ impl ResourceState {
     }
 }
 
+pub const READ_ONLY_METADATA_KEY: &str = "read_only";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
     pub id: String,
@@ -135,6 +137,12 @@ pub struct Organization {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PipelineCatalog {
+    pub organizations: Vec<Organization>,
+    pub pipelines: Vec<AvailablePipeline>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

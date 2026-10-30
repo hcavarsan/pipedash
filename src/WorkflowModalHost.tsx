@@ -6,7 +6,7 @@ import { usePlugins } from './queries/usePluginsQueries'
 import { useRefreshProvider } from './queries/useRefreshQueries'
 import { useModalStore } from './stores/modalStore'
 import type { Pipeline } from './types/domain'
-import { canRerunInPlace, getReconcileBlockReason } from './utils/pipelinePresentation'
+import { canCancelPipeline, canRerunInPlace, getReconcileBlockReason } from './utils/pipelinePresentation'
 import { getPluginByType } from './utils/pluginHelpers'
 
 const TriggerWorkflowModal = lazy(() =>
@@ -79,7 +79,7 @@ export function WorkflowModalHost({ pipelines, invalidateAll }: WorkflowModalHos
               canTrigger={!!logsPipeline && !getReconcileBlockReason(logsPipeline)}
               triggerBlockedReason={logsPipeline ? getReconcileBlockReason(logsPipeline) : undefined}
               rerunInPlace={!!logsPipeline && canRerunInPlace(logsPipeline)}
-              canCancel={!!logsPipeline && !!getPluginByType(plugins, logsPipeline.provider_type)?.capabilities.cancel}
+              canCancel={!!logsPipeline && canCancelPipeline(plugins, logsPipeline)}
               onRerunSuccess={async (pipelineId, newRunNumber) => {
                 await syncAfterAction(logsPipeline?.provider_id)
                 openLogsModal(pipelineId, newRunNumber)

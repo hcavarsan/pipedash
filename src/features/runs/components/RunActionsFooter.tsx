@@ -51,7 +51,7 @@ export function RunActionsFooter({
 
   return (
     <Stack gap="xs">
-      {isFlux && (
+      {(isFlux || triggerBlockedReason) && (
         <Text size="sm" c="dimmed">
           {triggerBlockedReason ?? FLUX_NOTE}
         </Text>
@@ -120,7 +120,12 @@ export function MobileRunActions({
   const hasLogs = isHttpUrl(run.logs_url)
   const stoppable = isRunning && canCancel
   const showRerun = !isRunning && canTrigger
-  const note = isFlux ? (triggerBlockedReason ?? FLUX_NOTE) : isPending && canCancel ? PENDING_NOTE : undefined
+  const note =
+    isFlux || triggerBlockedReason
+      ? (triggerBlockedReason ?? FLUX_NOTE)
+      : isPending && canCancel
+        ? PENDING_NOTE
+        : undefined
 
   const share = async (source: HTMLElement) => {
     if (isMobilePlatform()) {

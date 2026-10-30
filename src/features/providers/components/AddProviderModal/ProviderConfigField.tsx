@@ -10,7 +10,7 @@ import {
   TextInput,
 } from '@mantine/core'
 import type { ChangeEvent, ReactNode } from 'react'
-import { IosRow } from '../../../../components/ios/IosList'
+import { SwitchRow } from '../../../../components/ios/mobileParts'
 import type { ConfigField } from '../../../../types/domain'
 import { fieldA11y, withoutType } from '../../../../utils/formFields'
 
@@ -120,17 +120,12 @@ function ShellConfigField({ field, model, id, disabled, onChange, onBlur }: Fiel
     case 'Boolean':
       return (
         <ShellField id={id} description={field.description} error={error}>
-          <IosRow
+          <SwitchRow
             title={field.label}
-            accessory={
-              <Switch
-                {...a11y}
-                aria-label={field.label}
-                checked={value === 'true'}
-                disabled={disabled}
-                onChange={(event) => onChange(field, String(event.currentTarget.checked))}
-              />
-            }
+            {...a11y}
+            checked={value === 'true'}
+            disabled={disabled}
+            onChange={(event) => onChange(field, String(event.currentTarget.checked))}
           />
         </ShellField>
       )

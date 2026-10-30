@@ -660,33 +660,6 @@ impl Plugin for ArgocdPlugin {
         vec![]
     }
 
-    async fn get_field_options(
-        &self, field_key: &str, _config: &HashMap<String, String>,
-    ) -> PluginResult<Vec<String>> {
-        if field_key == "organizations" {
-            let apps = self.client()?.list_applications(None).await?;
-
-            let mut git_orgs = std::collections::HashSet::new();
-            for app in apps {
-                let git_org = config::extract_git_org(&app.spec.primary_source().repo_url);
-                if git_org != "unknown" && !git_org.is_empty() {
-                    git_orgs.insert(git_org);
-                }
-            }
-
-            let mut orgs: Vec<String> = git_orgs.into_iter().collect();
-            orgs.sort();
-
-            debug!(
-                org_count = orgs.len(),
-                "Returning Git organizations for dropdown"
-            );
-            Ok(orgs)
-        } else {
-            Ok(vec![])
-        }
-    }
-
     async fn sign_in_client(
         &self, config: &HashMap<String, String>, http_client: &reqwest::Client,
     ) -> PluginResult<SignInClient> {

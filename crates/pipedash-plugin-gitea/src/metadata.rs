@@ -22,6 +22,7 @@ fn create_config_schema() -> ConfigSchema {
     ConfigSchema::new()
         .add_field(ConfigField {
             key: "base_url".to_string(),
+            section: ConfigSection::Connection,
             label: "Gitea Base URL".to_string(),
             description: Some(
                 "URL of your Gitea instance (e.g., https://gitea.example.com). Requires Gitea 1.25 or newer"
@@ -36,6 +37,7 @@ fn create_config_schema() -> ConfigSchema {
         })
         .add_field(ConfigField {
             key: "token".to_string(),
+            section: ConfigSection::Authentication,
             label: "Access Token".to_string(),
             description: Some(
                 "Gitea access token with read:user, read:organization and read/write:repository scopes"

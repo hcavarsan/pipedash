@@ -1,15 +1,17 @@
 import type { ProviderConfig } from '../../../../types/domain'
-import { SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
+import { AUTH_MODE_KEY, SIGN_IN_KEY, TOKEN_KEY } from '../../lib/credentials'
 
 import { type FormAction, type FormState, initialFormState } from './types'
 
 export function formReducer(state: FormState, action: FormAction): FormState {
   switch (action.type) {
     case 'SET_STEP':
-      return { ...state, step: action.step }
+      return { ...state, step: action.step, selectingAll: false }
 
     case 'SELECT_PLUGIN': {
       const initialConfig: Record<string, string> = {}
+
+      const noAuth = action.plugin.config_schema.no_auth === true
 
       action.plugin.config_schema.fields.forEach((field) => {
         if (field.default_value !== null && field.default_value !== undefined) {
@@ -17,11 +19,15 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         }
       })
 
+      if (noAuth) {
+        initialConfig[AUTH_MODE_KEY] = 'none'
+      }
+
       return {
         ...state,
         selectedPlugin: action.plugin,
         providerName: action.isEditMode ? state.providerName : action.plugin.name,
-        authMode: 'token',
+        authMode: noAuth ? 'none' : 'token',
         configValues: initialConfig,
         selectedOrganization: '',
         selectedPipelines: new Set(),
@@ -82,7 +88,17 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       const configValues = { ...state.configValues }
       const fieldErrors = { ...state.fieldErrors }
 
-      delete configValues[action.mode === 'token' ? SIGN_IN_KEY : TOKEN_KEY]
+      if (action.mode !== 'token') {
+        delete configValues[TOKEN_KEY]
+      }
+      if (action.mode !== 'sign_in') {
+        delete configValues[SIGN_IN_KEY]
+      }
+      if (action.mode === 'none') {
+        configValues[AUTH_MODE_KEY] = 'none'
+      } else {
+        delete configValues[AUTH_MODE_KEY]
+      }
       delete fieldErrors[SIGN_IN_KEY]
       delete fieldErrors[TOKEN_KEY]
 
@@ -108,6 +124,7 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         selectedOrganization: action.organization,
         repositorySearch: '',
+        selectingAll: false,
       }
 
     case 'TOGGLE_PIPELINE': {
@@ -135,8 +152,24 @@ export function formReducer(state: FormState, action: FormAction): FormState {
       return { ...state, selectedPipelines }
     }
 
+    case 'START_SELECT_ALL':
+      return { ...state, selectingAll: true, selectAllRun: action.run }
+
+    case 'FINISH_SELECT_ALL':
+      if (!state.selectingAll || action.run !== state.selectAllRun) {
+        return state
+      }
+
+      return {
+        ...state,
+        selectingAll: false,
+        selectedPipelines: action.pipelineIds
+          ? new Set([...state.selectedPipelines, ...action.pipelineIds])
+          : state.selectedPipelines,
+      }
+
     case 'SET_REPOSITORY_SEARCH':
-      return { ...state, repositorySearch: action.search }
+      return { ...state, repositorySearch: action.search, selectingAll: false }
 
     case 'SET_ERROR':
       return { ...state, error: action.error }
@@ -172,7 +205,7 @@ export function formReducer(state: FormState, action: FormAction): FormState {
         ...state,
         selectedPlugin: action.plugin,
         providerName: action.provider.config.display_name || action.provider.name,
-        authMode: SIGN_IN_KEY in initialConfig ? 'sign_in' : 'token',
+        authMode: initialConfig[AUTH_MODE_KEY] === 'none' ? 'none' : SIGN_IN_KEY in initialConfig ? 'sign_in' : 'token',
         configValues: initialConfig,
         selectedPipelines: new Set(
           (initialConfig.selected_items ?? '')

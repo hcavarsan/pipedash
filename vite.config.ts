@@ -1,5 +1,5 @@
 import { codecovVitePlugin } from '@codecov/vite-plugin'
-import react from '@vitejs/plugin-react-swc'
+import react from '@vitejs/plugin-react'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { defineConfig } from 'vite'
 
@@ -73,6 +73,7 @@ export default defineConfig({
     outDir: 'crates/pipedash-web/dist',
     emptyOutDir: false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    chunkSizeWarningLimit: 4096,
     rolldownOptions: {
       output: {
         minify: !process.env.TAURI_ENV_DEBUG && {

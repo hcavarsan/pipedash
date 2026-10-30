@@ -28,9 +28,11 @@ pub use health::{
     STATUS_PAGE_URL_KEY,
 };
 pub use http::{
+    body_preview,
     check_response,
     from_status,
     map_send_error,
+    read_prefix,
     redact_url,
     retry_after,
     truncate_chars,
@@ -63,9 +65,13 @@ pub use plugin::{
 };
 pub use registry::PluginRegistry;
 pub use schema::{
+    is_no_auth,
+    AuthMode,
     ConfigField,
     ConfigFieldType,
     ConfigSchema,
+    ConfigSection,
+    AUTH_MODE_KEY,
 };
 pub use sign_in::{
     SignInClient,
@@ -86,6 +92,7 @@ pub use types::{
     PermissionCheck,
     PermissionStatus,
     Pipeline,
+    PipelineCatalog,
     PipelineRun,
     PipelineStatus,
     RateLimit,
@@ -94,6 +101,7 @@ pub use types::{
     TriggerParams,
     WorkflowParameter,
     WorkflowParameterType,
+    READ_ONLY_METADATA_KEY,
 };
 pub use utils::{
     retain_with_ci,

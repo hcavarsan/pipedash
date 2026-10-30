@@ -465,6 +465,7 @@
 }
 
 .menuItem:first-child,
+[data-autofocus] + .menuItem,
 .menuDivider + .menuItem {
   --corner-top: var(--ios-radius-grouped);
 }

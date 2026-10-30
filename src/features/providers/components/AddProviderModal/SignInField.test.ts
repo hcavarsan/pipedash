@@ -43,7 +43,7 @@ function Form({ onChange }: { onChange: (reference: string | null) => void }) {
     configValues: reference
       ? { server_url: 'https://argo.example.com', sign_in: reference }
       : { server_url: 'https://argo.example.com' },
-    ready: true,
+    missing: [],
     disabled: false,
     shell: false,
     onChange: (next) => {
