@@ -202,7 +202,14 @@ export const LogRow = memo(function LogRow(props: LogRowProps): ReactNode {
   const kindClass = lineKind && isOneOf(typedKeys(KIND_CLASS), lineKind) ? KIND_CLASS[lineKind] : null
   return (
     <div
-      className={join(classes.row, kindClass, selected && classes.selected, fresh && classes.fresh)}
+      className={join(
+        classes.row,
+        kindClass,
+        (props.matches?.length ?? 0) > 0 && classes.matchRow,
+        props.current && classes.matchRowCurrent,
+        selected && classes.selected,
+        fresh && classes.fresh
+      )}
       style={{ '--log-gutter': gutterCh }}
       data-line={line}
       data-selectable

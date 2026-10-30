@@ -160,6 +160,23 @@
   background: var(--row-bg);
 }
 
+.matchRow {
+  --row-bg: color-mix(in srgb, var(--mantine-color-text) 5%, transparent);
+
+  background: var(--row-bg);
+}
+
+.matchRowCurrent {
+  --row-bg: color-mix(in srgb, var(--mantine-primary-color-filled) 24%, transparent);
+
+  background: var(--row-bg);
+}
+
+.matchRowCurrent .gutter {
+  box-shadow: inset 3px 0 0 var(--mantine-primary-color-filled);
+  color: var(--mantine-color-text);
+}
+
 .selected {
   --row-bg: var(--mantine-color-blue-light);
 
@@ -294,14 +311,14 @@
 }
 
 .match {
-  border-radius: 2px;
-  background: var(--mantine-color-blue-light);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--mantine-color-text) 22%, transparent);
 }
 
-.matchCurrent {
-  border-radius: 2px;
-  background: var(--mantine-color-blue-light);
-  outline: 2px solid var(--mantine-color-blue-filled);
+.text .matchCurrent {
+  border-radius: 3px;
+  background: var(--mantine-primary-color-filled);
+  color: var(--mantine-primary-color-contrast, #fff);
 }
 
 .bold {
@@ -433,17 +450,6 @@
   padding: 0.25em 1em;
 }
 
-.phoneMatches {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 1em;
-  color: var(--ios-secondary-label);
-  font-size: var(--ios-fs-footnote);
-  line-height: var(--ios-lh-footnote);
-}
-
 /* Floating capsule, like the tab bar (MobileTabBar.module.css); the sheet already pads the home-indicator area below it. */
 .phoneBar {
   display: flex;
@@ -483,7 +489,7 @@
 
 .phoneErrorCounter {
   /* overflow (needed for the ellipsis) clips vertically too, so give tall glyphs room at any text size. */
-  padding: 0.15em 0.25em 0.15em 0.75em;
+  padding: 0.15em 0.25em 0.15em 0.4em;
   overflow: hidden;
   color: var(--ios-secondary-label);
   font-size: 0.88em;

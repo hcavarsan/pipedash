@@ -103,6 +103,7 @@ export function useLogNavigation({
 
     if (match) {
       setCurrentIdx(index)
+      setSelection({ anchor: match[0], from: match[0], to: match[0] })
       goToLine(match[0])
     }
   }
@@ -172,6 +173,7 @@ export function useLogNavigation({
 
         if (target) {
           setCurrentIdx(index)
+          setSelection({ anchor: target[0], from: target[0], to: target[0] })
           goToLine(target[0])
         }
       }

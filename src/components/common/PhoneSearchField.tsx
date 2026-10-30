@@ -1,5 +1,5 @@
 import { IconCircleXFilled, IconSearch } from '@tabler/icons-react'
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useRef, useState } from 'react'
 
 import classes from './PhoneSearchField.module.css'
 
@@ -10,6 +10,7 @@ interface PhoneSearchFieldProps {
   onClear: () => void
   onSubmit?: (() => void) | undefined
   cancelable?: boolean | undefined
+  inputRef?: RefObject<HTMLInputElement | null> | undefined
 }
 
 export function PhoneSearchField({
@@ -19,8 +20,10 @@ export function PhoneSearchField({
   onClear,
   onSubmit,
   cancelable = true,
+  inputRef: sharedRef,
 }: PhoneSearchFieldProps): ReactNode {
-  const inputRef = useRef<HTMLInputElement>(null)
+  const ownRef = useRef<HTMLInputElement>(null)
+  const inputRef = sharedRef ?? ownRef
   const [active, setActive] = useState(false)
 
   const cancel = (): void => {

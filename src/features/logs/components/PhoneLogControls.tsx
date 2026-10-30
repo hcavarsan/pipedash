@@ -1,4 +1,4 @@
-import { Group, Menu } from '@mantine/core'
+import { Menu } from '@mantine/core'
 import {
   IconArrowDown,
   IconArrowUp,
@@ -7,8 +7,9 @@ import {
   IconChevronUp,
   IconDots,
   IconFilter,
+  IconSearch,
 } from '@tabler/icons-react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { PhoneSearchField } from '../../../components/common/PhoneSearchField'
 import { ActionSheetCancel } from '../../../components/ios/ActionSheetCancel'
 import type { LogDocumentMeta } from '../../../types/logs'
@@ -19,23 +20,14 @@ import classes from './LogViewer.module.css'
 
 interface PhoneLogSearchProps {
   queryText: string
-  status: string
-  noMatches: boolean
   onQueryChange: (value: string) => void
   onNextMatch: () => void
-  onPrevMatch: () => void
+  inputRef: RefObject<HTMLInputElement | null>
 }
 
-export function PhoneLogSearch({
-  queryText,
-  status,
-  noMatches,
-  onQueryChange,
-  onNextMatch,
-  onPrevMatch,
-}: PhoneLogSearchProps): ReactNode {
+export function PhoneLogSearch({ queryText, onQueryChange, onNextMatch, inputRef }: PhoneLogSearchProps): ReactNode {
   return (
-    <div className={classes.phoneReveal} data-search-reveal data-pinned={queryText ? true : undefined}>
+    <div className={classes.phoneReveal} data-search-reveal>
       <div className={classes.phoneSearch}>
         <PhoneSearchField
           value={queryText}
@@ -43,33 +35,10 @@ export function PhoneLogSearch({
           onChange={onQueryChange}
           onClear={() => onQueryChange('')}
           onSubmit={onNextMatch}
+          cancelable={false}
+          inputRef={inputRef}
         />
       </div>
-      {queryText && (
-        <div className={classes.phoneMatches}>
-          <span>{status}</span>
-          <Group gap={0} wrap="nowrap">
-            <button
-              type="button"
-              className={classes.phoneButton}
-              aria-label="Previous match"
-              disabled={noMatches}
-              onClick={onPrevMatch}
-            >
-              <IconChevronUp size="1.2em" aria-hidden />
-            </button>
-            <button
-              type="button"
-              className={classes.phoneButton}
-              aria-label="Next match"
-              disabled={noMatches}
-              onClick={onNextMatch}
-            >
-              <IconChevronDown size="1.2em" aria-hidden />
-            </button>
-          </Group>
-        </div>
-      )}
     </div>
   )
 }
@@ -81,7 +50,10 @@ interface PhoneLogBarProps {
   filter: LogFilter
   onFilterChange: (filter: LogFilter) => void
   queryText: string
+  matchStatus: string
   noMatches: boolean
+  onPrevMatch: () => void
+  onNextMatch: () => void
   wrap: boolean
   timestamps: boolean
   onWrapChange: (value: boolean) => void
@@ -93,6 +65,7 @@ interface PhoneLogBarProps {
   onNextError: () => void
   onStart: () => void
   onEnd: () => void
+  onSearch: () => void
 }
 
 export function PhoneLogBar({
@@ -103,6 +76,9 @@ export function PhoneLogBar({
   onFilterChange,
   queryText,
   noMatches,
+  matchStatus,
+  onPrevMatch,
+  onNextMatch,
   wrap,
   timestamps,
   onWrapChange,
@@ -114,39 +90,45 @@ export function PhoneLogBar({
   onNextError,
   onStart,
   onEnd,
+  onSearch,
 }: PhoneLogBarProps): ReactNode {
   const noErrors = meta.error_total === 0
   const failed = meta.sections.some((section) => section.status === 'failed')
+  const searching = queryText !== ''
+  const stepDisabled = searching ? noMatches : noErrors
+  const counter = searching
+    ? matchStatus
+    : errorCounter(
+        meta.error_lines,
+        meta.error_total,
+        selection && selection.from === selection.to ? selection.from : null,
+        failed
+      )
 
   return (
     <div className={classes.phoneBar}>
       <div className={classes.phoneBarGroup}>
-        <span className={classes.phoneErrorCounter} aria-live="polite">
-          {errorCounter(
-            meta.error_lines,
-            meta.error_total,
-            selection && selection.from === selection.to ? selection.from : null,
-            failed
-          )}
-        </span>
         <button
           type="button"
           className={classes.phoneButton}
-          aria-label="Previous error"
-          disabled={noErrors}
-          onClick={onPrevError}
+          aria-label={searching ? 'Previous match' : 'Previous error'}
+          disabled={stepDisabled}
+          onClick={searching ? onPrevMatch : onPrevError}
         >
           <IconChevronUp size="1.2em" aria-hidden />
         </button>
         <button
           type="button"
           className={classes.phoneButton}
-          aria-label="Next error"
-          disabled={noErrors}
-          onClick={onNextError}
+          aria-label={searching ? 'Next match' : 'Next error'}
+          disabled={stepDisabled}
+          onClick={searching ? onNextMatch : onNextError}
         >
           <IconChevronDown size="1.2em" aria-hidden />
         </button>
+        <span className={classes.phoneErrorCounter} aria-live={searching ? undefined : 'polite'}>
+          {counter}
+        </span>
       </div>
       <div className={classes.phoneBarGroup}>
         {queryText && (
@@ -161,6 +143,9 @@ export function PhoneLogBar({
             <IconFilter size="1.2em" aria-hidden />
           </button>
         )}
+        <button type="button" className={classes.phoneButton} aria-label="Search logs" onClick={onSearch}>
+          <IconSearch size="1.2em" aria-hidden />
+        </button>
         <Menu position="top-end" withinPortal>
           <Menu.Target>
             <button type="button" className={classes.phoneButton} aria-label="More">

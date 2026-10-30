@@ -5,6 +5,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  type TouchEvent,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -12,6 +13,7 @@ import {
   useState,
 } from 'react'
 import { type ContextMenuItem, useContextMenu } from '../../../components/common/ContextMenu'
+import { PRESENT_EASING, prefersReducedMotion } from '../../../lib/motion'
 import { queryKeys } from '../../../lib/queryKeys'
 import { useLogViewerPrefs } from '../../../stores/logViewerPrefsStore'
 import type { LogDocumentMeta } from '../../../types/logs'
@@ -35,11 +37,40 @@ import classes from './LogViewer.module.css'
 import { PhoneLogBar, PhoneLogSearch } from './PhoneLogControls'
 
 const NO_GROUPS = new Map()
+const SEARCH_SLIDE_MS = 200
+const SWIPE_HIDE_PX = 12
 
 const lineAt = (target: EventTarget | null): number | null => {
   const value = target instanceof HTMLElement ? target.closest<HTMLElement>('[data-line]')?.dataset.line : undefined
 
   return value === undefined ? null : Number(value)
+}
+
+function slideSearch(input: HTMLInputElement | null, open: boolean): void {
+  const reveal = input?.closest<HTMLElement>('[data-search-reveal]')
+
+  if (!input || !reveal) {
+    return
+  }
+
+  const from = reveal.offsetHeight
+
+  if (open) {
+    reveal.setAttribute('data-open', '')
+    input.focus({ preventScroll: true })
+  } else if (from > 0) {
+    input.blur()
+    reveal.removeAttribute('data-open')
+  }
+
+  const to = reveal.offsetHeight
+
+  if (from !== to && !prefersReducedMotion()) {
+    reveal.animate([{ height: `${from}px` }, { height: `${to}px` }], {
+      duration: SEARCH_SLIDE_MS,
+      easing: PRESENT_EASING,
+    })
+  }
 }
 
 type ReadyViewerProps = LogViewerProps & { meta: LogDocumentMeta }
@@ -56,6 +87,7 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
   const bodyRef = useRef<LogBodyHandle>(null)
   const rulerRef = useRef<LogRulerHandle>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const swipeStartY = useRef<number | null>(null)
   const contextLine = useRef<number | null>(null)
   const [filter, setFilter] = useState<LogFilter>('none')
   const [fullLine, setFullLine] = useState<number | null>(null)
@@ -215,11 +247,9 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
       {phone ? (
         <PhoneLogSearch
           queryText={search.queryText}
-          status={status}
-          noMatches={noMatches}
           onQueryChange={navigation.changeText}
           onNextMatch={nextMatch}
-          onPrevMatch={prevMatch}
+          inputRef={searchRef}
         />
       ) : (
         <LogToolbar
@@ -261,7 +291,29 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
           Showing the first 1 GB of this log. Open the job in {providerName} for the rest.
         </Alert>
       )}
-      <div className={classes.main}>
+      <div
+        className={classes.main}
+        {...(phone && {
+          onTouchStart: (event: TouchEvent<HTMLDivElement>) => {
+            swipeStartY.current = event.touches.length === 1 ? (event.touches[0]?.clientY ?? null) : null
+          },
+          onTouchMove: (event: TouchEvent<HTMLDivElement>) => {
+            const start = swipeStartY.current
+            const y = event.touches[0]?.clientY
+
+            if (start !== null && y !== undefined && start - y > SWIPE_HIDE_PX) {
+              swipeStartY.current = null
+              slideSearch(searchRef.current, false)
+            }
+          },
+          onTouchEnd: () => {
+            swipeStartY.current = null
+          },
+          onTouchCancel: () => {
+            swipeStartY.current = null
+          },
+        })}
+      >
         <LogBody
           ref={bodyRef}
           jobName={node.name}
@@ -317,7 +369,10 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
           filter={filter}
           onFilterChange={setFilter}
           queryText={search.queryText}
+          matchStatus={status}
           noMatches={noMatches}
+          onPrevMatch={prevMatch}
+          onNextMatch={nextMatch}
           wrap={wrap}
           timestamps={timestamps}
           onWrapChange={setWrap}
@@ -329,6 +384,7 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
           onNextError={() => stepError(1)}
           onStart={() => bodyRef.current?.scrollToRow(0, 'start')}
           onEnd={() => bodyRef.current?.scrollToEnd()}
+          onSearch={() => slideSearch(searchRef.current, true)}
         />
       )}
       <VisuallyHidden role="status">{status}</VisuallyHidden>
