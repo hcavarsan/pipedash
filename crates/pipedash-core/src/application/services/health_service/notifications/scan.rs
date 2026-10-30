@@ -317,10 +317,41 @@ async fn poll(provider: &dyn Provider) -> Polled {
 
 async fn check_overdue(job: Overdue) -> Done {
     let now = Utc::now();
-    let permits = Semaphore::new(OVERDUE_CONCURRENT_CHECKS);
     let provider = &*job.provider;
-    let mut running: FuturesUnordered<_> = job
+    let ids: Vec<String> = job
         .selected
+        .iter()
+        .map(|(pipeline, _)| pipeline.id.clone())
+        .collect();
+    let checked = match timeout(
+        OVERDUE_BUDGET,
+        provider.fetch_recent_runs(&ids, OVERDUE_RECENT_RUNS),
+    )
+    .await
+    {
+        Ok(Err(DomainError::NotSupported(_))) => check_each(provider, job.selected, now).await,
+        Ok(Ok(mut runs)) => job
+            .selected
+            .into_iter()
+            .filter_map(|(pipeline, known)| {
+                let overdue = overdue_run(&runs.remove(&pipeline.id)?, now);
+                Some((pipeline, known, overdue))
+            })
+            .collect(),
+        Ok(Err(_)) | Err(_) => Vec::new(),
+    };
+
+    Done::Overdue {
+        id: job.id,
+        checked,
+    }
+}
+
+async fn check_each(
+    provider: &dyn Provider, selected: Vec<(Pipeline, bool)>, now: DateTime<Utc>,
+) -> Vec<(Pipeline, bool, Option<String>)> {
+    let permits = Semaphore::new(OVERDUE_CONCURRENT_CHECKS);
+    let mut running: FuturesUnordered<_> = selected
         .into_iter()
         .map(|(pipeline, known)| {
             let permits = &permits;
@@ -346,11 +377,7 @@ async fn check_overdue(job: Overdue) -> Done {
         }
     })
     .await;
-
-    Done::Overdue {
-        id: job.id,
-        checked,
-    }
+    checked
 }
 
 impl NotificationState {

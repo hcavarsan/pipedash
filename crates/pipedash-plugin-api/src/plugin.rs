@@ -185,6 +185,14 @@ pub trait Plugin: Send + Sync {
         &self, pipeline_id: &str, run_number: i64,
     ) -> PluginResult<PipelineRun>;
 
+    async fn fetch_recent_runs(
+        &self, _pipeline_ids: &[String], _limit: usize,
+    ) -> PluginResult<HashMap<String, Vec<PipelineRun>>> {
+        Err(crate::error::PluginError::NotSupported(
+            "Batched run history not supported by this provider".to_string(),
+        ))
+    }
+
     async fn trigger_pipeline(&self, params: TriggerParams) -> PluginResult<String>;
 
     async fn cancel_run(&self, _pipeline_id: &str, _run_number: i64) -> PluginResult<()> {

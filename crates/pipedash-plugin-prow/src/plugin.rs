@@ -231,6 +231,26 @@ impl ProwPlugin {
         })
     }
 
+    async fn history_from(
+        &self, jobs: &[ProwJob], selection: &Selection, pipeline_id: &str, limit: usize,
+    ) -> PluginResult<Vec<PipelineRun>> {
+        let deck = self.deck()?;
+        let mut runs = mapper::runs(jobs, &selection.job, pipeline_id, deck.base());
+        if self.history == HistorySource::Storage {
+            if let Some((bucket, roots)) =
+                self.history_location(mapper::newest(jobs, &selection.job))
+            {
+                let stored = self
+                    .stored_runs(&bucket, &roots, selection, pipeline_id, &runs, limit)
+                    .await?;
+                runs.extend(stored);
+            }
+        }
+        runs.sort_by_key(|run| std::cmp::Reverse(run.run_number));
+        runs.truncate(limit);
+        Ok(runs)
+    }
+
     async fn stream_from(
         &self, source: LogSource, target: &RunTarget, offset: Option<u64>, sink: &mut LogSink,
     ) -> PluginResult<(LogReadMode, u64)> {
@@ -511,24 +531,64 @@ impl Plugin for ProwPlugin {
         &self, pipeline_id: &str, limit: usize,
     ) -> PluginResult<Vec<PipelineRun>> {
         let selection = config::parse_pipeline_id(pipeline_id)?;
-        let deck = self.deck()?;
         let jobs = self.scope_jobs(selection.scope.as_ref()).await?;
-        let mut runs = mapper::runs(&jobs, &selection.job, pipeline_id, deck.base());
+        self.history_from(&jobs, &selection, pipeline_id, limit)
+            .await
+    }
 
-        if self.history == HistorySource::Storage {
-            if let Some((bucket, roots)) =
-                self.history_location(mapper::newest(&jobs, &selection.job))
-            {
-                let stored = self
-                    .stored_runs(&bucket, &roots, &selection, pipeline_id, &runs, limit)
-                    .await?;
-                runs.extend(stored);
+    async fn fetch_recent_runs(
+        &self, pipeline_ids: &[String], limit: usize,
+    ) -> PluginResult<HashMap<String, Vec<PipelineRun>>> {
+        let selections: Vec<(&String, Selection)> = pipeline_ids
+            .iter()
+            .filter_map(|id| {
+                config::parse_pipeline_id(id)
+                    .ok()
+                    .map(|selection| (id, selection))
+            })
+            .collect();
+        let mut scopes: Vec<Option<&Scope>> = Vec::new();
+        for (_, selection) in &selections {
+            let scope = selection.scope.as_ref();
+            if !scopes.contains(&scope) {
+                scopes.push(scope);
+            }
+        }
+        let lists =
+            futures::future::join_all(scopes.iter().map(|scope| self.scope_jobs(*scope))).await;
+        let mut jobs_by_scope: HashMap<Option<&Scope>, Vec<ProwJob>> = HashMap::new();
+        let mut first_error = None;
+        for (scope, jobs) in scopes.into_iter().zip(lists) {
+            match jobs {
+                Ok(jobs) => {
+                    jobs_by_scope.insert(scope, jobs);
+                }
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        if jobs_by_scope.is_empty() {
+            if let Some(error) = first_error {
+                return Err(error);
             }
         }
 
-        runs.sort_by_key(|run| std::cmp::Reverse(run.run_number));
-        runs.truncate(limit);
-        Ok(runs)
+        let histories =
+            futures::future::join_all(selections.iter().filter_map(|(id, selection)| {
+                let jobs = jobs_by_scope.get(&selection.scope.as_ref())?;
+                Some(async move {
+                    (
+                        (*id).clone(),
+                        self.history_from(jobs, selection, id, limit).await,
+                    )
+                })
+            }))
+            .await;
+        Ok(histories
+            .into_iter()
+            .filter_map(|(id, runs)| runs.ok().map(|runs| (id, runs)))
+            .collect())
     }
 
     async fn fetch_run_details(
@@ -977,6 +1037,41 @@ mod tests {
                 .map(|s| s.label.as_str()),
             Some("No recent runs")
         );
+    }
+
+    #[tokio::test]
+    async fn recent_runs_fetch_each_scope_once_for_many_pipelines() {
+        let refless = r#"{"metadata":{"name":"n-7","namespace":"default"},"spec":{"type":"periodic","job":"ci-noref"},"status":{"startTime":"2026-10-30T10:00:00Z","state":"pending","build_id":"7"}}"#;
+        let scoped = jobs_body(&[
+            prowjob("a-300", "ci-a", "300", "success", "periodic", ""),
+            prowjob("b-301", "ci-b", "301", "pending", "periodic", ""),
+            prowjob("a-299", "ci-a", "299", "failure", "periodic", ""),
+        ]);
+        let everything = format!(r#"{{"items":[{refless}]}}"#);
+        let (deck, requests) = serve(move |request| {
+            if request.target.contains("org=") {
+                Response::json(200, &scoped)
+            } else {
+                Response::json(200, &everything)
+            }
+        });
+        let plugin = plugin_with(&deck, &[]);
+        let ids = [
+            CI_A.to_string(),
+            "prow__1__kubernetes/test-infra/ci-b".to_string(),
+            "prow__1__ci-noref".to_string(),
+            "not-a-prow-id".to_string(),
+        ];
+
+        let runs = plugin.fetch_recent_runs(&ids, 10).await.unwrap();
+
+        let numbers =
+            |id: &str| -> Vec<i64> { runs[id].iter().map(|run| run.run_number).collect() };
+        assert_eq!(numbers(&ids[0]), [300, 299]);
+        assert_eq!(numbers(&ids[1]), [301]);
+        assert_eq!(numbers(&ids[2]), [7]);
+        assert!(!runs.contains_key(&ids[3]));
+        assert_eq!(sent(&requests, "GET", "/prowjobs.js").len(), 2);
     }
 
     #[tokio::test]
