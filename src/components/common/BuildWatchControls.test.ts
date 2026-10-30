@@ -430,14 +430,13 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     assert.equal(view().queryByText(/^Watch stopped/), null)
   })
 
-  test('the main pipelines list places the watched run above pinned and keeps its actions local', async () => {
+  test('the main pipelines list shows the watched run, leaves pins to the Pinned tab and keeps actions local', async () => {
     nativeStatus = { ...available(), watch: { ...snapshot } }
     pinnedInView = true
     const opened = mount({ page: '/pipelines' })
     const user = userEvent.setup({ document })
     const section = await view().findByRole('region', { name: 'Watching' })
-    const pinned = view().getByRole('region', { name: 'Pinned' })
-    assert.ok(section.compareDocumentPosition(pinned) & Node.DOCUMENT_POSITION_FOLLOWING)
+    assert.equal(view().queryByRole('region', { name: 'Pinned' }), null)
     assert.equal(within(section).queryByRole('alert'), null)
     assert.ok(within(section).getByRole('button', { name: /^Build #42\s*, Pending/ }))
     assert.match(section.textContent ?? '', /GitHub · main/)

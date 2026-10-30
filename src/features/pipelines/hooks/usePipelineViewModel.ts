@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import type { PipelineSelection, TableRow } from '../../../components/common/PipelineRowParts'
 import type { VirtualTableSort } from '../../../components/common/VirtualTable'
 import { useDebounce } from '../../../hooks/useDebounce'
@@ -15,7 +16,14 @@ import type {
   ViewPipeline,
 } from '../../../types/domain'
 import { getPipelineLabels, type PipelineLabels } from '../../../utils/pipelinePresentation'
-import { buildPipelineRows, collator, getSectionsLabel, SORT_ACCESSORS } from '../lib/pipelineRows'
+import {
+  buildPhoneRows,
+  buildPipelineRows,
+  collator,
+  getSectionsLabel,
+  SORT_ACCESSORS,
+  sectionTitle,
+} from '../lib/pipelineRows'
 import { usePipelineViewPage } from '../queries/usePipelineViewQueries'
 import { type ExpansionMap, readExpansion, usePipelineExpansion, writeExpansion } from './usePipelineExpansion'
 import { usePipelineSelection } from './usePipelineSelection'
@@ -30,6 +38,9 @@ export interface PipelineViewPageModel {
   providers: ProviderSummary[]
   isMobile: boolean
   mobileShell: boolean
+  group: string | null
+  pushed: boolean
+  mobileTitle: string | null
   loading: boolean
   error: unknown
   query: PipelineViewQuery
@@ -80,6 +91,9 @@ export function usePipelineViewModel({
 }: PipelineViewModelInput): PipelineViewPageModel {
   const { isMobile } = useIsMobile()
   const mobileShell = useMobileShell()
+  const { group: groupParam } = useParams()
+  const group = mobileShell ? (groupParam ?? null) : null
+  const pushed = group !== null
   const { filters, setFilter, selectStatus, clearFilters } = usePipelineFilters()
   const urlQuery = usePipelineViewQuery()
   const debouncedSearch = useDebounce(filters.search)
@@ -100,6 +114,12 @@ export function usePipelineViewModel({
     activeProviders.length > 0 && activeProviders.every((provider) => provider.provider_type === 'fluxcd')
   const labels = getPipelineLabels(isFluxView ? 'fluxcd' : undefined)
   const title = kind === 'all' ? (isFluxView ? 'FluxCD resources' : 'Pipelines') : (view?.name ?? 'Pipelines')
+  const groupSection = page?.sections.find((section) => section.id === group)
+  const providerName = filters.provider
+    ? providers.find((provider) => String(provider.id) === filters.provider)?.name
+    : undefined
+  const listTitle = kind === 'all' ? (isFluxView ? 'FluxCD resources' : 'All pipelines') : (view?.name ?? null)
+  const mobileTitle = !mobileShell ? null : groupSection ? sectionTitle(groupSection) : (providerName ?? listTitle)
   const filtersActive = page?.filters_active ?? false
 
   const [expanded, setExpandedMap] = useState<ExpansionMap>(readExpansion)
@@ -114,15 +134,16 @@ export function usePipelineViewModel({
     toggle: toggleOpen,
     setAll,
   } = usePipelineExpansion(query.view, expanded, saveExpanded, JSON.stringify(query), filtersActive)
-  const toggleSection = (id: string) => toggleOpen(id, mobileShell)
+  const toggleSection = (id: string) => toggleOpen(id, false)
 
   const getProvider = useCallback(
     (providerId: number): ProviderSummary | undefined => providers.find((p) => p.id === providerId),
     [providers]
   )
   const rows = useMemo(
-    () => buildPipelineRows({ page, isOpen, getProvider, defaultOpen: mobileShell }),
-    [page, isOpen, getProvider, mobileShell]
+    () =>
+      mobileShell ? buildPhoneRows({ page, getProvider, group }) : buildPipelineRows({ page, isOpen, getProvider }),
+    [page, isOpen, getProvider, mobileShell, group]
   )
   const providerOptions = useMemo(
     () =>
@@ -172,6 +193,9 @@ export function usePipelineViewModel({
     providers,
     isMobile,
     mobileShell,
+    group,
+    pushed,
+    mobileTitle,
     loading: loadingProp || pageLoading,
     error: errorProp ?? pageError,
     query,

@@ -1,5 +1,5 @@
-import { notifications } from '@mantine/notifications'
 import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
+import { notifications } from '../../../lib/notifications'
 
 import { service } from '../../../services/service'
 import { useLogViewerPrefs } from '../../../stores/logViewerPrefsStore'

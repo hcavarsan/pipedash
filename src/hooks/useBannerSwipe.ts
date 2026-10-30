@@ -1,8 +1,7 @@
-import { notifications } from '@mantine/notifications'
 import { useEffect } from 'react'
-
 import { nearestStop } from '../lib/gestures'
 import { prefersReducedMotion } from '../lib/motion'
+import { notifications } from '../lib/notifications'
 import { FLICK_SPEED } from '../lib/sheetDetents'
 import { animateSpring, rubberband, SPRING_DEFAULT, SPRING_MOMENTUM, type SpringAnimation } from '../lib/spring'
 import { type GestureStart, trackTouches } from '../lib/touchTracker'

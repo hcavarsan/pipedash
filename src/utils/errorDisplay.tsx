@@ -1,7 +1,6 @@
-import { notifications } from '@mantine/notifications'
-
 import { isMobileShell } from '../hooks/useIsMobile'
 import { haptic } from '../lib/haptics'
+import { notifications } from '../lib/notifications'
 import { formatErrorMessage } from '../types/errors'
 
 import classes from './errorDisplay.module.css'

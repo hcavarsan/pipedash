@@ -13,6 +13,7 @@ import type {
   ProviderConfig,
   ProviderSummary,
   RefreshResult,
+  ViewMember,
 } from '../types/domain'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
@@ -25,7 +26,9 @@ const { tauriService } = await import('../services/tauri')
 const { queryKeys } = await import('../lib/queryKeys')
 const { useAggregatedMetrics } = await import('../features/metrics/queries/useMetricsQueries')
 const { useRunHistory, useSaveTablePreferences } = await import('./useRunHistoryQueries')
-const { useToggleHidden, useTogglePin } = await import('../features/pipelines/queries/usePipelineViewQueries')
+const { useReorderPinned, useToggleHidden, useTogglePin } = await import(
+  '../features/pipelines/queries/usePipelineViewQueries'
+)
 const { useAddProvider, useUpdateProvider } = await import('./useProvidersQueries')
 const { useRefreshProviders } = await import('./useRefreshQueries')
 const { useRerunWorkflow } = await import('../features/runs/queries/useRunDetailsQuery')
@@ -45,6 +48,7 @@ type Stubbed =
   | 'saveTablePreferences'
   | 'setPipelineViewMembership'
   | 'setPipelineHidden'
+  | 'updatePipelineView'
   | 'updateProvider'
   | 'addProvider'
   | 'refreshProvider'
@@ -180,6 +184,35 @@ for (const [name, useToggle, method] of [
     assert.deepEqual([restored?.pinned, restored?.hidden], [false, false])
   })
 }
+
+test('a pinned reorder across sections moves the member order and a rejection restores it', async (context) => {
+  const request = Promise.withResolvers<never>()
+  stub(context, 'updatePipelineView', () => request.promise)
+  const key = queryKeys.pipelines.viewMembers('pinned')
+  const member = (id: string): ViewMember => ({
+    pipeline_id: id,
+    name: null,
+    repository: null,
+    provider_id: 1,
+    available: true,
+  })
+  const memberIds = () => client.getQueryData<ViewMember[]>(key)?.map((item) => item.pipeline_id)
+  client.setQueryData(key, [member('a'), member('b'), member('c')])
+  const { result } = renderHook(() => useReorderPinned(), { wrapper })
+
+  let mutation: Promise<unknown> = Promise.resolve()
+  act(() => {
+    mutation = result.current.mutateAsync(['a', 'c', 'b']).catch(() => undefined)
+  })
+  await waitFor(() => assert.deepEqual(memberIds(), ['a', 'c', 'b']))
+
+  await act(async () => {
+    request.reject(new Error('nope'))
+    await mutation
+  })
+
+  assert.deepEqual(memberIds(), ['a', 'b', 'c'])
+})
 
 test('provider edit does not seed an absent list and keeps credentials out of summaries', async (context) => {
   stub(context, 'updateProvider', async () => undefined)

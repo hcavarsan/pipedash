@@ -63,6 +63,7 @@
   color: var(--ios-label);
   font-family: inherit;
   font-size: var(--ios-fs-body);
+  text-decoration: none;
   font-weight: 400;
   line-height: var(--ios-lh-body);
   text-align: left;
@@ -182,104 +183,23 @@
   display: block;
 }
 
-.sectionHeader {
-  position: relative;
+.reorder {
   display: flex;
   align-items: center;
-  padding-top: 1.4em;
-  padding-bottom: 0.35em;
-}
-
-.sectionHeader[data-first] {
-  padding-top: 0;
-}
-
-.sectionHeader:has(.sectionToggle:active) {
-  opacity: 0.6;
-}
-
-.sectionHeading {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font: inherit;
-}
-
-.sectionToggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5em;
-  width: 100%;
+  justify-content: center;
+  width: 44px;
   min-height: 44px;
-  padding: 0 1.2em;
+  margin-right: 0.25em;
+  padding: 0;
   border: 0;
   background: transparent;
-  color: var(--ios-label);
-  font-family: inherit;
-  text-align: left;
-}
-
-.sectionToggle:focus-visible {
-  outline: 2px solid var(--ios-tint);
-  outline-offset: -2px;
-  border-radius: 8px;
-}
-
-.sectionTitle {
-  flex-shrink: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: var(--ios-fs-headline);
-  font-weight: 600;
-  line-height: var(--ios-lh-headline);
-}
-
-.sectionMeta,
-.sectionCount {
-  font-size: var(--ios-fs-footnote);
-  line-height: var(--ios-lh-footnote);
   color: var(--ios-secondary-label);
+  touch-action: none;
+  cursor: grab;
 }
 
-.sectionMeta {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.sectionCount {
-  flex-shrink: 0;
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-}
-
-.sectionChevron {
-  flex-shrink: 0;
-  width: 1em;
-  height: 1em;
-  color: var(--ios-secondary-label);
-  transition: transform 160ms ease;
-}
-
-.sectionChevron[data-open] {
-  transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sectionChevron {
-    transition: none;
-  }
-}
-
-.sectionFooter {
-  margin: 0;
-  padding: 0.5em 1.2em 0;
-  font-size: var(--ios-fs-footnote);
-  line-height: var(--ios-lh-footnote);
-  color: var(--ios-secondary-label);
-  white-space: pre-line;
+.cell[data-dragging] {
+  position: relative;
+  z-index: 3;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
 }

@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 
 import { useBannerSwipe } from '../hooks/useBannerSwipe'
 import { useMobileShell } from '../hooks/useIsMobile'
-import { PRESENT_EASING } from '../lib/motion'
 import { iosToastClassNames } from './ios'
 
 export function ToastHost(): ReactNode {
@@ -31,8 +30,6 @@ export function ToastHost(): ReactNode {
       allowDragDismiss={false}
       allowScrollDismiss={false}
       transitionDuration={160}
-      classNames={{ notification: 'desktop-toast' }}
-      style={{ '--desktop-present-easing': PRESENT_EASING }}
     />
   )
 }

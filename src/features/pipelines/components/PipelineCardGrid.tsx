@@ -1,26 +1,19 @@
 import { Box, Card, Checkbox, Group, px, Stack, Text, UnstyledButton, useMantineTheme } from '@mantine/core'
 import { type ReactNode, type RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useContextMenu } from '../../../components/common/ContextMenu'
-import { IosPipelineRow, relativeOrNever, staleFooter } from '../../../components/common/IosPipelineList'
 import {
   FetchInfo,
   type PipelineActions,
   type PipelineSelection,
   PipelineStatusBadge,
-  WorkflowActionMenu,
   WorkflowActions,
   workflowMenuItems,
-  workflowSwipeActions,
 } from '../../../components/common/PipelineRowParts'
 import { VirtualList } from '../../../components/common/VirtualList'
-import { IosGroup } from '../../../components/ios/IosList'
-import { useMobileShell } from '../../../hooks/useIsMobile'
-import { useNow } from '../../../hooks/useNow'
 import type { ProviderSummary, ViewPipeline } from '../../../types/domain'
 import { formatDateTime } from '../../../utils/formatDateTime'
-import { getPipelineLabels, getPipelineStatusLabel } from '../../../utils/pipelinePresentation'
+import { getPipelineLabels } from '../../../utils/pipelinePresentation'
 
-const MOBILE_ROW_ESTIMATE = 64
 const CARD_ROW_ESTIMATE = 130
 
 interface GridRow {
@@ -29,8 +22,6 @@ interface GridRow {
 }
 
 interface PipelineCardGridProps {
-  header?: string | undefined
-  headerAction?: ReactNode
   pipelines: ViewPipeline[]
   getProvider: (providerId: number) => ProviderSummary | undefined
   actions: PipelineActions
@@ -84,34 +75,6 @@ interface PipelineItemProps {
   selection?: PipelineSelection | undefined
 }
 
-function IosPipelineItem({
-  pipeline,
-  getProvider,
-  actions,
-  selection,
-  now,
-}: PipelineItemProps & { now: number }): ReactNode {
-  const provider = getProvider(pipeline.provider_id)
-  const subtitle = [pipeline.repository, pipeline.branch, relativeOrNever(pipeline.last_run, now)]
-    .filter(Boolean)
-    .join(' · ')
-
-  return (
-    <IosPipelineRow
-      status={pipeline.status}
-      statusText={getPipelineStatusLabel(pipeline)}
-      title={pipeline.name}
-      subtitle={subtitle}
-      hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
-      longPressMenu
-      selected={selection ? selection.selected.has(pipeline.id) : undefined}
-      onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
-      swipeActions={workflowSwipeActions(pipeline, actions)}
-      menu={<WorkflowActionMenu pipeline={pipeline} provider={provider} actions={actions} />}
-    />
-  )
-}
-
 function PipelineCard({ pipeline, getProvider, actions, selection }: PipelineItemProps): ReactNode {
   const contextMenu = useContextMenu()
 
@@ -163,77 +126,38 @@ function PipelineCard({ pipeline, getProvider, actions, selection }: PipelineIte
   )
 }
 
-export function PipelineCardGrid({
-  header,
-  headerAction,
-  pipelines,
-  getProvider,
-  actions,
-  selection,
-}: PipelineCardGridProps): ReactNode {
-  const mobileShell = useMobileShell()
-  const now = useNow(30_000)
+export function PipelineCardGrid({ pipelines, getProvider, actions, selection }: PipelineCardGridProps): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null)
-  const measuredColumns = useColumnCount(containerRef)
-  const columns = mobileShell ? 1 : measuredColumns
+  const columns = useColumnCount(containerRef)
   const rows = useMemo(() => chunkPipelines(pipelines, columns), [pipelines, columns])
 
-  const list = (
+  return (
     <div ref={containerRef}>
       <VirtualList
         items={rows}
         getKey={(row) => row.key}
-        estimateSize={mobileShell ? MOBILE_ROW_ESTIMATE : CARD_ROW_ESTIMATE}
-        renderItem={(row, index) =>
-          mobileShell ? (
-            row.pipelines.map((pipeline) => (
-              <IosPipelineItem
+        estimateSize={CARD_ROW_ESTIMATE}
+        renderItem={(row, index) => (
+          <Box
+            pb={index === rows.length - 1 ? 0 : 'sm'}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+              gap: 'var(--mantine-spacing-sm)',
+            }}
+          >
+            {row.pipelines.map((pipeline) => (
+              <PipelineCard
                 key={pipeline.id}
                 pipeline={pipeline}
                 getProvider={getProvider}
                 actions={actions}
                 selection={selection}
-                now={now}
               />
-            ))
-          ) : (
-            <Box
-              pb={index === rows.length - 1 ? 0 : 'sm'}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                gap: 'var(--mantine-spacing-sm)',
-              }}
-            >
-              {row.pipelines.map((pipeline) => (
-                <PipelineCard
-                  key={pipeline.id}
-                  pipeline={pipeline}
-                  getProvider={getProvider}
-                  actions={actions}
-                  selection={selection}
-                />
-              ))}
-            </Box>
-          )
-        }
+            ))}
+          </Box>
+        )}
       />
     </div>
-  )
-
-  return mobileShell ? (
-    <IosGroup
-      header={header}
-      headerAction={headerAction}
-      footer={staleFooter(
-        pipelines.map((pipeline) => pipeline.provider_id),
-        getProvider,
-        now
-      )}
-    >
-      {list}
-    </IosGroup>
-  ) : (
-    list
   )
 }

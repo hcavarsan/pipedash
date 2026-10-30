@@ -1,25 +1,22 @@
 import { Loader } from '@mantine/core'
 import { IconCheck, IconChevronRight } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 
 import { useRowMenuLongPress } from '../../hooks/useLongPress'
 import { useNow } from '../../hooks/useNow'
-import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import { STATUS_META } from '../../theme/status'
-import type { PipelineStatus, ProviderSummary } from '../../types/domain'
-import { staleNote } from '../../utils/fetchInfo'
-import { getPipelineLabels, getPipelineStatusLabel } from '../../utils/pipelinePresentation'
+import { type StatusKey, statusMeta } from '../../theme/status'
+import type { ProviderSummary } from '../../types/domain'
+import { getPipelineLabels, getPipelineStatusLabel, pipelineStatusKey } from '../../utils/pipelinePresentation'
 import { StatusGlyph } from '../atoms/StatusBadge'
 import groupClasses from '../ios/IosList.module.css'
 import { SwipeActions } from '../ios/SwipeActions'
 import type { SwipeAction } from '../ios/swipeAction'
+import { groupPath, pushState } from '../layout/mobileChrome'
 import classes from './IosPipelineList.module.css'
 import {
   type PipelineActions,
   type PipelineSelection,
-  RowActionMenu,
-  refreshItem,
-  rowMenuItems,
   type TableRow,
   WorkflowActionMenu,
   workflowSwipeActions,
@@ -27,7 +24,7 @@ import {
 import { VirtualList } from './VirtualList'
 
 interface IosPipelineRowProps {
-  status?: PipelineStatus | null | undefined
+  status?: StatusKey | null | undefined
   statusText?: string | undefined
   title: string
   subtitle: string
@@ -37,6 +34,7 @@ interface IosPipelineRowProps {
   swipeActions?: SwipeAction[] | undefined
   longPressMenu?: boolean | undefined
   selected?: boolean | undefined
+  reorderHandle?: ReactNode
 }
 
 export function IosPipelineRow({
@@ -50,6 +48,7 @@ export function IosPipelineRow({
   swipeActions,
   longPressMenu,
   selected,
+  reorderHandle,
 }: IosPipelineRowProps): ReactNode {
   const hintId = useId()
   const selecting = selected !== undefined
@@ -72,7 +71,7 @@ export function IosPipelineRow({
         {status && <StatusGlyph status={status} />}
         <span className={classes.text}>
           <span className={classes.title}>{title}</span>
-          {status && <span className={classes.srOnly}>, {statusText ?? STATUS_META[status].label}</span>}
+          {status && <span className={classes.srOnly}>, {statusText ?? statusMeta(status).label}</span>}
           {subtitle && <span className={classes.subtitle}>{subtitle}</span>}
         </span>
         {!selecting && (
@@ -87,6 +86,7 @@ export function IosPipelineRow({
         </span>
       )}
       {!selecting && menu}
+      {selecting && reorderHandle}
     </>
   )
 
@@ -97,6 +97,7 @@ export function IosPipelineRow({
       data-glyph={status ? '' : undefined}
       data-selecting={selecting ? '' : undefined}
       data-swipeable={swipeable ? '' : undefined}
+      data-trailing={reorderHandle ? '' : undefined}
     >
       {swipeable && swipeActions ? <SwipeActions actions={swipeActions}>{body}</SwipeActions> : body}
     </div>
@@ -119,22 +120,7 @@ const compactRelative = (value: string, now: number) => {
 }
 
 export const relativeOrNever = (value: string | null | undefined, now: number): string =>
-  value ? compactRelative(value, now) : 'Never'
-
-export function staleFooter(
-  providerIds: Iterable<number>,
-  getProvider: (providerId: number) => ProviderSummary | undefined,
-  now: number
-): string | undefined {
-  const notes = Array.from(new Set(providerIds)).flatMap((id) => {
-    const provider = getProvider(id)
-    const note = provider && staleNote(provider, now)
-
-    return provider && note ? [`${provider.name}: ${note}`] : []
-  })
-
-  return notes.length > 0 ? notes.join('\n') : undefined
-}
+  value ? compactRelative(value, now) : 'Never run'
 
 const ROW_ESTIMATE = 58
 
@@ -142,7 +128,6 @@ interface IosPipelineListProps {
   header?: ReactNode
   rows: TableRow[]
   getProvider: (providerId: number) => ProviderSummary | undefined
-  onToggleRepo: (repoId: string) => void
   actions: PipelineActions
   selection?: PipelineSelection | undefined
 }
@@ -150,101 +135,36 @@ interface IosPipelineListProps {
 type SectionTableRow = Extract<TableRow, { type: 'section' }>
 type WorkflowTableRow = Extract<TableRow, { type: 'workflow' }>
 
-type ListItem =
-  | { type: 'header'; id: string; row: SectionTableRow; first: boolean }
-  | { type: 'cell'; id: string; row: WorkflowTableRow; first: boolean; last: boolean }
-  | { type: 'footer'; id: string; text: string }
-
-function listItems(
-  rows: TableRow[],
-  getProvider: (providerId: number) => ProviderSummary | undefined,
-  now: number
-): ListItem[] {
-  const items: ListItem[] = []
-  let group: number[] = []
-  let groupId = 'list'
-
-  rows.forEach((row, index) => {
-    if (row.type === 'section') {
-      items.push({ type: 'header', id: row.id, row, first: index === 0 })
-      group = []
-      groupId = row.id
-
-      return
-    }
-
-    const previous = rows[index - 1]
-    const next = rows[index + 1]
-    const last = next === undefined || next.type === 'section'
-
-    group.push(...row.providerIds)
-    items.push({
-      type: 'cell',
-      id: row.id,
-      row,
-      first: previous === undefined || previous.type === 'section',
-      last,
-    })
-
-    const text = last ? staleFooter(group, getProvider, now) : undefined
-
-    if (text) {
-      items.push({ type: 'footer', id: `footer:${groupId}`, text })
-    }
-  })
-
-  return items
-}
-
-interface SectionHeaderProps {
-  row: SectionTableRow
+interface ListItem {
+  id: string
+  row: TableRow
   first: boolean
-  getProvider: (providerId: number) => ProviderSummary | undefined
-  onToggleRepo: (repoId: string) => void
-  actions: PipelineActions
+  last: boolean
 }
 
-function SectionHeader({ row, first, getProvider, onToggleRepo, actions }: SectionHeaderProps): ReactNode {
-  const pressRef = useRowMenuLongPress()
-  const openNotifications = useNotificationCenterStore((state) => state.open)
-  const providerIds = Array.from(row.providerIds)
-  const meta = Array.from(new Set([row.organization, row.providerLabel].filter(Boolean))).join(' · ')
-  const statusItems = providerIds.flatMap((id) => {
-    const provider = getProvider(id)
+const listItems = (rows: TableRow[]): ListItem[] =>
+  rows.map((row, index) => ({ id: row.id, row, first: index === 0, last: index === rows.length - 1 }))
 
-    return provider
-      ? [
-          {
-            label: `${provider.name} service status`,
-            onClick: () => openNotifications({ type: 'provider', providerId: provider.id }),
-          },
-        ]
-      : []
-  })
+function SectionRowView({ row }: { row: SectionTableRow }): ReactNode {
+  const { pathname, search, state } = useLocation()
 
   return (
-    <div ref={pressRef} className={classes.sectionHeader} data-first={first || undefined}>
-      <h3 className={classes.sectionHeading}>
-        <button
-          type="button"
-          className={classes.sectionToggle}
-          aria-expanded={row.expanded}
-          onClick={() => onToggleRepo(row.id)}
-        >
-          <span className={classes.sectionTitle}>{row.name}</span>
-          {meta && <span className={classes.sectionMeta}>{meta}</span>}
-          {row.hasPendingFetch ? (
-            <Loader size={14} aria-label="Fetching pipelines" />
-          ) : (
-            <span className={classes.sectionCount}>{row.pipelineCount}</span>
-          )}
-          <IconChevronRight className={classes.sectionChevron} data-open={row.expanded || undefined} aria-hidden />
-        </button>
-      </h3>
-      <RowActionMenu
-        name={row.name}
-        items={[refreshItem(providerIds, actions), ...rowMenuItems(row, actions), ...statusItems]}
-      />
+    <div className={classes.row} data-glyph={row.status ? '' : undefined}>
+      <Link className={classes.main} to={`${groupPath(row.id)}${search}`} state={pushState(pathname, search, state)}>
+        {row.status && <StatusGlyph status={row.status} />}
+        <span className={classes.text}>
+          <span className={classes.title}>{row.name}</span>
+          {row.status && <span className={classes.srOnly}>, {statusMeta(row.status).label}</span>}
+        </span>
+        {row.hasPendingFetch ? (
+          <Loader size={14} aria-label="Fetching pipelines" />
+        ) : (
+          <span className={classes.value}>{row.pipelineCount}</span>
+        )}
+        <span className={classes.chevron} aria-hidden>
+          <IconChevronRight size={18} />
+        </span>
+      </Link>
     </div>
   )
 }
@@ -267,7 +187,7 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
 
   return (
     <IosPipelineRow
-      status={row.status}
+      status={pipelineStatusKey(pipeline)}
       statusText={getPipelineStatusLabel(pipeline)}
       title={row.name}
       subtitle={subtitle}
@@ -281,21 +201,13 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
   )
 }
 
-export function IosPipelineList({
-  header,
-  rows,
-  getProvider,
-  onToggleRepo,
-  actions,
-  selection,
-}: IosPipelineListProps): ReactNode {
+export function IosPipelineList({ header, rows, getProvider, actions, selection }: IosPipelineListProps): ReactNode {
   const now = useNow(30_000)
-  const items = listItems(rows, getProvider, now)
-  const sectioned = rows[0]?.type === 'section'
+  const items = listItems(rows)
 
   return (
     <section className={groupClasses.section}>
-      {header && !sectioned && (
+      {header && (
         <div className={groupClasses.headerRow}>
           <h2 className={groupClasses.header}>{header}</h2>
         </div>
@@ -304,25 +216,11 @@ export function IosPipelineList({
         items={items}
         getKey={(item) => item.id}
         estimateSize={ROW_ESTIMATE}
-        renderItem={(item) => {
-          if (item.type === 'header') {
-            return (
-              <SectionHeader
-                row={item.row}
-                first={item.first}
-                getProvider={getProvider}
-                onToggleRepo={onToggleRepo}
-                actions={actions}
-              />
-            )
-          }
-
-          if (item.type === 'footer') {
-            return <p className={classes.sectionFooter}>{item.text}</p>
-          }
-
-          return (
-            <div className={classes.cell} data-first={item.first || undefined} data-last={item.last || undefined}>
+        renderItem={(item) => (
+          <div className={classes.cell} data-first={item.first || undefined} data-last={item.last || undefined}>
+            {item.row.type === 'section' ? (
+              <SectionRowView row={item.row} />
+            ) : (
               <WorkflowRowView
                 row={item.row}
                 now={now}
@@ -330,9 +228,9 @@ export function IosPipelineList({
                 actions={actions}
                 selection={selection}
               />
-            </div>
-          )
-        }}
+            )}
+          </div>
+        )}
       />
     </section>
   )

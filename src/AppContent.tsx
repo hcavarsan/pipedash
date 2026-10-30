@@ -5,7 +5,7 @@ import { useLocation, useMatch, useNavigate, useSearchParams } from 'react-route
 import { AppRoutes } from './AppRoutes'
 import { DocumentTitle } from './components/common/DocumentTitle'
 import { AppLayout } from './components/layout/AppLayout'
-import { fromOf } from './components/layout/mobileChrome'
+import { fromOf, pushState } from './components/layout/mobileChrome'
 import { useGoBack, useRecordHistory } from './components/layout/useMobileBack'
 import { useLocalNotificationsLifecycle } from './features/notifications/queries/useLocalNotificationQueries'
 import { useLegacyPipelineMarksImport, usePipelineViews } from './features/pipelines/queries/usePipelineViewQueries'
@@ -96,14 +96,14 @@ export function AppContent(): ReactNode {
     ])
   }
 
-  const listLocation = `${location.pathname}${location.search}`
+  const listState = pushState(location.pathname, location.search, location.state)
 
   const handleViewHistory = (pipeline: Pipeline): void => {
-    void navigate(`/pipelines/${encodeURIComponent(pipeline.id)}`, { state: { from: listLocation } })
+    void navigate(`/pipelines/${encodeURIComponent(pipeline.id)}`, { state: listState })
   }
 
   const handleViewMetrics = (pipeline: Pipeline): void => {
-    void navigate(`/pipelines/${encodeURIComponent(pipeline.id)}?tab=metrics`, { state: { from: listLocation } })
+    void navigate(`/pipelines/${encodeURIComponent(pipeline.id)}?tab=metrics`, { state: listState })
   }
 
   const backTarget = fromOf(location.state) ?? '/pipelines'

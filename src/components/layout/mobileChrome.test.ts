@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { fromOf, mobileChrome, routeKey, splitLocation } from './mobileChrome'
+import { BROWSE_PATH, fromOf, groupPath, mobileChrome, providerPath, routeKey, splitLocation } from './mobileChrome'
 
 test('tabs follow the top-level route and the pinned view', () => {
+  assert.equal(mobileChrome(BROWSE_PATH, '').tab, 'pipelines')
   assert.equal(mobileChrome('/pipelines', '').tab, 'pipelines')
   assert.equal(mobileChrome('/pipelines', '?provider=3').tab, 'pipelines')
   assert.equal(mobileChrome('/pipelines', '?view=pinned').tab, 'pinned')
   assert.equal(mobileChrome('/pipelines/abc', '?view=pinned').tab, 'pipelines')
-  assert.equal(mobileChrome('/providers', '').tab, 'providers')
   assert.equal(mobileChrome('/notifications', '').tab, 'notifications')
   assert.equal(mobileChrome('/settings/storage', '').tab, 'settings')
 })
@@ -25,17 +25,44 @@ test('settings sections push a back button to the settings root', () => {
 
 test('titles name the screen', () => {
   assert.equal(mobileChrome('/pipelines', '?view=pinned').title, 'Pinned')
-  assert.equal(mobileChrome('/pipelines', '').title, 'Pipelines')
-  assert.equal(mobileChrome('/providers', '').title, 'Providers')
+  assert.equal(mobileChrome(BROWSE_PATH, '').title, 'Browse')
+  assert.equal(mobileChrome('/pipelines', '').title, 'All pipelines')
+  assert.equal(mobileChrome('/pipelines', '?provider=1').title, 'Provider')
+  assert.equal(mobileChrome('/pipelines', '?view=7').title, 'View')
   assert.equal(mobileChrome('/notifications', '').title, 'Notifications')
 })
 
-test('a pipeline route pushes a back button to the list', () => {
+test('every pipelines list sits under Browse, and a history page under All pipelines', () => {
+  assert.deepEqual(mobileChrome(BROWSE_PATH, ''), { title: 'Browse', back: null, tab: 'pipelines' })
+  assert.deepEqual(mobileChrome('/pipelines', '').back, { to: BROWSE_PATH, label: 'Browse' })
+  assert.deepEqual(mobileChrome('/pipelines', '?view=7').back, { to: BROWSE_PATH, label: 'Browse' })
   assert.deepEqual(mobileChrome('/pipelines/abc', ''), {
     title: 'History',
-    back: { to: '/pipelines', label: 'Pipelines' },
+    back: { to: '/pipelines', label: 'All pipelines' },
     tab: 'pipelines',
   })
+})
+
+test('a provider list, its repository and history push one after another under Browse', () => {
+  const provider = splitLocation(providerPath(1))
+  const repo = groupPath('repo:acme/mobile')
+
+  assert.deepEqual(mobileChrome(provider.pathname, provider.search, { from: BROWSE_PATH }), {
+    title: 'Provider',
+    back: { to: BROWSE_PATH, label: 'Browse' },
+    tab: 'pipelines',
+  })
+  assert.deepEqual(mobileChrome(repo, provider.search, { from: providerPath(1) }), {
+    title: 'mobile',
+    back: { to: providerPath(1), label: 'Provider' },
+    tab: 'pipelines',
+  })
+  assert.deepEqual(mobileChrome('/pipelines/abc', '', { from: repo }), {
+    title: 'History',
+    back: { to: repo, label: 'mobile' },
+    tab: 'pipelines',
+  })
+  assert.equal(mobileChrome(groupPath('status:failed'), '').title, 'Failed')
 })
 
 test('a detail opened from pinned keeps the pinned tab and label', () => {
@@ -63,7 +90,7 @@ test('invalid or self-referencing origins fall back to the canonical parent', ()
 })
 
 test('roots ignore an origin', () => {
-  assert.deepEqual(mobileChrome('/providers', '', { from: '/notifications' }), mobileChrome('/providers', ''))
+  assert.deepEqual(mobileChrome(BROWSE_PATH, '', { from: '/notifications' }), mobileChrome(BROWSE_PATH, ''))
 })
 
 test('fromOf only accepts absolute paths', () => {

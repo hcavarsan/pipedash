@@ -40,7 +40,7 @@ let browser
 const devices = {
   iphone: { width: 440, height: 956, scale: 3, mobile: true, phone: true, safeArea: { top: '62px', bottom: '34px' }, folder: 'apple/iphone', agent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X' },
   ipad: { width: 1032, height: 1376, scale: 2, mobile: true, folder: 'apple/ipad', agent: 'iPad; CPU OS 18_0 like Mac OS X' },
-  'android-phone': { width: 360, height: 780, scale: 3, mobile: true, phone: true, safeArea: { top: '32px', bottom: '24px' }, folder: 'android/phone', agent: 'iPhone; CPU iPhone OS 18_0 like Mac OS X' },
+  'android-phone': { width: 360, height: 780, scale: 3, mobile: true, phone: true, safeArea: { top: '32px', bottom: '24px' }, folder: 'android/phone', agent: 'Linux; Android 15; Pixel 9' },
   'android-tablet': { width: 800, height: 1280, scale: 2, mobile: true, folder: 'android/tablet', agent: 'iPad; CPU OS 18_0 like Mac OS X' },
   desktop: { width: 1280, height: 800, scale: 2, mobile: false, folder: 'desktop', agent: 'Macintosh; Intel Mac OS X 10_15_7' },
 }
@@ -86,7 +86,8 @@ try {
     const folder = `${output}/${settings.folder}/en`
     await mkdir(folder, { recursive: true })
     const phone = settings.phone === true
-    const prepare = async (path = '/pipelines', ready = 'Release iOS app') => {
+    const list = phone ? `/pipelines/groups/${encodeURIComponent(`repo:${release.repository}`)}` : '/pipelines'
+    const prepare = async (path = list, ready = 'Release iOS app') => {
       await page.goto(`${baseUrl}${path}`)
       await page.getByText(ready, { exact: true }).first().waitFor()
       await page.evaluate(async ({ items, safeArea }) => {
@@ -114,8 +115,8 @@ try {
       console.log(`${device}/${number}.png ${settings.width * settings.scale}x${settings.height * settings.scale}`)
     }
     // One page per number, in the order a user meets them: spot a failure, dig into it, act on it, then the wider picture.
-    await prepare()
-    await capture('01', 'Argo CD')
+    await (phone ? prepare('/pipelines', 'platform-api') : prepare())
+    await capture('01', phone ? 'storefront' : 'Argo CD')
 
     const history = `/pipelines/${encodeURIComponent(failure.id)}`
     await prepare(history, 'API integration tests')
@@ -163,7 +164,7 @@ try {
     }
     await capture('08', 'API integration tests failed')
 
-    await prepare(phone ? '/providers' : '/settings/providers', 'Argo CD')
+    await prepare(phone ? '/browse' : '/settings/providers', 'Argo CD')
     await capture('09', 'Jenkins')
     await context.close()
   }

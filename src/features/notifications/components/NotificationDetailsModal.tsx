@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { StandardModal } from '../../../components/common/StandardModal'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
+import { pushState } from '../../../components/layout/mobileChrome'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import { useProviders } from '../../../queries/useProvidersQueries'
@@ -26,7 +27,7 @@ export function NotificationDetailsModal(): ReactNode {
   const openHistory = (pipelineId: string) => {
     close()
     void navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, {
-      state: { from: location.pathname + location.search },
+      state: pushState(location.pathname, location.search, location.state),
     })
   }
   const now = useNow(30_000)

@@ -3,10 +3,10 @@ import { IconCheck, IconListCheck } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { PageHeader } from '../../../components/common/PageHeader'
 import { NavBarMenu } from '../../../components/layout/NavBarMenu'
+import { useMobileTitle } from '../../../stores/mobileNavStore'
 import type { PipelineViewPage, ViewDisplay } from '../../../types/domain'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
-import { PipelineViewStrip } from './PipelineViewStrip'
 import { PipelineViewTabs } from './PipelineViewTabs'
 import { SubViewBar } from './SubViewBar'
 import { hasViewOptions, ViewOptionsItems, ViewOptionsMenu, type ViewOptionsProps } from './ViewOptionsMenu'
@@ -49,19 +49,20 @@ const hasSelectable = (page: PipelineViewPage): boolean =>
 
 function PipelineNavMenu({ model, onDisplayChange, onOpenFilters }: PipelineViewToolbarProps): ReactNode {
   const openManage = usePipelineViewStore((s) => s.openManage)
-  const { page, selecting, startSelection, query } = model
+  const { page, rows, pinnedBlocks, pushed, selecting, startSelection, query } = model
   const options = viewOptions(model, onDisplayChange)
+  const selectable = rows.some((row) => row.type === 'workflow') || pinnedBlocks.length > 0
 
-  if (!page) {
+  if (!page || (pushed && !selectable)) {
     return null
   }
 
   return (
     <NavBarMenu label="More">
-      {!selecting && hasSelectable(page) && <Menu.Item onClick={startSelection}>Select</Menu.Item>}
-      {onOpenFilters && <Menu.Item onClick={onOpenFilters}>Filter</Menu.Item>}
-      {query.view !== 'pinned' && <Menu.Item onClick={openManage}>Edit Views</Menu.Item>}
-      {options && (
+      {!selecting && selectable && <Menu.Item onClick={startSelection}>Select</Menu.Item>}
+      {!pushed && onOpenFilters && <Menu.Item onClick={onOpenFilters}>Filter</Menu.Item>}
+      {!pushed && query.view !== 'pinned' && <Menu.Item onClick={openManage}>Edit Views</Menu.Item>}
+      {!pushed && options && (
         <>
           <Menu.Divider />
           <ViewOptionsItems {...options} />
@@ -74,7 +75,7 @@ function PipelineNavMenu({ model, onDisplayChange, onOpenFilters }: PipelineView
 export function PipelineViewNav({ model }: { model: PipelineViewPageModel }): ReactNode {
   return (
     <>
-      {model.mobileShell ? model.query.view !== 'pinned' && <PipelineViewStrip /> : <PipelineViewTabs />}
+      {!model.mobileShell && <PipelineViewTabs />}
       <SubViewBar />
     </>
   )
@@ -82,15 +83,12 @@ export function PipelineViewNav({ model }: { model: PipelineViewPageModel }): Re
 
 export function PipelineViewToolbar(props: PipelineViewToolbarProps): ReactNode {
   const { model, onDisplayChange } = props
-  const { mobileShell, isFluxView, title, page, selecting, startSelection, finishSelection } = model
+  const { mobileShell, mobileTitle, title, page, selecting, startSelection, finishSelection } = model
+
+  useMobileTitle(mobileTitle)
 
   if (mobileShell) {
-    return (
-      <>
-        {isFluxView && <PageHeader title={title} />}
-        <PipelineNavMenu {...props} />
-      </>
-    )
+    return <PipelineNavMenu {...props} />
   }
 
   const options = viewOptions(model, onDisplayChange)
