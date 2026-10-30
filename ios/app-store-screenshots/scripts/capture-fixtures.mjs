@@ -154,7 +154,6 @@ export const pipelineViews = [
   { id: 'all', kind: 'all', name: 'All pipelines', rules: viewRules, display: { sort: 'name', direction: 'asc', sections: 'repository', layout: 'table' }, capabilities: viewCapabilities(false), count: pipelines.length, parent: null },
   { id: 'pinned', kind: 'pinned', name: 'Pinned', rules: viewRules, display: { sort: 'manual', direction: 'asc', sections: 'none', layout: 'cards' }, capabilities: viewCapabilities(true), count: pinnedPipelines.length, parent: null },
 ]
-// Mirrors the backend: a section takes the most severe status of its pipelines and names the pipeline it came from.
 const SEVERITY = ['failed', 'degraded', 'running', 'pending', 'cancelled', 'success', 'skipped']
 const viewSection = (id, kind, title, members) => {
   const lead = [...members].sort((a, b) => SEVERITY.indexOf(a.status) - SEVERITY.indexOf(b.status))[0]

@@ -131,3 +131,23 @@ export function buildPipelineRows({ page, isOpen, getProvider }: BuildPipelineRo
 
   return rows
 }
+
+interface PhoneRowsInput {
+  page: PipelineViewPage | undefined
+  getProvider: (id: number) => ProviderSummary | undefined
+  group: string | null
+}
+
+export function buildPhoneRows({ page, getProvider, group }: PhoneRowsInput): TableRow[] {
+  if (!group && page?.view.kind !== 'pinned') {
+    return buildPipelineRows({ page, isOpen: () => false, getProvider })
+  }
+
+  const sections = group ? page?.sections.filter((section) => section.id === group) : page?.sections
+
+  return buildPipelineRows({
+    page: page && { ...page, sections: sections ?? [] },
+    isOpen: () => true,
+    getProvider,
+  }).filter((row) => row.type === 'workflow')
+}

@@ -16,7 +16,14 @@ import type {
   ViewPipeline,
 } from '../../../types/domain'
 import { getPipelineLabels, type PipelineLabels } from '../../../utils/pipelinePresentation'
-import { buildPipelineRows, collator, getSectionsLabel, SORT_ACCESSORS, sectionTitle } from '../lib/pipelineRows'
+import {
+  buildPhoneRows,
+  buildPipelineRows,
+  collator,
+  getSectionsLabel,
+  SORT_ACCESSORS,
+  sectionTitle,
+} from '../lib/pipelineRows'
 import { usePipelineViewPage } from '../queries/usePipelineViewQueries'
 import { type ExpansionMap, readExpansion, usePipelineExpansion, writeExpansion } from './usePipelineExpansion'
 import { usePipelineSelection } from './usePipelineSelection'
@@ -133,21 +140,11 @@ export function usePipelineViewModel({
     (providerId: number): ProviderSummary | undefined => providers.find((p) => p.id === providerId),
     [providers]
   )
-  const rows = useMemo(() => {
-    if (!mobileShell) {
-      return buildPipelineRows({ page, isOpen, getProvider })
-    }
-
-    if (!group) {
-      return buildPipelineRows({ page, isOpen: () => false, getProvider })
-    }
-
-    const sections = page?.sections.filter((section) => section.id === group) ?? []
-
-    return buildPipelineRows({ page: page && { ...page, sections }, isOpen: () => true, getProvider }).filter(
-      (row) => row.type === 'workflow'
-    )
-  }, [page, isOpen, getProvider, mobileShell, group])
+  const rows = useMemo(
+    () =>
+      mobileShell ? buildPhoneRows({ page, getProvider, group }) : buildPipelineRows({ page, isOpen, getProvider }),
+    [page, isOpen, getProvider, mobileShell, group]
+  )
   const providerOptions = useMemo(
     () =>
       (page?.facets.provider_ids ?? [])

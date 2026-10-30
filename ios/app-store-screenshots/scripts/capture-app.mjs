@@ -86,7 +86,6 @@ try {
     const folder = `${output}/${settings.folder}/en`
     await mkdir(folder, { recursive: true })
     const phone = settings.phone === true
-    // Phones list repositories on /pipelines and the workflows of one repository on its own page.
     const list = phone ? `/pipelines/groups/${encodeURIComponent(`repo:${release.repository}`)}` : '/pipelines'
     const prepare = async (path = list, ready = 'Release iOS app') => {
       await page.goto(`${baseUrl}${path}`)

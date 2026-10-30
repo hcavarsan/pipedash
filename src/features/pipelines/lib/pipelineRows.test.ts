@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { pipelineViewPageFixture, providerSummaryFixture, viewPipelineFixture } from '../../../testing/fixtures'
+import {
+  pipelineViewFixture,
+  pipelineViewPageFixture,
+  providerSummaryFixture,
+  viewPipelineFixture,
+} from '../../../testing/fixtures'
 import type { ProviderSummary, ViewMember, ViewSection } from '../../../types/domain'
 
-import { accessorSort, buildPipelineRows, inMemberOrder, pinnedFromBlocks } from './pipelineRows'
+import { accessorSort, buildPhoneRows, buildPipelineRows, inMemberOrder, pinnedFromBlocks } from './pipelineRows'
 
 const providers = [providerSummaryFixture({ id: 1, name: 'Zeta' }), providerSummaryFixture({ id: 2, name: 'Alpha' })]
 const getProvider = (id: number): ProviderSummary | undefined => providers.find((provider) => provider.id === id)
@@ -150,4 +155,19 @@ test('a grouped pinned view lists pipelines in the global member order across se
     inMemberOrder(sections, undefined).map((pipeline) => pipeline.id),
     ['a', 'b', 'c']
   )
+})
+
+test('phone rows list repositories, a group page its workflows, and a grouped Pinned view every workflow', () => {
+  const sections = [
+    section({ id: 'repo:org/one', pipelines: [viewPipelineFixture({ id: 'a' }), viewPipelineFixture({ id: 'b' })] }),
+    section({ id: 'repo:org/two', pipelines: [viewPipelineFixture({ id: 'c' })] }),
+  ]
+  const shape = (rows: ReturnType<typeof buildPhoneRows>) =>
+    rows.map((row) => (row.type === 'section' ? row.id : row.pipeline.id))
+  const all = pipelineViewPageFixture({ sections })
+  const pinned = pipelineViewPageFixture({ view: pipelineViewFixture({ id: 'pinned', kind: 'pinned' }), sections })
+
+  assert.deepEqual(shape(buildPhoneRows({ page: all, getProvider, group: null })), ['repo:org/one', 'repo:org/two'])
+  assert.deepEqual(shape(buildPhoneRows({ page: all, getProvider, group: 'repo:org/two' })), ['c'])
+  assert.deepEqual(shape(buildPhoneRows({ page: pinned, getProvider, group: null })), ['a', 'b', 'c'])
 })
