@@ -97,7 +97,7 @@ struct RunTarget {
 pub struct ProwPlugin {
     metadata: PluginMetadata,
     provider_id: Option<i64>,
-    deck: Option<DeckClient>,
+    deck: Option<Arc<DeckClient>>,
     storage: Option<StorageClient>,
     history: HistorySource,
     storage_bucket: Option<Bucket>,
@@ -133,7 +133,7 @@ impl ProwPlugin {
 
     fn deck(&self) -> PluginResult<&DeckClient> {
         self.deck
-            .as_ref()
+            .as_deref()
             .ok_or_else(|| PluginError::Internal("Plugin not initialized".to_string()))
     }
 
@@ -272,7 +272,7 @@ impl ProwPlugin {
         match (source, &target.artifacts) {
             (LogSource::Storage, Some(artifacts)) => {
                 self.storage()?
-                    .stream_build_log(deck, artifacts, offset, sink)
+                    .stream_build_log(artifacts, offset, sink)
                     .await
             }
             _ => {
@@ -388,8 +388,13 @@ impl Plugin for ProwPlugin {
             PluginError::Internal("Prow plugin requires an HTTP client".to_string())
         })?;
 
-        self.deck = Some(DeckClient::new(Arc::clone(&http_client), base, auth));
-        self.storage = Some(StorageClient::new(http_client, storage_url));
+        let deck = Arc::new(DeckClient::new(Arc::clone(&http_client), base, auth));
+        self.storage = Some(StorageClient::new(
+            http_client,
+            Arc::clone(&deck),
+            storage_url,
+        ));
+        self.deck = Some(deck);
         self.provider_id = Some(provider_id);
         self.history = history;
         self.storage_bucket = storage_bucket;
@@ -1636,6 +1641,48 @@ mod tests {
 
         let details = plugin.fetch_run_details(CI_A, 100).await.unwrap();
         assert_eq!(details.status, PipelineStatus::Success);
+    }
+
+    #[tokio::test]
+    async fn storage_history_authenticates_only_against_the_deck_origin() {
+        let objects = stored_build("ci-a", 200, 2_000);
+        let listing = gcs(objects.clone());
+        let (deck, _) = serve(move |request| {
+            if request.header("authorization").as_deref() != Some("Bearer secret") {
+                return Response::text(401, "unauthorized");
+            }
+            if request.target.starts_with("/prowjobs.js") {
+                let job = prowjob("a-300", "ci-a", "300", "success", "periodic", "");
+                Response::json(200, &jobs_body(&[job]))
+            } else {
+                listing(request)
+            }
+        });
+        let (other, other_requests) = serve(gcs(objects));
+        let history = |storage: &str| {
+            plugin_with(
+                &deck,
+                &[
+                    ("token", "secret"),
+                    ("history_source", "storage"),
+                    ("storage_url", storage),
+                    ("storage_bucket", "gs://bucket"),
+                ],
+            )
+        };
+
+        let same_origin = history(&deck).fetch_run_history(CI_A, 10).await.unwrap();
+        let numbers: Vec<i64> = same_origin.iter().map(|run| run.run_number).collect();
+        assert_eq!(numbers, [300, 200]);
+
+        let cross_origin = history(&other).fetch_run_history(CI_A, 10).await.unwrap();
+        let numbers: Vec<i64> = cross_origin.iter().map(|run| run.run_number).collect();
+        assert_eq!(numbers, [300, 200]);
+        let other_requests = other_requests.lock().unwrap().clone();
+        assert!(!other_requests.is_empty());
+        assert!(other_requests
+            .iter()
+            .all(|request| request.header("authorization").is_none()));
     }
 
     #[tokio::test]

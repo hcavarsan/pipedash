@@ -131,14 +131,18 @@ pub(crate) struct StoredBuild {
 
 pub(crate) struct StorageClient {
     http: Arc<reqwest::Client>,
+    deck: Arc<DeckClient>,
     base_override: Option<Url>,
     retry_policy: RetryPolicy,
 }
 
 impl StorageClient {
-    pub(crate) fn new(http: Arc<reqwest::Client>, base_override: Option<Url>) -> Self {
+    pub(crate) fn new(
+        http: Arc<reqwest::Client>, deck: Arc<DeckClient>, base_override: Option<Url>,
+    ) -> Self {
         Self {
             http,
+            deck,
             base_override,
             retry_policy: RetryPolicy::default(),
         }
@@ -164,7 +168,7 @@ impl StorageClient {
     }
 
     pub(crate) async fn stream_build_log(
-        &self, deck: &DeckClient, artifacts: &Artifacts, offset: Option<u64>, sink: &mut LogSink,
+        &self, artifacts: &Artifacts, offset: Option<u64>, sink: &mut LogSink,
     ) -> PluginResult<(LogReadMode, u64)> {
         let url = self.log_url(artifacts).ok_or_else(|| {
             PluginError::PipelineNotFound(format!(
@@ -177,7 +181,8 @@ impl StorageClient {
             let response = self
                 .retry_policy
                 .retry_unsent(url, || {
-                    let request = deck
+                    let request = self
+                        .deck
                         .authorize(url, self.http.get(url.clone()))
                         .timeout(LOG_TIMEOUT);
                     match from {
@@ -209,8 +214,8 @@ impl StorageClient {
         self.retry_policy
             .retry(|| async move {
                 let response = self
-                    .http
-                    .get(url.clone())
+                    .deck
+                    .authorize(url, self.http.get(url.clone()))
                     .send()
                     .await
                     .map_err(|e| map_send_error(e, url))?;
