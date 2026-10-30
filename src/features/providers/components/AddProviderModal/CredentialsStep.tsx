@@ -1,6 +1,7 @@
-import { Box, Input, ScrollArea, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core'
+import { Box, Input, SegmentedControl, Select, Stack, Text, TextInput } from '@mantine/core'
 import { type ChangeEvent, type Dispatch, Fragment, type ReactNode, type RefObject } from 'react'
 import { ProviderIcon } from '../../../../components/atoms/ProviderIcon'
+import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import shell from '../../../../components/forms/ShellForm.module.css'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { useFormEnterNavigation } from '../../../../hooks/useFormEnterNavigation'
@@ -264,7 +265,7 @@ export function CredentialsStep({
 
   return (
     <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <ScrollArea style={{ flex: 1 }} type="auto">
+      <FillScrollArea type="auto">
         <Stack gap={isMobile ? 'xs' : 'md'} px="lg" pb="lg" pt="xs">
           <Select
             label="Provider type"
@@ -302,7 +303,7 @@ export function CredentialsStep({
             )
           )}
         </Stack>
-      </ScrollArea>
+      </FillScrollArea>
     </Box>
   )
 }

@@ -1,4 +1,4 @@
-import { Box, Drawer, Loader, Modal, ScrollArea, UnstyledButton } from '@mantine/core'
+import { Box, Drawer, Loader, Modal, UnstyledButton } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
 import { IconChevronLeft } from '@tabler/icons-react'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -12,6 +12,7 @@ import { TYPOGRAPHY } from '../../theme/typography'
 import type { ModalBaseProps } from '../../types/components'
 import { confirmDiscard } from '../../utils/confirm'
 import { ErrorBoundary } from '../ErrorBoundary/ErrorBoundary'
+import { FillScrollArea } from './FillScrollArea'
 
 type ModalSize = 'md' | 'lg' | 'xl' | 'full'
 
@@ -192,16 +193,14 @@ export const StandardModal = ({
       {disableScrollArea ? (
         <Box style={{ ...columnStyle, flex: 1, padding, paddingBottom: bottomInset }}>{body}</Box>
       ) : (
-        <ScrollArea
+        <FillScrollArea
           type={mobileShell ? 'scroll' : 'auto'}
           {...(mobileShell ? { scrollbarSize: 3, scrollHideDelay: 200 } : {})}
-          style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-          styles={{ viewport: { flex: 1, minHeight: 0, height: 'auto' } }}
         >
           <Box p={padding} {...(bottomInset === undefined ? {} : { pb: bottomInset })}>
             {body}
           </Box>
-        </ScrollArea>
+        </FillScrollArea>
       )}
       {hasFooter && (
         <Box

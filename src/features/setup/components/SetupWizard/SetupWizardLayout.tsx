@@ -1,6 +1,7 @@
-import { Box, ScrollArea, Stack, Stepper, Text } from '@mantine/core'
+import { Box, Stack, Stepper, Text } from '@mantine/core'
 import { IconCheck } from '@tabler/icons-react'
 import type { ReactNode, RefObject } from 'react'
+import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import { type ModalAction, StandardModal } from '../../../../components/common/StandardModal'
 import { ErrorBoundary } from '../../../../components/ErrorBoundary/ErrorBoundary'
 import { StepRegion } from '../../../../components/forms/StepRegion'
@@ -161,11 +162,11 @@ export function SetupWizardLayout({
         )}
 
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <ScrollArea style={{ flex: 1 }} type="auto">
+          <FillScrollArea type="auto">
             <Box px="lg" py="lg">
               {formProps ? <form {...formProps}>{guarded}</form> : guarded}
             </Box>
-          </ScrollArea>
+          </FillScrollArea>
         </Box>
       </Stack>
     </StandardModal>

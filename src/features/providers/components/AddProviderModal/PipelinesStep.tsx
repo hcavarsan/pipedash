@@ -6,7 +6,6 @@ import {
   Checkbox as MantineCheckbox,
   NativeSelect,
   Paper,
-  ScrollArea,
   Select,
   Stack,
   Text,
@@ -17,6 +16,7 @@ import { IconBuildingSkyscraper, IconSearch, IconStack2 } from '@tabler/icons-re
 import { type Dispatch, type ReactNode, useMemo } from 'react'
 import { EmptyState } from '../../../../components/common/EmptyState'
 import { ErrorState } from '../../../../components/common/ErrorState'
+import { FillScrollArea } from '../../../../components/common/FillScrollArea'
 import { LoadingState } from '../../../../components/common/LoadingState'
 import { SearchInput } from '../../../../components/common/SearchInput'
 import { VirtualList } from '../../../../components/common/VirtualList'
@@ -178,7 +178,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
 
     if (isMobile) {
       return (
-        <ScrollArea style={{ flex: 1, minHeight: 0 }} type="auto">
+        <FillScrollArea type="auto">
           <Stack gap="xs">
             {availablePipelines.map((pipeline) => (
               <MobilePipelineCard
@@ -190,7 +190,7 @@ export function PipelinesStep({ state, dispatch, providerConfig, isMobile }: Pip
               />
             ))}
           </Stack>
-        </ScrollArea>
+        </FillScrollArea>
       )
     }
 

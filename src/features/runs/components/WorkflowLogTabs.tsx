@@ -1,6 +1,7 @@
-import { Box, ScrollArea, Tabs } from '@mantine/core'
+import { Box, Tabs } from '@mantine/core'
 import { type ReactNode, useRef, useState } from 'react'
 
+import { FillScrollArea } from '../../../components/common/FillScrollArea'
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import type { LogViewerHandle } from '../../logs/components/LogViewer'
 import { createLogShortcutHandler } from '../lib/logShortcuts'
@@ -63,9 +64,9 @@ export function WorkflowLogTabs({
         </ErrorBoundary>
       </Tabs.Panel>
       <Tabs.Panel value="details" style={column}>
-        <ScrollArea style={{ flex: 1, minHeight: 0 }}>
+        <FillScrollArea>
           <Box p="lg">{details}</Box>
-        </ScrollArea>
+        </FillScrollArea>
       </Tabs.Panel>
     </Tabs>
   )

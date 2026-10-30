@@ -1,6 +1,7 @@
-import { Box, Group, ScrollArea, Text, UnstyledButton } from '@mantine/core'
+import { Box, Group, Text, UnstyledButton } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { StatusIcon } from '../../../components/atoms/StatusBadge'
+import { FillScrollArea } from '../../../components/common/FillScrollArea'
 import { VirtualList } from '../../../components/common/VirtualList'
 import type { RunLogNode } from '../../../types/logs'
 import { NodeDuration } from '../../logs/components/NodeDuration'
@@ -12,7 +13,7 @@ interface LogJobListProps {
 }
 
 export const LogJobList = ({ nodes, selectedId, onSelect }: LogJobListProps): ReactNode => (
-  <ScrollArea w={260} flex="none" style={{ borderRight: '1px solid var(--mantine-color-default-border)' }}>
+  <FillScrollArea w={260} style={{ flex: 'none', borderRight: '1px solid var(--mantine-color-default-border)' }}>
     <Box component="nav" aria-label="Jobs" p="xs">
       <VirtualList
         items={nodes.filter((node) => node.navigable)}
@@ -65,5 +66,5 @@ export const LogJobList = ({ nodes, selectedId, onSelect }: LogJobListProps): Re
         }}
       />
     </Box>
-  </ScrollArea>
+  </FillScrollArea>
 )

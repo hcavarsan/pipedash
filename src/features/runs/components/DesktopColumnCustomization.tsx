@@ -1,7 +1,8 @@
-import { ActionIcon, Box, Button, Checkbox, Group, ScrollArea, Stack, Text, TextInput, Tooltip } from '@mantine/core'
+import { ActionIcon, Box, Button, Checkbox, Group, Stack, Text, TextInput, Tooltip } from '@mantine/core'
 import { IconChevronDown, IconChevronUp, IconEye, IconEyeOff, IconSearch, IconX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
+import { FillScrollArea } from '../../../components/common/FillScrollArea'
 import { TYPOGRAPHY } from '../../../theme/typography'
 
 import { canMoveColumn } from '../lib/columnCustomization'
@@ -77,7 +78,7 @@ export function DesktopColumnCustomization({
         </Group>
       </Box>
 
-      <ScrollArea style={{ flex: 1 }} type="auto">
+      <FillScrollArea type="auto">
         <Stack gap={0}>
           {filtered.length === 0 ? (
             <EmptyState
@@ -152,7 +153,7 @@ export function DesktopColumnCustomization({
             ))
           )}
         </Stack>
-      </ScrollArea>
+      </FillScrollArea>
     </>
   )
 }
