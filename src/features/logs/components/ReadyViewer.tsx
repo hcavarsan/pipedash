@@ -58,7 +58,7 @@ function slideSearch(input: HTMLInputElement | null, open: boolean): void {
   if (open) {
     reveal.setAttribute('data-open', '')
     input.focus({ preventScroll: true })
-  } else if (from > 0) {
+  } else if (from > 0 && !reveal.hasAttribute('data-pinned')) {
     input.blur()
     reveal.removeAttribute('data-open')
   }
@@ -250,6 +250,7 @@ export function ReadyViewer({ ref, ...props }: ReadyViewerProps): ReactNode {
           onQueryChange={navigation.changeText}
           onNextMatch={nextMatch}
           inputRef={searchRef}
+          filtered={filter !== 'none'}
         />
       ) : (
         <LogToolbar

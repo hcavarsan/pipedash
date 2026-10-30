@@ -20,14 +20,21 @@ import classes from './LogViewer.module.css'
 
 interface PhoneLogSearchProps {
   queryText: string
+  filtered: boolean
   onQueryChange: (value: string) => void
   onNextMatch: () => void
   inputRef: RefObject<HTMLInputElement | null>
 }
 
-export function PhoneLogSearch({ queryText, onQueryChange, onNextMatch, inputRef }: PhoneLogSearchProps): ReactNode {
+export function PhoneLogSearch({
+  queryText,
+  filtered,
+  onQueryChange,
+  onNextMatch,
+  inputRef,
+}: PhoneLogSearchProps): ReactNode {
   return (
-    <div className={classes.phoneReveal} data-search-reveal>
+    <div className={classes.phoneReveal} data-search-reveal data-pinned={queryText || filtered ? true : undefined}>
       <div className={classes.phoneSearch}>
         <PhoneSearchField
           value={queryText}
