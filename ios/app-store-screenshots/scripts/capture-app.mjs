@@ -86,7 +86,9 @@ try {
     const folder = `${output}/${settings.folder}/en`
     await mkdir(folder, { recursive: true })
     const phone = settings.phone === true
-    const prepare = async (path = '/pipelines', ready = 'Release iOS app') => {
+    // Phones list repositories on /pipelines and the workflows of one repository on its own page.
+    const list = phone ? `/pipelines/groups/${encodeURIComponent(`repo:${release.repository}`)}` : '/pipelines'
+    const prepare = async (path = list, ready = 'Release iOS app') => {
       await page.goto(`${baseUrl}${path}`)
       await page.getByText(ready, { exact: true }).first().waitFor()
       await page.evaluate(async ({ items, safeArea }) => {
@@ -114,8 +116,8 @@ try {
       console.log(`${device}/${number}.png ${settings.width * settings.scale}x${settings.height * settings.scale}`)
     }
     // One page per number, in the order a user meets them: spot a failure, dig into it, act on it, then the wider picture.
-    await prepare()
-    await capture('01', 'Argo CD')
+    await (phone ? prepare('/pipelines', 'platform-api') : prepare())
+    await capture('01', phone ? 'storefront' : 'Argo CD')
 
     const history = `/pipelines/${encodeURIComponent(failure.id)}`
     await prepare(history, 'API integration tests')
@@ -163,7 +165,7 @@ try {
     }
     await capture('08', 'API integration tests failed')
 
-    await prepare(phone ? '/providers' : '/settings/providers', 'Argo CD')
+    await prepare(phone ? '/browse' : '/settings/providers', 'Argo CD')
     await capture('09', 'Jenkins')
     await context.close()
   }

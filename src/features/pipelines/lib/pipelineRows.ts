@@ -75,15 +75,9 @@ interface BuildPipelineRowsInput {
   page: PipelineViewPage | undefined
   isOpen: (id: string, fallback: boolean) => boolean
   getProvider: (id: number) => ProviderSummary | undefined
-  defaultOpen?: boolean | undefined
 }
 
-export function buildPipelineRows({
-  page,
-  isOpen,
-  getProvider,
-  defaultOpen = false,
-}: BuildPipelineRowsInput): TableRow[] {
+export function buildPipelineRows({ page, isOpen, getProvider }: BuildPipelineRowsInput): TableRow[] {
   const rows: TableRow[] = []
   const providerLabel = (ids: number[]): string =>
     ids
@@ -93,7 +87,7 @@ export function buildPipelineRows({
 
   for (const section of page?.sections ?? []) {
     const flat = section.kind === 'none'
-    const expanded = isOpen(section.id, defaultOpen)
+    const expanded = isOpen(section.id, false)
 
     if (!flat) {
       const lead = section.pipelines.find((pipeline) => pipeline.id === section.status_pipeline_id)

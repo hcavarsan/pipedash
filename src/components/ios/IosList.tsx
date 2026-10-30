@@ -3,6 +3,7 @@ import { type MouseEventHandler, type ReactNode, useId } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { useRowMenuLongPress } from '../../hooks/useLongPress'
+import { pushState } from '../layout/mobileChrome'
 
 import classes from './IosList.module.css'
 import { SwipeActions } from './SwipeActions'
@@ -118,7 +119,7 @@ export function IosRow(props: IosRowProps): ReactNode {
     props.to ? (
       <Link
         to={props.to}
-        state={{ from: `${location.pathname}${location.search}` }}
+        state={pushState(location.pathname, location.search, location.state)}
         {...shared}
         aria-current={selected ? 'true' : undefined}
         className={className}

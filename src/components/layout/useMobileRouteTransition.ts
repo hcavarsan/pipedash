@@ -3,7 +3,7 @@ import { type RefObject, useEffect, useLayoutEffect, useRef } from 'react'
 import { prefersReducedMotion } from '../../lib/motion'
 import { type BarSnapshot, useMobileNavStore } from '../../stores/mobileNavStore'
 import classes from './MobilePage.module.css'
-import { type MobileTab, mobileChrome } from './mobileChrome'
+import { fromOf, type MobileTab, mobileChrome, screenDepth } from './mobileChrome'
 import { transitionKind } from './navigation'
 import { mountSnapshot, updateSnapshot } from './snapshots'
 import type { MobilePageLayers, MobilePageMotion } from './useMobilePageMotion'
@@ -22,7 +22,7 @@ interface Screen {
 interface MobileRouteTransitionProps {
   pathname: string
   search: string
-  from: string | null
+  state: unknown
   routeKey: string
   layers: MobilePageLayers
   motion: MobilePageMotion
@@ -36,7 +36,7 @@ interface MobileRouteTransitionProps {
 export function useMobileRouteTransition({
   pathname,
   search,
-  from,
+  state,
   routeKey,
   layers,
   motion,
@@ -54,12 +54,11 @@ export function useMobileRouteTransition({
 
   useLayoutEffect(() => {
     const main = scrollerOf(host.current)
-    const origin = from ? { from } : undefined
-    const current = mobileChrome(pathname, search, origin)
+    const current = mobileChrome(pathname, search, state)
     const next: Screen = {
       key: routeKey,
       tab: current.tab,
-      depth: current.back ? 1 : 0,
+      depth: screenDepth(pathname, search, state),
       title: current.title,
       backLabel: current.back?.label ?? null,
     }
@@ -67,7 +66,7 @@ export function useMobileRouteTransition({
     const nav = useMobileNavStore.getState()
 
     last.current = next
-    nav.rememberRoute(next.tab, { path: pathname + search, from })
+    nav.rememberRoute(next.tab, { path: pathname + search, from: fromOf(state), depth: next.depth })
 
     if (!main || !previous || previous.key === routeKey) {
       return
@@ -77,7 +76,7 @@ export function useMobileRouteTransition({
     const outgoing: BarSnapshot = {
       title: nav.title ?? previous.title,
       backLabel: previous.backLabel,
-      collapse: previous.depth > 0 ? 1 : collapse.current,
+      collapse: collapse.current,
     }
     const kind = swiped.current ? 'none' : transitionKind(previous, next)
 
@@ -153,7 +152,7 @@ export function useMobileRouteTransition({
   }, [
     pathname,
     search,
-    from,
+    state,
     routeKey,
     host,
     page,

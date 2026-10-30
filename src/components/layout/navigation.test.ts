@@ -2,6 +2,15 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  BROWSE_PATH,
+  groupPath,
+  mobileChrome,
+  providerPath,
+  pushState,
+  screenDepth,
+  splitLocation,
+} from './mobileChrome'
+import {
   edgeOffset,
   layoutBar,
   resolveBack,
@@ -23,14 +32,45 @@ test('back pops only when the previous entry is the parent', () => {
 test('transitions follow depth inside one tab and never cross tabs', () => {
   assert.equal(transitionKind({ tab: 'pipelines', depth: 0 }, { tab: 'pipelines', depth: 1 }), 'push')
   assert.equal(transitionKind({ tab: 'pinned', depth: 1 }, { tab: 'pinned', depth: 0 }), 'pop')
-  assert.equal(transitionKind({ tab: 'pipelines', depth: 0 }, { tab: 'providers', depth: 0 }), 'none')
+  assert.equal(transitionKind({ tab: 'pipelines', depth: 0 }, { tab: 'notifications', depth: 0 }), 'none')
   assert.equal(transitionKind({ tab: 'pipelines', depth: 1 }, { tab: 'settings', depth: 1 }), 'none')
   assert.equal(transitionKind({ tab: 'settings', depth: 0 }, { tab: 'settings', depth: 0 }), 'none')
 })
 
+test('each push in a Browse → provider → repository → history chain goes one level deeper in the same tab', () => {
+  const screen = (location: string, state?: unknown) => {
+    const { pathname, search } = splitLocation(location)
+
+    return { tab: mobileChrome(pathname, search, state).tab, depth: screenDepth(pathname, search, state) }
+  }
+  const root = screen(BROWSE_PATH)
+  const providerState = pushState(BROWSE_PATH, '')
+  const provider = screen(providerPath(1), providerState)
+  const { pathname, search } = splitLocation(providerPath(1))
+  const repoState = pushState(pathname, search, providerState)
+  const repo = screen(groupPath('repo:acme/mobile') + search, repoState)
+  const historyState = pushState(groupPath('repo:acme/mobile'), search, repoState)
+  const history = screen('/pipelines/abc', historyState)
+
+  assert.deepEqual(
+    [root, provider, repo, history].map((item) => [item.tab, item.depth]),
+    [
+      ['pipelines', 0],
+      ['pipelines', 1],
+      ['pipelines', 2],
+      ['pipelines', 3],
+    ]
+  )
+  assert.deepEqual(
+    [transitionKind(root, provider), transitionKind(provider, repo), transitionKind(repo, history)],
+    ['push', 'push', 'push']
+  )
+  assert.equal(transitionKind(history, repo), 'pop')
+})
+
 test('tab presses switch, pop to root, or scroll to top', () => {
-  assert.equal(tabAction('pipelines', 'providers', false), 'switch')
-  assert.equal(tabAction('pipelines', 'providers', true), 'switch')
+  assert.equal(tabAction('pipelines', 'notifications', false), 'switch')
+  assert.equal(tabAction('pipelines', 'notifications', true), 'switch')
   assert.equal(tabAction('pipelines', 'pipelines', true), 'pop-to-root')
   assert.equal(tabAction('pipelines', 'pipelines', false), 'scroll-top')
 })

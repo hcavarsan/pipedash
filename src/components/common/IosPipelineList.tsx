@@ -1,6 +1,7 @@
 import { Loader } from '@mantine/core'
 import { IconCheck, IconChevronRight } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 
 import { useRowMenuLongPress } from '../../hooks/useLongPress'
 import { useNow } from '../../hooks/useNow'
@@ -12,6 +13,7 @@ import { StatusGlyph } from '../atoms/StatusBadge'
 import groupClasses from '../ios/IosList.module.css'
 import { SwipeActions } from '../ios/SwipeActions'
 import type { SwipeAction } from '../ios/swipeAction'
+import { groupPath, pushState } from '../layout/mobileChrome'
 import classes from './IosPipelineList.module.css'
 import {
   type PipelineActions,
@@ -34,7 +36,6 @@ interface IosPipelineRowProps {
   longPressMenu?: boolean | undefined
   selected?: boolean | undefined
   reorderHandle?: ReactNode
-  nested?: boolean | undefined
 }
 
 export function IosPipelineRow({
@@ -49,7 +50,6 @@ export function IosPipelineRow({
   longPressMenu,
   selected,
   reorderHandle,
-  nested,
 }: IosPipelineRowProps): ReactNode {
   const hintId = useId()
   const selecting = selected !== undefined
@@ -96,7 +96,6 @@ export function IosPipelineRow({
       ref={pressRef}
       className={classes.row}
       data-glyph={status ? '' : undefined}
-      data-nested={nested ? '' : undefined}
       data-selecting={selecting ? '' : undefined}
       data-swipeable={swipeable ? '' : undefined}
       data-trailing={reorderHandle ? '' : undefined}
@@ -145,9 +144,9 @@ interface IosPipelineListProps {
   header?: ReactNode
   rows: TableRow[]
   getProvider: (providerId: number) => ProviderSummary | undefined
-  onToggleRepo: (repoId: string) => void
   actions: PipelineActions
   selection?: PipelineSelection | undefined
+  stale?: boolean | undefined
 }
 
 type SectionTableRow = Extract<TableRow, { type: 'section' }>
@@ -157,11 +156,7 @@ type ListItem =
   | { type: 'cell'; id: string; row: TableRow; first: boolean; last: boolean }
   | { type: 'footer'; id: string; text: string }
 
-function listItems(
-  rows: TableRow[],
-  getProvider: (providerId: number) => ProviderSummary | undefined,
-  now: number
-): ListItem[] {
+function listItems(rows: TableRow[], footer: string | undefined): ListItem[] {
   const items: ListItem[] = rows.map((row, index) => ({
     type: 'cell',
     id: row.id,
@@ -169,50 +164,30 @@ function listItems(
     first: index === 0,
     last: index === rows.length - 1,
   }))
-  const text = staleFooter(
-    rows.flatMap((row) => [...row.providerIds]),
-    getProvider,
-    now
-  )
 
-  return text ? [...items, { type: 'footer', id: 'footer', text }] : items
+  return footer ? [...items, { type: 'footer', id: 'footer', text: footer }] : items
 }
 
-function SectionRowView({
-  row,
-  onToggleRepo,
-}: {
-  row: SectionTableRow
-  onToggleRepo: (repoId: string) => void
-}): ReactNode {
-  const summary = !row.expanded
+function SectionRowView({ row }: { row: SectionTableRow }): ReactNode {
+  const { pathname, search, state } = useLocation()
 
   return (
-    <div className={classes.row} data-glyph="">
-      <h3 className={classes.sectionHeading}>
-        <button
-          type="button"
-          className={classes.main}
-          aria-expanded={row.expanded}
-          onClick={() => onToggleRepo(row.id)}
-        >
-          {summary && row.status ? (
-            <StatusGlyph status={row.status} />
-          ) : (
-            <span className={classes.glyphSlot} aria-hidden />
-          )}
-          <span className={classes.text}>
-            <span className={classes.title}>{row.name}</span>
-            {summary && row.status && <span className={classes.srOnly}>, {statusMeta(row.status).label}</span>}
-          </span>
-          {row.hasPendingFetch ? (
-            <Loader size={14} aria-label="Fetching pipelines" />
-          ) : (
-            summary && <span className={classes.value}>{row.pipelineCount}</span>
-          )}
-          <IconChevronRight className={classes.sectionChevron} data-open={row.expanded || undefined} aria-hidden />
-        </button>
-      </h3>
+    <div className={classes.row} data-glyph={row.status ? '' : undefined}>
+      <Link className={classes.main} to={`${groupPath(row.id)}${search}`} state={pushState(pathname, search, state)}>
+        {row.status && <StatusGlyph status={row.status} />}
+        <span className={classes.text}>
+          <span className={classes.title}>{row.name}</span>
+          {row.status && <span className={classes.srOnly}>, {statusMeta(row.status).label}</span>}
+        </span>
+        {row.hasPendingFetch ? (
+          <Loader size={14} aria-label="Fetching pipelines" />
+        ) : (
+          <span className={classes.value}>{row.pipelineCount}</span>
+        )}
+        <span className={classes.chevron} aria-hidden>
+          <IconChevronRight size={18} />
+        </span>
+      </Link>
     </div>
   )
 }
@@ -242,7 +217,6 @@ function WorkflowRowView({ row, now, getProvider, actions, selection }: Workflow
       hint={`View ${getPipelineLabels(pipeline.provider_type).history.toLowerCase()}`}
       longPressMenu
       selected={selection ? selection.selected.has(pipeline.id) : undefined}
-      nested={nested}
       onClick={() => (selection ? selection.onToggle(pipeline) : actions.onViewHistory(pipeline))}
       swipeActions={workflowSwipeActions(pipeline, actions)}
       menu={<WorkflowActionMenu pipeline={pipeline} provider={getProvider(pipeline.provider_id)} actions={actions} />}
@@ -254,12 +228,19 @@ export function IosPipelineList({
   header,
   rows,
   getProvider,
-  onToggleRepo,
   actions,
   selection,
+  stale,
 }: IosPipelineListProps): ReactNode {
   const now = useNow(30_000)
-  const items = listItems(rows, getProvider, now)
+  const footer = stale
+    ? staleFooter(
+        rows.flatMap((row) => [...row.providerIds]),
+        getProvider,
+        now
+      )
+    : undefined
+  const items = listItems(rows, footer)
 
   return (
     <section className={groupClasses.section}>
@@ -278,7 +259,7 @@ export function IosPipelineList({
           ) : (
             <div className={classes.cell} data-first={item.first || undefined} data-last={item.last || undefined}>
               {item.row.type === 'section' ? (
-                <SectionRowView row={item.row} onToggleRepo={onToggleRepo} />
+                <SectionRowView row={item.row} />
               ) : (
                 <WorkflowRowView
                   row={item.row}

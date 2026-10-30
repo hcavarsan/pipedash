@@ -48,7 +48,7 @@ export function UnifiedPipelinesView({
     <PipelineViewStatus model={model} onRetry={onRetry} onViewRun={onViewRun} onDisplayChange={changeDisplay}>
       <PageContainer>
         <PipelineViewToolbar model={model} onDisplayChange={changeDisplay} onOpenFilters={() => setFiltersOpen(true)} />
-        {model.mobileShell ? (
+        {model.pushed ? null : model.mobileShell ? (
           <>
             {filters}
             {nav}

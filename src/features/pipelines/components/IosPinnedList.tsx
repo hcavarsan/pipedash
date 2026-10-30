@@ -1,6 +1,6 @@
 import { IconMenu2 } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
-import { IosPipelineRow, relativeOrNever, staleFooter } from '../../../components/common/IosPipelineList'
+import { IosPipelineRow, relativeOrNever } from '../../../components/common/IosPipelineList'
 import rowClasses from '../../../components/common/IosPipelineList.module.css'
 import {
   type PinToggle,
@@ -108,17 +108,12 @@ export function IosPinnedList({
       },
     })),
   ]
-  const footer = staleFooter(
-    entries.map((entry) => entry.pipeline.provider_id),
-    getProvider,
-    now
-  )
   const sorting = reorderable && members
   const offset = sorting ? pinned.length : 0
   const lastId = entries.at(-1)?.pipeline.id
 
   return (
-    <IosGroup footer={footer}>
+    <IosGroup>
       {sorting && (
         <SortableList
           items={pinned}

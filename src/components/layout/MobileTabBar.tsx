@@ -1,21 +1,43 @@
-import { IconBell, IconPinned, IconPlug, IconSettings, IconStack2 } from '@tabler/icons-react'
+import { IconBell, IconPinned, IconSettings, IconStack2 } from '@tabler/icons-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useUnreadNotifications } from '../../features/notifications/components/NotificationCenter'
 import { useKeyboardOpen } from '../../hooks/useKeyboardInset'
 import { resumeRoute, useMobileNavStore } from '../../stores/mobileNavStore'
 import classes from './MobileTabBar.module.css'
-import { type MobileTab, mobileChrome } from './mobileChrome'
+import { BROWSE_PATH, type MobileTab, mobileChrome } from './mobileChrome'
 import { tabAction, tabBarScroll } from './navigation'
 import { scrollActiveToTop } from './scrollToTop'
 import { useGoBack } from './useMobileBack'
 
-const TABS: Array<{ id: MobileTab; label: string; ariaLabel: string; to: string; icon: typeof IconBell }> = [
-  { id: 'pipelines', label: 'Pipelines', ariaLabel: 'Pipelines', to: '/pipelines', icon: IconStack2 },
-  { id: 'pinned', label: 'Pinned', ariaLabel: 'Pinned workflows', to: '/pipelines?view=pinned', icon: IconPinned },
-  { id: 'providers', label: 'Providers', ariaLabel: 'Providers', to: '/providers', icon: IconPlug },
-  { id: 'notifications', label: 'Alerts', ariaLabel: 'Notifications', to: '/notifications', icon: IconBell },
-  { id: 'settings', label: 'Settings', ariaLabel: 'Settings', to: '/settings', icon: IconSettings },
+interface Tab {
+  id: MobileTab
+  label: string
+  ariaLabel: string
+  to: string
+  root: string
+  icon: typeof IconBell
+}
+
+const TABS: Tab[] = [
+  { id: 'pipelines', label: 'Browse', ariaLabel: 'Browse', to: '/pipelines', root: BROWSE_PATH, icon: IconStack2 },
+  {
+    id: 'pinned',
+    label: 'Pinned',
+    ariaLabel: 'Pinned workflows',
+    to: '/pipelines?view=pinned',
+    root: '/pipelines?view=pinned',
+    icon: IconPinned,
+  },
+  {
+    id: 'notifications',
+    label: 'Alerts',
+    ariaLabel: 'Notifications',
+    to: '/notifications',
+    root: '/notifications',
+    icon: IconBell,
+  },
+  { id: 'settings', label: 'Settings', ariaLabel: 'Settings', to: '/settings', root: '/settings', icon: IconSettings },
 ]
 
 function useMinimizedOnScroll(): boolean {
@@ -60,7 +82,7 @@ export function MobileTabBar(): ReactNode {
       aria-hidden={keyboardOpen || undefined}
       inert={keyboardOpen}
     >
-      {TABS.map(({ id, label, ariaLabel, to, icon: Icon }) => {
+      {TABS.map(({ id, label, ariaLabel, to, root, icon: Icon }) => {
         const active = id === activeTab
         const unreadLabel = id === 'notifications' && unread > 0 ? `${ariaLabel}, ${unread} unread` : ariaLabel
 
@@ -80,9 +102,12 @@ export function MobileTabBar(): ReactNode {
               if (action === 'switch') {
                 const route = resumeRoute(tabs, id, to)
 
-                navigate(route.path, route.from ? { state: { from: route.from } } : undefined)
-              } else if (action === 'pop-to-root' && back) {
-                goBack(back.to)
+                navigate(
+                  route.path,
+                  route.from ? { state: { from: route.from, tab: id, depth: route.depth ?? 1 } } : undefined
+                )
+              } else if (action === 'pop-to-root') {
+                goBack(root)
               } else {
                 scrollActiveToTop()
               }

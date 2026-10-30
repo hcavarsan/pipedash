@@ -3,7 +3,6 @@
   --glyph: 1.1em;
   --gap: 0.75em;
   --inset: var(--pad);
-  --indent: 0px;
   position: relative;
   display: flex;
   align-items: center;
@@ -14,10 +13,6 @@
 
 .row[data-glyph] {
   --inset: calc(var(--pad) + var(--glyph) + var(--gap));
-}
-
-.row[data-nested] {
-  --indent: calc(var(--glyph) + var(--gap));
 }
 
 .row[data-swipeable] {
@@ -33,7 +28,7 @@
   z-index: 2;
   pointer-events: none;
   right: 0;
-  left: calc(var(--inset) + var(--indent));
+  left: var(--inset);
   height: 0.5px;
   background: var(--ios-separator);
 }
@@ -61,13 +56,14 @@
   gap: var(--gap);
   min-width: 0;
   min-height: 44px;
-  padding: 0.47em var(--pad) 0.47em calc(var(--pad) + var(--indent));
+  padding: 0.47em var(--pad);
   box-sizing: border-box;
   border: 0;
   background: transparent;
   color: var(--ios-label);
   font-family: inherit;
   font-size: var(--ios-fs-body);
+  text-decoration: none;
   font-weight: 400;
   line-height: var(--ios-lh-body);
   text-align: left;
@@ -185,37 +181,6 @@
 
 .selectCheck svg {
   display: block;
-}
-
-.sectionHeading {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font: inherit;
-}
-
-.glyphSlot {
-  flex-shrink: 0;
-  width: var(--glyph);
-}
-
-.sectionChevron {
-  flex-shrink: 0;
-  width: 1em;
-  height: 1em;
-  color: var(--ios-tint);
-  transition: transform 160ms ease;
-}
-
-.sectionChevron[data-open] {
-  transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sectionChevron {
-    transition: none;
-  }
 }
 
 .sectionFooter {

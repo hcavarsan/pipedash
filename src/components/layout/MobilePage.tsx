@@ -5,7 +5,7 @@ import { PULL_HOLD } from '../../lib/gestures'
 import { useRefreshAll } from '../../queries/useRefreshQueries'
 import { MobileLargeTitle } from './MobileLargeTitle'
 import classes from './MobilePage.module.css'
-import { fromOf, mobileChrome, routeKey } from './mobileChrome'
+import { mobileChrome, routeKey } from './mobileChrome'
 import { PullRefreshContext, usePullRefreshState } from './PullRefreshContext'
 import { useGoBack } from './useMobileBack'
 import { useMobilePageArrival } from './useMobilePageArrival'
@@ -20,7 +20,6 @@ const SPOKES = Array.from({ length: 12 }, (_, index) => index)
 
 export function MobilePage({ children }: { children: ReactNode }): ReactNode {
   const { pathname, search, state } = useLocation()
-  const from = fromOf(state)
   const chrome = mobileChrome(pathname, search, state)
   const key = routeKey(pathname, search, state)
   const goBack = useGoBack()
@@ -38,8 +37,7 @@ export function MobilePage({ children }: { children: ReactNode }): ReactNode {
   const swiped = useRef(false)
 
   const layers = { host, page, underlay, overlay }
-  const rootTab = chrome.back === null && chrome.tab !== 'settings'
-  const refresh = registered ?? (rootTab ? () => refreshAll.mutateAsync() : null)
+  const refresh = registered ?? (chrome.tab === 'settings' ? null : () => refreshAll.mutateAsync())
 
   const motion = useMobilePageMotion(layers)
   const { scrollTop, collapse, measure } = useMobilePageScroll(layers)
@@ -48,7 +46,7 @@ export function MobilePage({ children }: { children: ReactNode }): ReactNode {
   useMobileRouteTransition({
     pathname,
     search,
-    from,
+    state,
     routeKey: key,
     layers,
     motion,
@@ -59,7 +57,7 @@ export function MobilePage({ children }: { children: ReactNode }): ReactNode {
     arrive,
   })
   useMobilePageSnapshots({ content, routeKey: key, scrollTop, collapse })
-  useMobileSwipeBack({ layers, motion, back: chrome.back, goBack, swiped })
+  useMobileSwipeBack({ layers, motion, back: chrome.back, tab: chrome.tab, goBack, swiped })
   useMobilePullRefresh({ host, content, spinner, status, refresh })
 
   return (

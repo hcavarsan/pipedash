@@ -38,12 +38,12 @@ function PipelineResultsBody({ model, actions, emptyState, onDisplayChange }: Pi
   if (mobileShell) {
     return (
       <IosPipelineList
-        header={model.sectionsLabel}
+        header={model.group ? undefined : model.sectionsLabel}
         rows={rows}
         getProvider={model.getProvider}
-        onToggleRepo={toggleSection}
         actions={actions}
         selection={model.selection}
+        stale={model.pushed}
       />
     )
   }
