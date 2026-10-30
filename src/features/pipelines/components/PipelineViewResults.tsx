@@ -17,10 +17,14 @@ interface PipelineViewResultsProps {
 }
 
 function PipelineResultsBody({ model, actions, emptyState, onDisplayChange }: PipelineViewResultsProps): ReactNode {
-  const { page, display, rows, mobileShell, isMobile, hasPinnedArea, isOpen, toggleSection } = model
+  const { page, display, rows, mobileShell, kind, pinnedBlocks, isMobile, hasPinnedArea, isOpen, toggleSection } = model
 
   if (!page || !display) {
     return null
+  }
+
+  if (mobileShell && kind === 'pinned') {
+    return rows.length === 0 && pinnedBlocks.length === 0 ? emptyState : null
   }
 
   if (rows.length === 0) {

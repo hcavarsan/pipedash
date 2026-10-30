@@ -20,6 +20,7 @@ import { type ReactNode, useId } from 'react'
 import { ToneDot } from '../../features/pipelines/components/ToneDot'
 import { useNow } from '../../hooks/useNow'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
+import type { StatusKey } from '../../theme/status'
 import type { PinKind, Pipeline, PipelineStatus, ProviderSummary, SectionMode, ViewPipeline } from '../../types/domain'
 import { dataAge, describeFetch, providerTone, TONE_META, worstTone } from '../../utils/fetchInfo'
 import { formatDateTime } from '../../utils/formatDateTime'
@@ -125,6 +126,7 @@ export interface SectionRow extends BaseTableRow {
   expanded: boolean
   pipelineCount: number
   hasPendingFetch: boolean
+  status: StatusKey | null
   pipelines: ViewPipeline[]
 }
 

@@ -1,4 +1,4 @@
-import { IconBell, IconPlug, IconSettings, IconStack2 } from '@tabler/icons-react'
+import { IconBell, IconPinned, IconPlug, IconSettings, IconStack2 } from '@tabler/icons-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useUnreadNotifications } from '../../features/notifications/components/NotificationCenter'
@@ -12,6 +12,7 @@ import { useGoBack } from './useMobileBack'
 
 const TABS: Array<{ id: MobileTab; label: string; ariaLabel: string; to: string; icon: typeof IconBell }> = [
   { id: 'pipelines', label: 'Pipelines', ariaLabel: 'Pipelines', to: '/pipelines', icon: IconStack2 },
+  { id: 'pinned', label: 'Pinned', ariaLabel: 'Pinned workflows', to: '/pipelines?view=pinned', icon: IconPinned },
   { id: 'providers', label: 'Providers', ariaLabel: 'Providers', to: '/providers', icon: IconPlug },
   { id: 'notifications', label: 'Alerts', ariaLabel: 'Notifications', to: '/notifications', icon: IconBell },
   { id: 'settings', label: 'Settings', ariaLabel: 'Settings', to: '/settings', icon: IconSettings },

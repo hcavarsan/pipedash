@@ -78,7 +78,7 @@
 }
 
 .bar[data-minimized] {
-  max-width: 248px;
+  max-width: 300px;
 }
 
 .bar[data-minimized] .tab {

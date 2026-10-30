@@ -1,6 +1,6 @@
 import { SETTINGS_SECTIONS } from '../common/SettingsSidebar'
 
-export type MobileTab = 'pipelines' | 'providers' | 'notifications' | 'settings'
+export type MobileTab = 'pipelines' | 'pinned' | 'providers' | 'notifications' | 'settings'
 
 export interface MobileChrome {
   title: string
@@ -24,7 +24,7 @@ export function fromOf(state: unknown): string | null {
   return null
 }
 
-function ownChrome(pathname: string): MobileChrome {
+function ownChrome(pathname: string, search: string): MobileChrome {
   const [, root, segment] = pathname.split('/')
 
   switch (root) {
@@ -44,13 +44,15 @@ function ownChrome(pathname: string): MobileChrome {
         return { title: 'History', back: { to: '/pipelines', label: 'Pipelines' }, tab: 'pipelines' }
       }
 
-      return { title: 'Pipelines', back: null, tab: 'pipelines' }
+      const pinned = !segment && new URLSearchParams(search).get('view') === 'pinned'
+
+      return { title: pinned ? 'Pinned' : 'Pipelines', back: null, tab: pinned ? 'pinned' : 'pipelines' }
     }
   }
 }
 
 export function mobileChrome(pathname: string, search: string, state?: unknown): MobileChrome {
-  const own = ownChrome(pathname)
+  const own = ownChrome(pathname, search)
   const from = fromOf(state)
 
   if (!own.back || !from || from === pathname + search) {
@@ -58,7 +60,7 @@ export function mobileChrome(pathname: string, search: string, state?: unknown):
   }
 
   const origin = splitLocation(from)
-  const parent = ownChrome(origin.pathname)
+  const parent = ownChrome(origin.pathname, origin.search)
 
   return { ...own, back: { to: from, label: parent.title }, tab: parent.tab }
 }

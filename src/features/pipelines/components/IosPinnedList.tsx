@@ -16,7 +16,7 @@ import { getPipelineLabels, getPipelineStatusLabel, pipelineStatusKey } from '..
 import { reorderSlots } from '../../../utils/viewTree'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { pinnedFromBlocks } from '../lib/pipelineRows'
-import { usePipelineViews, useReorderPinned, useViewMembers } from '../queries/usePipelineViewQueries'
+import { useReorderPinned, useViewMembers } from '../queries/usePipelineViewQueries'
 import { SortableList } from './SortableList'
 
 interface PinnedRowProps {
@@ -65,12 +65,11 @@ export function IosPinnedList({
   model: PipelineViewPageModel
   actions: PipelineActions
 }): ReactNode {
-  const { pinned, pinnedBlocks, getProvider, selection } = model
+  const { page, view, pinnedBlocks, getProvider, selection } = model
   const now = useNow(30_000)
+  const pinned = page?.sections.flatMap((section) => section.pipelines) ?? []
   const extras = pinnedFromBlocks(pinned, pinnedBlocks)
-  const { data: views = [] } = usePipelineViews()
-  const manual = views.find((view) => view.kind === 'pinned')?.display.sort === 'manual'
-  const reorderable = Boolean(selection) && manual && pinned.length > 1
+  const reorderable = Boolean(selection) && view?.display.sort === 'manual' && pinned.length > 1
   const { data: members } = useViewMembers('pinned', reorderable)
   const { mutate: reorder } = useReorderPinned()
 
@@ -97,7 +96,7 @@ export function IosPinnedList({
   const lastId = extras.at(-1)?.pipeline.id ?? pinned.at(-1)?.id
 
   return (
-    <IosGroup header="Pinned" footer={footer}>
+    <IosGroup footer={footer}>
       {reorderable && members ? (
         <SortableList
           items={pinned}

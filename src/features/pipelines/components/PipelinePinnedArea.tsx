@@ -66,10 +66,10 @@ export function PipelinePinnedArea({
   actions: PipelineActions
 }): ReactNode {
   const pinnedTitleId = useId()
-  const { pinned, pinnedBlocks, mobileShell, isOpen, toggleOpen, getProvider, selection } = model
+  const { pinned, pinnedBlocks, mobileShell, kind, isOpen, toggleOpen, getProvider, selection } = model
 
   if (mobileShell) {
-    return <IosPinnedList model={model} actions={actions} />
+    return kind === 'pinned' && <IosPinnedList model={model} actions={actions} />
   }
 
   return (

@@ -9,7 +9,7 @@ import type {
   ViewSection,
   ViewSortKey,
 } from '../../../types/domain'
-import type { PipelineLabels } from '../../../utils/pipelinePresentation'
+import { type PipelineLabels, pipelineStatusKey } from '../../../utils/pipelinePresentation'
 import { typedKeys } from '../../../utils/typedKeys'
 
 export const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
@@ -83,6 +83,8 @@ export function buildPipelineRows({
     const expanded = isOpen(section.id, defaultOpen)
 
     if (!flat) {
+      const lead = section.pipelines.find((pipeline) => pipeline.id === section.status_pipeline_id)
+
       rows.push({
         id: section.id,
         type: 'section',
@@ -93,6 +95,7 @@ export function buildPipelineRows({
         providerIds: new Set(section.provider_ids),
         providerLabel: providerLabel(section.provider_ids),
         hasPendingFetch: section.pending_fetch,
+        status: section.kind !== 'status' && lead ? pipelineStatusKey(lead) : section.status,
         lastRun: section.last_run,
         expanded,
         pipelines: section.pipelines,

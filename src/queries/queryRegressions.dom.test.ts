@@ -188,10 +188,26 @@ test('a rejected pinned reorder restores the cached pinned order', async (contex
   const request = Promise.withResolvers<never>()
   stub(context, 'updatePipelineView', () => request.promise)
   const pinnedIds = () =>
-    client.getQueryData<PipelineViewPage>(queryKeys.pipelines.page(viewQuery))?.pinned.map((pipeline) => pipeline.id)
+    client
+      .getQueryData<PipelineViewPage>(queryKeys.pipelines.page(viewQuery))
+      ?.sections[0]?.pipelines.map((pipeline) => pipeline.id)
   client.setQueryData(queryKeys.pipelines.page(viewQuery), {
     ...viewPage(),
-    pinned: [viewPipelineFixture({ id: 'a', pinned: true }), viewPipelineFixture({ id: 'b', pinned: true })],
+    view: pipelineViewFixture({ id: 'pinned', kind: 'pinned' }),
+    sections: [
+      {
+        id: 'none',
+        kind: 'none',
+        title: 'All',
+        organization: null,
+        provider_ids: [],
+        status: null,
+        status_pipeline_id: null,
+        last_run: null,
+        pending_fetch: false,
+        pipelines: [viewPipelineFixture({ id: 'a', pinned: true }), viewPipelineFixture({ id: 'b', pinned: true })],
+      },
+    ],
   })
   const { result } = renderHook(() => useReorderPinned(), { wrapper })
 

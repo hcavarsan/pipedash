@@ -58,7 +58,9 @@ export function ViewOptionsItems({ view, groupTitle, onChange, onExpandAll, hidd
     ...(display.sort === 'manual' || mobileShell
       ? []
       : [{ key: 'direction' as const, label: 'Order', options: directions }]),
-    { key: 'sections' as const, label: 'Group by', options: sections },
+    ...(mobileShell && view.kind === 'pinned'
+      ? []
+      : [{ key: 'sections' as const, label: 'Group by', options: sections }]),
     ...(mobileShell ? [] : [{ key: 'layout' as const, label: 'Layout', options: layouts }]),
   ]
   const displayGroups = view.capabilities.edit_display ? views : []

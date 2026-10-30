@@ -6,13 +6,13 @@ import { rememberRoute, rememberScroll, resumeRoute, type TabRoutes } from './mo
 test('each tab remembers its last route, including a pushed detail', () => {
   let tabs: TabRoutes = {}
 
-  tabs = rememberRoute(tabs, 'notifications', { path: '/notifications', from: null })
-  tabs = rememberRoute(tabs, 'notifications', { path: '/pipelines/abc', from: '/notifications' })
+  tabs = rememberRoute(tabs, 'pinned', { path: '/pipelines?view=pinned', from: null })
+  tabs = rememberRoute(tabs, 'pinned', { path: '/pipelines/abc', from: '/pipelines?view=pinned' })
   tabs = rememberRoute(tabs, 'settings', { path: '/settings/storage', from: null })
 
-  assert.deepEqual(resumeRoute(tabs, 'notifications', '/notifications'), {
+  assert.deepEqual(resumeRoute(tabs, 'pinned', '/pipelines?view=pinned'), {
     path: '/pipelines/abc',
-    from: '/notifications',
+    from: '/pipelines?view=pinned',
   })
   assert.deepEqual(resumeRoute(tabs, 'settings', '/settings'), { path: '/settings/storage', from: null })
 })

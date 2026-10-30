@@ -298,10 +298,12 @@ export function useReorderPinned(): UseMutationResult<PipelineView, Error, strin
 
         return index < 0 ? members.length : index
       }
-      updatePages(queryClient, (page) => ({
-        ...page,
-        pinned: [...page.pinned].sort((a, b) => rank(a.id) - rank(b.id)),
-      }))
+      const order = (pipelines: ViewPipeline[]) => [...pipelines].sort((a, b) => rank(a.id) - rank(b.id))
+      updatePages(queryClient, (page) =>
+        page.view.kind === 'pinned'
+          ? { ...page, sections: page.sections.map((section) => ({ ...section, pipelines: order(section.pipelines) })) }
+          : page
+      )
 
       return snapshots
     },
