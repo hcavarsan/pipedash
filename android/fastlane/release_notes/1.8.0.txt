@@ -1,0 +1,5 @@
+- Add Prow jobs and see their runs and build logs.
+- Browse lists your views and providers, each repository opens its own page, and pins get their own tab.
+- The tab bar turns into a glass bar that shrinks while you scroll.
+- Adding a provider takes three steps, and build log search highlights the current match.
+- Run history keeps loading past the first 20 runs, and saving metrics settings no longer deletes older FluxCD runs.
