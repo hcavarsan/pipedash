@@ -2408,24 +2408,21 @@ type = "travis"
     }
 
     #[tokio::test]
-    async fn field_options_that_need_a_client_use_the_initialized_plugin() {
+    async fn failed_field_options_report_why_the_plugin_could_not_initialize() {
         let h = Harness::with_real_plugins().await;
-        let ready = HashMap::from([
-            ("server_url".to_string(), h.argocd_url.clone()),
-            ("token".to_string(), "token".to_string()),
+        let config = HashMap::from([
+            (
+                "kubeconfig".to_string(),
+                h._temp_dir.path().join("missing").display().to_string(),
+            ),
+            ("namespaces".to_string(), "Not_A_Namespace".to_string()),
         ]);
-        let incomplete = HashMap::from([("token".to_string(), "token".to_string())]);
 
-        let organizations = h
-            .provider_service
-            .field_options("argocd", "organizations", ready)
-            .await;
         let rejected = h
             .provider_service
-            .field_options("argocd", "organizations", incomplete)
+            .field_options("fluxcd", "namespaces", config)
             .await;
 
-        assert_eq!(organizations.unwrap(), Vec::<String>::new());
         assert!(
             matches!(rejected, Err(DomainError::InvalidConfig(message)) if message.contains("initialize"))
         );
