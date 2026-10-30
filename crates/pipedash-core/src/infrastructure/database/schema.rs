@@ -36,6 +36,8 @@ pub async fn init_database(path: PathBuf) -> anyhow::Result<SqlitePool> {
 
     let pool = SqlitePoolOptions::new()
         .max_connections(50)
+        // In-process connections can't drop; pinging only adds a worker round trip.
+        .test_before_acquire(false)
         .min_connections(10)
         .acquire_timeout(Duration::from_secs(30))
         .idle_timeout(Duration::from_secs(300))
