@@ -17,6 +17,9 @@ on:
 
 permissions: {}
 
+env:
+  K8S_OPENAPI_ENABLED_VERSION: "1.32"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  K8S_OPENAPI_ENABLED_VERSION: "1.32"
   TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
   TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -516,7 +517,6 @@ jobs:
       - name: Publish pipedash-plugin-fluxcd
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-fluxcd.outputs.token }}
-          K8S_OPENAPI_ENABLED_VERSION: "1.32"
         run: |
           "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-fluxcd wait
 
@@ -547,7 +547,6 @@ jobs:
       - name: Publish pipedash-plugin-prow
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth-plugin-prow.outputs.token }}
-          K8S_OPENAPI_ENABLED_VERSION: "1.32"
         run: |
           "$RUNNER_TEMP/publish_crate.sh" crates/pipedash-plugin-prow wait
 

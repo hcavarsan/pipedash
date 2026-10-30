@@ -18,6 +18,7 @@ permissions:
   contents: read
 
 env:
+  K8S_OPENAPI_ENABLED_VERSION: "1.32"
   CARGO_TERM_COLOR: always
   CARGO_PROFILE_DEV_DEBUG: 0
   RUST_BACKTRACE: 1
@@ -220,6 +221,4 @@ jobs:
         run: mise run test:postgres
 
       - name: Verify plugin packages
-        env:
-          K8S_OPENAPI_ENABLED_VERSION: "1.32"
         run: cargo package -p pipedash-plugin-api -p pipedash-plugin-actions -p pipedash-plugin-github -p pipedash-plugin-gitea -p pipedash-plugin-fluxcd

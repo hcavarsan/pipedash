@@ -25,6 +25,8 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 
+ENV K8S_OPENAPI_ENABLED_VERSION=1.32
+
 ARG TARGETARCH
 
 RUN case "$TARGETARCH" in \
