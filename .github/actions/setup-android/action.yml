@@ -8,7 +8,7 @@ runs:
   using: composite
   steps:
     - name: Install mise
-      uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+      uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
       with:
         install: false
         cache: false
@@ -28,7 +28,7 @@ runs:
         java-version: "21"
 
     - name: Install Ruby
-      uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1.335.0
+      uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
       with:
         ruby-version: "3.4"
         working-directory: android

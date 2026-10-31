@@ -2148,6 +2148,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "granit-parser"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da55feca5d1625466bae068f9fd4b87892caeae70c3fe671ddb0f50d41aebf37"
+dependencies = [
+ "arraydeque",
+ "smallvec",
+]
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3013,7 +3023,7 @@ dependencies = [
  "rustls-platform-verifier",
  "secrecy",
  "serde",
- "serde-saphyr",
+ "serde-saphyr 0.0.29",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
@@ -3175,9 +3185,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.34"
+version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "lz4_flex"
@@ -3728,9 +3738,9 @@ dependencies = [
 
 [[package]]
 name = "octocrab"
-version = "0.54.7"
+version = "0.54.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74361a384f69ad80419be6d2bd57a02c7ae09d3f49acd0609a0ecb11d541e85f"
+checksum = "ec2e833e26f9a2ee09c89b25d84e1c5514c1a1528876d5fe95112ca6fee9d310"
 dependencies = [
  "arc-swap",
  "base64 0.22.1",
@@ -4205,7 +4215,7 @@ dependencies = [
  "chrono",
  "pipedash-plugin-api",
  "serde",
- "serde-saphyr",
+ "serde-saphyr 2.0.0",
  "serde_json",
 ]
 
@@ -5333,7 +5343,24 @@ dependencies = [
  "base64 0.22.1",
  "encoding_rs_io",
  "getrandom 0.3.4",
- "granit-parser",
+ "granit-parser 0.0.7",
+ "nohash-hasher",
+ "num-traits",
+ "serde_core",
+ "smallvec",
+ "zmij",
+]
+
+[[package]]
+name = "serde-saphyr"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a253edfdea34032da21af84e16fcc94f4c7a6ba237f9f3bc2dbf43cea8535c44"
+dependencies = [
+ "annotate-snippets",
+ "base64 0.23.1",
+ "encoding_rs_io",
+ "granit-parser 2.0.0",
  "nohash-hasher",
  "num-traits",
  "serde_core",
