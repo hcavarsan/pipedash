@@ -691,17 +691,18 @@ async fn execute(
     if let Command::Notifications = command {
         let state = app.state::<DesktopState>();
         let _guard = state.settings_gate.lock().await;
-        let next = {
+        let (next, request) = {
             let inner = state.lock();
             if ticket.is_some_and(|ticket| !inner.matches(ticket)) {
                 return Ok(());
             }
-            inner.saved.patch(DesktopSettingsPatch {
+            let request = DesktopSettingsPatch {
                 notifications_enabled: Some(!inner.saved.settings.notifications_enabled),
                 ..Default::default()
-            })?
+            };
+            (inner.saved.patch(request)?, request)
         };
-        return super::commit_settings(app, next).await.map(|_| ());
+        return super::commit_settings(app, next, request).await.map(|_| ());
     }
     let (core, current) = {
         let state = app.state::<DesktopState>();
@@ -830,6 +831,7 @@ mod tests {
             watch_session: None,
             watch: None,
             history: Default::default(),
+            retry: Default::default(),
         }
     }
 

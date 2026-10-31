@@ -48,6 +48,8 @@ async function handleIntent(navigate: NavigateFunction, intent: NativeIntent, ac
 
   if (pipelineId && runNumber) {
     await openPipeline(pipelineId, NOTIFICATIONS, runNumber)
+  } else if (pipelineId && intent.action === 'open-run') {
+    await openPipeline(pipelineId, NOTIFICATIONS)
   } else if (known) {
     await navigate(NOTIFICATIONS)
     if (active()) {

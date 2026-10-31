@@ -24,6 +24,60 @@ pub struct DesktopSettingsPatch {
     pub notifications_enabled: Option<bool>,
 }
 
+impl DesktopSettingsPatch {
+    pub fn is_empty(self) -> bool {
+        self.show_tray.is_none()
+            && self.keep_running_on_close.is_none()
+            && self.notifications_enabled.is_none()
+    }
+}
+
+#[derive(Default)]
+pub(super) struct SettingsRetry {
+    patch: DesktopSettingsPatch,
+    pub error: Option<String>,
+}
+
+impl SettingsRetry {
+    pub fn request(&self, patch: DesktopSettingsPatch) -> DesktopSettingsPatch {
+        if patch.is_empty() {
+            self.patch
+        } else {
+            patch
+        }
+    }
+
+    pub fn failed(&mut self, patch: DesktopSettingsPatch, error: &str) {
+        self.patch.show_tray = patch.show_tray.or(self.patch.show_tray);
+        self.patch.keep_running_on_close = if patch.show_tray == Some(false) {
+            Some(false)
+        } else {
+            patch
+                .keep_running_on_close
+                .or(self.patch.keep_running_on_close)
+        };
+        self.patch.notifications_enabled = patch
+            .notifications_enabled
+            .or(self.patch.notifications_enabled);
+        self.error = (!self.patch.is_empty()).then(|| error.to_string());
+    }
+
+    pub fn committed(&mut self, patch: DesktopSettingsPatch) {
+        if patch.show_tray.is_some() {
+            self.patch.show_tray = None;
+        }
+        if patch.keep_running_on_close.is_some() || patch.show_tray == Some(false) {
+            self.patch.keep_running_on_close = None;
+        }
+        if patch.notifications_enabled.is_some() {
+            self.patch.notifications_enabled = None;
+        }
+        if self.patch.is_empty() {
+            self.error = None;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(super) struct SavedSettings {
@@ -141,5 +195,54 @@ mod tests {
             .unwrap();
         assert!(save(&path, enabled).is_err());
         assert!(!load(&path).0.notification_preference_imported);
+    }
+
+    #[test]
+    fn retry_reapplies_failed_enable_without_reverting_later_notification_consent() {
+        let enable = DesktopSettingsPatch {
+            show_tray: Some(true),
+            ..Default::default()
+        };
+        let notifications = DesktopSettingsPatch {
+            notifications_enabled: Some(true),
+            ..Default::default()
+        };
+        let mut retry = SettingsRetry::default();
+        retry.failed(enable, "Tray unavailable");
+        let saved = SavedSettings::default().patch(notifications).unwrap();
+        retry.committed(notifications);
+        assert!(retry.error.is_some());
+        let request = retry.request(DesktopSettingsPatch::default());
+        let next = saved.patch(request).unwrap();
+        assert!(next.settings.show_tray);
+        assert!(next.settings.notifications_enabled);
+        retry.committed(request);
+        assert!(retry.request(DesktopSettingsPatch::default()).is_empty());
+        assert!(retry.error.is_none());
+    }
+
+    #[test]
+    fn disabling_tray_cancels_pending_background_and_enable_requests() {
+        let mut retry = SettingsRetry::default();
+        retry.failed(
+            DesktopSettingsPatch {
+                show_tray: Some(true),
+                keep_running_on_close: Some(true),
+                ..Default::default()
+            },
+            "Save failed",
+        );
+        let disable = DesktopSettingsPatch {
+            show_tray: Some(false),
+            ..Default::default()
+        };
+        retry.failed(disable, "Still read-only");
+        let request = retry.request(DesktopSettingsPatch::default());
+        let next = SavedSettings::default().patch(request).unwrap();
+        assert!(!next.settings.show_tray);
+        assert!(!next.settings.keep_running_on_close);
+        retry.committed(disable);
+        assert!(retry.request(DesktopSettingsPatch::default()).is_empty());
+        assert!(retry.error.is_none());
     }
 }

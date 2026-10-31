@@ -1,6 +1,8 @@
 mod menu;
 pub mod notifications;
 mod settings;
+#[cfg(test)]
+mod tests;
 
 use std::{
     path::PathBuf,
@@ -18,7 +20,10 @@ use std::{
 
 use pipedash_core::{
     application::services::health_service::NotificationState,
-    domain::PipelineMenuSnapshot,
+    domain::{
+        DomainResult,
+        PipelineMenuSnapshot,
+    },
     event::CoreEvent,
     CoreContext,
 };
@@ -67,6 +72,7 @@ pub struct DesktopStatus {
     error: Option<String>,
 }
 
+#[derive(Default)]
 struct Inner {
     saved: SavedSettings,
     revision: u64,
@@ -86,6 +92,7 @@ struct Inner {
     watch_session: Option<(String, Ticket)>,
     watch: Option<BuildWatchSnapshot>,
     history: DesktopNotificationSnapshot,
+    retry: settings::SettingsRetry,
 }
 
 impl Inner {
@@ -97,6 +104,19 @@ impl Inner {
     }
     fn matches(&self, ticket: Ticket) -> bool {
         self.vault_ready && self.core.is_some() && self.ticket() == ticket
+    }
+    fn apply_menu_result(&mut self, result: DomainResult<PipelineMenuSnapshot>) {
+        match result {
+            Ok(snapshot) => {
+                self.snapshot = Some(snapshot);
+                self.data_error = None;
+            }
+            Err(_) => {
+                self.snapshot = None;
+                self.data_error =
+                    Some("Couldn't load pinned pipelines. Retry in General settings.".to_string());
+            }
+        }
     }
     fn status(&self) -> DesktopStatus {
         DesktopStatus {
@@ -116,6 +136,7 @@ impl Inner {
                 .as_ref()
                 .or(self.tray_error.as_ref())
                 .or(self.data_error.as_ref())
+                .or(self.retry.error.as_ref())
                 .cloned(),
         }
     }
@@ -208,23 +229,8 @@ pub async fn initialize(app: &AppHandle, path: PathBuf) -> Result<(), ErrorRespo
     app.manage(DesktopState {
         inner: Mutex::new(Inner {
             saved,
-            revision: 0,
-            generation: 0,
-            epoch: 0,
-            vault_ready: false,
-            core: None,
-            snapshot: None,
-            baseline: None,
-            change_revision: 0,
             settings_error,
-            data_error: None,
-            tray_error: None,
-            tray_ready: false,
-            refresh_active: false,
-            refresh_message: None,
-            watch_session: None,
-            watch: None,
-            history: DesktopNotificationSnapshot::default(),
+            ..Default::default()
         }),
         path: file,
         settings_gate: tokio::sync::Mutex::new(()),
@@ -327,42 +333,40 @@ async fn refresh_projection(app: &AppHandle) {
             })
     };
     if let Some((core, ticket, needs_seed, revision)) = input {
-        let result = async {
-            let snapshot = core.pipeline_view_service.menu_snapshot().await?;
-            let baseline = if needs_seed {
-                let pipelines = core.pipeline_service.get_cached_pipelines(None).await?;
-                let providers = core.provider_service.list_providers().await?;
-                let mut baseline = NotificationState::default();
-                baseline.seed(&pipelines, &providers);
-                Some(baseline)
-            } else {
-                None
-            };
-            Ok::<_, pipedash_core::domain::DomainError>((snapshot, baseline))
-        }
-        .await;
+        let projection = core.pipeline_view_service.menu_snapshot().await;
+        let baseline = if needs_seed {
+            Some(
+                async {
+                    let pipelines = core.pipeline_service.get_cached_pipelines(None).await?;
+                    let providers = core.provider_service.list_providers().await?;
+                    let mut baseline = NotificationState::default();
+                    baseline.seed(&pipelines, &providers);
+                    Ok::<_, pipedash_core::domain::DomainError>(baseline)
+                }
+                .await,
+            )
+        } else {
+            None
+        };
         let state = app.state::<DesktopState>();
         {
             let mut inner = state.lock();
             if !inner.matches(ticket) {
                 return;
             }
-            match result {
-                Ok((snapshot, baseline)) => {
-                    inner.snapshot = Some(snapshot);
-                    inner.data_error = None;
-                    if let Some(baseline) = baseline {
-                        if revision == inner.change_revision {
-                            inner.baseline = Some(baseline);
-                        } else {
-                            state.refresh.notify_one();
-                        }
+            inner.apply_menu_result(projection);
+            if let Some(result) = baseline {
+                match result {
+                    Ok(baseline) if revision == inner.change_revision => {
+                        inner.baseline = Some(baseline)
                     }
-                }
-                Err(_) => {
-                    inner.snapshot = None;
-                    inner.baseline = None;
-                    inner.data_error = Some("Couldn't load pinned pipelines or notification baseline. Retry in General settings.".to_string());
+                    Ok(_) => state.refresh.notify_one(),
+                    Err(_) => {
+                        inner.data_error = Some(
+                            "Couldn't prepare desktop notifications. Retry in General settings."
+                                .to_string(),
+                        )
+                    }
                 }
             }
         }
@@ -516,9 +520,7 @@ async fn persist(app: &AppHandle, saved: SavedSettings) -> Result<(), ErrorRespo
         .map_err(|_| failure("Couldn't save desktop settings. Check file permissions and retry."))
 }
 
-async fn commit_settings(
-    app: &AppHandle, next: SavedSettings,
-) -> Result<DesktopStatus, ErrorResponse> {
+async fn try_commit_settings(app: &AppHandle, next: SavedSettings) -> Result<(), ErrorResponse> {
     let (previous, was_ready, settings_error) = {
         let state = app.state::<DesktopState>();
         let inner = state.lock();
@@ -532,7 +534,6 @@ async fn commit_settings(
     if created {
         if let Err(error) = on_main(app, menu::create_tray).await {
             app.state::<DesktopState>().lock().tray_error = Some(error.error.clone());
-            publish_status(app);
             return Err(error);
         }
     }
@@ -545,7 +546,6 @@ async fn commit_settings(
                 let _ = on_main(app, menu::remove_tray).await;
             }
             app.state::<DesktopState>().lock().settings_error = Some(error.error.clone());
-            publish_status(app);
             return Err(error);
         }
     }
@@ -562,9 +562,24 @@ async fn commit_settings(
             app.state::<DesktopState>().lock().tray_error = Some(error.error);
         }
     }
-    publish_status(app);
     wake(app);
-    Ok(app.state::<DesktopState>().lock().status())
+    Ok(())
+}
+
+async fn commit_settings(
+    app: &AppHandle, next: SavedSettings, request: DesktopSettingsPatch,
+) -> Result<DesktopStatus, ErrorResponse> {
+    let result = try_commit_settings(app, next).await;
+    {
+        let state = app.state::<DesktopState>();
+        let mut inner = state.lock();
+        match &result {
+            Ok(_) => inner.retry.committed(request),
+            Err(error) => inner.retry.failed(request, &error.error),
+        }
+    }
+    publish_status(app);
+    result.map(|_| app.state::<DesktopState>().lock().status())
 }
 
 #[tauri::command]
@@ -578,10 +593,8 @@ pub async fn update_desktop_settings(
 ) -> Result<DesktopStatus, ErrorResponse> {
     let state = app.state::<DesktopState>();
     let _guard = state.settings_gate.lock().await;
-    let empty = patch.show_tray.is_none()
-        && patch.keep_running_on_close.is_none()
-        && patch.notifications_enabled.is_none();
-    if empty && state.lock().settings_error.is_some() {
+    let request = state.lock().retry.request(patch);
+    if request.is_empty() && state.lock().settings_error.is_some() {
         let path = state.path.clone();
         let (saved, error) = tauri::async_runtime::spawn_blocking(move || settings::load(&path))
             .await
@@ -600,8 +613,8 @@ pub async fn update_desktop_settings(
             return Ok(state.lock().status());
         }
     }
-    let next = state.lock().saved.patch(patch)?;
-    commit_settings(&app, next).await?;
+    let next = state.lock().saved.patch(request)?;
+    commit_settings(&app, next, request).await?;
     refresh_projection(&app).await;
     Ok(app.state::<DesktopState>().lock().status())
 }
@@ -621,7 +634,15 @@ pub async fn import_desktop_notification_preference(
     }
     next.notification_preference_imported = true;
     next.settings.notifications_enabled = enabled;
-    commit_settings(&app, next).await
+    commit_settings(
+        &app,
+        next,
+        DesktopSettingsPatch {
+            notifications_enabled: Some(enabled),
+            ..Default::default()
+        },
+    )
+    .await
 }
 
 pub async fn reset_settings(app: &AppHandle) -> Result<(), ErrorResponse> {
@@ -632,6 +653,11 @@ pub async fn reset_settings(app: &AppHandle) -> Result<(), ErrorResponse> {
         SavedSettings {
             notification_preference_imported: true,
             ..Default::default()
+        },
+        DesktopSettingsPatch {
+            show_tray: Some(false),
+            keep_running_on_close: Some(false),
+            notifications_enabled: Some(false),
         },
     )
     .await

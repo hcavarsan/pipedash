@@ -57,6 +57,7 @@ const { NativeBridge } = await import('./NativeBridge')
 const { NativeIntentBridge } = await import('./NativeIntentBridge')
 const { useModalStore } = await import('../stores/modalStore')
 const { usePipelineViewStore } = await import('../features/pipelines/stores/pipelineViewStore')
+const { useNotificationCenterStore } = await import('../stores/notificationCenterStore')
 
 after(async () => {
   await act(async () => cleanup())
@@ -75,6 +76,7 @@ afterEach(async () => {
   callbacks.clear()
   useModalStore.setState(useModalStore.getInitialState(), true)
   usePipelineViewStore.setState(usePipelineViewStore.getInitialState(), true)
+  useNotificationCenterStore.setState({ items: [], selection: null, desktopRevision: -1 })
 })
 
 const view = () => within(document.body)
@@ -132,6 +134,40 @@ test('a selected exact run remains pending through unlock and opens once', async
   assert.deepEqual(useModalStore.getState().logsModal, { open: true, pipelineId: 'jenkins__1__menu-01', runNumber: 42 })
   assert.equal(pending, null)
 })
+
+for (const [action, destination] of [
+  ['tap', '/notifications'],
+  ['open-run', '/pipelines/jenkins__1__menu-01'],
+] as const) {
+  test(`a known pipeline notice routes ${action} to its intended destination without guessing a run`, async () => {
+    const key = 'pipeline:known'
+    useNotificationCenterStore.setState({
+      items: [
+        {
+          key,
+          at: 1,
+          read: false,
+          tone: 'danger',
+          level: null,
+          title: 'Pipeline failed',
+          body: 'menu-01',
+          providerIds: [1],
+          pipelineId: 'jenkins__1__menu-01',
+          link: null,
+        },
+      ],
+    })
+    pending = { id: 12, intent: { type: 'notification', action, key, pipelineId: 'jenkins__1__menu-01' } }
+    mount()
+    await waitFor(() => assert.deepEqual(acknowledged, [12]))
+    assert.equal(view().getByRole('status', { name: 'Location' }).textContent, destination)
+    assert.deepEqual(useModalStore.getState().logsModal, { open: false })
+    assert.deepEqual(
+      useNotificationCenterStore.getState().selection,
+      action === 'tap' ? { type: 'notification', key } : null
+    )
+  })
+}
 
 test('unmounting during peek retains the intent for the next authenticated mount', async () => {
   const user = userEvent.setup({ document, delay: null })
