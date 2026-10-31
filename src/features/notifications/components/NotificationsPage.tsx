@@ -2,6 +2,8 @@ import { Box, Stack, Text, VisuallyHidden } from '@mantine/core'
 import { IconBellCheck } from '@tabler/icons-react'
 import { type ReactNode, useEffect } from 'react'
 import { ProviderIcon } from '../../../components/atoms/ProviderIcon'
+import { PageContainer } from '../../../components/common/PageContainer'
+import { PageHeader } from '../../../components/common/PageHeader'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
@@ -166,5 +168,12 @@ export function NotificationsPage(): ReactNode {
 
   useEffect(() => markAllRead, [markAllRead])
 
-  return mobileShell ? <ShellNotificationList /> : <NotificationList />
+  return mobileShell ? (
+    <ShellNotificationList />
+  ) : (
+    <PageContainer>
+      <PageHeader title="Notifications" />
+      <NotificationList />
+    </PageContainer>
+  )
 }

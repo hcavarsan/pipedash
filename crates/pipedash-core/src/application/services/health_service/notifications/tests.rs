@@ -247,6 +247,62 @@ fn network() -> DomainError {
     DomainError::NetworkError("down".to_owned())
 }
 
+#[test]
+fn provider_notices_preserve_metadata_and_recovery_tone() {
+    let mut state = NotificationState::default();
+    for recovered in [false, true] {
+        let mut event = alert_event("provider:1", "outage", "Provider health", recovered);
+        let link = AlertLink {
+            url: "https://status.example.com/incident".to_owned(),
+            kind: crate::event::AlertLinkKind::Incident,
+        };
+        if let CoreEvent::ProviderHealthAlert {
+            provider_ids,
+            link: target,
+            ..
+        } = &mut event
+        {
+            *provider_ids = vec![1, 2];
+            *target = Some(link.clone());
+        }
+        let found = state.observe_event(&event);
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].tone,
+            if recovered {
+                NotificationTone::Success
+            } else {
+                NotificationTone::Warning
+            }
+        );
+        assert_eq!(found[0].level, Some(HealthLevel::MajorOutage));
+        assert_eq!(found[0].provider_ids, vec![1, 2]);
+        assert_eq!(found[0].provider_id, Some(1));
+        assert_eq!(found[0].link, Some(link));
+        assert!(state.observe_event(&event).is_empty());
+    }
+}
+
+#[test]
+fn older_notifications_decode_with_safe_metadata_defaults() {
+    let notification: LocalNotification = serde_json::from_value(json!({
+        "key": "old", "title": "Old notice", "body": "", "pipeline_id": null, "provider_id": 7
+    }))
+    .unwrap();
+    assert_eq!(notification.tone, NotificationTone::Warning);
+    assert_eq!(notification.level, None);
+    assert!(notification.provider_ids.is_empty());
+    assert_eq!(notification.link, None);
+    assert_eq!(notification.provider_id, Some(7));
+    for (tone, text) in [
+        (NotificationTone::Danger, "danger"),
+        (NotificationTone::Warning, "warning"),
+        (NotificationTone::Success, "success"),
+    ] {
+        assert_eq!(serde_json::to_value(tone).unwrap(), text);
+    }
+}
+
 #[tokio::test]
 async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
     let mut rig = Rig::new();
@@ -267,6 +323,10 @@ async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
             body: BODY.to_owned(),
             pipeline_id: Some("github__1__api".to_owned()),
             provider_id: Some(1),
+            tone: NotificationTone::Danger,
+            level: None,
+            provider_ids: vec![1],
+            link: None,
         }]
     );
 }
@@ -398,6 +458,8 @@ fn an_overdue_event_notifies_once_per_run() {
     let next = state.observe_event(&updated(1, vec![slow]));
 
     assert_eq!(titles(&first), ["api is running longer than usual"]);
+    assert_eq!(first[0].tone, NotificationTone::Warning);
+    assert_eq!(first[0].provider_ids, vec![1]);
     assert!(repeated.is_empty());
     assert_eq!(next.len(), 1);
 }

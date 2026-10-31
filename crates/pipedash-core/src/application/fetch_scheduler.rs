@@ -106,6 +106,7 @@ struct Entry {
     last_failure: Option<FailureKind>,
     attempt: Option<AttemptReceiver>,
     quota: Option<QuotaPause>,
+    forced_waiters: usize,
 }
 
 impl Entry {
@@ -120,6 +121,7 @@ impl Entry {
             last_failure: None,
             attempt: None,
             quota: None,
+            forced_waiters: 0,
         }
     }
 
@@ -288,6 +290,7 @@ impl FetchScheduler {
             .iter_mut()
             .filter(|(id, entry)| {
                 !entry.interval.is_zero()
+                    && entry.forced_waiters == 0
                     && entry.attempt.is_none()
                     && now >= entry.due_at(floors.get(*id).copied())
             })
@@ -306,6 +309,21 @@ impl FetchScheduler {
         claims.sort_by_key(FetchClaim::id);
 
         claims
+    }
+
+    pub(crate) fn prioritize_forced(
+        self: &Arc<Self>, id: i64, generation: Generation,
+    ) -> Option<ForcedWait> {
+        let mut entries = self.entries();
+        let entry = entries
+            .get_mut(&id)
+            .filter(|entry| entry.generation == generation)?;
+        entry.forced_waiters += 1;
+        Some(ForcedWait {
+            scheduler: Arc::clone(self),
+            id,
+            generation,
+        })
     }
 
     pub fn claim_forced(
@@ -434,6 +452,25 @@ pub enum ForcedClaim {
     Joined(AttemptHandle),
     Recent(Outcome),
     Refused,
+}
+
+pub(crate) struct ForcedWait {
+    scheduler: Arc<FetchScheduler>,
+    id: i64,
+    generation: Generation,
+}
+
+impl Drop for ForcedWait {
+    fn drop(&mut self) {
+        if let Some(entry) = self
+            .scheduler
+            .entries()
+            .get_mut(&self.id)
+            .filter(|entry| entry.generation == self.generation)
+        {
+            entry.forced_waiters = entry.forced_waiters.saturating_sub(1);
+        }
+    }
 }
 
 pub struct FetchClaim {
@@ -896,6 +933,42 @@ mod tests {
         assert!(matches!(within_gap, ForcedClaim::Recent(Outcome::Success)));
         assert!(matches!(after_gap, ForcedClaim::Claimed(_)));
         assert!(matches!(after_rate_limit, ForcedClaim::Claimed(_)));
+    }
+
+    #[test]
+    fn waiting_watch_gets_a_turn_without_bypassing_the_forced_gap() {
+        let (scheduler, generations) = scheduler_with(&[(1, 5)]);
+        let start = Instant::now();
+        finish_with(only_claim(&scheduler, start), start, Outcome::Success);
+        let waiting = scheduler.prioritize_forced(1, generations[&1]).unwrap();
+        assert!(scheduler
+            .claim_due(start + secs(5), &no_floors())
+            .is_empty());
+        assert!(matches!(
+            scheduler.claim_forced(1, generations[&1], start + secs(9)),
+            ForcedClaim::Recent(Outcome::Success)
+        ));
+        let ForcedClaim::Claimed(claim) =
+            scheduler.claim_forced(1, generations[&1], start + secs(10))
+        else {
+            panic!("a waiting watch must get the next forced read");
+        };
+        finish_with(claim, start + secs(10), Outcome::Success);
+        drop(waiting);
+        assert_eq!(due_ids(&scheduler, start + secs(15)), vec![1]);
+    }
+
+    #[test]
+    fn stale_waiter_cancellation_cannot_release_a_replacement_provider() {
+        let (scheduler, generations) = scheduler_with(&[(1, 5)]);
+        let old = scheduler.prioritize_forced(1, generations[&1]).unwrap();
+        let replacement = Generation::next();
+        scheduler.register(1, replacement, secs(5));
+        let current = scheduler.prioritize_forced(1, replacement).unwrap();
+        drop(old);
+        assert!(scheduler.claim_due(Instant::now(), &no_floors()).is_empty());
+        drop(current);
+        assert_eq!(due_ids(&scheduler, Instant::now()), vec![1]);
     }
 
     #[tokio::test]

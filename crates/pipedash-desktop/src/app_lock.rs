@@ -341,10 +341,16 @@ pub async fn status(app: &AppHandle) -> AppLockStatus {
 pub async fn lock_session(app: &AppHandle) {
     let lock = app.state::<AppLockState>();
     let _transition = lock.transition().await;
+    #[cfg(desktop)]
+    {
+        crate::desktop::detach(app);
+        crate::desktop::flush_menu(app).await;
+    }
 
     let core = app.state::<MaybeCoreContext>().0.write().await.take();
     std::env::remove_var(VAULT_PASSWORD_ENV);
     lock.set_locked(true);
+    #[cfg(mobile)]
     crate::build_watch::interrupt(app);
 
     if let Some(core) = core {

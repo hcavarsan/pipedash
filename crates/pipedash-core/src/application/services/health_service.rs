@@ -70,6 +70,7 @@ pub use self::notifications::{
     refresh_notifications,
     LocalNotification,
     NotificationState,
+    NotificationTone,
 };
 use self::signals::{
     next_evidence_change,

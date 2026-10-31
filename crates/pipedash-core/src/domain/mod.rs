@@ -68,6 +68,8 @@ pub use pipeline_view::{
     PinKind,
     PinnedBlock,
     PinnedItem,
+    PipelineMenuEntry,
+    PipelineMenuSnapshot,
     PipelineView,
     PipelineViewPage,
     PipelineViewQuery,

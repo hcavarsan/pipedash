@@ -8,6 +8,7 @@ import { pushState } from '../../../components/layout/mobileChrome'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import { useProviders } from '../../../queries/useProvidersQueries'
+import { useModalStore } from '../../../stores/modalStore'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 
@@ -24,11 +25,14 @@ export function NotificationDetailsModal(): ReactNode {
   const { data: providers } = useProviders()
   const navigate = useNavigate()
   const location = useLocation()
-  const openHistory = (pipelineId: string) => {
+  const openHistory = (pipelineId: string, runNumber?: number | null) => {
     close()
     void navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, {
       state: pushState(location.pathname, location.search, location.state),
     })
+    if (runNumber) {
+      useModalStore.getState().openLogsModal(pipelineId, runNumber)
+    }
   }
   const now = useNow(30_000)
   const mobileShell = useMobileShell()
@@ -72,9 +76,9 @@ export function NotificationDetailsModal(): ReactNode {
                 {notification.pipelineId && (
                   <IosRow
                     icon={<IconHistory size={18} aria-hidden />}
-                    title="Open run history"
+                    title={notification.runNumber ? 'Open run' : 'Open run history'}
                     chevron
-                    onClick={() => openHistory(notification.pipelineId ?? '')}
+                    onClick={() => openHistory(notification.pipelineId ?? '', notification.runNumber)}
                   />
                 )}
                 {related.map((provider) => (
@@ -141,9 +145,9 @@ export function NotificationDetailsModal(): ReactNode {
                 size="compact-sm"
                 variant="default"
                 leftSection={<IconHistory size={14} aria-hidden />}
-                onClick={() => openHistory(notification.pipelineId ?? '')}
+                onClick={() => openHistory(notification.pipelineId ?? '', notification.runNumber)}
               >
-                Open run history
+                {notification.runNumber ? 'Open run' : 'Open run history'}
               </Button>
             )}
             {related.map((provider) => (

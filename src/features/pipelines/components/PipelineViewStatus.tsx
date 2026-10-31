@@ -1,4 +1,4 @@
-import { Button } from '@mantine/core'
+import { Button, Group } from '@mantine/core'
 import { IconEyeOff, IconFilterOff, IconFolder, IconFolderOff, IconPin, IconPlugConnected } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -12,6 +12,7 @@ import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { useProviderStore } from '../../../stores/providerStore'
 import type { ProviderRecovery, ProviderSummary, ViewDisplay } from '../../../types/domain'
 import { getErrorCode } from '../../../types/errors'
+import { isDesktopTauri } from '../../../utils/platform'
 import { fetchHint, providerAttention } from '../../../utils/providerAttention'
 import type { PipelineViewPageModel } from '../hooks/usePipelineViewModel'
 import { usePipelineViewStore } from '../stores/pipelineViewStore'
@@ -226,15 +227,20 @@ export function PipelineViewEmptyState({
       <EmptyState
         icon={<IconPin size={24} aria-hidden />}
         title={isFluxView ? 'No pinned resources' : 'No pinned workflows'}
-        description={
+        description={`${
           mobileShell
             ? `Swipe a ${labels.item} left or open its Actions menu and choose Pin to keep it here.`
             : `Use the pin icon on a ${labels.item} to keep it here.`
-        }
+        }${isDesktopTauri() ? ' Pinned pipelines also appear in the optional desktop menu.' : ''}`}
         action={
-          <Button component={Link} to="/pipelines" variant="default" size="sm">
-            Browse {labels.items}
-          </Button>
+          <Group gap="xs">
+            <Button component={Link} to="/pipelines" variant="default" size="sm">
+              Browse {labels.items}
+            </Button>
+            <Button variant="default" size="sm" onClick={() => usePipelineViewStore.getState().openEditor('pinned')}>
+              Manage pins
+            </Button>
+          </Group>
         }
       />
     )

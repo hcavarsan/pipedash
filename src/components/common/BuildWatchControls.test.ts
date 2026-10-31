@@ -372,7 +372,7 @@ if (process.env.PIPEDASH_BUILD_WATCH_TEST !== '1') {
     assert.equal(view().queryByText('Watch unavailable'), null)
   })
 
-  test('non-iOS shells never call Watch commands or show Watch controls', () => {
+  test('Android shells never call Watch commands or show Watch controls', () => {
     os.platform = 'android'
     mount({ lifecycle: true })
     assert.equal(calls.length, 0)

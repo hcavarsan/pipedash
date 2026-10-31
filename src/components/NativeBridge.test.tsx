@@ -2,39 +2,61 @@ import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import { mockIPC } from '@tauri-apps/api/mocks'
 import { useState } from 'react'
+import type { PendingNativeIntent } from '../types/domain'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
-Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' } })
 
-type Intent = { type: 'link'; path: string }
+let pending: PendingNativeIntent | null = null
+let peekGate: PromiseWithResolvers<PendingNativeIntent | null> | null = null
+let registration: PromiseWithResolvers<void> | null = null
+let onAck: (() => void) | null = null
+let failPeek = false
+const calls: string[] = []
+const acknowledged: number[] = []
+const callbacks = new Map<number, (event: unknown) => void>()
+let handler = 0
 
-let release: (intent: Intent | null) => void = () => {}
-let requested = Promise.withResolvers<void>()
-
-mockIPC(
-  (command) => {
-    switch (command) {
-      case 'native_take_pending_intent': {
-        const pending = Promise.withResolvers<Intent | null>()
-
-        release = pending.resolve
-        requested.resolve()
-
-        return pending.promise
+Object.assign(window, {
+  __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
+  __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => undefined },
+  __TAURI_INTERNALS__: {
+    transformCallback: (callback: (event: unknown) => void) => {
+      callbacks.set(++handler, callback)
+      return handler
+    },
+    invoke: async (command: string, args: Record<string, unknown> = {}) => {
+      calls.push(command)
+      if (command === 'plugin:event|listen') {
+        await registration?.promise
+        return args.handler
       }
-      default:
-        return
-    }
+      if (command === 'native_peek_pending_intent') {
+        if (failPeek) {
+          throw new Error('Native bridge unavailable')
+        }
+        return peekGate ? peekGate.promise : pending
+      }
+      if (command === 'native_ack_pending_intent') {
+        acknowledged.push(Number(args.id))
+        onAck?.()
+        onAck = null
+        if (pending?.id === args.id) {
+          pending = null
+        }
+      }
+      return undefined
+    },
   },
-  { shouldMockEvents: true }
-)
+})
 
 const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
 const { default: userEvent } = await import('@testing-library/user-event')
 const { MemoryRouter, useLocation } = await import('react-router-dom')
 const { NativeBridge } = await import('./NativeBridge')
+const { NativeIntentBridge } = await import('./NativeIntentBridge')
+const { useModalStore } = await import('../stores/modalStore')
+const { usePipelineViewStore } = await import('../features/pipelines/stores/pipelineViewStore')
 
 after(async () => {
   await act(async () => cleanup())
@@ -43,48 +65,152 @@ after(async () => {
 
 afterEach(async () => {
   await act(async () => cleanup())
+  pending = null
+  peekGate = null
+  registration = null
+  onAck = null
+  failPeek = false
+  calls.length = 0
+  acknowledged.length = 0
+  callbacks.clear()
+  useModalStore.setState(useModalStore.getInitialState(), true)
+  usePipelineViewStore.setState(usePipelineViewStore.getInitialState(), true)
 })
 
 const view = () => within(document.body)
 
-function Harness() {
-  const [mounted, setMounted] = useState(true)
-  const { pathname } = useLocation()
+function Harness({ authenticated = true }: { authenticated?: boolean }) {
+  const [mounted, setMounted] = useState(authenticated)
+  const { pathname, search } = useLocation()
 
   return (
     <>
-      {mounted && <NativeBridge />}
-      <output aria-label="Location">{pathname}</output>
-      <button type="button" onClick={() => setMounted(false)}>
-        Unmount bridge
+      <NativeBridge />
+      {mounted && <NativeIntentBridge />}
+      <output aria-label="Location">
+        {pathname}
+        {search}
+      </output>
+      <button type="button" onClick={() => setMounted(!mounted)}>
+        {mounted ? 'Lock' : 'Unlock'}
       </button>
     </>
   )
 }
 
-const mount = async () => {
-  requested = Promise.withResolvers<void>()
+function mount(authenticated = true) {
   render(
     <MemoryRouter initialEntries={['/pipelines']}>
-      <Harness />
+      <Harness authenticated={authenticated} />
     </MemoryRouter>
   )
-  await requested.promise
 }
 
-test('a pending intent that resolves while mounted is handled', async () => {
-  await mount()
-  await act(async () => release({ type: 'link', path: '/settings' }))
-  await waitFor(() => assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/settings'))
-})
-
-test('a pending intent that resolves after unmount is ignored', async () => {
-  const user = userEvent.setup({ document, delay: null })
-
-  await mount()
-  await user.click(view().getByRole('button', { name: 'Unmount bridge' }))
-  await act(async () => release({ type: 'link', path: '/settings' }))
+test('registers the listener before peeking and handles the accepted intent once', async () => {
+  registration = Promise.withResolvers<void>()
+  pending = { id: 1, intent: { type: 'link', path: '/settings/general' } }
+  mount()
   await act(async () => {})
-
-  assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/pipelines')
+  assert.equal(calls.includes('native_peek_pending_intent'), false)
+  await act(async () => registration?.resolve())
+  await waitFor(() => assert.deepEqual(acknowledged, [1]))
+  assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/settings/general')
 })
+
+test('a selected exact run remains pending through unlock and opens once', async () => {
+  const user = userEvent.setup({ document, delay: null })
+  pending = {
+    id: 7,
+    intent: { type: 'notification', action: 'open', pipelineId: 'jenkins__1__menu-01', runNumber: 42 },
+  }
+  mount(false)
+  await act(async () => {})
+  assert.equal(calls.includes('native_peek_pending_intent'), false)
+  assert.deepEqual(useModalStore.getState().logsModal, { open: false })
+  await user.click(view().getByRole('button', { name: 'Unlock' }))
+  await waitFor(() => assert.deepEqual(acknowledged, [7]))
+  assert.deepEqual(useModalStore.getState().logsModal, { open: true, pipelineId: 'jenkins__1__menu-01', runNumber: 42 })
+  assert.equal(pending, null)
+})
+
+test('unmounting during peek retains the intent for the next authenticated mount', async () => {
+  const user = userEvent.setup({ document, delay: null })
+  pending = { id: 2, intent: { type: 'link', path: '/notifications' } }
+  peekGate = Promise.withResolvers<PendingNativeIntent | null>()
+  mount()
+  await waitFor(() => assert.ok(calls.includes('native_peek_pending_intent')))
+  await user.click(view().getByRole('button', { name: 'Lock' }))
+  await act(async () => peekGate?.resolve(pending))
+  assert.deepEqual(acknowledged, [])
+  assert.equal(pending?.id, 2)
+  assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/pipelines')
+  peekGate = null
+  await user.click(view().getByRole('button', { name: 'Unlock' }))
+  await waitFor(() => assert.deepEqual(acknowledged, [2]))
+})
+
+test('acknowledging an older intent preserves and drains its replacement', async () => {
+  pending = { id: 3, intent: { type: 'link', path: '/settings/general' } }
+  onAck = () => {
+    pending = { id: 4, intent: { type: 'link', path: '/notifications' } }
+  }
+  mount()
+  await waitFor(() => assert.deepEqual(acknowledged, [3, 4]))
+  assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/notifications')
+})
+
+test('a failed peek waits for focus instead of looping or discarding the intent', async (context) => {
+  context.mock.method(console, 'warn', () => undefined)
+  failPeek = true
+  pending = { id: 5, intent: { type: 'link', path: '/notifications' } }
+  mount()
+  await waitFor(() => assert.ok(calls.includes('native_peek_pending_intent')))
+  assert.deepEqual(acknowledged, [])
+  assert.equal(calls.filter((command) => command === 'native_peek_pending_intent').length, 1)
+  failPeek = false
+  act(() => window.dispatchEvent(new Event('focus')))
+  await waitFor(() => assert.deepEqual(acknowledged, [5]))
+})
+
+for (const pipelineId of ['owner/repo', 'percent%2Fname', 'hash#branch', '日本語/ação']) {
+  test(`structured run links decode ${pipelineId} once without including query text`, async () => {
+    pending = {
+      id: 8,
+      intent: { type: 'link', path: `/pipelines/${encodeURIComponent(pipelineId)}?tab=history`, runNumber: 42 },
+    }
+    mount()
+    await waitFor(() => assert.deepEqual(acknowledged, [8]))
+    assert.deepEqual(useModalStore.getState().logsModal, { open: true, pipelineId, runNumber: 42 })
+    assert.ok(view().getByRole('status', { name: 'Location' }).textContent?.endsWith('?tab=history'))
+  })
+}
+
+test('Manage pins opens the existing pinned editor on the pinned route', async () => {
+  pending = { id: 9, intent: { type: 'ui', action: 'managePins' } }
+  mount()
+  await waitFor(() => assert.deepEqual(acknowledged, [9]))
+  assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/pipelines?view=pinned')
+  assert.equal(usePipelineViewStore.getState().editor.viewId, 'pinned')
+  assert.equal(usePipelineViewStore.getState().editor.open, true)
+})
+
+test('Manage views opens the existing manager', async () => {
+  pending = { id: 10, intent: { type: 'ui', action: 'manageViews' } }
+  mount()
+  await waitFor(() => assert.deepEqual(acknowledged, [10]))
+  assert.equal(usePipelineViewStore.getState().manageOpen, true)
+})
+
+for (const [target, destination] of [
+  [{ key: 'desktop-test' }, '/notifications'],
+  [{ providerId: 3 }, '/settings/providers'],
+  [{ pipelineId: 'gone/pipeline' }, '/pipelines/gone%2Fpipeline'],
+] as const) {
+  test(`notification fallback opens ${destination}`, async () => {
+    pending = { id: 11, intent: { type: 'notification', action: 'tap', ...target } }
+    mount()
+    await waitFor(() => assert.deepEqual(acknowledged, [11]))
+    assert.equal(view().getByRole('status', { name: 'Location' }).textContent, destination)
+    assert.deepEqual(useModalStore.getState().logsModal, { open: false })
+  })
+}

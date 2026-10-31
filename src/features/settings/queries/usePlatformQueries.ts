@@ -6,6 +6,8 @@ import { useLogViewerPrefs } from '../../../stores/logViewerPrefsStore'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../../stores/notificationStore'
 import { formatCount } from '../../../utils/formatCount'
+import { isDesktopTauri } from '../../../utils/platform'
+import { refreshDesktopStatus } from './useDesktopQueries'
 
 interface FactoryResetResult {
   providers_removed: number
@@ -34,6 +36,9 @@ export function useFactoryReset(): UseMutationResult<FactoryResetResult, Error, 
       useLogViewerPrefs.setState(useLogViewerPrefs.getInitialState(), true)
       useNotificationCenterStore.setState({ items: [], selection: null })
       localStorage.clear()
+      if (isDesktopTauri()) {
+        void refreshDesktopStatus(queryClient).catch(() => undefined)
+      }
 
       notifications.show({
         title: 'Factory reset complete',

@@ -85,19 +85,20 @@ if (process.env.PIPEDASH_SHORTCUTS_NATIVE_TEST !== '1') {
 
   test('unmounting before registration settles unregisters once and ignores later commands', async () => {
     registration = Promise.withResolvers<number>()
-    let refreshed = 0
+    let toggled = 0
 
     const { unmount } = renderHook(() =>
       useAppShortcuts({
-        onRefresh: () => {
-          refreshed += 1
+        onRefresh: () => undefined,
+        onSidebar: () => {
+          toggled += 1
         },
       })
     )
     await act(async () => undefined)
     unmount()
-    await emit('refresh-all')
-    assert.equal(refreshed, 0)
+    await emit('toggle-sidebar')
+    assert.equal(toggled, 0)
     assert.equal(count('plugin:event|unlisten'), 0)
 
     await act(async () => {
@@ -107,18 +108,21 @@ if (process.env.PIPEDASH_SHORTCUTS_NATIVE_TEST !== '1') {
     await act(async () => undefined)
 
     assert.equal(count('plugin:event|unlisten'), 1)
-    assert.equal(refreshed, 0)
+    assert.equal(toggled, 0)
   })
 
   test('a replaced callback runs instead of the old one without registering again', async () => {
     const calls: string[] = []
-    const { rerender } = renderHook(({ label }) => useAppShortcuts({ onRefresh: () => calls.push(label) }), {
-      initialProps: { label: 'old' },
-    })
+    const { rerender } = renderHook(
+      ({ label }) => useAppShortcuts({ onRefresh: () => undefined, onSidebar: () => calls.push(label) }),
+      {
+        initialProps: { label: 'old' },
+      }
+    )
     await act(async () => undefined)
 
     rerender({ label: 'new' })
-    await emit('refresh-all')
+    await emit('toggle-sidebar')
 
     assert.deepEqual(calls, ['new'])
     assert.equal(count('plugin:event|listen'), 1)

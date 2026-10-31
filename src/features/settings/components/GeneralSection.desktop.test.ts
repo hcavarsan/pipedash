@@ -65,6 +65,7 @@ test('a failed proxy save keeps the typed address and a retry saves it trimmed',
     config.config.general = general
   })
   await renderGeneral()
+  assert.equal(view().queryByText('Desktop integration'), null)
 
   const proxy = await view().findByRole('textbox', { name: 'Proxy URL' })
   assert.ok(proxy instanceof HTMLInputElement)

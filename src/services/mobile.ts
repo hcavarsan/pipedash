@@ -5,7 +5,7 @@ import type {
   BuildWatchStatus,
   ExportFileResult,
   LocalNotificationSettings,
-  NativeIntent,
+  PendingNativeIntent,
   PushStatus,
   UnlockVaultResponse,
 } from '../types/domain'
@@ -83,5 +83,7 @@ export const mobileService = {
 
   releasePrivacyCover: (): Promise<void> => call('native_release_privacy_cover'),
 
-  takePendingIntent: (): Promise<NativeIntent | null> => call('native_take_pending_intent'),
+  peekPendingIntent: (): Promise<PendingNativeIntent | null> => call('native_peek_pending_intent'),
+
+  ackPendingIntent: (id: number): Promise<void> => call('native_ack_pending_intent', { id }),
 }

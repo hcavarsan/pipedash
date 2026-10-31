@@ -9,7 +9,7 @@ test('foreground notification scenarios use an isolated iOS bridge', () => {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
 })
 
-test('desktop notification scenarios deliver through the single flag', () => {
+test('desktop notification scenarios mirror native history without frontend delivery', () => {
   const scenarios = fileURLToPath(new URL('./fixtures/notificationDesktopScenarios.ts', import.meta.url))
   const result = spawnSync(process.execPath, ['test', scenarios], {
     encoding: 'utf8',

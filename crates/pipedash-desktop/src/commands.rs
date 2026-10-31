@@ -1452,6 +1452,12 @@ pub(crate) async fn vault_requires_password(config: &PipedashConfig) -> bool {
     }
 }
 
+pub(crate) fn vault_is_unlocked(
+    requires_password: bool, password_set: bool, app_locked: bool,
+) -> bool {
+    (!requires_password || password_set) && !app_locked
+}
+
 #[tauri::command]
 pub async fn get_vault_status(
     app: tauri::AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
@@ -1473,19 +1479,17 @@ pub async fn get_vault_status(
 
     let app_lock = app_lock::status(&app).await;
 
-    let is_unlocked = (!requires_password || vault_password_set) && !app_lock.locked;
+    let is_unlocked = vault_is_unlocked(requires_password, vault_password_set, app_lock.locked);
 
-    let is_first_time = {
-        let core_guard = maybe_core.0.read().await;
-        if let Some(core) = core_guard.as_ref() {
-            core.provider_service
-                .list_providers()
-                .await
-                .map(|p| p.is_empty())
-                .unwrap_or(true)
-        } else {
-            !app_lock.locked
-        }
+    let core = maybe_core.0.read().await.clone();
+    let is_first_time = if let Some(core) = core {
+        core.provider_service
+            .list_providers()
+            .await
+            .map(|p| p.is_empty())
+            .unwrap_or(true)
+    } else {
+        !app_lock.locked
     };
 
     tracing::debug!(
@@ -1906,13 +1910,17 @@ pub async fn plan_storage_migration(
 
 #[tauri::command]
 pub async fn execute_storage_migration(
-    maybe_core: State<'_, crate::MaybeCoreContext>, _app_data_dir: State<'_, AppDataDir>,
-    plan: MigrationPlan, options: MigrationOptions,
+    app: tauri::AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
+    _app_data_dir: State<'_, AppDataDir>, plan: MigrationPlan, options: MigrationOptions,
 ) -> Result<MigrationResult, ErrorResponse> {
+    let lock = app.state::<app_lock::AppLockState>();
+    let _transition = lock.transition().await;
+    #[cfg(desktop)]
+    let dry_run = options.dry_run;
     let source_config = plan.from.clone();
 
-    let core_guard = maybe_core.0.read().await;
-    let core_opt = core_guard.as_ref();
+    let core = maybe_core.0.read().await.clone();
+    let core_opt = core.as_ref();
 
     let manager = if let Some(core) = core_opt {
         StorageManager::with_token_store(source_config, core.token_store.clone(), true)
@@ -1955,8 +1963,24 @@ pub async fn execute_storage_migration(
 
     let orchestrator =
         MigrationOrchestrator::from_manager(&manager, event_bus, target_token_store).await;
+    #[cfg(desktop)]
+    if !dry_run {
+        crate::desktop::detach(&app);
+        crate::desktop::flush_menu(&app).await;
+    }
 
-    Ok(orchestrator.execute_migration(plan, options, true).await)
+    let result = orchestrator.execute_migration(plan, options, true).await;
+    #[cfg(desktop)]
+    if !dry_run {
+        drop(_transition);
+        if boot_core(&app, BootKind::Resume, false).await.is_err() {
+            crate::desktop::initialization_failed(
+                &app,
+                "Storage changed. Restart or unlock Pipedash to load the current configuration.",
+            );
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -2017,27 +2041,55 @@ pub async fn factory_reset(
 ) -> Result<FactoryResetResult, ErrorResponse> {
     tracing::info!("[factory_reset] Starting factory reset");
 
-    let core = maybe_core.get().await.map_err(|e| ErrorResponse {
-        error: e,
-        details: None,
-        code: None,
-    })?;
+    let _transition = lock.transition().await;
+    #[cfg(desktop)]
+    let generation = crate::desktop::generation(&app);
+    #[cfg(desktop)]
+    {
+        crate::desktop::detach(&app);
+        crate::desktop::flush_menu(&app).await;
+    }
+    #[cfg(mobile)]
     crate::build_watch::interrupt(&app);
-    crate::local_notifications::reset(&app).await?;
 
-    let providers_removed = core.factory_reset().await?;
+    let core = maybe_core.get().await;
+    let result = async {
+        let core = core.as_ref().map_err(|e| ErrorResponse {
+            error: e.clone(),
+            details: None,
+            code: None,
+        })?;
+        crate::local_notifications::reset(&app).await?;
 
-    crate::push::reset(&app_data_dir.0).await?;
-    app_lock::reset(&app, &lock)?;
+        let providers_removed = core.factory_reset().await?;
 
-    tracing::info!(providers_removed, "[factory_reset] Complete");
+        crate::push::reset(&app_data_dir.0).await?;
+        app_lock::reset(&app, &lock)?;
+        #[cfg(desktop)]
+        crate::desktop::reset_settings(&app).await?;
 
-    Ok(FactoryResetResult {
-        providers_removed,
-        caches_cleared: true,
-        tokens_cleared: true,
-        metrics_cleared: true,
-    })
+        tracing::info!(providers_removed, "[factory_reset] Complete");
+
+        Ok(FactoryResetResult {
+            providers_removed,
+            caches_cleared: true,
+            tokens_cleared: true,
+            metrics_cleared: true,
+        })
+    }
+    .await;
+
+    #[cfg(desktop)]
+    if let Ok(core) = core {
+        let config = core.config_state.get().await;
+        let vault_ready = vault_is_unlocked(
+            vault_requires_password(&config).await,
+            std::env::var("PIPEDASH_VAULT_PASSWORD").is_ok(),
+            lock.locked(),
+        );
+        crate::desktop::attach(&app, core, generation, vault_ready).await;
+    }
+    result
 }
 
 #[tauri::command]
@@ -2059,4 +2111,29 @@ pub async fn restart_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
 
     #[allow(unreachable_code)]
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::vault_is_unlocked;
+
+    #[test]
+    fn a_password_free_session_is_ready_without_an_environment_password() {
+        assert!(vault_is_unlocked(false, false, false));
+    }
+
+    #[test]
+    fn an_encrypted_session_requires_an_environment_password() {
+        assert!(!vault_is_unlocked(true, false, false));
+        assert!(vault_is_unlocked(true, true, false));
+    }
+
+    #[test]
+    fn app_lock_revokes_readiness_regardless_of_password_storage() {
+        for requires_password in [false, true] {
+            for password_set in [false, true] {
+                assert!(!vault_is_unlocked(requires_password, password_set, true));
+            }
+        }
+    }
 }

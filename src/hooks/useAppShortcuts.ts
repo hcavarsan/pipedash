@@ -72,17 +72,8 @@ export function useAppShortcuts({ onSettings, onSidebar, onRefresh, onLock }: Ap
       case APP_COMMANDS.search:
         focusSearch()
         break
-      case APP_COMMANDS.settings:
-        whenNoDialog(onSettings)
-        break
       case APP_COMMANDS.sidebar:
         onSidebar?.()
-        break
-      case APP_COMMANDS.refresh:
-        onRefresh()
-        break
-      case APP_COMMANDS.lock:
-        onLock?.()
         break
     }
   })

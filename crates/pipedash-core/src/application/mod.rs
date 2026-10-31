@@ -27,6 +27,7 @@ pub use services::health_service::{
     HealthSnapshot,
     LocalNotification,
     NotificationState,
+    NotificationTone,
     ProviderHealthInput,
     ProviderHealthService,
     ProviderHealthState,

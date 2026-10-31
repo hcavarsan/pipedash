@@ -5,12 +5,16 @@ import { isTauri } from '../services/isTauri'
 import { events } from '../services/service'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 import type { EventPayloadMap } from '../types/events'
+import { isDesktopTauri } from '../utils/platform'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
 type HealthAlert = EventPayloadMap['provider-health-alert']
 
 export function useProviderHealthAlerts(): void {
   useEffect(() => {
+    if (isDesktopTauri()) {
+      return
+    }
     let active = true
     let unlisten: (() => void) | undefined
 

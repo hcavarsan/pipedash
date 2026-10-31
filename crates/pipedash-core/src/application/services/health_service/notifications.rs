@@ -27,14 +27,27 @@ use super::{
     instance_subject,
 };
 use crate::domain::{
+    HealthLevel,
     Pipeline,
     PipelineStatus,
     ProviderSummary,
     SignalKind,
 };
-use crate::event::CoreEvent;
+use crate::event::{
+    AlertLink,
+    CoreEvent,
+};
 
 const KEYS_LIMIT: usize = 16;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NotificationTone {
+    Danger,
+    #[default]
+    Warning,
+    Success,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalNotification {
@@ -43,6 +56,14 @@ pub struct LocalNotification {
     pub body: String,
     pub pipeline_id: Option<String>,
     pub provider_id: Option<i64>,
+    #[serde(default)]
+    pub tone: NotificationTone,
+    #[serde(default)]
+    pub level: Option<HealthLevel>,
+    #[serde(default)]
+    pub provider_ids: Vec<i64>,
+    #[serde(default)]
+    pub link: Option<AlertLink>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +146,8 @@ impl NotificationState {
                 title,
                 body,
                 recovered,
+                level,
+                link,
                 ..
             } => {
                 if *recovered {
@@ -139,6 +162,8 @@ impl NotificationState {
                     body,
                     provider_ids,
                     *recovered,
+                    *level,
+                    link.as_ref(),
                 )
                 .into_iter()
                 .collect()
@@ -247,12 +272,17 @@ impl NotificationState {
                 let needs_attention = pipeline.status.needs_attention()
                     && (old.status != pipeline.status || old.last_run != pipeline.last_run);
                 if needs_attention {
-                    found.push(self.pipeline_notice(pipeline, attention_title(pipeline)));
+                    found.push(self.pipeline_notice(
+                        pipeline,
+                        attention_title(pipeline),
+                        NotificationTone::Danger,
+                    ));
                 }
                 if pipeline.overdue_run.is_some() && old.overdue != pipeline.overdue_run {
                     found.push(self.pipeline_notice(
                         pipeline,
                         format!("{} is running longer than usual", pipeline.name),
+                        NotificationTone::Warning,
                     ));
                 }
                 if mark.overdue.is_none() {
@@ -287,14 +317,20 @@ impl NotificationState {
             mark.checked_at = old.and_then(|old| old.checked_at);
             marks.insert(pipeline.id.clone(), mark);
             if !handled {
-                found.push(self.pipeline_notice(pipeline, attention_title(pipeline)));
+                found.push(self.pipeline_notice(
+                    pipeline,
+                    attention_title(pipeline),
+                    NotificationTone::Danger,
+                ));
             }
         }
 
         found
     }
 
-    fn pipeline_notice(&self, pipeline: &Pipeline, title: String) -> LocalNotification {
+    fn pipeline_notice(
+        &self, pipeline: &Pipeline, title: String, tone: NotificationTone,
+    ) -> LocalNotification {
         let provider = self
             .providers
             .get(&pipeline.provider_id)
@@ -319,12 +355,17 @@ impl NotificationState {
             body,
             pipeline_id: Some(pipeline.id.clone()),
             provider_id: Some(pipeline.provider_id),
+            tone,
+            level: None,
+            provider_ids: vec![pipeline.provider_id],
+            link: None,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn deliver(
         &mut self, key: &str, alert_key: &str, title: &str, body: &str, provider_ids: &[i64],
-        recovered: bool,
+        recovered: bool, level: HealthLevel, link: Option<&AlertLink>,
     ) -> Option<LocalNotification> {
         let memo = self.delivered.entry(key.to_owned()).or_default();
         memo.providers = provider_ids.to_vec();
@@ -352,6 +393,14 @@ impl NotificationState {
             body: body.to_owned(),
             pipeline_id: None,
             provider_id: provider_ids.first().copied(),
+            tone: if recovered {
+                NotificationTone::Success
+            } else {
+                NotificationTone::Warning
+            },
+            level: Some(level),
+            provider_ids: provider_ids.to_vec(),
+            link: link.cloned(),
         })
     }
 
@@ -366,6 +415,8 @@ impl NotificationState {
                     &alert.body,
                     &alert.provider_ids,
                     alert.recovered,
+                    alert.level,
+                    alert.link.as_ref(),
                 )
             })
             .collect()
