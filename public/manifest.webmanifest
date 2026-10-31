@@ -6,9 +6,10 @@
   "display": "standalone",
   "icons": [
     {
-      "src": "pipedash-iOS-Dark-1024x1024@1x.png",
-      "sizes": "1024x1024",
-      "type": "image/png"
+      "src": "pwa-icon-512-v1.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }
