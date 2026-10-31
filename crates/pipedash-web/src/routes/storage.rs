@@ -494,7 +494,7 @@ async fn reload_storage(state: &AppState) -> Result<(), String> {
                 e
             );
         }
-        core.start_background_tasks().await;
+        drop(core.start_background_tasks());
     }
     tracing::info!("Storage reloaded - token store warmed up and background tasks started");
 

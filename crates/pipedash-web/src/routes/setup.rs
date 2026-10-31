@@ -186,7 +186,7 @@ async fn start_core(state: &AppState, config: PipedashConfig) -> ApiResult<()> {
             .await
             .map_err(|e| AppError::internal(format!("Failed to warm up token store: {}", e)))?;
 
-        core_context.start_background_tasks().await;
+        drop(core_context.start_background_tasks());
         tracing::info!("Core context initialized and background tasks started");
         true
     } else {

@@ -174,7 +174,7 @@ async fn unlock_vault(
                                     e
                                 );
                             }
-                            core.start_background_tasks().await;
+                            drop(core.start_background_tasks());
                         }
                     }
 

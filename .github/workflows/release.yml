@@ -12,26 +12,54 @@ concurrency:
 
 env:
   K8S_OPENAPI_ENABLED_VERSION: "1.32"
-  TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-  TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
   VITE_ENV: "production"
   TAURI_DEBUG: "false"
 
 jobs:
   validate-version:
     name: Validate version
-    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    outputs:
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - name: Validate version format
+      - name: Checkout tagged repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate release version and signing identity
+        id: version
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          if ! [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-            echo "Invalid version format. Must be vX.Y.Z or vX.Y.Z-suffix"
-            exit 1
-          fi
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+          import tomllib
+          sys.path.insert(0, "scripts")
+          from build_updater_manifest import parse_version, read_public_key
+
+          tag = os.environ["TAG"]
+          if not tag.startswith("v"):
+              raise SystemExit("Release tag must start with v")
+          _, prerelease = parse_version(tag)
+          versions = {
+              "Cargo.toml": tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"],
+              "package.json": json.loads(Path("package.json").read_text())["version"],
+              "tauri.conf.json": json.loads(Path("crates/pipedash-desktop/tauri.conf.json").read_text())["version"],
+          }
+          for source, version in versions.items():
+              if version != tag[1:]:
+                  raise SystemExit(f"{source} version {version} does not match {tag}")
+          read_public_key("crates/pipedash-desktop/tauri.conf.json")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"prerelease={str(prerelease).lower()}\n")
+          PY
 
   create-release-draft:
     name: Create release draft
@@ -39,29 +67,45 @@ jobs:
       - validate-version
     permissions:
       contents: write # create the draft release
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       release_id: ${{ steps.release.outputs.id }}
     steps:
-      - name: Create release draft
+      - name: Create or reuse unpublished draft
         id: release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          release_id=$(gh api --paginate "repos/$GH_REPO/releases" --jq '.[] | select(.tag_name == env.TAG) | .id' | sed -n 1p)
-          if [[ "$release_id" =~ ^[0-9]+$ ]]; then
-            echo "Release already exists with ID: $release_id"
-          else
-            release_id=$(gh api "repos/$GH_REPO/releases" -f tag_name="$TAG" -f name="Pipedash - $TAG" -F draft=true -F prerelease=false --jq .id)
-            echo "Created draft release with ID: $release_id"
-          fi
-          echo "id=$release_id" >> "$GITHUB_OUTPUT"
+          PRERELEASE: ${{ needs.validate-version.outputs.prerelease }}
+        with:
+          script: |
+            const releases = await github.paginate(github.rest.repos.listReleases, context.repo);
+            const matches = releases.filter(release => release.tag_name === context.ref.replace('refs/tags/', ''));
+            if (matches.length > 1) throw new Error('Duplicate releases for this tag');
+            let release = matches[0];
+            if (release && !release.draft) throw new Error('Refusing to overwrite an already-published release');
+            if (!release) {
+              const result = await github.rest.repos.createRelease({
+                ...context.repo,
+                tag_name: context.ref.replace('refs/tags/', ''),
+                target_commitish: context.sha,
+                name: `Pipedash - ${context.ref.replace('refs/tags/', '')}`,
+                draft: true,
+                prerelease: process.env.PRERELEASE === 'true'
+              });
+              release = result.data;
+            } else {
+              await github.rest.repos.updateRelease({
+                ...context.repo,
+                release_id: release.id,
+                draft: true,
+                prerelease: process.env.PRERELEASE === 'true'
+              });
+            }
+            core.setOutput('id', release.id);
 
   pipedash:
     name: Build (${{ matrix.os }} ${{ matrix.arch }})
-    needs: create-release-draft
+    needs: [create-release-draft, validate-version]
     permissions:
       contents: write # upload build assets to the draft release
     strategy:
@@ -153,6 +197,16 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: choco install nasm
 
+      - name: Require configured updater signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY is required for signed desktop releases"
+            exit 1
+          fi
+
       - name: Build pipedash Desktop App
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         id: tauri_build
@@ -172,12 +226,15 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
         with:
+          releaseId: ${{ needs.create-release-draft.outputs.release_id }}
           tagName: ${{ github.ref_name }}
           releaseName: "Pipedash - ${{ github.ref_name }}"
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.tauri_args }}
+          prerelease: ${{ needs.validate-version.outputs.prerelease }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: true
+          args: ${{ matrix.tauri_args }} --config crates/pipedash-desktop/tauri.updater.conf.json
 
       - name: Retry Build on Failure
         if: steps.tauri_build.outcome == 'failure'
@@ -197,12 +254,15 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
         with:
+          releaseId: ${{ needs.create-release-draft.outputs.release_id }}
           tagName: ${{ github.ref_name }}
           releaseName: "Pipedash - ${{ github.ref_name }}"
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.tauri_args }}
+          prerelease: ${{ needs.validate-version.outputs.prerelease }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: true
+          args: ${{ matrix.tauri_args }} --config crates/pipedash-desktop/tauri.updater.conf.json
 
   docker-build:
     name: Build Docker image (${{ matrix.platform }})
@@ -573,14 +633,13 @@ jobs:
 
   update-release:
     name: Update release notes and publish
-    needs: [ pipedash, create-release-draft ]
+    needs: [pipedash, create-release-draft, validate-version]
     permissions:
       contents: write # update release notes and publish the release
-    runs-on: ubuntu-22.04
-    if: |
-      startsWith(github.ref, 'refs/tags/v') &&
-      !contains(github.ref, '-beta') &&
-      !contains(github.ref, '-alpha')
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: pipedash-release-publication
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -597,38 +656,151 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update release notes
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      - name: Update draft release notes
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         env:
           RELEASE_ID: ${{ needs.create-release-draft.outputs.release_id }}
           BODY: ${{ steps.git-cliff.outputs.content }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const params = {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: Number(process.env.RELEASE_ID),
-              body: process.env.BODY,
-              tag_name: process.env.GITHUB_REF_NAME,
-              name: `Pipedash - ${process.env.GITHUB_REF_NAME}`
-            };
-            try {
-              await github.rest.repos.updateRelease(params);
-            } catch (error) {
-              console.error('Failed to update release notes:', error);
-              if (error.status === 404) {
-                console.log('Release not found, retrying after short delay...');
-                await new Promise(resolve => setTimeout(resolve, 5000));
-                await github.rest.repos.updateRelease(params);
-              } else {
-                throw error;
-              }
+            const fs = require('node:fs');
+            const release_id = Number(process.env.RELEASE_ID);
+            const { data: release } = await github.rest.repos.getRelease({ ...context.repo, release_id });
+            if (!release.draft || release.tag_name !== process.env.GITHUB_REF_NAME) {
+              throw new Error('Refusing to modify a published release or a different tag');
             }
+            const { data: updated } = await github.rest.repos.updateRelease({
+              ...context.repo,
+              release_id,
+              body: process.env.BODY,
+              name: `Pipedash - ${process.env.GITHUB_REF_NAME}`
+            });
+            fs.writeFileSync('release-notes.txt', updated.body || '');
 
-      - name: Publish release
-        uses: eregon/publish-release@01df127f5e9a3c26935118e22e738d95b59d10ce # v1.0.6
+      - name: Install signature verifier
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+
+      - name: Download complete draft assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release download "$TAG" --dir release-assets
+
+      - name: Verify every signed artifact and build manifest
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 scripts/build_updater_manifest.py \
+            --tag "$TAG" \
+            --assets-dir release-assets \
+            --notes-file release-notes.txt \
+            --config crates/pipedash-desktop/tauri.conf.json \
+            --output latest.json
+
+      - name: Upload verified manifest to unpublished draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ needs.create-release-draft.outputs.release_id }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > draft-release.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          release = json.loads(Path("draft-release.json").read_text())
+          if not release["draft"] or release["tag_name"] != os.environ["TAG"]:
+              raise SystemExit("Refusing to overwrite a published release or a different tag")
+          PY
+          gh release upload "$TAG" latest.json --clobber
+
+      - name: Publish complete verified release
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          RELEASE_ID: ${{ needs.create-release-draft.outputs.release_id }}
+          PRERELEASE: ${{ needs.validate-version.outputs.prerelease }}
         with:
-          release_id: ${{ needs.create-release-draft.outputs.release_id }}
+          script: |
+            const fs = require('node:fs');
+            const { createHash } = require('node:crypto');
+            const verifyAsset = async asset => {
+              const path = `release-assets/${asset.name}`;
+              if (asset.size !== fs.statSync(path).size) throw new Error(`Release asset changed: ${asset.name}`);
+              const hash = createHash('sha256');
+              for await (const chunk of fs.createReadStream(path)) hash.update(chunk);
+              if (asset.digest !== `sha256:${hash.digest('hex')}`) {
+                throw new Error(`Release asset digest missing or changed after verification: ${asset.name}`);
+              }
+            };
+            const manifest = JSON.parse(fs.readFileSync('latest.json', 'utf8'));
+            const release_id = Number(process.env.RELEASE_ID);
+            const tag = process.env.GITHUB_REF_NAME;
+            const { data: release } = await github.rest.repos.getRelease({ ...context.repo, release_id });
+            if (!release.draft || release.tag_name !== tag || manifest.version !== tag.slice(1)) {
+              throw new Error('Release must remain a draft with the verified tag/version');
+            }
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, { ...context.repo, release_id });
+            const requireAsset = name => {
+              const matches = assets.filter(asset => asset.name === name && asset.state === 'uploaded' && asset.size > 0);
+              if (matches.length !== 1) throw new Error(`Missing or duplicate release asset: ${name}`);
+              return matches[0];
+            };
+            const expectedTargets = [
+              'linux-x86_64-appimage', 'linux-aarch64-appimage',
+              'darwin-x86_64-app', 'darwin-aarch64-app',
+              'windows-i686-nsis', 'windows-x86_64-nsis', 'windows-aarch64-nsis'
+            ];
+            if (Object.keys(manifest.platforms).sort().join() !== expectedTargets.sort().join()) {
+              throw new Error('Manifest does not contain exactly the seven native targets');
+            }
+            const prefix = `https://github.com/hcavarsan/pipedash/releases/download/${encodeURIComponent(tag)}/`;
+            const payloads = new Set();
+            for (const entry of Object.values(manifest.platforms)) {
+              if (!entry.url.startsWith(prefix)) throw new Error('Unexpected artifact URL');
+              const name = decodeURIComponent(entry.url.slice(prefix.length));
+              if (!payloads.has(name)) {
+                await verifyAsset(requireAsset(name));
+                await verifyAsset(requireAsset(`${name}.sig`));
+              }
+              payloads.add(name);
+            }
+            if (payloads.size !== 6) throw new Error('Expected exactly six native artifact/signature pairs');
+            const uploadedManifest = requireAsset('latest.json');
+            const response = await github.rest.repos.getReleaseAsset({
+              ...context.repo, asset_id: uploadedManifest.id,
+              headers: { accept: 'application/octet-stream' }
+            });
+            if (!Buffer.from(response.data).equals(fs.readFileSync('latest.json'))) {
+              throw new Error('Uploaded manifest differs from the verified manifest');
+            }
+            const stableVersion = value => {
+              const match = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+              if (!match) throw new Error(`Latest stable release has an invalid tag: ${value}`);
+              return match.slice(1, 4).map(BigInt);
+            };
+            const newer = (candidate, current) => {
+              for (let index = 0; index < 3; index++) {
+                if (candidate[index] !== current[index]) return candidate[index] > current[index];
+              }
+              return false;
+            };
+            let latest;
+            try {
+              latest = (await github.rest.repos.getLatestRelease(context.repo)).data;
+              if (latest.draft || latest.prerelease) throw new Error('Latest release is not stable');
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            const prerelease = process.env.PRERELEASE === 'true';
+            const makeLatest = !prerelease && (!latest || newer(stableVersion(tag), stableVersion(latest.tag_name)));
+            await github.rest.repos.updateRelease({
+              ...context.repo,
+              release_id,
+              draft: false,
+              prerelease,
+              make_latest: makeLatest ? 'true' : 'false'
+            });

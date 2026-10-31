@@ -133,11 +133,27 @@ To install the self-hosted web app on iPhone, open it in Safari and choose Share
 - [Security](https://pipedash.app/docs/resources/security): encryption, API authentication and vulnerability reports.
 - [Releases](https://github.com/hcavarsan/pipedash/releases): changes and release assets.
 
+## Desktop updates
+
+Open Settings > General > Updates to check for a release, download it or install a verified update. Automatic mode checks after startup and every 6 hours, downloads signed packages and waits for your approval to install and restart. Turning automatic mode off keeps manual actions and previously downloaded updates available.
+
+Native updates support AppImage, installed macOS applications and Windows NSIS installations. Debian, RPM and other externally managed installations show release information and leave installation to the package manager or official download. On macOS, move Pipedash out of its mounted disk image and reopen it before updating. Development builds do not check the production feed.
+
+Installation waits for active application operations and background startup, stops core services and restarts only after installation succeeds. A returned installation failure restores fresh core services. The next launch checks whether the requested version installed. Updates never install on ordinary quit. Install the first updater-capable release manually if your current version has no Updates controls.
+
 ## Contributing
 
 Read the [contribution guide](https://pipedash.app/docs/resources/contributing). For local builds, see [development](https://pipedash.app/docs/resources/development). To add a CI/CD provider, see [plugin development](https://pipedash.app/docs/resources/plugin-development).
 
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
+
+### Desktop release signing
+
+Desktop release publishing requires the existing updater signing identity. The repository does not yet contain its production public key, so release validation stops before draft creation. Do not replace that identity or disable signature verification.
+
+After the recovery workflow reaches the default branch, run "Recover updater public key" there. Download its 1-day `pipedash-updater-public-key` artifact. Commit the entire single-line value from `pipedash-updater.pub` as `plugins.updater.pubkey` in `crates/pipedash-desktop/tauri.conf.json`. Set `requireSignedVersion` to `true`, `allowDowngrades` to `false`, `windows.installMode` to `"passive"` and `endpoints` to `["https://github.com/hcavarsan/pipedash/releases/latest/download/latest.json"]` in that updater object. The workflow exports only the public envelope.
+
+The release-only `tauri.updater.conf.json` overlay creates signed updater artifacts. Publication verifies all 6 payload/signature pairs and their signed versions before publishing the 7-target manifest. A failed matrix job or invalid signature leaves the release unpublished. Prereleases and older maintenance releases do not replace the latest stable feed. Verify packaged upgrades on every shipped architecture before publishing an updater-enabled stable release.
 
 ## License
 

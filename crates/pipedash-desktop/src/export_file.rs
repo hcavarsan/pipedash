@@ -14,6 +14,7 @@ use tauri_plugin_pipedash_native::PipedashNativeExt;
 use tokio::io::AsyncWriteExt;
 
 use crate::commands::ErrorResponse;
+use crate::desktop_lifecycle::OperationLease;
 
 const MAX_FILE_NAME_BYTES: usize = 255;
 
@@ -94,7 +95,7 @@ async fn write_export(base: &Path, name: &str, contents: &[u8]) -> std::io::Resu
 
 #[tauri::command]
 pub async fn save_export_file(
-    app: AppHandle, file_name: String, contents: Vec<u8>,
+    _operation: OperationLease, app: AppHandle, file_name: String, contents: Vec<u8>,
 ) -> Result<ExportFileResult, ErrorResponse> {
     if !cfg!(mobile) {
         return Err(export_error(
@@ -141,8 +142,8 @@ async fn write_log(export: LogExport, path: &Path) -> Result<(), ErrorResponse> 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn export_run_log(
-    app: AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
-    run_number: i64, node_id: String, revision: i64, file_name: String,
+    _operation: OperationLease, app: AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: String, run_number: i64, node_id: String, revision: i64, file_name: String,
     destination: Option<String>,
 ) -> Result<ExportFileResult, ErrorResponse> {
     let service = crate::run_logs::log_service(&maybe_core).await?;

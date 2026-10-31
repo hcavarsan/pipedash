@@ -12,6 +12,7 @@ use tauri::{
 };
 
 use crate::commands::ErrorResponse;
+use crate::desktop_lifecycle::OperationLease;
 
 async fn provider_service(
     maybe_core: &crate::MaybeCoreContext,
@@ -26,8 +27,8 @@ async fn provider_service(
 
 #[tauri::command]
 pub async fn start_sign_in(
-    app: AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>, provider_type: String,
-    config: HashMap<String, String>,
+    _operation: OperationLease, app: AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
+    provider_type: String, config: HashMap<String, String>,
 ) -> Result<SignInStart, ErrorResponse> {
     let service = provider_service(&maybe_core).await?;
     let start = service.start_sign_in(&provider_type, config).await?;
@@ -37,7 +38,8 @@ pub async fn start_sign_in(
 
 #[tauri::command]
 pub async fn start_provider_sign_in(
-    app: AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
+    _operation: OperationLease, app: AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
+    id: i64,
 ) -> Result<SignInStart, ErrorResponse> {
     let service = provider_service(&maybe_core).await?;
     let start = service.start_provider_sign_in(id).await?;
@@ -47,7 +49,8 @@ pub async fn start_provider_sign_in(
 
 #[tauri::command]
 pub async fn reconnect_provider(
-    maybe_core: State<'_, crate::MaybeCoreContext>, id: i64, flow_id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
+    flow_id: String,
 ) -> Result<(), ErrorResponse> {
     Ok(provider_service(&maybe_core)
         .await?
@@ -57,7 +60,7 @@ pub async fn reconnect_provider(
 
 #[tauri::command]
 pub async fn sign_in_status(
-    maybe_core: State<'_, crate::MaybeCoreContext>, id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, id: String,
 ) -> Result<SignInStatus, ErrorResponse> {
     let service = provider_service(&maybe_core).await?;
     Ok(service.sign_in_status(&id).await?)
@@ -65,7 +68,8 @@ pub async fn sign_in_status(
 
 #[tauri::command]
 pub async fn complete_sign_in(
-    maybe_core: State<'_, crate::MaybeCoreContext>, id: String, redirect_url: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, id: String,
+    redirect_url: String,
 ) -> Result<SignInStatus, ErrorResponse> {
     let service = provider_service(&maybe_core).await?;
     Ok(service.complete_sign_in(&id, &redirect_url).await?)
@@ -73,7 +77,7 @@ pub async fn complete_sign_in(
 
 #[tauri::command]
 pub async fn cancel_sign_in(
-    maybe_core: State<'_, crate::MaybeCoreContext>, id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, id: String,
 ) -> Result<(), ErrorResponse> {
     provider_service(&maybe_core)
         .await?

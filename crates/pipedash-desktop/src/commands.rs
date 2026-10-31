@@ -45,6 +45,7 @@ use crate::core_boot::{
     BootError,
     BootKind,
 };
+use crate::desktop_lifecycle::OperationLease;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
@@ -88,7 +89,8 @@ pub struct CacheStats {
 
 #[tauri::command]
 pub async fn add_provider(
-    maybe_core: State<'_, crate::MaybeCoreContext>, config: ProviderConfig,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    config: ProviderConfig,
 ) -> Result<i64, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -118,7 +120,7 @@ pub async fn add_provider(
 
 #[tauri::command]
 pub async fn list_providers(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<Vec<ProviderSummary>, ErrorResponse> {
     tracing::debug!("[list_providers] Command invoked");
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
@@ -138,7 +140,7 @@ pub async fn list_providers(
 
 #[tauri::command]
 pub async fn get_provider(
-    maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
 ) -> Result<ProviderConfig, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -153,7 +155,8 @@ pub async fn get_provider(
 
 #[tauri::command]
 pub async fn update_provider(
-    maybe_core: State<'_, crate::MaybeCoreContext>, id: i64, config: ProviderConfig,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
+    config: ProviderConfig,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -168,7 +171,8 @@ pub async fn update_provider(
 
 #[tauri::command]
 pub async fn update_provider_refresh_interval(
-    maybe_core: State<'_, crate::MaybeCoreContext>, id: i64, refresh_interval: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
+    refresh_interval: i64,
 ) -> Result<(), ErrorResponse> {
     if refresh_interval < 5 {
         return Err(ErrorResponse {
@@ -191,7 +195,7 @@ pub async fn update_provider_refresh_interval(
 
 #[tauri::command]
 pub async fn remove_provider(
-    maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -206,7 +210,7 @@ pub async fn remove_provider(
 
 #[tauri::command]
 pub async fn export_providers(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<String, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -221,7 +225,7 @@ pub async fn export_providers(
 
 #[tauri::command]
 pub async fn import_providers(
-    maybe_core: State<'_, crate::MaybeCoreContext>, content: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, content: String,
 ) -> Result<ProviderImportResult, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -236,7 +240,7 @@ pub async fn import_providers(
 
 #[tauri::command]
 pub async fn get_available_plugins(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<Vec<pipedash_plugin_api::PluginMetadata>, ErrorResponse> {
     let core_guard = maybe_core.0.read().await;
     if let Some(core) = core_guard.as_ref() {
@@ -256,7 +260,7 @@ pub async fn get_available_plugins(
 
 #[tauri::command]
 pub async fn list_plugin_metadata(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<Vec<pipedash_plugin_api::PluginMetadata>, ErrorResponse> {
     let core_guard = maybe_core.0.read().await;
     if let Some(core) = core_guard.as_ref() {
@@ -276,8 +280,8 @@ pub async fn list_plugin_metadata(
 
 #[tauri::command]
 pub async fn get_provider_field_options(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_type: String, field_key: String,
-    config: HashMap<String, String>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    provider_type: String, field_key: String, config: HashMap<String, String>,
 ) -> Result<Vec<String>, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -296,8 +300,8 @@ pub async fn get_provider_field_options(
 
 #[tauri::command]
 pub async fn fetch_provider_organizations(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_type: String,
-    config: HashMap<String, String>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    provider_type: String, config: HashMap<String, String>,
 ) -> Result<Vec<pipedash_plugin_api::Organization>, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -311,10 +315,11 @@ pub async fn fetch_provider_organizations(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn preview_provider_pipelines(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_type: String,
-    config: HashMap<String, String>, org: Option<String>, search: Option<String>,
-    page: Option<usize>, page_size: Option<usize>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    provider_type: String, config: HashMap<String, String>, org: Option<String>,
+    search: Option<String>, page: Option<usize>, page_size: Option<usize>,
 ) -> Result<PaginatedAvailablePipelines, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -343,8 +348,8 @@ pub async fn preview_provider_pipelines(
 
 #[tauri::command]
 pub async fn validate_provider_credentials(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_type: String,
-    config: HashMap<String, String>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    provider_type: String, config: HashMap<String, String>,
 ) -> Result<ValidationResult, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -374,8 +379,8 @@ pub async fn validate_provider_credentials(
 
 #[tauri::command]
 pub async fn check_provider_permissions(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_type: String,
-    config: HashMap<String, String>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    provider_type: String, config: HashMap<String, String>,
 ) -> Result<PermissionCheckResult, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -403,7 +408,7 @@ pub async fn check_provider_permissions(
 
 #[tauri::command]
 pub async fn get_provider_permissions(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64,
 ) -> Result<Option<pipedash_plugin_api::PermissionStatus>, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -418,7 +423,7 @@ pub async fn get_provider_permissions(
 
 #[tauri::command]
 pub async fn get_provider_features(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64,
 ) -> Result<Vec<pipedash_plugin_api::FeatureAvailability>, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -494,7 +499,7 @@ pub async fn get_provider_features(
 
 #[tauri::command]
 pub async fn get_provider_table_schema(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64,
 ) -> Result<pipedash_plugin_api::schema::TableSchema, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -524,7 +529,8 @@ pub async fn get_provider_table_schema(
 
 #[tauri::command]
 pub async fn get_cached_pipelines(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: Option<i64>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    provider_id: Option<i64>,
 ) -> Result<Vec<Pipeline>, ErrorResponse> {
     tracing::debug!(
         "[get_cached_pipelines] Command invoked with provider_id: {:?}",
@@ -551,8 +557,8 @@ pub async fn get_cached_pipelines(
 
 #[tauri::command]
 pub async fn fetch_run_history(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, page: Option<usize>,
-    page_size: Option<usize>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: String, page: Option<usize>, page_size: Option<usize>,
 ) -> Result<PaginatedRunHistory, ErrorResponse> {
     let page = page.unwrap_or(1).max(1);
     let page_size = page_size.unwrap_or(20).clamp(10, 100);
@@ -570,7 +576,8 @@ pub async fn fetch_run_history(
 
 #[tauri::command]
 pub async fn get_workflow_run_details(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: String, run_number: i64,
 ) -> Result<PipelineRun, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -585,7 +592,8 @@ pub async fn get_workflow_run_details(
 
 #[tauri::command]
 pub async fn trigger_pipeline(
-    maybe_core: State<'_, crate::MaybeCoreContext>, params: TriggerParams,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    params: TriggerParams,
 ) -> Result<String, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -604,7 +612,8 @@ pub async fn trigger_pipeline(
 
 #[tauri::command]
 pub async fn cancel_pipeline_run(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: String, run_number: i64,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -622,8 +631,8 @@ pub async fn cancel_pipeline_run(
 
 #[tauri::command]
 pub async fn review_pipeline_run(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
-    decision: pipedash_plugin_api::ReviewDecision,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: String, run_number: i64, decision: pipedash_plugin_api::ReviewDecision,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -638,7 +647,8 @@ pub async fn review_pipeline_run(
 
 #[tauri::command]
 pub async fn rerun_failed_jobs(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: String, run_number: i64,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -653,7 +663,8 @@ pub async fn rerun_failed_jobs(
 
 #[tauri::command]
 pub async fn rerun_pipeline_run(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, run_number: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: String, run_number: i64,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -668,7 +679,7 @@ pub async fn rerun_pipeline_run(
 
 #[tauri::command]
 pub async fn enable_pipeline(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -681,7 +692,7 @@ pub async fn enable_pipeline(
 
 #[tauri::command]
 pub async fn get_workflow_parameters(
-    maybe_core: State<'_, crate::MaybeCoreContext>, workflow_id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, workflow_id: String,
 ) -> Result<Vec<pipedash_plugin_api::WorkflowParameter>, ErrorResponse> {
     let parts: Vec<&str> = workflow_id.split("__").collect();
     if parts.len() < 2 {
@@ -721,7 +732,7 @@ pub async fn get_workflow_parameters(
 
 #[tauri::command]
 pub async fn refresh_all(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<Vec<RefreshResult>, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -736,7 +747,7 @@ pub async fn refresh_all(
 
 #[tauri::command]
 pub async fn refresh_provider(
-    maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, id: i64,
 ) -> Result<RefreshResult, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -748,7 +759,7 @@ pub async fn refresh_provider(
 
 #[tauri::command]
 pub async fn set_refresh_mode(
-    maybe_core: State<'_, crate::MaybeCoreContext>, mode: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, mode: String,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -762,7 +773,7 @@ pub async fn set_refresh_mode(
 
 #[tauri::command]
 pub async fn get_refresh_mode(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<String, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -775,8 +786,8 @@ pub async fn get_refresh_mode(
 
 #[tauri::command]
 pub async fn update_general_settings(
-    app: tauri::AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
-    update: GeneralSettingsUpdate,
+    _operation: OperationLease, app: tauri::AppHandle,
+    maybe_core: State<'_, crate::MaybeCoreContext>, update: GeneralSettingsUpdate,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -792,7 +803,7 @@ pub async fn update_general_settings(
 
 #[tauri::command]
 pub async fn clear_run_history_cache(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -807,7 +818,7 @@ pub async fn clear_run_history_cache(
 
 #[tauri::command]
 pub async fn get_cache_stats(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<CacheStats, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -851,7 +862,7 @@ pub async fn get_cache_stats(
 
 #[tauri::command]
 pub async fn clear_pipelines_cache(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<usize, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -866,7 +877,7 @@ pub async fn clear_pipelines_cache(
 
 #[tauri::command]
 pub async fn clear_all_run_history_caches(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -879,7 +890,7 @@ pub async fn clear_all_run_history_caches(
 
 #[tauri::command]
 pub async fn clear_workflow_params_cache(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -894,7 +905,7 @@ pub async fn clear_workflow_params_cache(
 
 #[tauri::command]
 pub async fn clear_all_caches(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -908,7 +919,7 @@ pub async fn clear_all_caches(
 
 #[tauri::command]
 pub async fn get_global_metrics_config(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<GlobalMetricsConfig, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -929,7 +940,8 @@ pub async fn get_global_metrics_config(
 
 #[tauri::command]
 pub async fn update_global_metrics_config(
-    maybe_core: State<'_, crate::MaybeCoreContext>, enabled: bool, default_retention_days: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, enabled: bool,
+    default_retention_days: i64,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -950,7 +962,7 @@ pub async fn update_global_metrics_config(
 
 #[tauri::command]
 pub async fn get_pipeline_metrics_config(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
 ) -> Result<MetricsConfig, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -971,8 +983,8 @@ pub async fn get_pipeline_metrics_config(
 
 #[tauri::command]
 pub async fn update_pipeline_metrics_config(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String, enabled: bool,
-    retention_days: i64,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: String, enabled: bool, retention_days: i64,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -993,9 +1005,9 @@ pub async fn update_pipeline_metrics_config(
 
 #[tauri::command]
 pub async fn query_pipeline_metrics(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: Option<String>,
-    metric_type: Option<String>, start_date: Option<String>, end_date: Option<String>,
-    limit: Option<usize>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: Option<String>, metric_type: Option<String>, start_date: Option<String>,
+    end_date: Option<String>, limit: Option<usize>,
 ) -> Result<Vec<pipedash_core::domain::MetricEntry>, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -1035,9 +1047,10 @@ pub async fn query_pipeline_metrics(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn query_aggregated_metrics(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: Option<String>,
-    metric_type: String, aggregation_period: String, aggregation_type: Option<String>,
-    start_date: Option<String>, end_date: Option<String>, limit: Option<usize>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: Option<String>, metric_type: String, aggregation_period: String,
+    aggregation_type: Option<String>, start_date: Option<String>, end_date: Option<String>,
+    limit: Option<usize>,
 ) -> Result<AggregatedMetrics, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -1114,7 +1127,7 @@ pub async fn query_aggregated_metrics(
 
 #[tauri::command]
 pub async fn get_metrics_storage_stats(
-    maybe_core: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
 ) -> Result<MetricsStats, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -1135,7 +1148,8 @@ pub async fn get_metrics_storage_stats(
 
 #[tauri::command]
 pub async fn flush_pipeline_metrics(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: Option<String>,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    pipeline_id: Option<String>,
 ) -> Result<usize, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -1156,7 +1170,7 @@ pub async fn flush_pipeline_metrics(
 
 #[tauri::command]
 pub async fn reset_metrics_processing_state(
-    maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, pipeline_id: String,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -1183,7 +1197,8 @@ pub async fn reset_metrics_processing_state(
 
 #[tauri::command]
 pub async fn get_table_preferences(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64, table_id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64,
+    table_id: String,
 ) -> Result<Option<String>, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -1199,8 +1214,8 @@ pub async fn get_table_preferences(
 
 #[tauri::command]
 pub async fn save_table_preferences(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64, table_id: String,
-    preferences_json: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64,
+    table_id: String, preferences_json: String,
 ) -> Result<(), ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -1216,7 +1231,8 @@ pub async fn save_table_preferences(
 
 #[tauri::command]
 pub async fn get_default_table_preferences(
-    maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64, table_id: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>, provider_id: i64,
+    table_id: String,
 ) -> Result<String, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -1297,13 +1313,15 @@ use crate::AppDataDir;
 
 #[tauri::command]
 pub async fn check_setup_status(
-    app_data_dir: State<'_, AppDataDir>,
+    _operation: OperationLease, app_data_dir: State<'_, AppDataDir>,
 ) -> Result<SetupStatus, ErrorResponse> {
     Ok(ConfigLoader::get_setup_status(&app_data_dir.0))
 }
 
 #[tauri::command]
-pub async fn bootstrap_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
+pub async fn bootstrap_app(
+    _operation: OperationLease, app: tauri::AppHandle,
+) -> Result<(), ErrorResponse> {
     tracing::info!("Bootstrapping application after initial setup");
 
     boot_core(&app, BootKind::Setup, false)
@@ -1321,7 +1339,8 @@ pub async fn bootstrap_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
 
 #[tauri::command]
 pub async fn create_initial_config(
-    app_data_dir: State<'_, AppDataDir>, config: PipedashConfig, vault_password: Option<String>,
+    _operation: OperationLease, app_data_dir: State<'_, AppDataDir>, config: PipedashConfig,
+    vault_password: Option<String>,
 ) -> Result<(), ErrorResponse> {
     let config_path = app_data_dir.0.join("config.toml");
 
@@ -1377,7 +1396,7 @@ pub struct StorageConfigResponse {
 
 #[tauri::command]
 pub async fn get_storage_config(
-    app_data_dir: State<'_, AppDataDir>,
+    _operation: OperationLease, app_data_dir: State<'_, AppDataDir>,
 ) -> Result<StorageConfigResponse, ErrorResponse> {
     let config = load_config_from_dir(&app_data_dir.0)?;
     let summary = config.storage.summary();
@@ -1391,7 +1410,7 @@ pub struct VaultPasswordStatus {
 }
 
 #[tauri::command]
-pub async fn get_vault_password_status() -> VaultPasswordStatus {
+pub async fn get_vault_password_status(_operation: OperationLease) -> VaultPasswordStatus {
     let is_set = std::env::var("PIPEDASH_VAULT_PASSWORD").is_ok();
     VaultPasswordStatus {
         is_set,
@@ -1454,8 +1473,8 @@ pub(crate) async fn vault_requires_password(config: &PipedashConfig) -> bool {
 
 #[tauri::command]
 pub async fn get_vault_status(
-    app: tauri::AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
-    app_data_dir: State<'_, AppDataDir>,
+    _operation: OperationLease, app: tauri::AppHandle,
+    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
 ) -> Result<VaultStatusResponse, ErrorResponse> {
     let config = load_config_from_dir(&app_data_dir.0)?;
 
@@ -1508,7 +1527,7 @@ pub async fn get_vault_status(
 
 #[tauri::command]
 pub async fn unlock_vault(
-    app: tauri::AppHandle, password: String,
+    _operation: OperationLease, app: tauri::AppHandle, password: String,
 ) -> Result<UnlockVaultResponse, ErrorResponse> {
     unlock_session(&app, &password, false).await
 }
@@ -1581,7 +1600,9 @@ async fn unlock_keyring_session(
 }
 
 #[tauri::command]
-pub async fn lock_vault(app: tauri::AppHandle) -> Result<UnlockVaultResponse, ErrorResponse> {
+pub async fn lock_vault(
+    _operation: OperationLease, app: tauri::AppHandle,
+) -> Result<UnlockVaultResponse, ErrorResponse> {
     app_lock::lock_session(&app).await;
 
     Ok(UnlockVaultResponse::ok("Vault locked"))
@@ -1589,7 +1610,8 @@ pub async fn lock_vault(app: tauri::AppHandle) -> Result<UnlockVaultResponse, Er
 
 #[tauri::command]
 pub async fn save_storage_config(
-    app_data_dir: State<'_, AppDataDir>, config: PipedashConfig, token_password: Option<String>,
+    _operation: OperationLease, app_data_dir: State<'_, AppDataDir>, config: PipedashConfig,
+    token_password: Option<String>,
 ) -> Result<(), ErrorResponse> {
     if let Some(password) = &token_password {
         std::env::set_var("PIPEDASH_VAULT_PASSWORD", password);
@@ -1623,7 +1645,7 @@ pub struct ConfigContentResponse {
 
 #[tauri::command]
 pub async fn get_config_content(
-    app_data_dir: State<'_, AppDataDir>,
+    _operation: OperationLease, app_data_dir: State<'_, AppDataDir>,
 ) -> Result<ConfigContentResponse, ErrorResponse> {
     let config_path = app_data_dir.0.join("config.toml");
 
@@ -1641,8 +1663,8 @@ pub async fn get_config_content(
 
 #[tauri::command]
 pub async fn save_config_content(
-    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
-    content: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    app_data_dir: State<'_, AppDataDir>, content: String,
 ) -> Result<(), ErrorResponse> {
     let config: PipedashConfig = toml::from_str(&content).map_err(|e| ErrorResponse {
         error: format!("Invalid TOML syntax: {}", e),
@@ -1687,8 +1709,8 @@ pub async fn save_config_content(
 
 #[tauri::command]
 pub async fn analyze_config(
-    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
-    content: String,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    app_data_dir: State<'_, AppDataDir>, content: String,
 ) -> Result<ConfigAnalysis, ErrorResponse> {
     let current_config = load_config_from_dir(&app_data_dir.0)?;
 
@@ -1723,7 +1745,8 @@ pub struct StoragePathsResponse {
 
 #[tauri::command]
 pub async fn get_storage_paths(
-    app_data_dir: State<'_, AppDataDir>, _maybe_core_context: State<'_, crate::MaybeCoreContext>,
+    _operation: OperationLease, app_data_dir: State<'_, AppDataDir>,
+    _maybe_core_context: State<'_, crate::MaybeCoreContext>,
 ) -> Result<StoragePathsResponse, ErrorResponse> {
     use pipedash_core::infrastructure::ConfigLoader;
 
@@ -1748,7 +1771,7 @@ pub async fn get_storage_paths(
 }
 
 #[tauri::command]
-pub async fn get_default_data_dir() -> Result<String, ErrorResponse> {
+pub async fn get_default_data_dir(_operation: OperationLease) -> Result<String, ErrorResponse> {
     use pipedash_core::infrastructure::PipedashConfig;
 
     let default_dir = PipedashConfig::default_data_dir();
@@ -1756,7 +1779,9 @@ pub async fn get_default_data_dir() -> Result<String, ErrorResponse> {
 }
 
 #[tauri::command]
-pub async fn get_effective_data_dir(config: PipedashConfig) -> Result<String, ErrorResponse> {
+pub async fn get_effective_data_dir(
+    _operation: OperationLease, config: PipedashConfig,
+) -> Result<String, ErrorResponse> {
     let effective_dir = config.data_dir();
     Ok(effective_dir.display().to_string())
 }
@@ -1769,7 +1794,7 @@ pub struct DatabaseExistsResponse {
 
 #[tauri::command]
 pub async fn check_database_exists(
-    config: PipedashConfig,
+    _operation: OperationLease, config: PipedashConfig,
 ) -> Result<DatabaseExistsResponse, ErrorResponse> {
     let db_path = config.db_path();
     let exists = db_path.exists();
@@ -1789,7 +1814,8 @@ pub struct TestConnectionResult {
 #[tauri::command]
 #[allow(dead_code)]
 pub async fn test_storage_connection(
-    maybe_core: State<'_, crate::MaybeCoreContext>, config: PipedashConfig,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    config: PipedashConfig,
 ) -> Result<TestConnectionResult, ErrorResponse> {
     let core = maybe_core.get().await.map_err(|e| ErrorResponse {
         error: e,
@@ -1845,8 +1871,8 @@ pub async fn test_storage_connection(
 
 #[tauri::command]
 pub async fn plan_storage_migration(
-    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
-    target_config: PipedashConfig, options: MigrationOptions,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    app_data_dir: State<'_, AppDataDir>, target_config: PipedashConfig, options: MigrationOptions,
 ) -> Result<MigrationPlan, ErrorResponse> {
     let current_config = load_config_from_dir(&app_data_dir.0)?;
 
@@ -1906,8 +1932,8 @@ pub async fn plan_storage_migration(
 
 #[tauri::command]
 pub async fn execute_storage_migration(
-    maybe_core: State<'_, crate::MaybeCoreContext>, _app_data_dir: State<'_, AppDataDir>,
-    plan: MigrationPlan, options: MigrationOptions,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    _app_data_dir: State<'_, AppDataDir>, plan: MigrationPlan, options: MigrationOptions,
 ) -> Result<MigrationResult, ErrorResponse> {
     let source_config = plan.from.clone();
 
@@ -1961,8 +1987,8 @@ pub async fn execute_storage_migration(
 
 #[tauri::command]
 pub async fn validate_storage_config(
-    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
-    config: StorageConfig,
+    _operation: OperationLease, maybe_core: State<'_, crate::MaybeCoreContext>,
+    app_data_dir: State<'_, AppDataDir>, config: StorageConfig,
 ) -> Result<ValidationReport, ErrorResponse> {
     let current_config = load_config_from_dir(&app_data_dir.0)?;
 
@@ -2012,8 +2038,9 @@ pub struct FactoryResetResult {
 
 #[tauri::command]
 pub async fn factory_reset(
-    app: tauri::AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
-    app_data_dir: State<'_, AppDataDir>, lock: State<'_, app_lock::AppLockState>,
+    _operation: OperationLease, app: tauri::AppHandle,
+    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
+    lock: State<'_, app_lock::AppLockState>,
 ) -> Result<FactoryResetResult, ErrorResponse> {
     tracing::info!("[factory_reset] Starting factory reset");
 
@@ -2029,6 +2056,8 @@ pub async fn factory_reset(
 
     crate::push::reset(&app_data_dir.0).await?;
     app_lock::reset(&app, &lock)?;
+    #[cfg(desktop)]
+    crate::updater::reset(&app).await?;
 
     tracing::info!(providers_removed, "[factory_reset] Complete");
 
@@ -2044,19 +2073,36 @@ pub async fn factory_reset(
 pub async fn restart_app(app: tauri::AppHandle) -> Result<(), ErrorResponse> {
     tracing::info!("[restart_app] Initiating application restart...");
 
-    if cfg!(mobile) {
-        return boot_core(&app, BootKind::Resume, false)
+    #[cfg(mobile)]
+    {
+        boot_core(&app, BootKind::Resume, false)
             .await
             .map(|_| ())
             .map_err(|e| ErrorResponse {
                 error: e.to_string(),
                 details: None,
                 code: None,
-            });
+            })
     }
 
-    app.restart();
-
-    #[allow(unreachable_code)]
-    Ok(())
+    #[cfg(desktop)]
+    {
+        let lifecycle = app.state::<crate::desktop_lifecycle::DesktopLifecycle>();
+        let exclusive = lifecycle.acquire_exclusive().await?;
+        {
+            let lock = app.state::<app_lock::AppLockState>();
+            let _transition = lock.transition().await;
+            lifecycle
+                .drain_core(&app)
+                .await
+                .map_err(|error| ErrorResponse {
+                    error,
+                    details: None,
+                    code: None,
+                })?;
+        }
+        app.manage(exclusive);
+        app.request_restart();
+        Ok(())
+    }
 }

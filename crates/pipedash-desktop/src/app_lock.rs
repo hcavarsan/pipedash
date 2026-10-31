@@ -28,6 +28,7 @@ use crate::commands::{
     ErrorResponse,
     UnlockVaultResponse,
 };
+use crate::desktop_lifecycle::OperationLease;
 use crate::{
     credential,
     AppDataDir,
@@ -342,6 +343,15 @@ pub async fn lock_session(app: &AppHandle) {
     let lock = app.state::<AppLockState>();
     let _transition = lock.transition().await;
 
+    #[cfg(desktop)]
+    if let Err(error) = app
+        .state::<crate::desktop_lifecycle::DesktopLifecycle>()
+        .join_startup()
+        .await
+    {
+        tracing::error!(%error, "Application startup failed before session lock");
+    }
+
     let core = app.state::<MaybeCoreContext>().0.write().await.take();
     std::env::remove_var(VAULT_PASSWORD_ENV);
     lock.set_locked(true);
@@ -433,7 +443,8 @@ fn enable_confirmed(outcome: AuthOutcome) -> Result<bool, ErrorResponse> {
 
 #[tauri::command]
 pub async fn unlock_with_biometrics(
-    app: AppHandle, lock: State<'_, AppLockState>, app_data_dir: State<'_, AppDataDir>,
+    _operation: OperationLease, app: AppHandle, lock: State<'_, AppLockState>,
+    app_data_dir: State<'_, AppDataDir>,
 ) -> Result<UnlockVaultResponse, ErrorResponse> {
     if !SUPPORTED || !lock.settings().enabled {
         return Ok(failure("App lock is not enabled"));
@@ -475,8 +486,8 @@ pub async fn unlock_with_biometrics(
 
 #[tauri::command]
 pub async fn set_app_lock(
-    app: AppHandle, lock: State<'_, AppLockState>, app_data_dir: State<'_, AppDataDir>,
-    enabled: bool, lock_on_background: bool,
+    _operation: OperationLease, app: AppHandle, lock: State<'_, AppLockState>,
+    app_data_dir: State<'_, AppDataDir>, enabled: bool, lock_on_background: bool,
 ) -> Result<AppLockStatus, ErrorResponse> {
     if !SUPPORTED {
         return Err(error("App lock is not supported on this device"));
