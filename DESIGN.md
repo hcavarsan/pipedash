@@ -116,7 +116,7 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 - Controls keep a 44pt touch area even when the visual is smaller. Keyboard focus shows a 2px tint ring. Touch shows none, and hover styles never apply on touch.
 - Segmented controls look like the iOS ones: no border, a raised thumb and iOS colors. Theme and retention pickers use native selects without an idle border. Keyboard navigation keeps its focus ring.
 - Every sheet uses one background for its header and body, and content starts 16pt below the header. Multi-step sheets show a compact progress row instead of a desktop stepper.
-- Sheets resize with the keyboard before revealing the focused field. Inline forms also scroll focused fields into the visible viewport. Picker sheets use one scroll surface and stay above the keyboard and home indicator.
+- Sheets resize with the keyboard before revealing the focused field. Main-page field reveal excludes the fixed app header and the keyboard from the visible area. Modal fields use their own sheet boundaries. Picker sheets use one scroll surface and stay above the keyboard and home indicator.
 - The pressed highlight covers the whole row, including the chevron and the trailing … button.
 - The search row on list pages, including run history, hides by default. A short pull reveals it, a longer pull refreshes. During refresh, the indicator stays fixed below the header and connection banner. Its spokes fade without rotating the container.
 - With filters active, the filter button switches to the filled icon in the tint color, and its label carries the count.

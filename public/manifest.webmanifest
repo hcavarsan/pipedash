@@ -1,0 +1,14 @@
+{
+  "name": "Pipedash",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "pipedash-iOS-Dark-1024x1024@1x.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ]
+}

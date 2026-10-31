@@ -61,8 +61,13 @@ function revealFocusedField() {
 
   const boundary = field.closest(SHEET_SELECTOR) ?? document.body
   const viewport = window.visualViewport
-  const visibleTop = viewport?.offsetTop ?? 0
-  const visibleBottom = visibleTop + (viewport?.height ?? window.innerHeight)
+  const viewportTop = viewport?.offsetTop ?? 0
+  const header =
+    boundary === document.body && field.closest('.mantine-AppShell-main')
+      ? document.querySelector('.mantine-AppShell-header')
+      : null
+  const visibleTop = Math.max(viewportTop, header?.getBoundingClientRect().bottom ?? viewportTop)
+  const visibleBottom = viewportTop + (viewport?.height ?? window.innerHeight)
 
   for (let parent = field.parentElement; parent && parent !== boundary.parentElement; parent = parent.parentElement) {
     const overflows = parent.scrollHeight > parent.clientHeight
