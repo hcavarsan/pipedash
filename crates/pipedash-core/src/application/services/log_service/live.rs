@@ -150,6 +150,23 @@ impl LogService {
         Some(interest.nodes.keys().cloned().collect())
     }
 
+    pub(super) async fn interest_expired(&self, key: &DocKey) {
+        let run = (key.pipeline_id.clone(), key.run_number);
+        loop {
+            let seen = self
+                .interests
+                .get(&run)
+                .and_then(|interest| interest.nodes.get(&key.node_id).copied());
+            let Some(deadline) = seen.map(|seen| seen + INTEREST_TTL) else {
+                return;
+            };
+            if deadline <= Instant::now() {
+                return;
+            }
+            sleep_until(deadline).await;
+        }
+    }
+
     fn paused_until(&self, provider_id: i64) -> Option<Instant> {
         let now = Utc::now();
         let until = self

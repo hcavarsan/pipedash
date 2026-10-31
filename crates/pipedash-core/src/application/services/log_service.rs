@@ -910,7 +910,15 @@ async fn ingest(guard: AttemptGuard, work: IngestWork) {
     let generation = work.lease.generation;
     let epoch = work.epoch;
     let partial = work.node.log == Some(LogAvailability::Partial);
-    let finished = work.run().await;
+    let read = work.run();
+    tokio::pin!(read);
+    let finished = tokio::select! {
+        finished = &mut read => finished,
+        _ = service.interest_expired(&work.key), if partial => {
+            work.cancel.cancel();
+            read.await
+        }
+    };
     service
         .conclude(guard, finished, generation, epoch, partial)
         .await;
