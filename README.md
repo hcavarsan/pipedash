@@ -126,6 +126,8 @@ Download the [desktop app](https://pipedash.app/downloads), install the [iOS app
 
 To install the self-hosted web app on iPhone, open it in Safari and choose Share > Add to Home Screen. Keep "Open as Web App" enabled when available. Its manifest covers the deployment base path and starts the app at that root. After deploying changes to scope, status-bar settings or icon artwork, add a new Home Screen icon to avoid cached installation metadata.
 
+When you move storage with "Transfer data", Pipedash keeps retained run history, including archived FluxCD reconciliations.
+
 - [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables and secrets.
 - [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
 - [REST API](https://pipedash.app/docs/deployment/rest-api): routes, authentication and WebSocket events.

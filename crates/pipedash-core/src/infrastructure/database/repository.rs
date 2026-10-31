@@ -894,6 +894,15 @@ impl Repository {
         Ok(())
     }
 
+    pub(crate) async fn list_run_history_pipeline_ids(&self) -> DomainResult<Vec<String>> {
+        let sql = "SELECT DISTINCT pipeline_id FROM run_history_cache";
+        match &self.cache_pool {
+            DatabasePool::Sqlite(pool) => sqlx::query_scalar(sql).fetch_all(pool).await,
+            DatabasePool::Postgres(pool) => sqlx::query_scalar(sql).fetch_all(pool).await,
+        }
+        .map_err(|error| DomainError::DatabaseError(error.to_string()))
+    }
+
     pub async fn get_cached_run_history(
         &self, pipeline_id: &str, limit: usize,
     ) -> DomainResult<Vec<PipelineRun>> {
