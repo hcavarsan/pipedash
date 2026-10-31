@@ -635,6 +635,111 @@ async fn live_reads_stop_when_nobody_keeps_the_log_open_and_start_again_when_som
 }
 
 #[tokio::test]
+async fn expired_live_reads_release_permits_for_another_job() {
+    let gate = Gate::new();
+    let nodes = ["1", "2", "3"]
+        .into_iter()
+        .map(|id| job(id, PipelineStatus::Running, LogAvailability::Partial))
+        .collect();
+    let f = Fixture::live_with(nodes, &["a\n"], gated(&gate)).await;
+    f.open("1").await;
+    gate.arrived().await;
+    f.open("2").await;
+    gate.arrived().await;
+    assert_eq!(f.svc().ingest_permits.available_permits(), 0);
+
+    f.tick(50).await;
+    until("the live task to stop", || f.svc().lives.is_empty()).await;
+    let permits_after_expiry = f.svc().ingest_permits.available_permits();
+    f.open("3").await;
+    f.settle().await;
+    let reads_after_opening_third = f.stub.log_read_count();
+    f.svc().shutdown().await;
+
+    assert_eq!(permits_after_expiry, INGEST_PERMITS);
+    assert_eq!(reads_after_opening_third, 3);
+    assert_eq!(f.tmp_entries(), 0);
+    assert_eq!(f.h.bus.count("run-log-failed"), 0);
+}
+
+#[tokio::test]
+async fn renewing_one_live_log_does_not_keep_another_nodes_read_alive() {
+    let gate = Gate::new();
+    let nodes = ["1", "2"]
+        .into_iter()
+        .map(|id| job(id, PipelineStatus::Running, LogAvailability::Partial))
+        .collect();
+    let f = Fixture::live_with(nodes, &["a\n"], gated(&gate)).await;
+    f.open("1").await;
+    gate.arrived().await;
+    f.open("2").await;
+    gate.arrived().await;
+
+    f.tick(30).await;
+    f.open("1").await;
+    f.tick(20).await;
+    until("the abandoned read to stop", || {
+        !f.svc().inflight.contains_key(&f.key("2"))
+    })
+    .await;
+    assert!(f.svc().inflight.contains_key(&f.key("1")));
+    assert_eq!(f.svc().ingest_permits.available_permits(), 1);
+
+    gate.open();
+    f.ready(1).await;
+    let meta = meta_of(f.open("1").await);
+    assert_eq!(f.texts(&meta).await, ["a"]);
+    assert!(f.h.log_store.current(&f.key("2")).is_none());
+    assert_eq!(f.h.bus.count("run-log-failed"), 0);
+    f.svc().shutdown().await;
+}
+
+#[tokio::test]
+async fn completed_log_downloads_outlive_viewer_interest() {
+    let gate = Gate::new();
+    let f = Fixture::live_with(default_nodes(), &["complete\n"], gated(&gate)).await;
+    f.open("1").await;
+    gate.arrived().await;
+
+    f.tick(60).await;
+    assert!(f.svc().inflight.contains_key(&f.key("1")));
+    gate.open();
+    f.ready(1).await;
+
+    let meta = meta_of(f.open("1").await);
+    assert!(meta.complete);
+    assert_eq!(f.texts(&meta).await, ["complete"]);
+    f.svc().shutdown().await;
+}
+
+#[tokio::test]
+async fn expired_live_reads_leave_the_ingest_queue_without_calling_the_provider() {
+    let gate = Gate::new();
+    let nodes = vec![
+        job("1", PipelineStatus::Success, LogAvailability::Ready),
+        job("2", PipelineStatus::Success, LogAvailability::Ready),
+        job("3", PipelineStatus::Running, LogAvailability::Partial),
+    ];
+    let f = Fixture::live_with(nodes, &["complete\n"], gated(&gate)).await;
+    f.open("1").await;
+    gate.arrived().await;
+    f.open("2").await;
+    gate.arrived().await;
+    f.open("3").await;
+    f.tick(50).await;
+
+    until("the queued live read to stop", || {
+        !f.svc().inflight.contains_key(&f.key("3"))
+    })
+    .await;
+    gate.open();
+    f.ready(2).await;
+    assert_eq!(f.stub.log_read_count(), 2);
+    assert!(f.h.log_store.current(&f.key("3")).is_none());
+    f.svc().shutdown().await;
+}
+
+#[tokio::test]
 async fn a_failed_live_read_keeps_the_stored_log_and_backs_off() {
     let f = Fixture::live(&["a\n"], resumable).await;
     let first = f.ready_meta("1").await;
