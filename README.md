@@ -139,6 +139,8 @@ When you move storage with "Transfer data", Pipedash keeps retained run history,
 
 Read the [contribution guide](https://pipedash.app/docs/resources/contributing). For local builds, see [development](https://pipedash.app/docs/resources/development). To add a CI/CD provider, see [plugin development](https://pipedash.app/docs/resources/plugin-development).
 
+Local builds and CI use Rust `nightly-2026-10-31`, pinned in `rust-toolchain.toml` and `mise.toml`. Use `cargo fmt` without a toolchain override to keep formatting on the same version.
+
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
 
 ## License

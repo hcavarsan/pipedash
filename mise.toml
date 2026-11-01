@@ -1,5 +1,5 @@
 [tools]
-rust = { version = "nightly", components = "rust-src,llvm-tools,clippy,rustfmt,rustc-dev" }
+rust = { version = "nightly-2026-10-31", components = "rust-src,llvm-tools,clippy,rustfmt,rustc-dev" }
 node = "26"
 bun = "latest"
 zizmor = "latest"
@@ -114,7 +114,7 @@ depends = ["fmt:front", "fmt:back"]
 run = "bun run format"
 
 [tasks."fmt:back"]
-run = "cargo +nightly fmt --all"
+run = "cargo fmt --all"
 
 [tasks."fmt:check"]
 description = "Check formatting"
@@ -124,7 +124,7 @@ depends = ["fmt:front:check", "fmt:back:check"]
 run = "bun run format:check"
 
 [tasks."fmt:back:check"]
-run = "cargo +nightly fmt --all -- --check"
+run = "cargo fmt --all -- --check"
 
 [tasks.test]
 description = "Run all tests"
