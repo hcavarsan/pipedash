@@ -121,7 +121,7 @@ function NativeDesktopUpdateBridge(): ReactNode {
     notifications.show({
       title: notice.outcome === 'updated' ? `Updated to ${notice.version}` : 'Update incomplete',
       message: notice.outcome === 'updated' ? 'Pipedash is ready.' : 'The update did not finish. You can retry.',
-      color: notice.outcome === 'updated' ? 'green' : 'orange',
+      color: notice.outcome === 'updated' ? 'gray' : 'orange',
     })
     void desktopService
       .acknowledgeUpdateNotice(notice.version)

@@ -25,6 +25,7 @@ use pipedash_core::infrastructure::{
     config::ConfigLoader,
     http_client::parse_proxy_url,
 };
+use pipedash_plugin_api::http::read_prefix;
 use serde::{
     Deserialize,
     Serialize,
@@ -62,6 +63,7 @@ use crate::{
 const FEED: &str = "https://github.com/hcavarsan/pipedash/releases/latest/download/latest.json";
 const RELEASES: &str = "https://github.com/hcavarsan/pipedash/releases/";
 const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+const MAX_FEED_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -190,6 +192,7 @@ struct Inner {
     status: UpdateStatus,
     update: Option<Update>,
     staged: bool,
+    staged_size: u64,
     generation: u64,
     active: Option<Active>,
     last_attempt: Option<Instant>,
@@ -216,14 +219,24 @@ impl Inner {
         {
             if let Some(op) = self.active.take() {
                 op.abort.abort();
-                self.status.phase = if self.staged {
-                    UpdatePhase::Ready
-                } else {
-                    op.fallback
-                };
+                self.restore_phase(op.fallback);
             }
             self.generation += 1;
         }
+    }
+
+    fn restore_phase(&mut self, fallback: UpdatePhase) {
+        self.status.phase = if self.staged {
+            if let Some(update) = &self.update {
+                self.status.available_version = Some(update.version.clone());
+                self.status.release_url = Some(format!("{RELEASES}tag/v{}", update.version));
+            }
+            self.status.downloaded_bytes = self.staged_size;
+            self.status.total_bytes = Some(self.staged_size);
+            UpdatePhase::Ready
+        } else {
+            fallback
+        };
     }
 }
 
@@ -282,7 +295,7 @@ impl UpdaterState {
                     | UpdatePhase::Preparing
                     | UpdatePhase::Installing
             ) {
-                state.status.phase = op.fallback;
+                state.restore_phase(op.fallback);
             }
         }
         if let Some(error) = error {
@@ -353,9 +366,9 @@ fn eligibility(app: &AppHandle) -> (UpdateMode, String, Option<String>, Option<S
         arch => arch,
     };
     let native = match source {
+        #[cfg(target_os = "linux")]
         Some(BundleType::AppImage)
-            if cfg!(target_os = "linux")
-                && matches!(arch, "x86_64" | "aarch64")
+            if matches!(arch, "x86_64" | "aarch64")
                 && app
                     .env()
                     .appimage
@@ -450,6 +463,66 @@ fn valid_artifact(url: &reqwest::Url) -> bool {
         && url.fragment().is_none()
 }
 
+fn public_update_url(url: &reqwest::Url) -> bool {
+    url.scheme() == "https"
+        && url.port_or_known_default() == Some(443)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && matches!(
+            url.host_str(),
+            Some(
+                "github.com"
+                    | "release-assets.githubusercontent.com"
+                    | "objects.githubusercontent.com"
+                    | "github-releases.githubusercontent.com"
+            )
+        )
+}
+
+fn update_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() > 5 {
+            attempt.error("Too many update redirects")
+        } else if public_update_url(attempt.url()) {
+            attempt.follow()
+        } else {
+            attempt.error("Update redirect destination refused")
+        }
+    })
+}
+
+async fn read_release(
+    response: reqwest::Response,
+) -> Result<Option<serde_json::Value>, UpdateFailure> {
+    let failed = || plugin_error("check", tauri_plugin_updater::Error::ReleaseNotFound);
+    let response = response.error_for_status().map_err(|_| failed())?;
+    if response.status() == reqwest::StatusCode::NO_CONTENT {
+        return Ok(None);
+    }
+    let oversized = || {
+        UpdateFailure::new(
+            "check",
+            "UPDATE_METADATA_TOO_LARGE",
+            "The update feed exceeds the size limit. Retry after the release publisher fixes the feed.",
+        )
+    };
+    if response
+        .content_length()
+        .is_some_and(|size| size > MAX_FEED_BYTES as u64)
+    {
+        return Err(oversized());
+    }
+    let bytes = read_prefix(response, MAX_FEED_BYTES + 1)
+        .await
+        .map_err(|_| failed())?;
+    if bytes.len() > MAX_FEED_BYTES {
+        return Err(oversized());
+    }
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|_| failed())
+}
+
 fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let parent = path
         .parent()
@@ -471,7 +544,51 @@ fn remove_file(path: &Path) -> std::io::Result<()> {
 
 fn clear_stage(cache: &Path) -> std::io::Result<()> {
     remove_file(&cache.join("release.json"))?;
-    remove_file(&cache.join("package"))
+    remove_stage_packages(cache, None)
+}
+
+fn remove_stage_packages(cache: &Path, keep: Option<&Path>) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(cache) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if keep == Some(path.as_path()) {
+            continue;
+        }
+        if entry.file_name().to_str().is_some_and(|name| {
+            name == "package"
+                || name
+                    .strip_prefix("package-")
+                    .is_some_and(|version| semver::Version::parse(version).is_ok())
+        }) {
+            remove_file(&path)?;
+        }
+    }
+    Ok(())
+}
+
+fn package_path(cache: &Path, version: &str) -> std::io::Result<PathBuf> {
+    let version = semver::Version::parse(version).map_err(std::io::Error::other)?;
+    Ok(cache.join(format!("package-{version}")))
+}
+
+fn read_package(cache: &Path, version: &str) -> std::io::Result<Vec<u8>> {
+    std::fs::read(package_path(cache, version)?)
+}
+
+fn persist_stage(
+    cache: &Path, version: &str, metadata: &serde_json::Value, bytes: &[u8],
+) -> std::io::Result<()> {
+    let metadata = serde_json::to_vec(metadata)?;
+    let package = package_path(cache, version)?;
+    atomic_write(&package, bytes)?;
+    atomic_write(&cache.join("release.json"), &metadata)?;
+    let _ = remove_stage_packages(cache, Some(&package));
+    Ok(())
 }
 
 fn load_preferences(path: &Path) -> (bool, Option<UpdateFailure>) {
@@ -513,11 +630,7 @@ async fn builder(app: &AppHandle, target: &str) -> Result<Updater, UpdateFailure
             release.version.pre.is_empty() && release.version > current
         })
         .timeout(Duration::from_secs(30))
-        .configure_client(|client| {
-            client
-                .https_only(true)
-                .redirect(reqwest::redirect::Policy::limited(5))
-        });
+        .configure_client(|client| client.https_only(true).redirect(update_redirect_policy()));
     #[cfg(windows)]
     {
         builder = builder.on_before_exit(|| {}).restart_after_install(true);
@@ -562,6 +675,7 @@ pub fn register(app: &AppHandle) -> Result<(), String> {
             },
             update: None,
             staged: false,
+            staged_size: 0,
             generation: 0,
             active: None,
             last_attempt: None,
@@ -681,7 +795,7 @@ async fn restore(app: &AppHandle, state: &UpdaterState) -> Result<(), UpdateFail
                     tauri_plugin_updater::Error::InsecureTransportProtocol,
                 ));
             }
-            let bytes = std::fs::read(cache.join("package")).map_err(|_| storage_error())?;
+            let bytes = read_package(&cache, &update.version).map_err(|_| storage_error())?;
             update
                 .verify(&bytes)
                 .map_err(|error| plugin_error("download", error))?;
@@ -700,6 +814,7 @@ async fn restore(app: &AppHandle, state: &UpdaterState) -> Result<(), UpdateFail
         set_available(&mut inner, &update.version);
         inner.update = Some(update);
         inner.staged = true;
+        inner.staged_size = size;
         inner.status.phase = UpdatePhase::Ready;
         inner.status.downloaded_bytes = size;
         inner.status.total_bytes = Some(size);
@@ -723,6 +838,44 @@ async fn scheduler(app: AppHandle, state: UpdaterState) {
 fn set_available(inner: &mut Inner, version: &str) {
     inner.status.available_version = Some(version.to_owned());
     inner.status.release_url = Some(format!("{RELEASES}tag/v{version}"));
+}
+
+fn apply_check(
+    inner: &mut Inner, update: Option<Update>, external_version: Option<String>, origin: Origin,
+) -> Result<Option<Update>, UpdateFailure> {
+    let automatic =
+        origin == Origin::Automatic && inner.status.automatic_updates && inner.storage_available;
+    if inner.staged {
+        inner.restore_phase(UpdatePhase::Ready);
+        if automatic {
+            if let (Some(candidate), Some(staged)) = (&update, &inner.update) {
+                let candidate =
+                    semver::Version::parse(&candidate.version).map_err(|_| storage_error())?;
+                let staged =
+                    semver::Version::parse(&staged.version).map_err(|_| storage_error())?;
+                if candidate > staged {
+                    return Ok(update);
+                }
+            }
+        }
+        return Ok(None);
+    }
+    inner.status.available_version = None;
+    inner.status.release_url = None;
+    inner.status.downloaded_bytes = 0;
+    inner.status.total_bytes = None;
+    if let Some(update) = &update {
+        set_available(inner, &update.version);
+    } else if let Some(version) = external_version {
+        set_available(inner, &version);
+    }
+    inner.update = update;
+    inner.status.phase = if inner.status.available_version.is_some() {
+        UpdatePhase::Available
+    } else {
+        UpdatePhase::Idle
+    };
+    Ok(automatic.then(|| inner.update.clone()).flatten())
 }
 
 fn claim(inner: &mut Inner, origin: Origin, phase: UpdatePhase) -> (u64, AbortRegistration) {
@@ -796,35 +949,33 @@ async fn check(
 ) -> Result<(), UpdateFailure> {
     let target = state.inner().status.target.clone();
     let network = async {
+        let mut client = reqwest::Client::builder()
+            .https_only(true)
+            .timeout(Duration::from_secs(30))
+            .redirect(update_redirect_policy());
+        if let Some(proxy) = proxy(app).await? {
+            client = client.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(|_| {
+                plugin_error("check", tauri_plugin_updater::Error::ReleaseNotFound)
+            })?);
+        }
+        let response = client
+            .build()
+            .map_err(|_| plugin_error("check", tauri_plugin_updater::Error::ReleaseNotFound))?
+            .get(FEED)
+            .send()
+            .await
+            .map_err(|_| plugin_error("check", tauri_plugin_updater::Error::ReleaseNotFound))?;
+        let Some(metadata) = read_release(response).await? else {
+            return Ok((None, None));
+        };
         if let Some(target) = target {
-            let updater = builder(app, &target).await?;
-            let update = updater
-                .check()
-                .await
+            let update = builder(app, &target)
+                .await?
+                .restore_update(metadata)
                 .map_err(|error| plugin_error("check", error))?;
             Ok((update, None))
         } else {
-            let mut client = reqwest::Client::builder()
-                .https_only(true)
-                .timeout(Duration::from_secs(30))
-                .redirect(reqwest::redirect::Policy::limited(5));
-            if let Some(proxy) = proxy(app).await? {
-                client = client.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(|_| {
-                    plugin_error("check", tauri_plugin_updater::Error::ReleaseNotFound)
-                })?);
-            }
-            let release = client
-                .build()
-                .map_err(|_| plugin_error("check", tauri_plugin_updater::Error::ReleaseNotFound))?
-                .get(FEED)
-                .send()
-                .await
-                .and_then(reqwest::Response::error_for_status)
-                .map_err(|_| plugin_error("check", tauri_plugin_updater::Error::ReleaseNotFound))?
-                .json::<serde_json::Value>()
-                .await
-                .map_err(|_| plugin_error("check", tauri_plugin_updater::Error::ReleaseNotFound))?;
-            let release: RemoteRelease = serde_json::from_value(release)
+            let release: RemoteRelease = serde_json::from_value(metadata)
                 .map_err(|_| plugin_error("check", tauri_plugin_updater::Error::ReleaseNotFound))?;
             let version = (release.version.pre.is_empty()
                 && release.version > app.package_info().version)
@@ -852,27 +1003,6 @@ async fn check(
     if !state.matches(generation) {
         return Ok(());
     }
-    let superseded = {
-        let inner = state.inner();
-        if inner.staged {
-            if let (Some(candidate), Some(staged)) = (&update, &inner.status.available_version) {
-                let candidate =
-                    semver::Version::parse(&candidate.version).map_err(|_| storage_error())?;
-                let staged = semver::Version::parse(staged).map_err(|_| storage_error())?;
-                if candidate <= staged {
-                    update = None;
-                }
-            }
-        }
-        inner.staged && update.is_some()
-    };
-    if superseded {
-        let cache = state.cache.clone().ok_or_else(storage_error)?;
-        tauri::async_runtime::spawn_blocking(move || clear_stage(&cache))
-            .await
-            .map_err(|_| storage_error())?
-            .map_err(|_| storage_error())?;
-    }
     let automatic_download;
     {
         let mut inner = state.inner();
@@ -884,33 +1014,11 @@ async fn check(
             return Ok(());
         }
         inner.status.last_checked_at = Some(chrono::Utc::now().to_rfc3339());
-        if superseded {
-            inner.staged = false;
-            inner.status.downloaded_bytes = 0;
-            inner.status.total_bytes = None;
-        }
-        if let Some(update) = update {
-            set_available(&mut inner, &update.version);
-            inner.update = Some(update);
-        } else if let Some(version) = external_version {
-            set_available(&mut inner, &version);
-        }
-        inner.status.phase = if inner.staged {
-            UpdatePhase::Ready
-        } else if inner.status.available_version.is_some() {
-            UpdatePhase::Available
-        } else {
-            UpdatePhase::Idle
-        };
-        automatic_download = origin == Origin::Automatic
-            && inner.status.automatic_updates
-            && inner.update.is_some()
-            && !inner.staged
-            && inner.storage_available;
+        automatic_download = apply_check(&mut inner, update, external_version, origin)?;
         state.publish(app, &mut inner);
     }
     drop(_staging);
-    if automatic_download {
+    if let Some(update) = automatic_download {
         let cancel = {
             let mut inner = state.inner();
             if inner
@@ -921,28 +1029,27 @@ async fn check(
                 return Ok(());
             }
             let (abort, cancel) = AbortHandle::new_pair();
+            let fallback = inner.status.phase;
             if let Some(op) = &mut inner.active {
                 op.abort = abort;
-                op.fallback = UpdatePhase::Available;
+                op.fallback = fallback;
             }
+            set_available(&mut inner, &update.version);
             inner.status.phase = UpdatePhase::Downloading;
             inner.status.downloaded_bytes = 0;
             inner.status.total_bytes = None;
             state.publish(app, &mut inner);
             cancel
         };
-        download(app, state, generation, cancel).await?;
+        download(app, state, generation, cancel, update).await?;
     }
     Ok(())
 }
 
 async fn download(
     app: &AppHandle, state: &UpdaterState, generation: u64, cancel: AbortRegistration,
+    update: Update,
 ) -> Result<(), UpdateFailure> {
-    let update =
-        state.inner().update.clone().ok_or_else(|| {
-            plugin_error("download", tauri_plugin_updater::Error::ReleaseNotFound)
-        })?;
     if !valid_artifact(&update.download_url) {
         return Err(plugin_error(
             "download",
@@ -951,10 +1058,9 @@ async fn download(
     }
     let worker_state = state.clone();
     let handle = app.clone();
-    let metadata = update.raw_json.clone();
-    let bytes = tauri::async_runtime::spawn_blocking(move || {
+    let (update, bytes) = tauri::async_runtime::spawn_blocking(move || {
         let mut last_progress = Instant::now();
-        tauri::async_runtime::block_on(Abortable::new(
+        let bytes = tauri::async_runtime::block_on(Abortable::new(
             update.download(
                 move |size, total| {
                     let mut inner = worker_state.inner();
@@ -975,7 +1081,8 @@ async fn download(
                 || {},
             ),
             cancel,
-        ))
+        ));
+        (update, bytes)
     })
     .await
     .map_err(|_| plugin_error("download", tauri_plugin_updater::Error::ReleaseNotFound))?;
@@ -989,11 +1096,9 @@ async fn download(
     }
     let cache = state.cache.clone().ok_or_else(storage_error)?;
     let size = bytes.len() as u64;
-    tauri::async_runtime::spawn_blocking(move || {
-        remove_file(&cache.join("release.json"))?;
-        atomic_write(&cache.join("package"), &bytes)?;
-        let metadata = serde_json::to_vec(&metadata)?;
-        atomic_write(&cache.join("release.json"), &metadata)
+    let update = tauri::async_runtime::spawn_blocking(move || {
+        persist_stage(&cache, &update.version, &update.raw_json, &bytes)?;
+        Ok::<_, std::io::Error>(update)
     })
     .await
     .map_err(|_| storage_error())?
@@ -1004,7 +1109,10 @@ async fn download(
         .as_ref()
         .is_some_and(|op| op.generation == generation)
     {
+        set_available(&mut inner, &update.version);
+        inner.update = Some(update);
         inner.staged = true;
+        inner.staged_size = size;
         inner.status.phase = UpdatePhase::Ready;
         inner.status.downloaded_bytes = size;
         inner.status.total_bytes = Some(size);
@@ -1083,13 +1191,14 @@ pub async fn download_update(app: AppHandle) -> Result<UpdateStatus, ErrorRespon
     if !inner.status.can_download {
         return Err(unavailable());
     }
+    let update = inner.update.clone().ok_or_else(unavailable)?;
     let (generation, cancel) = claim(&mut inner, Origin::Manual, UpdatePhase::Downloading);
     inner.status.downloaded_bytes = 0;
     inner.status.total_bytes = None;
     let snapshot = state.publish(&app, &mut inner);
     drop(inner);
     tauri::async_runtime::spawn(async move {
-        let result = download(&app, &state, generation, cancel).await;
+        let result = download(&app, &state, generation, cancel, update).await;
         state.finish(&app, generation, result.err());
     });
     Ok(snapshot)
@@ -1161,7 +1270,7 @@ async fn install(
     };
     let cache = state.cache.clone().ok_or_else(storage_error)?;
     let verified = tauri::async_runtime::spawn_blocking(move || {
-        let result = std::fs::read(cache.join("package"))
+        let result = read_package(&cache, &update.version)
             .map_err(|_| storage_error())
             .and_then(|bytes| {
                 update
@@ -1184,6 +1293,7 @@ async fn install(
         Err(error) => {
             let mut inner = state.inner();
             inner.staged = false;
+            inner.staged_size = 0;
             inner.status.phase = UpdatePhase::Available;
             if let Some(op) = &mut inner.active {
                 op.fallback = UpdatePhase::Available;
@@ -1322,6 +1432,7 @@ pub async fn reset(app: &AppHandle) -> Result<(), ErrorResponse> {
     inner.status.phase = UpdatePhase::Idle;
     inner.update = None;
     inner.staged = false;
+    inner.staged_size = 0;
     inner.status.error = result.as_ref().err().map(|_| storage_error());
     inner.immediate = true;
     state.publish(app, &mut inner);
@@ -1371,6 +1482,30 @@ mod tests {
 
     const PUBLIC_KEY: &str = "untrusted comment: minisign public key: A49EF4746FA6E6D7\nRWTX5qZvdPSepDGWg2bz8n6ArQnBMwgQK1geVosorcbLzcunD+KJ+cYe";
     const SIGNATURE: &str = "untrusted comment: signature from tauri secret key\nRUTX5qZvdPSepPF2zsjvP/L/TQtBLRnWRvaq+4omK1UEugtQp/USrGiI1v762sDy3id3aor7bRC9ETyeot6lMHHrWoZ5hjUM1Qc=\ntrusted comment: timestamp:1791649051\tfile:payload\tversion:2.0.0\nDDq2CLOEl5cQmC2eJRHlnZPVViOZsu1CjpPKQoei4A/XBfkDqGO0B+QMrcrHgEQ5qV3mne75tdFWhJpqUXh9AA==";
+
+    fn test_client() -> reqwest::ClientBuilder {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(5))
+    }
+
+    fn read_request(socket: &mut std::net::TcpStream) {
+        use std::io::{
+            BufRead,
+            BufReader,
+        };
+
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut reader = BufReader::new(socket);
+        let mut line = String::new();
+        while line != "\r\n" {
+            line.clear();
+            assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+        }
+    }
 
     fn verifier() -> Updater {
         let mut context = tauri::test::mock_context(tauri::test::noop_assets());
@@ -1519,6 +1654,7 @@ mod tests {
                 },
                 update: None,
                 staged: false,
+                staged_size: 0,
                 generation: 0,
                 active: None,
                 last_attempt: None,
@@ -1570,6 +1706,258 @@ mod tests {
         assert!(Abortable::new(futures::future::pending::<()>(), cancel)
             .await
             .is_err());
+    }
+
+    #[test]
+    fn successful_empty_checks_clear_native_and_external_offers() {
+        let updater = verifier();
+        for mode in [UpdateMode::Native, UpdateMode::External] {
+            let state = manager();
+            let mut inner = state.inner();
+            inner.status.mode = mode;
+            inner.update = updater.restore_update(manifest("2.0.0")).unwrap();
+            set_available(&mut inner, "2.0.0");
+            inner.status.downloaded_bytes = 17;
+            inner.status.total_bytes = Some(20);
+            apply_check(&mut inner, None, None, Origin::Manual).unwrap();
+            assert!(inner.update.is_none());
+            assert!(inner.status.available_version.is_none());
+            assert!(inner.status.release_url.is_none());
+            assert_eq!(inner.status.phase, UpdatePhase::Idle);
+            assert_eq!(inner.status.downloaded_bytes, 0);
+            assert_eq!(inner.status.total_bytes, None);
+        }
+    }
+
+    #[test]
+    fn manual_checks_keep_the_verified_release_and_its_install_identity() {
+        let updater = verifier();
+        for candidate in [None, Some("2.0.0"), Some("3.0.0")] {
+            let state = manager();
+            let mut inner = state.inner();
+            inner.update = updater.restore_update(manifest("2.0.0")).unwrap();
+            inner.staged = true;
+            set_available(&mut inner, "2.0.0");
+            let candidate =
+                candidate.and_then(|version| updater.restore_update(manifest(version)).unwrap());
+            assert!(apply_check(&mut inner, candidate, None, Origin::Manual)
+                .unwrap()
+                .is_none());
+            assert_eq!(inner.status.available_version.as_deref(), Some("2.0.0"));
+            assert_eq!(inner.update.as_ref().unwrap().version, "2.0.0");
+            assert_eq!(inner.status.phase, UpdatePhase::Ready);
+            assert!(inner.staged);
+        }
+    }
+
+    #[test]
+    fn replacement_candidates_do_not_change_the_staged_install_identity() {
+        let updater = verifier();
+        let state = manager();
+        let mut inner = state.inner();
+        inner.update = updater.restore_update(manifest("2.0.0")).unwrap();
+        inner.staged = true;
+        inner.staged_size = 4;
+        set_available(&mut inner, "2.0.0");
+        let candidate = updater.restore_update(manifest("3.0.0")).unwrap();
+        let replacement = apply_check(&mut inner, candidate, None, Origin::Automatic)
+            .unwrap()
+            .unwrap();
+        assert_eq!(replacement.version, "3.0.0");
+        assert_eq!(inner.update.as_ref().unwrap().version, "2.0.0");
+        assert_eq!(inner.status.available_version.as_deref(), Some("2.0.0"));
+        claim(&mut inner, Origin::Automatic, UpdatePhase::Downloading);
+        set_available(&mut inner, &replacement.version);
+        inner.status.downloaded_bytes = 19;
+        inner.status.total_bytes = Some(20);
+        inner.cancel_automatic();
+        assert_eq!(inner.status.phase, UpdatePhase::Ready);
+        assert_eq!(inner.update.as_ref().unwrap().version, "2.0.0");
+        assert_eq!(inner.status.available_version.as_deref(), Some("2.0.0"));
+        assert_eq!(inner.status.downloaded_bytes, 4);
+        assert_eq!(inner.status.total_bytes, Some(4));
+    }
+
+    #[test]
+    fn failed_replacement_restores_the_staged_version_and_progress() {
+        let updater = verifier();
+        let state = manager();
+        let mut inner = state.inner();
+        inner.update = updater.restore_update(manifest("2.0.0")).unwrap();
+        inner.staged = true;
+        inner.staged_size = 4;
+        set_available(&mut inner, "2.0.0");
+        claim(&mut inner, Origin::Automatic, UpdatePhase::Downloading);
+        set_available(&mut inner, "3.0.0");
+        inner.status.downloaded_bytes = 19;
+        inner.status.total_bytes = Some(20);
+        let failed = updater.restore_update(manifest("3.0.0")).unwrap().unwrap();
+        assert!(failed.verify(b"test").is_err());
+        let active = inner.active.take().unwrap();
+        inner.restore_phase(active.fallback);
+        assert_eq!(inner.status.phase, UpdatePhase::Ready);
+        assert_eq!(inner.status.available_version.as_deref(), Some("2.0.0"));
+        assert_eq!(inner.status.downloaded_bytes, 4);
+        assert_eq!(inner.status.total_bytes, Some(4));
+        inner.update.as_ref().unwrap().verify(b"test").unwrap();
+    }
+
+    #[test]
+    fn failed_stage_replacement_preserves_the_previous_package_and_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        persist_stage(root.path(), "2.0.0", &manifest("2.0.0"), b"test").unwrap();
+        let old_metadata = std::fs::read(root.path().join("release.json")).unwrap();
+        std::fs::create_dir(root.path().join("package-3.0.0")).unwrap();
+        assert!(persist_stage(root.path(), "3.0.0", &manifest("3.0.0"), b"new").is_err());
+        assert_eq!(
+            std::fs::read(root.path().join("release.json")).unwrap(),
+            old_metadata
+        );
+        assert_eq!(read_package(root.path(), "2.0.0").unwrap(), b"test");
+        verifier()
+            .restore_update(serde_json::from_slice(&old_metadata).unwrap())
+            .unwrap()
+            .unwrap()
+            .verify(&read_package(root.path(), "2.0.0").unwrap())
+            .unwrap();
+    }
+
+    #[test]
+    fn update_redirects_require_public_https_destinations() {
+        for url in [
+            "http://github.com/file",
+            "https://localhost/file",
+            "https://localhost./file",
+            "https://printer.local/file",
+            "https://127.0.0.1/file",
+            "https://10.0.0.1/file",
+            "https://169.254.169.254/file",
+            "https://[::1]/file",
+            "https://[::ffff:127.0.0.1]/file",
+            "https://[fc00::1]/file",
+            "https://user:secret@github.com/file",
+            "https://8.8.8.8/file",
+            "https://example.com/file",
+        ] {
+            assert!(!public_update_url(&url.parse().unwrap()), "{url}");
+        }
+        for url in [
+            "https://github.com/file",
+            "https://release-assets.githubusercontent.com/file?signature=abc",
+            "https://objects.githubusercontent.com/file",
+        ] {
+            assert!(public_update_url(&url.parse().unwrap()), "{url}");
+        }
+    }
+
+    #[tokio::test]
+    async fn metadata_rejects_oversized_fixed_and_chunked_bodies() {
+        use std::net::TcpListener;
+
+        for chunked in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                read_request(&mut socket);
+                let body = " ".repeat(MAX_FEED_BYTES + 1);
+                let response = if chunked {
+                    format!("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{body}\r\n0\r\n\r\n", body.len())
+                } else {
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                };
+                let _ = socket.write_all(response.as_bytes());
+            });
+            let response = test_client()
+                .build()
+                .unwrap()
+                .get(format!("http://{address}/"))
+                .send()
+                .await
+                .unwrap();
+            let error = read_release(response).await.err().unwrap();
+            assert_eq!(error.code, "UPDATE_METADATA_TOO_LARGE");
+            server.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn redirect_policy_refuses_private_destinations_before_connecting() {
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            read_request(&mut socket);
+            socket.write_all(
+                b"HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            ).unwrap();
+        });
+        let error = test_client()
+            .redirect(update_redirect_policy())
+            .build()
+            .unwrap()
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap_err();
+        assert!(error.is_redirect());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn successful_stage_replacement_commits_metadata_and_removes_the_old_package() {
+        let root = tempfile::tempdir().unwrap();
+        persist_stage(root.path(), "2.0.0", &manifest("2.0.0"), b"test").unwrap();
+        persist_stage(root.path(), "3.0.0", &manifest("3.0.0"), b"replacement").unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.path().join("release.json")).unwrap())
+                .unwrap();
+        assert_eq!(metadata["version"], "3.0.0");
+        assert_eq!(read_package(root.path(), "3.0.0").unwrap(), b"replacement");
+        assert!(!root.path().join("package-2.0.0").exists());
+        clear_stage(root.path()).unwrap();
+        assert!(!root.path().join("release.json").exists());
+        assert!(!root.path().join("package-3.0.0").exists());
+    }
+
+    #[tokio::test]
+    async fn bounded_feed_accepts_no_content_and_metadata_at_the_limit() {
+        use std::net::TcpListener;
+
+        let metadata = manifest("2.0.0");
+        let json = serde_json::to_string(&metadata).unwrap();
+        let padded = format!("{json}{}", " ".repeat(MAX_FEED_BYTES - json.len()));
+        for (status, body, expected) in [
+            ("204 No Content", String::new(), None),
+            ("200 OK", padded, Some(metadata)),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                read_request(&mut socket);
+                write!(
+                    socket,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            });
+            let response = test_client()
+                .build()
+                .unwrap()
+                .get(format!("http://{address}/"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(read_release(response).await.unwrap(), expected);
+            server.join().unwrap();
+        }
     }
 
     #[test]

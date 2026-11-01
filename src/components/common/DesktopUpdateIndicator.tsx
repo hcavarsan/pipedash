@@ -23,7 +23,7 @@ function NativeDesktopUpdateIndicator(): ReactNode {
       component={Link}
       to="/settings/general"
       variant="subtle"
-      color="yellow"
+      color="gray"
       size="compact-sm"
       leftSection={<IconDownload size={16} aria-hidden />}
       aria-label={label}

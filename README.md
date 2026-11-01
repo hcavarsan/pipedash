@@ -139,6 +139,8 @@ When you move storage with "Transfer data", Pipedash keeps retained run history,
 
 Open Settings > General > Updates to check for a release, download it or install a verified update. Automatic mode checks after startup and every 6 hours, downloads signed packages and waits for your approval to install and restart. Turning automatic mode off keeps manual actions and previously downloaded updates available.
 
+Checks keep verified downloads available for offline installation. Automatic downloads replace them only after verification and a successful save.
+
 Native updates support AppImage, installed macOS applications and Windows NSIS installations. Debian, RPM and other externally managed installations show release information and leave installation to the package manager or official download. On macOS, move Pipedash out of its mounted disk image and reopen it before updating. Development builds do not check the production feed.
 
 Installation waits for active application operations and background startup, stops core services and restarts only after installation succeeds. A returned installation failure restores fresh core services. The next launch checks whether the requested version installed. Updates never install on ordinary quit. Install the first updater-capable release manually if your current version has no Updates controls.
