@@ -10,10 +10,7 @@ use std::{
         MutexGuard,
         PoisonError,
     },
-    time::{
-        Duration,
-        Instant,
-    },
+    time::Duration,
 };
 
 use futures::future::{
@@ -44,9 +41,12 @@ use tauri_plugin_updater::{
     Updater,
     UpdaterExt,
 };
-use tokio::sync::{
-    Mutex as AsyncMutex,
-    Notify,
+use tokio::{
+    sync::{
+        Mutex as AsyncMutex,
+        Notify,
+    },
+    time::Instant,
 };
 
 use crate::{
@@ -64,6 +64,7 @@ const FEED: &str = "https://github.com/hcavarsan/pipedash/releases/latest/downlo
 const RELEASES: &str = "https://github.com/hcavarsan/pipedash/releases/";
 const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const MAX_FEED_BYTES: usize = 1024 * 1024;
+const MAX_PACKAGE_BYTES: usize = 512 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -202,6 +203,21 @@ struct Inner {
 }
 
 impl Inner {
+    fn next_check(&self, start: Instant, busy: bool) -> Option<Instant> {
+        if !self.status.automatic_updates || !self.initialized || self.active.is_some() {
+            return None;
+        }
+        if busy {
+            return Some(Instant::now() + Duration::from_secs(10));
+        }
+        Some(if self.immediate {
+            Instant::now()
+        } else {
+            self.last_attempt
+                .map_or(start, |attempt| attempt + CHECK_INTERVAL)
+        })
+    }
+
     fn automatic_due(&mut self) -> bool {
         let due = self.immediate
             || self
@@ -255,7 +271,7 @@ impl UpdaterState {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn publish(&self, app: &AppHandle, state: &mut Inner) -> UpdateStatus {
+    fn publish<R: tauri::Runtime>(&self, app: &AppHandle<R>, state: &mut Inner) -> UpdateStatus {
         let idle =
             state.active.is_none() && state.initialized && !app.state::<DesktopLifecycle>().busy();
         let native = state.status.mode == UpdateMode::Native;
@@ -278,7 +294,9 @@ impl UpdaterState {
             .is_some_and(|op| op.generation == generation)
     }
 
-    fn finish(&self, app: &AppHandle, generation: u64, error: Option<UpdateFailure>) {
+    fn finish<R: tauri::Runtime>(
+        &self, app: &AppHandle<R>, generation: u64, error: Option<UpdateFailure>,
+    ) {
         let mut state = self.inner();
         if state
             .active
@@ -302,6 +320,7 @@ impl UpdaterState {
             state.status.error = Some(error);
         }
         self.publish(app, &mut state);
+        self.wake.notify_one();
     }
 }
 
@@ -822,16 +841,31 @@ async fn restore(app: &AppHandle, state: &UpdaterState) -> Result<(), UpdateFail
     Ok(())
 }
 
-async fn scheduler(app: AppHandle, state: UpdaterState) {
-    let start = tokio::time::Instant::now() + Duration::from_secs(10);
-    let mut timer = tokio::time::interval_at(start, CHECK_INTERVAL);
-    timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+async fn wait_for_automatic(state: &UpdaterState, lifecycle: &DesktopLifecycle, start: Instant) {
     loop {
-        tokio::select! { _ = timer.tick() => {}, _ = state.wake.notified() => {} }
-        let due = state.inner().automatic_due();
-        if due {
-            let _ = start_check(&app, Origin::Automatic);
+        let deadline = state.inner().next_check(start, lifecycle.busy());
+        let timer = async {
+            match deadline {
+                Some(deadline) => tokio::time::sleep_until(deadline).await,
+                None => futures::future::pending().await,
+            }
+        };
+        tokio::select! {
+            _ = timer => {
+                if !lifecycle.busy() && state.inner().automatic_due() {
+                    return;
+                }
+            },
+            _ = state.wake.notified() => {},
         }
+    }
+}
+
+async fn scheduler(app: AppHandle, state: UpdaterState) {
+    let start = Instant::now() + Duration::from_secs(10);
+    loop {
+        wait_for_automatic(&state, &app.state::<DesktopLifecycle>(), start).await;
+        let _ = start_check(&app, Origin::Automatic);
     }
 }
 
@@ -933,6 +967,7 @@ fn start_check(app: &AppHandle, origin: Origin) -> Result<UpdateStatus, ErrorRes
     }
     let (generation, cancel) = claim(&mut inner, origin, UpdatePhase::Checking);
     inner.last_attempt = Some(Instant::now());
+    state.wake.notify_one();
     let snapshot = state.publish(app, &mut inner);
     drop(inner);
     let handle = app.clone();
@@ -1046,6 +1081,80 @@ async fn check(
     Ok(())
 }
 
+async fn read_package_response(
+    mut response: reqwest::Response, update: &Update, limit: usize,
+    mut on_chunk: impl FnMut(usize, Option<u64>),
+) -> Result<Vec<u8>, UpdateFailure> {
+    let failed = |error| plugin_error("download", tauri_plugin_updater::Error::Reqwest(error));
+    if !response.status().is_success() {
+        return Err(plugin_error(
+            "download",
+            tauri_plugin_updater::Error::Network(format!(
+                "Download request failed with status: {}",
+                response.status()
+            )),
+        ));
+    }
+    let total = response.content_length();
+    let oversized = || {
+        UpdateFailure::new(
+            "download",
+            "UPDATE_PACKAGE_TOO_LARGE",
+            "The update package exceeds the 512 MiB size limit. Download it from the official release page instead.",
+        )
+    };
+    if total.is_some_and(|size| size > limit as u64) {
+        return Err(oversized());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(failed)? {
+        if chunk.len() > limit - bytes.len() {
+            return Err(oversized());
+        }
+        bytes.extend_from_slice(&chunk);
+        on_chunk(chunk.len(), total);
+    }
+    update
+        .verify(&bytes)
+        .map_err(|error| plugin_error("download", error))?;
+    Ok(bytes)
+}
+
+async fn download_package(
+    update: &Update, on_chunk: impl FnMut(usize, Option<u64>),
+) -> Result<Vec<u8>, UpdateFailure> {
+    let failed = |error| plugin_error("download", tauri_plugin_updater::Error::Reqwest(error));
+    let mut client = reqwest::Client::builder()
+        .https_only(true)
+        .redirect(update_redirect_policy())
+        .timeout(update.timeout.unwrap_or(Duration::from_secs(600)))
+        .user_agent(concat!(
+            env!("CARGO_PKG_NAME"),
+            "/",
+            env!("CARGO_PKG_VERSION")
+        ));
+    if update.no_proxy {
+        client = client.no_proxy();
+    } else if let Some(proxy) = &update.proxy {
+        client = client.proxy(reqwest::Proxy::all(proxy.as_str()).map_err(failed)?);
+    }
+    let mut headers = update.headers.clone();
+    headers
+        .entry(reqwest::header::ACCEPT)
+        .or_insert(reqwest::header::HeaderValue::from_static(
+            "application/octet-stream",
+        ));
+    let response = client
+        .build()
+        .map_err(failed)?
+        .get(update.download_url.clone())
+        .headers(headers)
+        .send()
+        .await
+        .map_err(failed)?;
+    read_package_response(response, update, MAX_PACKAGE_BYTES, on_chunk).await
+}
+
 async fn download(
     app: &AppHandle, state: &UpdaterState, generation: u64, cancel: AbortRegistration,
     update: Update,
@@ -1061,25 +1170,22 @@ async fn download(
     let (update, bytes) = tauri::async_runtime::spawn_blocking(move || {
         let mut last_progress = Instant::now();
         let bytes = tauri::async_runtime::block_on(Abortable::new(
-            update.download(
-                move |size, total| {
-                    let mut inner = worker_state.inner();
-                    if inner
-                        .active
-                        .as_ref()
-                        .is_none_or(|op| op.generation != generation)
-                    {
-                        return;
-                    }
-                    inner.status.downloaded_bytes += size as u64;
-                    inner.status.total_bytes = total;
-                    if last_progress.elapsed() >= Duration::from_millis(250) {
-                        worker_state.publish(&handle, &mut inner);
-                        last_progress = Instant::now();
-                    }
-                },
-                || {},
-            ),
+            download_package(&update, move |size, total| {
+                let mut inner = worker_state.inner();
+                if inner
+                    .active
+                    .as_ref()
+                    .is_none_or(|op| op.generation != generation)
+                {
+                    return;
+                }
+                inner.status.downloaded_bytes += size as u64;
+                inner.status.total_bytes = total;
+                if last_progress.elapsed() >= Duration::from_millis(250) {
+                    worker_state.publish(&handle, &mut inner);
+                    last_progress = Instant::now();
+                }
+            }),
             cancel,
         ));
         (update, bytes)
@@ -1087,7 +1193,7 @@ async fn download(
     .await
     .map_err(|_| plugin_error("download", tauri_plugin_updater::Error::ReleaseNotFound))?;
     let bytes = match bytes {
-        Ok(result) => result.map_err(|error| plugin_error("download", error))?,
+        Ok(result) => result?,
         Err(_) => return Ok(()),
     };
     let _staging = state.staging.lock().await;
@@ -1168,8 +1274,8 @@ pub async fn set_automatic_updates(
     }
     if enabled {
         inner.immediate = true;
-        state.wake.notify_one();
     }
+    state.wake.notify_one();
     Ok(state.publish(&app, &mut inner))
 }
 
@@ -1670,6 +1776,89 @@ mod tests {
         }
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn scheduler_wakes_six_hours_after_a_manual_attempt_not_the_old_tick() {
+        let state = manager();
+        let lifecycle = DesktopLifecycle::default();
+        let start = Instant::now() + Duration::from_secs(10);
+        let scheduled = wait_for_automatic(&state, &lifecycle, start);
+        tokio::pin!(scheduled);
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        state.wake.notify_one();
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        tokio::time::advance(Duration::from_secs(10)).await;
+        assert!(futures::poll!(&mut scheduled).is_ready());
+        state.inner().last_attempt = Some(Instant::now());
+
+        let scheduled = wait_for_automatic(&state, &lifecycle, start);
+        tokio::pin!(scheduled);
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        tokio::time::advance(CHECK_INTERVAL / 2).await;
+        state.inner().last_attempt = Some(Instant::now());
+        state.wake.notify_one();
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        tokio::time::advance(CHECK_INTERVAL / 2).await;
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        tokio::time::advance(CHECK_INTERVAL / 2 - Duration::from_secs(1)).await;
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(futures::poll!(&mut scheduled).is_ready());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scheduler_waits_while_disabled_or_busy_and_resumes_on_wake() {
+        let state = manager();
+        let lifecycle = DesktopLifecycle::default();
+        let start = Instant::now();
+        state.inner().status.automatic_updates = false;
+        let scheduled = wait_for_automatic(&state, &lifecycle, start);
+        tokio::pin!(scheduled);
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        tokio::time::advance(CHECK_INTERVAL * 2).await;
+        state.wake.notify_one();
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        assert!(state.inner().next_check(start, false).is_none());
+
+        state.inner().status.automatic_updates = true;
+        let (_, cancel) = claim(
+            &mut state.inner(),
+            Origin::Automatic,
+            UpdatePhase::Downloading,
+        );
+        state.wake.notify_one();
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        assert!(state.inner().next_check(start, false).is_none());
+        state.inner().cancel_automatic();
+        assert!(Abortable::new(futures::future::pending::<()>(), cancel)
+            .await
+            .is_err());
+
+        let exclusive = lifecycle.acquire_exclusive().await.unwrap();
+        state.wake.notify_one();
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        tokio::time::advance(Duration::from_secs(10)).await;
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        assert!(state.inner().next_check(start, true).unwrap() > Instant::now());
+        drop(exclusive);
+        tokio::time::advance(Duration::from_secs(10)).await;
+        assert!(futures::poll!(&mut scheduled).is_ready());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn enabling_automatic_checks_wakes_before_the_previous_deadline() {
+        let state = manager();
+        let lifecycle = DesktopLifecycle::default();
+        let start = Instant::now();
+        state.inner().last_attempt = Some(start);
+        let scheduled = wait_for_automatic(&state, &lifecycle, start);
+        tokio::pin!(scheduled);
+        assert!(futures::poll!(&mut scheduled).is_pending());
+        state.inner().immediate = true;
+        state.wake.notify_one();
+        assert!(futures::poll!(&mut scheduled).is_ready());
+        assert!(!state.inner().immediate);
+    }
+
     #[test]
     fn disabled_preferences_block_scheduling_but_not_manual_work() {
         let root = tempfile::tempdir().unwrap();
@@ -1847,6 +2036,125 @@ mod tests {
             "https://objects.githubusercontent.com/file",
         ] {
             assert!(public_update_url(&url.parse().unwrap()), "{url}");
+        }
+    }
+
+    #[tokio::test]
+    async fn oversized_package_stops_before_body_completion_and_keeps_the_ready_update() {
+        let updater = verifier();
+        let app = tauri::test::mock_builder()
+            .manage(DesktopLifecycle::default())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        for chunked in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let mut state = manager();
+            state.cache = Some(root.path().to_owned());
+            persist_stage(root.path(), "2.0.0", &manifest("2.0.0"), b"test").unwrap();
+            let metadata = std::fs::read(root.path().join("release.json")).unwrap();
+            let generation = {
+                let mut inner = state.inner();
+                inner.update = updater.restore_update(manifest("2.0.0")).unwrap();
+                inner.staged = true;
+                inner.staged_size = 4;
+                claim(&mut inner, Origin::Automatic, UpdatePhase::Downloading).0
+            };
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let (finished, wait) = std::sync::mpsc::channel();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                read_request(&mut socket);
+                if chunked {
+                    socket.write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\ntest!\r\n").unwrap();
+                } else {
+                    write!(
+                        socket,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        MAX_PACKAGE_BYTES + 1
+                    )
+                    .unwrap();
+                }
+                wait.recv_timeout(Duration::from_secs(5)).unwrap();
+            });
+            let response = test_client()
+                .build()
+                .unwrap()
+                .get(format!("http://{address}/"))
+                .send()
+                .await
+                .unwrap();
+            let candidate = updater.restore_update(manifest("3.0.0")).unwrap().unwrap();
+            let mut received = 0;
+            let limit = if chunked { 4 } else { MAX_PACKAGE_BYTES };
+            let error = read_package_response(response, &candidate, limit, |size, _| {
+                received += size;
+            })
+            .await
+            .unwrap_err();
+            assert_eq!(error.code, "UPDATE_PACKAGE_TOO_LARGE");
+            assert!(error.message.contains("512 MiB"));
+            assert!(received <= limit);
+            finished.send(()).unwrap();
+            server.join().unwrap();
+            state.finish(app.handle(), generation, Some(error));
+            let status = state.inner().status.clone();
+            assert_eq!(status.phase, UpdatePhase::Ready);
+            assert!(status.can_install);
+            assert_eq!(status.available_version.as_deref(), Some("2.0.0"));
+            assert_eq!(status.downloaded_bytes, 4);
+            assert_eq!(status.error.unwrap().code, "UPDATE_PACKAGE_TOO_LARGE");
+            assert_eq!(read_package(root.path(), "2.0.0").unwrap(), b"test");
+            assert_eq!(
+                std::fs::read(root.path().join("release.json")).unwrap(),
+                metadata
+            );
+            assert!(!root.path().join("package-3.0.0").exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn bounded_package_accepts_the_limit_and_still_checks_signature_and_version() {
+        let updater = verifier();
+        for (chunked, version, body, valid) in [
+            (false, "2.0.0", "test", true),
+            (true, "2.0.0", "test", true),
+            (false, "2.0.0", "fake", false),
+            (true, "3.0.0", "test", false),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                read_request(&mut socket);
+                if chunked {
+                    write!(socket, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n4\r\n{body}\r\n0\r\n\r\n").unwrap();
+                } else {
+                    write!(
+                        socket,
+                        "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\n{body}"
+                    )
+                    .unwrap();
+                }
+            });
+            let response = test_client()
+                .build()
+                .unwrap()
+                .get(format!("http://{address}/"))
+                .send()
+                .await
+                .unwrap();
+            let update = updater.restore_update(manifest(version)).unwrap().unwrap();
+            let mut received = 0;
+            let result =
+                read_package_response(response, &update, 4, |size, _| received += size).await;
+            assert_eq!(received, 4);
+            if valid {
+                assert_eq!(result.unwrap(), b"test");
+            } else {
+                assert_eq!(result.unwrap_err().code, "UPDATE_SIGNATURE_INVALID");
+            }
+            server.join().unwrap();
         }
     }
 

@@ -137,9 +137,9 @@ When you move storage with "Transfer data", Pipedash keeps retained run history,
 
 ## Desktop updates
 
-Open Settings > General > Updates to check for a release, download it or install a verified update. Automatic mode checks after startup and every 6 hours, downloads signed packages and waits for your approval to install and restart. Turning automatic mode off keeps manual actions and previously downloaded updates available.
+Open Settings > General > Updates to check for a release, download it or install a verified update. Automatic mode first checks 10 seconds after startup, then 6 hours after the latest check attempt, including manual checks. It downloads signed packages and waits for your approval to install and restart. Turning automatic mode off keeps manual actions and previously downloaded updates available.
 
-Checks keep verified downloads available for offline installation. Automatic downloads replace them only after verification and a successful save.
+Checks keep verified downloads available for offline installation. Automatic downloads replace them only after verification and a successful save. Feed metadata is limited to 1 MiB and each package to 512 MiB, checked before reading an advertised oversized body and while streaming. The package cap leaves more than five times the headroom of the largest v0.8.0 release asset (102,836,728 bytes, the x86_64 AppImage), while bounding the updater's in-memory package buffer. Oversized downloads leave the previous verified package installable; use the official release page if a future package exceeds the cap. Update requests allow only the approved GitHub HTTPS release hosts and retain signature and signed-version verification.
 
 Native updates support AppImage, installed macOS applications and Windows NSIS installations. Debian, RPM and other externally managed installations show release information and leave installation to the package manager or official download. On macOS, move Pipedash out of its mounted disk image and reopen it before updating. Development builds do not check the production feed.
 
