@@ -394,11 +394,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Rust
-        run: |
-          rustup toolchain install nightly --profile minimal
-          rustup default nightly
-
       - name: Install dependencies
         run: |
           sudo apt-get update
