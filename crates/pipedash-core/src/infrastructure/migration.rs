@@ -44,6 +44,7 @@ use crate::infrastructure::{
         PipelineViewRepository,
         PushRepository,
         RecordMetrics,
+        Repository,
     },
     ConfigBackend,
     StorageBackend,
@@ -794,6 +795,32 @@ impl MigrationOrchestrator {
                 }
 
                 if !same_database(&plan.from, &plan.to) {
+                    let source_repo = Repository::new(
+                        self.source_config_backend.clone(),
+                        self.source_pool.clone(),
+                        self.source_token_store.clone(),
+                    );
+                    let target_repo = Repository::new(
+                        target_manager.config_backend(),
+                        target_manager.database_pool(),
+                        target_manager.token_store().await,
+                    );
+                    for source_id in source_repo.list_run_history_pipeline_ids().await? {
+                        let Some(target_id) =
+                            remap_pipeline_id(&source_id, &result.provider_id_mapping)
+                        else {
+                            continue;
+                        };
+                        let mut runs = source_repo
+                            .get_cached_run_history(&source_id, i64::MAX as usize)
+                            .await?;
+                        for run in &mut runs {
+                            run.pipeline_id.clone_from(&target_id);
+                        }
+                        target_repo.cache_run_history(&target_id, &runs).await?;
+                        result.stats.cache_entries_migrated += runs.len();
+                    }
+
                     let target_metrics =
                         MetricsRepository::new_from_pool(target_manager.database_pool());
                     let pipeline_query = |pipeline_id: &str| MetricsQuery {
@@ -1156,6 +1183,142 @@ mod tests {
                 ("c".to_string(), "tok-c".to_string()),
             ])
         );
+    }
+
+    #[tokio::test]
+    async fn migration_keeps_archived_runs_with_remapped_ids_after_restart() {
+        use crate::domain::PipelineRun;
+        use crate::infrastructure::database::Repository;
+
+        let source_dir = TempDir::new().unwrap();
+        let target_dir = TempDir::new().unwrap();
+        let config_path = source_dir.path().join("config.toml");
+        std::fs::write(&config_path, "[storage]\nbackend = \"sqlite\"\n").unwrap();
+        let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
+
+        let mut source = PipedashConfig::default();
+        source.storage.data_dir = source_dir.path().to_string_lossy().to_string();
+        source.storage.vault_password = Some("test-password".to_string());
+        let mut target = source.clone();
+        target.storage.data_dir = target_dir.path().to_string_lossy().to_string();
+
+        let manager = StorageManager::from_config(source, false).await.unwrap();
+        let backend = manager.config_backend();
+        let mut ids = Vec::new();
+        for name in ["deleted", "flux"] {
+            ids.push(
+                backend
+                    .create_provider(&ProviderConfig {
+                        id: None,
+                        name: name.to_string(),
+                        provider_type: "fluxcd".to_string(),
+                        token: String::new(),
+                        config: HashMap::new(),
+                        refresh_interval: 30,
+                        version: None,
+                    })
+                    .await
+                    .unwrap(),
+            );
+        }
+        backend.delete_provider(ids[0]).await.unwrap();
+        let repo = Repository::new(
+            backend,
+            manager.database_pool(),
+            manager.token_store().await,
+        );
+        let source_pipeline = format!("fluxcd__{}__HelmRelease__apps__web", ids[1]);
+        let runs: Vec<PipelineRun> = (1..=105)
+            .rev()
+            .map(|n| {
+                serde_json::from_value(serde_json::json!({
+                    "id": format!("release-{n}"),
+                    "pipeline_id": source_pipeline,
+                    "run_number": n,
+                    "status": "success",
+                    "started_at": "2026-10-20T00:00:00Z",
+                    "logs_url": "",
+                    "metadata": {
+                        "uid": "resource-1",
+                        "record_source": "status.history",
+                        "release_version": n,
+                        "archived": true
+                    }
+                }))
+                .unwrap()
+            })
+            .collect();
+        repo.cache_run_history(&source_pipeline, &runs)
+            .await
+            .unwrap();
+        let other_pipeline = format!("fluxcd__{}__Kustomization__apps__api", ids[1]);
+        let mut other = runs[0].clone();
+        other.pipeline_id = other_pipeline.clone();
+        repo.cache_run_history(&other_pipeline, &[other.clone()])
+            .await
+            .unwrap();
+        let orphan_pipeline = format!("fluxcd__{}__HelmRelease__apps__web", ids[0]);
+        let mut orphan = runs[0].clone();
+        orphan.id = "deleted-provider-run".to_string();
+        orphan.pipeline_id = orphan_pipeline;
+        repo.cache_run_history(&orphan.pipeline_id, &[orphan.clone()])
+            .await
+            .unwrap();
+
+        let orchestrator = MigrationOrchestrator::from_manager(&manager, None, None).await;
+        let options = MigrationOptions {
+            migrate_cache: true,
+            ..Default::default()
+        };
+        let plan = orchestrator
+            .plan_migration(target.clone(), &options)
+            .unwrap();
+        let result = orchestrator.execute_migration(plan, options, false).await;
+        assert!(result.success, "{:?}", result.errors);
+        let target_id = result.provider_id_mapping[&ids[1]];
+        assert_ne!(target_id, ids[1]);
+        assert_eq!(result.stats.cache_entries_migrated, 106);
+        assert_eq!(
+            repo.get_cached_run_history(&source_pipeline, 200)
+                .await
+                .unwrap(),
+            runs
+        );
+        drop(orchestrator);
+        drop(repo);
+        drop(manager);
+
+        let reopened = StorageManager::from_config(target, false).await.unwrap();
+        let target_repo = Repository::new(
+            reopened.config_backend(),
+            reopened.database_pool(),
+            reopened.token_store().await,
+        );
+        let target_pipeline = format!("fluxcd__{target_id}__HelmRelease__apps__web");
+        let mut expected = runs;
+        for run in &mut expected {
+            run.pipeline_id = target_pipeline.clone();
+        }
+        assert_eq!(
+            target_repo
+                .get_cached_run_history(&target_pipeline, 200)
+                .await
+                .unwrap(),
+            expected
+        );
+        other.pipeline_id = format!("fluxcd__{target_id}__Kustomization__apps__api");
+        assert_eq!(
+            target_repo
+                .get_cached_run(&other.pipeline_id, other.run_number)
+                .await
+                .unwrap(),
+            Some(other)
+        );
+        assert!(target_repo
+            .get_cached_run_history(&source_pipeline, 200)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
