@@ -1,0 +1,88 @@
+name: Recover updater public key
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  recover-public-key:
+    name: Recover updater public key
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install Minisign
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+
+      - name: Recover complete public envelope
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import binascii
+          import os
+          from pathlib import Path
+          import subprocess
+          import tempfile
+
+          encoded_key = os.environ.get("TAURI_SIGNING_PRIVATE_KEY", "").strip()
+          if not encoded_key:
+              raise SystemExit("Missing TAURI_SIGNING_PRIVATE_KEY; the existing signing identity is required")
+          try:
+              private_key = base64.b64decode(encoded_key, validate=True)
+              lines = private_key.decode("utf-8").splitlines()
+              if len(lines) != 2 or not lines[0].startswith("untrusted comment: "):
+                  raise ValueError("Invalid private envelope")
+              base64.b64decode(lines[1], validate=True)
+          except (ValueError, binascii.Error, UnicodeDecodeError):
+              raise SystemExit("Malformed Tauri private-key envelope; no key material was exported")
+          password = os.environ.get("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
+          if "\n" in password or "\r" in password:
+              raise SystemExit("The signing password cannot contain a newline for stdin recovery")
+          with tempfile.TemporaryDirectory(prefix="pipedash-key-") as temporary:
+              secret = Path(temporary) / "updater.key"
+              public = Path(temporary) / "updater.pub"
+              try:
+                  descriptor = os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                  with os.fdopen(descriptor, "wb") as output:
+                      output.write(private_key)
+                  result = subprocess.run(
+                      ["minisign", "-R", "-s", str(secret), "-p", str(public)],
+                      input=(password + "\n").encode("utf-8"),
+                      stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL,
+                      env={key: value for key, value in os.environ.items() if not key.startswith("TAURI_SIGNING_")},
+                      timeout=120,
+                      check=False,
+                  )
+                  if result.returncode or not public.is_file():
+                      raise SystemExit("Public-key recovery failed: check the existing signing key/password; do not rotate the key")
+                  envelope = public.read_bytes()
+                  public_lines = envelope.decode("utf-8").splitlines()
+                  if len(public_lines) != 2 or not public_lines[0].startswith("untrusted comment: "):
+                      raise SystemExit("Recovery returned a malformed public envelope")
+                  raw_public = base64.b64decode(public_lines[1], validate=True)
+                  if len(raw_public) != 42 or raw_public[:2] != b"Ed":
+                      raise SystemExit("Recovery returned an invalid Minisign public key")
+                  Path("pipedash-updater.pub").write_text(base64.b64encode(envelope).decode("ascii") + "\n")
+              finally:
+                  secret.unlink(missing_ok=True)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("Download pipedash-updater.pub and commit its entire single-line value as plugins.updater.pubkey in crates/pipedash-desktop/tauri.conf.json. Keep requireSignedVersion=true, allowDowngrades=false, windows.installMode=passive and the stable HTTPS endpoint. The artifact contains only the complete public envelope, never the private key.\n")
+          PY
+
+      - name: Upload only public envelope
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: pipedash-updater-public-key
+          path: pipedash-updater.pub
+          if-no-files-found: error
+          retention-days: 1

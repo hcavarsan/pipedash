@@ -5,6 +5,7 @@ mod build_watch;
 mod commands;
 mod core_boot;
 mod credential;
+mod desktop_lifecycle;
 mod export_file;
 pub mod fallback_store;
 pub mod keyring_store;
@@ -16,6 +17,8 @@ mod run_logs;
 mod sign_in;
 mod system_notifications;
 pub mod tauri_event_bus;
+#[cfg(desktop)]
+mod updater;
 
 use std::path::{
     Path,
@@ -71,6 +74,12 @@ fn install_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
         let command = event.id().as_ref();
+        if app
+            .try_state::<desktop_lifecycle::DesktopLifecycle>()
+            .is_some_and(|lifecycle| lifecycle.busy())
+        {
+            return;
+        }
         if matches!(
             command,
             "refresh-all" | "toggle-sidebar" | "settings" | "lock" | "find"
@@ -338,7 +347,25 @@ pub fn run() {
         );
     }
 
-    let builder = tauri::Builder::default()
+    let context = tauri::generate_context!();
+    let builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            system_notifications::focus_main_window(app);
+        }))
+        .manage(desktop_lifecycle::DesktopLifecycle::default())
+        .on_window_event(updater::on_window_event);
+
+    #[cfg(desktop)]
+    let builder = if context.config().plugins.0.contains_key("updater") {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
+
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
@@ -423,6 +450,8 @@ pub fn run() {
             app.manage(AppDataDir(app_data_dir.clone()));
             app.manage(MaybeCoreContext::default());
             app.manage(app_lock);
+            #[cfg(desktop)]
+            updater::register(app.handle())?;
             native::sync_privacy_cover(app.handle(), lock_settings);
             #[cfg(target_os = "android")]
             local_notifications::set_storage_dir(&app_data_dir);
@@ -569,10 +598,26 @@ pub fn run() {
             native::native_set_badge,
             native::native_release_privacy_cover,
             native::native_take_pending_intent,
+            #[cfg(desktop)]
+            updater::get_update_status,
+            #[cfg(desktop)]
+            updater::set_automatic_updates,
+            #[cfg(desktop)]
+            updater::check_for_updates,
+            #[cfg(desktop)]
+            updater::download_update,
+            #[cfg(desktop)]
+            updater::install_update,
+            #[cfg(desktop)]
+            updater::acknowledge_update_notice,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
-        .run(|app, event| native::on_run_event(app, &event));
+        .run(|app, event| {
+            #[cfg(desktop)]
+            updater::on_run_event(app, &event);
+            native::on_run_event(app, &event);
+        });
 }
 
 #[cfg(test)]

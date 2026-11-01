@@ -352,7 +352,7 @@ async fn main() -> anyhow::Result<()> {
             {
                 let inner = app_state.inner.read().await;
                 let core = inner.core.as_ref().unwrap();
-                core.start_background_tasks().await;
+                drop(core.start_background_tasks());
             }
         } else {
             tracing::info!(

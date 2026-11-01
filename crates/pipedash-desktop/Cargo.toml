@@ -58,6 +58,10 @@ tauri-plugin-biometric.workspace = true
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 keyring.workspace = true
+semver.workspace = true
+tauri-plugin-single-instance.workspace = true
+tauri-plugin-updater.workspace = true
+tempfile.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1"
@@ -76,6 +80,8 @@ tauri-build.workspace = true
 [dev-dependencies]
 keyring-core = "1"
 tempfile.workspace = true
+tauri = { workspace = true, features = ["test"] }
+tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

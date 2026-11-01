@@ -3,6 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import type { ReactNode } from 'react'
 import { BrowserRouter } from 'react-router-dom'
+import { DesktopUpdateBridge } from './components/DesktopUpdateBridge'
 import { ErrorBoundary } from './components/ErrorBoundary/ErrorBoundary'
 import { NativeBridge } from './components/NativeBridge'
 import { PrivacyCover } from './features/vault/components/PrivacyCover'
@@ -21,6 +22,7 @@ export function AppRoot({ children }: { children: ReactNode }): ReactNode {
               <ToastHost />
               {children}
               <NativeBridge />
+              <DesktopUpdateBridge />
             </ModalsProvider>
           </ErrorBoundary>
           <PrivacyCover />

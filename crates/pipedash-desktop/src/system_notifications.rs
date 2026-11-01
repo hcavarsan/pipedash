@@ -51,8 +51,12 @@ pub(crate) fn focus_main_window<R: Runtime>(app: &AppHandle<R>) {
     use tauri::Manager;
 
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        let _ = window.unminimize();
-        let _ = window.show();
+        if let Err(error) = window.unminimize() {
+            tracing::warn!(%error, "Couldn't restore the Pipedash window");
+        }
+        if let Err(error) = window.show() {
+            tracing::warn!(%error, "Couldn't show the Pipedash window");
+        }
         if let Err(e) = window.set_focus() {
             tracing::warn!(error = %e, "Couldn't bring the Pipedash window to the front");
         }
