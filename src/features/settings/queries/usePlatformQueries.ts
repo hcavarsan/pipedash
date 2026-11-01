@@ -1,4 +1,5 @@
 import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
+import { logger } from '../../../lib/logger'
 import { notifications } from '../../../lib/notifications'
 
 import { service } from '../../../services/service'
@@ -7,6 +8,7 @@ import { useNotificationCenterStore } from '../../../stores/notificationCenterSt
 import { useNotificationStore } from '../../../stores/notificationStore'
 import { formatCount } from '../../../utils/formatCount'
 import { isDesktopTauri } from '../../../utils/platform'
+import { refreshDesktopNotifications } from '../../notifications/queries/useDesktopNotifications'
 import { refreshDesktopStatus } from './useDesktopQueries'
 
 interface FactoryResetResult {
@@ -37,7 +39,12 @@ export function useFactoryReset(): UseMutationResult<FactoryResetResult, Error, 
       useNotificationCenterStore.setState({ items: [], selection: null })
       localStorage.clear()
       if (isDesktopTauri()) {
-        void refreshDesktopStatus(queryClient).catch(() => undefined)
+        void refreshDesktopStatus(queryClient).catch((error: unknown) =>
+          logger.warn('Desktop', "Couldn't reload desktop settings after reset", error)
+        )
+        void refreshDesktopNotifications(queryClient).catch((error: unknown) =>
+          logger.warn('Desktop', "Couldn't reload desktop notifications after reset", error)
+        )
       }
 
       notifications.show({

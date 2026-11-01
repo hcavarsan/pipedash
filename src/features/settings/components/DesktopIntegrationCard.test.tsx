@@ -86,6 +86,7 @@ const { useNotificationCenterStore } = await import('../../../stores/notificatio
 const { usePipelineViewStore } = await import('../../pipelines/stores/pipelineViewStore')
 const { useModalStore } = await import('../../../stores/modalStore')
 const { queryKeys } = await import('../../../lib/queryKeys')
+const { desktopNotificationsKey } = await import('../../notifications/queries/useDesktopNotifications')
 const { notifications } = await import('../../../lib/notifications')
 const { setPlatformOverride } = await import('../../../utils/platform')
 let client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -146,7 +147,7 @@ afterEach(async () => {
   patches.length = 0
   callbacks.clear()
   setPlatformOverride(null)
-  useNotificationCenterStore.setState({ items: [], selection: null, desktopRevision: -1 })
+  useNotificationCenterStore.setState({ items: [], selection: null })
   useModalStore.setState(useModalStore.getInitialState(), true)
   usePipelineViewStore.setState(usePipelineViewStore.getInitialState(), true)
 })
@@ -260,7 +261,8 @@ test('the desktop notifications route renders the shared list and header', async
 })
 
 test('watched notification details open the exact run instead of arbitrary history', async () => {
-  useNotificationCenterStore.setState({
+  client.setQueryData(desktopNotificationsKey, {
+    revision: 1,
     items: [
       {
         key: 'watch:one',
@@ -276,8 +278,8 @@ test('watched notification details open the exact run instead of arbitrary histo
         link: null,
       },
     ],
-    selection: { type: 'notification', key: 'watch:one' },
   })
+  useNotificationCenterStore.setState({ selection: { type: 'notification', key: 'watch:one' } })
   const user = userEvent.setup({ document, delay: null })
   mount('details')
   await user.click(await view().findByRole('button', { name: 'Open run' }))

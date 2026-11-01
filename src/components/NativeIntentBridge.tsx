@@ -1,18 +1,31 @@
+import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { listen } from '@tauri-apps/api/event'
 import { type ReactNode, useEffect, useEffectEvent } from 'react'
 import { type NavigateFunction, useNavigate } from 'react-router-dom'
 
+import {
+  desktopNotificationsKey,
+  useNotificationActions,
+} from '../features/notifications/queries/useDesktopNotifications'
 import { usePipelineViewStore } from '../features/pipelines/stores/pipelineViewStore'
 import { logger } from '../lib/logger'
+import type { DesktopNotificationSnapshot } from '../services/desktop'
 import { isTauri } from '../services/isTauri'
 import { mobileService, NATIVE_INTENT_EVENT } from '../services/mobile'
 import { useModalStore } from '../stores/modalStore'
-import { useNotificationCenterStore } from '../stores/notificationCenterStore'
+import { type CenterSelection, useNotificationCenterStore } from '../stores/notificationCenterStore'
 import type { NativeIntent } from '../types/domain'
+import { isDesktopTauri } from '../utils/platform'
 
 const NOTIFICATIONS = '/notifications'
 
-async function handleIntent(navigate: NavigateFunction, intent: NativeIntent, active: () => boolean): Promise<void> {
+async function handleIntent(
+  navigate: NavigateFunction,
+  intent: NativeIntent,
+  active: () => boolean,
+  client: QueryClient,
+  open: (selection: CenterSelection) => void
+): Promise<void> {
   const openPipeline = async (pipelineId: string, from: string, runNumber?: number | null) => {
     await navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, { state: { from } })
     if (active() && runNumber) {
@@ -42,7 +55,10 @@ async function handleIntent(navigate: NavigateFunction, intent: NativeIntent, ac
     return
   }
 
-  const known = useNotificationCenterStore.getState().items.find((item) => item.key === intent.key)
+  const items = isDesktopTauri()
+    ? client.getQueryData<DesktopNotificationSnapshot>(desktopNotificationsKey)?.items
+    : useNotificationCenterStore.getState().items
+  const known = items?.find((item) => item.key === intent.key)
   const pipelineId = intent.pipelineId ?? known?.pipelineId
   const runNumber = intent.runNumber ?? known?.runNumber
 
@@ -53,7 +69,7 @@ async function handleIntent(navigate: NavigateFunction, intent: NativeIntent, ac
   } else if (known) {
     await navigate(NOTIFICATIONS)
     if (active()) {
-      useNotificationCenterStore.getState().open({ type: 'notification', key: known.key })
+      open({ type: 'notification', key: known.key })
     }
   } else if (pipelineId) {
     await openPipeline(pipelineId, NOTIFICATIONS)
@@ -64,8 +80,10 @@ async function handleIntent(navigate: NavigateFunction, intent: NativeIntent, ac
 
 export function NativeIntentBridge(): ReactNode {
   const navigate = useNavigate()
+  const client = useQueryClient()
+  const { open } = useNotificationActions()
   const applyIntent = useEffectEvent((intent: NativeIntent, active: () => boolean) =>
-    handleIntent(navigate, intent, active)
+    handleIntent(navigate, intent, active, client, open)
   )
 
   useEffect(() => {

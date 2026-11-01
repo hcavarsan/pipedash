@@ -14,12 +14,13 @@ import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 
 import { notificationIcon, notificationLabel, TONE_COLORS } from '../lib/labels'
 import { openNotificationLink } from '../lib/openNotificationLink'
+import { useNotificationItems } from '../queries/useDesktopNotifications'
 
 const LINK_LABELS = { incident: 'View incident', status_page: 'Open status page' } as const
 
 export function NotificationDetailsModal(): ReactNode {
   const selection = useNotificationCenterStore((state) => state.selection)
-  const items = useNotificationCenterStore((state) => state.items)
+  const items = useNotificationItems()
   const open = useNotificationCenterStore((state) => state.open)
   const close = useNotificationCenterStore((state) => state.close)
   const { data: providers } = useProviders()

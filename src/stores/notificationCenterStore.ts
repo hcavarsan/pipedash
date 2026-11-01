@@ -1,10 +1,7 @@
 import { create } from 'zustand'
 
-import { type DesktopNotificationSnapshot, desktopService } from '../services/desktop'
 import type { HealthLevel } from '../types/domain'
 import type { EventPayloadMap } from '../types/events'
-import { displayErrorNotification } from '../utils/errorDisplay'
-import { isDesktopTauri } from '../utils/platform'
 
 export const MAX_CENTER_NOTIFICATIONS = 50
 
@@ -32,8 +29,6 @@ export type CenterSelection = { type: 'provider'; providerId: number } | { type:
 
 interface NotificationCenterState {
   items: CenterNotification[]
-  desktopRevision: number
-  applyDesktopSnapshot: (snapshot: DesktopNotificationSnapshot) => void
   selection: CenterSelection | null
   push: (input: NotificationInput) => void
   markAllRead: () => void
@@ -43,20 +38,9 @@ interface NotificationCenterState {
   close: () => void
 }
 
-const nativeChange = (request: Promise<DesktopNotificationSnapshot>): void => {
-  request
-    .then((snapshot) => useNotificationCenterStore.getState().applyDesktopSnapshot(snapshot))
-    .catch((error: unknown) => displayErrorNotification(error, "Couldn't update notifications"))
-}
-
 export const useNotificationCenterStore = create<NotificationCenterState>()((set, get) => ({
   items: [],
   selection: null,
-  desktopRevision: -1,
-  applyDesktopSnapshot: (snapshot) =>
-    set((state) =>
-      snapshot.revision < state.desktopRevision ? state : { items: snapshot.items, desktopRevision: snapshot.revision }
-    ),
 
   push: (input) =>
     set((state) => ({
@@ -67,28 +51,16 @@ export const useNotificationCenterStore = create<NotificationCenterState>()((set
     })),
 
   markAllRead: () => {
-    if (isDesktopTauri()) {
-      nativeChange(desktopService.markNotificationsRead(null))
-      return
-    }
     set((state) =>
       state.items.every((item) => item.read) ? state : { items: state.items.map((item) => ({ ...item, read: true })) }
     )
   },
 
   markRead: (key) => {
-    if (isDesktopTauri()) {
-      nativeChange(desktopService.markNotificationsRead(key))
-      return
-    }
     set((state) => ({ items: state.items.map((item) => (item.key === key ? { ...item, read: true } : item)) }))
   },
 
   clear: () => {
-    if (isDesktopTauri()) {
-      nativeChange(desktopService.clearNotifications())
-      return
-    }
     set({ items: [] })
   },
 

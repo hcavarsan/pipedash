@@ -3,6 +3,8 @@ import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { useState } from 'react'
+import type { DesktopNotificationSnapshot } from '../services/desktop'
+import type { CenterNotification } from '../stores/notificationCenterStore'
 import type { PendingNativeIntent } from '../types/domain'
 
 GlobalRegistrator.register({ width: 1400, height: 900 })
@@ -16,9 +18,10 @@ const calls: string[] = []
 const acknowledged: number[] = []
 const callbacks = new Map<number, (event: unknown) => void>()
 let handler = 0
+const platform = process.env.PIPEDASH_NOTIFICATION_PLATFORM ?? 'linux'
 
 Object.assign(window, {
-  __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
+  __TAURI_OS_PLUGIN_INTERNALS__: { platform },
   __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => undefined },
   __TAURI_INTERNALS__: {
     transformCallback: (callback: (event: unknown) => void) => {
@@ -37,6 +40,15 @@ Object.assign(window, {
         }
         return peekGate ? peekGate.promise : pending
       }
+      if (command === 'mark_desktop_notifications_read') {
+        const current = client.getQueryData<DesktopNotificationSnapshot>(desktopNotificationsKey)
+        return {
+          revision: (current?.revision ?? 0) + 1,
+          items: (current?.items ?? []).map((item) =>
+            args.key === null || args.key === item.key ? { ...item, read: true } : item
+          ),
+        }
+      }
       if (command === 'native_ack_pending_intent') {
         acknowledged.push(Number(args.id))
         onAck?.()
@@ -53,6 +65,9 @@ Object.assign(window, {
 const { act, cleanup, render, waitFor, within } = await import('@testing-library/react')
 const { default: userEvent } = await import('@testing-library/user-event')
 const { MemoryRouter, useLocation } = await import('react-router-dom')
+const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
+const { desktopNotificationsKey } = await import('../features/notifications/queries/useDesktopNotifications')
+const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 const { NativeBridge } = await import('./NativeBridge')
 const { NativeIntentBridge } = await import('./NativeIntentBridge')
 const { useModalStore } = await import('../stores/modalStore')
@@ -66,6 +81,7 @@ after(async () => {
 
 afterEach(async () => {
   await act(async () => cleanup())
+  client.clear()
   pending = null
   peekGate = null
   registration = null
@@ -76,7 +92,7 @@ afterEach(async () => {
   callbacks.clear()
   useModalStore.setState(useModalStore.getInitialState(), true)
   usePipelineViewStore.setState(usePipelineViewStore.getInitialState(), true)
-  useNotificationCenterStore.setState({ items: [], selection: null, desktopRevision: -1 })
+  useNotificationCenterStore.setState({ items: [], selection: null })
 })
 
 const view = () => within(document.body)
@@ -102,9 +118,11 @@ function Harness({ authenticated = true }: { authenticated?: boolean }) {
 
 function mount(authenticated = true) {
   render(
-    <MemoryRouter initialEntries={['/pipelines']}>
-      <Harness authenticated={authenticated} />
-    </MemoryRouter>
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/pipelines']}>
+        <Harness authenticated={authenticated} />
+      </MemoryRouter>
+    </QueryClientProvider>
   )
 }
 
@@ -139,24 +157,27 @@ for (const [action, destination] of [
   ['tap', '/notifications'],
   ['open-run', '/pipelines/jenkins__1__menu-01'],
 ] as const) {
-  test(`a known pipeline notice routes ${action} to its intended destination without guessing a run`, async () => {
+  test(`a known ${platform} pipeline notice routes ${action} without guessing a run`, async () => {
     const key = 'pipeline:known'
-    useNotificationCenterStore.setState({
-      items: [
-        {
-          key,
-          at: 1,
-          read: false,
-          tone: 'danger',
-          level: null,
-          title: 'Pipeline failed',
-          body: 'menu-01',
-          providerIds: [1],
-          pipelineId: 'jenkins__1__menu-01',
-          link: null,
-        },
-      ],
-    })
+    const items: CenterNotification[] = [
+      {
+        key,
+        at: 1,
+        read: false,
+        tone: 'danger',
+        level: null,
+        title: 'Pipeline failed',
+        body: 'menu-01',
+        providerIds: [1],
+        pipelineId: 'jenkins__1__menu-01',
+        link: null,
+      },
+    ]
+    if (platform === 'ios') {
+      useNotificationCenterStore.setState({ items })
+    } else {
+      client.setQueryData(desktopNotificationsKey, { revision: 1, items })
+    }
     pending = { id: 12, intent: { type: 'notification', action, key, pipelineId: 'jenkins__1__menu-01' } }
     mount()
     await waitFor(() => assert.deepEqual(acknowledged, [12]))
