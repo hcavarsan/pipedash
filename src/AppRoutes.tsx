@@ -131,13 +131,9 @@ export function AppRoutes({
       <Route
         path="/notifications"
         element={
-          mobileShell ? (
-            <LazyRoute>
-              <NotificationsPage />
-            </LazyRoute>
-          ) : (
-            <Navigate to="/pipelines" replace />
-          )
+          <LazyRoute>
+            <NotificationsPage />
+          </LazyRoute>
         }
       />
 

@@ -486,6 +486,7 @@ impl NotificationState {
                 found.push(self.pipeline_notice(
                     &pipeline,
                     format!("{} is running longer than usual", pipeline.name),
+                    super::NotificationTone::Warning,
                 ));
             }
         }

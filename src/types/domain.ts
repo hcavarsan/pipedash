@@ -813,9 +813,34 @@ export interface NotificationTarget {
   runNumber?: number | undefined
 }
 
+export type NativeUiAction = 'managePins' | 'manageViews'
+
 export type NativeIntent =
   | ({ type: 'notification'; action: string } & Partial<NotificationTarget>)
   | { type: 'link'; path: string; runNumber?: number }
+  | { type: 'ui'; action: NativeUiAction }
+
+export interface PendingNativeIntent {
+  id: number
+  intent: NativeIntent
+}
+
+export interface DesktopSettings {
+  show_tray: boolean
+  keep_running_on_close: boolean
+  notifications_enabled: boolean
+}
+
+export type DesktopSettingsPatch = Partial<DesktopSettings>
+
+export interface DesktopStatus {
+  revision: number
+  settings: DesktopSettings
+  tray_state: 'off' | 'ready' | 'error'
+  ready: boolean
+  notification_preference_imported: boolean
+  error: string | null
+}
 
 export interface PushServer {
   id: string

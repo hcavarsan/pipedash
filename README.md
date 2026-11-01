@@ -135,6 +135,18 @@ When you move storage with "Transfer data", Pipedash keeps retained run history,
 - [Security](https://pipedash.app/docs/resources/security): encryption, API authentication and vulnerability reports.
 - [Releases](https://github.com/hcavarsan/pipedash/releases): changes and release assets.
 
+## Desktop menu and background monitoring
+
+In Settings > General, turn on "Show in menu bar" on macOS or "Show in system tray" on Windows and Linux. The menu shows the first 8 pinned pipelines, an overflow link and your pinned views and repositories. It uses the same pins as the main window.
+
+Background mode is a separate opt-in. On macOS and Windows, closing the window hides it while monitoring continues. On Linux, closing minimizes the window so it stays accessible without a tray host. Your desktop may need an indicator extension. Use "Quit Pipedash" to stop the app.
+
+Choose a run from its history to watch that exact run. Pipedash watches 1 run at a time, with or without the tray. Stopping a watch does not cancel the provider's run. The native menu has shortcuts to the watched run, refresh, settings and vault locking.
+
+Turn on system notifications in Settings > Notifications. Desktop alerts and watch completion notices work without a visible window. The notification center keeps the latest 50 notices for the current session, including notices received while system notifications are off. Locking, changing storage, resetting or quitting clears that history. A watched failure and a general pipeline failure are separate notices.
+
+The operating system decides whether to display an alert. Do Not Disturb may suppress it. On Windows, install Pipedash for its notification identity. Open a Windows notification while its toast is visible. Action Center cannot reopen Pipedash after that toast disappears, so the app and native menu remain the navigation paths.
+
 ## Contributing
 
 Read the [contribution guide](https://pipedash.app/docs/resources/contributing). For local builds, see [development](https://pipedash.app/docs/resources/development). To add a CI/CD provider, see [plugin development](https://pipedash.app/docs/resources/plugin-development).

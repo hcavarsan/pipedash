@@ -37,6 +37,7 @@ use crate::{
 
 pub const INTENT_EVENT: &str = "native-intent";
 pub const STATUS_BAR_TAP_EVENT: &str = "native-status-bar-tap";
+#[cfg(mobile)]
 pub const FAILURE_CATEGORY: &str = "pipedash-failure";
 
 const DEEP_LINK_SCHEME: &str = "pipedash";
@@ -93,6 +94,13 @@ impl NotificationTarget {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NativeUiAction {
+    ManagePins,
+    ManageViews,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum NativeIntent {
@@ -108,22 +116,51 @@ pub enum NativeIntent {
         #[serde(skip_serializing_if = "Option::is_none")]
         run_number: Option<u64>,
     },
+    Ui {
+        action: NativeUiAction,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PendingNativeIntent {
+    pub id: u64,
+    pub intent: NativeIntent,
 }
 
 #[derive(Default)]
-pub struct PendingIntent(Mutex<Option<NativeIntent>>);
+struct PendingIntentState {
+    last_id: u64,
+    pending: Option<PendingNativeIntent>,
+}
+
+#[derive(Default)]
+pub struct PendingIntent(Mutex<PendingIntentState>);
 
 impl PendingIntent {
-    fn slot(&self) -> MutexGuard<'_, Option<NativeIntent>> {
+    fn slot(&self) -> MutexGuard<'_, PendingIntentState> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub fn set(&self, intent: NativeIntent) {
-        *self.slot() = Some(intent);
+        let mut state = self.slot();
+        state.last_id += 1;
+        let id = state.last_id;
+        state.pending = Some(PendingNativeIntent { id, intent });
     }
 
-    pub fn take(&self) -> Option<NativeIntent> {
-        self.slot().take()
+    pub fn peek(&self) -> Option<PendingNativeIntent> {
+        self.slot().pending.clone()
+    }
+
+    pub fn ack(&self, id: u64) {
+        let mut state = self.slot();
+        if state
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.id == id)
+        {
+            state.pending = None;
+        }
     }
 }
 
@@ -323,8 +360,15 @@ pub async fn native_release_privacy_cover(app: AppHandle) -> Result<(), ErrorRes
 }
 
 #[tauri::command]
-pub fn native_take_pending_intent(pending: State<'_, PendingIntent>) -> Option<NativeIntent> {
-    pending.take()
+pub fn native_peek_pending_intent(
+    pending: State<'_, PendingIntent>,
+) -> Option<PendingNativeIntent> {
+    pending.peek()
+}
+
+#[tauri::command]
+pub fn native_ack_pending_intent(pending: State<'_, PendingIntent>, id: u64) {
+    pending.ack(id);
 }
 
 #[cfg(test)]
@@ -388,27 +432,76 @@ mod tests {
     }
 
     #[test]
-    fn the_pending_intent_keeps_only_the_latest_and_is_consumed_once() {
+    fn peeking_does_not_consume_the_pending_intent() {
         let pending = PendingIntent::default();
-        assert_eq!(pending.take(), None);
+        assert_eq!(pending.peek(), None);
 
-        pending.set(NativeIntent::Link {
+        let intent = NativeIntent::Link {
             path: "/providers".to_string(),
             run_number: None,
+        };
+        pending.set(intent.clone());
+        let first = pending.peek().unwrap();
+
+        assert_eq!(first.intent, intent);
+        assert_eq!(pending.peek(), Some(first));
+    }
+
+    #[test]
+    fn the_latest_intent_survives_a_stale_acknowledgment() {
+        let pending = PendingIntent::default();
+        pending.set(NativeIntent::Ui {
+            action: NativeUiAction::ManagePins,
         });
-        pending.set(NativeIntent::Notification {
+        let first = pending.peek().unwrap();
+        let latest_intent = NativeIntent::Notification {
             action: "tap".to_string(),
             target: NotificationTarget {
                 key: Some("pipeline:p1".to_string()),
                 ..Default::default()
             },
-        });
+        };
+        pending.set(latest_intent.clone());
+        let latest = pending.peek().unwrap();
 
-        assert!(matches!(
-            pending.take(),
-            Some(NativeIntent::Notification { .. })
-        ));
-        assert_eq!(pending.take(), None);
+        assert!(latest.id > first.id);
+        assert_eq!(latest.intent, latest_intent);
+        pending.ack(first.id);
+        assert_eq!(pending.peek(), Some(latest.clone()));
+        pending.ack(latest.id);
+        assert_eq!(pending.peek(), None);
+    }
+
+    #[test]
+    fn pending_intent_ids_increase_after_acknowledgment() {
+        let pending = PendingIntent::default();
+        let intent = NativeIntent::Ui {
+            action: NativeUiAction::ManageViews,
+        };
+        pending.set(intent.clone());
+        let first = pending.peek().unwrap();
+        pending.ack(first.id);
+        pending.set(intent);
+
+        assert!(pending.peek().unwrap().id > first.id);
+    }
+
+    #[test]
+    fn ui_intents_serialize_camel_case_actions_in_pending_envelopes() {
+        for (action, serialized) in [
+            (NativeUiAction::ManagePins, "managePins"),
+            (NativeUiAction::ManageViews, "manageViews"),
+        ] {
+            let pending = PendingNativeIntent {
+                id: 4,
+                intent: NativeIntent::Ui { action },
+            };
+
+            assert_eq!(
+                serde_json::to_value(pending).unwrap(),
+                json!({ "id": 4, "intent": { "type": "ui", "action": serialized } })
+            );
+        }
     }
 
     #[test]

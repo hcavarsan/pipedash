@@ -9,7 +9,7 @@ import { isTauri } from '@/services/isTauri'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { openConfirm } from '@/utils/confirm'
 import { displayWarningNotification } from '@/utils/errorDisplay'
-import { isAndroidPlatform, isMobilePlatform } from '@/utils/platform'
+import { isAndroidPlatform, isDesktopTauri, isMobilePlatform } from '@/utils/platform'
 import {
   notificationProblem,
   requestSystemNotificationPermission,
@@ -19,6 +19,7 @@ import {
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { IosGroup } from '../../../components/ios/IosList'
 import { SwitchRow } from '../../../components/ios/mobileParts'
+import { DesktopNotificationsCard } from './DesktopNotificationsCard'
 import { MobileDevicesCard } from './MobileDevicesCard'
 import { NotificationsBlockedRows } from './NotificationsBlockedRows'
 import { PushNotificationsCard } from './PushNotificationsCard'
@@ -42,6 +43,10 @@ function confirmBackgroundAccess(system: string): Promise<boolean> {
 }
 
 export function NotificationsSection(): ReactNode {
+  return isDesktopTauri() ? <DesktopNotificationsCard /> : <DeviceNotificationsSection />
+}
+
+function DeviceNotificationsSection(): ReactNode {
   const mobileShell = useMobileShell()
   const background = isMobilePlatform()
   const system = isAndroidPlatform() ? 'Android' : 'iOS'

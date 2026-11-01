@@ -5,8 +5,13 @@ import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { QueryClient, QueryClientProvider, type UseMutationResult } from '@tanstack/react-query'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
-import { createElement } from 'react'
+import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react'
+import { createElement, type ReactNode } from 'react'
+import {
+  desktopNotificationsKey,
+  useNotificationActions,
+  useNotificationItems,
+} from '../../features/notifications/queries/useDesktopNotifications'
 import {
   useLocalNotificationSettings,
   useLocalNotificationsLifecycle,
@@ -276,4 +281,28 @@ test('a failed enable reports the error and never turns notifications on', async
   })
   assert.equal(shown.mock.callCount(), 1)
   assert.equal(client.getQueryData<{ enabled: boolean }>(queryKeys.localNotifications.settings())?.enabled, false)
+})
+
+test('shared notification hooks keep mobile history and read actions local', async () => {
+  await mount()
+  await publish('pipelines-failed', { pipelines: [pipeline] })
+  const { result } = renderHook(() => ({ items: useNotificationItems(), ...useNotificationActions() }), {
+    wrapper: ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children),
+  })
+  const first = result.current.items[0]
+  assert.ok(first)
+  act(() => result.current.markRead(first.key))
+  assert.equal(result.current.items[0]?.read, true)
+  act(() => useNotificationCenterStore.getState().push({ ...first, key: 'second' }))
+  act(() => result.current.markAllRead())
+  assert.ok(result.current.items.every((item) => item.read))
+  act(() => result.current.open({ type: 'notification', key: first.key }))
+  assert.deepEqual(useNotificationCenterStore.getState().selection, { type: 'notification', key: first.key })
+  act(() => result.current.clear())
+  assert.deepEqual(result.current.items, [])
+  assert.equal(client.getQueryData(desktopNotificationsKey), undefined)
+  assert.equal(
+    native.calls.some((call) => call.command.includes('desktop_notifications')),
+    false
+  )
 })

@@ -23,6 +23,7 @@ use crate::domain::{
     PinKind,
     PinnedItem,
     Pipeline,
+    PipelineMenuSnapshot,
     PipelineView,
     PipelineViewPage,
     PipelineViewQuery,
@@ -302,6 +303,10 @@ impl PipelineViewService {
 
     pub async fn page(&self, query: PipelineViewQuery) -> DomainResult<PipelineViewPage> {
         page::build_page(&self.snapshot().await?, &query, Utc::now())
+    }
+
+    pub async fn menu_snapshot(&self) -> DomainResult<PipelineMenuSnapshot> {
+        Ok(page::menu_snapshot(&self.snapshot().await?))
     }
 
     pub async fn list_pins(&self) -> DomainResult<Vec<PinnedItem>> {
@@ -657,6 +662,11 @@ impl PipelineViewService {
         if !ViewCapabilities::for_kind(view.kind).edit_members {
             return Err(denied(&view.name, "edited"));
         }
+        if id == ViewRef::Pinned && !member {
+            self.views.delete_member(view.id, pipeline_id).await?;
+            self.changed().await;
+            return Ok(());
+        }
         let pipeline = self.cached_pipeline(pipeline_id).await?;
         if member {
             self.views
@@ -851,6 +861,88 @@ mod tests {
 
     async fn all_page(views: &PipelineViewService) -> PipelineViewPage {
         views.page(PipelineViewQuery::default()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn menu_snapshot_preserves_hidden_pins_shortcuts_and_missing_members() {
+        let h = Harness::new().await;
+        let (provider, ids) = seed(&h).await;
+        let views = service(&h);
+        for id in &ids {
+            views
+                .set_membership(ViewRef::Pinned, id, true)
+                .await
+                .unwrap();
+        }
+        views.set_hidden(&ids[0], true).await.unwrap();
+        assert_eq!(
+            views
+                .menu_snapshot()
+                .await
+                .unwrap()
+                .pipelines
+                .iter()
+                .map(|p| p.pipeline_id.clone())
+                .collect::<Vec<_>>(),
+            all_page(&views)
+                .await
+                .pinned
+                .iter()
+                .map(|p| p.pipeline.id.clone())
+                .collect::<Vec<_>>()
+        );
+        let custom = views.create_view(input("Release")).await.unwrap();
+        views
+            .set_pin(PinKind::View, &custom.id.to_string(), true)
+            .await
+            .unwrap();
+        views
+            .set_pin(PinKind::Repository, "acme/app", true)
+            .await
+            .unwrap();
+        h.repository
+            .update_pipelines_cache(
+                provider,
+                &[pipeline(provider, "build", PipelineStatus::Success)],
+            )
+            .await
+            .unwrap();
+        let menu = views.menu_snapshot().await.unwrap();
+        assert_eq!(
+            menu.pipelines
+                .iter()
+                .map(|p| &p.pipeline_id)
+                .collect::<Vec<_>>(),
+            ids.iter().collect::<Vec<_>>()
+        );
+        assert!(menu.pipelines[0].pipeline.is_some());
+        assert!(menu.pipelines[0].provider_name.is_some());
+        assert!(menu.pipelines[1..].iter().all(|p| p.pipeline.is_none()));
+        assert_eq!(menu.shortcuts, views.list_pins().await.unwrap());
+        assert_eq!(menu.shortcuts.len(), 2);
+        assert_eq!(
+            menu.pipelines[0].pipeline_id,
+            all_page(&views).await.pinned[0].pipeline.id
+        );
+        views
+            .set_membership(ViewRef::Pinned, &ids[1], false)
+            .await
+            .unwrap();
+        views
+            .set_membership(ViewRef::Pinned, &ids[1], false)
+            .await
+            .unwrap();
+        assert!(!views
+            .menu_snapshot()
+            .await
+            .unwrap()
+            .pipelines
+            .iter()
+            .any(|p| p.pipeline_id == ids[1]));
+        assert!(matches!(
+            views.set_membership(ViewRef::Pinned, &ids[1], true).await,
+            Err(DomainError::NotFound(_))
+        ));
     }
 
     #[tokio::test]

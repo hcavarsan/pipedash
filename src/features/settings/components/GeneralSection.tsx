@@ -24,7 +24,7 @@ import { service } from '@/services/service'
 import type { GeneralConfig } from '@/types/domain'
 import { displayErrorNotification } from '@/utils/errorDisplay'
 import { isOneOf } from '@/utils/isOneOf'
-import { getPlatformOverride, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
+import { getPlatformOverride, isDesktopTauri, isMobilePlatform, platform, setPlatformOverride } from '@/utils/platform'
 
 import { ErrorState } from '../../../components/common/ErrorState'
 import { LoadingState } from '../../../components/common/LoadingState'
@@ -33,6 +33,7 @@ import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { FieldRow, RowSelect, SwitchRow } from '../../../components/ios/mobileParts'
 import { useFactoryResetConfirm } from '../hooks/useFactoryResetConfirm'
 
+import { DesktopIntegrationCard } from './DesktopIntegrationCard'
 import { ProxySettingsForm } from './ProxySettingsForm'
 
 interface GeneralSectionProps {
@@ -209,6 +210,8 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
           )}
         </Stack>
       </Card>
+
+      {isDesktopTauri() && <DesktopIntegrationCard />}
 
       <Card padding="md">
         <Stack gap="md">

@@ -2,14 +2,17 @@ import { Box, Stack, Text, VisuallyHidden } from '@mantine/core'
 import { IconBellCheck } from '@tabler/icons-react'
 import { type ReactNode, useEffect } from 'react'
 import { ProviderIcon } from '../../../components/atoms/ProviderIcon'
+import { PageContainer } from '../../../components/common/PageContainer'
+import { PageHeader } from '../../../components/common/PageHeader'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
-import { type CenterNotification, useNotificationCenterStore } from '../../../stores/notificationCenterStore'
+import type { CenterNotification } from '../../../stores/notificationCenterStore'
 import { openConfirm } from '../../../utils/confirm'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 
 import { notificationIcon, notificationLabel, TONE_COLORS } from '../lib/labels'
+import { useNotificationActions, useNotificationItems } from '../queries/useDesktopNotifications'
 
 import { NotificationList, useAffectedProviders } from './NotificationCenter'
 
@@ -44,11 +47,8 @@ function groupByDay(items: CenterNotification[], now: number) {
 }
 
 function ShellNotificationList() {
-  const items = useNotificationCenterStore((state) => state.items)
-  const open = useNotificationCenterStore((state) => state.open)
-  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
-  const markRead = useNotificationCenterStore((state) => state.markRead)
-  const clear = useNotificationCenterStore((state) => state.clear)
+  const items = useNotificationItems()
+  const { open, markAllRead, markRead, clear } = useNotificationActions()
   const now = useNow(30_000)
   const affected = useAffectedProviders()
   const unread = items.some((item) => !item.read)
@@ -161,10 +161,17 @@ function ShellNotificationList() {
 }
 
 export function NotificationsPage(): ReactNode {
-  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
+  const { markAllRead } = useNotificationActions()
   const mobileShell = useMobileShell()
 
   useEffect(() => markAllRead, [markAllRead])
 
-  return mobileShell ? <ShellNotificationList /> : <NotificationList />
+  return mobileShell ? (
+    <ShellNotificationList />
+  ) : (
+    <PageContainer>
+      <PageHeader title="Notifications" />
+      <NotificationList />
+    </PageContainer>
+  )
 }

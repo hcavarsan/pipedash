@@ -154,19 +154,40 @@ pub async fn boot_core(
         }
     }
 
-    let event_bus = create_tauri_event_bus(app.clone());
+    #[cfg(desktop)]
+    let generation = crate::desktop::new_generation(app);
+    #[cfg(mobile)]
+    let generation = 0;
+    let event_bus = create_tauri_event_bus(app.clone(), generation);
     let core = CoreContext::with_storage_manager(&storage_manager, event_bus)
         .await
         .map(Arc::new)
         .map_err(|e| BootError::Context(e.to_string()))?;
 
+    #[cfg(desktop)]
+    {
+        crate::desktop::detach(app);
+        crate::desktop::flush_menu(app).await;
+    }
     let maybe_core = app.state::<MaybeCoreContext>();
     let old = maybe_core.0.write().await.replace(Arc::clone(&core));
     if let Some(old) = old {
+        #[cfg(mobile)]
         crate::build_watch::interrupt(app);
         old.shutdown().await;
     }
     lock.set_locked(false);
+
+    #[cfg(desktop)]
+    {
+        let vault_ready = choice != StorageChoice::Locked
+            && crate::commands::vault_is_unlocked(
+                crate::commands::vault_requires_password(&config).await,
+                std::env::var("PIPEDASH_VAULT_PASSWORD").is_ok(),
+                lock.locked(),
+            );
+        crate::desktop::attach(app, Arc::clone(&core), generation, vault_ready).await;
+    }
 
     if choice == StorageChoice::Locked {
         tracing::info!(

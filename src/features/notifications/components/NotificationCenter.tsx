@@ -31,6 +31,7 @@ import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 import { providerAttention } from '../../../utils/providerAttention'
 
 import { notificationIcon, notificationLabel } from '../lib/labels'
+import { useNotificationActions, useNotificationItems } from '../queries/useDesktopNotifications'
 
 const NotificationDetailsModal = lazy(() =>
   import('./NotificationDetailsModal').then((m) => ({ default: m.NotificationDetailsModal }))
@@ -167,10 +168,8 @@ export function useAffectedProviders(): Array<{ provider: ProviderSummary; headl
 }
 
 export function NotificationList({ title, onSelect }: NotificationListProps): ReactNode {
-  const items = useNotificationCenterStore((state) => state.items)
-  const open = useNotificationCenterStore((state) => state.open)
-  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
-  const clear = useNotificationCenterStore((state) => state.clear)
+  const items = useNotificationItems()
+  const { open, markAllRead, clear } = useNotificationActions()
   const now = useNow(30_000)
   const unread = items.filter((item) => !item.read).length
   const affected = useAffectedProviders()
@@ -249,14 +248,14 @@ interface UnreadNotifications {
 }
 
 export function useUnreadNotifications(): UnreadNotifications {
-  const items = useNotificationCenterStore((state) => state.items)
+  const items = useNotificationItems()
 
   return { unread: items.filter((item) => !item.read).length, dotColor: unreadDotColor(items) }
 }
 
 export function NotificationCenter(): ReactNode {
   const [opened, setOpened] = useState(false)
-  const markAllRead = useNotificationCenterStore((state) => state.markAllRead)
+  const { markAllRead } = useNotificationActions()
   const { unread, dotColor } = useUnreadNotifications()
 
   const toggle = (next: boolean) => {

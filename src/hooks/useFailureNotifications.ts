@@ -8,6 +8,7 @@ import { events } from '../services/service'
 import { type CenterNotificationTone, useNotificationCenterStore } from '../stores/notificationCenterStore'
 import type { Pipeline, ProviderSummary } from '../types/domain'
 import type { EventPayloadMap } from '../types/events'
+import { isDesktopTauri } from '../utils/platform'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
 const alertTitle = (pipeline: Pipeline) =>
@@ -48,6 +49,9 @@ export function useFailureNotifications(): void {
   const queryClient = useQueryClient()
 
   useEffect(() => {
+    if (isDesktopTauri()) {
+      return
+    }
     const native = isTauri()
     const lastPipelines = new Map<string, Pipeline>()
     const notifiedOverdueRuns = new Map<string, string>()

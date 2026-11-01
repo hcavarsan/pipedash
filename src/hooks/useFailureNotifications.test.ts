@@ -9,7 +9,7 @@ test('foreground notification scenarios use an isolated iOS bridge', () => {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
 })
 
-test('desktop notification scenarios deliver through the single flag', () => {
+test('desktop notification scenarios cache native history without frontend delivery', () => {
   const scenarios = fileURLToPath(new URL('./fixtures/notificationDesktopScenarios.ts', import.meta.url))
   const result = spawnSync(process.execPath, ['test', scenarios], {
     encoding: 'utf8',
@@ -22,5 +22,15 @@ test('desktop notification scenarios deliver through the single flag', () => {
 test('web notification scenarios recover missed events after reconnect', () => {
   const scenarios = fileURLToPath(new URL('./fixtures/notificationWebScenarios.ts', import.meta.url))
   const result = spawnSync(process.execPath, ['test', scenarios], { encoding: 'utf8', timeout: 30000 })
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+})
+
+test('native notification navigation preserves local iOS notice behavior', () => {
+  const scenarios = fileURLToPath(new URL('../components/NativeBridge.test.tsx', import.meta.url))
+  const result = spawnSync(process.execPath, ['test', scenarios], {
+    encoding: 'utf8',
+    timeout: 30000,
+    env: { ...process.env, PIPEDASH_NOTIFICATION_PLATFORM: 'ios' },
+  })
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
 })

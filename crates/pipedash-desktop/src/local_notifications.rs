@@ -22,6 +22,7 @@ use pipedash_core::application::{
     LocalNotification,
     NotificationState,
 };
+#[cfg(mobile)]
 use pipedash_core::event::CoreEvent;
 use pipedash_core::CoreContext;
 use tauri::{
@@ -393,10 +394,8 @@ async fn deliver<R: Runtime>(app: &AppHandle<R>, notices: Vec<LocalNotification>
     Ok(())
 }
 
+#[cfg(mobile)]
 pub async fn on_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) {
-    if !cfg!(mobile) {
-        return;
-    }
     if matches!(
         event,
         CoreEvent::ProviderAdded { .. }
@@ -425,6 +424,7 @@ pub async fn on_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) {
     }
 }
 
+#[cfg(mobile)]
 async fn process_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) -> Result<()> {
     initialize(app).await?;
     let state = app.state::<LocalNotificationsState>();
