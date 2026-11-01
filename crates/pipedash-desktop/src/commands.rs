@@ -801,7 +801,7 @@ pub async fn clear_run_history_cache(
     })?;
     core.pipeline_service
         .clear_run_history_cache(&pipeline_id)
-        .await;
+        .await?;
     Ok(())
 }
 
@@ -873,7 +873,7 @@ pub async fn clear_all_run_history_caches(
         details: None,
         code: None,
     })?;
-    core.pipeline_service.clear_all_run_history_caches().await;
+    core.pipeline_service.clear_all_run_history_caches().await?;
     Ok(())
 }
 
