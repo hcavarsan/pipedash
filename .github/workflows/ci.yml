@@ -165,6 +165,10 @@ jobs:
       - name: Run Clippy
         run: mise run lint:back
 
+      - name: Run tests
+        if: matrix.os_name != 'linux'
+        run: mise run test:back
+
   rust-test:
     name: Tests
     runs-on: ubuntu-22.04

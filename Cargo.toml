@@ -81,6 +81,7 @@ pipedash-plugin-komodo = { version = "0.8.0", path = "crates/pipedash-plugin-kom
 pipedash-plugin-prow = { version = "0.8.0", path = "crates/pipedash-plugin-prow" }
 pipedash-plugin-tekton = { version = "0.8.0", path = "crates/pipedash-plugin-tekton" }
 rand = "0.10"
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
 regex = "1.13"
 reqwest = { version = "0.13", default-features = false, features = [
   "form",
