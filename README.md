@@ -141,6 +141,8 @@ Read the [contribution guide](https://pipedash.app/docs/resources/contributing).
 
 Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` in `mise.toml` and `rust-toolchain.toml` because the November 1 nightly fails to compile the Linux `zbus` dependency; keep both pins aligned when upgrading.
 
+Run `mise run icons` to regenerate app icons from `app-icon.png` into `crates/pipedash-desktop/icons` with the Tauri CLI. Run `python3 scripts/test_icons.py` to check icon generation in a temporary checkout without changing tracked icons.
+
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
 
 ## License
