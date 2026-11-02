@@ -105,6 +105,8 @@ flowchart LR
 
 GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Azure DevOps Pipelines, Tekton CD, ArgoCD, FluxCD, Prow and Komodo Stacks. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
 
+Buildkite's organization picker and pipeline discovery include organizations from every API page.
+
 ## Features
 
 - See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most. Hide a workflow you don't watch, and it leaves the table and its repository's status until you unhide it under Show hidden.
