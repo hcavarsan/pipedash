@@ -58,11 +58,17 @@ pub struct CreatePairingRequest {
 pub struct DevicePushResponse {
     pub relay_url: Option<String>,
     pub enabled: bool,
+    pub undelivered_after: Option<i64>,
 }
 
 #[derive(Deserialize)]
 pub struct SetDevicePushRequest {
     pub subscription_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct AckDevicePushRequest {
+    pub through: i64,
 }
 
 pub fn router() -> Router<AppState> {
@@ -77,6 +83,7 @@ pub fn router() -> Router<AppState> {
                 .delete(clear_device_push),
         )
         .route("/current/push/test", post(test_device_push))
+        .route("/current/push/ack", post(ack_device_push))
 }
 
 async fn list_devices(
@@ -144,17 +151,14 @@ async fn get_device_push(
     State(state): State<AppState>, current: Option<Extension<CurrentDevice>>,
 ) -> ApiResult<Json<DevicePushResponse>> {
     let Extension(CurrentDevice(device_id)) = current.ok_or_else(device_only)?;
-    let enabled = state
-        .core()
-        .await?
-        .device_pushes()
-        .get(&device_id)
-        .await?
-        .is_some();
+    let push = state.core().await?.device_pushes().get(&device_id).await?;
 
     Ok(Json(DevicePushResponse {
         relay_url: state.push_relay_url().await,
-        enabled,
+        enabled: push.is_some(),
+        undelivered_after: push
+            .and_then(|push| push.undelivered_seq)
+            .map(|seq| seq - 1),
     }))
 }
 
@@ -199,6 +203,21 @@ async fn clear_device_push(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn ack_device_push(
+    State(state): State<AppState>, current: Option<Extension<CurrentDevice>>,
+    Json(req): Json<AckDevicePushRequest>,
+) -> ApiResult<StatusCode> {
+    let Extension(CurrentDevice(device_id)) = current.ok_or_else(device_only)?;
+    state
+        .core()
+        .await?
+        .device_pushes()
+        .ack_undelivered(&device_id, req.through)
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn test_device_push(
     State(state): State<AppState>, current: Option<Extension<CurrentDevice>>,
 ) -> ApiResult<StatusCode> {
@@ -229,7 +248,7 @@ async fn test_device_push(
         })
         .await?;
 
-    match push::deliver_alert(&core, &relay_url, &push, &alert.id).await {
+    match push::deliver_alert(&core, &relay_url, &push, &alert.id, None).await {
         RelayOutcome::Delivered => Ok(StatusCode::ACCEPTED),
         RelayOutcome::Gone => Err(AppError::new(
             StatusCode::GONE,
@@ -430,17 +449,19 @@ mod tests {
 
     const PUSH: &str = "/api/v1/devices/current/push";
     const PUSH_TEST: &str = "/api/v1/devices/current/push/test";
+    const PUSH_ACK: &str = "/api/v1/devices/current/push/ack";
 
     #[tokio::test]
     async fn only_a_paired_device_manages_its_push_registration() {
         let p = paired("push-device-only", true).await;
-        let body = json!({ "subscription_id": "stub-sub" });
+        let body = json!({ "subscription_id": "stub-sub", "through": 1 });
 
         for (method, uri) in [
             (Method::GET, PUSH),
             (Method::PUT, PUSH),
             (Method::DELETE, PUSH),
             (Method::POST, PUSH_TEST),
+            (Method::POST, PUSH_ACK),
         ] {
             let (status, response) = call_as(
                 &p.app,
@@ -463,7 +484,10 @@ mod tests {
 
         let (status, body) = call_as(&p.app, Method::GET, PUSH, &p.token, None).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body, json!({ "relay_url": null, "enabled": false }));
+        assert_eq!(
+            body,
+            json!({ "relay_url": null, "enabled": false, "undelivered_after": null })
+        );
 
         for (method, uri, request) in [
             (
@@ -514,7 +538,10 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
         let (_, body) = call_as(&p.app, Method::GET, PUSH, &p.token, None).await;
-        assert_eq!(body, json!({ "relay_url": p.relay.url, "enabled": true }));
+        assert_eq!(
+            body,
+            json!({ "relay_url": p.relay.url, "enabled": true, "undelivered_after": null })
+        );
         let (_, body) = call_as(&p.app, Method::GET, "/api/v1/devices", &p.token, None).await;
         assert_eq!(body["devices"][0]["id"], p.device_id);
         assert_eq!(body["devices"][0]["push"], true);
@@ -591,5 +618,104 @@ mod tests {
         );
         let (_, body) = call_as(&p.app, Method::GET, PUSH, &p.token, None).await;
         assert_eq!(body["enabled"], false);
+    }
+}
+
+#[cfg(test)]
+mod undelivered_tests {
+    use axum::body::Body;
+    use axum::http::{
+        header::{
+            AUTHORIZATION,
+            CONTENT_TYPE,
+        },
+        Request,
+    };
+    use serde_json::{
+        json,
+        Value,
+    };
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::test_support::{
+        hosted,
+        stub_server,
+    };
+
+    async fn undelivered_after(app: &Router, token: &str) -> Value {
+        let request = Request::get("/api/v1/devices/current/push")
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+
+        serde_json::from_slice::<Value>(&body).unwrap()["undelivered_after"].clone()
+    }
+
+    async fn ack(app: &Router, token: &str, through: i64) -> StatusCode {
+        let request = Request::post("/api/v1/devices/current/push/ack")
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "through": through }).to_string()))
+            .unwrap();
+
+        app.clone().oneshot(request).await.unwrap().status()
+    }
+
+    #[tokio::test]
+    async fn a_failed_push_is_reported_until_the_device_acknowledges_it() {
+        let host = hosted("push-undelivered").await;
+        let relay = stub_server().await;
+        let state = host.state.clone().with_push_relay(&relay.url);
+        let core = state.core().await.unwrap();
+        let (device, token) = core.pair_device("Pixel", "ios").await.unwrap();
+        core.device_pushes().set(&device.id, "sub-a").await.unwrap();
+        let push = core.device_pushes().get(&device.id).await.unwrap().unwrap();
+        let app = crate::app(state, None);
+
+        push::deliver_alert(&core, &relay.url, &push, "a6", Some(6)).await;
+        assert_eq!(undelivered_after(&app, &token).await, Value::Null);
+
+        relay.reply_with(503);
+        push::deliver_alert(&core, &relay.url, &push, "a7", Some(7)).await;
+        assert_eq!(undelivered_after(&app, &token).await, json!(6));
+
+        assert_eq!(ack(&app, &token, 6).await, StatusCode::NO_CONTENT);
+        assert_eq!(undelivered_after(&app, &token).await, json!(6));
+        assert_eq!(ack(&app, &token, 7).await, StatusCode::NO_CONTENT);
+        assert_eq!(undelivered_after(&app, &token).await, Value::Null);
+
+        relay.reply_with(429);
+        push::deliver_alert(&core, &relay.url, &push, "a8", Some(8)).await;
+        assert_eq!(undelivered_after(&app, &token).await, json!(7));
+
+        relay.reply_with(202);
+        push::deliver_alert(&core, &relay.url, &push, "a9", Some(9)).await;
+        assert_eq!(undelivered_after(&app, &token).await, json!(7));
+    }
+
+    #[tokio::test]
+    async fn a_failed_test_alert_is_not_reported_as_undelivered() {
+        let host = hosted("push-undelivered-test").await;
+        let relay = stub_server().await;
+        relay.reply_with(503);
+        let state = host.state.clone().with_push_relay(&relay.url);
+        let core = state.core().await.unwrap();
+        let (device, token) = core.pair_device("Pixel", "ios").await.unwrap();
+        core.device_pushes().set(&device.id, "sub-a").await.unwrap();
+        let app = crate::app(state, None);
+
+        let request = Request::post("/api/v1/devices/current/push/test")
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let status = app.clone().oneshot(request).await.unwrap().status();
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(undelivered_after(&app, &token).await, Value::Null);
     }
 }

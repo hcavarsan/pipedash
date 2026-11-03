@@ -19,7 +19,7 @@ pub struct Request {
     pub path: String,
 }
 
-type Handler = Arc<dyn Fn(&Request) -> u16 + Send + Sync>;
+type Handler = Arc<dyn Fn(&Request) -> (u16, String) + Send + Sync>;
 
 pub struct Stub {
     pub url: String,
@@ -28,6 +28,12 @@ pub struct Stub {
 
 impl Stub {
     pub async fn start(handler: impl Fn(&Request) -> u16 + Send + Sync + 'static) -> Self {
+        Self::start_with_body(move |request| (handler(request), String::new())).await
+    }
+
+    pub async fn start_with_body(
+        handler: impl Fn(&Request) -> (u16, String) + Send + Sync + 'static,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -94,13 +100,15 @@ async fn serve(mut stream: TcpStream, handler: Handler, recorded: Arc<Mutex<Vec<
     let Some(request) = read_request(&mut stream).await else {
         return;
     };
-    let status = handler(&request);
+    let (status, body) = handler(&request);
     recorded
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .push(request);
-    let response =
-        format!("HTTP/1.1 {status} Stub\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    let response = format!(
+        "HTTP/1.1 {status} Stub\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
     let _ = stream.write_all(response.as_bytes()).await;
     let _ = stream.shutdown().await;
 }

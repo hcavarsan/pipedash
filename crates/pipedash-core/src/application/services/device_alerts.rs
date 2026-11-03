@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::sync::mpsc::{
@@ -24,6 +25,7 @@ use crate::infrastructure::database::{
 };
 
 const CHANNEL_CAPACITY: usize = 512;
+const PRUNE_INTERVAL: Duration = Duration::from_secs(3600);
 
 struct RecordingBus {
     inner: Arc<dyn EventBus>,
@@ -82,13 +84,29 @@ pub async fn seed(pipelines: &PipelineService, providers: &ProviderService) -> N
 }
 
 pub async fn record(
-    mut rx: mpsc::Receiver<CoreEvent>, mut state: NotificationState, stop: CancellationToken,
+    rx: mpsc::Receiver<CoreEvent>, state: NotificationState, stop: CancellationToken,
     alerts: DeviceAlertRepository, devices: DeviceRepository, bus: Arc<dyn EventBus>,
 ) {
+    record_pruning(rx, state, stop, alerts, devices, bus, PRUNE_INTERVAL).await;
+}
+
+async fn record_pruning(
+    mut rx: mpsc::Receiver<CoreEvent>, mut state: NotificationState, stop: CancellationToken,
+    alerts: DeviceAlertRepository, devices: DeviceRepository, bus: Arc<dyn EventBus>,
+    prune_every: Duration,
+) {
+    let mut prune = tokio::time::interval(prune_every);
+    prune.tick().await;
     loop {
         let event = tokio::select! {
             biased;
             _ = stop.cancelled() => break,
+            _ = prune.tick() => {
+                if let Err(error) = alerts.prune().await {
+                    tracing::warn!(%error, "Failed to prune old device alerts");
+                }
+                continue;
+            }
             event = rx.recv() => match event {
                 Some(event) => event,
                 None => break,
@@ -216,6 +234,54 @@ mod tests {
             .expect("recorder kept running after cancel")
             .unwrap();
         drop(bus);
+    }
+
+    #[tokio::test]
+    async fn the_recorder_prunes_expired_alerts_periodically() {
+        let h = Harness::new().await;
+        let pool = DatabasePool::Sqlite(h.pool.clone());
+        let alerts = DeviceAlertRepository::new(pool.clone());
+        let stored = alerts
+            .insert(&NewDeviceAlert {
+                key: "pipeline:p".into(),
+                kind: AlertKind::Failed,
+                title: "t".into(),
+                body: "b".into(),
+                pipeline_id: None,
+                provider_id: None,
+            })
+            .await
+            .unwrap();
+        sqlx::query("UPDATE device_alerts SET created_at = ? WHERE seq = ?")
+            .bind((Utc::now() - Duration::days(8)).to_rfc3339())
+            .bind(stored.seq)
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        let (_bus, rx) = recording_bus(h.bus.clone());
+        let stop = CancellationToken::new();
+        let task = tokio::spawn(record_pruning(
+            rx,
+            NotificationState::default(),
+            stop.clone(),
+            DeviceAlertRepository::new(pool.clone()),
+            DeviceRepository::new(pool),
+            h.bus.clone(),
+            std::time::Duration::from_millis(300),
+        ));
+
+        assert_eq!(alerts.list().await.unwrap().len(), 1);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !alerts.list().await.unwrap().is_empty() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "expired alert was never pruned"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+
+        stop.cancel();
+        task.await.unwrap();
     }
 
     #[tokio::test]

@@ -100,6 +100,9 @@ pub fn run(data_dir: &Path) -> Vec<LocalNotification> {
     }
     if let (Some(mut batch), Some(host)) = (wake.hosted.take(), host.as_ref()) {
         if matches!(wake::save_cursor(host, &batch), Ok(true)) {
+            if let Some(through) = batch.ack {
+                runtime.block_on(wake::acknowledge(host, through));
+            }
             notices.append(&mut batch.notices);
         }
     }

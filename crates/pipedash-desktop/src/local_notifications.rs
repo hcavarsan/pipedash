@@ -261,15 +261,12 @@ pub(crate) async fn mark_alert_host_push(host: &AlertHost, push: bool) {
     }
 }
 
-pub(crate) async fn mark_push_stopped(app: &AppHandle, host: &AlertHost) {
-    mark_alert_host_push(host, false).await;
-    set_push_problem(
-        app,
-        Some(format!(
-            "{} stopped sending push alerts. Pipedash checks it in the background instead.",
-            host.host_name
-        )),
-    );
+pub(crate) async fn notifications_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
+    initialize(app).await.is_ok()
+        && app
+            .state::<LocalNotificationsState>()
+            .enabled
+            .load(Ordering::Acquire)
 }
 
 pub(crate) async fn advance_alert_host(seq: i64) {
@@ -292,7 +289,7 @@ pub(crate) async fn reset_alert_host_seq(seq: i64) {
     }
 }
 
-fn set_push_problem<R: Runtime>(app: &AppHandle<R>, problem: Option<String>) {
+pub(crate) fn set_push_problem<R: Runtime>(app: &AppHandle<R>, problem: Option<String>) {
     *app.state::<LocalNotificationsState>()
         .push_problem
         .lock()
@@ -329,12 +326,12 @@ async fn native_view<R: Runtime>(app: &AppHandle<R>) -> Result<NotificationSetti
     Ok(settings_view(app, native).await)
 }
 
-async fn detach_alert_host(exiting: bool) {
+async fn detach_alert_host(app: &AppHandle, exiting: bool) {
     let Some(host) = current_alert_host().await else {
         return;
     };
     if host.standalone || !exiting {
-        crate::push::disable().await;
+        crate::push::disable(app).await;
     } else {
         crate::push::forget().await;
     }
@@ -386,7 +383,7 @@ pub async fn set_local_notifications_enabled(
     let state = app.state::<LocalNotificationsState>();
     let _settings = state.settings.lock().await;
     if !enabled {
-        detach_alert_host(false).await;
+        detach_alert_host(&app, false).await;
         let native = disable(&app).await?;
         return Ok(settings_view(&app, native).await);
     }
@@ -459,7 +456,7 @@ pub async fn pair_alert_host(
 
     let (url, code) = parse_pairing(&address, code.as_deref())?;
     let host = claim_alert_host(url, &code, allow_private_http).await?;
-    detach_alert_host(false).await;
+    detach_alert_host(&app, false).await;
     let saved = host.clone();
     if let Err(failure) = storage(move || store::save_alert_host(&saved)).await {
         revoke_device(&host).await;
@@ -477,7 +474,7 @@ pub async fn pair_alert_host(
 pub async fn remove_alert_host(app: AppHandle) -> Result<()> {
     let state = app.state::<LocalNotificationsState>();
     let _settings = state.settings.lock().await;
-    detach_alert_host(false).await;
+    detach_alert_host(&app, false).await;
     set_push_problem(&app, None);
 
     Ok(())
@@ -504,14 +501,14 @@ async fn disable<R: Runtime>(app: &AppHandle<R>) -> Result<LocalNotificationSett
     Ok(settings)
 }
 
-pub async fn reset<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
+pub async fn reset(app: &AppHandle) -> Result<()> {
     if !cfg!(mobile) {
         return Ok(());
     }
     initialize(app).await?;
     let state = app.state::<LocalNotificationsState>();
     let _settings = state.settings.lock().await;
-    detach_alert_host(true).await;
+    detach_alert_host(app, true).await;
     disable(app).await?;
     Ok(())
 }
@@ -770,6 +767,9 @@ async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     deliver(app, notices).await?;
     let scanned = wake.scanned.is_some();
     let cursor = wake.hosted;
+    let shown = host
+        .clone()
+        .zip(cursor.as_ref().and_then(|batch| batch.ack));
     storage(move || {
         let _guard = guard;
         if scanned {
@@ -781,6 +781,9 @@ async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         }
     })
     .await?;
+    if let Some((host, through)) = shown {
+        wake::acknowledge(&host, through).await;
+    }
     state.revision.fetch_add(1, Ordering::AcqRel);
     Ok(())
 }

@@ -38,6 +38,7 @@ use crate::AppDataDir;
 pub const ALERT_RECORDED_EVENT: &str = "alert-recorded";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const CATCH_UP_LIMIT: u32 = 100;
+const CATCH_UP_MAX_PAGES: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostAlert {
@@ -187,43 +188,74 @@ pub(super) struct CatchUp {
     pub alerts: Vec<HostAlert>,
     pub seen: i64,
     pub lower: bool,
+    pub complete: bool,
 }
 
-async fn plan_catch_up(session: &Session, seen: Option<i64>) -> Result<CatchUp, RemoteError> {
-    let after = seen.unwrap_or(0);
-    let path = format!("/alerts?after={after}&limit={CATCH_UP_LIMIT}");
+async fn read_page(session: &Session, after: i64, limit: u32) -> Result<AlertPage, RemoteError> {
+    let path = format!("/alerts?after={after}&limit={limit}");
     let (status, body) = session.request("GET", &path, None, REQUEST_TIMEOUT).await?;
-    let page: AlertPage = Some(status)
+
+    Some(status)
         .filter(|status| *status == 200)
         .and_then(|_| serde_json::from_slice(&body).ok())
-        .ok_or_else(bad_response)?;
+        .ok_or_else(bad_response)
+}
 
-    if seen.is_none() || after > page.latest_seq {
-        return Ok(CatchUp {
-            alerts: Vec::new(),
-            seen: page.latest_seq,
-            lower: after > page.latest_seq,
-        });
+async fn plan_catch_up(
+    session: &Session, seen: Option<i64>, limit: u32, max_pages: usize,
+) -> Result<CatchUp, RemoteError> {
+    let mut after = seen.unwrap_or(0);
+    let mut alerts = Vec::new();
+    for page_number in 0..max_pages {
+        let page = read_page(session, after, limit).await?;
+        if page_number == 0 && (seen.is_none() || after > page.latest_seq) {
+            return Ok(CatchUp {
+                alerts,
+                seen: page.latest_seq,
+                lower: after > page.latest_seq,
+                complete: true,
+            });
+        }
+        let full = page.alerts.len() >= limit as usize;
+        if let Some(last) = page.alerts.last() {
+            after = last.seq;
+        } else {
+            after = after.max(page.latest_seq);
+        }
+        alerts.extend(page.alerts);
+        if !full {
+            return Ok(CatchUp {
+                alerts,
+                seen: after,
+                lower: false,
+                complete: true,
+            });
+        }
     }
-    let seen = page
-        .alerts
-        .last()
-        .map_or(page.latest_seq, |alert| alert.seq);
 
     Ok(CatchUp {
-        alerts: page.alerts,
-        seen,
+        alerts,
+        seen: after,
         lower: false,
+        complete: false,
     })
 }
 
 async fn take(
     session: &Session, remote: &RemoteConnection, dir: &Path,
 ) -> Result<CatchUp, RemoteError> {
+    take_pages(session, remote, dir, CATCH_UP_LIMIT, CATCH_UP_MAX_PAGES).await
+}
+
+async fn take_pages(
+    session: &Session, remote: &RemoteConnection, dir: &Path, limit: u32, max_pages: usize,
+) -> Result<CatchUp, RemoteError> {
     let _gate = session.alerts_gate().await;
-    let plan = plan_catch_up(session, remote.alerts_seen()).await?;
+    let plan = plan_catch_up(session, remote.alerts_seen(), limit, max_pages).await?;
     remote.move_alerts_seen(dir, plan.seen, plan.lower);
-    session.mark_alerts_synced();
+    if plan.complete {
+        session.mark_alerts_synced();
+    }
 
     Ok(plan)
 }
@@ -388,7 +420,7 @@ mod tests {
         let latest = record(&host, "pipeline:1", AlertKind::Failed).await;
         let session = bridge(alert_host);
 
-        let plan = plan_catch_up(&session, None).await.unwrap();
+        let plan = plan_catch_up(&session, None, 100, 10).await.unwrap();
 
         assert!(plan.alerts.is_empty());
         assert_eq!(plan.seen, latest);
@@ -403,15 +435,70 @@ mod tests {
         let second = record(&host, "pipeline:2", AlertKind::Degraded).await;
         let session = bridge(alert_host);
 
-        let plan = plan_catch_up(&session, Some(first)).await.unwrap();
+        let plan = plan_catch_up(&session, Some(first), 100, 10).await.unwrap();
         assert_eq!(plan.alerts.len(), 1);
         assert_eq!(plan.alerts[0].seq, second);
         assert_eq!(plan.seen, second);
 
-        let plan = plan_catch_up(&session, Some(second + 50)).await.unwrap();
+        let plan = plan_catch_up(&session, Some(second + 50), 100, 10)
+            .await
+            .unwrap();
         assert!(plan.alerts.is_empty());
         assert_eq!(plan.seen, second);
         assert!(plan.lower);
+    }
+
+    #[tokio::test]
+    async fn more_than_a_page_of_missed_alerts_is_drained_before_the_session_counts_as_synced() {
+        let host = start_host().await;
+        let alert_host = pair(&host).await;
+        let first = record(&host, "pipeline:0", AlertKind::Failed).await;
+        for n in 1..=105 {
+            record(&host, &format!("pipeline:{n}"), AlertKind::Failed).await;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let remote = client_remote(Some(first));
+        let session = bridge(alert_host);
+
+        let taken = take(&session, &remote, dir.path()).await.unwrap();
+
+        assert_eq!(taken.alerts.len(), 105);
+        assert_eq!(taken.alerts[0].seq, first + 1);
+        assert_eq!(taken.alerts[104].seq, first + 105);
+        assert!(taken.complete);
+        assert_eq!(remote.alerts_seen(), Some(first + 105));
+        assert!(session.alerts_synced());
+    }
+
+    #[tokio::test]
+    async fn hitting_the_page_cap_keeps_the_session_unsynced_so_the_next_pull_continues() {
+        let host = start_host().await;
+        let alert_host = pair(&host).await;
+        let first = record(&host, "pipeline:0", AlertKind::Failed).await;
+        for n in 1..=7 {
+            record(&host, &format!("pipeline:{n}"), AlertKind::Failed).await;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let remote = client_remote(Some(first));
+        let session = bridge(alert_host);
+
+        let taken = take_pages(&session, &remote, dir.path(), 3, 2)
+            .await
+            .unwrap();
+        assert_eq!(taken.alerts.len(), 6);
+        assert!(!taken.complete);
+        assert_eq!(remote.alerts_seen(), Some(first + 6));
+        assert!(!session.alerts_synced());
+        advance_live(&session, &remote, dir.path(), first + 7);
+        assert_eq!(remote.alerts_seen(), Some(first + 6));
+
+        let rest = take_pages(&session, &remote, dir.path(), 3, 2)
+            .await
+            .unwrap();
+        assert_eq!(rest.alerts.len(), 1);
+        assert!(rest.complete);
+        assert_eq!(remote.alerts_seen(), Some(first + 7));
+        assert!(session.alerts_synced());
     }
 
     fn client_remote(seen: Option<i64>) -> RemoteConnection {

@@ -337,7 +337,7 @@ pub fn spawn_failure_notifier(state: AppState) {
 }
 
 pub async fn deliver_alert(
-    core: &CoreContext, relay_url: &str, push: &DevicePush, alert_id: &str,
+    core: &CoreContext, relay_url: &str, push: &DevicePush, alert_id: &str, seq: Option<i64>,
 ) -> RelayOutcome {
     let outcome = send_alert(
         &core.http_client_manager,
@@ -355,7 +355,14 @@ pub async fn deliver_alert(
             .map(|_| ()),
         RelayOutcome::RateLimited | RelayOutcome::Failed => {
             tracing::debug!(?outcome, "The push relay did not accept an alert");
-            Ok(())
+            match seq {
+                Some(seq) => {
+                    pushes
+                        .mark_undelivered(&push.device_id, &push.relay_subscription_id, seq)
+                        .await
+                }
+                None => Ok(()),
+            }
         }
     };
     if let Err(error) = result {
@@ -365,7 +372,7 @@ pub async fn deliver_alert(
     outcome
 }
 
-async fn push_alert(state: &AppState, alert_id: &str) {
+async fn push_alert(state: &AppState, alert_id: &str, seq: i64) {
     let Some(relay_url) = state.push_relay_url().await else {
         return;
     };
@@ -383,7 +390,7 @@ async fn push_alert(state: &AppState, alert_id: &str) {
     join_all(
         pushes
             .iter()
-            .map(|push| deliver_alert(&core, &relay_url, push, alert_id)),
+            .map(|push| deliver_alert(&core, &relay_url, push, alert_id, Some(seq))),
     )
     .await;
 }
@@ -399,9 +406,9 @@ pub fn spawn_alert_push(state: AppState) {
                 () = closed(&mut closing) => break,
             };
             match event {
-                Ok(CoreEvent::AlertRecorded { id, .. }) => {
+                Ok(CoreEvent::AlertRecorded { id, seq }) => {
                     let state = state.clone();
-                    tokio::spawn(async move { push_alert(&state, &id).await });
+                    tokio::spawn(async move { push_alert(&state, &id, seq).await });
                 }
                 Ok(_) => {}
                 Err(RecvError::Lagged(skipped)) => {
@@ -683,7 +690,7 @@ mod gone_tests {
         let stale = core.device_pushes().get(&device.id).await.unwrap().unwrap();
         core.device_pushes().set(&device.id, "sub-b").await.unwrap();
 
-        let outcome = deliver_alert(&core, &relay.url, &stale, "a1").await;
+        let outcome = deliver_alert(&core, &relay.url, &stale, "a1", None).await;
 
         assert_eq!(outcome, RelayOutcome::Gone);
         assert_eq!(relay.requests().len(), 1);
@@ -691,7 +698,7 @@ mod gone_tests {
         assert_eq!(kept.relay_subscription_id, "sub-b");
 
         let current = kept;
-        deliver_alert(&core, &relay.url, &current, "a2").await;
+        deliver_alert(&core, &relay.url, &current, "a2", None).await;
         assert!(core
             .device_pushes()
             .get(&device.id)

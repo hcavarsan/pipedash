@@ -10,7 +10,9 @@ use super::store::{
 };
 use super::Result;
 use crate::push::{
+    acknowledge as acknowledge_push,
     host_push,
+    relay_url,
     HostPush,
 };
 use crate::remote::alerts::{
@@ -24,6 +26,7 @@ pub(super) struct HostBatch {
     pub notices: Vec<LocalNotification>,
     pub notified_seq: i64,
     pub lowered: bool,
+    pub ack: Option<i64>,
 }
 
 pub(super) struct Wake {
@@ -61,6 +64,7 @@ fn batch(after: i64, page: AlertPage) -> HostBatch {
             notices: Vec::new(),
             notified_seq: page.latest_seq,
             lowered: true,
+            ack: None,
         };
     }
     let notified_seq = page
@@ -84,6 +88,7 @@ fn batch(after: i64, page: AlertPage) -> HostBatch {
         notices,
         notified_seq,
         lowered: false,
+        ack: None,
     }
 }
 
@@ -92,11 +97,17 @@ enum Plan {
     Skip,
     Fetch,
     FetchAndClear,
+    FetchUndelivered(i64),
 }
 
 fn plan(status: Option<HostPush>) -> Plan {
     match status {
-        Some(HostPush::Active) => Plan::Skip,
+        Some(HostPush::Active {
+            undelivered_after: None,
+        }) => Plan::Skip,
+        Some(HostPush::Active {
+            undelivered_after: Some(after),
+        }) => Plan::FetchUndelivered(after),
         Some(HostPush::RelayStopped) => Plan::FetchAndClear,
         Some(HostPush::NoRegistration) | None => Plan::Fetch,
     }
@@ -104,8 +115,10 @@ fn plan(status: Option<HostPush>) -> Plan {
 
 pub(super) async fn fetch_host(host: &AlertHost, budget: Duration) -> Option<HostBatch> {
     let started = tokio::time::Instant::now();
+    let mut after = host.notified_seq;
+    let mut undelivered = false;
     if host.push {
-        let status = tokio::time::timeout(budget, host_push(host))
+        let status = tokio::time::timeout(budget, host_push(host, relay_url()))
             .await
             .ok()
             .flatten();
@@ -115,7 +128,12 @@ pub(super) async fn fetch_host(host: &AlertHost, budget: Duration) -> Option<Hos
                     notices: Vec::new(),
                     notified_seq: host.notified_seq,
                     lowered: false,
+                    ack: None,
                 })
+            }
+            Plan::FetchUndelivered(from) => {
+                after = from;
+                undelivered = true;
             }
             Plan::FetchAndClear => {
                 if store::set_alert_host_push(host, false).is_err() {
@@ -126,8 +144,14 @@ pub(super) async fn fetch_host(host: &AlertHost, budget: Duration) -> Option<Hos
         }
     }
     let remaining = budget.saturating_sub(started.elapsed());
-    match tokio::time::timeout(remaining, fetch(host, host.notified_seq, HOST_PAGE)).await {
-        Ok(Ok(page)) => Some(batch(host.notified_seq, page)),
+    match tokio::time::timeout(remaining, fetch(host, after, HOST_PAGE)).await {
+        Ok(Ok(page)) => {
+            let mut batch = batch(after, page);
+            if undelivered && !batch.notices.is_empty() {
+                batch.ack = Some(batch.notified_seq);
+            }
+            Some(batch)
+        }
         Ok(Err(error)) => {
             tracing::debug!(%error, "Couldn't check the alert host in the background");
             None
@@ -144,6 +168,12 @@ pub(super) fn save_cursor(host: &AlertHost, batch: &HostBatch) -> Result<bool> {
         store::reset_alert_host_seq_for(host, batch.notified_seq)
     } else {
         store::advance_alert_host_for(host, batch.notified_seq)
+    }
+}
+
+pub(super) async fn acknowledge(host: &AlertHost, through: i64) {
+    if !acknowledge_push(host, through).await {
+        tracing::debug!("Couldn't tell the alert host which push alerts were shown");
     }
 }
 
@@ -182,12 +212,15 @@ mod tests {
             notices: vec![notice(key)],
             notified_seq: 9,
             lowered: false,
+            ack: None,
         }
     }
 
     #[test]
     fn only_a_host_that_still_pushes_to_this_device_is_skipped() {
-        assert_eq!(plan(Some(HostPush::Active)), Plan::Skip);
+        let active = |undelivered_after| HostPush::Active { undelivered_after };
+        assert_eq!(plan(Some(active(None))), Plan::Skip);
+        assert_eq!(plan(Some(active(Some(7)))), Plan::FetchUndelivered(7));
         assert_eq!(plan(Some(HostPush::RelayStopped)), Plan::FetchAndClear);
         assert_eq!(plan(Some(HostPush::NoRegistration)), Plan::Fetch);
         assert_eq!(plan(None), Plan::Fetch);

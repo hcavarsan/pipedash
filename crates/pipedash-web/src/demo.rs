@@ -232,6 +232,7 @@ mod tests {
                 axum::routing::put(|| async { "ok" }).delete(|| async { "ok" }),
             )
             .route("/api/v1/devices/current/push/test", post(|| async { "ok" }))
+            .route("/api/v1/devices/current/push/ack", post(|| async { "ok" }))
             .route(
                 "/api/v1/devices/other",
                 axum::routing::put(|| async { "ok" }),
@@ -255,6 +256,7 @@ mod tests {
             (Method::PUT, "/api/v1/devices/current/push"),
             (Method::DELETE, "/api/v1/devices/current/push"),
             (Method::POST, "/api/v1/devices/current/push/test"),
+            (Method::POST, "/api/v1/devices/current/push/ack"),
         ] {
             let own = send(method.clone(), path, Some("abc")).await.unwrap();
             assert_eq!(own.status(), StatusCode::OK, "{method} {path}");

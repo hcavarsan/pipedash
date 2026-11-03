@@ -34,6 +34,10 @@ fn db_error(error: sqlx::Error) -> DomainError {
     DomainError::DatabaseError(error.to_string())
 }
 
+fn cutoff() -> DateTime<Utc> {
+    Utc::now() - Duration::days(RETENTION_DAYS)
+}
+
 fn alert(row: Row) -> DomainResult<DeviceAlert> {
     let (seq, id, key, kind, title, body, pipeline_id, provider_id, created_at) = row;
     let kind = AlertKind::parse(&kind)
@@ -106,30 +110,32 @@ impl DeviceAlertRepository {
         alert(row)
     }
 
-    async fn prune(&self) -> DomainResult<()> {
+    pub async fn prune(&self) -> DomainResult<u64> {
         let sql = format!(
             "DELETE FROM device_alerts
              WHERE created_at < {} OR seq <= (SELECT MAX(seq) FROM device_alerts) - {MAX_ROWS}",
-            self.placeholders(1)
+            self.placeholder(1)
         );
-        let cutoff = Utc::now() - Duration::days(RETENTION_DAYS);
         on_pool!(&self.pool, p => sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(cutoff)
+            .bind(cutoff())
             .execute(p)
             .await
-            .map(|_| ()))
+            .map(|result| result.rows_affected()))
         .map_err(db_error)
     }
 
     pub async fn after(&self, after: i64, limit: i64) -> DomainResult<Vec<DeviceAlert>> {
         let sql = format!(
-            "SELECT {COLUMNS} FROM device_alerts WHERE seq > {} AND kind <> 'test'
+            "SELECT {COLUMNS} FROM device_alerts
+             WHERE seq > {} AND kind <> 'test' AND created_at >= {}
              ORDER BY seq ASC LIMIT {}",
             self.placeholder(1),
-            self.placeholder(2)
+            self.placeholder(2),
+            self.placeholder(3)
         );
         let rows = on_pool!(&self.pool, p => sqlx::query_as::<_, Row>(sqlx::AssertSqlSafe(sql))
             .bind(after)
+            .bind(cutoff())
             .bind(limit)
             .fetch_all(p)
             .await)
@@ -139,18 +145,26 @@ impl DeviceAlertRepository {
     }
 
     pub async fn latest_seq(&self) -> DomainResult<i64> {
-        let sql = "SELECT COALESCE(MAX(seq), 0) FROM device_alerts";
-        on_pool!(&self.pool, p => sqlx::query_scalar::<_, i64>(sql).fetch_one(p).await)
-            .map_err(db_error)
+        let sql = format!(
+            "SELECT COALESCE(MAX(seq), 0) FROM device_alerts WHERE created_at >= {}",
+            self.placeholder(1)
+        );
+        on_pool!(&self.pool, p => sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql))
+            .bind(cutoff())
+            .fetch_one(p)
+            .await)
+        .map_err(db_error)
     }
 
     pub async fn get(&self, id: &str) -> DomainResult<Option<DeviceAlert>> {
         let sql = format!(
-            "SELECT {COLUMNS} FROM device_alerts WHERE id = {}",
-            self.placeholders(1)
+            "SELECT {COLUMNS} FROM device_alerts WHERE id = {} AND created_at >= {}",
+            self.placeholder(1),
+            self.placeholder(2)
         );
         let row = on_pool!(&self.pool, p => sqlx::query_as::<_, Row>(sqlx::AssertSqlSafe(sql))
             .bind(id)
+            .bind(cutoff())
             .fetch_optional(p)
             .await)
         .map_err(db_error)?;
@@ -265,6 +279,49 @@ mod tests {
         assert_eq!(repository.after(0, 1).await.unwrap(), vec![first.clone()]);
         assert_eq!(repository.get(&test.id).await.unwrap(), Some(test));
         assert_eq!(repository.get("missing").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn sqlite_expired_alerts_are_invisible_before_they_are_pruned() {
+        let dir = tempfile::tempdir().unwrap();
+        let repository = repository(dir.path(), "expired.db").await;
+        let old = repository
+            .insert(&new_alert("old", AlertKind::Failed))
+            .await
+            .unwrap();
+        let fresh = repository
+            .insert(&new_alert("fresh", AlertKind::Failed))
+            .await
+            .unwrap();
+        let pool = match &repository.pool {
+            DatabasePool::Sqlite(pool) => pool,
+            DatabasePool::Postgres(_) => unreachable!(),
+        };
+        sqlx::query("UPDATE device_alerts SET created_at = ? WHERE seq = ?")
+            .bind((Utc::now() - Duration::days(8)).to_rfc3339())
+            .bind(old.seq)
+            .execute(pool)
+            .await
+            .unwrap();
+
+        assert_eq!(repository.after(0, 10).await.unwrap(), vec![fresh.clone()]);
+        assert_eq!(repository.get(&old.id).await.unwrap(), None);
+        assert_eq!(
+            repository.get(&fresh.id).await.unwrap(),
+            Some(fresh.clone())
+        );
+        assert_eq!(repository.latest_seq().await.unwrap(), fresh.seq);
+        assert_eq!(repository.list().await.unwrap().len(), 2);
+
+        assert_eq!(repository.prune().await.unwrap(), 1);
+        assert_eq!(repository.list().await.unwrap(), vec![fresh]);
+
+        sqlx::query("UPDATE device_alerts SET created_at = ?")
+            .bind((Utc::now() - Duration::days(8)).to_rfc3339())
+            .execute(pool)
+            .await
+            .unwrap();
+        assert_eq!(repository.latest_seq().await.unwrap(), 0);
     }
 
     #[tokio::test]

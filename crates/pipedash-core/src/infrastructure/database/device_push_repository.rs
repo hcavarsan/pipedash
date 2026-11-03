@@ -10,22 +10,30 @@ use crate::domain::{
     DomainResult,
 };
 
-type Row = (String, String, DateTime<Utc>, Option<DateTime<Utc>>);
+type Row = (
+    String,
+    String,
+    DateTime<Utc>,
+    Option<DateTime<Utc>>,
+    Option<i64>,
+);
 
-const COLUMNS: &str = "device_id, relay_subscription_id, created_at, last_success_at";
+const COLUMNS: &str =
+    "device_id, relay_subscription_id, created_at, last_success_at, undelivered_seq";
 
 fn db_error(error: sqlx::Error) -> DomainError {
     DomainError::DatabaseError(error.to_string())
 }
 
 fn push(row: Row) -> DevicePush {
-    let (device_id, relay_subscription_id, created_at, last_success_at) = row;
+    let (device_id, relay_subscription_id, created_at, last_success_at, undelivered_seq) = row;
 
     DevicePush {
         device_id,
         relay_subscription_id,
         created_at,
         last_success_at,
+        undelivered_seq,
     }
 }
 
@@ -154,15 +162,17 @@ impl DevicePushRepository {
 
     pub async fn import(&self, pushes: &[DevicePush]) -> DomainResult<()> {
         let sql = format!(
-            "INSERT INTO device_push_subscriptions ({COLUMNS}) VALUES ({}, {}, {}, {})
+            "INSERT INTO device_push_subscriptions ({COLUMNS}) VALUES ({}, {}, {}, {}, {})
              ON CONFLICT (device_id) DO UPDATE SET
                  relay_subscription_id = excluded.relay_subscription_id,
                  created_at = excluded.created_at,
-                 last_success_at = excluded.last_success_at",
+                 last_success_at = excluded.last_success_at,
+                 undelivered_seq = excluded.undelivered_seq",
             self.placeholder(1),
             self.placeholder(2),
             self.placeholder(3),
-            self.placeholder(4)
+            self.placeholder(4),
+            self.placeholder(5)
         );
         for push in pushes {
             self.evict(&push.device_id, &push.relay_subscription_id)
@@ -172,6 +182,7 @@ impl DevicePushRepository {
                 .bind(&push.relay_subscription_id)
                 .bind(push.created_at)
                 .bind(push.last_success_at)
+                .bind(push.undelivered_seq)
                 .execute(p)
                 .await
                 .map(|_| ()))
@@ -179,6 +190,48 @@ impl DevicePushRepository {
         }
 
         Ok(())
+    }
+
+    pub async fn mark_undelivered(
+        &self, device_id: &str, relay_subscription_id: &str, seq: i64,
+    ) -> DomainResult<()> {
+        let sql = format!(
+            "UPDATE device_push_subscriptions
+             SET undelivered_seq = CASE
+                 WHEN undelivered_seq IS NULL OR undelivered_seq > {} THEN {}
+                 ELSE undelivered_seq
+             END
+             WHERE device_id = {} AND relay_subscription_id = {}",
+            self.placeholder(1),
+            self.placeholder(2),
+            self.placeholder(3),
+            self.placeholder(4)
+        );
+        on_pool!(&self.pool, p => sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(seq)
+            .bind(seq)
+            .bind(device_id)
+            .bind(relay_subscription_id)
+            .execute(p)
+            .await
+            .map(|_| ()))
+        .map_err(db_error)
+    }
+
+    pub async fn ack_undelivered(&self, device_id: &str, through: i64) -> DomainResult<()> {
+        let sql = format!(
+            "UPDATE device_push_subscriptions SET undelivered_seq = NULL
+             WHERE device_id = {} AND undelivered_seq <= {}",
+            self.placeholder(1),
+            self.placeholder(2)
+        );
+        on_pool!(&self.pool, p => sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(device_id)
+            .bind(through)
+            .execute(p)
+            .await
+            .map(|_| ()))
+        .map_err(db_error)
     }
 
     async fn evict(&self, device_id: &str, relay_subscription_id: &str) -> DomainResult<()> {
@@ -254,6 +307,45 @@ mod tests {
         assert!(repository.get("d1").await.unwrap().is_some());
         assert!(repository.delete_matching("d1", "sub-1").await.unwrap());
         assert_eq!(repository.get("d1").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn sqlite_undelivered_seq_keeps_the_lowest_and_clears_through_the_acked_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let repository = DevicePushRepository::new(DatabasePool::Sqlite(
+            init_database(dir.path().join("undelivered.db"))
+                .await
+                .unwrap(),
+        ));
+        async fn seq(repository: &DevicePushRepository) -> Option<i64> {
+            repository.list().await.unwrap()[0].undelivered_seq
+        }
+        repository.set("d1", "sub-1").await.unwrap();
+        assert_eq!(seq(&repository).await, None);
+
+        repository.mark_undelivered("d1", "other", 5).await.unwrap();
+        repository.mark_undelivered("d2", "sub-1", 5).await.unwrap();
+        assert_eq!(seq(&repository).await, None);
+
+        repository.mark_undelivered("d1", "sub-1", 7).await.unwrap();
+        repository.mark_undelivered("d1", "sub-1", 9).await.unwrap();
+        repository.mark_undelivered("d1", "sub-1", 4).await.unwrap();
+        assert_eq!(seq(&repository).await, Some(4));
+
+        repository.set("d1", "sub-2").await.unwrap();
+        assert_eq!(seq(&repository).await, Some(4));
+
+        repository.ack_undelivered("d2", 100).await.unwrap();
+        repository.ack_undelivered("d1", 3).await.unwrap();
+        assert_eq!(seq(&repository).await, Some(4));
+        repository.ack_undelivered("d1", 4).await.unwrap();
+        assert_eq!(seq(&repository).await, None);
+
+        repository.mark_undelivered("d1", "sub-2", 8).await.unwrap();
+        let exported = repository.list().await.unwrap();
+        repository.delete_all().await.unwrap();
+        repository.import(&exported).await.unwrap();
+        assert_eq!(seq(&repository).await, Some(8));
     }
 
     #[tokio::test]
