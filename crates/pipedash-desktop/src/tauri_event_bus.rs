@@ -5,10 +5,11 @@ use pipedash_core::event::{
     CoreEvent,
     EventBus,
 };
+#[cfg(desktop)]
+use tauri::Manager;
 use tauri::{
     AppHandle,
     Emitter,
-    Manager,
     Runtime,
 };
 

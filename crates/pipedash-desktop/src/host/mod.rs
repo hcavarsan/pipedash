@@ -424,7 +424,6 @@ mod imp {
 
 #[cfg(not(desktop))]
 mod imp {
-    use std::convert::Infallible;
     use std::sync::Arc;
 
     use pipedash_core::CoreContext;
@@ -433,8 +432,8 @@ mod imp {
     use super::SharingStatus;
     use crate::commands::ErrorResponse;
 
-    pub type Device = Infallible;
-    pub type Pairing = Infallible;
+    pub type Device = serde_json::Value;
+    pub type Pairing = serde_json::Value;
 
     fn unsupported<T>() -> Result<T, ErrorResponse> {
         Err(ErrorResponse {
