@@ -40,11 +40,14 @@ pub struct DeviceResponse {
     pub created_at: DateTime<Utc>,
     pub last_seen_at: Option<DateTime<Utc>>,
     pub current: bool,
+    pub removable: bool,
 }
 
 pub fn device_response(device: PairedDevice, current: Option<&str>) -> DeviceResponse {
+    let current = current == Some(device.id.as_str());
     DeviceResponse {
-        current: current == Some(device.id.as_str()),
+        removable: !current && !crate::demo::enabled(),
+        current,
         id: device.id,
         name: device.name,
         platform: device.platform,

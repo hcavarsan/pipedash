@@ -148,7 +148,7 @@ export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNod
                 title={device.name}
                 subtitle={deviceDetails(device, now)}
                 value={device.current ? 'This device' : undefined}
-                accessory={device.current ? undefined : removeButton(device)}
+                accessory={device.removable ? removeButton(device) : undefined}
               />
             ))}
           </IosGroup>
@@ -192,7 +192,7 @@ export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNod
                     {deviceDetails(device, now)}
                   </Text>
                 </Stack>
-                {!device.current && removeButton(device)}
+                {device.removable && removeButton(device)}
               </Group>
             ))}
           </Stack>

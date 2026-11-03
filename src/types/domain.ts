@@ -854,6 +854,7 @@ export interface PairedDevice {
   created_at: string
   last_seen_at: string | null
   current: boolean
+  removable: boolean
 }
 
 export interface PairingCode {

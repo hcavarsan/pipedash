@@ -15,6 +15,7 @@ use crate::error::{
     ApiError,
     AppError,
 };
+use crate::state::CurrentDevice;
 
 pub fn enabled() -> bool {
     std::env::var("PIPEDASH_DEMO_MODE").is_ok_and(|value| crate::env_flag(&value))
@@ -56,8 +57,21 @@ pub fn device_name(platform: &str) -> String {
     format!("Demo {label}")
 }
 
+fn removes_own_device(req: &Request) -> bool {
+    *req.method() == Method::DELETE
+        && req
+            .uri()
+            .path()
+            .strip_prefix("/api/v1/devices/")
+            .is_some_and(|id| {
+                req.extensions()
+                    .get::<CurrentDevice>()
+                    .is_some_and(|device| device.0 == id)
+            })
+}
+
 pub async fn reject_changes(req: Request, next: Next) -> Response {
-    if is_blocked(req.method(), req.uri().path()) {
+    if is_blocked(req.method(), req.uri().path()) && !removes_own_device(&req) {
         return AppError::new(
             StatusCode::FORBIDDEN,
             ApiError::new(
@@ -177,5 +191,36 @@ mod tests {
 
         let allowed = send("/api/v1/refresh/all").await.unwrap();
         assert_eq!(allowed.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_paired_device_can_remove_only_itself() {
+        let app = Router::new()
+            .route(
+                "/api/v1/devices/{id}",
+                axum::routing::delete(|| async { "ok" }),
+            )
+            .layer(axum::middleware::from_fn(reject_changes));
+        let remove = |path: &str, device: Option<&str>| {
+            let mut request = axum::http::Request::delete(path)
+                .body(Body::empty())
+                .unwrap();
+            if let Some(id) = device {
+                request
+                    .extensions_mut()
+                    .insert(CurrentDevice(id.to_string()));
+            }
+            app.clone().oneshot(request)
+        };
+
+        let own = remove("/api/v1/devices/abc", Some("abc")).await.unwrap();
+        assert_eq!(own.status(), StatusCode::OK);
+        for (path, device) in [
+            ("/api/v1/devices/abc", Some("other")),
+            ("/api/v1/devices/abc", None),
+        ] {
+            let response = remove(path, device).await.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{device:?}");
+        }
     }
 }
