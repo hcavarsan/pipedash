@@ -38,6 +38,7 @@ export type EventPayloadMap = {
   'provider-removed': ProviderChangedPayload
   'provider-status-updated': ProviderStatusUpdatedPayload
   'provider-health-alert': ProviderHealthAlert
+  'alert-recorded': { id: string; seq: number }
   'providers-changed': undefined
   'pipeline-views-changed': undefined
   'pipeline-cache-invalidated': CacheInvalidatedPayload

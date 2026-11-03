@@ -67,7 +67,7 @@ function deviceDetails(device: PairedDevice, now: number): string {
     ? `Last connected ${formatRelativeTime(device.last_seen_at, now)}`
     : 'Never connected'
 
-  return `${PLATFORM_LABELS[device.platform]} · Paired ${paired} · ${seen}`
+  return `${PLATFORM_LABELS[device.platform]} · Paired ${paired} · ${seen}${device.push ? ' · Push alerts on' : ''}`
 }
 
 export function PairedDevicesCard({ sharing }: PairedDevicesCardProps): ReactNode {

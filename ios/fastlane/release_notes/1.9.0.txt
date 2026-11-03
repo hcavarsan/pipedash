@@ -1,3 +1,6 @@
 - Connect your iPhone or iPad to a Pipedash server or to a computer that shares Pipedash, and see its pipelines without adding providers again. Scan the QR code from Settings > Devices on the other Pipedash, or enter its address and pairing code.
 - Settings > Devices lists the phones and computers paired with a Pipedash, and you can remove any of them.
 - A new switch allows unencrypted connections to servers on your private network, such as a computer at home. It is off by default.
+- Phones connected to a Pipedash server or a sharing computer now get notifications in the background.
+- Running Pipedash on your phone? Add a server under Settings > Notifications to get its alerts too.
+- On iPhone and iPad, turn on push alerts for faster delivery. Pipedash's relay sees only an alert ID.

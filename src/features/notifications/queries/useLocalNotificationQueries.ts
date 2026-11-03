@@ -8,10 +8,10 @@ import {
 import { useEffect } from 'react'
 
 import { queryKeys } from '../../../lib/queryKeys'
-import { hasLocalCore } from '../../../services/connection'
+import { hasLocalCore, isRemoteClient } from '../../../services/connection'
 import { mobileService } from '../../../services/mobile'
 import type { LocalNotificationSettings } from '../../../types/domain'
-import { displayErrorNotification } from '../../../utils/errorDisplay'
+import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 import { isMobilePlatform } from '../../../utils/platform'
 
 const mutationKey = [...queryKeys.localNotifications.all, 'change']
@@ -20,7 +20,7 @@ export function useLocalNotificationSettings(): UseQueryResult<LocalNotification
   return useQuery({
     queryKey: queryKeys.localNotifications.settings(),
     queryFn: () => mobileService.getLocalNotificationSettings(),
-    enabled: isMobilePlatform() && hasLocalCore(),
+    enabled: isMobilePlatform() && (hasLocalCore() || isRemoteClient()),
     staleTime: 0,
     retry: false,
   })
@@ -42,10 +42,28 @@ export function useSetLocalNotifications(): UseMutationResult<LocalNotificationS
   })
 }
 
+export function useRemoveAlertHost(): UseMutationResult<void, Error, void> {
+  const queryClient = useQueryClient()
+
+  return useMutation<void, Error, void>({
+    mutationFn: () => mobileService.removeAlertHost(),
+    onError: (error) => displayErrorNotification(error, "Couldn't remove the server"),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.localNotifications.settings() }),
+  })
+}
+
+export function useSendTestAlert(): UseMutationResult<void, Error, void> {
+  return useMutation<void, Error, void>({
+    mutationFn: () => mobileService.sendTestAlert(),
+    onSuccess: () => displaySuccessNotification('Check your notifications in a moment.', 'Test alert sent'),
+    onError: (error) => displayErrorNotification(error, "Couldn't send test alert"),
+  })
+}
+
 export function useLocalNotificationsLifecycle(): void {
   const queryClient = useQueryClient()
   useEffect(() => {
-    if (!(isMobilePlatform() && hasLocalCore())) {
+    if (!(isMobilePlatform() && (hasLocalCore() || isRemoteClient()))) {
       return
     }
     const refresh = () => {

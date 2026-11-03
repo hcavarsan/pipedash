@@ -1,3 +1,4 @@
+mod alerts;
 mod cache;
 mod devices;
 pub mod health;
@@ -30,6 +31,7 @@ use crate::state::AppState;
 pub fn api_router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health::health_check))
+        .nest("/alerts", alerts::router())
         .nest("/setup", setup::router())
         .nest("/providers", providers::router())
         .nest("/pipelines", pipelines::router().merge(run_logs::router()))

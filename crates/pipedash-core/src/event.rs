@@ -141,6 +141,11 @@ pub enum CoreEvent {
         id: String,
     },
 
+    AlertRecorded {
+        id: String,
+        seq: i64,
+    },
+
     RunLogProgress {
         pipeline_id: String,
         run_number: i64,
@@ -201,6 +206,7 @@ impl CoreEvent {
             CoreEvent::VaultLocked => "vault-locked",
             CoreEvent::DevicePaired { .. } => "device-paired",
             CoreEvent::DeviceRevoked { .. } => "device-revoked",
+            CoreEvent::AlertRecorded { .. } => "alert-recorded",
             CoreEvent::RunLogProgress { .. } => "run-log-progress",
             CoreEvent::RunLogReady { .. } => "run-log-ready",
             CoreEvent::RunLogFailed { .. } => "run-log-failed",
@@ -329,6 +335,10 @@ impl CoreEvent {
             }),
             CoreEvent::DeviceRevoked { id } => serde_json::json!({
                 "id": id,
+            }),
+            CoreEvent::AlertRecorded { id, seq } => serde_json::json!({
+                "id": id,
+                "seq": seq,
             }),
             CoreEvent::RunLogProgress {
                 pipeline_id,
@@ -507,5 +517,15 @@ mod tests {
         let revoked = CoreEvent::DeviceRevoked { id: "d1".into() };
         assert_eq!(revoked.event_name(), "device-revoked");
         assert_eq!(revoked.to_json_payload(), serde_json::json!({ "id": "d1" }));
+
+        let recorded = CoreEvent::AlertRecorded {
+            id: "a1".into(),
+            seq: 7,
+        };
+        assert_eq!(recorded.event_name(), "alert-recorded");
+        assert_eq!(
+            recorded.to_json_payload(),
+            serde_json::json!({ "id": "a1", "seq": 7 })
+        );
     }
 }

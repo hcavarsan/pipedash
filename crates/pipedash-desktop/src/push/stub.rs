@@ -3,9 +3,7 @@ use std::sync::{
     Mutex,
     PoisonError,
 };
-use std::time::Duration;
 
-use serde_json::Value;
 use tokio::io::{
     AsyncReadExt,
     AsyncWriteExt,
@@ -14,51 +12,14 @@ use tokio::net::{
     TcpListener,
     TcpStream,
 };
-use tokio::sync::Notify;
 
 #[derive(Debug, Clone)]
 pub struct Request {
     pub method: String,
     pub path: String,
-    pub body: Value,
 }
 
-#[derive(Default)]
-pub struct Gate {
-    pub arrived: Notify,
-    pub release: Notify,
-}
-
-pub struct Reply {
-    pub status: u16,
-    pub body: String,
-    pub gate: Option<Arc<Gate>>,
-}
-
-impl Reply {
-    pub fn json(status: u16, body: Value) -> Self {
-        Self {
-            status,
-            body: body.to_string(),
-            gate: None,
-        }
-    }
-
-    pub fn empty(status: u16) -> Self {
-        Self {
-            status,
-            body: String::new(),
-            gate: None,
-        }
-    }
-
-    pub fn held_by(mut self, gate: &Arc<Gate>) -> Self {
-        self.gate = Some(Arc::clone(gate));
-        self
-    }
-}
-
-type Handler = Arc<dyn Fn(&Request) -> Reply + Send + Sync>;
+type Handler = Arc<dyn Fn(&Request) -> u16 + Send + Sync>;
 
 pub struct Stub {
     pub url: String,
@@ -66,7 +27,7 @@ pub struct Stub {
 }
 
 impl Stub {
-    pub async fn start(handler: impl Fn(&Request) -> Reply + Send + Sync + 'static) -> Self {
+    pub async fn start(handler: impl Fn(&Request) -> u16 + Send + Sync + 'static) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -83,28 +44,13 @@ impl Stub {
         Self { url, requests }
     }
 
-    pub fn requests(&self) -> Vec<Request> {
+    pub fn count(&self, method: &str, path: &str) -> usize {
         self.requests
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-
-    pub fn count(&self, method: &str, path_prefix: &str) -> usize {
-        self.requests()
             .iter()
-            .filter(|r| r.method == method && r.path.starts_with(path_prefix))
+            .filter(|r| r.method == method && r.path == path)
             .count()
-    }
-
-    pub async fn saw(&self, method: &str, path_prefix: &str, within: Duration) -> bool {
-        tokio::time::timeout(within, async {
-            while self.count(method, path_prefix) == 0 {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .is_ok()
     }
 }
 
@@ -140,30 +86,21 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
         }
         buffer.extend_from_slice(&chunk[..read]);
     }
-    let body = serde_json::from_slice(&buffer[head_end..head_end + length]).unwrap_or(Value::Null);
 
-    Some(Request { method, path, body })
+    Some(Request { method, path })
 }
 
 async fn serve(mut stream: TcpStream, handler: Handler, recorded: Arc<Mutex<Vec<Request>>>) {
     let Some(request) = read_request(&mut stream).await else {
         return;
     };
-    let reply = handler(&request);
+    let status = handler(&request);
     recorded
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .push(request);
-    if let Some(gate) = &reply.gate {
-        gate.arrived.notify_one();
-        gate.release.notified().await;
-    }
-    let response = format!(
-        "HTTP/1.1 {} Stub\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        reply.status,
-        reply.body.len(),
-        reply.body
-    );
+    let response =
+        format!("HTTP/1.1 {status} Stub\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
     let _ = stream.write_all(response.as_bytes()).await;
     let _ = stream.shutdown().await;
 }

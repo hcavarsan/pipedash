@@ -3,6 +3,7 @@ mod file_vault;
 #[cfg(target_os = "android")]
 mod headless;
 mod store;
+mod wake;
 
 use std::collections::HashSet;
 use std::sync::{
@@ -24,10 +25,13 @@ use pipedash_core::application::{
 };
 use pipedash_core::event::CoreEvent;
 use pipedash_core::CoreContext;
+use serde::Serialize;
+pub(crate) use store::AlertHost;
 use tauri::{
     AppHandle,
     Manager,
     Runtime,
+    State,
 };
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_pipedash_native::{
@@ -44,6 +48,16 @@ use tokio::sync::{
 use crate::app_lock::AppLockState;
 use crate::commands::ErrorResponse;
 use crate::native::NotificationTarget;
+use crate::remote::alerts::{
+    claim_alert_host,
+    client_alert_host,
+    revoke_device,
+};
+use crate::remote::{
+    parse_pairing,
+    RemoteConnection,
+    RemoteError,
+};
 use crate::MaybeCoreContext;
 
 const REFRESH_BUDGET: Duration = Duration::from_secs(23);
@@ -71,6 +85,7 @@ pub struct LocalNotificationsState {
     settings: AsyncMutex<()>,
     observations: Arc<AsyncMutex<()>>,
     refresh: Mutex<Option<ActiveRefresh>>,
+    push_problem: Mutex<Option<String>>,
 }
 
 struct ActiveRefresh {
@@ -136,16 +151,19 @@ async fn initialize<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
                 .await
                 .map_err(|_| error("Notification settings could not be read"))?;
             let enabled = if settings.enabled {
-                match storage(store::authorization).await {
-                    Ok(None) => {
-                        app.pipedash_native()
-                            .configure_local_notifications(false)
-                            .await
-                            .map_err(|_| error("Notification authorization must be renewed"))?;
-                        false
-                    }
+                let retained = match storage(store::authorization).await {
+                    Ok(None) => storage(store::alert_host)
+                        .await
+                        .map_or(true, |host| host.is_some()),
                     Ok(Some(_)) | Err(_) => true,
+                };
+                if !retained {
+                    app.pipedash_native()
+                        .configure_local_notifications(false)
+                        .await
+                        .map_err(|_| error("Notification authorization must be renewed"))?;
                 }
+                retained
             } else {
                 false
             };
@@ -197,24 +215,180 @@ async fn unlocked_core<R: Runtime>(app: &AppHandle<R>) -> Result<Arc<CoreContext
         .map_err(|_| error("Unlock the vault before enabling background notifications"))
 }
 
-#[tauri::command]
-pub async fn get_local_notification_settings(app: AppHandle) -> Result<LocalNotificationSettings> {
-    initialize(&app).await?;
-    app.pipedash_native()
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertHostInfo {
+    name: String,
+    push: bool,
+    standalone: bool,
+}
+
+impl From<&AlertHost> for AlertHostInfo {
+    fn from(host: &AlertHost) -> Self {
+        Self {
+            name: host.host_name.clone(),
+            push: host.push,
+            standalone: host.standalone,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSettings {
+    enabled: bool,
+    available: bool,
+    reason: Option<String>,
+    alert_host: Option<AlertHostInfo>,
+    push_problem: Option<String>,
+}
+
+pub(crate) async fn current_alert_host() -> Option<AlertHost> {
+    if !cfg!(mobile) {
+        return None;
+    }
+    storage(store::alert_host).await.ok().flatten()
+}
+
+pub(crate) async fn mark_alert_host_push(host: &AlertHost, push: bool) {
+    let host = host.clone();
+    if cfg!(mobile)
+        && storage(move || store::set_alert_host_push(&host, push).map(drop))
+            .await
+            .is_err()
+    {
+        tracing::debug!("Couldn't save the push state of the alert host");
+    }
+}
+
+pub(crate) async fn mark_push_stopped(app: &AppHandle, host: &AlertHost) {
+    mark_alert_host_push(host, false).await;
+    set_push_problem(
+        app,
+        Some(format!(
+            "{} stopped sending push alerts. Pipedash checks it in the background instead.",
+            host.host_name
+        )),
+    );
+}
+
+pub(crate) async fn advance_alert_host(seq: i64) {
+    if cfg!(mobile)
+        && storage(move || store::advance_alert_host(seq))
+            .await
+            .is_err()
+    {
+        tracing::debug!("Couldn't save the alert position");
+    }
+}
+
+pub(crate) async fn reset_alert_host_seq(seq: i64) {
+    if cfg!(mobile)
+        && storage(move || store::reset_alert_host_seq(seq))
+            .await
+            .is_err()
+    {
+        tracing::debug!("Couldn't save the alert position");
+    }
+}
+
+fn set_push_problem<R: Runtime>(app: &AppHandle<R>, problem: Option<String>) {
+    *app.state::<LocalNotificationsState>()
+        .push_problem
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = problem;
+}
+
+async fn settings_view<R: Runtime>(
+    app: &AppHandle<R>, native: LocalNotificationSettings,
+) -> NotificationSettings {
+    let host = current_alert_host().await;
+    let push_problem = app
+        .state::<LocalNotificationsState>()
+        .push_problem
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+
+    NotificationSettings {
+        enabled: native.enabled,
+        available: native.available,
+        reason: native.reason,
+        alert_host: host.as_ref().map(AlertHostInfo::from),
+        push_problem,
+    }
+}
+
+async fn native_view<R: Runtime>(app: &AppHandle<R>) -> Result<NotificationSettings> {
+    let native = app
+        .pipedash_native()
         .local_notification_settings()
         .await
-        .map_err(|_| error("Notification settings could not be read"))
+        .map_err(|_| error("Notification settings could not be read"))?;
+
+    Ok(settings_view(app, native).await)
+}
+
+async fn detach_alert_host(exiting: bool) {
+    let Some(host) = current_alert_host().await else {
+        return;
+    };
+    if host.standalone || !exiting {
+        crate::push::disable().await;
+    } else {
+        crate::push::forget().await;
+    }
+    if host.standalone {
+        revoke_device(&host).await;
+    }
+    if storage(store::remove_alert_host_record).await.is_err() {
+        tracing::warn!("Couldn't remove the alert host");
+    }
+}
+
+async fn enable_push(app: &AppHandle) {
+    if cfg!(target_os = "ios") {
+        let problem = crate::push::enable(app).await.err();
+        set_push_problem(app, problem);
+    }
+}
+
+async fn activate<R: Runtime>(app: &AppHandle<R>) -> Result<LocalNotificationSettings> {
+    let state = app.state::<LocalNotificationsState>();
+    match app
+        .pipedash_native()
+        .configure_local_notifications(true)
+        .await
+    {
+        Ok(settings) if settings.enabled => {
+            state.enabled.store(true, Ordering::Release);
+            state.invalidate();
+            Ok(settings)
+        }
+        _ => {
+            storage(store::clear).await?;
+            Err(error("The system could not enable notifications"))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_local_notification_settings(app: AppHandle) -> Result<NotificationSettings> {
+    initialize(&app).await?;
+    native_view(&app).await
 }
 
 #[tauri::command]
 pub async fn set_local_notifications_enabled(
-    app: AppHandle, enabled: bool,
-) -> Result<LocalNotificationSettings> {
+    app: AppHandle, remote: State<'_, RemoteConnection>, enabled: bool,
+) -> Result<NotificationSettings> {
     initialize(&app).await?;
     let state = app.state::<LocalNotificationsState>();
     let _settings = state.settings.lock().await;
     if !enabled {
-        return disable(&app).await;
+        detach_alert_host(false).await;
+        let native = disable(&app).await?;
+        return Ok(settings_view(&app, native).await);
     }
     if !cfg!(mobile) {
         return Err(error(
@@ -225,11 +399,15 @@ pub async fn set_local_notifications_enabled(
         return Err(error("Allow notifications for Pipedash in Settings"));
     }
     if state.enabled.load(Ordering::Acquire) {
-        return app
-            .pipedash_native()
-            .local_notification_settings()
-            .await
-            .map_err(|_| error("Notification settings could not be read"));
+        return native_view(&app).await;
+    }
+    set_push_problem(&app, None);
+    if remote.is_client() {
+        let host = client_alert_host(&remote).await?;
+        storage(move || store::save_alert_host(&host)).await?;
+        let native = activate(&app).await?;
+        enable_push(&app).await;
+        return Ok(settings_view(&app, native).await);
     }
     let core = unlocked_core(&app).await?;
     let authorization_revision = state.authorization_revision.load(Ordering::Acquire);
@@ -256,25 +434,58 @@ pub async fn set_local_notifications_enabled(
         store::save_observations(&observations)
     })
     .await?;
-    match app
-        .pipedash_native()
-        .configure_local_notifications(true)
-        .await
-    {
-        Ok(settings) if settings.enabled => {
-            state.enabled.store(true, Ordering::Release);
-            state.invalidate();
-            Ok(settings)
-        }
-        _ => {
-            storage(store::clear).await?;
-            Err(error("The system could not enable notifications"))
-        }
+    let native = activate(&app).await?;
+
+    Ok(settings_view(&app, native).await)
+}
+
+#[tauri::command]
+pub async fn pair_alert_host(
+    app: AppHandle, remote: State<'_, RemoteConnection>, address: String, code: Option<String>,
+    allow_private_http: bool,
+) -> Result<AlertHostInfo> {
+    if remote.is_client() {
+        return Err(RemoteError::Connected.into());
     }
+    if !cfg!(mobile) {
+        return Err(error("Alerts from a server need the Pipedash mobile app"));
+    }
+    initialize(&app).await?;
+    let state = app.state::<LocalNotificationsState>();
+    let _settings = state.settings.lock().await;
+    if !state.enabled.load(Ordering::Acquire) {
+        return Err(error("Turn on notifications first."));
+    }
+
+    let (url, code) = parse_pairing(&address, code.as_deref())?;
+    let host = claim_alert_host(url, &code, allow_private_http).await?;
+    detach_alert_host(false).await;
+    let saved = host.clone();
+    if let Err(failure) = storage(move || store::save_alert_host(&saved)).await {
+        revoke_device(&host).await;
+        return Err(failure);
+    }
+    set_push_problem(&app, None);
+    enable_push(&app).await;
+
+    Ok(AlertHostInfo::from(
+        &current_alert_host().await.unwrap_or(host),
+    ))
+}
+
+#[tauri::command]
+pub async fn remove_alert_host(app: AppHandle) -> Result<()> {
+    let state = app.state::<LocalNotificationsState>();
+    let _settings = state.settings.lock().await;
+    detach_alert_host(false).await;
+    set_push_problem(&app, None);
+
+    Ok(())
 }
 
 async fn disable<R: Runtime>(app: &AppHandle<R>) -> Result<LocalNotificationSettings> {
     let state = app.state::<LocalNotificationsState>();
+    set_push_problem(app, None);
     state.enabled.store(false, Ordering::Release);
     state.invalidate();
     let configured = app
@@ -300,6 +511,7 @@ pub async fn reset<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     initialize(app).await?;
     let state = app.state::<LocalNotificationsState>();
     let _settings = state.settings.lock().await;
+    detach_alert_host(true).await;
     disable(app).await?;
     Ok(())
 }
@@ -315,7 +527,9 @@ pub async fn sync_from_core<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         return Ok(());
     }
     if storage(store::authorization).await?.is_none() {
-        disable(app).await?;
+        if storage(store::alert_host).await?.is_none() {
+            disable(app).await?;
+        }
         return Ok(());
     }
     let Ok(core) = unlocked_core(app).await else {
@@ -491,36 +705,80 @@ async fn observe<R: Runtime>(
 
 async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     let state = app.state::<LocalNotificationsState>();
-    let (authorization, mut observations, revision) = {
+    let (authorization, mut observations, host, revision) = {
         let _guard = state.observations.lock().await;
-        let authorization = storage(store::authorization)
-            .await?
-            .ok_or_else(|| error("Enable notifications again to authorize background checks"))?;
-        let observations = storage(store::observations).await?;
+        let authorization = storage(store::authorization).await?;
+        let saved_host = storage(store::alert_host).await?;
+        if authorization.is_none() && saved_host.is_none() {
+            return Err(error(
+                "Enable notifications again to authorize background checks",
+            ));
+        }
+        let host = saved_host;
+        let observations = if authorization.is_some() {
+            storage(store::observations).await?
+        } else {
+            NotificationState::default()
+        };
         (
             authorization,
             observations,
+            host,
             state.revision.load(Ordering::Acquire),
         )
     };
-    let notices = refresh_notifications(
-        &authorization.providers,
-        &authorization.proxy_url,
-        authorization.status_pages_enabled,
-        &mut observations,
-        REFRESH_BUDGET,
+    let mut wake = wake::gather(
+        async {
+            match &authorization {
+                Some(authorization) => refresh_notifications(
+                    &authorization.providers,
+                    &authorization.proxy_url,
+                    authorization.status_pages_enabled,
+                    &mut observations,
+                    REFRESH_BUDGET,
+                )
+                .await
+                .ok(),
+                None => None,
+            }
+        },
+        async {
+            match &host {
+                Some(host) => wake::fetch_host(host, REFRESH_BUDGET).await,
+                None => None,
+            }
+        },
     )
-    .await
-    .map_err(|_| error("Background notification refresh could not finish"))?;
+    .await;
+    if wake.scanned.is_none() && wake.hosted.is_none() {
+        return Err(error("Background notification refresh could not finish"));
+    }
     let guard = Arc::clone(&state.observations).lock_owned().await;
     if !state.enabled.load(Ordering::Acquire) || state.revision.load(Ordering::Acquire) != revision
     {
         return Ok(());
     }
+    if let Some(fetched) = host.clone() {
+        if !storage(move || store::is_alert_host(&fetched))
+            .await
+            .unwrap_or(false)
+        {
+            wake.hosted = None;
+        }
+    }
+    let notices = wake.take_notices();
     deliver(app, notices).await?;
+    let scanned = wake.scanned.is_some();
+    let cursor = wake.hosted;
     storage(move || {
         let _guard = guard;
-        store::save_observations(&observations)
+        if scanned {
+            store::save_observations(&observations)?;
+        }
+        match (&host, &cursor) {
+            (Some(host), Some(batch)) => wake::save_cursor(host, batch).map(drop),
+            _ => Ok(()),
+        }
     })
     .await?;
     state.revision.fetch_add(1, Ordering::AcqRel);

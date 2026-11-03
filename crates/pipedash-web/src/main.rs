@@ -221,6 +221,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     push::spawn_failure_notifier(app_state.clone());
+    push::spawn_alert_push(app_state.clone());
 
     let api_config = ApiServerConfig::resolve(file_server_config.as_ref())?;
 

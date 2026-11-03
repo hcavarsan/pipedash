@@ -2013,7 +2013,7 @@ pub struct FactoryResetResult {
 #[tauri::command]
 pub async fn factory_reset(
     app: tauri::AppHandle, maybe_core: State<'_, crate::MaybeCoreContext>,
-    app_data_dir: State<'_, AppDataDir>, lock: State<'_, app_lock::AppLockState>,
+    lock: State<'_, app_lock::AppLockState>,
 ) -> Result<FactoryResetResult, ErrorResponse> {
     tracing::info!("[factory_reset] Starting factory reset");
 
@@ -2036,7 +2036,6 @@ pub async fn factory_reset(
             .await;
     }
 
-    crate::push::reset(&app_data_dir.0).await?;
     app_lock::reset(&app, &lock)?;
 
     tracing::info!(providers_removed, "[factory_reset] Complete");

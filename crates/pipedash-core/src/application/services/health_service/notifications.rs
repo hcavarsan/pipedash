@@ -27,6 +27,7 @@ use super::{
     instance_subject,
 };
 use crate::domain::{
+    AlertKind,
     Pipeline,
     PipelineStatus,
     ProviderSummary,
@@ -43,6 +44,7 @@ pub struct LocalNotification {
     pub body: String,
     pub pipeline_id: Option<String>,
     pub provider_id: Option<i64>,
+    pub kind: AlertKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,12 +249,17 @@ impl NotificationState {
                 let needs_attention = pipeline.status.needs_attention()
                     && (old.status != pipeline.status || old.last_run != pipeline.last_run);
                 if needs_attention {
-                    found.push(self.pipeline_notice(pipeline, attention_title(pipeline)));
+                    found.push(self.pipeline_notice(
+                        pipeline,
+                        attention_title(pipeline),
+                        attention_kind(pipeline),
+                    ));
                 }
                 if pipeline.overdue_run.is_some() && old.overdue != pipeline.overdue_run {
                     found.push(self.pipeline_notice(
                         pipeline,
                         format!("{} is running longer than usual", pipeline.name),
+                        AlertKind::LongRun,
                     ));
                 }
                 if mark.overdue.is_none() {
@@ -287,14 +294,20 @@ impl NotificationState {
             mark.checked_at = old.and_then(|old| old.checked_at);
             marks.insert(pipeline.id.clone(), mark);
             if !handled {
-                found.push(self.pipeline_notice(pipeline, attention_title(pipeline)));
+                found.push(self.pipeline_notice(
+                    pipeline,
+                    attention_title(pipeline),
+                    attention_kind(pipeline),
+                ));
             }
         }
 
         found
     }
 
-    fn pipeline_notice(&self, pipeline: &Pipeline, title: String) -> LocalNotification {
+    fn pipeline_notice(
+        &self, pipeline: &Pipeline, title: String, kind: AlertKind,
+    ) -> LocalNotification {
         let provider = self
             .providers
             .get(&pipeline.provider_id)
@@ -319,6 +332,7 @@ impl NotificationState {
             body,
             pipeline_id: Some(pipeline.id.clone()),
             provider_id: Some(pipeline.provider_id),
+            kind,
         }
     }
 
@@ -352,6 +366,11 @@ impl NotificationState {
             body: body.to_owned(),
             pipeline_id: None,
             provider_id: provider_ids.first().copied(),
+            kind: if recovered {
+                AlertKind::Recovered
+            } else {
+                AlertKind::Outage
+            },
         })
     }
 
@@ -376,5 +395,12 @@ fn attention_title(pipeline: &Pipeline) -> String {
     match pipeline.status {
         PipelineStatus::Degraded => format!("{} is degraded", pipeline.name),
         _ => format!("{} failed", pipeline.name),
+    }
+}
+
+fn attention_kind(pipeline: &Pipeline) -> AlertKind {
+    match pipeline.status {
+        PipelineStatus::Degraded => AlertKind::Degraded,
+        _ => AlertKind::Failed,
     }
 }

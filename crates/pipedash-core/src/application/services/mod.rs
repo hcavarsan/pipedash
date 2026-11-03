@@ -1,3 +1,4 @@
+pub mod device_alerts;
 pub mod health_service;
 pub mod log_service;
 pub mod metrics_service;

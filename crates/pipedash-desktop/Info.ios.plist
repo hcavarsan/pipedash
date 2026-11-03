@@ -18,6 +18,8 @@
     <true/>
     <key>PipedashBuildWatchEnabled</key>
     <false/>
+    <key>PipedashRemotePushEnabled</key>
+    <true/>
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
         <string>com.henrique.pipedash.notifications-refresh</string>

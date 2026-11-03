@@ -267,6 +267,7 @@ async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
             body: BODY.to_owned(),
             pipeline_id: Some("github__1__api".to_owned()),
             provider_id: Some(1),
+            kind: AlertKind::Failed,
         }]
     );
 }
@@ -993,4 +994,28 @@ async fn a_controller_outage_present_at_opt_in_stays_silent() {
     for _ in 0..3 {
         assert!(rig.scan(&[1]).await.is_empty());
     }
+}
+
+#[test]
+fn notices_carry_the_kind_that_matches_their_cause() {
+    let mut state = NotificationState::default();
+    state.seed(&[run(1, "api", PipelineStatus::Success, 1)], &[summary(1)]);
+
+    let degraded = state.observe_event(&updated(
+        1,
+        vec![run(1, "api", PipelineStatus::Degraded, 2)],
+    ));
+    let failed = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Failed, 3)]));
+    let mut slow = run(1, "api", PipelineStatus::Success, 4);
+    slow.overdue_run = Some("run-9".to_owned());
+    let long_run = state.observe_event(&updated(1, vec![slow]));
+    let outage = state.observe_event(&alert_event("status:feed", "incident:1", "Down", false));
+    let recovered = state.observe_event(&alert_event("status:feed", "incident:1", "Up", true));
+
+    let kinds = |found: &[LocalNotification]| found.iter().map(|n| n.kind).collect::<Vec<_>>();
+    assert_eq!(kinds(&degraded), [AlertKind::Degraded]);
+    assert_eq!(kinds(&failed), [AlertKind::Failed]);
+    assert_eq!(kinds(&long_run), [AlertKind::LongRun]);
+    assert_eq!(kinds(&outage), [AlertKind::Outage]);
+    assert_eq!(kinds(&recovered), [AlertKind::Recovered]);
 }

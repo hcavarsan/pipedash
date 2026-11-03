@@ -25,6 +25,7 @@ pub use validator::{
 };
 
 use crate::domain::{
+    DeviceAlert,
     DomainError,
     DomainResult,
     MetricsQuery,
@@ -40,6 +41,8 @@ use crate::infrastructure::token_store::TokenStore;
 use crate::infrastructure::{
     database::{
         DatabasePool,
+        DeviceAlertRepository,
+        DevicePushRepository,
         DeviceRepository,
         MetricsRepository,
         PipelineViewRepository,
@@ -222,6 +225,28 @@ fn remap_pipeline_id(pipeline_id: &str, provider_ids: &HashMap<i64, i64>) -> Opt
     let new_id = provider_ids.get(&provider_id.parse().ok()?)?;
 
     Some(format!("{provider_type}__{new_id}__{rest}"))
+}
+
+fn remap_alert(mut alert: DeviceAlert, providers: &HashMap<i64, i64>) -> Option<DeviceAlert> {
+    if let Some(provider_id) = alert.provider_id {
+        alert.provider_id = Some(*providers.get(&provider_id)?);
+    }
+    if let Some(pipeline_id) = alert.pipeline_id.take() {
+        let next = remap_pipeline_id(&pipeline_id, providers)?;
+        if alert.key == format!("pipeline:{pipeline_id}") {
+            alert.key = format!("pipeline:{next}");
+        }
+        alert.pipeline_id = Some(next);
+    }
+    for prefix in ["connection:", "instance:"] {
+        if let Some(id) = alert.key.strip_prefix(prefix) {
+            let next = providers.get(&id.parse().ok()?)?;
+            alert.key = format!("{prefix}{next}");
+            break;
+        }
+    }
+
+    Some(alert)
 }
 
 fn same_database(from: &PipedashConfig, to: &PipedashConfig) -> bool {
@@ -730,6 +755,25 @@ impl MigrationOrchestrator {
                 }
 
                 if !same_database(&plan.from, &plan.to) {
+                    let pushes = DevicePushRepository::new(self.source_pool.clone())
+                        .list()
+                        .await?;
+                    let target_pushes = DevicePushRepository::new(target_manager.database_pool());
+                    target_pushes.import(&pushes).await?;
+                    if options.clean_target {
+                        for stale in target_pushes.list().await? {
+                            if !pushes.iter().any(|p| p.device_id == stale.device_id) {
+                                target_pushes.delete(&stale.device_id).await?;
+                            }
+                        }
+                    }
+                    tracing::info!(
+                        "[Migration] Migrated {} device push registrations",
+                        pushes.len()
+                    );
+                }
+
+                if !same_database(&plan.from, &plan.to) {
                     let mapping = &result.provider_id_mapping;
                     let mut export = PipelineViewRepository::new(self.source_pool.clone())
                         .export()
@@ -791,6 +835,20 @@ impl MigrationOrchestrator {
                             orphaned.len()
                         );
                     }
+                }
+
+                if !same_database(&plan.from, &plan.to) {
+                    let alerts: Vec<DeviceAlert> =
+                        DeviceAlertRepository::new(self.source_pool.clone())
+                            .list()
+                            .await?
+                            .into_iter()
+                            .filter_map(|alert| remap_alert(alert, &result.provider_id_mapping))
+                            .collect();
+                    let target_alerts = DeviceAlertRepository::new(target_manager.database_pool());
+                    target_alerts.delete_all().await?;
+                    target_alerts.import(&alerts).await?;
+                    tracing::info!("[Migration] Migrated {} device alerts", alerts.len());
                 }
             }
 
@@ -1552,6 +1610,157 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(migrated, expected);
+    }
+
+    #[tokio::test]
+    async fn device_alerts_and_push_registrations_follow_a_storage_migration() {
+        use crate::domain::{
+            AlertKind,
+            NewDeviceAlert,
+        };
+
+        let source_dir = TempDir::new().unwrap();
+        let target_dir = TempDir::new().unwrap();
+        let config_path = source_dir.path().join("config.toml");
+        std::fs::write(&config_path, "[storage]\nbackend = \"sqlite\"\n").unwrap();
+        let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
+
+        let mut source = PipedashConfig::default();
+        source.storage.data_dir = source_dir.path().to_string_lossy().to_string();
+        source.storage.vault_password = Some("test-password".to_string());
+        let mut target = source.clone();
+        target.storage.data_dir = target_dir.path().to_string_lossy().to_string();
+
+        let manager = StorageManager::from_config(source, false).await.unwrap();
+        let backend = manager.config_backend();
+        let mut ids = Vec::new();
+        for name in ["deleted", "gh"] {
+            let provider = ProviderConfig {
+                id: None,
+                name: name.to_string(),
+                provider_type: "github".to_string(),
+                token: String::new(),
+                config: HashMap::new(),
+                refresh_interval: 30,
+                version: None,
+            };
+            ids.push(backend.create_provider(&provider).await.unwrap());
+        }
+        backend.delete_provider(ids[0]).await.unwrap();
+        let (gone, provider) = (ids[0], ids[1]);
+        let pipeline = format!("github__{provider}__o__r__1");
+        let new_alert =
+            |key: &str, kind: AlertKind, pipeline_id: Option<&str>, provider_id: i64| {
+                NewDeviceAlert {
+                    key: key.to_string(),
+                    kind,
+                    title: "title".to_string(),
+                    body: "body".to_string(),
+                    pipeline_id: pipeline_id.map(str::to_string),
+                    provider_id: Some(provider_id),
+                }
+            };
+        let alerts = DeviceAlertRepository::new(manager.database_pool());
+        for _ in 0..3 {
+            alerts
+                .insert(&new_alert("x", AlertKind::Outage, None, gone))
+                .await
+                .unwrap();
+        }
+        alerts.delete_all().await.unwrap();
+        for new in [
+            new_alert(
+                &format!("pipeline:{pipeline}"),
+                AlertKind::Failed,
+                Some(&pipeline),
+                provider,
+            ),
+            new_alert(
+                &format!("connection:{provider}"),
+                AlertKind::Outage,
+                None,
+                provider,
+            ),
+            new_alert("connection:99", AlertKind::Outage, None, gone),
+        ] {
+            alerts.insert(&new).await.unwrap();
+        }
+        let pushes = DevicePushRepository::new(manager.database_pool());
+        pushes.set("device-1", "sub-1").await.unwrap();
+        pushes.mark_success("device-1").await.unwrap();
+        let expected_pushes = pushes.list().await.unwrap();
+
+        let target_manager = StorageManager::from_config(target.clone(), false)
+            .await
+            .unwrap();
+        DeviceAlertRepository::new(target_manager.database_pool())
+            .insert(&new_alert("stale", AlertKind::Failed, None, 1))
+            .await
+            .unwrap();
+        DevicePushRepository::new(target_manager.database_pool())
+            .set("device-1", "stale-sub")
+            .await
+            .unwrap();
+        drop(target_manager);
+
+        let orchestrator = MigrationOrchestrator::from_manager(&manager, None, None).await;
+        let options = MigrationOptions {
+            migrate_tokens: false,
+            migrate_cache: false,
+            ..Default::default()
+        };
+        let plan = orchestrator
+            .plan_migration(target.clone(), &options)
+            .unwrap();
+        let result = orchestrator.execute_migration(plan, options, false).await;
+        assert!(result.success, "{:?}", result.errors);
+
+        let target_manager = StorageManager::from_config(target, false).await.unwrap();
+        let target_provider = target_manager
+            .config_backend()
+            .list_providers()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|p| p.name == "gh")
+            .and_then(|p| p.id)
+            .unwrap();
+        let migrated = DeviceAlertRepository::new(target_manager.database_pool());
+        let moved = migrated.list().await.unwrap();
+        assert_eq!(
+            moved
+                .iter()
+                .map(|a| (a.seq, a.key.as_str(), a.provider_id))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    4,
+                    format!("pipeline:github__{target_provider}__o__r__1").as_str(),
+                    Some(target_provider)
+                ),
+                (
+                    5,
+                    format!("connection:{target_provider}").as_str(),
+                    Some(target_provider)
+                ),
+            ]
+        );
+        assert_eq!(
+            moved[0].pipeline_id.as_deref(),
+            Some(format!("github__{target_provider}__o__r__1").as_str())
+        );
+        assert_eq!(
+            DevicePushRepository::new(target_manager.database_pool())
+                .list()
+                .await
+                .unwrap(),
+            expected_pushes
+        );
+        let next = migrated
+            .insert(&new_alert("c", AlertKind::Failed, None, target_provider))
+            .await
+            .unwrap();
+        assert_eq!(next.seq, 6);
     }
 
     #[tokio::test]

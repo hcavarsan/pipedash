@@ -309,12 +309,7 @@ use pipeline_views::{
     set_pipeline_view_membership,
     update_pipeline_view,
 };
-use push::{
-    get_push_status,
-    push_pair_server,
-    push_send_test,
-    push_unpair_server,
-};
+use push::send_test_alert;
 use remote::{
     disconnect_server,
     get_connection,
@@ -505,7 +500,10 @@ pub fn run() {
             system_notifications::register(app.handle())?;
             build_watch::register(app.handle())?;
 
-            push::spawn_token_sync(app.handle(), &app_data_dir);
+            push::spawn_legacy_cleanup(&app_data_dir);
+            if matches!(saved.mode, SavedMode::Standalone) {
+                push::spawn_sync_token(app.handle());
+            }
 
             Ok(())
         })
@@ -613,10 +611,7 @@ pub fn run() {
             set_pin,
             set_pipeline_hidden,
             import_legacy_pipeline_marks,
-            get_push_status,
-            push_pair_server,
-            push_unpair_server,
-            push_send_test,
+            send_test_alert,
             get_connection,
             run_on_this_device,
             pair_with_server,
@@ -633,6 +628,9 @@ pub fn run() {
             remove_paired_device,
             local_notifications::get_local_notification_settings,
             local_notifications::set_local_notifications_enabled,
+            local_notifications::pair_alert_host,
+            local_notifications::remove_alert_host,
+            remote::alerts::take_missed_alerts,
             system_notifications::show_system_notification,
             native::native_haptic,
             native::native_set_appearance,

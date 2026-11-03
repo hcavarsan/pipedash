@@ -63,6 +63,7 @@ const MAX_TOKEN_HEX_LEN: usize = 200;
 const MAX_TITLE_BYTES: usize = 512;
 const MAX_BODY_BYTES: usize = 2048;
 const MAX_THREAD_ID_BYTES: usize = 512;
+const MAX_ALERT_ID_BYTES: usize = 64;
 const RATE_LIMIT: u32 = 30;
 const RATE_WINDOW: Duration = Duration::from_secs(60);
 const REGISTRATION_LIMIT: u32 = 20;
@@ -168,8 +169,9 @@ struct RotateRequest {
 #[derive(Deserialize)]
 struct NotifyRequest {
     subscription_id: String,
-    title: String,
-    body: String,
+    alert_id: Option<String>,
+    title: Option<String>,
+    body: Option<String>,
     thread_id: Option<String>,
     pipeline_id: Option<String>,
     provider_id: Option<u64>,
@@ -291,12 +293,32 @@ async fn remove(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn notify(
-    State(state): State<AppState>, Json(request): Json<NotifyRequest>,
-) -> Result<StatusCode, ApiError> {
-    if request.title.is_empty()
-        || request.title.len() > MAX_TITLE_BYTES
-        || request.body.len() > MAX_BODY_BYTES
+fn notification(request: &NotifyRequest) -> Result<Notification<'_>, ApiError> {
+    let invalid = ApiError::BadRequest("invalid notification");
+
+    if let Some(alert_id) = request.alert_id.as_deref() {
+        let legacy_field = request.title.is_some()
+            || request.body.is_some()
+            || request.thread_id.is_some()
+            || request.pipeline_id.is_some()
+            || request.provider_id.is_some()
+            || request.run_number.is_some();
+        let valid_id = (1..=MAX_ALERT_ID_BYTES).contains(&alert_id.len())
+            && alert_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        if legacy_field || !valid_id {
+            return Err(invalid);
+        }
+        return Ok(Notification::Alert { alert_id });
+    }
+
+    let (Some(title), Some(body)) = (request.title.as_deref(), request.body.as_deref()) else {
+        return Err(invalid);
+    };
+    if title.is_empty()
+        || title.len() > MAX_TITLE_BYTES
+        || body.len() > MAX_BODY_BYTES
         || request
             .thread_id
             .as_ref()
@@ -305,8 +327,23 @@ async fn notify(
             pipeline_id.is_empty() || pipeline_id.len() > MAX_THREAD_ID_BYTES
         })
     {
-        return Err(ApiError::BadRequest("invalid notification"));
+        return Err(invalid);
     }
+
+    Ok(Notification::Legacy {
+        title,
+        body,
+        thread_id: request.thread_id.as_deref(),
+        pipeline_id: request.pipeline_id.as_deref(),
+        provider_id: request.provider_id,
+        run_number: request.run_number,
+    })
+}
+
+async fn notify(
+    State(state): State<AppState>, Json(request): Json<NotifyRequest>,
+) -> Result<StatusCode, ApiError> {
+    let notification = notification(&request)?;
 
     let key = subscription_key(&request.subscription_id);
     let Some(subscription) = state.store.get(&key).await? else {
@@ -315,15 +352,6 @@ async fn notify(
     if !state.limiter.allow(&key, Instant::now()) {
         return Err(ApiError::TooManyRequests);
     }
-
-    let notification = Notification {
-        title: &request.title,
-        body: &request.body,
-        thread_id: request.thread_id.as_deref(),
-        pipeline_id: request.pipeline_id.as_deref(),
-        provider_id: request.provider_id,
-        run_number: request.run_number,
-    };
     match state.apns.send(&subscription, &notification).await {
         Outcome::Delivered => {
             if let Err(error) = state.store.touch(&key, unix_now()).await {
@@ -585,6 +613,92 @@ mod tests {
             h.production.take_requests()[0].path,
             format!("/3/device/{}", token("ab"))
         );
+    }
+
+    #[tokio::test]
+    async fn an_alert_id_notification_sends_the_generic_alert_with_collapse_and_expiry() {
+        let h = harness().await;
+        let id = subscribe(&h, "production", &token("ab")).await;
+
+        let (status, _) = call(
+            &h.app,
+            Method::POST,
+            "/v1/notifications",
+            Some(json!({ "subscription_id": id, "alert_id": "0123abcd_-" })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let requests = h.production.take_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].push_type.as_deref(), Some("alert"));
+        assert_eq!(requests[0].priority.as_deref(), Some("10"));
+        assert_eq!(requests[0].collapse_id.as_deref(), Some("0123abcd_-"));
+        let expiration: u64 = requests[0].expiration.as_deref().unwrap().parse().unwrap();
+        let now = unix_now();
+        assert!((now + 86_400 - 5..=now + 86_400).contains(&expiration));
+        assert_eq!(
+            requests[0].body,
+            json!({
+                "aps": {
+                    "alert": {
+                        "title": "Pipedash",
+                        "body": "New alert. Open Pipedash to see it.",
+                    },
+                    "sound": "default",
+                    "mutable-content": 1,
+                    "thread-id": "pipedash-alerts",
+                },
+                "pipedash": { "alertId": "0123abcd_-" },
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn mixed_empty_and_malformed_notification_modes_are_refused() {
+        let h = harness().await;
+        let id = subscribe(&h, "production", &token("ab")).await;
+        let too_long = "a".repeat(65);
+        let bodies = [
+            json!({ "subscription_id": id }),
+            json!({ "subscription_id": id, "title": "t" }),
+            json!({ "subscription_id": id, "alert_id": "ab", "title": "t", "body": "b" }),
+            json!({ "subscription_id": id, "alert_id": "ab", "title": "t" }),
+            json!({ "subscription_id": id, "alert_id": "ab", "body": "b" }),
+            json!({ "subscription_id": id, "alert_id": "ab", "thread_id": "x" }),
+            json!({ "subscription_id": id, "alert_id": "ab", "pipeline_id": "x" }),
+            json!({ "subscription_id": id, "alert_id": "ab", "provider_id": 1 }),
+            json!({ "subscription_id": id, "alert_id": "ab", "run_number": 1 }),
+            json!({ "subscription_id": id, "alert_id": "" }),
+            json!({ "subscription_id": id, "alert_id": too_long }),
+            json!({ "subscription_id": id, "alert_id": "a b" }),
+            json!({ "subscription_id": id, "alert_id": "a/b" }),
+        ];
+
+        for body in bodies {
+            let (status, _) = call(
+                &h.app,
+                Method::POST,
+                "/v1/notifications",
+                Some(body.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        }
+        assert!(h.production.take_requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_legacy_notification_has_no_collapse_id_or_expiration() {
+        let h = harness().await;
+        let id = subscribe(&h, "production", &token("ab")).await;
+
+        assert_eq!(push(&h, &id).await.0, StatusCode::ACCEPTED);
+
+        let requests = h.production.take_requests();
+        assert_eq!(requests[0].collapse_id, None);
+        assert_eq!(requests[0].expiration, None);
+        assert_eq!(requests[0].body["aps"].get("mutable-content"), None);
     }
 
     #[tokio::test]

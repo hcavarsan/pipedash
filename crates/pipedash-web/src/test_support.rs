@@ -1,16 +1,72 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    Mutex,
+};
 
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::routing::post;
+use axum::{
+    Json,
+    Router,
+};
 use pipedash_core::infrastructure::{
     PipedashConfig,
     StorageBackendType,
     StorageManager,
 };
 use pipedash_core::CoreContext;
+use serde_json::Value;
 
 use crate::routes::CONFIG_ENV;
 use crate::state::AppState;
 use crate::ws::WebSocketEventBus;
+
+#[derive(Clone)]
+struct RelayState {
+    requests: Arc<Mutex<Vec<Value>>>,
+    status: Arc<Mutex<u16>>,
+}
+
+pub(crate) struct StubRelay {
+    pub url: String,
+    state: RelayState,
+}
+
+async fn accept_notification(
+    State(relay): State<RelayState>, Json(body): Json<Value>,
+) -> StatusCode {
+    relay.requests.lock().unwrap().push(body);
+    let status = *relay.status.lock().unwrap();
+
+    StatusCode::from_u16(status).unwrap()
+}
+
+pub(crate) async fn stub_server() -> StubRelay {
+    let state = RelayState {
+        requests: Arc::default(),
+        status: Arc::new(Mutex::new(202)),
+    };
+    let app = Router::new()
+        .route("/v1/notifications", post(accept_notification))
+        .with_state(state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    StubRelay { url, state }
+}
+
+impl StubRelay {
+    pub(crate) fn reply_with(&self, status: u16) {
+        *self.state.status.lock().unwrap() = status;
+    }
+
+    pub(crate) fn requests(&self) -> Vec<Value> {
+        self.state.requests.lock().unwrap().clone()
+    }
+}
 
 pub(crate) struct Hosted {
     pub state: AppState,

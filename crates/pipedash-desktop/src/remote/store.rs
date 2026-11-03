@@ -43,6 +43,8 @@ pub struct SavedConnection {
     pub mode: SavedMode,
     #[serde(default)]
     pub allow_private_http: bool,
+    #[serde(default)]
+    pub alerts_seen: Option<i64>,
 }
 
 fn storage(error: impl Display) -> RemoteError {
@@ -117,6 +119,7 @@ mod tests {
                 host_name: Some("Studio".to_string()),
             },
             allow_private_http: true,
+            alerts_seen: Some(7),
         }
     }
 
@@ -128,6 +131,7 @@ mod tests {
             SavedConnection {
                 mode: SavedMode::Standalone,
                 allow_private_http: false,
+                alerts_seen: None,
             },
             client(),
         ] {
@@ -153,6 +157,7 @@ mod tests {
                 "host_kind": "desktop",
                 "host_name": "Studio",
                 "allow_private_http": true,
+                "alerts_seen": 7,
             })
         );
     }

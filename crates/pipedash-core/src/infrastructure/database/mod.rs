@@ -1,5 +1,16 @@
 use std::path::Path;
 
+macro_rules! on_pool {
+    ($pool:expr, $p:ident => $body:expr) => {
+        match $pool {
+            DatabasePool::Sqlite($p) => $body,
+            DatabasePool::Postgres($p) => $body,
+        }
+    };
+}
+
+mod device_alert_repository;
+mod device_push_repository;
 mod device_repository;
 mod metrics_repository;
 mod pipeline_view_repository;
@@ -11,6 +22,8 @@ mod sqlite_backend;
 #[cfg(feature = "postgres")]
 mod postgres_backend;
 
+pub use device_alert_repository::DeviceAlertRepository;
+pub use device_push_repository::DevicePushRepository;
 pub use device_repository::DeviceRepository;
 pub use metrics_repository::{
     MetricsRepository,

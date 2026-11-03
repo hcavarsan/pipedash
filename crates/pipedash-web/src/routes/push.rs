@@ -17,6 +17,11 @@ use chrono::{
     Utc,
 };
 use pipedash_core::domain::PushSubscription;
+use pipedash_core::infrastructure::{
+    ConfigKey,
+    ConfigState,
+    OFFICIAL_PUSH_RELAY_URL,
+};
 use serde::{
     Deserialize,
     Serialize,
@@ -28,6 +33,7 @@ use crate::error::{
     AppError,
 };
 use crate::push::{
+    normalize_relay_url,
     Alert,
     PushServices,
     RelayOutcome,
@@ -80,6 +86,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/subscriptions/{id}", delete(delete_subscription))
         .route("/subscriptions/{id}/test", post(test_subscription))
+        .route("/relay", get(get_relay).put(set_relay))
 }
 
 fn relay_not_configured() -> AppError {
@@ -92,12 +99,66 @@ fn relay_not_configured() -> AppError {
     )
 }
 
-fn is_relay_subscription_id(id: &str) -> bool {
+pub(super) fn is_relay_subscription_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= MAX_SUBSCRIPTION_ID_LEN
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+#[derive(Debug, Serialize)]
+pub struct RelaySettings {
+    pub enabled: bool,
+    pub relay_url: Option<String>,
+    pub from_env: bool,
+    pub official_url: &'static str,
+}
+
+#[derive(Deserialize)]
+pub struct SetRelayRequest {
+    pub enabled: bool,
+}
+
+async fn relay_settings(config: &ConfigState) -> RelaySettings {
+    let relay_url = normalize_relay_url(&config.get_string(ConfigKey::PushRelayUrl).await);
+
+    RelaySettings {
+        enabled: relay_url.is_some(),
+        relay_url,
+        from_env: ConfigState::push_relay_from_env(),
+        official_url: OFFICIAL_PUSH_RELAY_URL,
+    }
+}
+
+async fn get_relay(State(state): State<AppState>) -> ApiResult<Json<RelaySettings>> {
+    let config = state.config_state().await?;
+
+    Ok(Json(relay_settings(&config).await))
+}
+
+async fn set_relay(
+    State(state): State<AppState>, Json(req): Json<SetRelayRequest>,
+) -> ApiResult<Json<RelaySettings>> {
+    if ConfigState::push_relay_from_env() {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            ApiError::new(
+                "PUSH_RELAY_FROM_ENV",
+                "PIPEDASH_PUSH_RELAY_URL sets the relay. Change it in the server's environment.",
+            ),
+        ));
+    }
+
+    let config = state.config_state().await?;
+    let relay_url = if req.enabled {
+        OFFICIAL_PUSH_RELAY_URL
+    } else {
+        ""
+    };
+    config.set_push_relay_url(relay_url).await?;
+
+    Ok(Json(relay_settings(&config).await))
 }
 
 async fn list_subscriptions(
@@ -230,52 +291,11 @@ mod tests {
     use super::*;
     use crate::push::spawn_failure_notifier;
     use crate::routes::CONFIG_ENV;
+    use crate::test_support::{
+        stub_server,
+        StubRelay,
+    };
     use crate::ws::WebSocketEventBus;
-
-    #[derive(Clone)]
-    struct RelayState {
-        requests: Arc<Mutex<Vec<Value>>>,
-        status: Arc<Mutex<u16>>,
-    }
-
-    struct StubRelay {
-        url: String,
-        state: RelayState,
-    }
-
-    async fn accept_notification(
-        State(relay): State<RelayState>, Json(body): Json<Value>,
-    ) -> StatusCode {
-        relay.requests.lock().unwrap().push(body);
-        let status = *relay.status.lock().unwrap();
-
-        StatusCode::from_u16(status).unwrap()
-    }
-
-    impl StubRelay {
-        async fn start() -> Self {
-            let state = RelayState {
-                requests: Arc::default(),
-                status: Arc::new(Mutex::new(202)),
-            };
-            let app = Router::new()
-                .route("/v1/notifications", post(accept_notification))
-                .with_state(state.clone());
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let url = format!("http://{}", listener.local_addr().unwrap());
-            tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-
-            Self { url, state }
-        }
-
-        fn reply_with(&self, status: u16) {
-            *self.state.status.lock().unwrap() = status;
-        }
-
-        fn requests(&self) -> Vec<Value> {
-            self.state.requests.lock().unwrap().clone()
-        }
-    }
 
     #[derive(Clone)]
     struct StubJenkins {
@@ -338,7 +358,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&data_dir);
         std::fs::create_dir_all(&data_dir).unwrap();
 
-        let relay = StubRelay::start().await;
+        let relay = stub_server().await;
         let config_file = if relay_configured {
             format!("[push]\nrelay_url = \"{}/\"\n", relay.url)
         } else {
@@ -782,5 +802,86 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(300)).await;
 
         assert!(h.relay.requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_operator_turns_the_official_relay_on_and_off() {
+        let h = harness("relay-toggle", false).await;
+        let config_file = h.data_dir.join("config.toml");
+
+        let (status, body) = call(&h.app, Method::GET, "/push/relay", None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body,
+            json!({
+                "enabled": false,
+                "relay_url": null,
+                "from_env": false,
+                "official_url": "https://relay.pipedash.app",
+            })
+        );
+
+        let (status, body) = call(
+            &h.app,
+            Method::PUT,
+            "/push/relay",
+            Some(json!({ "enabled": true })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["enabled"], true);
+        assert_eq!(body["relay_url"], "https://relay.pipedash.app");
+        assert!(std::fs::read_to_string(&config_file)
+            .unwrap()
+            .contains("[push]\nrelay_url = \"https://relay.pipedash.app\""));
+        assert_eq!(
+            h.state.push_relay_url().await.as_deref(),
+            Some("https://relay.pipedash.app")
+        );
+        assert_eq!(listed(&h).await["relay_configured"], true);
+
+        let (status, body) = call(
+            &h.app,
+            Method::PUT,
+            "/push/relay",
+            Some(json!({ "enabled": false })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["enabled"], false);
+        assert_eq!(body["relay_url"], Value::Null);
+        assert!(!std::fs::read_to_string(&config_file)
+            .unwrap()
+            .contains("relay_url"));
+    }
+
+    #[tokio::test]
+    async fn a_relay_set_by_the_environment_cannot_be_changed_from_the_api() {
+        let h = harness("relay-from-env", false).await;
+        std::env::set_var("PIPEDASH_PUSH_RELAY_URL", "https://env.example.com/");
+
+        let (status, body) = call(&h.app, Method::GET, "/push/relay", None).await;
+        let (put_status, put_body) = call(
+            &h.app,
+            Method::PUT,
+            "/push/relay",
+            Some(json!({ "enabled": true })),
+        )
+        .await;
+        std::env::remove_var("PIPEDASH_PUSH_RELAY_URL");
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["from_env"], true);
+        assert_eq!(body["enabled"], true);
+        assert_eq!(body["relay_url"], "https://env.example.com");
+        assert_eq!(put_status, StatusCode::CONFLICT);
+        assert_eq!(put_body["code"], "PUSH_RELAY_FROM_ENV");
+        assert_eq!(
+            put_body["message"],
+            "PIPEDASH_PUSH_RELAY_URL sets the relay. Change it in the server's environment."
+        );
+        assert!(!std::fs::read_to_string(h.data_dir.join("config.toml"))
+            .unwrap()
+            .contains("relay_url"));
     }
 }
