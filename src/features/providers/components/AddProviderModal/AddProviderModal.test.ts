@@ -220,7 +220,11 @@ if (process.env.PIPEDASH_PROVIDER_WIZARD_TEST !== '1') {
     assert.equal(view().getByRole('button', { name: 'Advanced settings' }).getAttribute('aria-expanded'), 'true')
     assert.equal(view().queryByText('Token is required'), null)
 
-    const statusPage = view().getByRole('textbox', { name: 'Status page URL' })
+    const statusPage = await waitFor(() => {
+      const field = view().getByRole('textbox', { name: 'Status page URL' })
+      assert.equal(field.hasAttribute('disabled'), false)
+      return field
+    })
     await user.clear(statusPage)
     await user.type(statusPage, 'https://status.example.com')
     await user.click(view().getByRole('button', { name: /^Next/ }))
