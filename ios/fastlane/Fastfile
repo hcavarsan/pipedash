@@ -7,6 +7,7 @@ require_relative "ios_project"
 require_relative "app_review_demo"
 require_relative "store_text"
 require_relative "store_version"
+require_relative "push_signing"
 
 default_platform(:ios)
 
@@ -265,6 +266,27 @@ platform :ios do
     ipa = ios_build(build_number: build_number, sign: true)
     verify_ipa(ipa: ipa, version: ios_version, signed: true)
     ipa
+  end
+
+  desc "Register the notification extension App ID, turn on Push Notifications and renew the App Store profiles"
+  lane :setup_push_signing do
+    api_key = asc_api_key
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: api_key)
+    changes = PushSigning.ensure!(
+      bundle_ids: Spaceship::ConnectAPI::BundleId,
+      app_id: APP_ID,
+      extension_id: IosProject::NSE_ID,
+    )
+    changes.each { |change| UI.success(change) }
+    UI.message("App IDs already set up") if changes.empty?
+    setup_ci
+    match(
+      type: "appstore",
+      app_identifier: [APP_ID, IosProject::NSE_ID],
+      readonly: false,
+      force: true,
+      api_key: api_key,
+    )
   end
 
   desc "Build and upload to TestFlight"
