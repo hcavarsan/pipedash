@@ -60,12 +60,14 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_INTERVAL: Duration = Duration::from_secs(20);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_IN_FLIGHT: usize = 16;
+const MAX_ADMITTED: usize = 64;
 const OUTBOX_CAPACITY: usize = 64;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 
 const AUTH_FAILED_MESSAGE: &str = "This device isn't paired with this Pipedash.";
 const RESPONSE_TOO_LARGE: &str = r#"{"code":"RESPONSE_TOO_LARGE","message":"The response is too large to send to this device."}"#;
 const INVALID_PATH: &str = r#"{"code":"BAD_REQUEST","message":"Invalid request path."}"#;
+const TOO_MANY_REQUESTS: &str = r#"{"code":"TOO_MANY_REQUESTS","message":"This device sent too many requests at once. Try again."}"#;
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -250,6 +252,7 @@ struct Connection {
     events: Option<broadcast::Receiver<CoreEvent>>,
     router: Option<Router>,
     permits: Arc<Semaphore>,
+    admitted: Arc<Semaphore>,
     requests: JoinSet<()>,
 }
 
@@ -265,6 +268,7 @@ impl Connection {
             events,
             router: None,
             permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+            admitted: Arc::new(Semaphore::new(MAX_ADMITTED)),
             requests: JoinSet::new(),
         }
     }
@@ -443,12 +447,19 @@ impl Connection {
             .router
             .get_or_insert_with(|| crate::host_router(state.clone()))
             .clone();
-        let Ok(permit) = Arc::clone(&self.permits).acquire_owned().await else {
-            return false;
+        let Ok(admitted) = Arc::clone(&self.admitted).try_acquire_owned() else {
+            let _ = self
+                .out
+                .try_send(response_frame(id, 429, TOO_MANY_REQUESTS.as_bytes()));
+            return true;
         };
+        let permits = Arc::clone(&self.permits);
         let out = self.out.clone();
         self.requests.spawn(async move {
-            let _permit = permit;
+            let _admitted = admitted;
+            let Ok(_permit) = permits.acquire_owned().await else {
+                return;
+            };
             let (status, body) = dispatch(router, &method, &path, body, token.as_deref()).await;
             let _ = out.send(response_frame(id, status, &body)).await;
         });
