@@ -860,6 +860,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_busy_socket_rejects_excess_requests_and_still_closes() {
+        let host = crate::test_support::server("ws-busy").await;
+        let mut stream = connect_state(host.state.clone()).await;
+        let blocked = host.state.inner.write().await;
+
+        for id in 1..=MAX_ADMITTED as u64 + 1 {
+            send_json(
+                &mut stream,
+                json!({ "type": "request", "id": id, "method": "GET", "path": "/providers" }),
+            )
+            .await;
+        }
+
+        let rejected = next_message(&mut stream).await;
+        assert_eq!(rejected["id"], MAX_ADMITTED as u64 + 1);
+        assert_eq!(rejected["status"], 429);
+
+        host.state.closing.send_replace(true);
+        assert_closed(&mut stream).await;
+        drop(blocked);
+    }
+
+    #[tokio::test]
     async fn a_shared_host_refuses_socket_upgrades_from_other_origins() {
         let state = AppState::hosted(Arc::new(WebSocketEventBus::new()), None, "test-mac");
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
