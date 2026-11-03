@@ -13,6 +13,7 @@ pub use application::{
     LogExport,
     LogService,
 };
+use domain::PairedDevice;
 pub use domain::{
     DomainError,
     DomainResult,
@@ -41,6 +42,7 @@ pub use event::{
 };
 use infrastructure::database::{
     init_database,
+    DeviceRepository,
     MetricsRepository,
     Repository,
 };
@@ -57,6 +59,7 @@ pub use infrastructure::{
     TokenStore,
 };
 
+#[derive(Clone)]
 pub struct CoreContext {
     pub event_bus: Arc<dyn EventBus>,
 
@@ -302,6 +305,36 @@ impl CoreContext {
         metrics.flush_metrics(None, true).await?;
         metrics.reset_all_processing_states().await?;
         Ok(providers_removed)
+    }
+
+    pub fn devices(&self) -> DeviceRepository {
+        DeviceRepository::new(self.provider_service.repository().cache_pool().clone())
+    }
+
+    pub async fn pair_device(
+        &self, name: &str, platform: &str,
+    ) -> DomainResult<(PairedDevice, String)> {
+        let (device, token) = PairedDevice::issue(name, platform);
+        self.devices().insert(&device).await?;
+        self.event_bus
+            .emit(CoreEvent::DevicePaired {
+                id: device.id.clone(),
+                name: device.name.clone(),
+            })
+            .await;
+
+        Ok((device, token))
+    }
+
+    pub async fn revoke_device(&self, id: &str) -> DomainResult<bool> {
+        let removed = self.devices().delete(id).await?;
+        if removed {
+            self.event_bus
+                .emit(CoreEvent::DeviceRevoked { id: id.to_string() })
+                .await;
+        }
+
+        Ok(removed)
     }
 
     pub async fn shutdown(&self) {

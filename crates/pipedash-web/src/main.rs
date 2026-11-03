@@ -1,37 +1,11 @@
-mod demo;
-mod download_tickets;
-mod error;
-mod push;
-mod routes;
-mod state;
-mod static_files;
-mod ws;
-
 use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Context;
 use axum::{
-    extract::{
-        Request,
-        State,
-    },
-    http::{
-        header::{
-            AUTHORIZATION,
-            HOST,
-            ORIGIN,
-            UPGRADE,
-        },
-        Method,
-        StatusCode,
-        Uri,
-    },
-    middleware::Next,
-    response::Response,
-    routing::get,
-    Router,
+    extract::Request,
+    http::Uri,
 };
 use pipedash_core::infrastructure::{
     ConfigLoader,
@@ -41,31 +15,26 @@ use pipedash_core::infrastructure::{
     StorageManager,
 };
 use pipedash_core::CoreContext;
-use subtle::ConstantTimeEq;
+use pipedash_web::state::AppState;
+use pipedash_web::ws::WebSocketEventBus;
+use pipedash_web::{
+    app,
+    demo,
+    env_flag,
+    push,
+    reject_cross_origin_requests,
+};
 use tower_http::cors::{
     Any,
     CorsLayer,
 };
 use tower_http::trace::TraceLayer;
 
-use crate::state::AppState;
-use crate::ws::WebSocketEventBus;
-
 struct ApiServerConfig {
     bind_addr: SocketAddr,
     cors_allow_all: bool,
     enable_embedded_frontend: bool,
     base_path: String,
-}
-
-fn token_matches(provided: &str, expected: &str) -> bool {
-    provided.as_bytes().ct_eq(expected.as_bytes()).into()
-}
-
-fn bearer_matches(auth_header: Option<&str>, token: &str) -> bool {
-    auth_header
-        .and_then(|h| h.strip_prefix("Bearer "))
-        .is_some_and(|t| token_matches(t, token))
 }
 
 fn cors_layer(allow_all: bool) -> CorsLayer {
@@ -79,128 +48,12 @@ fn cors_layer(allow_all: bool) -> CorsLayer {
     }
 }
 
-async fn auth_middleware(
-    State(state): State<AppState>, req: Request, next: Next,
-) -> Result<Response, StatusCode> {
-    let path = req.uri().path();
-
-    if !path.starts_with("/api/v1/")
-        || path.starts_with("/api/v1/health")
-        || path.starts_with("/api/v1/setup")
-        || path == "/api/v1/vault/status"
-        || path == "/api/v1/ws"
-        || path == "/api/v1/plugins"
-        || (req.method() == Method::GET && path.starts_with("/api/v1/downloads/"))
-    {
-        return Ok(next.run(req).await);
-    }
-
-    let Some(token) = state.api_token() else {
-        return Ok(next.run(req).await);
-    };
-
-    let auth_header = req
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
-
-    if bearer_matches(auth_header, &token) {
-        Ok(next.run(req).await)
-    } else {
-        Err(StatusCode::UNAUTHORIZED)
-    }
-}
-
 fn redact_ticket(uri: &Uri) -> Cow<'_, str> {
     if uri.path().contains("/api/v1/downloads/") {
         Cow::Borrowed("/api/v1/downloads/[redacted]")
     } else {
         Cow::Owned(uri.to_string())
     }
-}
-
-fn app(state: AppState, frontend_base_path: Option<String>) -> Router {
-    let router = Router::new()
-        .nest("/api/v1", routes::api_router())
-        .route("/api/v1/ws", get(ws::ws_handler));
-    let router = match frontend_base_path {
-        Some(base_path) => router.fallback(get(move |uri| {
-            let base_path = base_path.clone();
-            async move { static_files::serve_static(uri, &base_path) }
-        })),
-        None => router.fallback(get(|| async { StatusCode::NOT_FOUND })),
-    };
-    router
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ))
-        .with_state(state)
-}
-
-fn is_websocket_upgrade(req: &Request) -> bool {
-    req.headers()
-        .get(UPGRADE)
-        .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"websocket"))
-}
-
-fn is_cross_origin_request(req: &Request) -> bool {
-    let guarded = !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS)
-        || is_websocket_upgrade(req);
-    if !guarded {
-        return false;
-    }
-
-    let headers = req.headers();
-    if let Some(site) = headers.get("sec-fetch-site") {
-        return !matches!(site.as_bytes(), b"same-origin" | b"none");
-    }
-
-    let Some(origin) = headers.get(ORIGIN) else {
-        return false;
-    };
-    let Some((origin_scheme, origin_host)) = origin.to_str().ok().and_then(|o| o.split_once("://"))
-    else {
-        return true;
-    };
-    let Some(host) = headers
-        .get(HOST)
-        .and_then(|h| h.to_str().ok())
-        .or_else(|| req.uri().authority().map(|a| a.as_str()))
-    else {
-        return true;
-    };
-    let scheme = headers
-        .get("x-forwarded-proto")
-        .and_then(|p| p.to_str().ok())
-        .and_then(|p| p.split(',').next())
-        .map_or("http", str::trim);
-    let default_port = if scheme.eq_ignore_ascii_case("https") {
-        ":443"
-    } else {
-        ":80"
-    };
-    let host = host.strip_suffix(default_port).unwrap_or(host);
-
-    !(origin_scheme.eq_ignore_ascii_case(scheme) && origin_host.eq_ignore_ascii_case(host))
-}
-
-async fn reject_cross_origin_requests(req: Request, next: Next) -> Result<Response, StatusCode> {
-    if is_cross_origin_request(&req) {
-        tracing::warn!(
-            method = %req.method(),
-            path = req.uri().path(),
-            origin = ?req.headers().get(ORIGIN),
-            "Rejected cross-origin request. Set PIPEDASH_CORS_ALLOW_ALL=true to allow other origins"
-        );
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    Ok(next.run(req).await)
-}
-
-fn env_flag(value: &str) -> bool {
-    value == "true" || value == "1"
 }
 
 fn normalize_base_path(raw: &str) -> anyhow::Result<String> {
@@ -398,7 +251,6 @@ async fn main() -> anyhow::Result<()> {
 
     if demo::enabled() {
         tracing::info!("Demo mode: configuration changes and pipeline actions are rejected");
-        app = app.layer(axum::middleware::from_fn(demo::reject_changes));
     }
 
     let app = app
@@ -423,220 +275,15 @@ async fn main() -> anyhow::Result<()> {
 mod tests {
     use axum::body::Body;
     use axum::http::header;
-    use axum::http::Method;
-    use pipedash_core::infrastructure::PipedashConfig;
-    use pipedash_core::ProviderConfig;
+    use axum::http::{
+        Method,
+        StatusCode,
+    };
+    use axum::routing::get;
+    use axum::Router;
     use tower::ServiceExt;
 
     use super::*;
-
-    const TOKEN: &str = "operator-secret";
-
-    fn app_with_token() -> Router {
-        let state = AppState::config_error(Arc::new(WebSocketEventBus::new()), "test".into());
-        state.set_api_token(TOKEN);
-        app(state, None)
-    }
-
-    async fn send(app: &Router, method: Method, uri: &str, auth: Option<&str>) -> StatusCode {
-        let mut request = axum::http::Request::builder()
-            .method(method)
-            .uri(uri)
-            .header(header::CONTENT_TYPE, "application/json");
-        if let Some(token) = auth {
-            request = request.header(AUTHORIZATION, format!("Bearer {token}"));
-        }
-        let body = if uri.ends_with("/unlock") {
-            Body::from(r#"{"password":"wrong-password"}"#)
-        } else {
-            Body::empty()
-        };
-
-        app.clone()
-            .oneshot(request.body(body).unwrap())
-            .await
-            .unwrap()
-            .status()
-    }
-
-    async fn assert_api_still_requires_token(app: &Router) {
-        assert_eq!(
-            send(app, Method::GET, "/api/v1/providers", None).await,
-            StatusCode::UNAUTHORIZED
-        );
-        assert_ne!(
-            send(app, Method::GET, "/api/v1/providers", Some(TOKEN)).await,
-            StatusCode::UNAUTHORIZED
-        );
-    }
-
-    #[tokio::test]
-    async fn vault_status_is_public_but_lock_and_unlock_require_token() {
-        let app = app_with_token();
-
-        assert_eq!(
-            send(&app, Method::GET, "/api/v1/vault/status", None).await,
-            StatusCode::OK
-        );
-        for uri in ["/api/v1/vault/lock", "/api/v1/vault/unlock"] {
-            assert_eq!(
-                send(&app, Method::POST, uri, None).await,
-                StatusCode::UNAUTHORIZED,
-                "{uri}"
-            );
-            assert_eq!(
-                send(&app, Method::POST, uri, Some("wrong")).await,
-                StatusCode::UNAUTHORIZED,
-                "{uri}"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn vault_lock_keeps_api_auth() {
-        let app = app_with_token();
-
-        send(&app, Method::POST, "/api/v1/vault/lock", None).await;
-        assert_api_still_requires_token(&app).await;
-
-        assert_eq!(
-            send(&app, Method::POST, "/api/v1/vault/lock", Some(TOKEN)).await,
-            StatusCode::OK
-        );
-        assert_api_still_requires_token(&app).await;
-    }
-
-    async fn locked_sqlite_vault(data_dir: &std::path::Path) -> StorageManager {
-        let mut config = PipedashConfig::default();
-        config.storage.backend = StorageBackendType::Sqlite;
-        config.storage.data_dir = data_dir.display().to_string();
-
-        let mut seeded = config.clone();
-        seeded.storage.vault_password = Some("vault-password".into());
-        let manager = StorageManager::from_config(seeded, false).await.unwrap();
-        let provider = ProviderConfig {
-            id: None,
-            name: "github".into(),
-            provider_type: "github".into(),
-            token: String::new(),
-            config: Default::default(),
-            refresh_interval: 30,
-            version: None,
-        };
-        let id = manager
-            .config_backend()
-            .create_provider(&provider)
-            .await
-            .unwrap();
-        manager
-            .token_store()
-            .await
-            .store_token(id, "ghp_secret")
-            .await
-            .unwrap();
-
-        let locked = StorageManager::from_config_allow_locked(config, false)
-            .await
-            .unwrap();
-        assert!(locked.is_vault_locked().await);
-        locked
-    }
-
-    #[tokio::test]
-    async fn failed_vault_unlock_keeps_api_auth() {
-        let data_dir =
-            std::env::temp_dir().join(format!("pipedash-failed-unlock-{}", std::process::id()));
-        let state = AppState::config_error(Arc::new(WebSocketEventBus::new()), "test".into());
-        state.inner.write().await.storage_manager = Some(locked_sqlite_vault(&data_dir).await);
-        state.set_api_token(TOKEN);
-        let app = app(state.clone(), None);
-
-        let response = app
-            .clone()
-            .oneshot(
-                axum::http::Request::post("/api/v1/vault/unlock")
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .header(AUTHORIZATION, format!("Bearer {TOKEN}"))
-                    .body(Body::from(r#"{"password":"wrong-password"}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        let status = response.status();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["success"], false);
-        assert_eq!(state.api_token().as_deref(), Some(TOKEN));
-        assert_api_still_requires_token(&app).await;
-        let _ = std::fs::remove_dir_all(&data_dir);
-    }
-
-    #[tokio::test]
-    async fn empty_vault_unlock_cannot_replace_the_api_token() {
-        let data_dir =
-            std::env::temp_dir().join(format!("pipedash-empty-vault-{}", std::process::id()));
-        let mut config = PipedashConfig::default();
-        config.storage.backend = StorageBackendType::Sqlite;
-        config.storage.data_dir = data_dir.display().to_string();
-        config.storage.vault_password = Some(TOKEN.into());
-        let state = AppState::config_error(Arc::new(WebSocketEventBus::new()), "test".into());
-        state.inner.write().await.storage_manager =
-            Some(StorageManager::from_config(config, false).await.unwrap());
-        state.set_api_token(TOKEN);
-        let app = app(state.clone(), None);
-
-        for uri in ["/api/v1/vault/lock", "/api/v1/vault/unlock"] {
-            assert_eq!(
-                send(&app, Method::POST, uri, None).await,
-                StatusCode::UNAUTHORIZED,
-                "{uri}"
-            );
-        }
-        send(&app, Method::POST, "/api/v1/vault/unlock", Some(TOKEN)).await;
-
-        assert_eq!(state.api_token().as_deref(), Some(TOKEN));
-        assert_eq!(
-            send(
-                &app,
-                Method::GET,
-                "/api/v1/providers",
-                Some("wrong-password")
-            )
-            .await,
-            StatusCode::UNAUTHORIZED
-        );
-        assert_api_still_requires_token(&app).await;
-        let _ = std::fs::remove_dir_all(&data_dir);
-    }
-
-    #[test]
-    fn bearer_matches_accepts_exact_token() {
-        assert!(bearer_matches(
-            Some("Bearer operator-secret"),
-            "operator-secret"
-        ));
-    }
-
-    #[test]
-    fn bearer_matches_rejects_missing_wrong_and_partial_tokens() {
-        for auth_header in [
-            None,
-            Some("operator-secret"),
-            Some("Bearer "),
-            Some("Bearer wrong"),
-            Some("Bearer operator"),
-            Some("Bearer operator-secret-extra"),
-        ] {
-            assert!(
-                !bearer_matches(auth_header, "operator-secret"),
-                "accepted {auth_header:?}"
-            );
-        }
-    }
 
     fn server_config(bind_addr: &str, cors_allow_all: bool) -> ServerConfig {
         ServerConfig {
@@ -912,36 +559,6 @@ mod tests {
         let status = websocket_handshake(false, &[("Origin", "http://evil.example")]).await;
 
         assert!(status.contains(" 101"), "{status}");
-    }
-
-    #[tokio::test]
-    async fn only_get_downloads_skip_the_token() {
-        let app = app_with_token();
-
-        assert_eq!(
-            send(
-                &app,
-                Method::POST,
-                "/api/v1/pipelines/p/runs/1/logs/n/download-ticket",
-                None
-            )
-            .await,
-            StatusCode::UNAUTHORIZED
-        );
-        assert_eq!(
-            send(&app, Method::GET, "/api/v1/downloads/abc", None).await,
-            StatusCode::NOT_FOUND
-        );
-        for method in [Method::POST, Method::DELETE] {
-            assert_eq!(
-                send(&app, method, "/api/v1/downloads/abc", None).await,
-                StatusCode::UNAUTHORIZED
-            );
-        }
-        assert_eq!(
-            send(&app, Method::GET, "/api/v1/pipelines/p/runs/1/logs", None).await,
-            StatusCode::UNAUTHORIZED
-        );
     }
 
     #[test]

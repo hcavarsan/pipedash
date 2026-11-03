@@ -10,6 +10,7 @@ import { ProvidersSection } from '../../providers/components/ProvidersSection'
 import { ProviderTransferActions } from '../../providers/components/ProviderTransferActions'
 import { AboutSection } from './AboutSection'
 import { CacheSection } from './CacheSection'
+import { DevicesSection } from './DevicesSection'
 import { GeneralSection } from './GeneralSection'
 import { SettingsMobileTabs } from './SettingsMobileTabs'
 import { StorageSection } from './StorageSection'
@@ -25,6 +26,7 @@ const SECTION_CONTENT: Record<SettingsSection, SectionContent> = {
   general: (onRefresh) => <GeneralSection onRefresh={onRefresh} />,
   notifications: () => <NotificationsSection />,
   providers: () => <ProvidersSection />,
+  devices: () => <DevicesSection />,
   metrics: () => <MetricsSection />,
   cache: (onRefresh) => <CacheSection onRefresh={onRefresh} />,
   storage: () => <StorageSection />,

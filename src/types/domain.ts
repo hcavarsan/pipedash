@@ -816,6 +816,7 @@ export interface NotificationTarget {
 export type NativeIntent =
   | ({ type: 'notification'; action: string } & Partial<NotificationTarget>)
   | { type: 'link'; path: string; runNumber?: number }
+  | { type: 'pair'; link: string }
 
 export interface PushServer {
   id: string
@@ -842,4 +843,38 @@ export interface MobileDevice {
 export interface MobileDevicesResponse {
   relay_configured: boolean
   subscriptions: MobileDevice[]
+}
+
+export type DevicePlatform = 'macos' | 'windows' | 'linux' | 'ios' | 'android'
+
+export interface PairedDevice {
+  id: string
+  name: string
+  platform: DevicePlatform
+  created_at: string
+  last_seen_at: string | null
+  current: boolean
+  removable: boolean
+}
+
+export interface PairingCode {
+  code: string
+  link: string
+  server_url: string
+  expires_at: string
+  loopback: boolean
+  qr_svg: string
+}
+
+export interface RemoteResponse {
+  status: number
+  body: string
+}
+
+export interface SharingStatus {
+  enabled: boolean
+  running: boolean
+  url: string | null
+  error: string | null
+  errorCode: 'PORT_IN_USE' | 'NO_NETWORK' | null
 }

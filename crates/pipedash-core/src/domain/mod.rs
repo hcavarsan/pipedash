@@ -2,6 +2,7 @@ pub mod credential;
 pub mod error;
 pub mod health;
 pub mod metrics;
+pub mod pairing;
 pub mod pipeline;
 pub mod pipeline_view;
 pub mod provider;
@@ -48,6 +49,10 @@ pub use metrics::{
     MetricsQuery,
     MetricsStats,
     PipelineMetricsStats,
+};
+pub use pairing::{
+    PairedDevice,
+    ServerUrl,
 };
 pub use pipeline::{
     PaginatedAvailablePipelines,

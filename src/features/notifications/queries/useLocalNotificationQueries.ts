@@ -8,6 +8,7 @@ import {
 import { useEffect } from 'react'
 
 import { queryKeys } from '../../../lib/queryKeys'
+import { hasLocalCore } from '../../../services/connection'
 import { mobileService } from '../../../services/mobile'
 import type { LocalNotificationSettings } from '../../../types/domain'
 import { displayErrorNotification } from '../../../utils/errorDisplay'
@@ -19,7 +20,7 @@ export function useLocalNotificationSettings(): UseQueryResult<LocalNotification
   return useQuery({
     queryKey: queryKeys.localNotifications.settings(),
     queryFn: () => mobileService.getLocalNotificationSettings(),
-    enabled: isMobilePlatform(),
+    enabled: isMobilePlatform() && hasLocalCore(),
     staleTime: 0,
     retry: false,
   })
@@ -44,7 +45,7 @@ export function useSetLocalNotifications(): UseMutationResult<LocalNotificationS
 export function useLocalNotificationsLifecycle(): void {
   const queryClient = useQueryClient()
   useEffect(() => {
-    if (!isMobilePlatform()) {
+    if (!(isMobilePlatform() && hasLocalCore())) {
       return
     }
     const refresh = () => {

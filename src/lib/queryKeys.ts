@@ -130,4 +130,14 @@ export const queryKeys = {
     all: ['platform'] as const,
     current: () => [...queryKeys.platform.all, 'current'] as const,
   },
+
+  devices: {
+    all: ['devices'] as const,
+    list: () => [...queryKeys.devices.all, 'list'] as const,
+  },
+
+  sharing: {
+    all: ['sharing'] as const,
+    status: () => [...queryKeys.sharing.all, 'status'] as const,
+  },
 } as const

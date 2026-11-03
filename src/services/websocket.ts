@@ -334,4 +334,6 @@ export const WS_EVENTS = {
   PIPELINE_TRIGGERED: 'pipeline-triggered',
   RUN_CANCELLED: 'run-cancelled',
   CONNECTION_STATUS: 'connection-status',
+  DEVICE_PAIRED: 'device-paired',
+  DEVICE_REVOKED: 'device-revoked',
 } as const

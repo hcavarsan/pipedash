@@ -7,7 +7,7 @@ import { useLockVault, useVaultStatus } from '../../../queries/useVaultQueries'
 import { lockMeansSomething } from '../../../utils/appLock'
 
 const GROUPS: SettingsSection[][] = [
-  ['general', 'notifications', 'providers'],
+  ['general', 'notifications', 'providers', 'devices'],
   ['metrics', 'cache', 'storage'],
   ['about'],
 ]

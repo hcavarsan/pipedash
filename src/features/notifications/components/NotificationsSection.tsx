@@ -5,6 +5,7 @@ import {
   useSetLocalNotifications,
 } from '@/features/notifications/queries/useLocalNotificationQueries'
 import { isMobileShell, useMobileShell } from '@/hooks/useIsMobile'
+import { hasLocalCore } from '@/services/connection'
 import { isTauri } from '@/services/isTauri'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { openConfirm } from '@/utils/confirm'
@@ -43,7 +44,7 @@ function confirmBackgroundAccess(system: string): Promise<boolean> {
 
 export function NotificationsSection(): ReactNode {
   const mobileShell = useMobileShell()
-  const background = isMobilePlatform()
+  const background = isMobilePlatform() && hasLocalCore()
   const system = isAndroidPlatform() ? 'Android' : 'iOS'
   const storeEnabled = useNotificationStore((s) => s.notificationsEnabled)
   const setStoreEnabled = useNotificationStore((s) => s.setNotificationsEnabled)

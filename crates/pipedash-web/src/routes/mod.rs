@@ -1,4 +1,5 @@
 mod cache;
+mod devices;
 pub mod health;
 mod metrics;
 mod pipeline_views;
@@ -35,6 +36,7 @@ pub fn api_router() -> Router<AppState> {
         .nest("/pipeline-views", pipeline_views::router())
         .nest("/plugins", plugins::router())
         .nest("/cache", cache::router())
+        .nest("/devices", devices::router())
         .nest("/metrics", metrics::router())
         .nest("/preferences", preferences::router())
         .nest("/refresh", refresh::router())

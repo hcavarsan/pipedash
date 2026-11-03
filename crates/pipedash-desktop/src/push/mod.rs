@@ -9,6 +9,7 @@ use std::sync::{
 };
 
 use chrono::Utc;
+use pipedash_core::domain::ServerUrl;
 use pipedash_core::infrastructure::HttpClientManager;
 use pipedash_plugin_api::ClientOptions;
 use reqwest::{
@@ -192,44 +193,9 @@ async fn call(peer: &Peer<'_>, request: RequestBuilder, allow_missing: bool) -> 
     Err(status_error(peer, status.as_u16(), code.as_deref()))
 }
 
-#[derive(Debug, PartialEq)]
-struct NormalizedUrl {
-    url: String,
-    host: String,
-}
-
-fn normalize_server_url(input: &str) -> Result<NormalizedUrl> {
-    let parsed =
-        reqwest::Url::parse(input.trim()).map_err(|_| PushError::InvalidUrl("not a valid URL"))?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return Err(PushError::InvalidUrl("must start with http:// or https://"));
-    }
-    let host = parsed
-        .host_str()
-        .filter(|host| !host.is_empty())
-        .ok_or(PushError::InvalidUrl("missing host"))?;
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err(PushError::InvalidUrl("must not contain credentials"));
-    }
-    if parsed.query().is_some() || parsed.fragment().is_some() {
-        return Err(PushError::InvalidUrl(
-            "must not contain a query or fragment",
-        ));
-    }
-    let port = parsed
-        .port()
-        .map(|port| format!(":{port}"))
-        .unwrap_or_default();
-    let path = parsed.path().trim_end_matches('/');
-    Ok(NormalizedUrl {
-        url: format!("{}://{host}{port}{path}", parsed.scheme()),
-        host: host.to_owned(),
-    })
-}
-
 fn host_of(url: &str) -> String {
-    normalize_server_url(url)
-        .map(|normalized| normalized.host)
+    ServerUrl::parse(url)
+        .map(|parsed| parsed.host)
         .unwrap_or_else(|_| "the server".to_owned())
 }
 
@@ -410,7 +376,7 @@ async fn pair(
     app: &AppHandle, dir: &Path, server_url: &str, api_token: &str, label: Option<&str>,
 ) -> Result<()> {
     let _state = STATE_LOCK.lock().await;
-    let target = normalize_server_url(server_url)?;
+    let target = ServerUrl::parse(server_url).map_err(PushError::InvalidUrl)?;
     let api_token = api_token.trim();
     if api_token.is_empty() {
         return Err(PushError::EmptyToken);
@@ -628,53 +594,6 @@ mod stub;
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn normalized(input: &str) -> String {
-        normalize_server_url(input).unwrap().url
-    }
-
-    #[test]
-    fn normalizes_accepted_urls() {
-        assert_eq!(
-            normalized("  HTTPS://CI.Example.COM/  "),
-            "https://ci.example.com"
-        );
-        assert_eq!(normalized("http://10.0.0.5:8080"), "http://10.0.0.5:8080");
-        assert_eq!(
-            normalized("https://host/Base/path//"),
-            "https://host/Base/path"
-        );
-        assert_eq!(normalized("https://host:443/x/"), "https://host/x");
-        assert_eq!(normalized("http://[::1]:3000/"), "http://[::1]:3000");
-    }
-
-    #[test]
-    fn reports_the_host() {
-        let n = normalize_server_url("https://User.example.com:8443/a").unwrap();
-        assert_eq!(n.host, "user.example.com");
-    }
-
-    #[test]
-    fn rejects_unusable_urls() {
-        for input in [
-            "",
-            "   ",
-            "ci.example.com",
-            "ftp://ci.example.com",
-            "mailto:a@b.c",
-            "https://",
-            "https://user@ci.example.com",
-            "https://user:pw@ci.example.com",
-            "https://ci.example.com?a=1",
-            "https://ci.example.com/#frag",
-            "https://ci.example.com/?",
-        ] {
-            assert!(
-                matches!(normalize_server_url(input), Err(PushError::InvalidUrl(_))),
-                "{input:?} should be rejected"
-            );
-        }
-    }
 
     #[test]
     fn labels_default_to_host_and_are_capped() {

@@ -1,11 +1,12 @@
 import { apiService } from './api'
+import { hasLocalCore } from './connection'
 import { isTauri } from './isTauri'
 import { tauriService } from './tauri'
 import { WS_EVENTS, wsClient } from './websocket'
 
 export type PipedashService = Omit<typeof tauriService, 'setRefreshMode' | 'showSystemNotification'>
 
-export const service: PipedashService = isTauri() ? tauriService : apiService
+export const service: PipedashService = hasLocalCore() ? tauriService : apiService
 
 export const events = {
   onPipelinesUpdated: async <T = unknown>(callback: (payload: T) => void): Promise<() => void> => {

@@ -27,6 +27,7 @@ impl ApiError {
     }
 }
 
+#[derive(Debug)]
 pub struct AppError {
     pub status: StatusCode,
     pub error: ApiError,
