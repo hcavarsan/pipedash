@@ -80,6 +80,8 @@ pipedash-plugin-jenkins = { version = "0.8.0", path = "crates/pipedash-plugin-je
 pipedash-plugin-komodo = { version = "0.8.0", path = "crates/pipedash-plugin-komodo" }
 pipedash-plugin-prow = { version = "0.8.0", path = "crates/pipedash-plugin-prow" }
 pipedash-plugin-tekton = { version = "0.8.0", path = "crates/pipedash-plugin-tekton" }
+pipedash-web = { version = "0.8.0", path = "crates/pipedash-web", default-features = false }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.10"
 regex = "1.13"
 reqwest = { version = "0.13", default-features = false, features = [
@@ -90,6 +92,7 @@ reqwest = { version = "0.13", default-features = false, features = [
 ring = "0.17"
 rust-embed = "8.13"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls-platform-verifier = "0.7"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde-saphyr = "2.0.0"
@@ -106,6 +109,7 @@ sqlx = { version = "0.9", features = [
 subtle = "2.6"
 tauri = "2"
 tauri-build = "2"
+tauri-plugin-barcode-scanner = "2"
 tauri-plugin-biometric = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -117,6 +121,10 @@ tauri-plugin-pipedash-push = { path = "crates/tauri-plugin-pipedash-push" }
 tempfile = "3.27"
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = [
+  "connect",
+  "rustls-tls-webpki-roots",
+] }
 tokio-util = "0.7"
 toml = "1.1"
 toml_edit = "0.25"

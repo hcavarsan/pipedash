@@ -1,5 +1,6 @@
 use std::path::Path;
 
+mod device_repository;
 mod metrics_repository;
 mod pipeline_view_repository;
 mod push_repository;
@@ -10,6 +11,7 @@ mod sqlite_backend;
 #[cfg(feature = "postgres")]
 mod postgres_backend;
 
+pub use device_repository::DeviceRepository;
 pub use metrics_repository::{
     MetricsRepository,
     RecordMetrics,

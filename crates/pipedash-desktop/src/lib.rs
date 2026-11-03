@@ -7,11 +7,13 @@ mod core_boot;
 mod credential;
 mod export_file;
 pub mod fallback_store;
+mod host;
 pub mod keyring_store;
 mod local_notifications;
 mod native;
 mod pipeline_views;
 mod push;
+mod remote;
 mod run_logs;
 mod sign_in;
 mod system_notifications;
@@ -83,7 +85,9 @@ fn install_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-fn ensure_desktop_config(app_data_dir: &Path, config_path: &Path) -> Result<bool, String> {
+pub(crate) fn ensure_desktop_config(
+    app_data_dir: &Path, config_path: &Path,
+) -> Result<bool, String> {
     if config_path.exists() {
         return Ok(false);
     }
@@ -194,6 +198,7 @@ impl MaybeCoreContext {
 use app_lock::{
     set_app_lock,
     unlock_with_biometrics,
+    AppLockSettings,
     AppLockState,
 };
 use build_watch::{
@@ -282,6 +287,14 @@ use export_file::{
     export_run_log,
     save_export_file,
 };
+use host::{
+    create_pairing_code,
+    get_sharing_status,
+    list_paired_devices,
+    remove_paired_device,
+    reset_sharing_port,
+    set_sharing,
+};
 use pipeline_views::{
     create_pipeline_view,
     delete_pipeline_view,
@@ -301,6 +314,17 @@ use push::{
     push_pair_server,
     push_send_test,
     push_unpair_server,
+};
+use remote::{
+    disconnect_server,
+    get_connection,
+    pair_with_server,
+    reconnect_server,
+    remote_request,
+    remote_save_download,
+    run_on_this_device,
+    set_allow_private_http,
+    SavedMode,
 };
 use run_logs::{
     clear_run_logs_cache,
@@ -353,7 +377,11 @@ pub fn run() {
     #[cfg(mobile)]
     let builder = builder
         .plugin(tauri_plugin_biometric::init())
-        .on_window_event(app_lock::handle_window_event);
+        .plugin(tauri_plugin_barcode_scanner::init())
+        .on_window_event(|window, event| {
+            app_lock::handle_window_event(window, event);
+            remote::handle_window_event(window, event);
+        });
 
     builder
         .setup(|app| {
@@ -384,19 +412,24 @@ pub fn run() {
             let config_path = app_data_dir.join("config.toml");
             std::env::set_var("PIPEDASH_CONFIG_PATH", config_path.as_os_str());
             tracing::info!("Set PIPEDASH_CONFIG_PATH to: {}", config_path.display());
+            let saved = remote::startup_mode(&app_data_dir, &config_path);
 
-            match ensure_desktop_config(&app_data_dir, &config_path) {
-                Ok(true) => {
-                    tracing::info!("Desktop config initialized - proceeding with normal startup");
-                }
-                Ok(false) => {
-                    tracing::debug!("Config already exists - using existing configuration");
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "Failed to ensure desktop config: {}. This is unexpected for desktop.",
-                        e
-                    );
+            if matches!(saved.mode, SavedMode::Standalone) {
+                match ensure_desktop_config(&app_data_dir, &config_path) {
+                    Ok(true) => {
+                        tracing::info!(
+                            "Desktop config initialized - proceeding with normal startup"
+                        );
+                    }
+                    Ok(false) => {
+                        tracing::debug!("Config already exists - using existing configuration");
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to ensure desktop config: {}. This is unexpected for desktop.",
+                            e
+                        );
+                    }
                 }
             }
 
@@ -415,32 +448,58 @@ pub fn run() {
                 }
             }
 
-            let setup_complete = config_path.exists();
+            let setup_complete =
+                matches!(saved.mode, SavedMode::Standalone) && config_path.exists();
             let app_lock = AppLockState::load(&app_data_dir, app_lock::SUPPORTED, setup_complete);
             let start_locked = app_lock.locked();
-            let lock_settings = app_lock.settings();
+            let lock_settings = if matches!(saved.mode, SavedMode::Client { .. }) {
+                AppLockSettings::default()
+            } else {
+                app_lock.settings()
+            };
 
             app.manage(AppDataDir(app_data_dir.clone()));
             app.manage(MaybeCoreContext::default());
             app.manage(app_lock);
+            app.manage(remote::RemoteConnection::new(saved.clone()));
+            #[cfg(desktop)]
+            {
+                app.manage(host::HostEvents::default());
+                app.manage(host::HostState::load(&app_data_dir));
+            }
             native::sync_privacy_cover(app.handle(), lock_settings);
             #[cfg(target_os = "android")]
             local_notifications::set_storage_dir(&app_data_dir);
             local_notifications::register(app.handle())?;
 
-            if !setup_complete {
-                tracing::info!("No configuration found - starting in setup mode");
-                tracing::info!("Setup wizard will be shown to complete initial configuration");
-            } else if start_locked {
-                tracing::info!("App lock enabled - starting locked; the core loads after unlock");
-            } else {
-                tracing::info!("Configuration found - initializing application");
+            match saved.mode {
+                SavedMode::Unset => {
+                    tracing::info!("No run mode chosen - waiting for onboarding");
+                }
+                SavedMode::Client { .. } => remote::start(app.handle()),
+                SavedMode::Standalone => {
+                    if !setup_complete {
+                        tracing::info!("No configuration found - starting in setup mode");
+                        tracing::info!(
+                            "Setup wizard will be shown to complete initial configuration"
+                        );
+                    } else if start_locked {
+                        tracing::info!(
+                            "App lock enabled - starting locked; the core loads after unlock"
+                        );
+                    } else {
+                        tracing::info!("Configuration found - initializing application");
 
-                core_boot::launch_outcome(tauri::async_runtime::block_on(core_boot::boot_core(
-                    app.handle(),
-                    BootKind::Launch,
-                    false,
-                )))?;
+                        core_boot::launch_outcome(tauri::async_runtime::block_on(
+                            core_boot::boot_core(app.handle(), BootKind::Launch, false),
+                        ))?;
+                    }
+
+                    let handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        host::start_if_enabled(&handle).await;
+                    });
+                }
             }
 
             system_notifications::register(app.handle())?;
@@ -558,6 +617,20 @@ pub fn run() {
             push_pair_server,
             push_unpair_server,
             push_send_test,
+            get_connection,
+            run_on_this_device,
+            pair_with_server,
+            disconnect_server,
+            reconnect_server,
+            set_allow_private_http,
+            remote_request,
+            remote_save_download,
+            get_sharing_status,
+            set_sharing,
+            reset_sharing_port,
+            list_paired_devices,
+            create_pairing_code,
+            remove_paired_device,
             local_notifications::get_local_notification_settings,
             local_notifications::set_local_notifications_enabled,
             system_notifications::show_system_notification,

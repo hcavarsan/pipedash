@@ -24,6 +24,12 @@ function openPipeline(navigate: NavigateFunction, pipelineId: string, from: stri
 }
 
 function handleIntent(navigate: NavigateFunction, intent: NativeIntent) {
+  if (intent.type === 'pair') {
+    void navigate('/connect', { state: { link: intent.link } })
+
+    return
+  }
+
   if (intent.type === 'link') {
     if (intent.path.startsWith('/pipelines/')) {
       openPipeline(

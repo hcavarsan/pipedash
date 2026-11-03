@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core'
+
 import { API_TIMEOUTS, REFRESH_TIMEOUT_MS } from '../constants/timeouts'
 import { withBasePath } from '../lib/basePath'
 import { logger } from '../lib/logger'
@@ -9,6 +11,7 @@ import type {
   ConfigAnalysisResponse,
   ConfigContentResponse,
   CreateViewInput,
+  ExportFileResult,
   FeatureAvailability,
   GeneralConfig,
   GlobalMetricsConfig,
@@ -25,6 +28,8 @@ import type {
   Organization,
   PaginatedAvailablePipelines,
   PaginatedRunHistory,
+  PairedDevice,
+  PairingCode,
   PermissionCheckResult,
   PermissionStatus,
   PinKind,
@@ -40,6 +45,7 @@ import type {
   ProviderImportResult,
   ProviderSummary,
   RefreshResult,
+  RemoteResponse,
   ReviewDecision,
   SetupStatus,
   SignInStart,
@@ -56,11 +62,22 @@ import type {
   ViewRef,
   WorkflowParameter,
 } from '../types/domain'
-import { getErrorCode, getHttpStatus } from '../types/errors'
+import { formatErrorMessage, getErrorCode, getHttpStatus } from '../types/errors'
 import type { LogLinesPage, LogSearchQuery, LogSearchResult, RunLogDocument, RunLogTree } from '../types/logs'
 import { DEFAULT_RETRY_CONFIG, withRetry } from '../utils/retryLogic'
 
+import { getConnection, isRemoteClient } from './connection'
+import { promptLogDestination, tauriService } from './tauri'
+
 const API_BASE = import.meta.env.VITE_API_URL || withBasePath('/api/v1')
+
+export function apiServerUrl(): string {
+  if (isRemoteClient()) {
+    return getConnection().serverUrl ?? ''
+  }
+
+  return new URL(API_BASE, window.location.href).href.replace(/\/api\/v1\/?$/, '')
+}
 
 interface RequestOptions {
   timeoutMs?: number | undefined
@@ -146,6 +163,41 @@ class ApiClient {
     }
   }
 
+  private async remoteFetch(
+    method: string,
+    path: string,
+    body: string | undefined,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<Response> {
+    if (signal?.aborted) {
+      throw signal.reason
+    }
+
+    let res: RemoteResponse
+
+    try {
+      res = await invoke<RemoteResponse>('remote_request', { method, path, body, timeoutMs })
+    } catch (error) {
+      const message = formatErrorMessage(error)
+
+      switch (getErrorCode(error)) {
+        case 'UNREACHABLE':
+          throw new TypeError(message)
+        case 'TIMEOUT':
+          throw new Error(`Request timeout after ${timeoutMs}ms`)
+        default:
+          throw new Error(message)
+      }
+    }
+
+    if (signal?.aborted) {
+      throw signal.reason
+    }
+
+    return new Response(res.body || null, { status: res.status })
+  }
+
   private async send(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<string> {
     return withRetry(
       async () => {
@@ -157,23 +209,27 @@ class ApiClient {
         if (token) {
           headers.Authorization = `Bearer ${token}`
         }
-        const res = await this.fetchWithTimeout(
-          `${API_BASE}${path}`,
-          {
-            method,
-            headers,
-            ...(body ? { body: JSON.stringify(body) } : {}),
-          },
-          options.timeoutMs ?? getTimeoutFor(method, path),
-          options.signal
-        )
+        const payload = body ? JSON.stringify(body) : undefined
+        const timeoutMs = options.timeoutMs ?? getTimeoutFor(method, path)
+        const res = isRemoteClient()
+          ? await this.remoteFetch(method, path, payload, timeoutMs, options.signal)
+          : await this.fetchWithTimeout(
+              `${API_BASE}${path}`,
+              {
+                method,
+                headers,
+                ...(payload ? { body: payload } : {}),
+              },
+              timeoutMs,
+              options.signal
+            )
 
         if (res.ok) {
           useAuthStore.getState().resetFailures()
         }
 
         if (!res.ok) {
-          if (res.status === 401) {
+          if (res.status === 401 && !isRemoteClient()) {
             useAuthStore.getState().incrementFailure()
           }
           const errorText = await res.text()
@@ -359,6 +415,14 @@ class ApiClient {
   }
 
   private async openSignIn(path: string, body?: unknown): Promise<SignInStart> {
+    if (isRemoteClient()) {
+      const start = await this.post<SignInStart>(path, body)
+
+      await tauriService.openUrl(start.authorize_url)
+
+      return start
+    }
+
     const tab = window.open('', '_blank')
 
     try {
@@ -472,6 +536,10 @@ class ApiClient {
   }
 
   async openUrl(url: string): Promise<void> {
+    if (isRemoteClient()) {
+      return tauriService.openUrl(url)
+    }
+
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
@@ -557,6 +625,13 @@ class ApiClient {
     revision: number,
     fileName: string
   ): Promise<boolean> {
+    const remote = isRemoteClient()
+    const destination = remote ? await promptLogDestination(fileName) : null
+
+    if (destination === undefined) {
+      return false
+    }
+
     const { ticket } = await this.post<{ ticket: string }>(
       `${runLogPath(pipelineId, runNumber, nodeId)}/download-ticket`,
       {
@@ -564,6 +639,11 @@ class ApiClient {
         file_name: fileName,
       }
     )
+
+    if (remote) {
+      return (await invoke<ExportFileResult>('remote_save_download', { ticket, fileName, destination })).shared
+    }
+
     const link = document.createElement('a')
 
     link.href = `${API_BASE}/downloads/${ticket}`
@@ -841,6 +921,18 @@ class ApiClient {
 
   async testMobileDevice(id: string): Promise<void> {
     await this.requestVoid('POST', `/push/subscriptions/${encodeURIComponent(id)}/test`)
+  }
+
+  async listPairedDevices(): Promise<PairedDevice[]> {
+    return (await this.get<{ devices: PairedDevice[] }>('/devices')).devices
+  }
+
+  async createPairingCode(): Promise<PairingCode> {
+    return this.post<PairingCode>('/devices/pairing', { server_url: apiServerUrl() })
+  }
+
+  async removePairedDevice(id: string): Promise<void> {
+    await this.requestVoid('DELETE', `/devices/${encodeURIComponent(id)}`)
   }
 }
 

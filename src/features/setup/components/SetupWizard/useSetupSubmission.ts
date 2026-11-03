@@ -7,7 +7,7 @@ import {
   useSaveStorageConfig,
 } from '../../../../queries/useStorageQueries'
 import { useUnlockVault } from '../../../../queries/useVaultQueries'
-import { isTauri } from '../../../../services/isTauri'
+import { hasLocalCore } from '../../../../services/connection'
 import type { MigrationResult, StorageConfigResponse } from '../../../../types/domain'
 import { formatErrorMessage } from '../../../../types/errors'
 
@@ -66,7 +66,7 @@ export function useSetupSubmission({
   const currentDataDir = currentConfig?.config.storage.data_dir || defaultDataDir
   const shouldUseDefaultDir =
     draft.dataDir === defaultDataDir ||
-    (isTauri() &&
+    (hasLocalCore() &&
       needsMigration &&
       currentDataDir.includes('com.henrique.pipedash') &&
       draft.dataDir === currentDataDir)

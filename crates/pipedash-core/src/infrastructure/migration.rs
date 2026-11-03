@@ -40,6 +40,7 @@ use crate::infrastructure::token_store::TokenStore;
 use crate::infrastructure::{
     database::{
         DatabasePool,
+        DeviceRepository,
         MetricsRepository,
         PipelineViewRepository,
         PushRepository,
@@ -710,6 +711,22 @@ impl MigrationOrchestrator {
                         "[Migration] Migrated {} push subscriptions",
                         subscriptions.len()
                     );
+                }
+
+                if !same_database(&plan.from, &plan.to) {
+                    let devices = DeviceRepository::new(self.source_pool.clone())
+                        .list()
+                        .await?;
+                    let target_devices = DeviceRepository::new(target_manager.database_pool());
+                    target_devices.import(&devices).await?;
+                    if options.clean_target {
+                        for stale in target_devices.list().await? {
+                            if !devices.iter().any(|d| d.id == stale.id) {
+                                target_devices.delete(&stale.id).await?;
+                            }
+                        }
+                    }
+                    tracing::info!("[Migration] Migrated {} paired devices", devices.len());
                 }
 
                 if !same_database(&plan.from, &plan.to) {

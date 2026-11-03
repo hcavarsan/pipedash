@@ -20,6 +20,7 @@ import { useMobileShell } from '@/hooks/useIsMobile'
 import { logger } from '@/lib/logger'
 import { queryKeys } from '@/lib/queryKeys'
 import { useStorageConfig } from '@/queries/useStorageQueries'
+import { isRemoteClient } from '@/services/connection'
 import { service } from '@/services/service'
 import type { GeneralConfig } from '@/types/domain'
 import { displayErrorNotification } from '@/utils/errorDisplay'
@@ -152,15 +153,17 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
 
         {proxyForm}
 
-        <IosGroup footer="Permanently delete all application data">
-          <IosRow
-            title="Factory reset"
-            destructive
-            disabled={isResetting}
-            onClick={confirmReset}
-            accessory={isResetting ? <Loader size={18} color="red" aria-hidden /> : undefined}
-          />
-        </IosGroup>
+        {!isRemoteClient() && (
+          <IosGroup footer="Permanently delete all application data">
+            <IosRow
+              title="Factory reset"
+              destructive
+              disabled={isResetting}
+              onClick={confirmReset}
+              accessory={isResetting ? <Loader size={18} color="red" aria-hidden /> : undefined}
+            />
+          </IosGroup>
+        )}
       </Stack>
     )
   }
@@ -210,31 +213,33 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
         </Stack>
       </Card>
 
-      <Card padding="md">
-        <Stack gap="md">
-          <Stack gap={0}>
-            <Text size="sm" fw={600} c="red">
-              Danger zone
-            </Text>
-            <Text size="xs" c="dimmed">
-              Permanently delete all application data
-            </Text>
+      {!isRemoteClient() && (
+        <Card padding="md">
+          <Stack gap="md">
+            <Stack gap={0}>
+              <Text size="sm" fw={600} c="red">
+                Danger zone
+              </Text>
+              <Text size="xs" c="dimmed">
+                Permanently delete all application data
+              </Text>
+            </Stack>
+
+            <Divider />
+
+            <Button
+              leftSection={<IconTrash size={16} aria-hidden />}
+              variant="light"
+              color="red"
+              fullWidth
+              onClick={confirmReset}
+              loading={isResetting}
+            >
+              Factory reset
+            </Button>
           </Stack>
-
-          <Divider />
-
-          <Button
-            leftSection={<IconTrash size={16} aria-hidden />}
-            variant="light"
-            color="red"
-            fullWidth
-            onClick={confirmReset}
-            loading={isResetting}
-          >
-            Factory reset
-          </Button>
-        </Stack>
-      </Card>
+        </Card>
+      )}
     </Stack>
   )
 }

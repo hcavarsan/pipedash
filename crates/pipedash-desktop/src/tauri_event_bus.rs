@@ -8,6 +8,7 @@ use pipedash_core::event::{
 use tauri::{
     AppHandle,
     Emitter,
+    Manager,
     Runtime,
 };
 
@@ -34,6 +35,10 @@ impl<R: Runtime + 'static> EventBus for TauriEventBus<R> {
         let event_name = event.event_name();
         if let Err(e) = self.app_handle.emit(event_name, event.to_json_payload()) {
             tracing::error!("Failed to emit event '{}': {}", event_name, e);
+        }
+        #[cfg(desktop)]
+        if let Some(host) = self.app_handle.try_state::<crate::host::HostEvents>() {
+            let _ = host.0.send(event);
         }
     }
 

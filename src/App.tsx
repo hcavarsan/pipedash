@@ -21,6 +21,12 @@ const UnlockRoute = lazy(() =>
   }))
 )
 
+const ConnectServerScreen = lazy(() =>
+  import('./features/connection/components/ConnectServerScreen').then((m) => ({
+    default: m.ConnectServerScreen,
+  }))
+)
+
 const SetupWizard = lazy(() =>
   import('./features/setup/components/SetupWizard/SetupWizard').then((m) => ({
     default: m.SetupWizard,
@@ -122,6 +128,15 @@ export function App(): ReactNode {
         element={
           <LazyRoute>
             <UnlockRoute />
+          </LazyRoute>
+        }
+      />
+
+      <Route
+        path="/connect"
+        element={
+          <LazyRoute>
+            <ConnectServerScreen />
           </LazyRoute>
         }
       />

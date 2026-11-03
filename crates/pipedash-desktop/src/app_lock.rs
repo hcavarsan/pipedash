@@ -343,6 +343,7 @@ pub async fn lock_session(app: &AppHandle) {
     let _transition = lock.transition().await;
 
     let core = app.state::<MaybeCoreContext>().0.write().await.take();
+    crate::host::core_changed(app, None).await;
     std::env::remove_var(VAULT_PASSWORD_ENV);
     lock.set_locked(true);
     crate::build_watch::interrupt(app);
@@ -357,6 +358,12 @@ pub async fn lock_session(app: &AppHandle) {
 
 #[cfg_attr(not(mobile), allow(dead_code))]
 async fn lock_on_resume(app: &AppHandle) {
+    if app
+        .try_state::<crate::remote::RemoteConnection>()
+        .is_some_and(|remote| remote.is_client())
+    {
+        return;
+    }
     #[cfg(target_os = "android")]
     if app
         .pipedash_native()

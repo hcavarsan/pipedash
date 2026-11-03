@@ -2027,6 +2027,15 @@ pub async fn factory_reset(
 
     let providers_removed = core.factory_reset().await?;
 
+    let devices = core.devices();
+    let paired = devices.list().await?;
+    devices.delete_all().await?;
+    for device in paired {
+        core.event_bus
+            .emit(pipedash_core::event::CoreEvent::DeviceRevoked { id: device.id })
+            .await;
+    }
+
     crate::push::reset(&app_data_dir.0).await?;
     app_lock::reset(&app, &lock)?;
 
