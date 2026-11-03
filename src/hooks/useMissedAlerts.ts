@@ -30,10 +30,6 @@ export function useMissedAlerts(): void {
       mobileService
         .takeMissedAlerts()
         .then((alerts) => {
-          if (!active) {
-            return
-          }
-
           const { push } = useNotificationCenterStore.getState()
 
           for (const alert of alerts) {

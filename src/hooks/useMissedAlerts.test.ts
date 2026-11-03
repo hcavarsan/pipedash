@@ -13,6 +13,7 @@ const calls: string[] = []
 let nextCallback = 0
 let batches: HostAlert[][] = []
 let failure: Error | null = null
+let gate: Promise<void> | null = null
 
 Object.assign(window, {
   __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' },
@@ -34,6 +35,9 @@ Object.assign(window, {
 
           return args.handler
         case 'take_missed_alerts':
+          if (gate) {
+            await gate
+          }
           if (failure) {
             throw failure
           }
@@ -97,6 +101,7 @@ beforeEach(() => {
   calls.length = 0
   batches = []
   failure = null
+  gate = null
 })
 
 afterEach(async () => {
@@ -123,6 +128,24 @@ test('alerts missed while away are pulled on mount, even if the connection came 
     ]
   )
   assert.equal(items.at(-1)?.at, Date.parse(failed.created_at))
+})
+
+test('alerts pulled while the view unmounts still reach the center', async () => {
+  batches = [[failed]]
+  const { promise, resolve } = Promise.withResolvers<void>()
+  gate = promise
+  let unmount: () => void = () => undefined
+
+  await act(async () => {
+    unmount = render(createElement(Probe)).unmount
+  })
+  await act(async () => unmount())
+  await act(async () => resolve())
+
+  assert.deepEqual(
+    useNotificationCenterStore.getState().items.map(({ key }) => key),
+    ['pipeline:p1']
+  )
 })
 
 test('each reconnect pulls again and other statuses do not', async () => {
