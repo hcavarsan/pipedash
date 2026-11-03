@@ -477,22 +477,6 @@ mod tests {
         assert_eq!(target.delete_all().await.unwrap(), 4);
     }
 
-    #[cfg(feature = "postgres")]
-    #[tokio::test]
-    #[ignore = "requires TEST_DATABASE_URL"]
-    async fn postgres_imported_alerts_keep_their_sequence_and_the_next_insert_follows() {
-        let url = std::env::var("TEST_DATABASE_URL")
-            .expect("TEST_DATABASE_URL must be set to run the PostgreSQL tests");
-        let pool = crate::infrastructure::database::init_postgres_database(&url)
-            .await
-            .unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let source = repository(dir.path(), "source.db").await;
-        let target = DeviceAlertRepository::new(DatabasePool::Postgres(pool));
-
-        assert_import_keeps_sequence(&source, &target).await;
-    }
-
     fn stored(seq: i64, id: &str) -> DeviceAlert {
         DeviceAlert {
             seq,
@@ -600,14 +584,17 @@ mod tests {
     #[cfg(feature = "postgres")]
     #[tokio::test]
     #[ignore = "requires TEST_DATABASE_URL"]
-    async fn postgres_merge_keeps_both_sets_and_the_next_insert_follows() {
+    async fn postgres_imports_and_merges_keep_sequences_and_the_next_insert_follows() {
         let url = std::env::var("TEST_DATABASE_URL")
             .expect("TEST_DATABASE_URL must be set to run the PostgreSQL tests");
         let pool = crate::infrastructure::database::init_postgres_database(&url)
             .await
             .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let source = repository(dir.path(), "source.db").await;
         let target = DeviceAlertRepository::new(DatabasePool::Postgres(pool));
 
+        assert_import_keeps_sequence(&source, &target).await;
         assert_merge_keeps_target_alerts_for_an_empty_source(&target).await;
         assert_merge_skips_alerts_the_target_already_has(&target).await;
         assert_merge_moves_colliding_target_alerts(&target).await;
