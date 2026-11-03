@@ -5,17 +5,7 @@ import { isRemoteClient } from '../services/connection'
 import { mobileService } from '../services/mobile'
 import { events } from '../services/service'
 import { WS_EVENTS } from '../services/websocket'
-import { type CenterNotificationTone, useNotificationCenterStore } from '../stores/notificationCenterStore'
-import type { HostAlert } from '../types/domain'
-
-const TONES: Record<HostAlert['kind'], CenterNotificationTone> = {
-  failed: 'danger',
-  degraded: 'danger',
-  long_run: 'warning',
-  outage: 'warning',
-  recovered: 'success',
-  test: 'success',
-}
+import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 
 export function useMissedAlerts(): void {
   useEffect(() => {
@@ -36,7 +26,7 @@ export function useMissedAlerts(): void {
             push({
               key: alert.key,
               at: Date.parse(alert.created_at),
-              tone: TONES[alert.kind],
+              tone: alert.tone,
               level: null,
               title: alert.title,
               body: alert.body,

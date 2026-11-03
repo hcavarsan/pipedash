@@ -89,4 +89,27 @@ final class AlertFetchTests: XCTestCase {
     XCTAssertNil(bare.providerId)
     XCTAssertNil(AlertFetch.decode(Data("{}".utf8)))
   }
+
+  func testHostConfigDecodesStandaloneAndDefaultsToFalse() throws {
+    let json = { (extra: String) in
+      Data(#"{"server_url":"https://h.example.com","token":"t","allow_private_http":false\#(extra)}"#.utf8)
+    }
+    XCTAssertTrue(try XCTUnwrap(AlertFetch.config(from: json(#","standalone":true"#))).standalone)
+    XCTAssertFalse(try XCTUnwrap(AlertFetch.config(from: json(#","standalone":false"#))).standalone)
+    XCTAssertFalse(try XCTUnwrap(AlertFetch.config(from: json(""))).standalone)
+  }
+
+  func testRouteNamespacesStandaloneAlertsAndDropsServerIds() throws {
+    let alert = try XCTUnwrap(
+      AlertFetch.decode(
+        Data(
+          #"{"id":"a","key":"pipeline:p1","kind":"failed","title":"T","body":"B","pipeline_id":"p1","provider_id":7}"#
+            .utf8)))
+    XCTAssertEqual(
+      AlertFetch.route(for: alert, standalone: true),
+      AlertRoute(key: "alert-host:pipeline:p1", pipelineId: nil, providerId: nil))
+    XCTAssertEqual(
+      AlertFetch.route(for: alert, standalone: false),
+      AlertRoute(key: "pipeline:p1", pipelineId: "p1", providerId: 7))
+  }
 }

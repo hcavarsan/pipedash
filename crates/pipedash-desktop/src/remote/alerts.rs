@@ -46,6 +46,7 @@ pub struct HostAlert {
     pub seq: i64,
     pub key: String,
     pub kind: String,
+    pub tone: String,
     pub title: String,
     pub body: String,
     pub pipeline_id: Option<String>,
@@ -388,6 +389,7 @@ mod tests {
         );
         assert_eq!(page.latest_seq, third);
         assert_eq!(page.alerts[0].kind, "failed");
+        assert_eq!(page.alerts[0].tone, "danger");
 
         let page = fetch(&alert_host, first, 20).await.unwrap();
         assert_eq!(page.alerts.len(), 1);

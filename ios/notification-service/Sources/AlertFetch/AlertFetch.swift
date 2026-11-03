@@ -4,6 +4,25 @@ public struct HostConfig: Decodable {
   public let serverUrl: String
   public let token: String
   public let allowPrivateHttp: Bool
+  public let standalone: Bool
+
+  private enum CodingKeys: String, CodingKey {
+    case serverUrl, token, allowPrivateHttp, standalone
+  }
+
+  public init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    serverUrl = try values.decode(String.self, forKey: .serverUrl)
+    token = try values.decode(String.self, forKey: .token)
+    allowPrivateHttp = try values.decode(Bool.self, forKey: .allowPrivateHttp)
+    standalone = try values.decodeIfPresent(Bool.self, forKey: .standalone) ?? false
+  }
+}
+
+public struct AlertRoute: Equatable {
+  public let key: String
+  public let pipelineId: String?
+  public let providerId: Int64?
 }
 
 public struct HostAlert: Decodable {
@@ -27,6 +46,12 @@ public enum AlertFetch {
 
   public static func config(from data: Data) -> HostConfig? {
     try? decoder.decode(HostConfig.self, from: data)
+  }
+
+  public static func route(for alert: HostAlert, standalone: Bool) -> AlertRoute {
+    standalone
+      ? AlertRoute(key: "alert-host:\(alert.key)", pipelineId: nil, providerId: nil)
+      : AlertRoute(key: alert.key, pipelineId: alert.pipelineId, providerId: alert.providerId)
   }
 
   public static func decode(_ data: Data) -> HostAlert? {

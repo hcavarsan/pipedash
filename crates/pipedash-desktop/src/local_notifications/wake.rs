@@ -18,6 +18,7 @@ use crate::push::{
 use crate::remote::alerts::{
     fetch,
     AlertPage,
+    HostAlert,
 };
 
 const HOST_PAGE: u32 = 20;
@@ -58,7 +59,24 @@ pub(super) async fn gather(
     Wake { scanned, hosted }
 }
 
-fn batch(after: i64, page: AlertPage) -> HostBatch {
+fn host_notice(alert: HostAlert, standalone: bool) -> LocalNotification {
+    let (key, pipeline_id, provider_id) = if standalone {
+        (format!("alert-host:{}", alert.key), None, None)
+    } else {
+        (alert.key, alert.pipeline_id, alert.provider_id)
+    };
+
+    LocalNotification {
+        key,
+        title: alert.title,
+        body: alert.body,
+        pipeline_id,
+        provider_id,
+        kind: AlertKind::parse(&alert.kind).unwrap_or(AlertKind::Failed),
+    }
+}
+
+fn batch(after: i64, page: AlertPage, standalone: bool) -> HostBatch {
     if after > page.latest_seq {
         return HostBatch {
             notices: Vec::new(),
@@ -74,14 +92,7 @@ fn batch(after: i64, page: AlertPage) -> HostBatch {
     let notices = page
         .alerts
         .into_iter()
-        .map(|alert| LocalNotification {
-            key: alert.key,
-            title: alert.title,
-            body: alert.body,
-            pipeline_id: alert.pipeline_id,
-            provider_id: alert.provider_id,
-            kind: AlertKind::parse(&alert.kind).unwrap_or(AlertKind::Failed),
-        })
+        .map(|alert| host_notice(alert, standalone))
         .collect();
 
     HostBatch {
@@ -146,7 +157,7 @@ pub(super) async fn fetch_host(host: &AlertHost, budget: Duration) -> Option<Hos
     let remaining = budget.saturating_sub(started.elapsed());
     match tokio::time::timeout(remaining, fetch(host, after, HOST_PAGE)).await {
         Ok(Ok(page)) => {
-            let mut batch = batch(after, page);
+            let mut batch = batch(after, page, host.standalone);
             if undelivered && !batch.notices.is_empty() {
                 batch.ack = Some(batch.notified_seq);
             }
@@ -180,7 +191,6 @@ pub(super) async fn acknowledge(host: &AlertHost, through: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::alerts::HostAlert;
 
     fn alert(seq: i64, key: &str, kind: &str) -> HostAlert {
         HostAlert {
@@ -188,6 +198,7 @@ mod tests {
             seq,
             key: key.to_owned(),
             kind: kind.to_owned(),
+            tone: "danger".to_string(),
             title: format!("{key} title"),
             body: "body".to_owned(),
             pipeline_id: Some("p1".to_owned()),
@@ -240,7 +251,7 @@ mod tests {
             latest_seq: 6,
         };
 
-        let batch = batch(3, page);
+        let batch = batch(3, page, false);
 
         assert_eq!(batch.notified_seq, 6);
         assert!(!batch.lowered);
@@ -257,7 +268,7 @@ mod tests {
             latest_seq: 2,
         };
 
-        let batch = batch(10, page);
+        let batch = batch(10, page, false);
 
         assert!(batch.notices.is_empty());
         assert_eq!(batch.notified_seq, 2);
@@ -271,7 +282,36 @@ mod tests {
             latest_seq: 8,
         };
 
-        assert_eq!(batch(5, page).notified_seq, 8);
+        assert_eq!(batch(5, page, false).notified_seq, 8);
+    }
+
+    fn standalone_page() -> AlertPage {
+        AlertPage {
+            alerts: vec![alert(4, "pipeline:p1", "failed")],
+            latest_seq: 4,
+        }
+    }
+
+    #[test]
+    fn a_standalone_phone_keeps_server_ids_out_of_its_notifications() {
+        let batch = batch(3, standalone_page(), true);
+
+        let notice = &batch.notices[0];
+        assert_eq!(notice.key, "alert-host:pipeline:p1");
+        assert_eq!(notice.pipeline_id, None);
+        assert_eq!(notice.provider_id, None);
+        assert_eq!(notice.kind, AlertKind::Failed);
+        assert_eq!(notice.title, "pipeline:p1 title");
+    }
+
+    #[test]
+    fn a_client_phone_keeps_the_server_ids_and_key() {
+        let batch = batch(3, standalone_page(), false);
+
+        let notice = &batch.notices[0];
+        assert_eq!(notice.key, "pipeline:p1");
+        assert_eq!(notice.pipeline_id.as_deref(), Some("p1"));
+        assert_eq!(notice.provider_id, Some(3));
     }
 
     #[tokio::test]
@@ -359,7 +399,7 @@ mod tests {
             seqs.push(alert.seq);
         }
         let keys_of = |range: std::ops::Range<usize>| -> Vec<String> {
-            range.map(|n| format!("pipeline:{n}")).collect()
+            range.map(|n| format!("alert-host:pipeline:{n}")).collect()
         };
 
         let (first, first_ack) = wake_once(&alert_host).await;

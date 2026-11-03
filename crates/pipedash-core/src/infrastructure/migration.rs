@@ -846,8 +846,12 @@ impl MigrationOrchestrator {
                             .filter_map(|alert| remap_alert(alert, &result.provider_id_mapping))
                             .collect();
                     let target_alerts = DeviceAlertRepository::new(target_manager.database_pool());
-                    target_alerts.delete_all().await?;
-                    target_alerts.import(&alerts).await?;
+                    if options.clean_target {
+                        target_alerts.delete_all().await?;
+                        target_alerts.import(&alerts).await?;
+                    } else {
+                        target_alerts.merge(&alerts).await?;
+                    }
                     tracing::info!("[Migration] Migrated {} device alerts", alerts.len());
                 }
             }
@@ -1707,6 +1711,7 @@ mod tests {
         let options = MigrationOptions {
             migrate_tokens: false,
             migrate_cache: false,
+            clean_target: true,
             ..Default::default()
         };
         let plan = orchestrator
@@ -1761,6 +1766,83 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(next.seq, 6);
+    }
+
+    #[tokio::test]
+    async fn a_storage_migration_keeps_the_target_alerts_unless_the_target_is_cleaned() {
+        use crate::domain::{
+            AlertKind,
+            NewDeviceAlert,
+        };
+
+        let source_dir = TempDir::new().unwrap();
+        let target_dir = TempDir::new().unwrap();
+        let config_path = source_dir.path().join("config.toml");
+        std::fs::write(&config_path, "[storage]\nbackend = \"sqlite\"\n").unwrap();
+        let _env = EnvGuard::set(&[("PIPEDASH_CONFIG_PATH", config_path.to_str())]);
+
+        let mut source = PipedashConfig::default();
+        source.storage.data_dir = source_dir.path().to_string_lossy().to_string();
+        source.storage.vault_password = Some("test-password".to_string());
+        let mut target = source.clone();
+        target.storage.data_dir = target_dir.path().to_string_lossy().to_string();
+
+        let new_alert = |key: &str| NewDeviceAlert {
+            key: key.to_string(),
+            kind: AlertKind::Failed,
+            title: "title".to_string(),
+            body: "body".to_string(),
+            pipeline_id: None,
+            provider_id: None,
+        };
+        let manager = StorageManager::from_config(source, false).await.unwrap();
+        let source_alerts = DeviceAlertRepository::new(manager.database_pool());
+        for key in ["source-a", "source-b"] {
+            source_alerts.insert(&new_alert(key)).await.unwrap();
+        }
+
+        let target_manager = StorageManager::from_config(target.clone(), false)
+            .await
+            .unwrap();
+        let target_alerts = DeviceAlertRepository::new(target_manager.database_pool());
+        let mut target_ids = Vec::new();
+        for key in ["target-a", "target-b", "target-c"] {
+            target_ids.push(target_alerts.insert(&new_alert(key)).await.unwrap().id);
+        }
+        drop(target_manager);
+
+        let orchestrator = MigrationOrchestrator::from_manager(&manager, None, None).await;
+        let options = MigrationOptions {
+            migrate_tokens: false,
+            migrate_cache: false,
+            ..Default::default()
+        };
+        let plan = orchestrator
+            .plan_migration(target.clone(), &options)
+            .unwrap();
+        let result = orchestrator.execute_migration(plan, options, false).await;
+        assert!(result.success, "{:?}", result.errors);
+
+        let target_manager = StorageManager::from_config(target, false).await.unwrap();
+        let migrated = DeviceAlertRepository::new(target_manager.database_pool());
+        let merged = migrated.list().await.unwrap();
+        assert_eq!(
+            merged
+                .iter()
+                .map(|a| (a.seq, a.key.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, "source-a"),
+                (2, "source-b"),
+                (3, "target-c"),
+                (4, "target-a"),
+                (5, "target-b"),
+            ]
+        );
+        for id in &target_ids {
+            assert!(migrated.get(id).await.unwrap().is_some());
+        }
+        assert_eq!(migrated.insert(&new_alert("next")).await.unwrap().seq, 6);
     }
 
     #[tokio::test]

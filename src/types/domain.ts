@@ -1,3 +1,4 @@
+import type { CenterNotificationTone } from '../stores/notificationCenterStore'
 import type { ProviderTone } from '../utils/fetchInfo'
 
 export type PipelineStatus = 'success' | 'failed' | 'degraded' | 'running' | 'pending' | 'cancelled' | 'skipped'
@@ -49,6 +50,7 @@ export interface HostAlert {
   seq: number
   key: string
   kind: 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'test'
+  tone: CenterNotificationTone
   title: string
   body: string
   pipeline_id: string | null

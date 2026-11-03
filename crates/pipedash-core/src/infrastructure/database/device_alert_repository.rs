@@ -30,6 +30,24 @@ const COLUMNS: &str = "seq, id, alert_key, kind, title, body, pipeline_id, provi
 const RETENTION_DAYS: i64 = 7;
 const MAX_ROWS: i64 = 500;
 
+macro_rules! insert_with_seq {
+    ($sql:expr, $alert:expr, $executor:expr) => {
+        sqlx::query(sqlx::AssertSqlSafe($sql.clone()))
+            .bind($alert.seq)
+            .bind(&$alert.id)
+            .bind(&$alert.key)
+            .bind($alert.kind.as_str())
+            .bind(&$alert.title)
+            .bind(&$alert.body)
+            .bind($alert.pipeline_id.as_deref())
+            .bind($alert.provider_id)
+            .bind($alert.created_at)
+            .execute($executor)
+            .await
+            .map(|_| ())
+    };
+}
+
 fn db_error(error: sqlx::Error) -> DomainError {
     DomainError::DatabaseError(error.to_string())
 }
@@ -188,22 +206,78 @@ impl DeviceAlertRepository {
             self.placeholders(9)
         );
         for alert in imported {
-            on_pool!(&self.pool, p => sqlx::query(sqlx::AssertSqlSafe(sql.clone()))
-                .bind(alert.seq)
-                .bind(&alert.id)
-                .bind(&alert.key)
-                .bind(alert.kind.as_str())
-                .bind(&alert.title)
-                .bind(&alert.body)
-                .bind(alert.pipeline_id.as_deref())
-                .bind(alert.provider_id)
-                .bind(alert.created_at)
-                .execute(p)
-                .await
-                .map(|_| ()))
-            .map_err(db_error)?;
+            on_pool!(&self.pool, p => insert_with_seq!(sql, alert, p)).map_err(db_error)?;
         }
 
+        self.sync_sequence().await
+    }
+
+    pub async fn merge(&self, incoming: &[DeviceAlert]) -> DomainResult<()> {
+        if incoming.is_empty() {
+            return Ok(());
+        }
+
+        let mut incoming: Vec<&DeviceAlert> = incoming.iter().collect();
+        incoming.sort_by_key(|alert| alert.seq);
+        let highest_incoming = incoming.iter().map(|alert| alert.seq).max().unwrap_or(0);
+        let highest = "SELECT COALESCE(MAX(seq), 0) FROM device_alerts";
+        let by_id = format!(
+            "SELECT seq FROM device_alerts WHERE id = {}",
+            self.placeholder(1)
+        );
+        let by_seq = format!(
+            "SELECT seq FROM device_alerts WHERE seq = {}",
+            self.placeholder(1)
+        );
+        let relocate = format!(
+            "UPDATE device_alerts SET seq = {} WHERE seq = {}",
+            self.placeholder(1),
+            self.placeholder(2)
+        );
+        let insert = format!(
+            "INSERT INTO device_alerts ({COLUMNS}) VALUES ({})",
+            self.placeholders(9)
+        );
+
+        on_pool!(&self.pool, p => async {
+            let mut tx = p.begin().await?;
+            let mut spare = sqlx::query_scalar::<_, i64>(highest)
+                .fetch_one(&mut *tx)
+                .await?
+                .max(highest_incoming);
+            for alert in &incoming {
+                let known = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(by_id.clone()))
+                    .bind(&alert.id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                if known.is_some() {
+                    continue;
+                }
+
+                let taken = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(by_seq.clone()))
+                    .bind(alert.seq)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                if taken.is_some() {
+                    spare += 1;
+                    sqlx::query(sqlx::AssertSqlSafe(relocate.clone()))
+                        .bind(spare)
+                        .bind(alert.seq)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+
+                insert_with_seq!(insert, alert, &mut *tx)?;
+            }
+            tx.commit().await
+        }
+        .await)
+        .map_err(db_error)?;
+
+        self.sync_sequence().await
+    }
+
+    async fn sync_sequence(&self) -> DomainResult<()> {
         if let DatabasePool::Postgres(p) = &self.pool {
             sqlx::query(
                 "SELECT setval(pg_get_serial_sequence('device_alerts', 'seq'),
@@ -417,5 +491,125 @@ mod tests {
         let target = DeviceAlertRepository::new(DatabasePool::Postgres(pool));
 
         assert_import_keeps_sequence(&source, &target).await;
+    }
+
+    fn stored(seq: i64, id: &str) -> DeviceAlert {
+        DeviceAlert {
+            seq,
+            id: id.to_string(),
+            key: id.to_string(),
+            kind: AlertKind::Failed,
+            title: format!("{id} title"),
+            body: "body".to_string(),
+            pipeline_id: None,
+            provider_id: None,
+            created_at: chrono::SubsecRound::trunc_subsecs(Utc::now(), 0),
+        }
+    }
+
+    fn seqs(alerts: &[DeviceAlert]) -> Vec<(i64, &str)> {
+        alerts
+            .iter()
+            .map(|alert| (alert.seq, alert.id.as_str()))
+            .collect()
+    }
+
+    async fn assert_merge_keeps_target_alerts_for_an_empty_source(target: &DeviceAlertRepository) {
+        target.delete_all().await.unwrap();
+        target
+            .import(&[stored(1, "a"), stored(2, "b")])
+            .await
+            .unwrap();
+        let before = target.list().await.unwrap();
+
+        target.merge(&[]).await.unwrap();
+
+        assert_eq!(target.list().await.unwrap(), before);
+    }
+
+    async fn assert_merge_skips_alerts_the_target_already_has(target: &DeviceAlertRepository) {
+        target.delete_all().await.unwrap();
+        let source = [stored(1, "a"), stored(2, "b")];
+        target.import(&source).await.unwrap();
+        target.import(&[stored(3, "c")]).await.unwrap();
+        let before = target.list().await.unwrap();
+
+        target.merge(&source).await.unwrap();
+        target.merge(&[stored(9, "b")]).await.unwrap();
+
+        assert_eq!(target.list().await.unwrap(), before);
+    }
+
+    async fn assert_merge_moves_colliding_target_alerts(target: &DeviceAlertRepository) {
+        target.delete_all().await.unwrap();
+        target
+            .import(&[stored(1, "t1"), stored(2, "t2"), stored(3, "t3")])
+            .await
+            .unwrap();
+
+        target
+            .merge(&[stored(5, "s5"), stored(2, "s2"), stored(3, "s3")])
+            .await
+            .unwrap();
+
+        let merged = target.list().await.unwrap();
+        let expected = vec![
+            (1, "t1"),
+            (2, "s2"),
+            (3, "s3"),
+            (5, "s5"),
+            (6, "t2"),
+            (7, "t3"),
+        ];
+        assert_eq!(seqs(&merged), expected);
+        for (seq, id) in expected {
+            assert_eq!(target.get(id).await.unwrap().map(|a| a.seq), Some(seq));
+        }
+
+        let next = target
+            .insert(&new_alert("next", AlertKind::Failed))
+            .await
+            .unwrap();
+        assert_eq!(next.seq, 8);
+    }
+
+    #[tokio::test]
+    async fn sqlite_merge_keeps_target_alerts_for_an_empty_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = repository(dir.path(), "empty.db").await;
+
+        assert_merge_keeps_target_alerts_for_an_empty_source(&target).await;
+    }
+
+    #[tokio::test]
+    async fn sqlite_merge_skips_alerts_the_target_already_has() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = repository(dir.path(), "known.db").await;
+
+        assert_merge_skips_alerts_the_target_already_has(&target).await;
+    }
+
+    #[tokio::test]
+    async fn sqlite_merge_moves_colliding_target_alerts_above_both_sets() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = repository(dir.path(), "collide.db").await;
+
+        assert_merge_moves_colliding_target_alerts(&target).await;
+    }
+
+    #[cfg(feature = "postgres")]
+    #[tokio::test]
+    #[ignore = "requires TEST_DATABASE_URL"]
+    async fn postgres_merge_keeps_both_sets_and_the_next_insert_follows() {
+        let url = std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set to run the PostgreSQL tests");
+        let pool = crate::infrastructure::database::init_postgres_database(&url)
+            .await
+            .unwrap();
+        let target = DeviceAlertRepository::new(DatabasePool::Postgres(pool));
+
+        assert_merge_keeps_target_alerts_for_an_empty_source(&target).await;
+        assert_merge_skips_alerts_the_target_already_has(&target).await;
+        assert_merge_moves_colliding_target_alerts(&target).await;
     }
 }

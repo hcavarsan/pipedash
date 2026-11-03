@@ -52,7 +52,7 @@ final class NotificationService: UNNotificationServiceExtension {
     self.session = session
     session.dataTask(with: fetch) { [weak self] data, response, _ in
       let ok = (response as? HTTPURLResponse)?.statusCode == 200
-      self?.finish(ok ? data.flatMap(AlertFetch.decode) : nil)
+      self?.finish(ok ? data.flatMap(AlertFetch.decode) : nil, standalone: config.standalone)
     }.resume()
   }
 
@@ -60,29 +60,32 @@ final class NotificationService: UNNotificationServiceExtension {
     finish(nil)
   }
 
-  private func finish(_ alert: HostAlert?) {
+  private func finish(_ alert: HostAlert?, standalone: Bool = false) {
     lock.lock()
     guard let handler, let content = bestAttempt else {
       lock.unlock()
       return
     }
     self.handler = nil
-    if let alert { Self.apply(alert, to: content) }
+    if let alert { Self.apply(alert, standalone: standalone, to: content) }
     lock.unlock()
     session?.invalidateAndCancel()
     handler(content)
   }
 
-  private static func apply(_ alert: HostAlert, to content: UNMutableNotificationContent) {
+  private static func apply(
+    _ alert: HostAlert, standalone: Bool, to content: UNMutableNotificationContent
+  ) {
     content.title = alert.title
     content.body = alert.body
-    content.threadIdentifier = alert.key
-    if alert.pipelineId != nil, alert.kind == "failed" || alert.kind == "degraded" {
+    let route = AlertFetch.route(for: alert, standalone: standalone)
+    content.threadIdentifier = route.key
+    if route.pipelineId != nil, alert.kind == "failed" || alert.kind == "degraded" {
       content.categoryIdentifier = failureCategory
     }
-    var fields = ["key": alert.key]
-    if let pipelineId = alert.pipelineId { fields["pipelineId"] = pipelineId }
-    if let providerId = alert.providerId { fields["providerId"] = String(providerId) }
+    var fields = ["key": route.key]
+    if let pipelineId = route.pipelineId { fields["pipelineId"] = pipelineId }
+    if let providerId = route.providerId { fields["providerId"] = String(providerId) }
     var userInfo = content.userInfo
     userInfo["pipedash"] = fields
     content.userInfo = userInfo

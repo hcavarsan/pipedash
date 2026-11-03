@@ -37,8 +37,23 @@ struct AlertsQuery {
 }
 
 #[derive(Debug, Serialize)]
+struct AlertView {
+    #[serde(flatten)]
+    alert: DeviceAlert,
+    tone: &'static str,
+}
+
+impl From<DeviceAlert> for AlertView {
+    fn from(alert: DeviceAlert) -> Self {
+        let tone = alert.kind.tone();
+
+        Self { alert, tone }
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct AlertsResponse {
-    alerts: Vec<DeviceAlert>,
+    alerts: Vec<AlertView>,
     latest_seq: i64,
 }
 
@@ -55,7 +70,10 @@ async fn read_page(
     let latest_seq = latest_seq.await?;
     let alerts = page.await?;
 
-    Ok(AlertsResponse { alerts, latest_seq })
+    Ok(AlertsResponse {
+        alerts: alerts.into_iter().map(AlertView::from).collect(),
+        latest_seq,
+    })
 }
 
 async fn list_alerts(
@@ -72,14 +90,14 @@ async fn list_alerts(
 
 async fn get_alert(
     State(state): State<AppState>, Path(id): Path<String>,
-) -> ApiResult<Json<DeviceAlert>> {
+) -> ApiResult<Json<AlertView>> {
     state
         .core()
         .await?
         .device_alerts()
         .get(&id)
         .await?
-        .map(Json)
+        .map(|alert| Json(alert.into()))
         .ok_or_else(|| {
             AppError::new(
                 StatusCode::NOT_FOUND,
@@ -169,6 +187,8 @@ mod tests {
         assert_eq!(body["alerts"].as_array().unwrap().len(), 2);
         assert_eq!(body["alerts"][0]["id"], first.id);
         assert_eq!(body["alerts"][0]["kind"], "failed");
+        assert_eq!(body["alerts"][0]["tone"], "danger");
+        assert_eq!(body["alerts"][1]["tone"], "success");
         assert_eq!(body["alerts"][0]["key"], "pipeline:a");
         assert_eq!(body["alerts"][0]["pipeline_id"], "pipeline:a");
         assert_eq!(body["alerts"][0]["provider_id"], 7);
@@ -199,6 +219,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["title"], "test:x title");
         assert_eq!(body["kind"], "test");
+        assert_eq!(body["tone"], "success");
 
         let (status, body) = get_json(&app, "/api/v1/alerts/missing", &token).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
@@ -246,8 +267,8 @@ mod page_order_tests {
         .unwrap();
 
         assert_eq!(page.latest_seq, first.seq);
-        assert!(page.alerts.iter().any(|alert| alert.seq == first.seq));
-        let listed = page.alerts.iter().map(|alert| alert.seq).max().unwrap();
+        assert!(page.alerts.iter().any(|view| view.alert.seq == first.seq));
+        let listed = page.alerts.iter().map(|view| view.alert.seq).max().unwrap();
         assert!(page.latest_seq <= listed);
     }
 }

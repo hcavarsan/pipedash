@@ -41,6 +41,14 @@ impl AlertKind {
             _ => return None,
         })
     }
+
+    pub fn tone(self) -> &'static str {
+        match self {
+            Self::Failed | Self::Degraded => "danger",
+            Self::LongRun | Self::Outage => "warning",
+            Self::Recovered | Self::Test => "success",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -101,6 +109,16 @@ mod tests {
             );
         }
         assert_eq!(AlertKind::parse("nope"), None);
+    }
+
+    #[test]
+    fn tones_group_kinds_by_severity() {
+        assert_eq!(AlertKind::Failed.tone(), "danger");
+        assert_eq!(AlertKind::Degraded.tone(), "danger");
+        assert_eq!(AlertKind::LongRun.tone(), "warning");
+        assert_eq!(AlertKind::Outage.tone(), "warning");
+        assert_eq!(AlertKind::Recovered.tone(), "success");
+        assert_eq!(AlertKind::Test.tone(), "success");
     }
 
     #[test]
