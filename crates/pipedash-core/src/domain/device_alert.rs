@@ -73,6 +73,7 @@ pub struct DevicePush {
     pub created_at: DateTime<Utc>,
     pub last_success_at: Option<DateTime<Utc>>,
     pub undelivered_seq: Option<i64>,
+    pub undelivered_max_seq: Option<i64>,
 }
 
 pub fn new_alert_id() -> String {

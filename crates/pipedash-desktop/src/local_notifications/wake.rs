@@ -307,4 +307,77 @@ mod tests {
         assert_eq!(keys(&wake.take_notices()), ["pipeline:host"]);
         assert!(wake.scanned.is_none());
     }
+
+    async fn wake_once(host: &AlertHost) -> (Vec<String>, Option<i64>) {
+        let mut batch = fetch_host(host, Duration::from_secs(10)).await.unwrap();
+        if let Some(through) = batch.ack {
+            assert!(acknowledge_push(host, through).await);
+        }
+        let delivered = batch.notices.drain(..).map(|notice| notice.key).collect();
+
+        (delivered, batch.ack)
+    }
+
+    #[tokio::test]
+    async fn undelivered_push_alerts_are_delivered_in_pages_until_the_host_reports_none() {
+        let host = crate::remote::test_host::start_host_with_relay(Some(relay_url())).await;
+        let code = pipedash_web::pairing::create_pairing(&host.state, &host.url.url)
+            .unwrap()
+            .code;
+        let paired = crate::remote::alerts::claim_alert_host(host.url.clone(), &code, true)
+            .await
+            .unwrap();
+        let alert_host = AlertHost {
+            push: true,
+            ..paired
+        };
+        host.core
+            .device_pushes()
+            .set(&alert_host.device_id, "sub-1")
+            .await
+            .unwrap();
+        let mut seqs = Vec::new();
+        for n in 0..25 {
+            let alert = host
+                .core
+                .device_alerts()
+                .insert(&pipedash_core::domain::NewDeviceAlert {
+                    key: format!("pipeline:{n}"),
+                    kind: AlertKind::Failed,
+                    title: format!("run {n} failed"),
+                    body: "body".to_owned(),
+                    pipeline_id: None,
+                    provider_id: None,
+                })
+                .await
+                .unwrap();
+            host.core
+                .device_pushes()
+                .mark_undelivered(&alert_host.device_id, "sub-1", alert.seq)
+                .await
+                .unwrap();
+            seqs.push(alert.seq);
+        }
+        let keys_of = |range: std::ops::Range<usize>| -> Vec<String> {
+            range.map(|n| format!("pipeline:{n}")).collect()
+        };
+
+        let (first, first_ack) = wake_once(&alert_host).await;
+        assert_eq!(first, keys_of(0..20));
+        assert_eq!(first_ack, Some(seqs[19]));
+
+        let (second, second_ack) = wake_once(&alert_host).await;
+        assert_eq!(second, keys_of(20..25));
+        assert_eq!(second_ack, Some(seqs[24]));
+
+        let (third, third_ack) = wake_once(&alert_host).await;
+        assert!(third.is_empty());
+        assert_eq!(third_ack, None);
+        assert_eq!(
+            host_push(&alert_host, relay_url()).await,
+            Some(HostPush::Active {
+                undelivered_after: None
+            })
+        );
+    }
 }

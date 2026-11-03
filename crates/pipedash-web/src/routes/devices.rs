@@ -699,6 +699,30 @@ mod undelivered_tests {
     }
 
     #[tokio::test]
+    async fn a_partial_ack_keeps_the_rest_of_the_failed_pushes_pending() {
+        let host = hosted("push-undelivered-partial").await;
+        let relay = stub_server().await;
+        relay.reply_with(503);
+        let state = host.state.clone().with_push_relay(&relay.url);
+        let core = state.core().await.unwrap();
+        let (device, token) = core.pair_device("Pixel", "ios").await.unwrap();
+        core.device_pushes().set(&device.id, "sub-a").await.unwrap();
+        let push = core.device_pushes().get(&device.id).await.unwrap().unwrap();
+        let app = crate::app(state, None);
+
+        for seq in 1..=25 {
+            push::deliver_alert(&core, &relay.url, &push, &format!("a{seq}"), Some(seq)).await;
+        }
+        assert_eq!(undelivered_after(&app, &token).await, json!(0));
+
+        assert_eq!(ack(&app, &token, 20).await, StatusCode::NO_CONTENT);
+        assert_eq!(undelivered_after(&app, &token).await, json!(20));
+
+        assert_eq!(ack(&app, &token, 25).await, StatusCode::NO_CONTENT);
+        assert_eq!(undelivered_after(&app, &token).await, Value::Null);
+    }
+
+    #[tokio::test]
     async fn a_failed_test_alert_is_not_reported_as_undelivered() {
         let host = hosted("push-undelivered-test").await;
         let relay = stub_server().await;

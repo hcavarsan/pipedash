@@ -16,17 +16,25 @@ type Row = (
     DateTime<Utc>,
     Option<DateTime<Utc>>,
     Option<i64>,
+    Option<i64>,
 );
 
-const COLUMNS: &str =
-    "device_id, relay_subscription_id, created_at, last_success_at, undelivered_seq";
+const COLUMNS: &str = "device_id, relay_subscription_id, created_at, last_success_at, \
+                       undelivered_seq, undelivered_max_seq";
 
 fn db_error(error: sqlx::Error) -> DomainError {
     DomainError::DatabaseError(error.to_string())
 }
 
 fn push(row: Row) -> DevicePush {
-    let (device_id, relay_subscription_id, created_at, last_success_at, undelivered_seq) = row;
+    let (
+        device_id,
+        relay_subscription_id,
+        created_at,
+        last_success_at,
+        undelivered_seq,
+        undelivered_max_seq,
+    ) = row;
 
     DevicePush {
         device_id,
@@ -34,6 +42,7 @@ fn push(row: Row) -> DevicePush {
         created_at,
         last_success_at,
         undelivered_seq,
+        undelivered_max_seq,
     }
 }
 
@@ -162,17 +171,19 @@ impl DevicePushRepository {
 
     pub async fn import(&self, pushes: &[DevicePush]) -> DomainResult<()> {
         let sql = format!(
-            "INSERT INTO device_push_subscriptions ({COLUMNS}) VALUES ({}, {}, {}, {}, {})
+            "INSERT INTO device_push_subscriptions ({COLUMNS}) VALUES ({}, {}, {}, {}, {}, {})
              ON CONFLICT (device_id) DO UPDATE SET
                  relay_subscription_id = excluded.relay_subscription_id,
                  created_at = excluded.created_at,
                  last_success_at = excluded.last_success_at,
-                 undelivered_seq = excluded.undelivered_seq",
+                 undelivered_seq = excluded.undelivered_seq,
+                 undelivered_max_seq = excluded.undelivered_max_seq",
             self.placeholder(1),
             self.placeholder(2),
             self.placeholder(3),
             self.placeholder(4),
-            self.placeholder(5)
+            self.placeholder(5),
+            self.placeholder(6)
         );
         for push in pushes {
             self.evict(&push.device_id, &push.relay_subscription_id)
@@ -183,6 +194,7 @@ impl DevicePushRepository {
                 .bind(push.created_at)
                 .bind(push.last_success_at)
                 .bind(push.undelivered_seq)
+                .bind(push.undelivered_max_seq)
                 .execute(p)
                 .await
                 .map(|_| ()))
@@ -198,16 +210,24 @@ impl DevicePushRepository {
         let sql = format!(
             "UPDATE device_push_subscriptions
              SET undelivered_seq = CASE
-                 WHEN undelivered_seq IS NULL OR undelivered_seq > {} THEN {}
-                 ELSE undelivered_seq
-             END
+                     WHEN undelivered_seq IS NULL OR undelivered_seq > {} THEN {}
+                     ELSE undelivered_seq
+                 END,
+                 undelivered_max_seq = CASE
+                     WHEN undelivered_max_seq IS NULL OR undelivered_max_seq < {} THEN {}
+                     ELSE undelivered_max_seq
+                 END
              WHERE device_id = {} AND relay_subscription_id = {}",
             self.placeholder(1),
             self.placeholder(2),
             self.placeholder(3),
-            self.placeholder(4)
+            self.placeholder(4),
+            self.placeholder(5),
+            self.placeholder(6)
         );
         on_pool!(&self.pool, p => sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(seq)
+            .bind(seq)
             .bind(seq)
             .bind(seq)
             .bind(device_id)
@@ -220,14 +240,29 @@ impl DevicePushRepository {
 
     pub async fn ack_undelivered(&self, device_id: &str, through: i64) -> DomainResult<()> {
         let sql = format!(
-            "UPDATE device_push_subscriptions SET undelivered_seq = NULL
-             WHERE device_id = {} AND undelivered_seq <= {}",
+            "UPDATE device_push_subscriptions
+             SET undelivered_seq = CASE
+                     WHEN undelivered_max_seq <= {} THEN NULL
+                     WHEN undelivered_seq <= {} THEN {}
+                     ELSE undelivered_seq
+                 END,
+                 undelivered_max_seq = CASE
+                     WHEN undelivered_max_seq <= {} THEN NULL
+                     ELSE undelivered_max_seq
+                 END
+             WHERE device_id = {}",
             self.placeholder(1),
-            self.placeholder(2)
+            self.placeholder(2),
+            self.placeholder(3),
+            self.placeholder(4),
+            self.placeholder(5)
         );
         on_pool!(&self.pool, p => sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(device_id)
             .bind(through)
+            .bind(through)
+            .bind(through.saturating_add(1))
+            .bind(through)
+            .bind(device_id)
             .execute(p)
             .await
             .map(|_| ()))
@@ -339,6 +374,8 @@ mod tests {
         repository.ack_undelivered("d1", 3).await.unwrap();
         assert_eq!(seq(&repository).await, Some(4));
         repository.ack_undelivered("d1", 4).await.unwrap();
+        assert_eq!(seq(&repository).await, Some(5));
+        repository.ack_undelivered("d1", 9).await.unwrap();
         assert_eq!(seq(&repository).await, None);
 
         repository.mark_undelivered("d1", "sub-2", 8).await.unwrap();
@@ -346,6 +383,45 @@ mod tests {
         repository.delete_all().await.unwrap();
         repository.import(&exported).await.unwrap();
         assert_eq!(seq(&repository).await, Some(8));
+        assert_eq!(
+            repository.list().await.unwrap()[0].undelivered_max_seq,
+            Some(8)
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_a_partial_ack_keeps_the_rest_of_the_failed_alerts() {
+        let dir = tempfile::tempdir().unwrap();
+        let repository = DevicePushRepository::new(DatabasePool::Sqlite(
+            init_database(dir.path().join("partial.db")).await.unwrap(),
+        ));
+        async fn range(repository: &DevicePushRepository) -> (Option<i64>, Option<i64>) {
+            let row = &repository.list().await.unwrap()[0];
+            (row.undelivered_seq, row.undelivered_max_seq)
+        }
+        repository.set("d1", "sub-1").await.unwrap();
+        for seq in 1..=25 {
+            repository
+                .mark_undelivered("d1", "sub-1", seq)
+                .await
+                .unwrap();
+        }
+        assert_eq!(range(&repository).await, (Some(1), Some(25)));
+
+        repository.ack_undelivered("d1", 20).await.unwrap();
+        assert_eq!(range(&repository).await, (Some(21), Some(25)));
+
+        repository
+            .mark_undelivered("d1", "sub-1", 30)
+            .await
+            .unwrap();
+        assert_eq!(range(&repository).await, (Some(21), Some(30)));
+
+        repository.ack_undelivered("d1", 25).await.unwrap();
+        assert_eq!(range(&repository).await, (Some(26), Some(30)));
+
+        repository.ack_undelivered("d1", 30).await.unwrap();
+        assert_eq!(range(&repository).await, (None, None));
     }
 
     #[tokio::test]

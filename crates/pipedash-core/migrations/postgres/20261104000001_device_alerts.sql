@@ -17,5 +17,6 @@ CREATE TABLE IF NOT EXISTS device_push_subscriptions (
     relay_subscription_id TEXT NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_success_at TIMESTAMPTZ,
-    undelivered_seq BIGINT
+    undelivered_seq BIGINT,
+    undelivered_max_seq BIGINT
 );
