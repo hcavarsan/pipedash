@@ -13,6 +13,13 @@ pub use self::imp::{
 };
 use crate::commands::ErrorResponse;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SharingErrorCode {
+    PortInUse,
+    NoNetwork,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharingStatus {
@@ -20,6 +27,7 @@ pub struct SharingStatus {
     pub running: bool,
     pub url: Option<String>,
     pub error: Option<String>,
+    pub error_code: Option<SharingErrorCode>,
 }
 
 #[cfg(desktop)]
@@ -63,7 +71,10 @@ mod imp {
         oneshot,
     };
 
-    use super::SharingStatus;
+    use super::{
+        SharingErrorCode,
+        SharingStatus,
+    };
     use crate::commands::ErrorResponse;
     use crate::MaybeCoreContext;
 
@@ -98,10 +109,15 @@ mod imp {
         task: JoinHandle<()>,
     }
 
+    struct SharingFailure {
+        message: String,
+        code: Option<SharingErrorCode>,
+    }
+
     struct HostInner {
         settings: HostSettings,
         running: Option<Running>,
-        error: Option<String>,
+        error: Option<SharingFailure>,
     }
 
     pub struct HostState {
@@ -165,7 +181,8 @@ mod imp {
                 enabled: inner.settings.enabled,
                 running: inner.running.is_some(),
                 url: inner.running.as_ref().map(|running| running.url.clone()),
-                error: inner.error.clone(),
+                error: inner.error.as_ref().map(|failure| failure.message.clone()),
+                error_code: inner.error.as_ref().and_then(|failure| failure.code),
             }
         }
 
@@ -185,20 +202,32 @@ mod imp {
         }
     }
 
-    async fn launch(app: &AppHandle, host: &HostState) -> Result<Running, String> {
-        let ip = lan_ip().ok_or_else(|| NO_NETWORK.to_owned())?;
+    fn failure(message: impl Into<String>, code: Option<SharingErrorCode>) -> SharingFailure {
+        SharingFailure {
+            message: message.into(),
+            code,
+        }
+    }
+
+    fn bind_failure(saved_port: Option<u16>, e: &std::io::Error) -> SharingFailure {
+        match saved_port {
+            Some(port) if e.kind() == ErrorKind::AddrInUse => failure(
+                format!("Port {port} is in use by another app."),
+                Some(SharingErrorCode::PortInUse),
+            ),
+            _ => failure(format!("Couldn't start sharing: {e}"), None),
+        }
+    }
+
+    async fn launch(app: &AppHandle, host: &HostState) -> Result<Running, SharingFailure> {
+        let ip = lan_ip().ok_or_else(|| failure(NO_NETWORK, Some(SharingErrorCode::NoNetwork)))?;
         let saved_port = host.lock().settings.port;
         let listener = tokio::net::TcpListener::bind(("0.0.0.0", saved_port.unwrap_or(0)))
             .await
-            .map_err(|e| match saved_port {
-                Some(port) if e.kind() == ErrorKind::AddrInUse => {
-                    format!("Port {port} is in use by another app.")
-                }
-                _ => format!("Couldn't start sharing: {e}"),
-            })?;
+            .map_err(|e| bind_failure(saved_port, &e))?;
         let port = listener
             .local_addr()
-            .map_err(|e| format!("Couldn't start sharing: {e}"))?
+            .map_err(|e| failure(format!("Couldn't start sharing: {e}"), None))?
             .port();
         if saved_port.is_none() {
             if let Err(e) = host.update_settings(|settings| settings.port = Some(port)) {
@@ -405,19 +434,47 @@ mod imp {
                     running: false,
                     url: None,
                     error: None,
+                    error_code: None,
                 }
             );
 
             host.update_settings(|settings| settings.enabled = true)
                 .unwrap();
-            host.lock().error = Some("Port 1 is in use by another app.".to_owned());
+            host.lock().error = Some(failure(
+                "Port 1 is in use by another app.",
+                Some(SharingErrorCode::PortInUse),
+            ));
             let status = host.status();
             assert!(status.enabled && !status.running);
             assert_eq!(
                 status.error.as_deref(),
                 Some("Port 1 is in use by another app.")
             );
+            assert_eq!(status.error_code, Some(SharingErrorCode::PortInUse));
             assert!(read_settings(dir.path()).enabled);
+        }
+
+        #[test]
+        fn failures_carry_a_code_the_frontend_can_branch_on() {
+            let in_use = std::io::Error::from(ErrorKind::AddrInUse);
+            let failed = bind_failure(Some(52411), &in_use);
+            assert_eq!(failed.message, "Port 52411 is in use by another app.");
+            assert_eq!(failed.code, Some(SharingErrorCode::PortInUse));
+
+            assert_eq!(bind_failure(None, &in_use).code, None);
+            let denied = std::io::Error::from(ErrorKind::PermissionDenied);
+            assert_eq!(bind_failure(Some(80), &denied).code, None);
+
+            let value = serde_json::to_value(SharingStatus {
+                enabled: true,
+                running: false,
+                url: None,
+                error: Some(NO_NETWORK.to_owned()),
+                error_code: Some(SharingErrorCode::NoNetwork),
+            })
+            .unwrap();
+            assert_eq!(value["errorCode"], "NO_NETWORK");
+            assert_eq!(value["error"], NO_NETWORK);
         }
     }
 }

@@ -875,4 +875,5 @@ export interface SharingStatus {
   running: boolean
   url: string | null
   error: string | null
+  errorCode: 'PORT_IN_USE' | 'NO_NETWORK' | null
 }

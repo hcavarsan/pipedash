@@ -61,19 +61,9 @@ impl ServerUrl {
     }
 
     pub fn is_private(&self) -> bool {
-        if self.is_loopback() {
-            return true;
-        }
         let host = self.bare_host();
         match host.parse::<IpAddr>() {
-            Ok(IpAddr::V4(ip)) => {
-                let [first, second, ..] = ip.octets();
-                ip.is_private() || ip.is_link_local() || (first == 100 && second & 0xc0 == 64)
-            }
-            Ok(IpAddr::V6(ip)) => {
-                let first = ip.segments()[0];
-                first & 0xfe00 == 0xfc00 || first & 0xffc0 == 0xfe80
-            }
+            Ok(ip) => is_private_ip(ip),
             Err(_) => {
                 !host.contains('.') || PRIVATE_SUFFIXES.iter().any(|suffix| host.ends_with(suffix))
             }
@@ -84,6 +74,23 @@ impl ServerUrl {
         let scheme = if self.scheme == "https" { "wss" } else { "ws" };
         let rest = self.url.split_once("://").map_or("", |(_, rest)| rest);
         format!("{scheme}://{rest}/api/v1/ws")
+    }
+}
+
+pub fn is_private_ip(ip: IpAddr) -> bool {
+    if ip.is_loopback() {
+        return true;
+    }
+
+    match ip {
+        IpAddr::V4(ip) => {
+            let [first, second, ..] = ip.octets();
+            ip.is_private() || ip.is_link_local() || (first == 100 && second & 0xc0 == 64)
+        }
+        IpAddr::V6(ip) => {
+            let first = ip.segments()[0];
+            first & 0xfe00 == 0xfc00 || first & 0xffc0 == 0xfe80
+        }
     }
 }
 
@@ -270,6 +277,31 @@ mod tests {
             let url = ServerUrl::parse(input).unwrap();
             assert_eq!(url.is_private(), private, "{input} private");
             assert_eq!(url.is_loopback(), loopback, "{input} loopback");
+        }
+    }
+
+    #[test]
+    fn private_addresses_exclude_every_public_range() {
+        for (input, private) in [
+            ("127.0.0.1", true),
+            ("::1", true),
+            ("10.0.0.1", true),
+            ("172.31.255.255", true),
+            ("192.168.0.1", true),
+            ("169.254.0.1", true),
+            ("100.127.255.255", true),
+            ("fc00::1", true),
+            ("fe80::1", true),
+            ("172.32.0.1", false),
+            ("100.128.0.1", false),
+            ("8.8.8.8", false),
+            ("0.0.0.0", false),
+            ("::", false),
+            ("2001:4860:4860::8888", false),
+            ("::ffff:8.8.8.8", false),
+        ] {
+            let ip: IpAddr = input.parse().unwrap();
+            assert_eq!(is_private_ip(ip), private, "{input}");
         }
     }
 

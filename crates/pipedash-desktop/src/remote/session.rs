@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::atomic::{
     AtomicU64,
     Ordering,
@@ -17,6 +18,7 @@ use futures::{
     SinkExt,
     StreamExt,
 };
+use pipedash_core::domain::pairing::is_private_ip;
 use pipedash_core::domain::ServerUrl;
 use rustls::ClientConfig;
 use rustls_platform_verifier::ConfigVerifierExt;
@@ -33,7 +35,10 @@ use tauri::{
     Emitter,
     Manager,
 };
-use tokio::net::TcpStream;
+use tokio::net::{
+    lookup_host,
+    TcpStream,
+};
 use tokio::sync::{
     mpsc,
     oneshot,
@@ -41,6 +46,7 @@ use tokio::sync::{
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{
+    client_async_with_config,
     connect_async_tls_with_config,
     Connector,
     MaybeTlsStream,
@@ -206,30 +212,85 @@ async fn await_auth(stream: &mut WsStream, host: &str) -> Result<AuthOk, RemoteE
     Err(RemoteError::Unreachable(host.to_string()))
 }
 
-pub async fn open(
-    url: &ServerUrl, hello: ClientHello<'_>,
-) -> Result<(WsStream, AuthOk), RemoteError> {
+fn require_private(host: &str, addrs: &[SocketAddr]) -> Result<(), RemoteError> {
+    if addrs.is_empty() {
+        return Err(RemoteError::Unreachable(host.to_string()));
+    }
+    if addrs.iter().all(|addr| is_private_ip(addr.ip())) {
+        Ok(())
+    } else {
+        Err(RemoteError::PublicHttp)
+    }
+}
+
+async fn connect_private(url: &ServerUrl) -> Result<TcpStream, RemoteError> {
     let unreachable = || RemoteError::Unreachable(url.host.clone());
-    let connector = if url.scheme == "https" {
+    let port = reqwest::Url::parse(&url.url)
+        .ok()
+        .and_then(|parsed| parsed.port_or_known_default())
+        .ok_or_else(unreachable)?;
+    let host = url.host.trim_start_matches('[').trim_end_matches(']');
+    let addrs: Vec<SocketAddr> = lookup_host((host, port))
+        .await
+        .map_err(|error| {
+            tracing::debug!(%error, host = %url.host, "Couldn't resolve the server address");
+            unreachable()
+        })?
+        .collect();
+    require_private(&url.host, &addrs)?;
+
+    for addr in addrs {
+        if let Ok(stream) = TcpStream::connect(addr).await {
+            return Ok(stream);
+        }
+    }
+
+    Err(unreachable())
+}
+
+async fn connect(url: &ServerUrl) -> Result<WsStream, RemoteError> {
+    let unreachable = || RemoteError::Unreachable(url.host.clone());
+    let opened = |error: tokio_tungstenite::tungstenite::Error| {
+        tracing::debug!(%error, host = %url.host, "Couldn't open the server socket");
+        unreachable()
+    };
+
+    if url.scheme == "https" {
         let config = ClientConfig::with_platform_verifier().map_err(|error| {
             tracing::warn!(%error, "Couldn't build the TLS configuration");
             unreachable()
         })?;
-        Some(Connector::Rustls(Arc::new(config)))
-    } else {
-        None
-    };
+        let (stream, _) = connect_async_tls_with_config(
+            url.websocket_url(),
+            Some(socket_config()),
+            false,
+            Some(Connector::Rustls(Arc::new(config))),
+        )
+        .await
+        .map_err(opened)?;
 
-    let (mut stream, _) = tokio::time::timeout(
-        CONNECT_TIMEOUT,
-        connect_async_tls_with_config(url.websocket_url(), Some(socket_config()), false, connector),
+        return Ok(stream);
+    }
+
+    let tcp = connect_private(url).await?;
+    let (stream, _) = client_async_with_config(
+        url.websocket_url(),
+        MaybeTlsStream::Plain(tcp),
+        Some(socket_config()),
     )
     .await
-    .map_err(|_| unreachable())?
-    .map_err(|error| {
-        tracing::debug!(%error, host = %url.host, "Couldn't open the server socket");
-        unreachable()
-    })?;
+    .map_err(opened)?;
+
+    Ok(stream)
+}
+
+pub async fn open(
+    url: &ServerUrl, hello: ClientHello<'_>,
+) -> Result<(WsStream, AuthOk), RemoteError> {
+    let unreachable = || RemoteError::Unreachable(url.host.clone());
+    let mut stream = tokio::time::timeout(CONNECT_TIMEOUT, connect(url))
+        .await
+        .map_err(|_| unreachable())??;
 
     stream
         .send(Message::Text(hello.frame().into()))
@@ -718,6 +779,46 @@ mod tests {
                 .unwrap(),
             Err(RemoteError::Unreachable(host)) if host == "host"
         ));
+    }
+
+    fn addrs(list: &[&str]) -> Vec<SocketAddr> {
+        list.iter().map(|addr| addr.parse().unwrap()).collect()
+    }
+
+    #[test]
+    fn plain_http_needs_every_resolved_address_to_be_private() {
+        assert!(require_private("nas", &addrs(&["192.168.1.20:8080"])).is_ok());
+        assert!(require_private("nas", &addrs(&["10.0.0.5:80", "[fd00::1]:80"])).is_ok());
+        assert!(require_private("nas", &addrs(&["127.0.0.1:80"])).is_ok());
+
+        for public in [
+            &["8.8.8.8:80"][..],
+            &["192.168.1.20:80", "8.8.8.8:80"][..],
+            &["[2001:4860:4860::8888]:80"][..],
+            &["[::ffff:8.8.8.8]:80"][..],
+        ] {
+            assert!(
+                matches!(
+                    require_private("nas", &addrs(public)),
+                    Err(RemoteError::PublicHttp)
+                ),
+                "{public:?}"
+            );
+        }
+        assert!(matches!(
+            require_private("nas", &[]),
+            Err(RemoteError::Unreachable(host)) if host == "nas"
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_public_address_over_plain_http_is_refused_before_connecting() {
+        let url = ServerUrl::parse("http://8.8.8.8:8080").unwrap();
+
+        let Err(error) = open(&url, ClientHello::Auth { token: "t" }).await else {
+            panic!("a public address must not get the token");
+        };
+        assert!(matches!(error, RemoteError::PublicHttp));
     }
 
     struct Host {

@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
+import { logger } from './lib/logger'
 import { loadConnection } from './services/connection'
 
 import '@mantine/core/styles.layer.css'
@@ -28,5 +29,5 @@ async function start(container: HTMLElement): Promise<void> {
 
 start(root).catch((error: unknown) => {
   root.textContent = "Couldn't start Pipedash. Restart the app."
-  console.error(error)
+  logger.error('main', "Couldn't start Pipedash", error)
 })

@@ -68,7 +68,7 @@ export function SharingCard(): ReactNode {
           <Alert color="orange" title="Couldn't share Pipedash" icon={<IconAlertTriangle size={16} aria-hidden />}>
             <Stack gap="xs" align="flex-start">
               <Text size="sm">{status.error}</Text>
-              {status.error.startsWith('Port') && (
+              {status.errorCode === 'PORT_IN_USE' && (
                 <>
                   <Button size="xs" variant="default" loading={resetPort.isPending} onClick={() => resetPort.mutate()}>
                     Use a new port

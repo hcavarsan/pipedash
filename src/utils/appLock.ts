@@ -20,7 +20,7 @@ export const lockMeansSomething = (status: Pick<VaultStatusResponse, 'requires_p
   !isRemoteClient() && (status.requires_password || status.app_lock?.enabled === true)
 
 export const needsUnlock = (status: LockState, tauri: boolean, hasToken: boolean): boolean => {
-  if (!status.requires_password && status.app_lock?.locked !== true) {
+  if (isRemoteClient() || (!status.requires_password && status.app_lock?.locked !== true)) {
     return false
   }
 

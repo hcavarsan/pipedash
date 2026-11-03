@@ -355,8 +355,13 @@ impl Connection {
                 }
                 Ok(None) if anonymous => Identity::Anonymous,
                 Ok(None) => {
-                    if self.state.desktop_host.is_some() && self.state.core().await.is_err() {
+                    let config_error = self.state.inner.read().await.config_error.is_some();
+                    let no_core = self.state.core().await.is_err();
+                    if no_core && self.state.desktop_host.is_some() {
                         self.reject("HOST_LOCKED", crate::HOST_LOCKED_MESSAGE).await;
+                    } else if no_core && config_error {
+                        self.reject("SERVER_NOT_READY", crate::SERVER_NOT_READY_MESSAGE)
+                            .await;
                     } else {
                         self.reject("AUTH_FAILED", AUTH_FAILED_MESSAGE).await;
                     }
@@ -438,12 +443,12 @@ impl Connection {
             .router
             .get_or_insert_with(|| crate::host_router(state.clone()))
             .clone();
-        let permits = Arc::clone(&self.permits);
+        let Ok(permit) = Arc::clone(&self.permits).acquire_owned().await else {
+            return false;
+        };
         let out = self.out.clone();
         self.requests.spawn(async move {
-            let Ok(_permit) = permits.acquire_owned().await else {
-                return;
-            };
+            let _permit = permit;
             let (status, body) = dispatch(router, &method, &path, body, token.as_deref()).await;
             let _ = out.send(response_frame(id, status, &body)).await;
         });
@@ -844,6 +849,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_shared_host_refuses_socket_upgrades_from_other_origins() {
+        let state = AppState::hosted(Arc::new(WebSocketEventBus::new()), None, "test-mac");
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(crate::serve_host(listener, state, std::future::pending()));
+
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let handshake = format!(
+            "GET /api/v1/ws HTTP/1.1\r\nHost: {addr}\r\nOrigin: https://attacker.example\r\n\
+             Upgrade: websocket\r\nConnection: Upgrade\r\n\
+             Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        );
+        stream.write_all(handshake.as_bytes()).await.unwrap();
+        let mut status = [0u8; 12];
+        stream.read_exact(&mut status).await.unwrap();
+        assert_eq!(&status, b"HTTP/1.1 403");
+
+        upgrade(addr, "/api/v1/ws").await;
+    }
+
+    #[tokio::test]
     async fn a_device_token_on_a_server_without_an_api_token_becomes_a_device() {
         let host = crate::test_support::server("ws-open-device").await;
         let core = host.state.core().await.unwrap();
@@ -899,6 +925,23 @@ mod tests {
         let rejected = next_message(&mut stream).await;
         assert_eq!(rejected["payload"]["code"], "HOST_LOCKED");
         assert_eq!(rejected["payload"]["message"], crate::HOST_LOCKED_MESSAGE);
+        assert_closed(&mut stream).await;
+    }
+
+    #[tokio::test]
+    async fn a_server_with_a_broken_config_does_not_forget_its_devices() {
+        let state = AppState::config_error(Arc::new(WebSocketEventBus::new()), "broken".into());
+        state.set_api_token("vault-password");
+        let mut stream = connect_state(state).await;
+
+        send_json(
+            &mut stream,
+            json!({ "type": "auth", "token": "device-token" }),
+        )
+        .await;
+
+        let rejected = next_message(&mut stream).await;
+        assert_eq!(rejected["payload"]["code"], "SERVER_NOT_READY");
         assert_closed(&mut stream).await;
     }
 

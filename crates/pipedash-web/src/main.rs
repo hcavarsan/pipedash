@@ -5,18 +5,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use axum::{
     extract::Request,
-    http::{
-        header::{
-            HOST,
-            ORIGIN,
-            UPGRADE,
-        },
-        Method,
-        StatusCode,
-        Uri,
-    },
-    middleware::Next,
-    response::Response,
+    http::Uri,
 };
 use pipedash_core::infrastructure::{
     ConfigLoader,
@@ -33,6 +22,7 @@ use pipedash_web::{
     demo,
     env_flag,
     push,
+    reject_cross_origin_requests,
 };
 use tower_http::cors::{
     Any,
@@ -64,67 +54,6 @@ fn redact_ticket(uri: &Uri) -> Cow<'_, str> {
     } else {
         Cow::Owned(uri.to_string())
     }
-}
-
-fn is_websocket_upgrade(req: &Request) -> bool {
-    req.headers()
-        .get(UPGRADE)
-        .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"websocket"))
-}
-
-fn is_cross_origin_request(req: &Request) -> bool {
-    let guarded = !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS)
-        || is_websocket_upgrade(req);
-    if !guarded {
-        return false;
-    }
-
-    let headers = req.headers();
-    if let Some(site) = headers.get("sec-fetch-site") {
-        return !matches!(site.as_bytes(), b"same-origin" | b"none");
-    }
-
-    let Some(origin) = headers.get(ORIGIN) else {
-        return false;
-    };
-    let Some((origin_scheme, origin_host)) = origin.to_str().ok().and_then(|o| o.split_once("://"))
-    else {
-        return true;
-    };
-    let Some(host) = headers
-        .get(HOST)
-        .and_then(|h| h.to_str().ok())
-        .or_else(|| req.uri().authority().map(|a| a.as_str()))
-    else {
-        return true;
-    };
-    let scheme = headers
-        .get("x-forwarded-proto")
-        .and_then(|p| p.to_str().ok())
-        .and_then(|p| p.split(',').next())
-        .map_or("http", str::trim);
-    let default_port = if scheme.eq_ignore_ascii_case("https") {
-        ":443"
-    } else {
-        ":80"
-    };
-    let host = host.strip_suffix(default_port).unwrap_or(host);
-
-    !(origin_scheme.eq_ignore_ascii_case(scheme) && origin_host.eq_ignore_ascii_case(host))
-}
-
-async fn reject_cross_origin_requests(req: Request, next: Next) -> Result<Response, StatusCode> {
-    if is_cross_origin_request(&req) {
-        tracing::warn!(
-            method = %req.method(),
-            path = req.uri().path(),
-            origin = ?req.headers().get(ORIGIN),
-            "Rejected cross-origin request. Set PIPEDASH_CORS_ALLOW_ALL=true to allow other origins"
-        );
-        return Err(StatusCode::FORBIDDEN);
-    }
-
-    Ok(next.run(req).await)
 }
 
 fn normalize_base_path(raw: &str) -> anyhow::Result<String> {
@@ -346,7 +275,10 @@ async fn main() -> anyhow::Result<()> {
 mod tests {
     use axum::body::Body;
     use axum::http::header;
-    use axum::http::Method;
+    use axum::http::{
+        Method,
+        StatusCode,
+    };
     use axum::routing::get;
     use axum::Router;
     use tower::ServiceExt;
