@@ -28,7 +28,7 @@ interface DesktopChoiceProps {
   icon: ReactNode
   title: string
   text: string
-  recommended: boolean
+  recommended?: boolean
   busy?: boolean
   disabled?: boolean
   onClick: () => void
@@ -67,7 +67,6 @@ export function WelcomeScreen(): ReactNode {
   const navigate = useNavigate()
   const mobileShell = useMobileShell()
   const runLocal = useRunOnThisDevice()
-  const recommendLocal = !isMobilePlatform()
   const localText = mobileShell
     ? 'Add your providers here. This phone checks them itself.'
     : 'Add your providers here. Later you can share this computer with your phone.'
@@ -88,7 +87,7 @@ export function WelcomeScreen(): ReactNode {
             title={LOCAL_TITLE}
             subtitle={localText}
             icon={<IconDeviceDesktop size={18} />}
-            accessory={runLocal.isPending ? <Loader size="sm" /> : recommendLocal ? RECOMMENDED : undefined}
+            accessory={runLocal.isPending ? <Loader size="sm" /> : undefined}
             chevron={!runLocal.isPending}
             disabled={runLocal.isPending}
             onClick={chooseLocal}
@@ -97,7 +96,6 @@ export function WelcomeScreen(): ReactNode {
             title={SERVER_TITLE}
             subtitle={SERVER_TEXT}
             icon={<IconServer2 size={18} />}
-            accessory={recommendLocal ? undefined : RECOMMENDED}
             chevron
             disabled={runLocal.isPending}
             onClick={chooseServer}
@@ -125,7 +123,7 @@ export function WelcomeScreen(): ReactNode {
                 icon={<IconDeviceDesktop size={24} aria-hidden />}
                 title={LOCAL_TITLE}
                 text={localText}
-                recommended={recommendLocal}
+                recommended={!isMobilePlatform()}
                 busy={runLocal.isPending}
                 disabled={runLocal.isPending}
                 onClick={chooseLocal}
@@ -134,7 +132,6 @@ export function WelcomeScreen(): ReactNode {
                 icon={<IconServer2 size={24} aria-hidden />}
                 title={SERVER_TITLE}
                 text={SERVER_TEXT}
-                recommended={!recommendLocal}
                 disabled={runLocal.isPending}
                 onClick={chooseServer}
               />

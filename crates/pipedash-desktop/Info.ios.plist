@@ -11,7 +11,7 @@
     <key>NSFaceIDUsageDescription</key>
     <string>Pipedash uses Face ID to unlock the CI/CD provider tokens saved on this device.</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Pipedash connects to the CI/CD servers you add on your local network, such as Jenkins, Gitea or Argo CD.</string>
+    <string>Pipedash connects to the CI/CD servers you add and to the Pipedash servers you pair with on your local network.</string>
     <key>UIFileSharingEnabled</key>
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>

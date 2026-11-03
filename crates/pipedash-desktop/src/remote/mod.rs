@@ -231,9 +231,16 @@ impl Departed {
     }
 }
 
+enum Readiness {
+    Ready(Arc<Session>),
+    Waiting(RemoteError),
+    Failed(RemoteError),
+}
+
 pub struct RemoteConnection {
     inner: Mutex<Inner>,
     op: tokio::sync::Mutex<()>,
+    changed: tokio::sync::watch::Sender<u64>,
 }
 
 impl RemoteConnection {
@@ -263,6 +270,7 @@ impl RemoteConnection {
                 task: None,
             }),
             op: tokio::sync::Mutex::new(()),
+            changed: tokio::sync::watch::channel(0).0,
         }
     }
 
@@ -289,7 +297,7 @@ impl RemoteConnection {
             && inner.status != RemoteStatus::Removed
     }
 
-    fn session(&self) -> Result<Arc<Session>, RemoteError> {
+    fn readiness(&self) -> Readiness {
         let inner = self.lock();
         let SavedMode::Client {
             server_url,
@@ -297,16 +305,46 @@ impl RemoteConnection {
             ..
         } = &inner.saved.mode
         else {
-            return Err(RemoteError::NotConnected);
+            return Readiness::Failed(RemoteError::NotConnected);
         };
+        let unreachable =
+            || RemoteError::Unreachable(display_host(server_url, host_name.as_deref()));
 
         match (&inner.session, inner.status) {
-            (Some(session), RemoteStatus::Connected) => Ok(Arc::clone(session)),
-            _ => Err(RemoteError::Unreachable(display_host(
-                server_url,
-                host_name.as_deref(),
-            ))),
+            (Some(session), RemoteStatus::Connected) => Readiness::Ready(Arc::clone(session)),
+            (_, RemoteStatus::Removed) => Readiness::Failed(unreachable()),
+            _ => Readiness::Waiting(unreachable()),
         }
+    }
+
+    fn session(&self) -> Result<Arc<Session>, RemoteError> {
+        match self.readiness() {
+            Readiness::Ready(session) => Ok(session),
+            Readiness::Waiting(error) | Readiness::Failed(error) => Err(error),
+        }
+    }
+
+    async fn ready_session(&self, timeout: Duration) -> Result<Arc<Session>, RemoteError> {
+        let mut changes = self.changed.subscribe();
+        let waited = tokio::time::timeout(timeout, async {
+            loop {
+                match self.readiness() {
+                    Readiness::Ready(session) => return Ok(session),
+                    Readiness::Failed(error) => return Err(error),
+                    Readiness::Waiting(_) => {}
+                }
+                if changes.changed().await.is_err() {
+                    return Err(RemoteError::NotConnected);
+                }
+            }
+        })
+        .await;
+
+        waited.unwrap_or_else(|_| self.session())
+    }
+
+    fn notify(&self) {
+        self.changed.send_modify(|version| *version += 1);
     }
 
     fn launch(&self, app: &AppHandle, first: Option<WsStream>) {
@@ -318,6 +356,7 @@ impl RemoteConnection {
         let parsed = ServerUrl::parse(server_url);
         let Ok(url) = parsed else {
             inner.status = RemoteStatus::Removed;
+            self.notify();
             return;
         };
 
@@ -328,6 +367,7 @@ impl RemoteConnection {
         inner.status = RemoteStatus::Connecting;
         inner.attempts = 0;
         inner.session = None;
+        self.notify();
         let generation = inner.generation;
         inner.task = Some(tauri::async_runtime::spawn(session::run(
             app.clone(),
@@ -344,6 +384,7 @@ impl RemoteConnection {
         inner.status = RemoteStatus::Connecting;
         inner.attempts = 0;
         inner.token = token;
+        self.notify();
         let previous = std::mem::replace(&mut inner.saved, saved);
         let departed = Departed {
             session: inner.session.take(),
@@ -361,6 +402,7 @@ impl RemoteConnection {
         inner.session = Some(session);
         inner.status = RemoteStatus::Connected;
         inner.attempts = 0;
+        self.notify();
 
         true
     }
@@ -373,6 +415,7 @@ impl RemoteConnection {
         inner.session = None;
         inner.status = RemoteStatus::Reconnecting;
         inner.attempts += 1;
+        self.notify();
 
         Some(inner.attempts)
     }
@@ -392,6 +435,7 @@ impl RemoteConnection {
         inner.session = None;
         inner.task = None;
         inner.status = RemoteStatus::Removed;
+        self.notify();
 
         true
     }
@@ -696,14 +740,22 @@ pub async fn remote_request(
     timeout_ms: Option<u64>,
 ) -> Result<RemoteResponse, ErrorResponse> {
     validate_request(&method, &path)?;
-    let session = remote.session()?;
     let timeout = Duration::from_millis(
         timeout_ms
             .unwrap_or(DEFAULT_REQUEST_TIMEOUT_MS)
             .clamp(MIN_REQUEST_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS),
     );
+    let started = tokio::time::Instant::now();
+    let session = remote
+        .ready_session(timeout.min(session::CONNECT_TIMEOUT))
+        .await?;
     let (status, bytes) = session
-        .request(&method, &path, body.as_deref(), timeout)
+        .request(
+            &method,
+            &path,
+            body.as_deref(),
+            timeout.saturating_sub(started.elapsed()),
+        )
         .await?;
     let body = String::from_utf8(bytes)
         .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
@@ -926,6 +978,16 @@ mod tests {
         );
     }
 
+    fn waiting_remote() -> RemoteConnection {
+        let remote = RemoteConnection::new(SavedConnection::default());
+        {
+            let mut inner = remote.lock();
+            inner.saved = client("https://ci.example.com", Some("Studio"));
+            inner.status = RemoteStatus::Connecting;
+        }
+        remote
+    }
+
     #[test]
     fn only_the_current_session_can_change_the_status() {
         let remote = RemoteConnection::new(SavedConnection::default());
@@ -946,6 +1008,51 @@ mod tests {
         assert!(remote.lock().session.is_none());
         assert!(remote.mark_removed(2));
         assert_eq!(remote.lock().status, RemoteStatus::Removed);
+    }
+
+    #[tokio::test]
+    async fn a_request_issued_while_connecting_waits_for_the_session() {
+        let remote = Arc::new(waiting_remote());
+        let (outgoing, _queue) = tokio::sync::mpsc::channel(1);
+
+        let asking = Arc::clone(&remote);
+        let ready = tokio::spawn(async move { asking.ready_session(Duration::from_secs(5)).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!ready.is_finished());
+
+        assert!(remote.attach(0, Arc::new(Session::new("host", outgoing))));
+
+        assert!(ready.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_request_gives_up_as_unreachable_when_nothing_connects() {
+        let remote = waiting_remote();
+        for status in [RemoteStatus::Connecting, RemoteStatus::Reconnecting] {
+            remote.lock().status = status;
+
+            let Err(error) = remote.ready_session(Duration::from_millis(50)).await else {
+                panic!("nothing connected");
+            };
+
+            assert!(matches!(error, RemoteError::Unreachable(host) if host == "Studio"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_removed_device_and_a_standalone_app_fail_without_waiting() {
+        let remote = waiting_remote();
+        assert!(remote.mark_removed(0));
+        let Err(removed) = remote.ready_session(Duration::from_secs(30)).await else {
+            panic!("a removed device has no session");
+        };
+        assert!(matches!(removed, RemoteError::Unreachable(_)));
+
+        let standalone = RemoteConnection::new(SavedConnection::default());
+        let Err(error) = standalone.ready_session(Duration::from_secs(30)).await else {
+            panic!("standalone has no server");
+        };
+        assert!(matches!(error, RemoteError::NotConnected));
     }
 
     #[test]

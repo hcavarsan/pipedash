@@ -38,10 +38,22 @@ fn allows_post(route: &str) -> bool {
     route == "vault/unlock"
         || route == "refresh/all"
         || route == "metrics/aggregated"
+        || route == "devices/pairing"
         || (route.starts_with("providers/") && route.ends_with("/refresh"))
         || (route.starts_with("metrics/pipelines/") && route.ends_with("/query"))
         || (route.starts_with("pipelines/")
             && (route.ends_with("/search") || route.ends_with("/download-ticket")))
+}
+
+pub fn device_name(platform: &str) -> String {
+    let label = match platform {
+        "macos" => "Mac",
+        "windows" => "Windows PC",
+        "ios" => "iPhone or iPad",
+        "android" => "Android device",
+        _ => "Linux PC",
+    };
+    format!("Demo {label}")
 }
 
 pub async fn reject_changes(req: Request, next: Next) -> Response {
@@ -96,6 +108,7 @@ mod tests {
             (Method::GET, "/api/v1/storage/config/content".to_string()),
             (Method::GET, "/api/v1/providers/export".to_string()),
             (Method::GET, "/api/v1/push/subscriptions".to_string()),
+            (Method::DELETE, "/api/v1/devices/abc".to_string()),
         ];
 
         for (method, path) in blocked {
@@ -125,6 +138,7 @@ mod tests {
             (Method::POST, "/api/v1/providers/1/refresh"),
             (Method::POST, "/api/v1/refresh/all"),
             (Method::POST, "/api/v1/vault/unlock"),
+            (Method::POST, "/api/v1/devices/pairing"),
         ];
 
         for (method, path) in allowed {
@@ -133,6 +147,13 @@ mod tests {
                 "{method} {path} should be allowed"
             );
         }
+    }
+
+    #[test]
+    fn demo_devices_get_a_name_without_the_owner_s_hostname() {
+        assert_eq!(device_name("ios"), "Demo iPhone or iPad");
+        assert_eq!(device_name("macos"), "Demo Mac");
+        assert_eq!(device_name("linux"), "Demo Linux PC");
     }
 
     #[tokio::test]

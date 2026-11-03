@@ -179,16 +179,10 @@ class ApiClient {
     try {
       res = await invoke<RemoteResponse>('remote_request', { method, path, body, timeoutMs })
     } catch (error) {
-      const message = formatErrorMessage(error)
-
-      switch (getErrorCode(error)) {
-        case 'UNREACHABLE':
-          throw new TypeError(message)
-        case 'TIMEOUT':
-          throw new Error(`Request timeout after ${timeoutMs}ms`)
-        default:
-          throw new Error(message)
+      if (getErrorCode(error) === 'TIMEOUT') {
+        throw new Error(`Request timeout after ${timeoutMs}ms`)
       }
+      throw new Error(formatErrorMessage(error))
     }
 
     if (signal?.aborted) {

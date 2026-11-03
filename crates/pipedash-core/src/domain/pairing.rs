@@ -1,4 +1,8 @@
-use std::net::IpAddr;
+use std::net::{
+    IpAddr,
+    Ipv4Addr,
+    Ipv6Addr,
+};
 
 use chrono::{
     DateTime,
@@ -88,10 +92,22 @@ pub fn is_private_ip(ip: IpAddr) -> bool {
             ip.is_private() || ip.is_link_local() || (first == 100 && second & 0xc0 == 64)
         }
         IpAddr::V6(ip) => {
+            if let Some(embedded) = ip.to_ipv4_mapped().or_else(|| nat64_embedded(ip)) {
+                return is_private_ip(IpAddr::V4(embedded));
+            }
             let first = ip.segments()[0];
             first & 0xfe00 == 0xfc00 || first & 0xffc0 == 0xfe80
         }
     }
+}
+
+fn nat64_embedded(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+    let [a, b, c, d, e, f, g, h] = ip.segments();
+    ([a, b, c, d, e, f] == [0x64, 0xff9b, 0, 0, 0, 0]).then(|| {
+        let [hi_a, hi_b] = g.to_be_bytes();
+        let [lo_a, lo_b] = h.to_be_bytes();
+        Ipv4Addr::new(hi_a, hi_b, lo_a, lo_b)
+    })
 }
 
 pub fn generate_pairing_code() -> String {
@@ -299,6 +315,12 @@ mod tests {
             ("::", false),
             ("2001:4860:4860::8888", false),
             ("::ffff:8.8.8.8", false),
+            ("::ffff:192.168.1.10", true),
+            ("::ffff:127.0.0.1", true),
+            ("64:ff9b::c0a8:10a", true),
+            ("64:ff9b::a00:1", true),
+            ("64:ff9b::808:808", false),
+            ("64:ff9b:1::c0a8:10a", false),
         ] {
             let ip: IpAddr = input.parse().unwrap();
             assert_eq!(is_private_ip(ip), private, "{input}");

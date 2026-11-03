@@ -60,7 +60,7 @@ use super::{
     RemoteStatus,
 };
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 const READ_TIMEOUT: Duration = Duration::from_secs(45);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);

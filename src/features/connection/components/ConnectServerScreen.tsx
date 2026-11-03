@@ -54,6 +54,7 @@ function ConnectForm({ mobileShell, link }: ConnectFormProps): ReactNode {
   const [code, setCode] = useState('')
   const [allowPrivateHttp, setAllowPrivateHttp] = useState(false)
   const [cameraDenied, setCameraDenied] = useState(false)
+  const [cameraFailed, setCameraFailed] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [dismissed, setDismissed] = useState<ConnectActionState | null>(null)
   const { mutateAsync } = usePairWithServer()
@@ -95,6 +96,7 @@ function ConnectForm({ mobileShell, link }: ConnectFormProps): ReactNode {
 
   const scanCode = async (): Promise<void> => {
     setScanning(true)
+    setCameraFailed(false)
 
     try {
       let scanner: typeof BarcodeScanner
@@ -109,6 +111,7 @@ function ConnectForm({ mobileShell, link }: ConnectFormProps): ReactNode {
         }
       } catch (error) {
         logger.warn('ConnectServerScreen', "Couldn't check camera access", error)
+        setCameraFailed(true)
 
         return
       }
@@ -199,6 +202,11 @@ function ConnectForm({ mobileShell, link }: ConnectFormProps): ReactNode {
                   Open Settings
                 </Button>
               </Stack>
+            </Alert>
+          )}
+          {cameraFailed && (
+            <Alert color="orange" icon={<IconAlertTriangle size={16} aria-hidden />} title="Couldn't open the camera">
+              <Text size="sm">Enter the server address and code below.</Text>
             </Alert>
           )}
           <Divider label="or enter it" />

@@ -4,32 +4,16 @@ import { useNavigate } from 'react-router-dom'
 
 import { IosGroup, IosRow } from '@/components/ios/IosList'
 import { SwitchRow } from '@/components/ios/mobileParts'
+import { confirmDisconnect } from '@/features/connection/confirmDisconnect'
 import { useDisconnectServer, useSetAllowPrivateHttp } from '@/features/connection/queries/useConnectionQueries'
 import { useMobileShell } from '@/hooks/useIsMobile'
 import { getConnection, hasLocalCore, isRemoteClient } from '@/services/connection'
-import { openConfirm } from '@/utils/confirm'
 import { errorMessage } from '@/utils/errorDisplay'
 
 const STANDALONE_TEXT = 'Pipedash runs here and checks your providers from this device.'
 const TOGGLE_LABEL = 'Allow unencrypted connections on private networks'
 const TOGGLE_DESCRIPTION =
   "Needed for addresses that start with http://, such as a computer sharing Pipedash at home. Anyone on that network could read your pipelines and this device's access token. Turn it on only for networks you trust."
-
-function confirmDisconnect(host: string): Promise<boolean> {
-  const { promise, resolve } = Promise.withResolvers<boolean>()
-
-  openConfirm({
-    title: `Disconnect from ${host}?`,
-    children: `This device stops showing pipelines from ${host}. ${host} and its data stay as they are.`,
-    labels: { confirm: 'Disconnect', cancel: 'Cancel' },
-    confirmProps: { color: 'red' },
-    onConfirm: () => resolve(true),
-    onCancel: () => resolve(false),
-    onClose: () => resolve(false),
-  })
-
-  return promise
-}
 
 export function ThisDeviceCard(): ReactNode {
   const mobileShell = useMobileShell()

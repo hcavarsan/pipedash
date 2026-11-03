@@ -393,6 +393,7 @@ impl Connection {
             return false;
         };
         let name = match validate_device(name, platform) {
+            Ok(_) if crate::demo::enabled() => crate::demo::device_name(platform),
             Ok(name) => name,
             Err((code, message)) => {
                 self.reject(code, message).await;
