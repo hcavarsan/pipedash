@@ -163,6 +163,8 @@ CI runs backend tests on Linux, macOS and Windows, including log-resume checks t
 
 Run `bun run test` for frontend regressions and `cargo nextest run --workspace --all-features` for Rust regressions. The frontend command isolates each test file, and DOM tests unmount React roots and clear React Query clients before unregistering Happy DOM.
 
+Run `mise run icons` to regenerate app icons from `app-icon.png` into `crates/pipedash-desktop/icons` with the Tauri CLI. Run `python3 scripts/test_icons.py` to check icon generation in a temporary checkout without changing tracked icons. CI runs the same check after installing frontend dependencies.
+
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
 
 ## License
