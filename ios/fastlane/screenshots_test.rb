@@ -108,6 +108,33 @@ class ScreenshotLanesTest < Minitest::Test
     end
   end
 
+  def stub_push_signing(saved:)
+    events = @events
+    @file.define_singleton_method(:register_push_ids) { |**_| events << :register }
+    @file.define_singleton_method(:setup_ci) { events << :setup_ci }
+    @file.define_singleton_method(:match) do |**options|
+      events << (options.fetch(:readonly) ? :read_profiles : :write_profiles)
+      FastlaneCore::UI.user_error!("No matching provisioning profiles found") if options.fetch(:readonly) && !saved
+    end
+  end
+
+  def test_push_signing_setup_checks_that_the_profiles_were_saved
+    stub_push_signing(saved: true)
+
+    run_lane(:setup_push_signing)
+
+    assert_equal %i[authenticate register setup_ci write_profiles read_profiles], @events
+  end
+
+  def test_push_signing_setup_fails_when_the_profiles_did_not_reach_the_repository
+    stub_push_signing(saved: false)
+
+    error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:setup_push_signing) }
+
+    assert_includes error.message, "MATCH_DEPLOY_KEY write access"
+    assert_equal %i[authenticate register setup_ci write_profiles read_profiles], @events
+  end
+
   def test_extra_locale_blocks_upload_without_deleting_existing_images
     foreign = File.join(@output, "fr-FR")
     FileUtils.mkdir_p(foreign)

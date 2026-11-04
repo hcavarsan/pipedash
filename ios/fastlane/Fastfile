@@ -268,10 +268,8 @@ platform :ios do
     ipa
   end
 
-  desc "Register the notification extension App ID, turn on Push Notifications and renew the App Store profiles"
-  lane :setup_push_signing do
-    api_key = asc_api_key
-    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: api_key)
+  private_lane :register_push_ids do |options|
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: options.fetch(:api_key))
     changes = PushSigning.ensure!(
       bundle_ids: Spaceship::ConnectAPI::BundleId,
       app_id: APP_ID,
@@ -279,14 +277,23 @@ platform :ios do
     )
     changes.each { |change| UI.success(change) }
     UI.message("App IDs already set up") if changes.empty?
+  end
+
+  desc "Register the notification extension App ID, turn on Push Notifications and renew the App Store profiles"
+  lane :setup_push_signing do
+    api_key = asc_api_key
+    register_push_ids(api_key: api_key)
     setup_ci
-    match(
-      type: "appstore",
-      app_identifier: [APP_ID, IosProject::NSE_ID],
-      readonly: false,
-      force: true,
-      api_key: api_key,
-    )
+    identifiers = [APP_ID, IosProject::NSE_ID]
+    match(type: "appstore", app_identifier: identifiers, readonly: false, force: true, api_key: api_key)
+    begin
+      match(type: "appstore", app_identifier: identifiers, readonly: true)
+    rescue FastlaneCore::Interface::FastlaneError
+      UI.user_error!(
+        "match created the profiles but couldn't save them to the certificates repository. " \
+        "Give MATCH_DEPLOY_KEY write access and run setup_push_signing again.",
+      )
+    end
   end
 
   desc "Build and upload to TestFlight"
