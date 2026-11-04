@@ -532,6 +532,7 @@ mod tests {
             },
             allow_private_http: true,
             alerts_seen: seen,
+            preferences_pending: false,
         };
         remote
     }

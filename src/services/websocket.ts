@@ -131,7 +131,6 @@ class WebSocketClient {
         if (token && this.ws) {
           this.ws.send(JSON.stringify({ type: 'auth', token }))
         }
-        // An anonymous server sends no auth-ok; only a token waits for one
         this.authenticated = !token
         this.sendPreferences()
         logger.debug('WebSocket', 'Connected')

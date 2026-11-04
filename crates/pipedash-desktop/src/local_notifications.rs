@@ -6,6 +6,7 @@ mod store;
 mod wake;
 
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::{
     atomic::{
         AtomicBool,
@@ -72,7 +73,10 @@ use crate::remote::{
     RemoteConnection,
     RemoteError,
 };
-use crate::MaybeCoreContext;
+use crate::{
+    AppDataDir,
+    MaybeCoreContext,
+};
 
 const REFRESH_BUDGET: Duration = Duration::from_secs(23);
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(26);
@@ -654,7 +658,7 @@ struct ServerPreferences {
 
 enum Server<'a> {
     Host(&'a AlertHost),
-    Client(&'a RemoteConnection),
+    Client(&'a RemoteConnection, &'a Path),
 }
 
 impl Server<'_> {
@@ -663,7 +667,14 @@ impl Server<'_> {
     ) -> Result<(u16, String), RemoteError> {
         match self {
             Self::Host(host) => host_request(host, method, path, body).await,
-            Self::Client(remote) => client_request(remote, method, path, body).await,
+            Self::Client(remote, _) => client_request(remote, method, path, body).await,
+        }
+    }
+
+    fn set_pending(&self, pending: bool) {
+        match self {
+            Self::Host(_) => HOST_PREFERENCES_PENDING.store(pending, Ordering::Release),
+            Self::Client(remote, dir) => remote.set_preferences_pending(dir, pending),
         }
     }
 }
@@ -692,7 +703,7 @@ async fn send_preferences(
     if saved.is_none() {
         tracing::debug!("Couldn't send the notification preferences to the alert host");
     }
-    HOST_PREFERENCES_PENDING.store(saved.is_none(), Ordering::Release);
+    server.set_pending(saved.is_none());
 
     saved.map(|saved| saved.fired).unwrap_or_default()
 }
@@ -738,20 +749,25 @@ async fn merge_local(
 #[tauri::command]
 pub async fn set_notification_preferences(
     state: State<'_, LocalNotificationsState>, remote: State<'_, RemoteConnection>,
-    preferences: NotificationPreferences,
+    data_dir: State<'_, AppDataDir>, preferences: NotificationPreferences,
 ) -> Result<Vec<OnceWatch>> {
     let _sync = PREFERENCES_SYNC.lock().await;
     let (preferences, changed) = merge_local(&state, preferences).await?;
     let mut sent = Vec::new();
-    if changed || HOST_PREFERENCES_PENDING.load(Ordering::Acquire) {
-        let client = remote.is_client();
+    let client = remote.is_client();
+    let pending = if client {
+        remote.preferences_pending()
+    } else {
+        HOST_PREFERENCES_PENDING.load(Ordering::Acquire)
+    };
+    if changed || pending {
         let host = if client {
             None
         } else {
             current_alert_host().await
         };
         let server = if client {
-            Some(Server::Client(&remote))
+            Some(Server::Client(&remote, &data_dir.0))
         } else {
             host.as_ref().map(Server::Host)
         };
@@ -772,7 +788,7 @@ pub async fn load_notification_preferences(
         return Ok(None);
     }
     let _sync = PREFERENCES_SYNC.lock().await;
-    if HOST_PREFERENCES_PENDING.load(Ordering::Acquire) {
+    if remote.preferences_pending() {
         return Ok(None);
     }
     let (status, body) = client_request(&remote, "GET", PREFERENCES_PATH, None).await?;
@@ -1046,10 +1062,7 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     if !cfg!(mobile) {
         return Ok(());
     }
-    HOST_PREFERENCES_PENDING.store(
-        !app.state::<RemoteConnection>().is_client(),
-        Ordering::Release,
-    );
+    HOST_PREFERENCES_PENDING.store(true, Ordering::Release);
     let handle = app.clone();
     app.pipedash_native()
         .on_notification_refresh(move |event: NotificationRefresh| {

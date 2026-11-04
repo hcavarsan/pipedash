@@ -311,6 +311,25 @@ impl RemoteConnection {
         }
     }
 
+    pub(crate) fn preferences_pending(&self) -> bool {
+        self.lock().saved.preferences_pending
+    }
+
+    pub(crate) fn set_preferences_pending(&self, dir: &Path, pending: bool) {
+        let mut inner = self.lock();
+        if !matches!(inner.saved.mode, SavedMode::Client { .. })
+            || inner.saved.preferences_pending == pending
+        {
+            return;
+        }
+        let mut saved = inner.saved.clone();
+        saved.preferences_pending = pending;
+        match store::write(dir, &saved) {
+            Ok(()) => inner.saved = saved,
+            Err(error) => tracing::debug!(%error, "Couldn't save the preference sync state"),
+        }
+    }
+
     fn info(&self) -> ConnectionInfo {
         let inner = self.lock();
         ConnectionInfo::new(&inner.saved, inner.status)
@@ -478,6 +497,7 @@ pub fn startup_mode(dir: &Path, config_path: &Path) -> SavedConnection {
         },
         allow_private_http: false,
         alerts_seen: None,
+        preferences_pending: false,
     })
 }
 
@@ -693,6 +713,7 @@ async fn pair(
         },
         allow_private_http: allow,
         alerts_seen: None,
+        preferences_pending: false,
     };
     if let Err(error) = store::write(&app.state::<AppDataDir>().0, &next) {
         restore_token(previous_token.as_deref());
@@ -734,6 +755,7 @@ async fn disconnect(
         mode: SavedMode::Unset,
         allow_private_http: saved.allow_private_http,
         alerts_seen: None,
+        preferences_pending: false,
     };
     store::write(&app.state::<AppDataDir>().0, &next)?;
     let (_, departed) = remote.replace(next, None);
@@ -863,6 +885,7 @@ mod tests {
             },
             allow_private_http: true,
             alerts_seen: None,
+            preferences_pending: false,
         }
     }
 
@@ -875,6 +898,25 @@ mod tests {
         store::write(dir.path(), &saved).unwrap();
 
         assert_eq!(startup_mode(dir.path(), &config), saved);
+    }
+
+    #[test]
+    fn unsent_notification_preferences_stay_pending_after_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        let remote = RemoteConnection::new(SavedConnection::default());
+        remote.lock().saved = client("https://ci.example.com", None);
+
+        remote.set_preferences_pending(dir.path(), true);
+        let restarted = startup_mode(dir.path(), &config);
+        assert!(restarted.preferences_pending);
+
+        remote.set_preferences_pending(dir.path(), false);
+        assert!(!startup_mode(dir.path(), &config).preferences_pending);
+
+        let standalone = RemoteConnection::new(SavedConnection::default());
+        standalone.set_preferences_pending(dir.path(), true);
+        assert!(!standalone.preferences_pending());
     }
 
     #[test]
