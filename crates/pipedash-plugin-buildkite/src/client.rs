@@ -94,8 +94,23 @@ impl BuildkiteClient {
     }
 
     pub async fn fetch_organizations(&self) -> PluginResult<Vec<types::Organization>> {
-        self.get_json(&format!("{}/organizations", self.base_url))
-            .await
+        let mut organizations = Vec::new();
+        let mut page = 1;
+        loop {
+            let batch: Vec<types::Organization> = self
+                .get_json(&format!(
+                    "{}/organizations?per_page=100&page={page}",
+                    self.base_url
+                ))
+                .await?;
+            let is_last_page = batch.len() < 100;
+            organizations.extend(batch);
+            if is_last_page {
+                break;
+            }
+            page += 1;
+        }
+        Ok(organizations)
     }
 
     pub async fn fetch_org_pipelines(
@@ -714,6 +729,102 @@ mod tests {
         let client = BuildkiteClient::new(Arc::new(http_client), "token".to_string())
             .with_base_url(base_url);
         (client, requests)
+    }
+
+    fn organization_page(path: &str) -> Reply {
+        static PAGES: std::sync::LazyLock<[String; 2]> = std::sync::LazyLock::new(|| {
+            [30, 100].map(|count| {
+                serde_json::to_string(
+                    &(1..=count)
+                        .map(|n| {
+                            serde_json::json!({"slug": format!("org-{n}"), "name": format!("Org {n}")})
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap()
+            })
+        });
+        let body = match path {
+            "/organizations" => PAGES[0].as_str(),
+            "/organizations?per_page=100&page=1" => PAGES[1].as_str(),
+            "/organizations?per_page=100&page=2" => r#"[{"slug":"org-101","name":"Org 101"}]"#,
+            _ => panic!("Unexpected organization request: {path}"),
+        };
+        Reply {
+            status: "200 OK",
+            headers: "Content-Type: application/json\r\n",
+            body,
+        }
+    }
+
+    #[tokio::test]
+    async fn organizations_include_later_pages() {
+        let (client, requests) = client_for(organization_page, Duration::ZERO).await;
+
+        let organizations = client.fetch_organizations().await.unwrap();
+
+        assert_eq!(organizations.first().unwrap().slug, "org-1");
+        assert_eq!(organizations.last().unwrap().slug, "org-101");
+        assert_eq!(organizations.len(), 101);
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn organizations_stop_after_a_short_page() {
+        fn single_page(_: &str) -> Reply {
+            Reply {
+                status: "200 OK",
+                headers: "Content-Type: application/json\r\n",
+                body: r#"[{"slug":"acme","name":"Acme"}]"#,
+            }
+        }
+        let (client, requests) = client_for(single_page, Duration::ZERO).await;
+
+        let organizations = client.fetch_organizations().await.unwrap();
+
+        assert_eq!(organizations.len(), 1);
+        assert_eq!(organizations[0].slug, "acme");
+        assert_eq!(organizations[0].name, "Acme");
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn organizations_stop_after_an_empty_page() {
+        fn empty_last_page(path: &str) -> Reply {
+            if path.ends_with("page=2") {
+                Reply {
+                    status: "200 OK",
+                    headers: "Content-Type: application/json\r\n",
+                    body: "[]",
+                }
+            } else {
+                organization_page(path)
+            }
+        }
+        let (client, requests) = client_for(empty_last_page, Duration::ZERO).await;
+
+        let organizations = client.fetch_organizations().await.unwrap();
+
+        assert_eq!(organizations.len(), 100);
+        assert_eq!(organizations.last().unwrap().slug, "org-100");
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn organizations_fail_when_a_later_page_is_rejected() {
+        fn rejected_page(path: &str) -> Reply {
+            if path.ends_with("page=2") {
+                unauthorized(path)
+            } else {
+                organization_page(path)
+            }
+        }
+        let (client, requests) = client_for(rejected_page, Duration::ZERO).await;
+
+        let result = client.fetch_organizations().await;
+
+        assert!(matches!(result, Err(PluginError::AuthenticationFailed(_))));
+        assert_eq!(requests.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
