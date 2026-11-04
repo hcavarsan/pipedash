@@ -219,7 +219,8 @@ services:
       JENKINS_PASSWORD: ${DEMO_READER_PASSWORD:-pipedash-reader}
       KOMODO_API_KEY_FILE: /credentials/komodo-api-key
       KOMODO_API_SECRET_FILE: /credentials/komodo-api-secret
-      SSL_CERT_FILE: /status-ca/root.crt
+      SSL_CERT_FILE: /status-ca/bundle.crt
+      PIPEDASH_PUSH_RELAY_URL: ${PIPEDASH_PUSH_RELAY_URL:-}
     volumes:
       - ./config.toml:/config/config.toml:ro
       - credentials:/credentials:ro
@@ -251,7 +252,9 @@ services:
       - |
         caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
         until [ -s /data/caddy/pki/authorities/local/root.crt ]; do sleep 1; done
-        install -m 644 /data/caddy/pki/authorities/local/root.crt /ca/root.crt
+        cat /etc/ssl/certs/ca-certificates.crt /data/caddy/pki/authorities/local/root.crt > /ca/bundle.tmp
+        chmod 644 /ca/bundle.tmp
+        mv /ca/bundle.tmp /ca/bundle.crt
         wait
     volumes:
       - ./status:/srv:ro
@@ -263,9 +266,31 @@ services:
         aliases: [status.gitea.demo, status.jenkins.demo, status.argocd.demo]
     mem_limit: 64m
     healthcheck:
-      test: ["CMD", "test", "-s", "/ca/root.crt"]
+      test: ["CMD", "test", "-s", "/ca/bundle.crt"]
       interval: 2s
       retries: 30
+    restart: unless-stopped
+
+  relay-egress:
+    image: nginx:1.31.8-alpine
+    entrypoint: ["nginx", "-e", "stderr", "-c", "/etc/nginx/egress.conf", "-g", "daemon off;"]
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    volumes:
+      - ./egress/nginx.conf:/etc/nginx/egress.conf:ro
+    tmpfs:
+      - /tmp:uid=101,gid=101
+      - /var/cache/nginx:uid=101,gid=101
+    networks:
+      default:
+      apis:
+        aliases: [relay.pipedash.app]
+    mem_limit: 32m
+    pids_limit: 32
     restart: unless-stopped
 
   gateway:
