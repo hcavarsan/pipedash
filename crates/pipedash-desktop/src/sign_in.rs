@@ -97,7 +97,9 @@ fn open_sign_in(app: &AppHandle, service: Arc<ProviderService>, start: &SignInSt
             service.wait_for_sign_in(&id).await,
             SignInStatus::Completed { .. }
         ) {
-            crate::system_notifications::focus_main_window(&app);
+            if let Err(error) = crate::desktop::show_main_window(&app) {
+                tracing::warn!(%error, "Couldn't show Pipedash after sign-in");
+            }
         }
     });
 }

@@ -285,6 +285,29 @@ impl RemoteConnection {
         matches!(self.lock().saved.mode, SavedMode::Client { .. })
     }
 
+    #[cfg(desktop)]
+    pub(crate) fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changed.subscribe()
+    }
+
+    #[cfg(desktop)]
+    pub(crate) fn tray_link(&self) -> Option<(String, RemoteStatus, String)> {
+        let inner = self.lock();
+        match &inner.saved.mode {
+            SavedMode::Client {
+                server_url,
+                device_id,
+                host_name,
+                ..
+            } => Some((
+                display_host(server_url, host_name.as_deref()),
+                inner.status,
+                format!("{device_id}@{server_url}"),
+            )),
+            _ => None,
+        }
+    }
+
     fn saved(&self) -> SavedConnection {
         self.lock().saved.clone()
     }
@@ -599,6 +622,11 @@ async fn stop_local_core(app: &AppHandle) {
     let _transition = lock.transition().await;
 
     crate::host::stop(app).await;
+    #[cfg(desktop)]
+    {
+        crate::desktop::detach(app);
+        crate::desktop::flush_menu(app).await;
+    }
     crate::build_watch::interrupt(app);
     if let Err(error) = crate::local_notifications::reset(app).await {
         tracing::warn!(?error, "Couldn't clear the local notifications");

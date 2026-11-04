@@ -14,7 +14,7 @@ import { useNotificationStore } from '@/stores/notificationStore'
 import type { AlertHostInfo } from '@/types/domain'
 import { openConfirm } from '@/utils/confirm'
 import { displayWarningNotification } from '@/utils/errorDisplay'
-import { isAndroidPlatform, isMobilePlatform } from '@/utils/platform'
+import { isAndroidPlatform, isDesktopTauri, isMobilePlatform } from '@/utils/platform'
 import {
   notificationProblem,
   requestSystemNotificationPermission,
@@ -24,6 +24,7 @@ import {
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { SwitchRow } from '../../../components/ios/mobileParts'
+import { DesktopNotificationsCard } from './DesktopNotificationsCard'
 import { MobileDevicesCard } from './MobileDevicesCard'
 import { NotificationPreferencesSection } from './NotificationPreferencesSection'
 import { NotificationsBlockedRows } from './NotificationsBlockedRows'
@@ -121,6 +122,17 @@ function AlertHostGroup({ mobileShell, alertHost, removing, onRemove }: AlertHos
 }
 
 export function NotificationsSection(): ReactNode {
+  return isDesktopTauri() ? (
+    <Stack gap="md">
+      <DesktopNotificationsCard />
+      <NotificationPreferencesSection />
+    </Stack>
+  ) : (
+    <DeviceNotificationsSection />
+  )
+}
+
+function DeviceNotificationsSection(): ReactNode {
   const mobileShell = useMobileShell()
   const client = isRemoteClient()
   const background = isMobilePlatform() && (hasLocalCore() || client)

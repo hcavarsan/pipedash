@@ -440,6 +440,19 @@ pub struct PinnedItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineMenuSnapshot {
+    pub pipelines: Vec<PipelineMenuEntry>,
+    pub shortcuts: Vec<PinnedItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineMenuEntry {
+    pub pipeline_id: String,
+    pub pipeline: Option<Pipeline>,
+    pub provider_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PinnedBlock {
     pub kind: PinKind,
     #[serde(rename = "ref")]

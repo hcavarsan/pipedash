@@ -25,6 +25,8 @@ use crate::domain::{
     PinnedBlock,
     PinnedItem,
     Pipeline,
+    PipelineMenuEntry,
+    PipelineMenuSnapshot,
     PipelineStatus,
     PipelineView,
     PipelineViewPage,
@@ -413,6 +415,29 @@ impl<'a> Context<'a> {
         }
     }
 
+    fn ordered_pins(&self, s: &Snapshot, filters: &Filters) -> Vec<usize> {
+        let Some(pinned_view) = s.views.iter().find(|g| g.view.kind == ViewKind::Pinned) else {
+            return Vec::new();
+        };
+        let order: HashMap<&str, usize> = pinned_view
+            .manual
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.as_str(), i))
+            .collect();
+        let mut indexes: Vec<usize> = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                order.contains_key(item.pipeline.id.as_str()) && filters.matches(item)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        self.order_flat(&mut indexes, &pinned_view.view.display, &order);
+        indexes
+    }
+
     fn provider_name(&self, id: i64) -> &str {
         self.providers
             .get(&id)
@@ -566,6 +591,44 @@ fn build_section(
         last_run,
         pending_fetch,
         pipelines,
+    }
+}
+
+pub(super) fn menu_snapshot(s: &Snapshot) -> PipelineMenuSnapshot {
+    let ctx = Context::new(s);
+    let filters = Filters::new(&PipelineViewQuery::default(), Utc::now());
+    let mut pipelines: Vec<PipelineMenuEntry> = ctx
+        .ordered_pins(s, &filters)
+        .into_iter()
+        .map(|index| {
+            let pipeline = ctx.items[index].pipeline;
+            PipelineMenuEntry {
+                pipeline_id: pipeline.id.clone(),
+                pipeline: Some(pipeline.clone()),
+                provider_name: ctx
+                    .providers
+                    .get(&pipeline.provider_id)
+                    .map(|p| p.name.clone()),
+            }
+        })
+        .collect();
+    let cached: HashSet<&str> = s.pipelines.iter().map(|p| p.id.as_str()).collect();
+    if let Some(pinned) = s.views.iter().find(|g| g.view.kind == ViewKind::Pinned) {
+        pipelines.extend(
+            pinned
+                .manual
+                .iter()
+                .filter(|id| !cached.contains(id.as_str()))
+                .map(|id| PipelineMenuEntry {
+                    pipeline_id: id.clone(),
+                    pipeline: None,
+                    provider_name: None,
+                }),
+        );
+    }
+    PipelineMenuSnapshot {
+        pipelines,
+        shortcuts: s.pins.clone(),
     }
 }
 
@@ -767,32 +830,10 @@ pub(super) fn build_page(
         .collect();
 
     let pinned = if q.view == ViewRef::All && q.provider_id.is_none() {
-        s.views
-            .iter()
-            .find(|g| g.view.kind == ViewKind::Pinned)
-            .map(|pinned_view| {
-                let order: HashMap<&str, usize> = pinned_view
-                    .manual
-                    .iter()
-                    .enumerate()
-                    .map(|(i, id)| (id.as_str(), i))
-                    .collect();
-                let mut indexes: Vec<usize> = ctx
-                    .items
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, item)| {
-                        order.contains_key(item.pipeline.id.as_str()) && filters.matches(item)
-                    })
-                    .map(|(i, _)| i)
-                    .collect();
-                ctx.order_flat(&mut indexes, &pinned_view.view.display, &order);
-                indexes
-                    .into_iter()
-                    .map(|item| ctx.view_pipeline(item))
-                    .collect()
-            })
-            .unwrap_or_default()
+        ctx.ordered_pins(s, &filters)
+            .into_iter()
+            .map(|item| ctx.view_pipeline(item))
+            .collect()
     } else {
         Vec::new()
     };

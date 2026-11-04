@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { SwipeAction } from '../../../components/ios/swipeAction'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/domain'
 import type { PipelineLabels } from '../../../utils/pipelinePresentation'
+import { isDesktopTauri } from '../../../utils/platform'
 import type { RerunMode } from '../../../utils/rerunSummary'
 
 type RunActionId = 'watch' | 'approve' | 'reject' | 'cancel' | 'rerun' | 'details'
@@ -59,7 +60,12 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
       id: 'watch',
       label: value.watch.available
         ? `Watch run #${number}`
-        : `Watch unavailable: ${value.watch.reason ?? 'Allow Live Activities and background execution in iOS Settings.'}`,
+        : `Watch unavailable: ${
+            value.watch.reason ??
+            (isDesktopTauri()
+              ? 'Open General settings to check monitoring availability.'
+              : 'Allow Live Activities and background execution in iOS Settings.')
+          }`,
       icon: <IconEye size={16} aria-hidden />,
       disabled: value.watch.disabled,
       pending: value.watch.busy,

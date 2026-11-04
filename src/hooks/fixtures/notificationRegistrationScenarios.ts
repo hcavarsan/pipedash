@@ -6,6 +6,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement, type ReactNode } from 'react'
 
+import { desktopNotificationsKey } from '../../features/notifications/queries/useDesktopNotifications'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 
 import { callbacks, delivered, listeners, registration } from './notificationEnvironment'
@@ -28,6 +29,7 @@ export function defineRegistrationScenarios(client: QueryClient, Screen: () => R
     await waitFor(() => assert.ok(warn.mock.calls.length >= 1))
     assert.equal(listeners.size, 0)
     assert.deepEqual(useNotificationCenterStore.getState().items, [])
+    assert.equal(client.getQueryData(desktopNotificationsKey), undefined)
     assert.deepEqual(delivered, [])
   })
 
@@ -46,6 +48,7 @@ export function defineRegistrationScenarios(client: QueryClient, Screen: () => R
       }
     })
     assert.deepEqual(useNotificationCenterStore.getState().items, [])
+    assert.equal(client.getQueryData(desktopNotificationsKey), undefined)
     assert.deepEqual(delivered, [])
 
     await act(async () => {

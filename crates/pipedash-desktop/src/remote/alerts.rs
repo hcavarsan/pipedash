@@ -103,8 +103,14 @@ pub async fn host_request(
 pub(crate) async fn client_request(
     remote: &RemoteConnection, method: &str, path: &str, body: Option<&str>,
 ) -> Result<(u16, String), RemoteError> {
+    client_request_within(remote, method, path, body, REQUEST_TIMEOUT).await
+}
+
+pub(crate) async fn client_request_within(
+    remote: &RemoteConnection, method: &str, path: &str, body: Option<&str>, timeout: Duration,
+) -> Result<(u16, String), RemoteError> {
     let session = remote.ready_session(session::CONNECT_TIMEOUT).await?;
-    let (status, body) = session.request(method, path, body, REQUEST_TIMEOUT).await?;
+    let (status, body) = session.request(method, path, body, timeout).await?;
 
     Ok((status, String::from_utf8_lossy(&body).into_owned()))
 }

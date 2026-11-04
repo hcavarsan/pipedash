@@ -5,6 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
 GlobalRegistrator.register({ width: 390, height: 844 })
+Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'ios' } })
 // Static imports initialize browser and platform state before this test can install its isolated DOM and IPC bridge.
 const { notifications } = await import('@mantine/notifications')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')

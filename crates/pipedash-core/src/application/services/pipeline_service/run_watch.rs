@@ -127,6 +127,10 @@ impl RunWatch {
     }
 
     async fn observe(&self, service: &PipelineService) -> DomainResult<WatchedRun> {
+        let _priority = service
+            .scheduler
+            .prioritize_forced(self.provider_id, self.generation)
+            .ok_or_else(superseded)?;
         loop {
             let lease = service.provider_service.acquire(self.provider_id).await?;
             if lease.generation != self.generation {

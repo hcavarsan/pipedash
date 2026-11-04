@@ -9,29 +9,34 @@ import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
 import { usePipelines } from '../../../queries/usePipelinesQueries'
 import { useProviders } from '../../../queries/useProvidersQueries'
+import { useModalStore } from '../../../stores/modalStore'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 import { useNotifyItems } from '../hooks/useNotifyItems'
 
 import { notificationIcon, notificationLabel, TONE_COLORS } from '../lib/labels'
 import { openNotificationLink } from '../lib/openNotificationLink'
+import { useNotificationItems } from '../queries/useDesktopNotifications'
 
 const LINK_LABELS = { incident: 'View incident', status_page: 'Open status page' } as const
 
 export function NotificationDetailsModal(): ReactNode {
   const selection = useNotificationCenterStore((state) => state.selection)
-  const items = useNotificationCenterStore((state) => state.items)
+  const items = useNotificationItems()
   const open = useNotificationCenterStore((state) => state.open)
   const close = useNotificationCenterStore((state) => state.close)
   const { data: providers } = useProviders()
   const { data: pipelines } = usePipelines()
   const navigate = useNavigate()
   const location = useLocation()
-  const openHistory = (pipelineId: string) => {
+  const openHistory = (pipelineId: string, runNumber?: number | null) => {
     close()
     void navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, {
       state: pushState(location.pathname, location.search, location.state),
     })
+    if (runNumber) {
+      useModalStore.getState().openLogsModal(pipelineId, runNumber)
+    }
   }
   const now = useNow(30_000)
   const mobileShell = useMobileShell()
@@ -87,9 +92,9 @@ export function NotificationDetailsModal(): ReactNode {
                 {notification.pipelineId && (
                   <IosRow
                     icon={<IconHistory size={18} aria-hidden />}
-                    title="Open run history"
+                    title={notification.runNumber ? 'Open run' : 'Open run history'}
                     chevron
-                    onClick={() => openHistory(notification.pipelineId ?? '')}
+                    onClick={() => openHistory(notification.pipelineId ?? '', notification.runNumber)}
                   />
                 )}
                 {watch && <IosRow icon={watch.icon} title={watch.label} onClick={watch.onClick} />}
@@ -160,9 +165,9 @@ export function NotificationDetailsModal(): ReactNode {
                 size="compact-sm"
                 variant="default"
                 leftSection={<IconHistory size={14} aria-hidden />}
-                onClick={() => openHistory(notification.pipelineId ?? '')}
+                onClick={() => openHistory(notification.pipelineId ?? '', notification.runNumber)}
               >
-                Open run history
+                {notification.runNumber ? 'Open run' : 'Open run history'}
               </Button>
             )}
             {watch && (

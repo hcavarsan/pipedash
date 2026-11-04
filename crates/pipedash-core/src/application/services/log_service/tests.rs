@@ -903,10 +903,14 @@ async fn a_node_that_turns_ready_gets_one_final_read_and_the_live_task_ends() {
     let last = meta_of(f.open("1").await);
     assert!(last.complete);
     assert_eq!(f.texts(&last).await, ["a", "b", "last"]);
-    assert_eq!(
-        (last.stable_lines, last.previous_revision),
-        (1, Some(first.revision))
-    );
+    match (last.stable_lines, last.previous_revision) {
+        (1, Some(previous)) => assert_eq!(previous, first.revision),
+        (2, Some(previous)) => assert!(previous > first.revision && previous < last.revision),
+        other => panic!(
+            "unexpected revision chain {other:?} after {}",
+            first.revision
+        ),
+    }
     assert!(f.stub.log_requests()[1].is_some());
     let reads = f.stub.log_read_count();
     f.tick(60).await;

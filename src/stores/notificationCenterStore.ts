@@ -17,6 +17,7 @@ export interface CenterNotification {
   providerIds: number[]
   pipelineId: string | null
   link: AlertLink | null
+  runNumber?: number | null
 }
 
 export type NotificationInput = Omit<CenterNotification, 'read'>
@@ -34,7 +35,7 @@ interface NotificationCenterState {
   close: () => void
 }
 
-export const useNotificationCenterStore = create<NotificationCenterState>()((set) => ({
+export const useNotificationCenterStore = create<NotificationCenterState>()((set, get) => ({
   items: [],
   selection: null,
 
@@ -46,24 +47,26 @@ export const useNotificationCenterStore = create<NotificationCenterState>()((set
       ),
     })),
 
-  markAllRead: () =>
+  markAllRead: () => {
     set((state) =>
       state.items.every((item) => item.read) ? state : { items: state.items.map((item) => ({ ...item, read: true })) }
-    ),
+    )
+  },
 
-  markRead: (key) =>
-    set((state) => ({ items: state.items.map((item) => (item.key === key ? { ...item, read: true } : item)) })),
+  markRead: (key) => {
+    set((state) => ({ items: state.items.map((item) => (item.key === key ? { ...item, read: true } : item)) }))
+  },
 
-  clear: () => set({ items: [] }),
+  clear: () => {
+    set({ items: [] })
+  },
 
-  open: (selection) =>
-    set((state) => ({
-      selection,
-      items:
-        selection.type === 'notification'
-          ? state.items.map((item) => (item.key === selection.key ? { ...item, read: true } : item))
-          : state.items,
-    })),
+  open: (selection) => {
+    set({ selection })
+    if (selection.type === 'notification') {
+      get().markRead(selection.key)
+    }
+  },
 
   close: () => set({ selection: null }),
 }))

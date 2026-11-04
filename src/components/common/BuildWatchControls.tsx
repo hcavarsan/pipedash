@@ -13,6 +13,9 @@ import {
 } from '@mantine/core'
 import { IconDots, IconEye } from '@tabler/icons-react'
 import { type ReactNode, useId } from 'react'
+import { Link, type NavigateFunction, useNavigate } from 'react-router-dom'
+
+import { useDesktopStatus } from '../../features/settings/queries/useDesktopQueries'
 
 import { useMobileShell } from '../../hooks/useIsMobile'
 import { useBuildWatch } from '../../queries/useBuildWatchQueries'
@@ -20,11 +23,34 @@ import { mobileService } from '../../services/mobile'
 import { STATUS_META } from '../../theme/status'
 import type { PipelineStatus } from '../../types/domain'
 import { displayErrorNotification, errorMessage } from '../../utils/errorDisplay'
+import { isDesktopTauri } from '../../utils/platform'
 import { StatusIcon } from '../atoms/StatusBadge'
 import { ActionSheetCancel } from '../ios/ActionSheetCancel'
 import { IosGroup } from '../ios/IosList'
 import { IosPipelineRow } from './IosPipelineList'
 import { SectionHeading } from './PipelineRowParts'
+
+function openWatchSettings(navigate: NavigateFunction): void {
+  if (isDesktopTauri()) {
+    void navigate('/settings/general')
+    return
+  }
+  mobileService.openAppSettings().catch((error: unknown) => displayErrorNotification(error, "Couldn't open Settings"))
+}
+
+function BackgroundWatchGuidance({ watching }: { watching: boolean }): ReactNode {
+  const desktop = useDesktopStatus()
+  if (!isDesktopTauri() || !watching || desktop.data?.settings.keep_running_on_close !== false) {
+    return null
+  }
+
+  return (
+    <Text size="xs" c="dimmed">
+      Background mode is off. Keep Pipedash open to watch this run, or turn on background mode in{' '}
+      <Link to="/settings/general">General settings</Link>.
+    </Text>
+  )
+}
 
 interface BuildWatchControlsProps {
   pipelineId: string
@@ -34,6 +60,7 @@ interface BuildWatchControlsProps {
 
 export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatchControlsProps): ReactNode {
   const watch = useBuildWatch()
+  const navigate = useNavigate()
   if (!watch.data?.supported || (status !== 'pending' && status !== 'running')) {
     return null
   }
@@ -58,22 +85,16 @@ export function BuildWatchControls({ pipelineId, runNumber, status }: BuildWatch
           ? 'Stop the current watch before watching another run.'
           : !watch.data.available
             ? (watch.data.reason ?? 'Background monitoring is unavailable on this device.')
-            : 'Watch on this device without a server. iOS may interrupt monitoring. Stopping a watch does not cancel the run.'}
+            : isDesktopTauri()
+              ? 'Watch this run while Pipedash is running. Closing the window keeps watching only when background mode is on. Stopping a watch does not cancel the run.'
+              : 'Watch on this device without a server. iOS may interrupt monitoring. Stopping a watch does not cancel the run.'}
       </Text>
       {!watch.data.available && (
-        <Button
-          variant="subtle"
-          size="xs"
-          mih={44}
-          onClick={() => {
-            mobileService
-              .openAppSettings()
-              .catch((error: unknown) => displayErrorNotification(error, "Couldn't open Settings"))
-          }}
-        >
+        <Button variant="subtle" size="xs" mih={44} onClick={() => openWatchSettings(navigate)}>
           Open Settings
         </Button>
       )}
+      <BackgroundWatchGuidance watching={watching} />
     </Stack>
   )
 }
@@ -85,6 +106,7 @@ interface BuildWatchSectionProps {
 export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactNode {
   const watch = useBuildWatch()
   const mobileShell = useMobileShell()
+  const navigate = useNavigate()
   const titleId = useId()
   if (!watch.enabled || (watch.data && !watch.data.supported)) {
     return null
@@ -118,15 +140,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
           </Menu.Item>
         )}
         {watch.data && !watch.data.available && (
-          <Menu.Item
-            onClick={() => {
-              mobileService
-                .openAppSettings()
-                .catch((error: unknown) => displayErrorNotification(error, "Couldn't open Settings"))
-            }}
-          >
-            Open Settings
-          </Menu.Item>
+          <Menu.Item onClick={() => openWatchSettings(navigate)}>Open Settings</Menu.Item>
         )}
         <ActionSheetCancel />
       </Menu.Dropdown>
@@ -212,6 +226,7 @@ export function BuildWatchSection({ onViewRun }: BuildWatchSectionProps): ReactN
         </SimpleGrid>
       )}
       {recovery}
+      <BackgroundWatchGuidance watching={current?.monitoring === 'watching'} />
       {live}
     </Stack>
   )

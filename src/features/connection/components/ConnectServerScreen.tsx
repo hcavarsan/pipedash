@@ -320,7 +320,7 @@ export function ConnectServerScreen(): ReactNode {
   }
 
   const link = isRecord(location.state) && typeof location.state.link === 'string' ? location.state.link : ''
-  const form = <ConnectForm mobileShell={mobileShell} link={link} alerts={alerts} />
+  const form = <ConnectForm key={link} mobileShell={mobileShell} link={link} alerts={alerts} />
 
   if (mobileShell) {
     return (

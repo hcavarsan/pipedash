@@ -358,7 +358,7 @@ test('unsupported native versions hide Watch controls', async () => {
   assert.equal(view().queryByText('Watch unavailable'), null)
 })
 
-test('non-iOS shells never call Watch commands or show Watch controls', () => {
+test('Android shells never call Watch commands or show Watch controls', () => {
   os.platform = 'android'
   mount({ lifecycle: true })
   assert.equal(calls.length, 0)
@@ -451,6 +451,7 @@ for (const page of [
     client.setQueryData(queryKeys.buildWatch.status(), { ...available(), watch: { ...snapshot } })
     mount({ page, lifecycle: true })
     await waitFor(() => assert.equal(typeof nativeChange, 'function'))
+
     assert.equal(view().queryByRole('region', { name: 'Watching' }), null)
     assert.equal(view().queryByRole('button', { name: 'Stop watching' }), null)
     assert.equal(

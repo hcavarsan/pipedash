@@ -6,6 +6,7 @@ import { events } from '../services/service'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
 import { useNotificationStore } from '../stores/notificationStore'
 import type { ShownNotification } from '../types/domain'
+import { isDesktopTauri } from '../utils/platform'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
 export function useNotificationEvents(): void {
@@ -28,6 +29,10 @@ export function useNotificationEvents(): void {
 
         if (fired) {
           useNotificationStore.getState().markFired([fired])
+        }
+
+        if (isDesktopTauri()) {
+          return
         }
 
         useNotificationCenterStore.getState().push({
