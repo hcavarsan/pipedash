@@ -9,6 +9,8 @@ let status: DesktopStatus = {
   revision: 0,
   settings: { show_tray: false, keep_running_on_close: false, notifications_enabled: false },
   tray_state: 'off',
+  tray_status: 'idle',
+  unread: 0,
   ready: true,
   notification_preference_imported: true,
   error: null,
@@ -207,6 +209,35 @@ test('tray errors remain visible and Retry submits an empty patch', async () => 
   await user.click(view().getByRole('button', { name: /retry|try again/i }))
   await waitFor(() => assert.equal(view().queryByText('Tray unavailable'), null))
   assert.deepEqual(patches, [{}])
+})
+
+for (const [trayStatus, unread, line] of [
+  ['offline', 0, 'Menu bar status: offline'],
+  ['failing', 2, 'Menu bar status: 2 unread, a pinned pipeline is failing'],
+  ['running', 0, 'Menu bar status: a watched run or pinned pipeline is running'],
+  ['attention', 3, 'Menu bar status: 3 unread'],
+  ['idle', 0, 'Menu bar status: nothing to report'],
+] as const) {
+  test(`the tray status line reads "${line}"`, async () => {
+    status = {
+      ...status,
+      settings: { ...status.settings, show_tray: true },
+      tray_state: 'ready',
+      tray_status: trayStatus,
+      unread,
+    }
+    mount()
+    await view().findByText(line)
+  })
+}
+
+test('the tray status line is hidden while the tray is off and macOS help mentions the unread count', async () => {
+  status = { ...status, tray_status: 'failing', unread: 2 }
+  os.platform = 'macos'
+  mount()
+  await view().findByRole('switch', { name: 'Show in menu bar' })
+  assert.equal(view().queryByText(/Menu bar status/), null)
+  assert.ok(view().getByText(/amber for unread notifications\. The menu bar also shows the unread count/))
 })
 
 test('settings routes reuse the pinned editor and notification settings', async () => {

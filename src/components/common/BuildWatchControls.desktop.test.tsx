@@ -90,6 +90,8 @@ function mount() {
     revision: 1,
     settings: { show_tray: false, keep_running_on_close: false, notifications_enabled: false },
     tray_state: 'off',
+    tray_status: 'idle',
+    unread: 0,
     ready: true,
     notification_preference_imported: true,
     error: null,

@@ -59,3 +59,122 @@ fn recorded_notifications_reach_the_history_and_follow_the_system_switch() {
     assert_eq!(history.items[0].key, "second");
     assert_eq!(inner.history.items.len(), 2);
 }
+
+#[test]
+fn the_status_json_keeps_its_fields_and_adds_the_tray_status_and_unread_count() {
+    let mut inner = Inner {
+        generation: 1,
+        vault_ready: true,
+        ..Default::default()
+    };
+    let quiet = serde_json::to_value(inner.status(&Default::default())).unwrap();
+    inner.history.push(notice("broken"));
+    let failing = serde_json::to_value(inner.status(&Default::default())).unwrap();
+
+    assert_eq!(quiet["tray_status"], "idle");
+    assert_eq!(quiet["unread"], 0);
+    assert_eq!(failing["tray_status"], "failing");
+    assert_eq!(failing["unread"], 1);
+    for field in [
+        "revision",
+        "settings",
+        "tray_state",
+        "ready",
+        "notification_preference_imported",
+        "error",
+    ] {
+        assert!(failing.get(field).is_some(), "{field}");
+    }
+    assert_eq!(failing["tray_state"], "off");
+    assert_eq!(failing["ready"], true);
+}
+
+#[test]
+fn the_status_serializes_every_tray_state_in_lower_case() {
+    for (status, name) in [
+        (TrayStatus::Offline, "offline"),
+        (TrayStatus::Failing, "failing"),
+        (TrayStatus::Running, "running"),
+        (TrayStatus::Attention, "attention"),
+        (TrayStatus::Idle, "idle"),
+    ] {
+        assert_eq!(serde_json::to_value(status).unwrap(), name);
+    }
+}
+
+#[test]
+fn a_client_is_active_only_while_connected_whatever_the_local_core_says() {
+    use crate::remote::RemoteStatus;
+
+    let link = |status| {
+        Some(ClientLink {
+            host: "ci.example.com".to_string(),
+            status,
+        })
+    };
+    let mut inner = Inner {
+        vault_ready: true,
+        client: link(RemoteStatus::Reconnecting),
+        ..Default::default()
+    };
+    assert!(!inner.active());
+
+    inner.vault_ready = false;
+    inner.client = link(RemoteStatus::Connected);
+    assert!(inner.active());
+    assert!(inner.current(inner.ticket()));
+    assert!(!inner.current(Ticket {
+        generation: 9,
+        epoch: 9
+    }));
+
+    inner.client = None;
+    assert!(!inner.active());
+}
+
+#[test]
+fn server_pins_parse_and_failures_become_a_menu_error() {
+    let snapshot = PipelineMenuSnapshot {
+        pipelines: Vec::new(),
+        shortcuts: Vec::new(),
+    };
+    let body = serde_json::to_string(&snapshot).unwrap();
+    let mut inner = Inner::default();
+
+    inner.apply_menu_result(parse_menu(200, &body));
+    assert!(inner.snapshot.is_some());
+    assert!(inner.data_error.is_none());
+
+    for (status, body) in [(500, body.as_str()), (200, "not json"), (200, "{}")] {
+        inner.apply_menu_result(parse_menu(status, body));
+        assert!(inner.snapshot.is_none());
+        assert!(inner.data_error.is_some());
+    }
+}
+
+#[test]
+fn only_pipeline_and_provider_changes_wake_the_tray() {
+    for name in [
+        "pipeline-views-changed",
+        "pipelines-updated",
+        "pipeline-status-changed",
+        "pipeline-cache-invalidated",
+        "providers-changed",
+        "provider-added",
+        "provider-updated",
+        "provider-removed",
+        "provider-status-updated",
+    ] {
+        assert!(waking(name), "{name}");
+    }
+    assert!(waking(CoreEvent::PipelineViewsChanged.event_name()));
+    assert!(waking(CoreEvent::ProvidersChanged.event_name()));
+    for name in [
+        "run-triggered",
+        "notification",
+        "connection-status",
+        "vault-locked",
+    ] {
+        assert!(!waking(name), "{name}");
+    }
+}

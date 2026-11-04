@@ -8,6 +8,14 @@ import { LiveStatus } from '../../../components/forms/LiveStatus'
 import { usePipelineViewStore } from '../../pipelines/stores/pipelineViewStore'
 import { useDesktopStatus, useUpdateDesktopSettings } from '../queries/useDesktopQueries'
 
+const TRAY_STATUS_TEXT = {
+  offline: 'offline',
+  failing: 'a pinned pipeline is failing',
+  running: 'a watched run or pinned pipeline is running',
+  attention: '',
+  idle: 'nothing to report',
+} as const
+
 export function DesktopIntegrationCard(): ReactNode {
   const os = platform()
   const navigate = useNavigate()
@@ -50,6 +58,14 @@ export function DesktopIntegrationCard(): ReactNode {
           disabled={busy || !current?.settings.show_tray || current.tray_state !== 'ready'}
           onChange={(event) => settings.mutate({ keep_running_on_close: event.currentTarget.checked })}
         />
+        {current?.settings.show_tray && (
+          <Text size="xs" c="dimmed">
+            {`Menu bar status: ${[current.unread > 0 && `${current.unread} unread`, TRAY_STATUS_TEXT[current.tray_status]].filter(Boolean).join(', ')}`}
+          </Text>
+        )}
+        <Text size="xs" c="dimmed">
+          {`The icon shows a status dot: red when a pinned pipeline fails, blue while a watched run or pinned pipeline runs, amber for unread notifications.${os === 'macos' ? ' The menu bar also shows the unread count.' : ''}`}
+        </Text>
         {os === 'linux' && (
           <Text size="xs" c="dimmed">
             Your desktop may need a tray extension. Closing minimizes Pipedash so you can still reopen it.

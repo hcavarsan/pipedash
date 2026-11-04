@@ -3,6 +3,7 @@ pub mod notifications;
 mod settings;
 #[cfg(test)]
 mod tests;
+mod tray;
 
 use std::{
     path::PathBuf,
@@ -20,7 +21,9 @@ use std::{
 
 use pipedash_core::{
     domain::{
+        DomainError,
         DomainResult,
+        NotificationPreferences,
         PipelineMenuSnapshot,
     },
     event::CoreEvent,
@@ -49,10 +52,19 @@ use self::{
         DesktopNotificationSnapshot,
     },
     settings::SavedSettings,
+    tray::{
+        ClientLink,
+        TrayStatus,
+    },
 };
 use crate::{
     commands::ErrorResponse,
+    local_notifications::LocalNotificationsState,
     native::NotificationTarget,
+    remote::{
+        alerts::client_request,
+        RemoteConnection,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +84,8 @@ pub struct DesktopStatus {
     revision: u64,
     settings: DesktopSettings,
     tray_state: &'static str,
+    tray_status: TrayStatus,
+    unread: usize,
     ready: bool,
     notification_preference_imported: bool,
     error: Option<String>,
@@ -95,6 +109,7 @@ struct Inner {
     watch_session: Option<(String, Ticket)>,
     watch: Option<BuildWatchSnapshot>,
     history: DesktopNotificationSnapshot,
+    client: Option<ClientLink>,
     retry: settings::SettingsRetry,
 }
 
@@ -107,6 +122,28 @@ impl Inner {
     }
     fn matches(&self, ticket: Ticket) -> bool {
         self.vault_ready && self.core.is_some() && self.ticket() == ticket
+    }
+    fn current(&self, ticket: Ticket) -> bool {
+        self.active() && self.ticket() == ticket
+    }
+    fn active(&self) -> bool {
+        match &self.client {
+            Some(link) => link.connected(),
+            None => self.vault_ready,
+        }
+    }
+    fn unread(&self) -> usize {
+        self.history
+            .items
+            .iter()
+            .filter(|notice| !notice.read)
+            .count()
+    }
+    fn unread_danger(&self) -> bool {
+        self.history
+            .items
+            .iter()
+            .any(|notice| !notice.read && notice.tone == "danger")
     }
     fn accepts(&self, origin: Origin) -> bool {
         match origin {
@@ -136,7 +173,7 @@ impl Inner {
             }
         }
     }
-    fn status(&self) -> DesktopStatus {
+    fn status(&self, prefs: &NotificationPreferences) -> DesktopStatus {
         DesktopStatus {
             revision: self.revision,
             settings: self.saved.settings,
@@ -147,6 +184,8 @@ impl Inner {
             } else {
                 "off"
             },
+            tray_status: tray::tray_status(self, prefs),
+            unread: self.unread(),
             ready: self.vault_ready,
             notification_preference_imported: self.saved.notification_preference_imported,
             error: self
@@ -201,15 +240,32 @@ pub fn generation<R: Runtime>(app: &AppHandle<R>) -> u64 {
 }
 
 fn publish_status<R: Runtime>(app: &AppHandle<R>) {
+    let prefs = preferences(app);
     let status = {
         let state = app.state::<DesktopState>();
         let mut inner = state.lock();
         inner.revision += 1;
-        inner.status()
+        inner.status(&prefs)
     };
     if let Err(error) = app.emit("desktop-status-changed", status) {
         tracing::warn!(%error, "Couldn't publish desktop integration status");
     }
+}
+
+fn preferences<R: Runtime>(app: &AppHandle<R>) -> NotificationPreferences {
+    app.try_state::<LocalNotificationsState>()
+        .map(|state| state.preferences_copy())
+        .unwrap_or_default()
+}
+
+fn current_status<R: Runtime>(app: &AppHandle<R>) -> DesktopStatus {
+    let prefs = preferences(app);
+    app.state::<DesktopState>().lock().status(&prefs)
+}
+
+pub fn tray_changed<R: Runtime>(app: &AppHandle<R>) {
+    publish_status(app);
+    menu::schedule_render(app);
 }
 
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
@@ -275,6 +331,15 @@ pub async fn initialize(app: &AppHandle, path: PathBuf) -> Result<(), ErrorRespo
             refresh_projection(&handle).await;
         }
     });
+    if let Some(remote) = app.try_state::<RemoteConnection>() {
+        let mut changes = remote.subscribe();
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            while changes.changed().await.is_ok() {
+                wake(&handle);
+            }
+        });
+    }
     wake(app);
     Ok(())
 }
@@ -329,16 +394,43 @@ pub fn detach<R: Runtime>(app: &AppHandle<R>) {
     menu::schedule_render(app);
 }
 
+fn parse_menu(status: u16, body: &str) -> DomainResult<PipelineMenuSnapshot> {
+    if status != 200 {
+        return Err(DomainError::ApiError(format!(
+            "The server answered {status}"
+        )));
+    }
+    serde_json::from_str(body).map_err(|_| {
+        DomainError::ApiError("The server sent pinned pipelines Pipedash can't read".to_string())
+    })
+}
+
+async fn client_menu(app: &AppHandle) -> DomainResult<PipelineMenuSnapshot> {
+    let remote = app.state::<RemoteConnection>();
+    let (status, body) = client_request(&remote, "GET", "/pipeline-views/menu", None)
+        .await
+        .map_err(|error| DomainError::NetworkError(error.to_string()))?;
+    parse_menu(status, &body)
+}
+
 async fn refresh_projection(app: &AppHandle) {
     let state = app.state::<DesktopState>();
     let _projection = state.projection_gate.lock().await;
+    let link = app
+        .try_state::<RemoteConnection>()
+        .and_then(|remote| remote.tray_link())
+        .map(|(host, status)| ClientLink { host, status });
     let input = {
-        let state = app.state::<DesktopState>();
-        let inner = state.lock();
+        let mut inner = state.lock();
+        inner.client = link;
+        if inner.client.as_ref().is_some_and(|link| !link.connected()) {
+            inner.snapshot = None;
+            inner.data_error = None;
+        }
         inner
             .core
             .as_ref()
-            .filter(|_| inner.vault_ready)
+            .filter(|_| inner.vault_ready && inner.client.is_none())
             .map(|core| (Arc::clone(core), inner.ticket()))
     };
     if let Some((core, ticket)) = input {
@@ -352,24 +444,49 @@ async fn refresh_projection(app: &AppHandle) {
             inner.apply_menu_result(projection);
         }
         publish_status(app);
+    } else {
+        let connected = state
+            .lock()
+            .client
+            .as_ref()
+            .is_some_and(ClientLink::connected);
+        if connected {
+            let projection = client_menu(app).await;
+            let mut inner = state.lock();
+            if inner.client.as_ref().is_some_and(ClientLink::connected) {
+                inner.apply_menu_result(projection);
+            }
+        }
+        publish_status(app);
     }
     menu::render(app);
 }
 
+fn waking(name: &str) -> bool {
+    matches!(
+        name,
+        "pipeline-views-changed"
+            | "pipelines-updated"
+            | "pipeline-status-changed"
+            | "pipeline-cache-invalidated"
+            | "providers-changed"
+            | "provider-added"
+            | "provider-updated"
+            | "provider-removed"
+            | "provider-status-updated"
+    )
+}
+
 pub fn observe<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) {
-    if matches!(
-        event,
-        CoreEvent::PipelineViewsChanged
-            | CoreEvent::PipelinesUpdated { .. }
-            | CoreEvent::PipelineStatusChanged { .. }
-            | CoreEvent::PipelineCacheInvalidated { .. }
-            | CoreEvent::ProvidersChanged
-            | CoreEvent::ProviderAdded { .. }
-            | CoreEvent::ProviderUpdated { .. }
-            | CoreEvent::ProviderRemoved { .. }
-            | CoreEvent::ProviderStatusUpdated { .. }
-            | CoreEvent::MigrationComplete { success: true, .. }
-    ) {
+    if waking(event.event_name())
+        || matches!(event, CoreEvent::MigrationComplete { success: true, .. })
+    {
+        wake(app);
+    }
+}
+
+pub fn observe_server_event<R: Runtime>(app: &AppHandle<R>, name: &str) {
+    if waking(name) {
         wake(app);
     }
 }
@@ -434,7 +551,7 @@ pub fn watch_changed<R: Runtime>(app: &AppHandle<R>, status: &BuildWatchStatus) 
     if let (Some(notice), Some((history, deliver))) = (notice, delivery) {
         notifications::announce(app, &notice, &history, deliver);
     }
-    menu::schedule_render(app);
+    tray_changed(app);
     true
 }
 
@@ -514,12 +631,12 @@ async fn commit_settings(
         }
     }
     publish_status(app);
-    result.map(|_| app.state::<DesktopState>().lock().status())
+    result.map(|_| current_status(app))
 }
 
 #[tauri::command]
 pub fn get_desktop_status(app: AppHandle) -> DesktopStatus {
-    app.state::<DesktopState>().lock().status()
+    current_status(&app)
 }
 
 #[tauri::command]
@@ -545,13 +662,13 @@ pub async fn update_desktop_settings(
         if failed {
             publish_status(&app);
             refresh_projection(&app).await;
-            return Ok(state.lock().status());
+            return Ok(current_status(&app));
         }
     }
     let next = state.lock().saved.patch(request)?;
     commit_settings(&app, next, request).await?;
     refresh_projection(&app).await;
-    Ok(app.state::<DesktopState>().lock().status())
+    Ok(current_status(&app))
 }
 
 #[tauri::command]
@@ -561,11 +678,11 @@ pub async fn import_desktop_notification_preference(
     let state = app.state::<DesktopState>();
     let _guard = state.settings_gate.lock().await;
     if state.lock().settings_error.is_some() {
-        return Ok(state.lock().status());
+        return Ok(current_status(&app));
     }
     let mut next = state.lock().saved;
     if next.notification_preference_imported {
-        return Ok(state.lock().status());
+        return Ok(current_status(&app));
     }
     next.notification_preference_imported = true;
     next.settings.notifications_enabled = enabled;

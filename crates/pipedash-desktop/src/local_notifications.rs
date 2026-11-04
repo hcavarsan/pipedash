@@ -153,6 +153,11 @@ impl LocalNotificationsState {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
+    #[cfg(desktop)]
+    pub(crate) fn preferences_copy(&self) -> NotificationPreferences {
+        self.preferences().clone()
+    }
+
     pub(crate) fn admit(&self, notification: &ObservedNotification) -> Option<ShownNotification> {
         notification.admit(&mut self.preferences())
     }
@@ -734,8 +739,15 @@ fn used_watches(mut known: Vec<OnceWatch>, from_server: Vec<OnceWatch>) -> Vec<O
     known
 }
 
+fn preferences_changed(app: &AppHandle) {
+    #[cfg(desktop)]
+    crate::desktop::tray_changed(app);
+    #[cfg(not(desktop))]
+    let _ = app;
+}
+
 async fn merge_local(
-    state: &LocalNotificationsState, incoming: NotificationPreferences,
+    app: &AppHandle, state: &LocalNotificationsState, incoming: NotificationPreferences,
 ) -> Result<(NotificationPreferences, bool)> {
     let (incoming, stored_changed) = if cfg!(mobile) {
         storage(move || store::merge_preferences(&incoming)).await?
@@ -743,17 +755,20 @@ async fn merge_local(
         (incoming, false)
     };
     let (merged, changed) = state.merge_preferences(&incoming);
+    if changed {
+        preferences_changed(app);
+    }
 
     Ok((merged, changed || stored_changed))
 }
 
 #[tauri::command]
 pub async fn set_notification_preferences(
-    state: State<'_, LocalNotificationsState>, remote: State<'_, RemoteConnection>,
+    app: AppHandle, state: State<'_, LocalNotificationsState>, remote: State<'_, RemoteConnection>,
     data_dir: State<'_, AppDataDir>, preferences: NotificationPreferences,
 ) -> Result<Vec<OnceWatch>> {
     let _sync = PREFERENCES_SYNC.lock().await;
-    let (preferences, changed) = merge_local(&state, preferences).await?;
+    let (preferences, changed) = merge_local(&app, &state, preferences).await?;
     let mut sent = Vec::new();
     let client = remote.is_client();
     let pending = if client {
@@ -783,7 +798,7 @@ pub async fn set_notification_preferences(
 
 #[tauri::command]
 pub async fn load_notification_preferences(
-    state: State<'_, LocalNotificationsState>, remote: State<'_, RemoteConnection>,
+    app: AppHandle, state: State<'_, LocalNotificationsState>, remote: State<'_, RemoteConnection>,
 ) -> Result<Option<NotificationPreferences>> {
     if !remote.is_client() {
         return Ok(None);
@@ -799,7 +814,7 @@ pub async fn load_notification_preferences(
         return Ok(None);
     };
 
-    Ok(Some(merge_local(&state, preferences).await?.0))
+    Ok(Some(merge_local(&app, &state, preferences).await?.0))
 }
 
 async fn deliver<R: Runtime>(

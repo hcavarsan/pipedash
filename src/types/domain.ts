@@ -902,6 +902,8 @@ export interface DesktopStatus {
   revision: number
   settings: DesktopSettings
   tray_state: 'off' | 'ready' | 'error'
+  tray_status: 'offline' | 'failing' | 'running' | 'attention' | 'idle'
+  unread: number
   ready: boolean
   notification_preference_imported: boolean
   error: string | null

@@ -188,6 +188,7 @@ fn record<R: Runtime>(app: &AppHandle<R>, origin: Origin, notice: &DesktopNotice
         inner.record(notice)
     };
     announce(app, notice, &history, deliver);
+    super::tray_changed(app);
 }
 
 pub fn record_shown<R: Runtime>(app: &AppHandle<R>, generation: u64, shown: &ShownNotification) {
@@ -205,18 +206,23 @@ pub fn get_desktop_notifications(app: AppHandle) -> DesktopNotificationSnapshot 
     app.state::<DesktopState>().lock().history.clone()
 }
 
+pub fn mark_read<R: Runtime>(app: &AppHandle<R>, key: Option<&str>) -> DesktopNotificationSnapshot {
+    let snapshot = {
+        let state = app.state::<DesktopState>();
+        let mut inner = state.lock();
+        inner.history.mark_read(key);
+        inner.history.clone()
+    };
+    publish(app, &snapshot);
+    super::tray_changed(app);
+    snapshot
+}
+
 #[tauri::command]
 pub fn mark_desktop_notifications_read(
     app: AppHandle, key: Option<String>,
 ) -> DesktopNotificationSnapshot {
-    let snapshot = {
-        let state = app.state::<DesktopState>();
-        let mut inner = state.lock();
-        inner.history.mark_read(key.as_deref());
-        inner.history.clone()
-    };
-    publish(&app, &snapshot);
-    snapshot
+    mark_read(&app, key.as_deref())
 }
 
 #[tauri::command]
@@ -228,6 +234,7 @@ pub fn clear_desktop_notifications(app: AppHandle) -> DesktopNotificationSnapsho
         inner.history.clone()
     };
     publish(&app, &snapshot);
+    super::tray_changed(&app);
     snapshot
 }
 

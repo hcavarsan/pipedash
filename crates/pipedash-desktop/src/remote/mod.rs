@@ -285,6 +285,24 @@ impl RemoteConnection {
         matches!(self.lock().saved.mode, SavedMode::Client { .. })
     }
 
+    #[cfg(desktop)]
+    pub(crate) fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changed.subscribe()
+    }
+
+    #[cfg(desktop)]
+    pub(crate) fn tray_link(&self) -> Option<(String, RemoteStatus)> {
+        let inner = self.lock();
+        match &inner.saved.mode {
+            SavedMode::Client {
+                server_url,
+                host_name,
+                ..
+            } => Some((display_host(server_url, host_name.as_deref()), inner.status)),
+            _ => None,
+        }
+    }
+
     fn saved(&self) -> SavedConnection {
         self.lock().saved.clone()
     }

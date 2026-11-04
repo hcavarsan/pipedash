@@ -4,15 +4,19 @@ use std::{
         Mutex,
         PoisonError,
     },
+    time::Duration,
 };
 
 use pipedash_core::domain::{
+    NotificationPreferences,
     PinKind,
     PipelineStatus,
+    RefreshResult,
     RefreshState,
     ViewRef,
 };
 use tauri::{
+    image::Image,
     menu::{
         CheckMenuItem,
         Menu,
@@ -32,15 +36,29 @@ use tauri_plugin_pipedash_native::{
 };
 
 use super::{
+    notifications::DesktopNotice,
+    tray::{
+        self,
+        TrayStatus,
+    },
     DesktopSettingsPatch,
     DesktopState,
     Inner,
     Ticket,
 };
-use crate::native::{
-    self,
-    NativeIntent,
-    NativeUiAction,
+use crate::{
+    native::{
+        self,
+        NativeIntent,
+        NativeUiAction,
+    },
+    remote::{
+        alerts::{
+            client_request,
+            client_request_within,
+        },
+        RemoteConnection,
+    },
 };
 
 const TRAY_ID: &str = "pipedash-main";
@@ -55,6 +73,8 @@ pub(super) enum Command {
     Refresh,
     Notifications,
     Lock,
+    Notice(String, String, Option<u64>),
+    MarkAllRead,
     Quit,
 }
 
@@ -112,6 +132,7 @@ struct MenuOwner {
     nodes: Vec<Node>,
     commands: HashMap<String, (Command, Ticket)>,
     next_id: u64,
+    applied: Applied,
 }
 
 struct MenuState(Mutex<MenuOwner>);
@@ -123,6 +144,7 @@ pub(super) fn initialize(app: &AppHandle) -> tauri::Result<()> {
         nodes: Vec::new(),
         commands: HashMap::new(),
         next_id: 0,
+        applied: Applied::default(),
     })));
     apply(app)
 }
@@ -138,13 +160,7 @@ pub(super) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .unwrap_or_else(PoisonError::into_inner)
         .menu
         .clone();
-    #[cfg(target_os = "macos")]
-    let icon = tauri::include_image!("icons/tray-template.png");
-    #[cfg(not(target_os = "macos"))]
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .ok_or(tauri::Error::WindowNotFound)?;
+    let icon = base_icon(app)?;
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .icon_as_template(cfg!(target_os = "macos"))
@@ -164,12 +180,22 @@ pub(super) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    reset_applied(app);
     Ok(())
 }
 
 pub(super) fn remove_tray(app: &AppHandle) -> tauri::Result<()> {
     drop(app.remove_tray_by_id(TRAY_ID));
+    reset_applied(app);
     Ok(())
+}
+
+fn reset_applied(app: &AppHandle) {
+    app.state::<MenuState>()
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .applied = Applied::default();
 }
 
 pub(super) fn schedule_render<R: Runtime>(app: &AppHandle<R>) {
@@ -193,10 +219,16 @@ pub(super) fn render(app: &AppHandle) {
 }
 
 pub(super) fn apply(app: &AppHandle) -> tauri::Result<()> {
-    let (rows, ticket) = {
+    let prefs = super::preferences(app);
+    let (rows, ticket, look) = {
         let state = app.state::<DesktopState>();
         let inner = state.lock();
-        (model(&inner), inner.ticket())
+        let look = Look {
+            status: tray::tray_status(&inner, &prefs),
+            title: tray::title(&inner),
+            tooltip: tray::tooltip(&inner, &prefs),
+        };
+        (model(&inner, &prefs), inner.ticket(), look)
     };
     let state = app.state::<MenuState>();
     let mut owner = state.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -205,6 +237,7 @@ pub(super) fn apply(app: &AppHandle) -> tauri::Result<()> {
         nodes,
         commands,
         next_id,
+        applied,
     } = &mut *owner;
     commands.clear();
     reconcile(
@@ -215,7 +248,9 @@ pub(super) fn apply(app: &AppHandle) -> tauri::Result<()> {
         commands,
         next_id,
         ticket,
-    )
+    )?;
+    paint(app, &look, applied);
+    Ok(())
 }
 
 enum Container {
@@ -408,25 +443,105 @@ fn watch_status(value: BuildWatchRunStatus) -> &'static str {
     }
 }
 
-fn model(inner: &Inner) -> Vec<Row> {
+fn notice_prefix(tone: &str) -> &'static str {
+    match tone {
+        "danger" => "Failed",
+        "warning" => "Warning",
+        _ => "Finished",
+    }
+}
+
+fn notice_target(notice: &DesktopNotice) -> (String, Option<u64>) {
+    match &notice.pipeline_id {
+        Some(id) => (
+            format!("/pipelines/{}", encode(id)),
+            notice
+                .run_number
+                .and_then(|number| u64::try_from(number).ok()),
+        ),
+        None => ("/notifications".to_string(), None),
+    }
+}
+
+struct Look {
+    status: TrayStatus,
+    title: Option<String>,
+    tooltip: String,
+}
+
+#[derive(Default)]
+struct Applied {
+    icon: Option<TrayStatus>,
+    title: Option<Option<String>>,
+    tooltip: Option<String>,
+}
+
+fn base_icon(app: &AppHandle) -> tauri::Result<Image<'_>> {
+    if cfg!(target_os = "macos") {
+        Ok(tauri::include_image!("icons/tray-template.png"))
+    } else {
+        app.default_window_icon()
+            .cloned()
+            .ok_or(tauri::Error::WindowNotFound)
+    }
+}
+
+fn paint(app: &AppHandle, look: &Look, applied: &mut Applied) {
+    let Some(item) = app.tray_by_id(TRAY_ID) else {
+        *applied = Applied::default();
+        return;
+    };
+    let template = cfg!(target_os = "macos");
+    if applied.icon != Some(look.status) {
+        let painted = base_icon(app).and_then(|base| {
+            let rgba = tray::paint(
+                base.rgba(),
+                base.width(),
+                base.height(),
+                look.status,
+                template,
+            );
+            item.set_icon_with_as_template(
+                Some(Image::new_owned(rgba, base.width(), base.height())),
+                template,
+            )
+        });
+        match painted {
+            Ok(()) => applied.icon = Some(look.status),
+            Err(error) => tracing::warn!(%error, "Couldn't paint the tray status"),
+        }
+    }
+    if applied.title.as_ref() != Some(&look.title) {
+        match item.set_title(look.title.as_deref()) {
+            Ok(()) => applied.title = Some(look.title.clone()),
+            Err(error) => tracing::warn!(%error, "Couldn't update the tray title"),
+        }
+    }
+    if applied.tooltip.as_ref() != Some(&look.tooltip) {
+        match item.set_tooltip(Some(&look.tooltip)) {
+            Ok(()) => applied.tooltip = Some(look.tooltip.clone()),
+            Err(error) => tracing::warn!(%error, "Couldn't update the tray tooltip"),
+        }
+    }
+}
+
+fn model(inner: &Inner, prefs: &NotificationPreferences) -> Vec<Row> {
     let mut rows = vec![Row::item("open", "Open Pipedash", Some(Command::Open))];
-    if !inner.vault_ready {
-        rows.push(Row::item(
-            "readiness",
-            inner
-                .data_error
-                .as_deref()
-                .unwrap_or(if inner.generation == 0 {
-                    "Open Pipedash to finish setup"
-                } else {
-                    "Pipedash is locked"
-                }),
-            None,
-        ));
+    if !inner.active() {
+        let line = inner
+            .data_error
+            .clone()
+            .unwrap_or_else(|| tray::offline_line(inner));
+        rows.push(Row::item("readiness", &context(&line), None));
         rows.push(Row::section("end"));
         rows.push(Row::item("quit", "Quit Pipedash", Some(Command::Quit)));
         return rows;
     }
+    rows.push(Row::item(
+        "status",
+        &context(&tray::summary(inner, prefs)),
+        None,
+    ));
     if let Some(error) = inner.data_error.as_ref().or(inner.refresh_message.as_ref()) {
         rows.push(Row::item("error", error, None));
         rows.push(Row::link(
@@ -435,6 +550,37 @@ fn model(inner: &Inner) -> Vec<Row> {
             "/settings/providers",
         ));
     }
+    rows.push(Row::section("notices-separator"));
+    let unread: Vec<&DesktopNotice> = inner
+        .history
+        .items
+        .iter()
+        .filter(|notice| !notice.read)
+        .collect();
+    for notice in unread.iter().take(3) {
+        let (path, run) = notice_target(notice);
+        rows.push(Row::item(
+            &format!("notice:{}", notice.key),
+            &format!("{} · {}", notice_prefix(notice.tone), label(&notice.title)),
+            Some(Command::Notice(notice.key.clone(), path, run)),
+        ));
+    }
+    if !unread.is_empty() {
+        rows.push(Row::item(
+            "read-all",
+            "Mark all as read",
+            Some(Command::MarkAllRead),
+        ));
+    }
+    rows.push(Row::link(
+        "notifications",
+        &if unread.is_empty() {
+            "Notifications…".to_string()
+        } else {
+            format!("Notifications ({} unread)…", unread.len())
+        },
+        "/notifications",
+    ));
     rows.push(Row::section("watch-separator"));
     if let Some(watch) = &inner.watch {
         let monitoring = match watch.monitoring {
@@ -579,11 +725,6 @@ fn model(inner: &Inner) -> Vec<Row> {
     }
     rows.push(Row::section("navigation-separator"));
     rows.push(Row::link("all", "All pipelines", "/pipelines"));
-    rows.push(Row::link(
-        "notifications",
-        "Notifications",
-        "/notifications",
-    ));
     let mut refresh = Row::item("refresh", "Refresh all", Some(Command::Refresh));
     refresh.enabled = !inner.refresh_active;
     rows.push(refresh);
@@ -608,7 +749,9 @@ fn model(inner: &Inner) -> Vec<Row> {
         ],
     ));
     rows.push(Row::section("end"));
-    rows.push(Row::item("lock", "Lock Pipedash", Some(Command::Lock)));
+    if inner.client.is_none() {
+        rows.push(Row::item("lock", "Lock Pipedash", Some(Command::Lock)));
+    }
     rows.push(Row::item("quit", "Quit Pipedash", Some(Command::Quit)));
     rows
 }
@@ -637,7 +780,7 @@ pub(super) fn dispatch(app: &AppHandle, command: Command, ticket: Option<Ticket>
         if ticket.is_some_and(|ticket| ticket != inner.ticket()) {
             return;
         }
-        if !inner.vault_ready
+        if !inner.active()
             && matches!(
                 command,
                 Command::Unpin(_)
@@ -664,6 +807,13 @@ pub(super) fn dispatch(app: &AppHandle, command: Command, ticket: Option<Ticket>
             native::publish(app, NativeIntent::Ui { action });
         }
         Command::Quit => app.exit(0),
+        Command::Notice(key, path, run) => {
+            super::notifications::mark_read(app, Some(&key));
+            navigate(app, &path, run);
+        }
+        Command::MarkAllRead => {
+            super::notifications::mark_read(app, None);
+        }
         command => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -671,7 +821,7 @@ pub(super) fn dispatch(app: &AppHandle, command: Command, ticket: Option<Ticket>
                 if result.is_err() {
                     let state = app.state::<DesktopState>();
                     let mut inner = state.lock();
-                    if ticket.is_none_or(|ticket| inner.matches(ticket)) {
+                    if ticket.is_none_or(|ticket| inner.current(ticket)) {
                         inner.refresh_message = Some(
                             "Couldn't complete the native menu action. Open Pipedash for details."
                                 .to_string(),
@@ -685,6 +835,74 @@ pub(super) fn dispatch(app: &AppHandle, command: Command, ticket: Option<Ticket>
     }
 }
 
+const REFRESH_FAILED: &str = "Some providers could not refresh";
+const REFRESH_TIMEOUT: Duration = Duration::from_secs(60);
+
+fn refresh_message(results: &[RefreshResult]) -> Option<String> {
+    let any = |state: RefreshState| results.iter().any(|result| result.state == state);
+    if any(RefreshState::Failed) {
+        Some(REFRESH_FAILED.to_string())
+    } else if any(RefreshState::Pending) {
+        Some("Refresh still in progress".to_string())
+    } else if any(RefreshState::NotFound) {
+        Some("Provider no longer available".to_string())
+    } else {
+        None
+    }
+}
+
+async fn execute_remote(
+    app: &AppHandle, command: Command, ticket: Option<Ticket>,
+) -> Result<(), crate::commands::ErrorResponse> {
+    {
+        let state = app.state::<DesktopState>();
+        let mut inner = state.lock();
+        if !inner.active() || ticket.is_some_and(|ticket| !inner.current(ticket)) {
+            return Ok(());
+        }
+        if matches!(command, Command::Refresh) {
+            if inner.refresh_active {
+                return Ok(());
+            }
+            inner.refresh_active = true;
+        }
+    }
+    let remote = app.state::<RemoteConnection>();
+    match command {
+        Command::Unpin(pipeline_id) => {
+            let body = serde_json::json!({ "pipeline_id": pipeline_id, "member": false });
+            let (status, _) = client_request(
+                &remote,
+                "PUT",
+                "/pipeline-views/pinned/membership",
+                Some(&body.to_string()),
+            )
+            .await?;
+            if status != 200 {
+                return Err(super::failure("The server couldn't unpin the pipeline"));
+            }
+        }
+        Command::Refresh => {
+            let answer =
+                client_request_within(&remote, "POST", "/refresh/all", None, REFRESH_TIMEOUT).await;
+            let message = match answer {
+                Ok((200, body)) => serde_json::from_str::<Vec<RefreshResult>>(&body).map_or_else(
+                    |_| Some(REFRESH_FAILED.to_string()),
+                    |r| refresh_message(&r),
+                ),
+                _ => Some(REFRESH_FAILED.to_string()),
+            };
+            let state = app.state::<DesktopState>();
+            let mut inner = state.lock();
+            inner.refresh_active = false;
+            inner.refresh_message = message;
+        }
+        _ => {}
+    }
+    super::wake(app);
+    Ok(())
+}
+
 async fn execute(
     app: &AppHandle, command: Command, ticket: Option<Ticket>,
 ) -> Result<(), crate::commands::ErrorResponse> {
@@ -693,7 +911,7 @@ async fn execute(
         let _guard = state.settings_gate.lock().await;
         let (next, request) = {
             let inner = state.lock();
-            if ticket.is_some_and(|ticket| !inner.matches(ticket)) {
+            if ticket.is_some_and(|ticket| !inner.current(ticket)) {
                 return Ok(());
             }
             let request = DesktopSettingsPatch {
@@ -703,6 +921,9 @@ async fn execute(
             (inner.saved.patch(request)?, request)
         };
         return super::commit_settings(app, next, request).await.map(|_| ());
+    }
+    if app.state::<DesktopState>().lock().client.is_some() {
+        return execute_remote(app, command, ticket).await;
     }
     let (core, current) = {
         let state = app.state::<DesktopState>();
@@ -748,31 +969,10 @@ async fn execute(
                 return Ok(());
             }
             inner.refresh_active = false;
-            inner.refresh_message = match result {
-                Err(_) => Some("Some providers could not refresh".to_string()),
-                Ok(results)
-                    if results
-                        .iter()
-                        .any(|result| result.state == RefreshState::Failed) =>
-                {
-                    Some("Some providers could not refresh".to_string())
-                }
-                Ok(results)
-                    if results
-                        .iter()
-                        .any(|result| result.state == RefreshState::Pending) =>
-                {
-                    Some("Refresh still in progress".to_string())
-                }
-                Ok(results)
-                    if results
-                        .iter()
-                        .any(|result| result.state == RefreshState::NotFound) =>
-                {
-                    Some("Provider no longer available".to_string())
-                }
-                Ok(_) => None,
-            };
+            inner.refresh_message = result.map_or_else(
+                |_| Some(REFRESH_FAILED.to_string()),
+                |results| refresh_message(&results),
+            );
         }
         _ => {}
     }
@@ -829,13 +1029,14 @@ mod tests {
             watch_session: None,
             watch: None,
             history: Default::default(),
+            client: None,
             retry: Default::default(),
         }
     }
 
     #[test]
     fn missing_pins_keep_order_and_unpin_while_overflow_and_shortcuts_remain_reachable() {
-        let rows = model(&pinned_state());
+        let rows = model(&pinned_state(), &Default::default());
         let pinned: Vec<_> = rows
             .iter()
             .filter(|row| row.key.starts_with("pipeline:"))
@@ -868,7 +1069,7 @@ mod tests {
     fn locking_hides_all_private_rows_and_service_actions() {
         let mut inner = pinned_state();
         inner.vault_ready = false;
-        let rows = model(&inner);
+        let rows = model(&inner, &Default::default());
         assert_eq!(
             rows.iter()
                 .map(|row| row.label.as_str())
@@ -881,17 +1082,244 @@ mod tests {
     #[test]
     fn attachment_replacement_retires_old_pipeline_action_ids() {
         let mut inner = pinned_state();
-        let first: Vec<_> = model(&inner)
+        let first: Vec<_> = model(&inner, &Default::default())
             .into_iter()
             .filter(|row| row.key.starts_with("pipeline:"))
             .map(|row| row.key)
             .collect();
         inner.epoch += 1;
-        let second: Vec<_> = model(&inner)
+        let second: Vec<_> = model(&inner, &Default::default())
             .into_iter()
             .filter(|row| row.key.starts_with("pipeline:"))
             .map(|row| row.key)
             .collect();
         assert!(first.iter().all(|key| !second.contains(key)));
+    }
+
+    fn notice(
+        key: &str, tone: &'static str, pipeline: Option<(&str, Option<i64>)>,
+    ) -> DesktopNotice {
+        DesktopNotice {
+            key: key.to_string(),
+            at: 1,
+            read: false,
+            tone,
+            level: None,
+            title: format!("Title {key}"),
+            body: String::new(),
+            provider_ids: Vec::new(),
+            pipeline_id: pipeline.map(|(id, _)| id.to_string()),
+            link: None,
+            run_number: pipeline.and_then(|(_, run)| run),
+        }
+    }
+
+    fn labels(rows: &[Row]) -> Vec<&str> {
+        rows.iter().map(|row| row.label.as_str()).collect()
+    }
+
+    #[test]
+    fn the_three_newest_unread_notices_open_their_target_and_the_count_shows_in_the_menu() {
+        let mut inner = pinned_state();
+        inner.history.push(notice("old", "success", None));
+        inner.history.mark_read(None);
+        inner
+            .history
+            .push(notice("a", "danger", Some(("acme/api", Some(42)))));
+        inner
+            .history
+            .push(notice("b", "warning", Some(("acme/web", None))));
+        inner.history.push(notice("c", "success", None));
+        inner.history.push(notice("d", "danger", None));
+
+        let rows = model(&inner, &Default::default());
+        let notices: Vec<_> = rows
+            .iter()
+            .filter(|row| row.key.starts_with("notice:"))
+            .collect();
+
+        assert_eq!(
+            notices
+                .iter()
+                .map(|row| row.label.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Failed · Title d",
+                "Finished · Title c",
+                "Warning · Title b"
+            ]
+        );
+        assert!(matches!(
+            &notices[2].command,
+            Some(Command::Notice(key, path, None)) if key == "b" && path == "/pipelines/acme%2Fweb"
+        ));
+        assert!(matches!(
+            &notices[0].command,
+            Some(Command::Notice(key, path, None)) if key == "d" && path == "/notifications"
+        ));
+        assert!(rows
+            .iter()
+            .any(|row| row.key == "read-all" && matches!(row.command, Some(Command::MarkAllRead))));
+        let center = rows.iter().find(|row| row.key == "notifications").unwrap();
+        assert_eq!(center.label, "Notifications (4 unread)…");
+        assert!(
+            matches!(&center.command, Some(Command::Navigate(path, None)) if path == "/notifications")
+        );
+        assert_eq!(rows[1].label, "4 unread");
+        assert!(rows.iter().any(|row| row.key == "settings"));
+    }
+
+    #[test]
+    fn an_exact_run_notice_targets_the_run() {
+        let mut inner = pinned_state();
+        inner
+            .history
+            .push(notice("run", "danger", Some(("acme/api", Some(42)))));
+
+        let rows = model(&inner, &Default::default());
+        let row = rows.iter().find(|row| row.key == "notice:run").unwrap();
+
+        assert!(matches!(
+            &row.command,
+            Some(Command::Notice(key, path, Some(42))) if key == "run" && path == "/pipelines/acme%2Fapi"
+        ));
+    }
+
+    #[test]
+    fn without_unread_notices_only_the_plain_notifications_row_remains() {
+        let mut inner = pinned_state();
+        inner.history.push(notice("seen", "danger", None));
+        inner.history.mark_read(None);
+
+        let rows = model(&inner, &Default::default());
+
+        assert!(rows.iter().all(|row| !row.key.starts_with("notice:")));
+        assert!(rows.iter().all(|row| row.key != "read-all"));
+        assert_eq!(
+            rows.iter()
+                .find(|row| row.key == "notifications")
+                .unwrap()
+                .label,
+            "Notifications…"
+        );
+        assert_eq!(rows[1].label, "All quiet");
+        assert!(rows.iter().any(|row| row.key == "lock"));
+    }
+
+    #[test]
+    fn the_status_row_follows_the_device_preferences() {
+        let mut inner = pinned_state();
+        inner.snapshot = Some(pipedash_core::domain::PipelineMenuSnapshot {
+            pipelines: vec![pipedash_core::domain::PipelineMenuEntry {
+                pipeline_id: "api".to_string(),
+                pipeline: Some(pipedash_core::domain::Pipeline {
+                    id: "api".to_string(),
+                    provider_id: 1,
+                    provider_type: "jenkins".to_string(),
+                    name: "api".to_string(),
+                    status: PipelineStatus::Failed,
+                    last_run: None,
+                    last_updated: chrono::Utc::now(),
+                    repository: "acme/api".to_string(),
+                    branch: None,
+                    workflow_file: None,
+                    resource_state: None,
+                    metadata: Default::default(),
+                    overdue_run: None,
+                    typical_duration_seconds: None,
+                }),
+                provider_name: None,
+            }],
+            shortcuts: Vec::new(),
+        });
+        let muted = NotificationPreferences {
+            muted_pipelines: vec!["api".to_string()],
+            ..Default::default()
+        };
+
+        assert_eq!(model(&inner, &Default::default())[1].label, "1 failing");
+        assert_eq!(model(&inner, &muted)[1].label, "All quiet");
+    }
+
+    #[test]
+    fn client_mode_shows_the_server_pins_and_hides_what_only_works_locally() {
+        let mut inner = pinned_state();
+        inner.vault_ready = false;
+        inner.client = Some(tray::ClientLink {
+            host: "ci.example.com".to_string(),
+            status: crate::remote::RemoteStatus::Connected,
+        });
+
+        let rows = model(&inner, &Default::default());
+
+        assert!(
+            rows.iter()
+                .filter(|row| row.key.starts_with("pipeline:"))
+                .count()
+                == 8
+        );
+        assert!(rows
+            .iter()
+            .any(|row| row.key == "refresh" && matches!(row.command, Some(Command::Refresh))));
+        assert!(rows.iter().all(|row| row.key != "lock"));
+        assert!(rows
+            .iter()
+            .all(|row| !matches!(row.command, Some(Command::Lock))));
+        assert!(rows.iter().any(|row| row.key == "quit"));
+    }
+
+    #[test]
+    fn a_client_that_is_not_connected_shows_the_host_and_nothing_private() {
+        let mut inner = pinned_state();
+        inner.vault_ready = false;
+        inner.client = Some(tray::ClientLink {
+            host: "ci.example.com".to_string(),
+            status: crate::remote::RemoteStatus::Reconnecting,
+        });
+
+        let rows = model(&inner, &Default::default());
+
+        assert_eq!(
+            labels(&rows),
+            [
+                "Open Pipedash",
+                "Reconnecting to ci.example.com",
+                "",
+                "Quit Pipedash"
+            ]
+        );
+        assert!(rows.iter().all(|row| row.children.is_none()));
+
+        inner.client = Some(tray::ClientLink {
+            host: "ci.example.com".to_string(),
+            status: crate::remote::RemoteStatus::Removed,
+        });
+        assert_eq!(
+            model(&inner, &Default::default())[1].label,
+            "Removed from ci.example.com"
+        );
+    }
+
+    #[test]
+    fn refresh_messages_prefer_failures_over_pending_over_missing() {
+        let result = |state| RefreshResult {
+            provider_id: 1,
+            state,
+            kind: None,
+            message: None,
+        };
+
+        assert_eq!(refresh_message(&[result(RefreshState::Ok)]), None);
+        assert_eq!(
+            refresh_message(&[
+                result(RefreshState::NotFound),
+                result(RefreshState::Pending)
+            ]),
+            Some("Refresh still in progress".to_string())
+        );
+        assert_eq!(
+            refresh_message(&[result(RefreshState::Pending), result(RefreshState::Failed)]),
+            Some(REFRESH_FAILED.to_string())
+        );
     }
 }

@@ -459,6 +459,8 @@ fn handle_frame(app: &AppHandle, session: &Session, text: &str) -> Option<Outcom
             if name == NOTIFICATION_EVENT {
                 crate::desktop::notifications::record_received(app, &payload);
             }
+            #[cfg(desktop)]
+            crate::desktop::observe_server_event(app, &name);
             if let Err(error) = app.emit(&name, payload) {
                 tracing::debug!(%error, event = %name, "Couldn't forward a server event");
             }
