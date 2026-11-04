@@ -9,6 +9,7 @@ use axum::routing::{
     delete,
     get,
     post,
+    put,
 };
 use axum::{
     Extension,
@@ -18,6 +19,7 @@ use axum::{
 use pipedash_core::domain::{
     AlertKind,
     NewDeviceAlert,
+    NotificationPreferences,
 };
 use serde::{
     Deserialize,
@@ -84,6 +86,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/current/push/test", post(test_device_push))
         .route("/current/push/ack", post(ack_device_push))
+        .route(
+            "/current/notification-preferences",
+            put(set_notification_preferences),
+        )
 }
 
 async fn list_devices(
@@ -198,6 +204,21 @@ async fn clear_device_push(
         .await?
         .device_pushes()
         .delete(&device_id)
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn set_notification_preferences(
+    State(state): State<AppState>, current: Option<Extension<CurrentDevice>>,
+    Json(preferences): Json<NotificationPreferences>,
+) -> ApiResult<StatusCode> {
+    let Extension(CurrentDevice(device_id)) = current.ok_or_else(device_only)?;
+    state
+        .core()
+        .await?
+        .devices()
+        .set_notification_preferences(&device_id, &preferences)
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -450,6 +471,7 @@ mod tests {
     const PUSH: &str = "/api/v1/devices/current/push";
     const PUSH_TEST: &str = "/api/v1/devices/current/push/test";
     const PUSH_ACK: &str = "/api/v1/devices/current/push/ack";
+    const PREFERENCES: &str = "/api/v1/devices/current/notification-preferences";
 
     #[tokio::test]
     async fn only_a_paired_device_manages_its_push_registration() {
@@ -462,6 +484,7 @@ mod tests {
             (Method::DELETE, PUSH),
             (Method::POST, PUSH_TEST),
             (Method::POST, PUSH_ACK),
+            (Method::PUT, PREFERENCES),
         ] {
             let (status, response) = call_as(
                 &p.app,
@@ -476,6 +499,31 @@ mod tests {
             assert_eq!(response["code"], "DEVICE_ONLY");
             assert_eq!(response["message"], "Only a paired device can do this.");
         }
+    }
+
+    #[tokio::test]
+    async fn a_device_saves_its_notification_preferences() {
+        let p = paired("device-preferences", false).await;
+
+        let (status, body) = call_as(
+            &p.app,
+            Method::PUT,
+            PREFERENCES,
+            &p.token,
+            Some(json!({ "outage": false, "muted_pipelines": ["github__1__api"] })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        let saved = p._host.state.core().await.unwrap().devices();
+        assert_eq!(
+            saved.notification_preferences().await.unwrap()[&p.device_id],
+            NotificationPreferences {
+                outage: false,
+                muted_pipelines: vec!["github__1__api".into()],
+                ..NotificationPreferences::default()
+            }
+        );
     }
 
     #[tokio::test]

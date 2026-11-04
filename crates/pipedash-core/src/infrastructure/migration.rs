@@ -739,11 +739,15 @@ impl MigrationOrchestrator {
                 }
 
                 if !same_database(&plan.from, &plan.to) {
-                    let devices = DeviceRepository::new(self.source_pool.clone())
-                        .list()
-                        .await?;
+                    let source_devices = DeviceRepository::new(self.source_pool.clone());
+                    let devices = source_devices.list().await?;
                     let target_devices = DeviceRepository::new(target_manager.database_pool());
                     target_devices.import(&devices).await?;
+                    for (id, preferences) in source_devices.notification_preferences().await? {
+                        target_devices
+                            .set_notification_preferences(&id, &preferences)
+                            .await?;
+                    }
                     if options.clean_target {
                         for stale in target_devices.list().await? {
                             if !devices.iter().any(|d| d.id == stale.id) {

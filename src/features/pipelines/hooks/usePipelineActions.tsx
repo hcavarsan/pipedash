@@ -1,8 +1,11 @@
+import { IconBell, IconBellOff } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { PipelineActions } from '../../../components/common/PipelineRowParts'
 import { useRefreshProviders } from '../../../queries/useRefreshQueries'
+import { useNotificationStore } from '../../../stores/notificationStore'
 import type { Pipeline, PipelineView, ViewDisplay } from '../../../types/domain'
+import { mutePipeline } from '../../notifications/lib/mutePipeline'
 import { useEnableWorkflow } from '../../runs/queries/useWorkflowQueries'
 import {
   useSetViewMembership,
@@ -40,6 +43,7 @@ export function usePipelineActions({
   const { refresh: refreshProviders, refreshing } = useRefreshProviders()
   const { mutate: enableWorkflow } = useEnableWorkflow()
   const pinItem = usePinning()
+  const mutedPipelines = useNotificationStore((state) => state.preferences.muted_pipelines)
   const { cancelItem, dialog: cancelDialog } = useCancelActiveRuns()
   const [, setSearchParams] = useSearchParams()
   const canRemove = view?.kind === 'custom' && view.capabilities.edit_members
@@ -72,6 +76,15 @@ export function usePipelineActions({
     isRefreshing: (ids) => ids.some((id) => refreshing.has(id)),
     pinItem,
     cancelItem,
+    muteItem: (p) => {
+      const muted = mutedPipelines.includes(p.id)
+
+      return {
+        label: muted ? 'Unmute notifications' : 'Mute notifications',
+        icon: muted ? <IconBell size={16} aria-hidden /> : <IconBellOff size={16} aria-hidden />,
+        onClick: () => mutePipeline(p, !muted),
+      }
+    },
   }
 
   const changeDisplay = (next: ViewDisplay) => {

@@ -45,11 +45,20 @@ export interface LocalNotificationSettings {
   pushProblem: string | null
 }
 
+export type AlertKind = 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'test'
+
+export type PreferenceKind = Exclude<AlertKind, 'test'>
+
+export type NotificationPreferences = Record<PreferenceKind, boolean> & {
+  muted_providers: number[]
+  muted_pipelines: string[]
+}
+
 export interface HostAlert {
   id: string
   seq: number
   key: string
-  kind: 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'test'
+  kind: AlertKind
   tone: CenterNotificationTone
   title: string
   body: string

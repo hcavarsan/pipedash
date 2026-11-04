@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{
     DateTime,
     Utc,
@@ -7,6 +9,7 @@ use super::DatabasePool;
 use crate::domain::{
     DomainError,
     DomainResult,
+    NotificationPreferences,
     PairedDevice,
 };
 
@@ -135,6 +138,60 @@ impl DeviceRepository {
         .map_err(db_error)
     }
 
+    pub async fn set_notification_preferences(
+        &self, id: &str, preferences: &NotificationPreferences,
+    ) -> DomainResult<bool> {
+        let sql = format!(
+            "UPDATE paired_devices SET notification_preferences = {} WHERE id = {}",
+            self.placeholder(1),
+            self.placeholder(2)
+        );
+        let json = serde_json::to_string(preferences)
+            .map_err(|error| DomainError::DatabaseError(error.to_string()))?;
+        let updated = match &self.pool {
+            DatabasePool::Sqlite(p) => sqlx::query(sqlx::AssertSqlSafe(sql))
+                .bind(json)
+                .bind(id)
+                .execute(p)
+                .await
+                .map(|result| result.rows_affected()),
+            DatabasePool::Postgres(p) => sqlx::query(sqlx::AssertSqlSafe(sql))
+                .bind(json)
+                .bind(id)
+                .execute(p)
+                .await
+                .map(|result| result.rows_affected()),
+        }
+        .map_err(db_error)?;
+
+        Ok(updated > 0)
+    }
+
+    pub async fn notification_preferences(
+        &self,
+    ) -> DomainResult<HashMap<String, NotificationPreferences>> {
+        let sql = "SELECT id, notification_preferences FROM paired_devices \
+                   WHERE notification_preferences IS NOT NULL";
+        let rows = match &self.pool {
+            DatabasePool::Sqlite(p) => {
+                sqlx::query_as::<_, (String, String)>(sql)
+                    .fetch_all(p)
+                    .await
+            }
+            DatabasePool::Postgres(p) => {
+                sqlx::query_as::<_, (String, String)>(sql)
+                    .fetch_all(p)
+                    .await
+            }
+        }
+        .map_err(db_error)?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, json)| Some((id, serde_json::from_str(&json).ok()?)))
+            .collect())
+    }
+
     pub async fn delete(&self, id: &str) -> DomainResult<bool> {
         let sql = format!(
             "DELETE FROM paired_devices WHERE id = {}",
@@ -238,6 +295,29 @@ mod tests {
         assert_eq!(
             repository.find_by_token(&device.token_hash).await.unwrap(),
             None
+        );
+
+        assert!(repository
+            .notification_preferences()
+            .await
+            .unwrap()
+            .is_empty());
+        let muted = NotificationPreferences {
+            long_run: false,
+            muted_pipelines: vec!["github__1__api".into()],
+            ..NotificationPreferences::default()
+        };
+        assert!(repository
+            .set_notification_preferences(&device.id, &muted)
+            .await
+            .unwrap());
+        assert!(!repository
+            .set_notification_preferences("unknown", &muted)
+            .await
+            .unwrap());
+        assert_eq!(
+            repository.notification_preferences().await.unwrap(),
+            HashMap::from([(device.id.clone(), muted)])
         );
 
         repository.touch(&device.id).await.unwrap();

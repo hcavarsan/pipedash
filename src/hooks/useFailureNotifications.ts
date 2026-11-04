@@ -6,20 +6,28 @@ import { queryKeys } from '../lib/queryKeys'
 import { isTauri } from '../services/isTauri'
 import { events } from '../services/service'
 import { type CenterNotificationTone, useNotificationCenterStore } from '../stores/notificationCenterStore'
-import type { Pipeline, ProviderSummary } from '../types/domain'
+import { shouldNotify } from '../stores/notificationStore'
+import type { AlertKind, Pipeline, ProviderSummary } from '../types/domain'
 import type { EventPayloadMap } from '../types/events'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
 const alertTitle = (pipeline: Pipeline) =>
   pipeline.status === 'degraded' ? `${pipeline.name} is degraded` : `${pipeline.name} failed`
 
+const attentionKind = (pipeline: Pipeline): AlertKind => (pipeline.status === 'degraded' ? 'degraded' : 'failed')
+
 const notify = (
   pipeline: Pipeline,
+  kind: AlertKind,
   tone: CenterNotificationTone,
   title: string,
   provider: ProviderSummary | undefined,
   system: boolean
 ) => {
+  if (!shouldNotify(kind, [pipeline.provider_id], pipeline.id)) {
+    return
+  }
+
   const body = [pipeline.repository, provider?.name || pipeline.provider_type, pipeline.resource_state?.message]
     .filter(Boolean)
     .join(' · ')
@@ -65,7 +73,7 @@ export function useFailureNotifications(): void {
 
           for (const pipeline of pipelines) {
             const provider = providers?.find((item) => item.id === pipeline.provider_id)
-            notify(pipeline, 'danger', alertTitle(pipeline), provider, enabled)
+            notify(pipeline, attentionKind(pipeline), 'danger', alertTitle(pipeline), provider, enabled)
           }
         })
         .then((fn) => {
@@ -120,10 +128,10 @@ export function useFailureNotifications(): void {
 
         const provider = providers?.find((p) => p.id === pipeline.provider_id)
         if (failed) {
-          notify(pipeline, 'danger', alertTitle(pipeline), provider, enabled)
+          notify(pipeline, attentionKind(pipeline), 'danger', alertTitle(pipeline), provider, enabled)
         }
         if (newOverdueRun) {
-          notify(pipeline, 'warning', `${pipeline.name} is running longer than usual`, provider, enabled)
+          notify(pipeline, 'long_run', 'warning', `${pipeline.name} is running longer than usual`, provider, enabled)
         }
       }
     })

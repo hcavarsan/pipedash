@@ -51,6 +51,59 @@ impl AlertKind {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NotificationPreferences {
+    pub failed: bool,
+    pub degraded: bool,
+    pub long_run: bool,
+    pub outage: bool,
+    pub recovered: bool,
+    pub muted_providers: Vec<i64>,
+    pub muted_pipelines: Vec<String>,
+}
+
+impl Default for NotificationPreferences {
+    fn default() -> Self {
+        Self {
+            failed: true,
+            degraded: true,
+            long_run: true,
+            outage: true,
+            recovered: true,
+            muted_providers: Vec::new(),
+            muted_pipelines: Vec::new(),
+        }
+    }
+}
+
+impl NotificationPreferences {
+    pub fn allows(
+        &self, kind: AlertKind, provider_id: Option<i64>, pipeline_id: Option<&str>,
+    ) -> bool {
+        let wanted = match kind {
+            AlertKind::Failed => self.failed,
+            AlertKind::Degraded => self.degraded,
+            AlertKind::LongRun => self.long_run,
+            AlertKind::Outage => self.outage,
+            AlertKind::Recovered => self.recovered,
+            AlertKind::Test => return true,
+        };
+
+        wanted
+            && provider_id.is_none_or(|id| !self.muted_providers.contains(&id))
+            && pipeline_id.is_none_or(|id| !self.muted_pipelines.iter().any(|muted| muted == id))
+    }
+
+    pub fn kinds_only(&self) -> Self {
+        Self {
+            muted_providers: Vec::new(),
+            muted_pipelines: Vec::new(),
+            ..self.clone()
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceAlert {
     pub seq: i64,
@@ -119,6 +172,42 @@ mod tests {
         assert_eq!(AlertKind::Outage.tone(), "warning");
         assert_eq!(AlertKind::Recovered.tone(), "success");
         assert_eq!(AlertKind::Test.tone(), "success");
+    }
+
+    #[test]
+    fn preferences_filter_by_kind_provider_and_pipeline() {
+        let preferences = NotificationPreferences {
+            long_run: false,
+            muted_providers: vec![2],
+            muted_pipelines: vec!["github__1__api".into()],
+            ..NotificationPreferences::default()
+        };
+
+        assert!(preferences.allows(AlertKind::Failed, Some(1), Some("github__1__web")));
+        assert!(!preferences.allows(AlertKind::LongRun, Some(1), Some("github__1__web")));
+        assert!(!preferences.allows(AlertKind::Failed, Some(1), Some("github__1__api")));
+        assert!(!preferences.allows(AlertKind::Outage, Some(2), None));
+        assert!(preferences.allows(AlertKind::Outage, Some(3), None));
+        assert!(preferences.allows(AlertKind::Test, Some(2), Some("github__1__api")));
+        assert!(preferences.kinds_only().allows(
+            AlertKind::Failed,
+            Some(2),
+            Some("github__1__api")
+        ));
+    }
+
+    #[test]
+    fn missing_preference_fields_keep_their_defaults() {
+        let preferences: NotificationPreferences =
+            serde_json::from_value(serde_json::json!({ "outage": false, "future": true })).unwrap();
+
+        assert_eq!(
+            preferences,
+            NotificationPreferences {
+                outage: false,
+                ..NotificationPreferences::default()
+            }
+        );
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { Button, Group, Modal, Stack, Text, ThemeIcon } from '@mantine/core'
-import { IconExternalLink, IconHeartbeat, IconHistory } from '@tabler/icons-react'
+import { IconBell, IconBellOff, IconExternalLink, IconHeartbeat, IconHistory } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { StandardModal } from '../../../components/common/StandardModal'
@@ -7,11 +7,14 @@ import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { pushState } from '../../../components/layout/mobileChrome'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { useNow } from '../../../hooks/useNow'
+import { usePipelines } from '../../../queries/usePipelinesQueries'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
+import { useNotificationStore } from '../../../stores/notificationStore'
 import { formatRelativeTime } from '../../../utils/formatRelativeTime'
 
 import { notificationIcon, notificationLabel, TONE_COLORS } from '../lib/labels'
+import { mutePipeline } from '../lib/mutePipeline'
 import { openNotificationLink } from '../lib/openNotificationLink'
 
 const LINK_LABELS = { incident: 'View incident', status_page: 'Open status page' } as const
@@ -22,6 +25,7 @@ export function NotificationDetailsModal(): ReactNode {
   const open = useNotificationCenterStore((state) => state.open)
   const close = useNotificationCenterStore((state) => state.close)
   const { data: providers } = useProviders()
+  const { data: pipelines } = usePipelines()
   const navigate = useNavigate()
   const location = useLocation()
   const openHistory = (pipelineId: string) => {
@@ -39,6 +43,17 @@ export function NotificationDetailsModal(): ReactNode {
     ? (providers ?? []).filter((provider) => notification.providerIds.includes(provider.id))
     : []
   const HeaderIcon = notification ? notificationIcon(notification) : null
+  const mutedPipelines = useNotificationStore((state) => state.preferences.muted_pipelines)
+  const pipelineId = notification?.pipelineId ?? null
+  const pipelineMuted = pipelineId !== null && mutedPipelines.includes(pipelineId)
+  const pipelineName = pipelines?.find((pipeline) => pipeline.id === pipelineId)?.name ?? 'this pipeline'
+  const toggleMute = () => {
+    if (pipelineId) {
+      mutePipeline({ id: pipelineId, name: pipelineName }, !pipelineMuted)
+    }
+  }
+  const MuteIcon = pipelineMuted ? IconBell : IconBellOff
+  const muteLabel = pipelineMuted ? 'Unmute pipeline' : 'Mute pipeline'
 
   if (mobileShell) {
     return (
@@ -76,6 +91,9 @@ export function NotificationDetailsModal(): ReactNode {
                     chevron
                     onClick={() => openHistory(notification.pipelineId ?? '')}
                   />
+                )}
+                {notification.pipelineId && (
+                  <IosRow icon={<MuteIcon size={18} aria-hidden />} title={muteLabel} onClick={toggleMute} />
                 )}
                 {related.map((provider) => (
                   <IosRow
@@ -144,6 +162,16 @@ export function NotificationDetailsModal(): ReactNode {
                 onClick={() => openHistory(notification.pipelineId ?? '')}
               >
                 Open run history
+              </Button>
+            )}
+            {notification.pipelineId && (
+              <Button
+                size="compact-sm"
+                variant="default"
+                leftSection={<MuteIcon size={14} aria-hidden />}
+                onClick={toggleMute}
+              >
+                {muteLabel}
               </Button>
             )}
             {related.map((provider) => (

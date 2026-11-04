@@ -23,6 +23,7 @@ use pipedash_core::application::{
     LocalNotification,
     NotificationState,
 };
+use pipedash_core::domain::NotificationPreferences;
 use pipedash_core::event::CoreEvent;
 use pipedash_core::CoreContext;
 use serde::Serialize;
@@ -51,6 +52,7 @@ use crate::native::NotificationTarget;
 use crate::remote::alerts::{
     claim_alert_host,
     client_alert_host,
+    host_request,
     revoke_device,
 };
 use crate::remote::{
@@ -64,6 +66,8 @@ const REFRESH_BUDGET: Duration = Duration::from_secs(23);
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(26);
 
 type Result<T, E = ErrorResponse> = std::result::Result<T, E>;
+
+static PREFERENCES_SYNC: AsyncMutex<()> = AsyncMutex::const_new(());
 
 #[cfg(target_os = "android")]
 pub(crate) use headless::{
@@ -401,8 +405,10 @@ pub async fn set_local_notifications_enabled(
     set_push_problem(&app, None);
     if remote.is_client() {
         let host = client_alert_host(&remote).await?;
-        storage(move || store::save_alert_host(&host)).await?;
+        let saved = host.clone();
+        storage(move || store::save_alert_host(&saved)).await?;
         let native = activate(&app).await?;
+        sync_host_preferences(&host).await;
         enable_push(&app).await;
         return Ok(settings_view(&app, native).await);
     }
@@ -462,6 +468,7 @@ pub async fn pair_alert_host(
         revoke_device(&host).await;
         return Err(failure);
     }
+    sync_host_preferences(&host).await;
     set_push_problem(&app, None);
     enable_push(&app).await;
 
@@ -572,11 +579,67 @@ pub fn schedule_sync<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
+fn wanted(
+    preferences: &NotificationPreferences, notices: Vec<LocalNotification>,
+) -> Vec<LocalNotification> {
+    notices
+        .into_iter()
+        .filter(|notice| {
+            preferences.allows(
+                notice.kind,
+                notice.provider_id,
+                notice.pipeline_id.as_deref(),
+            )
+        })
+        .collect()
+}
+
+async fn send_preferences(host: &AlertHost, preferences: &NotificationPreferences) {
+    let preferences = if host.standalone {
+        preferences.kinds_only()
+    } else {
+        preferences.clone()
+    };
+    let Ok(body) = serde_json::to_string(&preferences) else {
+        return;
+    };
+    let path = "/devices/current/notification-preferences";
+    if !matches!(
+        host_request(host, "PUT", path, Some(&body)).await,
+        Ok((204, _))
+    ) {
+        tracing::debug!("Couldn't send the notification preferences to the alert host");
+    }
+}
+
+async fn sync_host_preferences(host: &AlertHost) {
+    let _sync = PREFERENCES_SYNC.lock().await;
+    if let Ok(preferences) = storage(store::preferences).await {
+        send_preferences(host, &preferences).await;
+    }
+}
+
+#[tauri::command]
+pub async fn set_notification_preferences(preferences: NotificationPreferences) -> Result<()> {
+    if !cfg!(mobile) {
+        return Ok(());
+    }
+    let _sync = PREFERENCES_SYNC.lock().await;
+    let saved = preferences.clone();
+    storage(move || store::save_preferences(&saved)).await?;
+    if let Some(host) = current_alert_host().await {
+        send_preferences(&host, &preferences).await;
+    }
+
+    Ok(())
+}
+
 async fn deliver<R: Runtime>(app: &AppHandle<R>, notices: Vec<LocalNotification>) -> Result<()> {
     if notices.is_empty() || !permission_granted(app).await? {
         return Ok(());
     }
-    for notice in notices {
+    let preferences = storage(store::preferences).await.unwrap_or_default();
+    for notice in wanted(&preferences, notices) {
         if !app
             .state::<LocalNotificationsState>()
             .enabled

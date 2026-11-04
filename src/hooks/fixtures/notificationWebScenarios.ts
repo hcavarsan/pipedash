@@ -11,7 +11,7 @@ import { queryKeys } from '../../lib/queryKeys'
 import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { wsClient } from '../../services/websocket'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import { useNotificationStore } from '../../stores/notificationStore'
+import { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } from '../../stores/notificationStore'
 import type { Pipeline } from '../../types/domain'
 import { useEventSync } from '../useEventSync'
 import { useFailureNotifications } from '../useFailureNotifications'
@@ -74,6 +74,7 @@ afterEach(async () => {
   delivered.length = 0
   failNext = false
   gate = null
+  useNotificationStore.setState({ preferences: DEFAULT_NOTIFICATION_PREFERENCES })
 })
 
 after(() => GlobalRegistrator.unregister())
@@ -100,6 +101,37 @@ test('a pipeline that becomes degraded notifies once with degraded wording', asy
     await client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
   })
   assert.equal(delivered.length, 1)
+})
+
+test('muted pipelines and turned-off alert types stay out of the center and the system', async () => {
+  const deploy: Pipeline = { ...baseline, id: 'github__1__owner/repo/deploy.yml', name: 'Deploy' }
+  const refetch = () =>
+    act(async () => {
+      await client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
+    })
+  await mount(baseline)
+  backend = [baseline, deploy]
+  await refetch()
+  useNotificationStore.setState({
+    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, degraded: false, muted_pipelines: [baseline.id] },
+  })
+
+  backend = [
+    { ...baseline, status: 'failed' },
+    { ...deploy, status: 'degraded' },
+  ]
+  await refetch()
+  backend = [
+    { ...baseline, status: 'failed' },
+    { ...deploy, status: 'failed' },
+  ]
+  await refetch()
+
+  await waitFor(() => assert.equal(delivered.length, 1))
+  assert.deepEqual(
+    useNotificationCenterStore.getState().items.map((item) => item.title),
+    ['Deploy failed']
+  )
 })
 
 test('reconnection notices a newer failed run on an already-failed pipeline', async () => {

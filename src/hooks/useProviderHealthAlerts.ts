@@ -4,6 +4,7 @@ import { logger } from '../lib/logger'
 import { isTauri } from '../services/isTauri'
 import { events } from '../services/service'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
+import { shouldNotify } from '../stores/notificationStore'
 import type { EventPayloadMap } from '../types/events'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
@@ -21,6 +22,10 @@ export function useProviderHealthAlerts(): void {
         }
 
         if (isTauri() && !navigator.onLine && alert.link === null) {
+          return
+        }
+
+        if (!shouldNotify(alert.recovered ? 'recovered' : 'outage', alert.provider_ids, null)) {
           return
         }
 

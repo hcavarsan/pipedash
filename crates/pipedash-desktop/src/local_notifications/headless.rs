@@ -107,5 +107,5 @@ pub fn run(data_dir: &Path) -> Vec<LocalNotification> {
         }
     }
 
-    notices
+    super::wanted(&store::preferences().unwrap_or_default(), notices)
 }

@@ -6,6 +6,7 @@ import { mobileService } from '../services/mobile'
 import { events } from '../services/service'
 import { WS_EVENTS } from '../services/websocket'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
+import { shouldNotify } from '../stores/notificationStore'
 
 export function useMissedAlerts(): void {
   useEffect(() => {
@@ -23,6 +24,12 @@ export function useMissedAlerts(): void {
           const { push } = useNotificationCenterStore.getState()
 
           for (const alert of alerts) {
+            const providerIds = alert.provider_id === null ? [] : [alert.provider_id]
+
+            if (!shouldNotify(alert.kind, providerIds, alert.pipeline_id)) {
+              continue
+            }
+
             push({
               key: alert.key,
               at: Date.parse(alert.created_at),
@@ -30,7 +37,7 @@ export function useMissedAlerts(): void {
               level: null,
               title: alert.title,
               body: alert.body,
-              providerIds: alert.provider_id === null ? [] : [alert.provider_id],
+              providerIds,
               pipelineId: alert.pipeline_id,
               link: null,
             })

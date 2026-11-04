@@ -26,6 +26,7 @@ pub use device_alert::{
     DeviceAlert,
     DevicePush,
     NewDeviceAlert,
+    NotificationPreferences,
 };
 pub use error::{
     DomainError,

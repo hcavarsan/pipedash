@@ -4,7 +4,10 @@ use std::sync::{
 };
 
 use pipedash_core::application::NotificationState;
-use pipedash_core::domain::ProviderConfig;
+use pipedash_core::domain::{
+    NotificationPreferences,
+    ProviderConfig,
+};
 use serde::{
     de::DeserializeOwned,
     Deserialize,
@@ -19,6 +22,7 @@ use super::{
 const AUTHORIZATION: &str = "authorized-providers";
 const OBSERVATIONS: &str = "observations";
 const ALERT_HOST: &str = "alert-host";
+const PREFERENCES: &str = "notification-preferences";
 
 static ALERT_HOST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -43,6 +47,14 @@ pub(super) fn save_authorization(value: &Authorization) -> Result<()> {
 
 pub(super) fn save_observations(value: &NotificationState) -> Result<()> {
     write(OBSERVATIONS, value)
+}
+
+pub(super) fn preferences() -> Result<NotificationPreferences> {
+    Ok(read(PREFERENCES)?.unwrap_or_default())
+}
+
+pub(super) fn save_preferences(value: &NotificationPreferences) -> Result<()> {
+    write(PREFERENCES, value)
 }
 
 #[derive(Clone, Serialize, Deserialize)]
