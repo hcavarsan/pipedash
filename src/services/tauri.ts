@@ -381,6 +381,10 @@ export const tauriService = {
     })
   },
 
+  forceCancelPipelineRun: async (pipelineId: string, runNumber: number): Promise<void> => {
+    return invoke<void>('force_cancel_pipeline_run', { pipelineId, runNumber })
+  },
+
   reviewPipelineRun: async (pipelineId: string, runNumber: number, decision: ReviewDecision): Promise<void> => {
     return invoke<void>('review_pipeline_run', {
       pipelineId,

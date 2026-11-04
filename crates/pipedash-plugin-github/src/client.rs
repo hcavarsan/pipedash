@@ -792,6 +792,17 @@ impl GitHubClient {
         Ok(())
     }
 
+    pub async fn force_cancel_run(&self, owner: &str, repo: &str, run_id: u64) -> PluginResult<()> {
+        let url = format!("/repos/{owner}/{repo}/actions/runs/{run_id}/force-cancel");
+        let _: serde_json::Value = self
+            .octocrab
+            .post(url, None::<&()>)
+            .await
+            .map_err(|e| map_octocrab_error("Failed to force cancel run", e))?;
+
+        Ok(())
+    }
+
     pub async fn rerun(
         &self, owner: &str, repo: &str, run_id: u64, failed_only: bool,
     ) -> PluginResult<()> {

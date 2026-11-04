@@ -5,7 +5,7 @@ import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/domai
 import type { PipelineLabels } from '../../../utils/pipelinePresentation'
 import type { RerunMode } from '../../../utils/rerunSummary'
 
-type RunActionId = 'watch' | 'approve' | 'reject' | 'cancel' | 'rerun' | 'details'
+type RunActionId = 'watch' | 'approve' | 'reject' | 'cancel' | 'force-cancel' | 'rerun' | 'details'
 
 export interface RunAction {
   id: RunActionId
@@ -24,7 +24,9 @@ export interface RunActionsValue {
   isFlux: boolean
   canRerun: boolean
   canCancel: boolean
+  canForceCancel: boolean
   cancellingRun: number | null
+  forceCancellingRun: number | null
   reviewingRun: number | null
   rerunningFailedRun: number | null
   rerunningRuns: ReadonlySet<number>
@@ -33,6 +35,7 @@ export interface RunActionsValue {
   openRun: (run: PipelineRun) => void
   openTrigger: () => void
   cancel: (run: PipelineRun) => Promise<void>
+  forceCancel: (run: PipelineRun) => Promise<void>
   review: (run: PipelineRun, decision: ReviewDecision) => Promise<void>
   requestRerun: (run: PipelineRun) => void
   rerunTarget: PipelineRun | null
@@ -115,6 +118,18 @@ export function buildRunActions(value: RunActionsValue, run: PipelineRun): RunAc
       pending: busy,
       swipe: { label: value.isFlux ? 'Reconcile' : 'Rerun', tone: 'blue', primary: true },
       execute: () => value.requestRerun(run),
+    })
+  }
+
+  if (run.status === 'running' && value.canForceCancel) {
+    actions.push({
+      id: 'force-cancel',
+      label: `Force cancel run #${number}`,
+      icon: <IconSquare size={16} aria-hidden />,
+      color: 'red',
+      disabled: value.forceCancellingRun === number || value.cancellingRun === number,
+      pending: value.forceCancellingRun === number,
+      execute: () => value.forceCancel(run),
     })
   }
 

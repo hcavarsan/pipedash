@@ -1,5 +1,5 @@
 import { logger } from '../../../lib/logger'
-import { useCancelRun, useRerunFailedJobs, useRerunRun } from '../../../queries/useRunHistoryQueries'
+import { useCancelRun, useForceCancelRun, useRerunFailedJobs, useRerunRun } from '../../../queries/useRunHistoryQueries'
 import type { Pipeline, PipelineRun } from '../../../types/domain'
 import type { RerunMode } from '../../../utils/rerunSummary'
 import { useRerunWorkflow } from '../queries/useRunDetailsQuery'
@@ -19,8 +19,10 @@ interface UseRunDetailActionsOptions {
 interface UseRunDetailActionsResult {
   rerun: (mode: RerunMode) => Promise<void>
   cancel: () => Promise<void>
+  forceCancel: () => Promise<void>
   rerunPending: boolean
   cancelPending: boolean
+  forceCancelPending: boolean
 }
 
 export function useRunDetailActions({
@@ -35,6 +37,7 @@ export function useRunDetailActions({
   onCancelRequested,
 }: UseRunDetailActionsOptions): UseRunDetailActionsResult {
   const cancelRun = useCancelRun()
+  const forceCancelRun = useForceCancelRun()
   const rerunMutation = useRerunWorkflow()
   const rerunRunMutation = useRerunRun()
   const rerunFailedMutation = useRerunFailedJobs()
@@ -81,10 +84,25 @@ export function useRunDetailActions({
     }
   }
 
+  const forceCancel = async (): Promise<void> => {
+    if (!pipeline || !run || run.status !== 'running') {
+      return
+    }
+
+    const cancelled = await forceCancelRun.mutateAsync({ pipelineId, runNumber, pipeline, run }).catch(() => false)
+
+    if (cancelled) {
+      onCancelRequested()
+      onCancelSuccess?.()
+    }
+  }
+
   return {
     rerun,
     cancel,
+    forceCancel,
     rerunPending: rerunMutation.isPending || rerunRunMutation.isPending || rerunFailedMutation.isPending,
     cancelPending: cancelRun.isPending,
+    forceCancelPending: forceCancelRun.isPending,
   }
 }
