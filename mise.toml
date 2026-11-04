@@ -220,7 +220,7 @@ run = "bun run knip"
 
 [tasks.icons]
 description = "Generate app icons"
-run = "cargo run --bin generate_icons"
+run = "bun run tauri icon app-icon.png -o crates/pipedash-desktop/icons"
 
 [tasks.deps]
 description = "Update dependencies (major)"
