@@ -178,3 +178,53 @@ fn only_pipeline_and_provider_changes_wake_the_tray() {
         assert!(!waking(name), "{name}");
     }
 }
+
+#[test]
+fn notices_and_old_menu_actions_end_when_the_saved_server_or_mode_changes() {
+    use crate::remote::RemoteStatus;
+
+    let link = |host: &str| {
+        Some(ClientLink {
+            host: host.to_string(),
+            status: RemoteStatus::Connected,
+        })
+    };
+    let a = || Some("d1@https://a.example.com".to_string());
+    let mut inner = Inner::default();
+    inner.history.push(notice("from-a"));
+    let ticket = inner.ticket();
+    assert!(!inner.follow(link("a.example.com"), a()));
+    assert_eq!(inner.history.items.len(), 1);
+    assert_eq!(inner.ticket(), ticket);
+    let revision = inner.history.revision;
+
+    assert!(!inner.follow(link("a.example.com"), a()));
+    assert_eq!(inner.history.items.len(), 1);
+    assert_eq!(inner.ticket(), ticket);
+
+    assert!(inner.follow(
+        link("b.example.com"),
+        Some("d2@https://b.example.com".to_string())
+    ));
+    assert!(inner.history.items.is_empty());
+    assert!(inner.history.revision > revision);
+    assert_ne!(inner.ticket(), ticket);
+    assert!(!inner.current(ticket));
+
+    inner.history.push(notice("from-b"));
+    let ticket = inner.ticket();
+    assert!(inner.follow(None, None));
+    assert!(inner.history.items.is_empty());
+    assert_ne!(inner.ticket(), ticket);
+}
+
+#[test]
+fn the_first_observation_of_standalone_mode_keeps_notices_and_a_later_client_switch_clears_them() {
+    let mut inner = Inner::default();
+    inner.history.push(notice("early"));
+    assert!(!inner.follow(None, None));
+    assert_eq!(inner.history.items.len(), 1);
+
+    assert!(inner.follow(None, Some("d1@https://a.example.com".to_string())));
+    assert!(inner.history.items.is_empty());
+}

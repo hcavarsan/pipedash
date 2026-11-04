@@ -1030,6 +1030,7 @@ mod tests {
             watch: None,
             history: Default::default(),
             client: None,
+            server: None,
             retry: Default::default(),
         }
     }

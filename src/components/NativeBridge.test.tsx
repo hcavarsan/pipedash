@@ -97,13 +97,45 @@ afterEach(async () => {
 
 const view = () => within(document.body)
 
-function Harness({ authenticated = true }: { authenticated?: boolean }) {
+function seedNotice(key: string) {
+  const items: CenterNotification[] = [
+    {
+      key,
+      at: 1,
+      read: false,
+      tone: 'danger',
+      level: null,
+      title: 'Pipeline failed',
+      body: 'menu-01',
+      providerIds: [1],
+      pipelineId: 'jenkins__1__menu-01',
+      link: null,
+    },
+  ]
+  if (platform === 'ios') {
+    useNotificationCenterStore.setState({ items })
+  } else {
+    client.setQueryData(desktopNotificationsKey, { revision: 1, items })
+  }
+}
+
+function unreadKeys(): string[] {
+  const items =
+    platform === 'ios'
+      ? useNotificationCenterStore.getState().items
+      : (client.getQueryData<DesktopNotificationSnapshot>(desktopNotificationsKey)?.items ?? [])
+
+  return items.filter((item) => !item.read).map((item) => item.key)
+}
+
+function Harness({ authenticated = true, pairing = false }: { authenticated?: boolean; pairing?: boolean }) {
   const [mounted, setMounted] = useState(authenticated)
   const { pathname, search } = useLocation()
 
   return (
     <>
       <NativeBridge />
+      {pairing && <NativeIntentBridge pairing />}
       {mounted && <NativeIntentBridge />}
       <output aria-label="Location">
         {pathname}
@@ -116,11 +148,11 @@ function Harness({ authenticated = true }: { authenticated?: boolean }) {
   )
 }
 
-function mount(authenticated = true) {
+function mount(authenticated = true, pairing = false) {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/pipelines']}>
-        <Harness authenticated={authenticated} />
+        <Harness authenticated={authenticated} pairing={pairing} />
       </MemoryRouter>
     </QueryClientProvider>
   )
@@ -159,25 +191,7 @@ for (const [action, destination] of [
 ] as const) {
   test(`a known ${platform} pipeline notice routes ${action} without guessing a run`, async () => {
     const key = 'pipeline:known'
-    const items: CenterNotification[] = [
-      {
-        key,
-        at: 1,
-        read: false,
-        tone: 'danger',
-        level: null,
-        title: 'Pipeline failed',
-        body: 'menu-01',
-        providerIds: [1],
-        pipelineId: 'jenkins__1__menu-01',
-        link: null,
-      },
-    ]
-    if (platform === 'ios') {
-      useNotificationCenterStore.setState({ items })
-    } else {
-      client.setQueryData(desktopNotificationsKey, { revision: 1, items })
-    }
+    seedNotice(key)
     pending = { id: 12, intent: { type: 'notification', action, key, pipelineId: 'jenkins__1__menu-01' } }
     mount()
     await waitFor(() => assert.deepEqual(acknowledged, [12]))
@@ -189,6 +203,37 @@ for (const [action, destination] of [
     )
   })
 }
+
+for (const [name, target] of [
+  ['exact run', { action: 'open', runNumber: 42 }],
+  ['run without a number', { action: 'open-run' }],
+] as const) {
+  test(`opening a watched ${name} marks its ${platform} notice read`, async () => {
+    const key = 'watch:run'
+    seedNotice(key)
+    pending = { id: 13, intent: { type: 'notification', key, pipelineId: 'jenkins__1__menu-01', ...target } }
+    mount()
+    await waitFor(() => assert.deepEqual(acknowledged, [13]))
+    await waitFor(() => assert.deepEqual(unreadKeys(), []))
+    assert.equal(useNotificationCenterStore.getState().selection, null)
+  })
+}
+
+test('a pairing link is handled while the vault is locked', async () => {
+  pending = { id: 14, intent: { type: 'pair', link: 'pipedash://pair?code=WXYZ' } }
+  mount(false, true)
+  await waitFor(() => assert.deepEqual(acknowledged, [14]))
+  assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/connect')
+})
+
+test('the authenticated bridge leaves a pairing link for the pairing bridge', async () => {
+  pending = { id: 15, intent: { type: 'pair', link: 'pipedash://pair?code=WXYZ' } }
+  mount()
+  await waitFor(() => assert.ok(calls.includes('native_peek_pending_intent')))
+  await act(async () => {})
+  assert.deepEqual(acknowledged, [])
+  assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/pipelines')
+})
 
 test('unmounting during peek retains the intent for the next authenticated mount', async () => {
   const user = userEvent.setup({ document, delay: null })
@@ -260,7 +305,7 @@ test('Manage views opens the existing manager', async () => {
 
 test('a pairing link opens the connect screen with the link', async () => {
   pending = { id: 12, intent: { type: 'pair', link: 'pipedash://pair?code=ABCD' } }
-  mount()
+  mount(true, true)
   await waitFor(() => assert.deepEqual(acknowledged, [12]))
   assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/connect')
 })

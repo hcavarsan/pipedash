@@ -291,14 +291,19 @@ impl RemoteConnection {
     }
 
     #[cfg(desktop)]
-    pub(crate) fn tray_link(&self) -> Option<(String, RemoteStatus)> {
+    pub(crate) fn tray_link(&self) -> Option<(String, RemoteStatus, String)> {
         let inner = self.lock();
         match &inner.saved.mode {
             SavedMode::Client {
                 server_url,
+                device_id,
                 host_name,
                 ..
-            } => Some((display_host(server_url, host_name.as_deref()), inner.status)),
+            } => Some((
+                display_host(server_url, host_name.as_deref()),
+                inner.status,
+                format!("{device_id}@{server_url}"),
+            )),
             _ => None,
         }
     }

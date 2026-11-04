@@ -24,7 +24,8 @@ async function handleIntent(
   intent: NativeIntent,
   active: () => boolean,
   client: QueryClient,
-  open: (selection: CenterSelection) => void
+  open: (selection: CenterSelection) => void,
+  markRead: (key: string) => void
 ): Promise<void> {
   const openPipeline = async (pipelineId: string, from: string, runNumber?: number | null) => {
     await navigate(`/pipelines/${encodeURIComponent(pipelineId)}`, { state: { from } })
@@ -67,10 +68,11 @@ async function handleIntent(
   const pipelineId = intent.pipelineId ?? known?.pipelineId
   const runNumber = intent.runNumber ?? known?.runNumber
 
-  if (pipelineId && runNumber) {
+  if (pipelineId && (runNumber || intent.action === 'open-run')) {
+    if (known) {
+      markRead(known.key)
+    }
     await openPipeline(pipelineId, NOTIFICATIONS, runNumber)
-  } else if (pipelineId && intent.action === 'open-run') {
-    await openPipeline(pipelineId, NOTIFICATIONS)
   } else if (known) {
     await navigate(NOTIFICATIONS)
     if (active()) {
@@ -83,12 +85,12 @@ async function handleIntent(
   }
 }
 
-export function NativeIntentBridge(): ReactNode {
+export function NativeIntentBridge({ pairing = false }: { pairing?: boolean }): ReactNode {
   const navigate = useNavigate()
   const client = useQueryClient()
-  const { open } = useNotificationActions()
+  const { open, markRead } = useNotificationActions()
   const applyIntent = useEffectEvent((intent: NativeIntent, active: () => boolean) =>
-    handleIntent(navigate, intent, active, client, open)
+    handleIntent(navigate, intent, active, client, open, markRead)
   )
 
   useEffect(() => {
@@ -112,7 +114,7 @@ export function NativeIntentBridge(): ReactNode {
           requested = false
           while (active) {
             const pending = await mobileService.peekPendingIntent()
-            if (!active || !pending) {
+            if (!active || !pending || (pending.intent.type === 'pair') !== pairing) {
               break
             }
             await applyIntent(pending.intent, () => active)
@@ -154,7 +156,7 @@ export function NativeIntentBridge(): ReactNode {
       window.removeEventListener('focus', retry)
       document.removeEventListener('visibilitychange', retry)
     }
-  }, [])
+  }, [pairing])
 
   return null
 }

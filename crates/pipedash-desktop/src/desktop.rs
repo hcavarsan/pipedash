@@ -110,6 +110,7 @@ struct Inner {
     watch: Option<BuildWatchSnapshot>,
     history: DesktopNotificationSnapshot,
     client: Option<ClientLink>,
+    server: Option<Option<String>>,
     retry: settings::SettingsRetry,
 }
 
@@ -159,6 +160,16 @@ impl Inner {
             self.history.clone(),
             self.saved.settings.notifications_enabled,
         )
+    }
+    fn follow(&mut self, link: Option<ClientLink>, server: Option<String>) -> bool {
+        self.client = link;
+        let moved = self.server.as_ref().is_some_and(|seen| *seen != server);
+        self.server = Some(server);
+        if moved {
+            self.epoch += 1;
+            self.history.clear();
+        }
+        moved
     }
     fn apply_menu_result(&mut self, result: DomainResult<PipelineMenuSnapshot>) {
         match result {
@@ -416,23 +427,30 @@ async fn client_menu(app: &AppHandle) -> DomainResult<PipelineMenuSnapshot> {
 async fn refresh_projection(app: &AppHandle) {
     let state = app.state::<DesktopState>();
     let _projection = state.projection_gate.lock().await;
-    let link = app
+    let (link, server) = match app
         .try_state::<RemoteConnection>()
         .and_then(|remote| remote.tray_link())
-        .map(|(host, status)| ClientLink { host, status });
-    let input = {
+    {
+        Some((host, status, server)) => (Some(ClientLink { host, status }), Some(server)),
+        None => (None, None),
+    };
+    let (input, history) = {
         let mut inner = state.lock();
-        inner.client = link;
+        let moved = inner.follow(link, server);
         if inner.client.as_ref().is_some_and(|link| !link.connected()) {
             inner.snapshot = None;
             inner.data_error = None;
         }
-        inner
+        let input = inner
             .core
             .as_ref()
             .filter(|_| inner.vault_ready && inner.client.is_none())
-            .map(|core| (Arc::clone(core), inner.ticket()))
+            .map(|core| (Arc::clone(core), inner.ticket()));
+        (input, moved.then(|| inner.history.clone()))
     };
+    if let Some(history) = history {
+        notifications::publish(app, &history);
+    }
     if let Some((core, ticket)) = input {
         let projection = core.pipeline_view_service.menu_snapshot().await;
         {
