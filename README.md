@@ -119,7 +119,7 @@ Buildkite's organization picker and pipeline discovery include organizations fro
 - Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
 - Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
 - See when GitHub disables a workflow and why: after 60 days without repository activity, by hand or in a fork. Enable it again from its row menu with a token that can trigger workflows.
-- Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage.
+- Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage. Choose which alerts each device gets, turn off providers and mute single pipelines. Watch a pipeline to hear about every run that finishes, or get one notification when the run you started finishes.
 - Connect a phone or another computer to a Pipedash server, or to a desktop app that shares itself on your network, instead of adding providers on every device. Scan the QR code or enter the address and pairing code from Settings → Devices. The connected app shows the host's pipelines and updates live, and you remove a device at any time.
 - Phones get alerts from a Pipedash server in the background, connected or standalone, and iPhone and iPad can turn on push alerts. The relay never sees pipeline names.
 - Keep provider tokens in the system keyring or in a database encrypted with AES-256-GCM. Pipedash sends no analytics or telemetry.
@@ -150,6 +150,8 @@ Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` i
 CI runs backend tests on Linux, macOS and Windows, including log-resume checks that preserve the previous revision while truncating and extending a copied checkpoint.
 
 Run `bun run test` for frontend regressions and `cargo nextest run --workspace --all-features` for Rust regressions. The frontend command isolates each test file, and DOM tests unmount React roots and clear React Query clients before unregistering Happy DOM.
+
+Run `mise run icons` to regenerate app icons from `app-icon.png` into `crates/pipedash-desktop/icons` with the Tauri CLI. Run `python3 scripts/test_icons.py` to check icon generation in a temporary checkout without changing tracked icons. CI runs the same check after installing frontend dependencies.
 
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
 

@@ -28,9 +28,11 @@ pub use services::health_service::{
     HealthSnapshot,
     LocalNotification,
     NotificationState,
+    ObservedNotification,
     ProviderHealthInput,
     ProviderHealthService,
     ProviderHealthState,
+    ShownNotification,
 };
 pub use services::log_service::{
     LogExport,

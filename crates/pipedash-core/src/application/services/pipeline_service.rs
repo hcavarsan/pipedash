@@ -108,6 +108,7 @@ struct Applied {
     pipelines: Vec<Pipeline>,
     changed_ids: Vec<String>,
     failed: Vec<Pipeline>,
+    finished: Vec<Pipeline>,
 }
 
 pub struct PipelineService {
@@ -330,11 +331,21 @@ impl PipelineService {
         );
 
         let failed = needing_attention(&old_by_id, &pipelines);
+        let finished = pipelines
+            .iter()
+            .filter(|pipeline| {
+                old_by_id.get(pipeline.id.as_str()).is_some_and(|previous| {
+                    pipeline.finished_since(&previous.status, previous.last_run)
+                })
+            })
+            .cloned()
+            .collect();
 
         Ok(Applied {
             pipelines,
             changed_ids,
             failed,
+            finished,
         })
     }
 
@@ -363,6 +374,13 @@ impl PipelineService {
             self.event_bus
                 .emit(CoreEvent::PipelinesFailed {
                     pipelines: applied.failed,
+                })
+                .await;
+        }
+        if !applied.finished.is_empty() {
+            self.event_bus
+                .emit(CoreEvent::PipelinesFinished {
+                    pipelines: applied.finished,
                 })
                 .await;
         }
@@ -1946,6 +1964,47 @@ mod tests {
         stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Failed)]);
         h.fetch_directly(id).await;
         assert_eq!(reported(), vec![vec![web.clone()], vec![web]]);
+    }
+
+    #[tokio::test]
+    async fn a_run_that_finishes_is_reported_once() {
+        let h = Harness::new().await;
+        let (id, stub) = h.add_stub(StubProvider::new).await;
+        let finished = || -> Vec<Vec<(String, PipelineStatus)>> {
+            h.bus
+                .events()
+                .iter()
+                .filter_map(|event| match event {
+                    CoreEvent::PipelinesFinished { pipelines } => Some(
+                        pipelines
+                            .iter()
+                            .map(|p| (p.name.clone(), p.status.clone()))
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Running)]);
+        h.fetch_directly(id).await;
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Success)]);
+        h.fetch_directly(id).await;
+        h.fetch_directly(id).await;
+        assert_eq!(
+            finished(),
+            vec![vec![("web".to_owned(), PipelineStatus::Success)]]
+        );
+
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Pending)]);
+        h.fetch_directly(id).await;
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Failed)]);
+        h.fetch_directly(id).await;
+        assert_eq!(finished().len(), 2);
+        assert_eq!(
+            finished()[1],
+            vec![("web".to_owned(), PipelineStatus::Failed)]
+        );
     }
 
     #[tokio::test]

@@ -9,8 +9,10 @@ import {
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
+import { hasLocalCore } from '../services/connection'
 import { service } from '../services/service'
 import { useAuthStore } from '../stores/authStore'
+import { useNotificationStore } from '../stores/notificationStore'
 import type {
   ConfigContentResponse,
   MigrationOptions,
@@ -202,6 +204,15 @@ export function usePlanStorageMigration(): UseMutationResult<
   })
 }
 
+function remapMutedProviders(result: MigrationResult): void {
+  if (Object.keys(result.provider_id_mapping).length > 0) {
+    const { remapProviders, remapProvidersOnRestart } = useNotificationStore.getState()
+    const remap = hasLocalCore() ? remapProvidersOnRestart : remapProviders
+
+    remap(result.provider_id_mapping)
+  }
+}
+
 export function useExecuteMigration(): UseMutationResult<
   MigrationResult,
   Error,
@@ -215,6 +226,7 @@ export function useExecuteMigration(): UseMutationResult<
 
     onSuccess: (result) => {
       if (result.success) {
+        remapMutedProviders(result)
         void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
         void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
         void queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })
@@ -279,6 +291,7 @@ export function useMigrateAndSaveConfig(): UseMutationResult<
         throw new Error(result.errors?.join(', ') || 'Migration completed with errors')
       }
 
+      remapMutedProviders(result)
       await service.saveConfigContent(content)
 
       return result
