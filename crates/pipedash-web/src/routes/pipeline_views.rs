@@ -243,9 +243,10 @@ mod tests {
         }
     }
 
-    async fn harness() -> Harness {
+    async fn harness(name: &str) -> Harness {
         let env = CONFIG_ENV.lock().await;
-        let data_dir = std::env::temp_dir().join(format!("pipedash-views-{}", std::process::id()));
+        let data_dir =
+            std::env::temp_dir().join(format!("pipedash-views-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&data_dir);
         std::fs::create_dir_all(&data_dir).unwrap();
         std::fs::write(data_dir.join("config.toml"), "").unwrap();
@@ -326,7 +327,7 @@ mod tests {
 
     #[tokio::test]
     async fn pipeline_views_create_add_and_view_over_http() {
-        let h = harness().await;
+        let h = harness("create-add-view").await;
 
         let (status, view) = call(
             &h.app,
@@ -398,7 +399,7 @@ mod tests {
 
     #[tokio::test]
     async fn pipeline_view_page_filters_by_any_of_several_statuses() {
-        let h = harness().await;
+        let h = harness("status-filters").await;
 
         for (statuses, total) in [
             ("failed,success", h.pipeline_ids.len()),
@@ -428,7 +429,7 @@ mod tests {
 
     #[tokio::test]
     async fn pipeline_view_pins_round_trip_over_http() {
-        let h = harness().await;
+        let h = harness("pins").await;
 
         let (status, _) = call(
             &h.app,

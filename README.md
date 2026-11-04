@@ -151,6 +151,8 @@ CI runs backend tests on Linux, macOS and Windows, including log-resume checks t
 
 Run `bun run test` for frontend regressions and `cargo nextest run --workspace --all-features` for Rust regressions. The frontend command isolates each test file, and DOM tests unmount React roots and clear React Query clients before unregistering Happy DOM.
 
+Pipeline-view route tests use separate data directories so failed cleanup cannot leak state between cases.
+
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
 
 ## License
