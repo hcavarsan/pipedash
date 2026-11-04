@@ -621,12 +621,14 @@ fn load_preferences(path: &Path) -> (bool, Option<UpdateFailure>) {
     }
 }
 
-async fn proxy(app: &AppHandle) -> Result<Option<reqwest::Url>, UpdateFailure> {
+async fn proxy<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> Result<Option<reqwest::Url>, UpdateFailure> {
     let path = app.state::<AppDataDir>().0.join("config.toml");
     let value = tauri::async_runtime::spawn_blocking(move || {
         std::fs::read_to_string(path)
             .ok()
-            .and_then(|text| ConfigLoader::parse_raw(&text).ok())
+            .and_then(|text| ConfigLoader::parse(&text).ok())
             .map(|config| config.general.proxy_url)
             .unwrap_or_default()
     })
@@ -1592,6 +1594,47 @@ mod tests {
 
     const PUBLIC_KEY: &str = "untrusted comment: minisign public key: A49EF4746FA6E6D7\nRWTX5qZvdPSepDGWg2bz8n6ArQnBMwgQK1geVosorcbLzcunD+KJ+cYe";
     const SIGNATURE: &str = "untrusted comment: signature from tauri secret key\nRUTX5qZvdPSepPF2zsjvP/L/TQtBLRnWRvaq+4omK1UEugtQp/USrGiI1v762sDy3id3aor7bRC9ETyeot6lMHHrWoZ5hjUM1Qc=\ntrusted comment: timestamp:1791649051\tfile:payload\tversion:2.0.0\nDDq2CLOEl5cQmC2eJRHlnZPVViOZsu1CjpPKQoei4A/XBfkDqGO0B+QMrcrHgEQ5qV3mne75tdFWhJpqUXh9AA==";
+
+    #[tokio::test]
+    async fn proxy_expands_environment_references() {
+        const VARIABLE: &str = "PIPEDASH_UPDATER_PROXY_TEST";
+        const EXPECTED: &str = "http://127.0.0.1:3128/";
+
+        if std::env::var(VARIABLE).as_deref() != Ok(EXPECTED) {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "updater::tests::proxy_expands_environment_references",
+                    "--nocapture",
+                ])
+                .env(VARIABLE, EXPECTED)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("config.toml"),
+            "[general]\nproxy_url = \"${PIPEDASH_UPDATER_PROXY_TEST}\"\n",
+        )
+        .unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(AppDataDir(dir.path().to_path_buf()))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+
+        assert_eq!(
+            proxy(app.handle()).await.unwrap().unwrap().as_str(),
+            EXPECTED
+        );
+    }
 
     fn test_client() -> reqwest::ClientBuilder {
         let _ = rustls::crypto::ring::default_provider().install_default();
