@@ -11,6 +11,7 @@ import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
 import { service } from '../services/service'
 import { useAuthStore } from '../stores/authStore'
+import { useNotificationStore } from '../stores/notificationStore'
 import type {
   ConfigContentResponse,
   MigrationOptions,
@@ -215,6 +216,9 @@ export function useExecuteMigration(): UseMutationResult<
 
     onSuccess: (result) => {
       if (result.success) {
+        if (Object.keys(result.provider_id_mapping).length > 0) {
+          useNotificationStore.getState().remapProviders(result.provider_id_mapping)
+        }
         void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
         void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
         void queryClient.invalidateQueries({ queryKey: queryKeys.providers.all })

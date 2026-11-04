@@ -161,6 +161,7 @@ mod tests {
             body: format!("{key} body"),
             pipeline_id: Some(key.into()),
             provider_id: Some(7),
+            provider_ids: vec![7],
         }
     }
 
@@ -246,6 +247,7 @@ mod page_order_tests {
             body: key.into(),
             pipeline_id: None,
             provider_id: None,
+            provider_ids: Vec::new(),
         }
     }
 

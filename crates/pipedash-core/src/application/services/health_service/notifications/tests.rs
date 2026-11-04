@@ -267,6 +267,7 @@ async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
             body: BODY.to_owned(),
             pipeline_id: Some("github__1__api".to_owned()),
             provider_id: Some(1),
+            provider_ids: vec![1],
             kind: AlertKind::Failed,
         }]
     );

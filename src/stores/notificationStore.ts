@@ -14,7 +14,7 @@ interface NotificationStoreActions {
   setKindEnabled: (kind: PreferenceKind, enabled: boolean) => void
   setProviderMuted: (providerId: number, muted: boolean) => void
   setPipelineMuted: (pipelineId: string, muted: boolean) => void
-  resetPreferences: () => void
+  remapProviders: (mapping: Record<number, number>) => void
 }
 
 type NotificationStore = NotificationStoreState & NotificationStoreActions
@@ -76,6 +76,24 @@ export function migrateNotificationSettings(persisted: unknown, version: number)
   }
 }
 
+export function remapPreferences(
+  preferences: NotificationPreferences,
+  mapping: Record<number, number>
+): NotificationPreferences {
+  const pipeline = (id: string): string[] => {
+    const [type, provider, ...rest] = id.split('__')
+    const next = mapping[Number(provider)]
+
+    return next === undefined || rest.length === 0 ? [] : [[type, next, ...rest].join('__')]
+  }
+
+  return {
+    ...preferences,
+    muted_providers: preferences.muted_providers.flatMap((id) => (mapping[id] === undefined ? [] : [mapping[id]])),
+    muted_pipelines: preferences.muted_pipelines.flatMap(pipeline),
+  }
+}
+
 export function notificationAllowed(
   preferences: NotificationPreferences,
   kind: AlertKind,
@@ -121,7 +139,7 @@ export const useNotificationStore = create<NotificationStore>()(
             },
           })),
 
-        resetPreferences: () => set({ preferences: DEFAULT_NOTIFICATION_PREFERENCES }),
+        remapProviders: (mapping) => set((state) => ({ preferences: remapPreferences(state.preferences, mapping) })),
       }),
       {
         name: 'pipedash-notifications',

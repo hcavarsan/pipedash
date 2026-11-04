@@ -78,9 +78,7 @@ impl Default for NotificationPreferences {
 }
 
 impl NotificationPreferences {
-    pub fn allows(
-        &self, kind: AlertKind, provider_id: Option<i64>, pipeline_id: Option<&str>,
-    ) -> bool {
+    pub fn allows(&self, kind: AlertKind, provider_ids: &[i64], pipeline_id: Option<&str>) -> bool {
         let wanted = match kind {
             AlertKind::Failed => self.failed,
             AlertKind::Degraded => self.degraded,
@@ -90,8 +88,13 @@ impl NotificationPreferences {
             AlertKind::Test => return true,
         };
 
+        let providers_muted = !provider_ids.is_empty()
+            && provider_ids
+                .iter()
+                .all(|id| self.muted_providers.contains(id));
+
         wanted
-            && provider_id.is_none_or(|id| !self.muted_providers.contains(&id))
+            && !providers_muted
             && pipeline_id.is_none_or(|id| !self.muted_pipelines.iter().any(|muted| muted == id))
     }
 
@@ -114,7 +117,19 @@ pub struct DeviceAlert {
     pub body: String,
     pub pipeline_id: Option<String>,
     pub provider_id: Option<i64>,
+    #[serde(default)]
+    pub provider_ids: Vec<i64>,
     pub created_at: DateTime<Utc>,
+}
+
+impl DeviceAlert {
+    pub fn affected_providers(&self) -> Vec<i64> {
+        if self.provider_ids.is_empty() {
+            self.provider_id.into_iter().collect()
+        } else {
+            self.provider_ids.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +140,7 @@ pub struct NewDeviceAlert {
     pub body: String,
     pub pipeline_id: Option<String>,
     pub provider_id: Option<i64>,
+    pub provider_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -183,17 +199,17 @@ mod tests {
             ..NotificationPreferences::default()
         };
 
-        assert!(preferences.allows(AlertKind::Failed, Some(1), Some("github__1__web")));
-        assert!(!preferences.allows(AlertKind::LongRun, Some(1), Some("github__1__web")));
-        assert!(!preferences.allows(AlertKind::Failed, Some(1), Some("github__1__api")));
-        assert!(!preferences.allows(AlertKind::Outage, Some(2), None));
-        assert!(preferences.allows(AlertKind::Outage, Some(3), None));
-        assert!(preferences.allows(AlertKind::Test, Some(2), Some("github__1__api")));
-        assert!(preferences.kinds_only().allows(
-            AlertKind::Failed,
-            Some(2),
-            Some("github__1__api")
-        ));
+        assert!(preferences.allows(AlertKind::Failed, &[1], Some("github__1__web")));
+        assert!(!preferences.allows(AlertKind::LongRun, &[1], Some("github__1__web")));
+        assert!(!preferences.allows(AlertKind::Failed, &[1], Some("github__1__api")));
+        assert!(!preferences.allows(AlertKind::Outage, &[2], None));
+        assert!(preferences.allows(AlertKind::Outage, &[2, 3], None));
+        assert!(preferences.allows(AlertKind::Outage, &[3], None));
+        assert!(preferences.allows(AlertKind::Outage, &[], None));
+        assert!(preferences.allows(AlertKind::Test, &[2], Some("github__1__api")));
+        assert!(preferences
+            .kinds_only()
+            .allows(AlertKind::Failed, &[2], Some("github__1__api")));
     }
 
     #[test]

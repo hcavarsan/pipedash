@@ -68,6 +68,8 @@ const REFRESH_TIMEOUT: Duration = Duration::from_secs(26);
 type Result<T, E = ErrorResponse> = std::result::Result<T, E>;
 
 static PREFERENCES_SYNC: AsyncMutex<()> = AsyncMutex::const_new(());
+static HOST_PREFERENCES_PENDING: AtomicBool = AtomicBool::new(true);
+const PREFERENCES_RETRY_BUDGET: Duration = Duration::from_secs(3);
 
 #[cfg(target_os = "android")]
 pub(crate) use headless::{
@@ -587,7 +589,7 @@ fn wanted(
         .filter(|notice| {
             preferences.allows(
                 notice.kind,
-                notice.provider_id,
+                &notice.provider_ids,
                 notice.pipeline_id.as_deref(),
             )
         })
@@ -600,16 +602,23 @@ async fn send_preferences(host: &AlertHost, preferences: &NotificationPreference
     } else {
         preferences.clone()
     };
-    let Ok(body) = serde_json::to_string(&preferences) else {
-        return;
+    let sent = match serde_json::to_string(&preferences) {
+        Ok(body) => matches!(
+            host_request(
+                host,
+                "PUT",
+                "/devices/current/notification-preferences",
+                Some(&body)
+            )
+            .await,
+            Ok((204, _))
+        ),
+        Err(_) => false,
     };
-    let path = "/devices/current/notification-preferences";
-    if !matches!(
-        host_request(host, "PUT", path, Some(&body)).await,
-        Ok((204, _))
-    ) {
+    if !sent {
         tracing::debug!("Couldn't send the notification preferences to the alert host");
     }
+    HOST_PREFERENCES_PENDING.store(!sent, Ordering::Release);
 }
 
 async fn sync_host_preferences(host: &AlertHost) {
@@ -619,16 +628,33 @@ async fn sync_host_preferences(host: &AlertHost) {
     }
 }
 
+async fn retry_host_preferences(host: &AlertHost) {
+    if HOST_PREFERENCES_PENDING.load(Ordering::Acquire)
+        && tokio::time::timeout(PREFERENCES_RETRY_BUDGET, sync_host_preferences(host))
+            .await
+            .is_err()
+    {
+        tracing::debug!("The alert host took too long to take the notification preferences");
+    }
+}
+
 #[tauri::command]
 pub async fn set_notification_preferences(preferences: NotificationPreferences) -> Result<()> {
     if !cfg!(mobile) {
         return Ok(());
     }
     let _sync = PREFERENCES_SYNC.lock().await;
-    let saved = preferences.clone();
-    storage(move || store::save_preferences(&saved)).await?;
-    if let Some(host) = current_alert_host().await {
-        send_preferences(&host, &preferences).await;
+    let changed = storage(store::preferences).await.ok().as_ref() != Some(&preferences);
+    if changed {
+        let saved = preferences.clone();
+        storage(move || store::save_preferences(&saved)).await?;
+    }
+    if !changed && !HOST_PREFERENCES_PENDING.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    match current_alert_host().await {
+        Some(host) => send_preferences(&host, &preferences).await,
+        None => HOST_PREFERENCES_PENDING.store(false, Ordering::Release),
     }
 
     Ok(())
@@ -833,6 +859,7 @@ async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     let shown = host
         .clone()
         .zip(cursor.as_ref().and_then(|batch| batch.ack));
+    let retry = host.clone();
     storage(move || {
         let _guard = guard;
         if scanned {
@@ -846,6 +873,9 @@ async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     .await?;
     if let Some((host, through)) = shown {
         wake::acknowledge(&host, through).await;
+    }
+    if let Some(host) = &retry {
+        retry_host_preferences(host).await;
     }
     state.revision.fetch_add(1, Ordering::AcqRel);
     Ok(())

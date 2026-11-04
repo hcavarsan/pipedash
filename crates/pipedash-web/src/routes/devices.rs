@@ -266,6 +266,7 @@ async fn test_device_push(
             body: "Push alerts from this host work.".into(),
             pipeline_id: None,
             provider_id: None,
+            provider_ids: Vec::new(),
         })
         .await?;
 

@@ -64,6 +64,7 @@ export interface HostAlert {
   body: string
   pipeline_id: string | null
   provider_id: number | null
+  provider_ids?: number[]
   created_at: string
 }
 

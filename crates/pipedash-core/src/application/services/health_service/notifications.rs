@@ -44,6 +44,8 @@ pub struct LocalNotification {
     pub body: String,
     pub pipeline_id: Option<String>,
     pub provider_id: Option<i64>,
+    #[serde(default)]
+    pub provider_ids: Vec<i64>,
     pub kind: AlertKind,
 }
 
@@ -332,6 +334,7 @@ impl NotificationState {
             body,
             pipeline_id: Some(pipeline.id.clone()),
             provider_id: Some(pipeline.provider_id),
+            provider_ids: vec![pipeline.provider_id],
             kind,
         }
     }
@@ -366,6 +369,7 @@ impl NotificationState {
             body: body.to_owned(),
             pipeline_id: None,
             provider_id: provider_ids.first().copied(),
+            provider_ids: provider_ids.to_vec(),
             kind: if recovered {
                 AlertKind::Recovered
             } else {

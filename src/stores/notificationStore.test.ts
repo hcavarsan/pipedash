@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { DEFAULT_NOTIFICATION_PREFERENCES, migrateNotificationSettings, notificationAllowed } from './notificationStore'
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  migrateNotificationSettings,
+  notificationAllowed,
+  remapPreferences,
+} from './notificationStore'
 
 const enabled = (notificationsEnabled: boolean) => ({
   notificationsEnabled,
@@ -67,4 +72,18 @@ test('a notification passes only when its kind is on and its source is not muted
   assert.equal(notificationAllowed(preferences, 'outage', [2, 3], null), true)
   assert.equal(notificationAllowed(preferences, 'outage', [], null), true)
   assert.equal(notificationAllowed(preferences, 'test', [2], 'github__1__api'), true)
+})
+
+test('a storage migration moves mutes to the new provider IDs and drops removed providers', () => {
+  const preferences = {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    muted_providers: [2, 5],
+    muted_pipelines: ['github__2__acme/api__ci.yml', 'gitlab__5__group/app', 'broken'],
+  }
+
+  assert.deepEqual(remapPreferences(preferences, { 2: 1, 3: 2 }), {
+    ...preferences,
+    muted_providers: [1],
+    muted_pipelines: ['github__1__acme/api__ci.yml'],
+  })
 })

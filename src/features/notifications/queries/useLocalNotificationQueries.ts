@@ -11,6 +11,8 @@ import { logger } from '../../../lib/logger'
 import { queryKeys } from '../../../lib/queryKeys'
 import { hasLocalCore, isRemoteClient } from '../../../services/connection'
 import { mobileService } from '../../../services/mobile'
+import { events } from '../../../services/service'
+import { WS_EVENTS } from '../../../services/websocket'
 import { useNotificationStore } from '../../../stores/notificationStore'
 import type { LocalNotificationSettings } from '../../../types/domain'
 import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
@@ -91,24 +93,46 @@ export function useLocalNotificationsLifecycle(): void {
         timer = setTimeout(send, PREFERENCES_DELAY_MS)
       }
     })
-    const flush = () => {
-      if (document.visibilityState === 'hidden' && timer !== undefined) {
+    const sync = () => {
+      if (document.visibilityState === 'visible' || timer !== undefined) {
         send()
       }
     }
+    let unlisten: (() => void) | undefined
+    let active = true
+    events
+      .listen<{ status: string }>(WS_EVENTS.CONNECTION_STATUS, ({ status }) => {
+        if (status === 'connected') {
+          send()
+        }
+      })
+      .then((fn) => {
+        if (active) {
+          unlisten = fn
+        } else {
+          fn()
+        }
+      })
+      .catch((error: unknown) =>
+        logger.warn('useLocalNotificationsLifecycle', "Couldn't listen for the connection", error)
+      )
     send()
     document.addEventListener('visibilitychange', refresh)
-    document.addEventListener('visibilitychange', flush)
+    document.addEventListener('visibilitychange', sync)
     window.addEventListener('focus', refresh)
+    window.addEventListener('focus', sync)
 
     return () => {
+      active = false
+      unlisten?.()
       unsubscribe()
       if (timer !== undefined) {
         send()
       }
       document.removeEventListener('visibilitychange', refresh)
-      document.removeEventListener('visibilitychange', flush)
+      document.removeEventListener('visibilitychange', sync)
       window.removeEventListener('focus', refresh)
+      window.removeEventListener('focus', sync)
     }
   }, [queryClient])
 }

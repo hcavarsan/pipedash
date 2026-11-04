@@ -654,6 +654,7 @@ mod reset_tests {
                 body: "b".into(),
                 pipeline_id: None,
                 provider_id: None,
+                provider_ids: Vec::new(),
             })
             .await
             .unwrap();

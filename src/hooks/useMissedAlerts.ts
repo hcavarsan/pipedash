@@ -24,7 +24,11 @@ export function useMissedAlerts(): void {
           const { push } = useNotificationCenterStore.getState()
 
           for (const alert of alerts) {
-            const providerIds = alert.provider_id === null ? [] : [alert.provider_id]
+            const providerIds = alert.provider_ids?.length
+              ? alert.provider_ids
+              : alert.provider_id === null
+                ? []
+                : [alert.provider_id]
 
             if (!shouldNotify(alert.kind, providerIds, alert.pipeline_id)) {
               continue

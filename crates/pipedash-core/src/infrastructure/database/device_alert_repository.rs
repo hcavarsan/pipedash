@@ -24,10 +24,12 @@ type Row = (
     String,
     Option<String>,
     Option<i64>,
+    Option<String>,
     DateTime<Utc>,
 );
 
-const COLUMNS: &str = "seq, id, alert_key, kind, title, body, pipeline_id, provider_id, created_at";
+const COLUMNS: &str =
+    "seq, id, alert_key, kind, title, body, pipeline_id, provider_id, provider_ids, created_at";
 const RETENTION_DAYS: i64 = 7;
 const MAX_ROWS: i64 = 500;
 
@@ -42,6 +44,7 @@ macro_rules! insert_with_seq {
             .bind(&$alert.body)
             .bind($alert.pipeline_id.as_deref())
             .bind($alert.provider_id)
+            .bind(provider_ids_json(&$alert.provider_ids))
             .bind($alert.created_at)
             .execute($executor)
             .await
@@ -57,8 +60,15 @@ fn cutoff() -> DateTime<Utc> {
     Utc::now() - Duration::days(RETENTION_DAYS)
 }
 
+fn provider_ids_json(ids: &[i64]) -> Option<String> {
+    (!ids.is_empty()).then(|| serde_json::to_string(ids).unwrap_or_default())
+}
+
 fn alert(row: Row) -> DomainResult<DeviceAlert> {
-    let (seq, id, key, kind, title, body, pipeline_id, provider_id, created_at) = row;
+    let (seq, id, key, kind, title, body, pipeline_id, provider_id, provider_ids, created_at) = row;
+    let provider_ids = provider_ids
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
     let kind = AlertKind::parse(&kind)
         .ok_or_else(|| DomainError::DatabaseError(format!("Unknown alert kind: {kind}")))?;
 
@@ -71,6 +81,7 @@ fn alert(row: Row) -> DomainResult<DeviceAlert> {
         body,
         pipeline_id,
         provider_id,
+        provider_ids,
         created_at,
     })
 }
@@ -104,9 +115,9 @@ impl DeviceAlertRepository {
 
     pub async fn insert(&self, input: &NewDeviceAlert) -> DomainResult<DeviceAlert> {
         let sql = format!(
-            "INSERT INTO device_alerts (id, alert_key, kind, title, body, pipeline_id, provider_id, created_at)
+            "INSERT INTO device_alerts (id, alert_key, kind, title, body, pipeline_id, provider_id, provider_ids, created_at)
              VALUES ({}) RETURNING {COLUMNS}",
-            self.placeholders(8)
+            self.placeholders(9)
         );
         let id = new_alert_id();
         let row = on_pool!(&self.pool, p => sqlx::query_as::<_, Row>(sqlx::AssertSqlSafe(sql))
@@ -117,6 +128,7 @@ impl DeviceAlertRepository {
             .bind(&input.body)
             .bind(input.pipeline_id.as_deref())
             .bind(input.provider_id)
+            .bind(provider_ids_json(&input.provider_ids))
             .bind(Utc::now().trunc_subsecs(6))
             .fetch_one(p)
             .await)
@@ -204,7 +216,7 @@ impl DeviceAlertRepository {
     pub async fn import(&self, imported: &[DeviceAlert]) -> DomainResult<()> {
         let sql = format!(
             "INSERT INTO device_alerts ({COLUMNS}) VALUES ({}) ON CONFLICT DO NOTHING",
-            self.placeholders(9)
+            self.placeholders(10)
         );
         for alert in imported {
             on_pool!(&self.pool, p => insert_with_seq!(sql, alert, p)).map_err(db_error)?;
@@ -237,7 +249,7 @@ impl DeviceAlertRepository {
         );
         let insert = format!(
             "INSERT INTO device_alerts ({COLUMNS}) VALUES ({})",
-            self.placeholders(9)
+            self.placeholders(10)
         );
 
         on_pool!(&self.pool, p => async {
@@ -315,6 +327,7 @@ mod tests {
             body: "body".to_string(),
             pipeline_id: Some(key.to_string()),
             provider_id: Some(7),
+            provider_ids: vec![7],
         }
     }
 
@@ -488,6 +501,7 @@ mod tests {
             body: "body".to_string(),
             pipeline_id: None,
             provider_id: None,
+            provider_ids: Vec::new(),
             created_at: chrono::SubsecRound::trunc_subsecs(Utc::now(), 0),
         }
     }

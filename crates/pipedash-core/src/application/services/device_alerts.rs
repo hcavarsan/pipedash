@@ -132,6 +132,7 @@ async fn record_pruning(
                 body: notice.body,
                 pipeline_id: notice.pipeline_id,
                 provider_id: notice.provider_id,
+                provider_ids: notice.provider_ids,
             };
             match alerts.insert(&alert).await {
                 Ok(stored) => {
@@ -249,6 +250,7 @@ mod tests {
                 body: "b".into(),
                 pipeline_id: None,
                 provider_id: None,
+                provider_ids: Vec::new(),
             })
             .await
             .unwrap();

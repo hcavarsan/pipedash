@@ -398,7 +398,11 @@ async fn push_alert(state: &AppState, alert_id: &str, seq: i64) {
     let wanted = |push: &&DevicePush| {
         let chosen = alert.as_ref().zip(preferences.get(&push.device_id));
         chosen.is_none_or(|(alert, preferences)| {
-            preferences.allows(alert.kind, alert.provider_id, alert.pipeline_id.as_deref())
+            preferences.allows(
+                alert.kind,
+                &alert.affected_providers(),
+                alert.pipeline_id.as_deref(),
+            )
         })
     };
 
@@ -668,6 +672,7 @@ mod tests {
             body: String::new(),
             pipeline_id: Some("api".into()),
             provider_id: Some(1),
+            provider_ids: vec![1],
         };
         let long_run = core
             .device_alerts()
