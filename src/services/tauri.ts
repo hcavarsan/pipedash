@@ -4,6 +4,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { platform } from '@tauri-apps/plugin-os'
 import { REFRESH_TIMEOUT_MS } from '../constants/timeouts'
 import { logger } from '../lib/logger'
+import { useNotificationStore } from '../stores/notificationStore'
 import type {
   AggregatedMetrics,
   AggregationPeriod,
@@ -750,7 +751,8 @@ export const tauriService = {
   },
 
   restartApp: async (): Promise<void> => {
-    return invoke<void>('restart_app')
+    await invoke<void>('restart_app')
+    useNotificationStore.getState().applyPendingRemap()
   },
 
   listPairedDevices: async (): Promise<PairedDevice[]> => {

@@ -9,14 +9,7 @@ edition = "2021"
 name = "bump_version"
 path = "src/bump_version.rs"
 
-[[bin]]
-name = "generate_icons"
-path = "src/generate_icons.rs"
-
 [dependencies]
 glob = "0.3"
-ico = "0.6"
-image = "0.25"
 regex = "1"
 serde_json = "1"
-thiserror = "2"

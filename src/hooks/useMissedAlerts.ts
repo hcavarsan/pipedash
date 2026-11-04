@@ -23,6 +23,12 @@ export function useMissedAlerts(): void {
           const { push } = useNotificationCenterStore.getState()
 
           for (const alert of alerts) {
+            const providerIds = alert.provider_ids?.length
+              ? alert.provider_ids
+              : alert.provider_id === null
+                ? []
+                : [alert.provider_id]
+
             push({
               key: alert.key,
               at: Date.parse(alert.created_at),
@@ -30,7 +36,7 @@ export function useMissedAlerts(): void {
               level: null,
               title: alert.title,
               body: alert.body,
-              providerIds: alert.provider_id === null ? [] : [alert.provider_id],
+              providerIds,
               pipelineId: alert.pipeline_id,
               link: null,
             })

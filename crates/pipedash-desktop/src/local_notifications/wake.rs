@@ -60,10 +60,27 @@ pub(super) async fn gather(
 }
 
 fn host_notice(alert: HostAlert, standalone: bool) -> LocalNotification {
-    let (key, pipeline_id, provider_id) = if standalone {
-        (format!("alert-host:{}", alert.key), None, None)
+    let provider_ids = if alert.provider_ids.is_empty() {
+        alert.provider_id.into_iter().collect()
     } else {
-        (alert.key, alert.pipeline_id, alert.provider_id)
+        alert.provider_ids
+    };
+    let (key, pipeline_id, provider_id, provider_ids, finish) = if standalone {
+        (
+            format!("alert-host:{}", alert.key),
+            None,
+            None,
+            Vec::new(),
+            None,
+        )
+    } else {
+        (
+            alert.key,
+            alert.pipeline_id,
+            alert.provider_id,
+            provider_ids,
+            alert.finish,
+        )
     };
 
     LocalNotification {
@@ -72,7 +89,11 @@ fn host_notice(alert: HostAlert, standalone: bool) -> LocalNotification {
         body: alert.body,
         pipeline_id,
         provider_id,
+        provider_ids,
         kind: AlertKind::parse(&alert.kind).unwrap_or(AlertKind::Failed),
+        finish,
+        level: None,
+        link: None,
     }
 }
 
@@ -203,6 +224,8 @@ mod tests {
             body: "body".to_owned(),
             pipeline_id: Some("p1".to_owned()),
             provider_id: Some(3),
+            provider_ids: Vec::new(),
+            finish: None,
             created_at: "2026-11-03T00:00:00Z".to_owned(),
         }
     }
@@ -214,7 +237,11 @@ mod tests {
             body: String::new(),
             pipeline_id: None,
             provider_id: None,
+            provider_ids: Vec::new(),
             kind: AlertKind::Failed,
+            finish: None,
+            level: None,
+            link: None,
         }
     }
 
@@ -388,6 +415,8 @@ mod tests {
                     body: "body".to_owned(),
                     pipeline_id: None,
                     provider_id: None,
+                    provider_ids: Vec::new(),
+                    finish: None,
                 })
                 .await
                 .unwrap();

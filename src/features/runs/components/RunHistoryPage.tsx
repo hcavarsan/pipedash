@@ -12,6 +12,7 @@ import { usePlugins } from '../../../queries/usePluginsQueries'
 import type { Pipeline } from '../../../types/domain'
 import { getPluginDisplayName } from '../../../utils/pluginHelpers'
 import { PipelineMetricsView } from '../../metrics/components/PipelineMetricsView'
+import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { useBulkCancelRuns } from '../hooks/useBulkCancelRuns'
 import { useRunHistoryColumns } from '../hooks/useRunHistoryColumns'
 import { useRunHistoryEvents } from '../hooks/useRunHistoryEvents'
@@ -44,6 +45,7 @@ export function RunHistoryPage({
   const { data: plugins } = usePlugins()
   const { labels, canCancel, cancellingRun, openTrigger, triggerBlockedReason } = useRunActions()
   const data = useRunHistoryPageData(pipeline)
+  const { notifyItems } = useNotifyItems()
   const columns = useRunHistoryColumns(pipeline?.provider_id)
   const [customization, setCustomization] = useState({ session: 0, opened: false })
   const [selecting, setSelecting] = useState(false)
@@ -69,11 +71,12 @@ export function RunHistoryPage({
   const canSelect = !selecting && data.runs.some(selection.isRunCancellable)
   const historyMenu = tab === 'history' && !historyLoading
   const canTrigger = !!pipeline && !triggerBlockedReason
+  const notify = pipeline && !isLoadingPipeline ? notifyItems(pipeline) : null
 
   return (
     <PageContainer>
       {mobileShell && <PullToRefresh refresh={data.refetch} />}
-      {mobileShell && (canTrigger || historyMenu) && (
+      {mobileShell && (canTrigger || historyMenu || notify) && (
         <NavBarMenu label="More">
           {canTrigger && (
             <Menu.Item leftSection={triggerIcon(pipeline)} onClick={openTrigger}>
@@ -82,6 +85,11 @@ export function RunHistoryPage({
           )}
           {historyMenu && canSelect && <Menu.Item onClick={() => setSelecting(true)}>Select</Menu.Item>}
           {historyMenu && <Menu.Item onClick={() => setFiltersOpen(true)}>Filter</Menu.Item>}
+          {notify?.map((item) => (
+            <Menu.Item key={item.label} leftSection={item.icon} onClick={item.onClick}>
+              {item.label}
+            </Menu.Item>
+          ))}
         </NavBarMenu>
       )}
       <RunHistoryHeader

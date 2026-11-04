@@ -1,5 +1,6 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 
+import type { NotificationPreferences, WatchOnce } from '../../types/domain'
 import { isRecord } from '../../utils/isRecord'
 
 GlobalRegistrator.register({ width: 390, height: 844 })
@@ -14,6 +15,9 @@ interface NativeState {
   settings: { enabled: boolean; available: boolean; reason: string | null }
   calls: Array<{ command: string; args: Record<string, unknown> }>
   failure: Error | null
+  fired: WatchOnce[]
+  sent: unknown[]
+  loaded: NotificationPreferences | null
 }
 
 export const callbacks = new Map<number, (event: unknown) => void>()
@@ -25,6 +29,9 @@ export const native: NativeState = {
   settings: { enabled: false, available: true, reason: null },
   calls: [],
   failure: null,
+  fired: [],
+  sent: [],
+  loaded: null,
 }
 interface Registration {
   mode: 'immediate' | 'reject' | 'deferred'
@@ -100,6 +107,13 @@ Object.assign(window, {
         }
         native.settings = { ...native.settings, enabled: args.enabled === true }
         return { ...native.settings }
+      }
+      if (command === 'set_notification_preferences') {
+        native.sent.push(args.preferences)
+        return [...native.fired]
+      }
+      if (command === 'load_notification_preferences') {
+        return native.loaded
       }
       throw new Error(`Unexpected command: ${command}`)
     },
