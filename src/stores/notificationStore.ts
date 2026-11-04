@@ -7,6 +7,7 @@ import { isRecord } from '../utils/isRecord'
 interface NotificationStoreState {
   notificationsEnabled: boolean
   preferences: NotificationPreferences
+  pendingRemap?: Record<number, number> | undefined
 }
 
 interface NotificationStoreActions {
@@ -15,6 +16,7 @@ interface NotificationStoreActions {
   setProviderMuted: (providerId: number, muted: boolean) => void
   setPipelineMuted: (pipelineId: string, muted: boolean) => void
   remapProviders: (mapping: Record<number, number>) => void
+  remapProvidersOnRestart: (mapping: Record<number, number>) => void
 }
 
 type NotificationStore = NotificationStoreState & NotificationStoreActions
@@ -139,13 +141,25 @@ export const useNotificationStore = create<NotificationStore>()(
             },
           })),
 
-        remapProviders: (mapping) => set((state) => ({ preferences: remapPreferences(state.preferences, mapping) })),
+        remapProviders: (mapping) =>
+          set((state) => ({ preferences: remapPreferences(state.preferences, mapping), pendingRemap: undefined })),
+
+        remapProvidersOnRestart: (mapping) => set({ pendingRemap: mapping }),
       }),
       {
         name: 'pipedash-notifications',
         version: 2,
         migrate: migrateNotificationSettings,
-        partialize: (state) => ({ notificationsEnabled: state.notificationsEnabled, preferences: state.preferences }),
+        partialize: (state) => ({
+          notificationsEnabled: state.notificationsEnabled,
+          preferences: state.preferences,
+          pendingRemap: state.pendingRemap,
+        }),
+        onRehydrateStorage: () => (state) => {
+          if (state?.pendingRemap) {
+            state.remapProviders(state.pendingRemap)
+          }
+        },
       }
     ),
     { name: 'NotificationStore' }

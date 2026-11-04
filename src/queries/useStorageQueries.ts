@@ -9,6 +9,7 @@ import {
 import { GC_TIMES, STALE_TIMES } from '../lib/cacheConfig'
 import { notifications } from '../lib/notifications'
 import { queryKeys } from '../lib/queryKeys'
+import { hasLocalCore } from '../services/connection'
 import { service } from '../services/service'
 import { useAuthStore } from '../stores/authStore'
 import { useNotificationStore } from '../stores/notificationStore'
@@ -217,7 +218,11 @@ export function useExecuteMigration(): UseMutationResult<
     onSuccess: (result) => {
       if (result.success) {
         if (Object.keys(result.provider_id_mapping).length > 0) {
-          useNotificationStore.getState().remapProviders(result.provider_id_mapping)
+          // A local core keeps the old database until the app restarts; a server switches right away.
+          const { remapProviders, remapProvidersOnRestart } = useNotificationStore.getState()
+          const remap = hasLocalCore() ? remapProvidersOnRestart : remapProviders
+
+          remap(result.provider_id_mapping)
         }
         void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
         void queryClient.invalidateQueries({ queryKey: queryKeys.vault.all })
