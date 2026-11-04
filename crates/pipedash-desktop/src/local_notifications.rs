@@ -14,6 +14,7 @@ use std::sync::{
     },
     Arc,
     Mutex,
+    MutexGuard,
     PoisonError,
 };
 use std::time::Duration;
@@ -22,14 +23,18 @@ use pipedash_core::application::{
     refresh_notifications,
     LocalNotification,
     NotificationState,
+    ObservedNotification,
+    ShownNotification,
 };
 use pipedash_core::domain::{
     NotificationPreferences,
+    OnceWatch,
     RunFinish,
 };
 use pipedash_core::event::CoreEvent;
 use pipedash_core::CoreContext;
 use serde::{
+    de::DeserializeOwned,
     Deserialize,
     Serialize,
 };
@@ -58,6 +63,7 @@ use crate::native::NotificationTarget;
 use crate::remote::alerts::{
     claim_alert_host,
     client_alert_host,
+    client_request,
     host_request,
     revoke_device,
 };
@@ -74,7 +80,7 @@ const REFRESH_TIMEOUT: Duration = Duration::from_secs(26);
 type Result<T, E = ErrorResponse> = std::result::Result<T, E>;
 
 static PREFERENCES_SYNC: AsyncMutex<()> = AsyncMutex::const_new(());
-static HOST_PREFERENCES_PENDING: AtomicBool = AtomicBool::new(true);
+static HOST_PREFERENCES_PENDING: AtomicBool = AtomicBool::new(false);
 const PREFERENCES_RETRY_BUDGET: Duration = Duration::from_secs(3);
 
 #[cfg(target_os = "android")]
@@ -98,6 +104,7 @@ pub struct LocalNotificationsState {
     observations: Arc<AsyncMutex<()>>,
     refresh: Mutex<Option<ActiveRefresh>>,
     push_problem: Mutex<Option<String>>,
+    preferences: Mutex<NotificationPreferences>,
 }
 
 struct ActiveRefresh {
@@ -133,6 +140,25 @@ impl LocalNotificationsState {
         self.revision.fetch_add(1, Ordering::AcqRel);
         self.authorization_revision.fetch_add(1, Ordering::AcqRel);
         self.cancel_refresh(None);
+    }
+
+    fn preferences(&self) -> MutexGuard<'_, NotificationPreferences> {
+        self.preferences
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn admit(&self, notification: &ObservedNotification) -> Option<ShownNotification> {
+        notification.admit(&mut self.preferences())
+    }
+
+    pub(crate) fn merge_preferences(
+        &self, incoming: &NotificationPreferences,
+    ) -> (NotificationPreferences, bool) {
+        let mut current = self.preferences();
+        let changed = store::merge(&mut current, incoming);
+
+        (current.clone(), changed)
     }
 }
 
@@ -613,30 +639,54 @@ async fn remember_finishes(finishes: Vec<(String, RunFinish)>) {
     }
 }
 
+const PREFERENCES_PATH: &str = "/devices/current/notification-preferences";
+
 #[derive(Deserialize)]
 struct SavedPreferences {
     #[serde(default)]
-    fired: Vec<String>,
+    fired: Vec<OnceWatch>,
 }
 
-async fn send_preferences(host: &AlertHost, preferences: &NotificationPreferences) -> Vec<String> {
-    let preferences = if host.standalone {
-        preferences.kinds_only()
-    } else {
-        preferences.clone()
+#[derive(Deserialize)]
+struct ServerPreferences {
+    preferences: Option<NotificationPreferences>,
+}
+
+enum Server<'a> {
+    Host(&'a AlertHost),
+    Client(&'a RemoteConnection),
+}
+
+impl Server<'_> {
+    async fn request(
+        &self, method: &str, path: &str, body: Option<&str>,
+    ) -> Result<(u16, String), RemoteError> {
+        match self {
+            Self::Host(host) => host_request(host, method, path, body).await,
+            Self::Client(remote) => client_request(remote, method, path, body).await,
+        }
+    }
+}
+
+fn parse_answer<T: DeserializeOwned>(status: u16, body: &str) -> Option<T> {
+    (status == 200)
+        .then(|| serde_json::from_str(body).ok())
+        .flatten()
+}
+
+async fn send_preferences(
+    server: &Server<'_>, preferences: &NotificationPreferences,
+) -> Vec<OnceWatch> {
+    let body = match server {
+        Server::Host(host) if host.standalone => serde_json::to_string(&preferences.kinds_only()),
+        _ => serde_json::to_string(preferences),
     };
-    let saved = match serde_json::to_string(&preferences) {
-        Ok(body) => match host_request(
-            host,
-            "PUT",
-            "/devices/current/notification-preferences",
-            Some(&body),
-        )
-        .await
-        {
-            Ok((200, body)) => serde_json::from_str::<SavedPreferences>(&body).ok(),
-            _ => None,
-        },
+    let saved = match body {
+        Ok(body) => server
+            .request("PUT", PREFERENCES_PATH, Some(&body))
+            .await
+            .ok()
+            .and_then(|(status, body)| parse_answer::<SavedPreferences>(status, &body)),
         Err(_) => None,
     };
     if saved.is_none() {
@@ -650,7 +700,7 @@ async fn send_preferences(host: &AlertHost, preferences: &NotificationPreference
 async fn sync_host_preferences(host: &AlertHost) {
     let _sync = PREFERENCES_SYNC.lock().await;
     if let Ok(preferences) = storage(store::preferences).await {
-        send_preferences(host, &preferences).await;
+        send_preferences(&Server::Host(host), &preferences).await;
     }
 }
 
@@ -664,26 +714,75 @@ async fn retry_host_preferences(host: &AlertHost) {
     }
 }
 
+fn used_watches(mut known: Vec<OnceWatch>, from_server: Vec<OnceWatch>) -> Vec<OnceWatch> {
+    known.extend(from_server);
+    known.sort_by(|a, b| (&a.pipeline_id, a.since).cmp(&(&b.pipeline_id, b.since)));
+    known.dedup_by(|a, b| a.pipeline_id == b.pipeline_id && a.since == b.since);
+
+    known
+}
+
+async fn merge_local(
+    state: &LocalNotificationsState, incoming: NotificationPreferences,
+) -> Result<(NotificationPreferences, bool)> {
+    let (incoming, stored_changed) = if cfg!(mobile) {
+        storage(move || store::merge_preferences(&incoming)).await?
+    } else {
+        (incoming, false)
+    };
+    let (merged, changed) = state.merge_preferences(&incoming);
+
+    Ok((merged, changed || stored_changed))
+}
+
 #[tauri::command]
 pub async fn set_notification_preferences(
+    state: State<'_, LocalNotificationsState>, remote: State<'_, RemoteConnection>,
     preferences: NotificationPreferences,
-) -> Result<Vec<String>> {
-    if !cfg!(mobile) {
-        return Ok(Vec::new());
-    }
+) -> Result<Vec<OnceWatch>> {
     let _sync = PREFERENCES_SYNC.lock().await;
-    let (preferences, changed) = storage(move || store::merge_preferences(&preferences)).await?;
-    let mut fired = preferences.fired_pipelines();
+    let (preferences, changed) = merge_local(&state, preferences).await?;
+    let mut sent = Vec::new();
     if changed || HOST_PREFERENCES_PENDING.load(Ordering::Acquire) {
-        match current_alert_host().await {
-            Some(host) => fired.extend(send_preferences(&host, &preferences).await),
+        let client = remote.is_client();
+        let host = if client {
+            None
+        } else {
+            current_alert_host().await
+        };
+        let server = if client {
+            Some(Server::Client(&remote))
+        } else {
+            host.as_ref().map(Server::Host)
+        };
+        match server {
+            Some(server) => sent = send_preferences(&server, &preferences).await,
             None => HOST_PREFERENCES_PENDING.store(false, Ordering::Release),
         }
     }
-    fired.sort();
-    fired.dedup();
 
-    Ok(fired)
+    Ok(used_watches(preferences.fired_watches(), sent))
+}
+
+#[tauri::command]
+pub async fn load_notification_preferences(
+    state: State<'_, LocalNotificationsState>, remote: State<'_, RemoteConnection>,
+) -> Result<Option<NotificationPreferences>> {
+    if !remote.is_client() {
+        return Ok(None);
+    }
+    let _sync = PREFERENCES_SYNC.lock().await;
+    if HOST_PREFERENCES_PENDING.load(Ordering::Acquire) {
+        return Ok(None);
+    }
+    let (status, body) = client_request(&remote, "GET", PREFERENCES_PATH, None).await?;
+    let saved = parse_answer::<ServerPreferences>(status, &body)
+        .ok_or_else(|| error("The host sent notification preferences Pipedash can't read."))?;
+    let Some(preferences) = saved.preferences else {
+        return Ok(None);
+    };
+
+    Ok(Some(merge_local(&state, preferences).await?.0))
 }
 
 async fn deliver<R: Runtime>(
@@ -947,6 +1046,10 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     if !cfg!(mobile) {
         return Ok(());
     }
+    HOST_PREFERENCES_PENDING.store(
+        !app.state::<RemoteConnection>().is_client(),
+        Ordering::Release,
+    );
     let handle = app.clone();
     app.pipedash_native()
         .on_notification_refresh(move |event: NotificationRefresh| {
@@ -965,6 +1068,13 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .map_err(|failure| tauri::Error::Anyhow(failure.into()))?;
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        {
+            let _sync = PREFERENCES_SYNC.lock().await;
+            if let Ok(stored) = storage(store::preferences).await {
+                app.state::<LocalNotificationsState>()
+                    .merge_preferences(&stored);
+            }
+        }
         if initialize(&app).await.is_err() {
             tracing::warn!("Could not load local notification settings");
         }
@@ -983,7 +1093,34 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{
+        Duration as Span,
+        Utc,
+    };
+    use pipedash_core::domain::AlertKind;
+
     use super::*;
+
+    fn observed(
+        id: u64, kind: AlertKind, pipeline_id: &str, finish: Option<RunFinish>,
+    ) -> ObservedNotification {
+        ObservedNotification {
+            id,
+            at: Utc::now(),
+            notice: LocalNotification {
+                key: format!("key:{id}"),
+                title: "title".to_owned(),
+                body: "body".to_owned(),
+                pipeline_id: Some(pipeline_id.to_owned()),
+                provider_id: Some(1),
+                provider_ids: vec![1],
+                kind,
+                finish,
+                level: None,
+                link: None,
+            },
+        }
+    }
 
     #[test]
     fn disabled_notifications_cannot_start_refresh_and_old_expiration_cannot_cancel_new_task() {
@@ -1001,5 +1138,89 @@ mod tests {
         state.invalidate();
         assert!(*current.borrow());
         assert!(state.start_refresh("disabled").is_none());
+    }
+
+    #[test]
+    fn the_app_copy_decides_what_is_shown_and_uses_a_one_time_watch_once() {
+        let state = LocalNotificationsState::default();
+        let request = OnceWatch {
+            pipeline_id: "github__1__api".to_owned(),
+            since: Utc::now(),
+            fired_at: None,
+        };
+        let chosen = NotificationPreferences {
+            failed: false,
+            watch_once: vec![request.clone()],
+            ..NotificationPreferences::default()
+        };
+        assert!(state.merge_preferences(&chosen).1);
+
+        assert!(state
+            .admit(&observed(1, AlertKind::Failed, "github__1__web", None))
+            .is_none());
+
+        let finish = RunFinish {
+            at: request.since + Span::minutes(1),
+            previous: None,
+        };
+        let shown = state
+            .admit(&observed(
+                2,
+                AlertKind::Finished,
+                "github__1__api",
+                Some(finish),
+            ))
+            .unwrap();
+        let used = OnceWatch {
+            fired_at: Some(finish.at),
+            ..request
+        };
+        assert_eq!(shown.fired, Some(used.clone()));
+
+        let (resent, changed) = state.merge_preferences(&chosen);
+        assert!(!changed);
+        assert_eq!(resent.fired_watches(), [used]);
+    }
+
+    #[test]
+    fn used_watches_known_locally_and_by_the_server_are_listed_once() {
+        let since = Utc::now();
+        let watch = |pipeline_id: &str, since| OnceWatch {
+            pipeline_id: pipeline_id.to_owned(),
+            since,
+            fired_at: Some(since),
+        };
+        let later = since + Span::seconds(1);
+
+        let merged = used_watches(
+            vec![watch("b", since), watch("a", since)],
+            vec![watch("a", since), watch("a", later)],
+        );
+
+        assert_eq!(
+            merged
+                .iter()
+                .map(|used| (used.pipeline_id.as_str(), used.since))
+                .collect::<Vec<_>>(),
+            [("a", since), ("a", later), ("b", since)]
+        );
+    }
+
+    #[test]
+    fn the_server_answer_lists_used_watches_and_anything_else_is_a_failed_send() {
+        let body = r#"{"fired":[{"pipeline_id":"github__1__api","since":"2026-11-03T00:00:00Z","fired_at":"2026-11-03T00:05:00Z"}]}"#;
+
+        let saved = parse_answer::<SavedPreferences>(200, body).unwrap();
+        assert_eq!(saved.fired.len(), 1);
+        assert_eq!(saved.fired[0].pipeline_id, "github__1__api");
+        assert!(saved.fired[0].fired_at.is_some());
+        assert!(parse_answer::<SavedPreferences>(500, body).is_none());
+        assert!(parse_answer::<SavedPreferences>(200, r#"{"fired":["github__1__api"]}"#).is_none());
+        assert!(
+            parse_answer::<ServerPreferences>(200, r#"{"preferences":null}"#)
+                .unwrap()
+                .preferences
+                .is_none()
+        );
     }
 }

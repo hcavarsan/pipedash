@@ -100,6 +100,15 @@ pub async fn host_request(
     }
 }
 
+pub(crate) async fn client_request(
+    remote: &RemoteConnection, method: &str, path: &str, body: Option<&str>,
+) -> Result<(u16, String), RemoteError> {
+    let session = remote.ready_session(session::CONNECT_TIMEOUT).await?;
+    let (status, body) = session.request(method, path, body, REQUEST_TIMEOUT).await?;
+
+    Ok((status, String::from_utf8_lossy(&body).into_owned()))
+}
+
 pub async fn fetch(host: &AlertHost, after: i64, limit: u32) -> Result<AlertPage, RemoteError> {
     let path = format!("/alerts?after={after}&limit={limit}");
     let (status, body) = host_request(host, "GET", &path, None).await?;

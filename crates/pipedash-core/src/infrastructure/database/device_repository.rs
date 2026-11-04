@@ -454,7 +454,7 @@ mod tests {
                 attempts += 1;
                 if attempts == 1 {
                     let mut fired = stored.clone();
-                    assert!(fired.fire_once("github__1__api", &finish));
+                    assert!(!fired.fire_once("github__1__api", &finish).is_empty());
                     tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current()
                             .block_on(repository.set_notification_preferences(&device.id, &fired))

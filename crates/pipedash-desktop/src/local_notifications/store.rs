@@ -57,22 +57,26 @@ pub(super) fn preferences() -> Result<NotificationPreferences> {
 pub(super) fn fire_once(finishes: &[(String, RunFinish)]) -> Result<()> {
     update_preferences(|preferences| {
         finishes.iter().fold(false, |fired, (pipeline_id, finish)| {
-            preferences.fire_once(pipeline_id, finish) | fired
+            !preferences.fire_once(pipeline_id, finish).is_empty() | fired
         })
     })
     .map(drop)
 }
 
+pub(super) fn merge(
+    stored: &mut NotificationPreferences, incoming: &NotificationPreferences,
+) -> bool {
+    let mut next = incoming.clone();
+    next.keep_fired(stored);
+    let changed = *stored != next;
+    *stored = next;
+    changed
+}
+
 pub(super) fn merge_preferences(
     incoming: &NotificationPreferences,
 ) -> Result<(NotificationPreferences, bool)> {
-    update_preferences(|stored| {
-        let mut next = incoming.clone();
-        next.keep_fired(stored);
-        let changed = *stored != next;
-        *stored = next;
-        changed
-    })
+    update_preferences(|stored| merge(stored, incoming))
 }
 
 #[cfg(all(target_os = "android", not(test)))]
@@ -509,7 +513,13 @@ mod tests {
 
         assert!(!changed);
         assert_eq!(resent, preferences().unwrap());
-        assert_eq!(resent.fired_pipelines(), ["github__1__api"]);
+        assert_eq!(
+            resent.fired_watches(),
+            [pipedash_core::domain::OnceWatch {
+                fired_at: Some(finish.at),
+                ..request.clone()
+            }]
+        );
         assert!(!resent.allows(
             pipedash_core::domain::AlertKind::Finished,
             &[1],

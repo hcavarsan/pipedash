@@ -10,6 +10,7 @@ import type {
   NativeIntent,
   NotificationPreferences,
   UnlockVaultResponse,
+  WatchOnce,
 } from '../types/domain'
 import { toPipedashError } from '../types/errors'
 
@@ -73,8 +74,10 @@ export const mobileService = {
 
   takeMissedAlerts: (): Promise<HostAlert[]> => call('take_missed_alerts'),
 
-  setNotificationPreferences: (preferences: NotificationPreferences): Promise<string[]> =>
+  setNotificationPreferences: (preferences: NotificationPreferences): Promise<WatchOnce[]> =>
     call('set_notification_preferences', { preferences }),
+
+  loadNotificationPreferences: (): Promise<NotificationPreferences | null> => call('load_notification_preferences'),
 
   haptic: (kind: HapticKind): Promise<void> => call('native_haptic', { kind }),
 

@@ -150,16 +150,15 @@ impl NotificationPreferences {
         wanted && !providers_muted
     }
 
-    pub fn fire_once(&mut self, pipeline_id: &str, finish: &RunFinish) -> bool {
-        let mut fired = false;
-        for once in &mut self.watch_once {
-            if once.fired_at.is_none() && once.matches(pipeline_id, finish) {
+    pub fn fire_once(&mut self, pipeline_id: &str, finish: &RunFinish) -> Vec<OnceWatch> {
+        self.watch_once
+            .iter_mut()
+            .filter(|once| once.fired_at.is_none() && once.matches(pipeline_id, finish))
+            .map(|once| {
                 once.fired_at = Some(finish.at);
-                fired = true;
-            }
-        }
-
-        fired
+                once.clone()
+            })
+            .collect()
     }
 
     pub fn keep_fired(&mut self, stored: &Self) {
@@ -174,11 +173,11 @@ impl NotificationPreferences {
         }
     }
 
-    pub fn fired_pipelines(&self) -> Vec<String> {
+    pub fn fired_watches(&self) -> Vec<OnceWatch> {
         self.watch_once
             .iter()
             .filter(|once| once.fired_at.is_some())
-            .map(|once| once.pipeline_id.clone())
+            .cloned()
             .collect()
     }
 
@@ -412,8 +411,10 @@ mod tests {
             previous: None,
         };
 
-        assert!(stored.fire_once("github__1__deploy", &first));
-        assert!(!stored.fire_once("github__1__deploy", &after_restart));
+        assert_eq!(stored.fire_once("github__1__deploy", &first).len(), 1);
+        assert!(stored
+            .fire_once("github__1__deploy", &after_restart)
+            .is_empty());
 
         let mut resent = NotificationPreferences {
             watch_once: vec![

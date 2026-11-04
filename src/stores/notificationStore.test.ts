@@ -9,7 +9,7 @@ after(() => GlobalRegistrator.unregister())
 const {
   DEFAULT_NOTIFICATION_PREFERENCES,
   migrateNotificationSettings,
-  notificationAllowed,
+  pendingWatches,
   remapPreferences,
   useNotificationStore,
 } = await import('./notificationStore')
@@ -81,107 +81,7 @@ test('saved preferences keep what was chosen and drop malformed entries', () => 
   })
 })
 
-test('a notification passes only when its kind is on and its source is not muted', () => {
-  const preferences = {
-    ...DEFAULT_NOTIFICATION_PREFERENCES,
-    recovered: false,
-    muted_providers: [2],
-    muted_pipelines: ['github__1__api'],
-  }
-
-  assert.equal(notificationAllowed(preferences, 'failed', [1], 'github__1__web'), true)
-  assert.equal(notificationAllowed(preferences, 'failed', [1], 'github__1__api'), false)
-  assert.equal(notificationAllowed(preferences, 'recovered', [1], null), false)
-  assert.equal(notificationAllowed(preferences, 'outage', [2], null), false)
-  assert.equal(notificationAllowed(preferences, 'outage', [2, 3], null), true)
-  assert.equal(notificationAllowed(preferences, 'outage', [], null), true)
-  assert.equal(notificationAllowed(preferences, 'test', [2], 'github__1__api'), true)
-})
-
 const PIPELINE = 'github__1__acme/api__ci.yml'
-
-test('a finished run only notifies for a watched pipeline', () => {
-  const watched = { ...DEFAULT_NOTIFICATION_PREFERENCES, watched_pipelines: [PIPELINE] }
-
-  assert.equal(notificationAllowed(DEFAULT_NOTIFICATION_PREFERENCES, 'finished', [1], PIPELINE), false)
-  assert.equal(notificationAllowed(watched, 'finished', [1], PIPELINE), true)
-  assert.equal(notificationAllowed(watched, 'finished', [1], 'github__1__acme/api__other.yml'), false)
-  assert.equal(notificationAllowed(watched, 'finished', [1], null), false)
-})
-
-test('watching beats muted providers and switched-off alert types', () => {
-  const preferences = {
-    ...DEFAULT_NOTIFICATION_PREFERENCES,
-    failed: false,
-    degraded: false,
-    muted_providers: [1],
-    watched_pipelines: [PIPELINE],
-  }
-
-  assert.equal(notificationAllowed(preferences, 'failed', [1], PIPELINE), true)
-  assert.equal(notificationAllowed(preferences, 'degraded', [1], PIPELINE), true)
-  assert.equal(notificationAllowed(preferences, 'finished', [1], PIPELINE), true)
-  assert.equal(notificationAllowed(preferences, 'failed', [1], 'github__1__acme/api__other.yml'), false)
-})
-
-test('a muted pipeline blocks everything but tests, even when it is also watched', () => {
-  const since = '2026-11-01T10:00:00Z'
-  const preferences = {
-    ...DEFAULT_NOTIFICATION_PREFERENCES,
-    muted_pipelines: [PIPELINE],
-    watched_pipelines: [PIPELINE],
-    watch_once: [{ pipeline_id: PIPELINE, since }],
-  }
-
-  assert.equal(notificationAllowed(preferences, 'failed', [1], PIPELINE), false)
-  assert.equal(
-    notificationAllowed(preferences, 'finished', [1], PIPELINE, { at: '2026-11-01T11:00:00Z', previous: null }),
-    false
-  )
-  assert.equal(notificationAllowed(preferences, 'test', [1], PIPELINE), true)
-})
-
-test('a one-time request matches only the first finish after it was made', () => {
-  const since = '2026-11-01T10:00:00Z'
-  const preferences = {
-    ...DEFAULT_NOTIFICATION_PREFERENCES,
-    failed: false,
-    muted_providers: [1],
-    watch_once: [{ pipeline_id: PIPELINE, since }],
-  }
-  const allowed = (finish: { at: string; previous: string | null } | null, id: string | null = PIPELINE) =>
-    notificationAllowed(preferences, 'finished', [1], id, finish)
-
-  assert.equal(allowed({ at: '2026-11-01T09:59:59Z', previous: null }), false)
-  assert.equal(allowed({ at: '2026-11-01T09:00:00Z', previous: '2026-11-01T08:00:00Z' }), false)
-  assert.equal(allowed({ at: '2026-11-01T10:30:00Z', previous: null }), true)
-  assert.equal(allowed({ at: '2026-11-01T10:00:00Z', previous: '2026-11-01T09:00:00Z' }), true)
-  assert.equal(allowed({ at: '2026-11-01T11:00:00Z', previous: '2026-11-01T10:30:00Z' }), false)
-  assert.equal(allowed({ at: '2026-11-01T11:00:00Z', previous: '2026-11-01T10:00:00Z' }), false)
-  assert.equal(allowed({ at: '2026-11-01T10:30:00Z', previous: null }, 'github__1__acme/api__other.yml'), false)
-  assert.equal(allowed(null), false)
-  assert.equal(
-    notificationAllowed(preferences, 'failed', [1], PIPELINE, { at: '2026-11-01T10:30:00Z', previous: null }),
-    true
-  )
-  assert.equal(notificationAllowed(preferences, 'failed', [1], PIPELINE), false)
-})
-
-test('one-time requests compare instants, not strings', () => {
-  const preferences = {
-    ...DEFAULT_NOTIFICATION_PREFERENCES,
-    watch_once: [{ pipeline_id: PIPELINE, since: '2026-11-01T10:00:00+02:00' }],
-  }
-
-  assert.equal(
-    notificationAllowed(preferences, 'finished', [1], PIPELINE, { at: '2026-11-01T08:30:00Z', previous: null }),
-    true
-  )
-  assert.equal(
-    notificationAllowed(preferences, 'finished', [1], PIPELINE, { at: '2026-11-01T09:30:00+02:00', previous: null }),
-    false
-  )
-})
 
 const lists = () => useNotificationStore.getState().preferences
 
@@ -223,7 +123,7 @@ test('watching clears a pending one-time request', () => {
   assert.deepEqual(lists().watched_pipelines, [])
 })
 
-test('asking again replaces the pending request, and cancelling or consuming drops it', () => {
+test('asking again replaces the pending request, and cancelling drops it', () => {
   useNotificationStore.setState({
     preferences: {
       ...DEFAULT_NOTIFICATION_PREFERENCES,
@@ -247,8 +147,86 @@ test('asking again replaces the pending request, and cancelling or consuming dro
     ['other']
   )
 
-  store.consumeNextFinish('other')
+  store.cancelNextFinish('other')
   assert.deepEqual(lists().watch_once, [])
+})
+
+const WATCH = { pipeline_id: PIPELINE, since: '2026-11-01T10:00:00.000Z' }
+const FIRED_AT = '2026-11-01T10:30:00.000Z'
+
+test('marking a request fired keeps it but it stops being pending', () => {
+  const other = { pipeline_id: 'other', since: WATCH.since }
+  useNotificationStore.setState({ preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watch_once: [WATCH, other] } })
+
+  useNotificationStore.getState().markFired([{ ...WATCH, since: '2026-11-01T10:00:00Z', fired_at: FIRED_AT }])
+
+  assert.deepEqual(lists().watch_once, [{ ...WATCH, fired_at: FIRED_AT }, other])
+  assert.deepEqual(pendingWatches(lists()), [other])
+})
+
+test('a fired mark needs the same pipeline and request time, and the first mark stays', () => {
+  useNotificationStore.setState({ preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watch_once: [WATCH] } })
+  const store = useNotificationStore.getState()
+
+  store.markFired([
+    { pipeline_id: PIPELINE, since: '2026-11-01T10:00:01.000Z', fired_at: FIRED_AT },
+    { pipeline_id: 'other', since: WATCH.since, fired_at: FIRED_AT },
+  ])
+  assert.deepEqual(lists().watch_once, [WATCH])
+
+  store.markFired([{ ...WATCH, fired_at: FIRED_AT }])
+  const marked = lists()
+  store.markFired([{ ...WATCH, fired_at: '2026-11-02T00:00:00.000Z' }])
+  assert.equal(lists(), marked)
+  assert.equal(lists().watch_once[0]?.fired_at, FIRED_AT)
+})
+
+test('asking again after a request fired makes a new pending one', () => {
+  useNotificationStore.setState({
+    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watch_once: [{ ...WATCH, fired_at: FIRED_AT }] },
+  })
+
+  useNotificationStore.getState().watchNextFinish(PIPELINE)
+
+  assert.equal(pendingWatches(lists()).length, 1)
+  assert.equal(lists().watch_once.length, 1)
+})
+
+test('a valid fired mark survives reading saved preferences and a malformed one does not', () => {
+  const { preferences } = migrateNotificationSettings(
+    {
+      preferences: {
+        watch_once: [
+          { ...WATCH, fired_at: FIRED_AT },
+          { pipeline_id: 'bad', since: WATCH.since, fired_at: 'later' },
+          { pipeline_id: 'null', since: WATCH.since, fired_at: null },
+        ],
+      },
+    },
+    2
+  )
+
+  assert.deepEqual(preferences.watch_once, [
+    { ...WATCH, fired_at: FIRED_AT },
+    { pipeline_id: 'bad', since: WATCH.since },
+    { pipeline_id: 'null', since: WATCH.since },
+  ])
+})
+
+test('adopting server preferences replaces the current ones and validates them', () => {
+  useNotificationStore.setState({ preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, muted_providers: [9] } })
+
+  useNotificationStore.getState().adoptPreferences({
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    failed: false,
+    watch_once: [{ ...WATCH, fired_at: FIRED_AT }],
+  })
+
+  assert.deepEqual(lists(), {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    failed: false,
+    watch_once: [{ ...WATCH, fired_at: FIRED_AT }],
+  })
 })
 
 test('a storage migration moves mutes and watches to the new provider IDs and drops removed providers', () => {
@@ -381,5 +359,4 @@ test('settings saved before watching existed still load with empty watch lists',
     outage: false,
     muted_pipelines: ['github__1__api'],
   })
-  assert.equal(notificationAllowed(preferences, 'finished', [1], 'github__1__web'), false)
 })

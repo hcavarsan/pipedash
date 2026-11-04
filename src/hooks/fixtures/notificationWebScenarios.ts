@@ -4,61 +4,48 @@ import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
-import { queryKeys } from '../../lib/queryKeys'
-import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { wsClient } from '../../services/websocket'
+import { useAuthStore } from '../../stores/authStore'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } from '../../stores/notificationStore'
-import type { Pipeline } from '../../types/domain'
-import { useEventSync } from '../useEventSync'
-import { useFailureNotifications } from '../useFailureNotifications'
-
+import { DEFAULT_NOTIFICATION_PREFERENCES, pendingWatches, useNotificationStore } from '../../stores/notificationStore'
+import { isRecord } from '../../utils/isRecord'
+import { useNotificationEvents } from '../useNotificationEvents'
+import { failedNotification, outageNotification } from './notificationPayloads'
 import { delivered, Socket } from './notificationWebEnvironment'
 
-const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-const baseline: Pipeline = {
-  id: 'github__1__owner/repo/build.yml',
-  provider_id: 1,
-  provider_type: 'github',
-  name: 'Build',
-  repository: 'owner/repo',
-  branch: 'main',
-  workflow_file: 'build.yml',
-  status: 'running',
-  last_run: '2026-10-26T12:00:00Z',
-  last_updated: '2026-10-26T12:01:00Z',
-}
-let backend: Pipeline[] = []
-let failNext = false
-let gate: PromiseWithResolvers<void> | null = null
+const watch = { pipeline_id: failedNotification.pipeline_id ?? '', since: '2026-10-26T11:00:00.000Z' }
 
 function Screen() {
-  useFailureNotifications()
-  useEventSync()
-  useQuery({
-    queryKey: queryKeys.pipelines.list(),
-    queryFn: async () => {
-      await gate?.promise
-      if (failNext) {
-        throw new Error('backend unavailable')
-      }
-
-      return backend
-    },
-  })
+  useNotificationEvents()
   return null
 }
 
-async function mount(initial: Pipeline) {
-  backend = [initial]
+async function mount() {
   useNotificationStore.setState({ notificationsEnabled: true })
   await act(async () => {
-    render(createElement(QueryClientProvider, { client }, createElement(Screen)))
+    render(createElement(Screen))
   })
-  await waitFor(() => assert.deepEqual(client.getQueryData(queryKeys.pipelines.list()), backend))
+  const socket = Socket.instances.at(-1)
+  assert.ok(socket)
+  socket.open()
+  return socket
+}
+
+const frames = (socket: Socket): unknown[] => socket.sent.map((data) => JSON.parse(data))
+
+const preferenceFrames = (socket: Socket): unknown[] =>
+  frames(socket).filter((frame) => isRecord(frame) && frame.type === 'notification-preferences')
+
+const emit = (socket: Socket, type: string, payload: unknown) =>
+  act(async () => {
+    socket.emit(type, payload)
+  })
+
+const reconnect = () => {
+  wsClient.disconnect()
+  wsClient.manualReconnect()
   const socket = Socket.instances.at(-1)
   assert.ok(socket)
   socket.open()
@@ -68,182 +55,118 @@ async function mount(initial: Pipeline) {
 afterEach(async () => {
   await act(async () => cleanup())
   wsClient.dispose()
-  client.clear()
+  useAuthStore.getState().clearToken()
   useNotificationCenterStore.setState({ items: [], selection: null })
   Socket.instances.length = 0
   delivered.length = 0
-  failNext = false
-  gate = null
-  useNotificationStore.setState({ preferences: DEFAULT_NOTIFICATION_PREFERENCES })
+  useNotificationStore.setState({ notificationsEnabled: false, preferences: DEFAULT_NOTIFICATION_PREFERENCES })
 })
 
 after(() => GlobalRegistrator.unregister())
 
-test('reconnection refetch recovers a failure missed while WebSocket was disconnected', async () => {
-  await mount(baseline)
-  wsClient.disconnect()
-  backend = [{ ...baseline, status: 'failed' }]
-  wsClient.manualReconnect()
-  Socket.instances.at(-1)?.open()
-  await waitFor(() => assert.equal(delivered.length, 1))
-  assert.equal(useNotificationCenterStore.getState().items[0]?.pipelineId, baseline.id)
-})
-
-test('a pipeline that becomes degraded notifies once with degraded wording', async () => {
-  await mount(baseline)
-  wsClient.disconnect()
-  backend = [{ ...baseline, status: 'degraded' }]
-  wsClient.manualReconnect()
-  Socket.instances.at(-1)?.open()
-  await waitFor(() => assert.equal(delivered.length, 1))
-  assert.equal(useNotificationCenterStore.getState().items[0]?.title, 'Build is degraded')
-  await act(async () => {
-    await client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
-  })
-  assert.equal(delivered.length, 1)
-})
-
-test('muted pipelines and turned-off alert types stay out of the center and the system', async () => {
-  const deploy: Pipeline = { ...baseline, id: 'github__1__owner/repo/deploy.yml', name: 'Deploy' }
-  const refetch = () =>
-    act(async () => {
-      await client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
-    })
-  await mount(baseline)
-  backend = [baseline, deploy]
-  await refetch()
-  useNotificationStore.setState({
-    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, degraded: false, muted_pipelines: [baseline.id] },
-  })
-
-  backend = [
-    { ...baseline, status: 'failed' },
-    { ...deploy, status: 'degraded' },
-  ]
-  await refetch()
-  backend = [
-    { ...baseline, status: 'failed' },
-    { ...deploy, status: 'failed' },
-  ]
-  await refetch()
-
-  await waitFor(() => assert.equal(delivered.length, 1))
-  assert.deepEqual(
-    useNotificationCenterStore.getState().items.map((item) => item.title),
-    ['Deploy failed']
-  )
-})
-
-test('a finished run of a watched pipeline arrives over the socket and is delivered', async () => {
-  const socket = await mount(baseline)
-  useNotificationStore.setState({
-    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, muted_providers: [1], watched_pipelines: [baseline.id] },
-  })
-  await act(async () => {
-    socket.emit('pipelines-finished', { pipelines: [{ ...baseline, status: 'success' }] })
-  })
-  await waitFor(() => assert.equal(delivered.length, 1))
+test('a notification frame reaches the center and the browser', async () => {
+  const socket = await mount()
+  await emit(socket, 'notification', failedNotification)
   const [item] = useNotificationCenterStore.getState().items
-  assert.equal(item?.title, 'Build succeeded')
-  assert.equal(item?.tone, 'success')
+  assert.equal(item?.pipelineId, failedNotification.pipeline_id)
+  assert.equal(item?.tone, 'danger')
+  await waitFor(() => assert.deepEqual(delivered, [{ title: failedNotification.title, body: failedNotification.body }]))
 })
 
-test('a finished run nobody asked about stays silent over the socket', async () => {
-  const socket = await mount(baseline)
-  await act(async () => {
-    socket.emit('pipelines-finished', { pipelines: [{ ...baseline, status: 'success' }] })
-  })
-  assert.deepEqual(delivered, [])
-  assert.deepEqual(useNotificationCenterStore.getState().items, [])
-})
-
-test('reconnection notices a newer failed run on an already-failed pipeline', async () => {
-  await mount({ ...baseline, status: 'failed' })
-  assert.deepEqual(delivered, [])
-  wsClient.disconnect()
-  backend = [{ ...baseline, status: 'failed', last_run: '2026-10-26T12:05:00Z' }]
-  wsClient.manualReconnect()
-  Socket.instances.at(-1)?.open()
+test('an outage frame carries its level and link into the center', async () => {
+  const socket = await mount()
+  await emit(socket, 'notification', outageNotification)
+  const [item] = useNotificationCenterStore.getState().items
+  assert.equal(item?.level, 'major_outage')
+  assert.deepEqual(item?.link, outageNotification.link)
+  assert.deepEqual(item?.providerIds, [1])
   await waitFor(() => assert.equal(delivered.length, 1))
 })
 
-test('live updates and refetches notify once regardless of failure event ordering', async () => {
-  const socket = await mount(baseline)
-  for (const eventFirst of [true, false]) {
-    const failed: Pipeline = {
-      ...baseline,
-      status: 'failed',
-      last_run: eventFirst ? '2026-10-26T12:05:00Z' : '2026-10-26T12:10:00Z',
-    }
-    backend = [failed]
-    await act(async () => {
-      if (eventFirst) {
-        socket.emit('pipelines-failed', { pipelines: [failed] })
-      }
-      socket.emit('pipelines-updated', { pipelines: [failed], providerId: 1, timestamp: Date.now() })
-      if (!eventFirst) {
-        socket.emit('pipelines-failed', { pipelines: [failed] })
-      }
-    })
-    await act(async () => {
-      await client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
-    })
-  }
-  await waitFor(() => assert.equal(delivered.length, 2))
-  assert.equal(useNotificationCenterStore.getState().items.length, 1)
-})
-
-test('loading and refreshing the same failed run does not replay a historical alert', async () => {
-  await mount({ ...baseline, status: 'failed' })
-  await act(async () => {
-    setProviderPipelines(client, 1, backend)
-    await client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
-  })
-  assert.deepEqual(delivered, [])
-  assert.deepEqual(useNotificationCenterStore.getState().items, [])
-})
-
-test('reconnection recovery stays in the center when notifications are off', async () => {
-  await mount(baseline)
+test('with notifications off a frame stays in the center only', async () => {
+  const socket = await mount()
   useNotificationStore.setState({ notificationsEnabled: false })
-  wsClient.disconnect()
-  backend = [{ ...baseline, status: 'failed' }]
-  wsClient.manualReconnect()
-  Socket.instances.at(-1)?.open()
-  await waitFor(() => assert.equal(useNotificationCenterStore.getState().items[0]?.pipelineId, baseline.id))
-  assert.deepEqual(delivered, [])
-})
-
-test('a failed reconnect refetch stays silent and the next successful one still recovers the failure', async (context) => {
-  context.mock.method(console, 'error', () => undefined)
-  await mount(baseline)
-  wsClient.disconnect()
-  backend = [{ ...baseline, status: 'failed' }]
-  failNext = true
-  wsClient.manualReconnect()
-  Socket.instances.at(-1)?.open()
-  await waitFor(() => assert.equal(client.getQueryState(queryKeys.pipelines.list())?.status, 'error'))
-  assert.deepEqual(delivered, [])
-
-  failNext = false
-  wsClient.disconnect()
-  wsClient.manualReconnect()
-  Socket.instances.at(-1)?.open()
-  await waitFor(() => assert.equal(delivered.length, 1))
+  await emit(socket, 'notification', failedNotification)
   assert.equal(useNotificationCenterStore.getState().items.length, 1)
+  assert.deepEqual(delivered, [])
 })
 
-test('a slow initial list does not announce an already failed pipeline when it arrives', async () => {
-  backend = [{ ...baseline, status: 'failed' }]
-  useNotificationStore.setState({ notificationsEnabled: true })
-  gate = Promise.withResolvers<void>()
-  await act(async () => {
-    render(createElement(QueryClientProvider, { client }, createElement(Screen)))
-  })
-  assert.deepEqual(delivered, [])
-
-  gate.resolve()
-  await waitFor(() => assert.deepEqual(client.getQueryData(queryKeys.pipelines.list()), backend))
-  assert.deepEqual(delivered, [])
+test('nothing is shown without a notification frame', async () => {
+  const socket = await mount()
+  await emit(socket, 'pipelines-failed', { pipelines: [] })
+  await emit(socket, 'pipelines-finished', { pipelines: [] })
+  await emit(socket, 'provider-health-alert', {})
   assert.deepEqual(useNotificationCenterStore.getState().items, [])
+  assert.deepEqual(delivered, [])
+})
+
+test('a fired one-time request in a frame is marked used', async () => {
+  useNotificationStore.setState({ preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watch_once: [watch] } })
+  const socket = await mount()
+  const fired = { ...watch, fired_at: '2026-10-26T12:01:00.000Z' }
+  await emit(socket, 'notification', { ...failedNotification, fired })
+  const { preferences } = useNotificationStore.getState()
+  assert.deepEqual(preferences.watch_once, [fired])
+  assert.deepEqual(pendingWatches(preferences), [])
+})
+
+test('the preferences go out when the socket opens and whenever they change', async () => {
+  const socket = await mount()
+  assert.deepEqual(preferenceFrames(socket), [
+    { type: 'notification-preferences', preferences: DEFAULT_NOTIFICATION_PREFERENCES },
+  ])
+
+  await act(async () => {
+    useNotificationStore.getState().setKindEnabled('failed', false)
+  })
+  assert.deepEqual(preferenceFrames(socket).at(-1), {
+    type: 'notification-preferences',
+    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, failed: false },
+  })
+  assert.equal(preferenceFrames(socket).length, 2)
+})
+
+test('after reconnecting the preferences carry the last notification id received', async () => {
+  const first = await mount()
+  await emit(first, 'notification', { ...failedNotification, id: 6 })
+  await emit(first, 'notification', { ...outageNotification, id: 7 })
+
+  const second = reconnect()
+
+  assert.deepEqual(preferenceFrames(second), [
+    { type: 'notification-preferences', preferences: DEFAULT_NOTIFICATION_PREFERENCES, after: 7 },
+  ])
+  assert.deepEqual(preferenceFrames(first), [
+    { type: 'notification-preferences', preferences: DEFAULT_NOTIFICATION_PREFERENCES },
+  ])
+})
+
+test('with a token the preferences wait for the server to accept it, then go out again after each reauthentication', async () => {
+  useAuthStore.getState().setToken('secret')
+  const socket = await mount()
+  assert.deepEqual(frames(socket), [{ type: 'auth', token: 'secret' }])
+
+  await emit(socket, 'auth-ok', { host: 'server', name: null, deviceId: null })
+  assert.deepEqual(frames(socket), [
+    { type: 'auth', token: 'secret' },
+    { type: 'notification-preferences', preferences: DEFAULT_NOTIFICATION_PREFERENCES },
+  ])
+
+  await emit(socket, 'notification', { ...failedNotification, id: 3 })
+  await act(async () => wsClient.reauthenticate())
+  await emit(socket, 'auth-ok', { host: 'server', name: null, deviceId: null })
+  assert.deepEqual(preferenceFrames(socket).at(-1), {
+    type: 'notification-preferences',
+    preferences: DEFAULT_NOTIFICATION_PREFERENCES,
+    after: 3,
+  })
+})
+
+test('preferences changed before the server accepts the token are not sent', async () => {
+  useAuthStore.getState().setToken('wrong')
+  const socket = await mount()
+  await act(async () => {
+    useNotificationStore.getState().setKindEnabled('failed', false)
+  })
+  assert.deepEqual(preferenceFrames(socket), [])
 })

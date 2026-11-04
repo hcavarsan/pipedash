@@ -48,7 +48,9 @@ const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanst
 const { TriggerWorkflowModal } = await import('./TriggerWorkflowModal')
 const { apiService } = await import('../../../services/api')
 const { tauriService } = await import('../../../services/tauri')
-const { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } = await import('../../../stores/notificationStore')
+const { DEFAULT_NOTIFICATION_PREFERENCES, pendingWatches, useNotificationStore } = await import(
+  '../../../stores/notificationStore'
+)
 const view = () => within(document.body)
 
 const branchParam: WorkflowParameter = {
@@ -208,7 +210,8 @@ test('a background parameter refetch does not overwrite a dirty draft', async ()
   assert.equal(refreshed.value, 'release')
 })
 
-const pendingFinishes = () => useNotificationStore.getState().preferences.watch_once.map((watch) => watch.pipeline_id)
+const pendingFinishes = () =>
+  pendingWatches(useNotificationStore.getState().preferences).map((watch) => watch.pipeline_id)
 
 async function triggerWithBranch() {
   const user = userEvent.setup({ document })

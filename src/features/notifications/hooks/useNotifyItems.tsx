@@ -1,7 +1,7 @@
 import { IconBell, IconBellOff, IconBellPlus, IconBellRinging, IconBellX } from '@tabler/icons-react'
 import type { ReactNode } from 'react'
 
-import { useNotificationStore } from '../../../stores/notificationStore'
+import { pendingWatches, useNotificationStore } from '../../../stores/notificationStore'
 import type { Pipeline } from '../../../types/domain'
 import { displaySuccessNotification } from '../../../utils/errorDisplay'
 
@@ -62,7 +62,7 @@ export function useNotifyItems(): NotifyItems {
       ? 'muted'
       : preferences.watched_pipelines.includes(id)
         ? 'watching'
-        : preferences.watch_once.some((watch) => watch.pipeline_id === id)
+        : pendingWatches(preferences).some((watch) => watch.pipeline_id === id)
           ? 'pending'
           : 'default'
 

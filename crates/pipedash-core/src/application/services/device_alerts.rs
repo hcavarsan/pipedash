@@ -1,8 +1,20 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{
+    HashMap,
+    VecDeque,
+};
+use std::sync::atomic::{
+    AtomicU64,
+    Ordering,
+};
+use std::sync::{
+    Arc,
+    Mutex,
+    PoisonError,
+};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use tokio::sync::mpsc::{
     self,
     error::TrySendError,
@@ -12,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 use super::health_service::{
     LocalNotification,
     NotificationState,
+    ObservedNotification,
 };
 use super::pipeline_service::PipelineService;
 use super::provider_service::ProviderService;
@@ -33,6 +46,50 @@ use crate::infrastructure::database::{
 
 const CHANNEL_CAPACITY: usize = 512;
 const PRUNE_INTERVAL: Duration = Duration::from_secs(3600);
+const RECENT_LIMIT: usize = 256;
+
+pub struct RecentNotifications {
+    entries: Mutex<VecDeque<ObservedNotification>>,
+    next_id: AtomicU64,
+}
+
+impl Default for RecentNotifications {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::new(VecDeque::with_capacity(RECENT_LIMIT)),
+            next_id: AtomicU64::new(
+                u64::try_from(Utc::now().timestamp_micros()).unwrap_or_default(),
+            ),
+        }
+    }
+}
+
+impl RecentNotifications {
+    fn observe(&self, notice: LocalNotification) -> ObservedNotification {
+        let observed = ObservedNotification {
+            id: self.next_id.fetch_add(1, Ordering::Relaxed),
+            at: Utc::now(),
+            notice,
+        };
+        let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        if entries.len() == RECENT_LIMIT {
+            entries.pop_front();
+        }
+        entries.push_back(observed.clone());
+
+        observed
+    }
+
+    pub fn after(&self, after: u64) -> Vec<ObservedNotification> {
+        self.entries
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|observed| observed.id > after)
+            .cloned()
+            .collect()
+    }
+}
 
 struct RecordingBus {
     inner: Arc<dyn EventBus>,
@@ -93,14 +150,26 @@ pub async fn seed(pipelines: &PipelineService, providers: &ProviderService) -> N
 pub async fn record(
     rx: mpsc::Receiver<CoreEvent>, state: NotificationState, stop: CancellationToken,
     alerts: DeviceAlertRepository, devices: DeviceRepository, bus: Arc<dyn EventBus>,
+    recent: Arc<RecentNotifications>,
 ) {
-    record_pruning(rx, state, stop, alerts, devices, bus, PRUNE_INTERVAL).await;
+    record_pruning(
+        rx,
+        state,
+        stop,
+        alerts,
+        devices,
+        bus,
+        recent,
+        PRUNE_INTERVAL,
+    )
+    .await;
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn record_pruning(
     mut rx: mpsc::Receiver<CoreEvent>, mut state: NotificationState, stop: CancellationToken,
     alerts: DeviceAlertRepository, devices: DeviceRepository, bus: Arc<dyn EventBus>,
-    prune_every: Duration,
+    recent: Arc<RecentNotifications>, prune_every: Duration,
 ) {
     let mut prune = tokio::time::interval(prune_every);
     prune.tick().await;
@@ -122,6 +191,12 @@ async fn record_pruning(
         let notices = state.observe_event(&event);
         if notices.is_empty() {
             continue;
+        }
+        for notice in &notices {
+            bus.emit(CoreEvent::NotificationObserved {
+                notification: recent.observe(notice.clone()),
+            })
+            .await;
         }
         match devices.list().await {
             Ok(paired) if paired.is_empty() => continue,
@@ -191,12 +266,12 @@ async fn fire_once(
     pipeline_id: &str, finish: &RunFinish,
 ) {
     for (device_id, preferences) in watchers.iter_mut() {
-        if !preferences.fire_once(pipeline_id, finish) {
+        if preferences.fire_once(pipeline_id, finish).is_empty() {
             continue;
         }
         match devices
             .update_notification_preferences(device_id, |stored| {
-                stored.fire_once(pipeline_id, finish)
+                !stored.fire_once(pipeline_id, finish).is_empty()
             })
             .await
         {
@@ -262,6 +337,7 @@ mod tests {
             DeviceAlertRepository::new(pool.clone()),
             devices,
             h.bus.clone(),
+            Arc::default(),
         ));
         for event in events {
             bus.emit(event).await;
@@ -285,6 +361,7 @@ mod tests {
             DeviceAlertRepository::new(pool.clone()),
             DeviceRepository::new(pool),
             h.bus.clone(),
+            Arc::default(),
         ));
 
         stop.cancel();
@@ -329,6 +406,7 @@ mod tests {
             DeviceAlertRepository::new(pool.clone()),
             DeviceRepository::new(pool),
             h.bus.clone(),
+            Arc::default(),
             std::time::Duration::from_millis(300),
         ));
 
@@ -482,5 +560,51 @@ mod tests {
             Some("github__1__api"),
             first[0].finish.as_ref()
         ));
+    }
+
+    #[tokio::test]
+    async fn every_notice_is_announced_with_a_rising_id_even_without_a_paired_device() {
+        let h = Harness::new().await;
+        let recent = Arc::new(RecentNotifications::default());
+        let (bus, rx) = recording_bus(h.bus.clone());
+        let state = seed(&h.pipeline_service, &h.provider_service).await;
+        let task = tokio::spawn(record(
+            rx,
+            state,
+            CancellationToken::new(),
+            DeviceAlertRepository::new(DatabasePool::Sqlite(h.pool.clone())),
+            DeviceRepository::new(DatabasePool::Sqlite(h.pool.clone())),
+            h.bus.clone(),
+            Arc::clone(&recent),
+        ));
+        for event in [
+            updated(run(PipelineStatus::Running, 0)),
+            updated(run(PipelineStatus::Success, 0)),
+            updated(run(PipelineStatus::Failed, 1)),
+        ] {
+            bus.emit(event).await;
+        }
+        drop(bus);
+        task.await.unwrap();
+
+        let announced: Vec<ObservedNotification> = h
+            .bus
+            .events()
+            .into_iter()
+            .filter_map(|event| match event {
+                CoreEvent::NotificationObserved { notification } => Some(notification),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            announced
+                .iter()
+                .map(|observed| observed.notice.kind)
+                .collect::<Vec<_>>(),
+            [AlertKind::Finished, AlertKind::Failed]
+        );
+        assert!(announced[0].id < announced[1].id);
+        assert_eq!(recent.after(announced[0].id), announced[1..]);
+        assert_eq!(h.bus.count("alert-recorded"), 0);
     }
 }

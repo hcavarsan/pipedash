@@ -4,6 +4,7 @@ use serde::{
     Serialize,
 };
 
+use crate::application::ObservedNotification;
 use crate::domain::{
     provider::ProviderSummary,
     HealthLevel,
@@ -150,6 +151,10 @@ pub enum CoreEvent {
         seq: i64,
     },
 
+    NotificationObserved {
+        notification: ObservedNotification,
+    },
+
     RunLogProgress {
         pipeline_id: String,
         run_number: i64,
@@ -212,6 +217,7 @@ impl CoreEvent {
             CoreEvent::DevicePaired { .. } => "device-paired",
             CoreEvent::DeviceRevoked { .. } => "device-revoked",
             CoreEvent::AlertRecorded { .. } => "alert-recorded",
+            CoreEvent::NotificationObserved { .. } => "notification-observed",
             CoreEvent::RunLogProgress { .. } => "run-log-progress",
             CoreEvent::RunLogReady { .. } => "run-log-ready",
             CoreEvent::RunLogFailed { .. } => "run-log-failed",
@@ -348,6 +354,9 @@ impl CoreEvent {
                 "id": id,
                 "seq": seq,
             }),
+            CoreEvent::NotificationObserved { notification } => {
+                serde_json::to_value(notification).unwrap_or_default()
+            }
             CoreEvent::RunLogProgress {
                 pipeline_id,
                 run_number,

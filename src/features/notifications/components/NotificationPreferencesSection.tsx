@@ -7,7 +7,7 @@ import { SwitchRow } from '../../../components/ios/mobileParts'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { usePipelines } from '../../../queries/usePipelinesQueries'
 import { useProviders } from '../../../queries/useProvidersQueries'
-import { PREFERENCE_KINDS, useNotificationStore } from '../../../stores/notificationStore'
+import { PREFERENCE_KINDS, pendingWatches, useNotificationStore } from '../../../stores/notificationStore'
 import type { PreferenceKind } from '../../../types/domain'
 
 const KINDS: Record<PreferenceKind, { title: string; description: string }> = {
@@ -79,7 +79,7 @@ export function NotificationPreferencesSection({ hostNote }: NotificationPrefere
         run: () => setPipelineWatched(id, false),
       }
     }),
-    ...preferences.watch_once.map(({ pipeline_id }) => {
+    ...pendingWatches(preferences).map(({ pipeline_id }) => {
       const pipeline = describe(pipeline_id)
 
       return {

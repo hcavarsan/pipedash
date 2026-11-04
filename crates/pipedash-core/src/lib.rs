@@ -100,6 +100,8 @@ pub struct CoreContext {
     alert_events: AlertEvents,
 
     alert_stop: CancellationToken,
+
+    recent_notifications: Arc<device_alerts::RecentNotifications>,
 }
 
 impl CoreContext {
@@ -113,6 +115,7 @@ impl CoreContext {
         Self {
             alert_events,
             alert_stop: CancellationToken::new(),
+            recent_notifications: Arc::default(),
             event_bus,
             token_store,
             http_client_manager,
@@ -297,6 +300,7 @@ impl CoreContext {
                 self.device_alerts(),
                 self.devices(),
                 Arc::clone(&self.event_bus),
+                Arc::clone(&self.recent_notifications),
             ));
         }
 
@@ -352,6 +356,10 @@ impl CoreContext {
 
     pub fn device_alerts(&self) -> DeviceAlertRepository {
         DeviceAlertRepository::new(self.provider_service.repository().cache_pool().clone())
+    }
+
+    pub fn notifications_after(&self, after: u64) -> Vec<application::ObservedNotification> {
+        self.recent_notifications.after(after)
     }
 
     pub fn device_pushes(&self) -> DevicePushRepository {

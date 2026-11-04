@@ -1,11 +1,8 @@
 import { create } from 'zustand'
 
-import type { HealthLevel } from '../types/domain'
-import type { EventPayloadMap } from '../types/events'
+import type { AlertLink, HealthLevel } from '../types/domain'
 
 export const MAX_CENTER_NOTIFICATIONS = 50
-
-type AlertLink = EventPayloadMap['provider-health-alert']['link']
 
 export type CenterNotificationTone = 'danger' | 'warning' | 'success'
 
@@ -19,7 +16,7 @@ export interface CenterNotification {
   body: string
   providerIds: number[]
   pipelineId: string | null
-  link: AlertLink
+  link: AlertLink | null
 }
 
 export type NotificationInput = Omit<CenterNotification, 'read'>

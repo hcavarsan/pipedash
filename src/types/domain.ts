@@ -52,6 +52,7 @@ export type PreferenceKind = Exclude<AlertKind, 'test' | 'finished'>
 export interface WatchOnce {
   pipeline_id: string
   since: string
+  fired_at?: string | null
 }
 
 export type NotificationPreferences = Record<PreferenceKind, boolean> & {
@@ -394,15 +395,26 @@ export interface RefreshResult {
   message: string | null
 }
 
-export interface ProviderHealthAlert {
-  alert_id: string
-  notification_key: string
-  provider_ids: number[]
-  level: HealthLevel
+export interface AlertLink {
+  url: string
+  kind: 'incident' | 'status_page'
+}
+
+export interface ShownNotification {
+  id: number
+  at: string
+  tone: CenterNotificationTone
+  key: string
   title: string
   body: string
-  link: { url: string; kind: 'incident' | 'status_page' } | null
-  recovered: boolean
+  kind: AlertKind
+  pipeline_id: string | null
+  provider_id: number | null
+  provider_ids: number[]
+  finish?: RunFinish
+  level?: HealthLevel
+  link?: AlertLink
+  fired: WatchOnce | null
 }
 
 export type ProviderRecovery = 'sign_in' | 'settings'

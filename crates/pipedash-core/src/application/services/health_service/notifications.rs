@@ -28,13 +28,19 @@ use super::{
 };
 use crate::domain::{
     AlertKind,
+    HealthLevel,
+    NotificationPreferences,
+    OnceWatch,
     Pipeline,
     PipelineStatus,
     ProviderSummary,
     RunFinish,
     SignalKind,
 };
-use crate::event::CoreEvent;
+use crate::event::{
+    AlertLink,
+    CoreEvent,
+};
 
 const KEYS_LIMIT: usize = 16;
 
@@ -50,6 +56,59 @@ pub struct LocalNotification {
     pub kind: AlertKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finish: Option<RunFinish>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<HealthLevel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<AlertLink>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObservedNotification {
+    pub id: u64,
+    pub at: DateTime<Utc>,
+    pub notice: LocalNotification,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ShownNotification {
+    pub id: u64,
+    pub at: DateTime<Utc>,
+    pub tone: &'static str,
+    #[serde(flatten)]
+    pub notice: LocalNotification,
+    pub fired: Option<OnceWatch>,
+}
+
+impl ObservedNotification {
+    pub fn admit(&self, preferences: &mut NotificationPreferences) -> Option<ShownNotification> {
+        let notice = &self.notice;
+        if !preferences.allows(
+            notice.kind,
+            &notice.provider_ids,
+            notice.pipeline_id.as_deref(),
+            notice.finish.as_ref(),
+        ) {
+            return None;
+        }
+        let fired = notice
+            .pipeline_id
+            .as_deref()
+            .zip(notice.finish.as_ref())
+            .and_then(|(pipeline_id, finish)| {
+                preferences
+                    .fire_once(pipeline_id, finish)
+                    .into_iter()
+                    .next()
+            });
+
+        Some(ShownNotification {
+            id: self.id,
+            at: self.at,
+            tone: notice.kind.tone(),
+            notice: notice.clone(),
+            fired,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,27 +197,32 @@ impl NotificationState {
             } => self.observe_pipelines(*provider_id, pipelines),
             CoreEvent::PipelinesFailed { pipelines } => self.observe_failed(pipelines),
             CoreEvent::ProviderHealthAlert {
+                alert_id,
                 alert_key,
                 notification_key,
                 provider_ids,
+                level,
                 title,
                 body,
+                link,
                 recovered,
-                ..
             } => {
                 if *recovered {
                     self.alerts.reset(notification_key);
                 } else {
                     self.alerts.arm(notification_key);
                 }
-                self.deliver(
-                    notification_key,
-                    alert_key,
-                    title,
-                    body,
-                    provider_ids,
-                    *recovered,
-                )
+                self.deliver(Alert {
+                    alert_id: alert_id.clone(),
+                    alert_key: alert_key.clone(),
+                    notification_key: notification_key.clone(),
+                    provider_ids: provider_ids.clone(),
+                    level: *level,
+                    title: title.clone(),
+                    body: body.clone(),
+                    link: link.clone(),
+                    recovered: *recovered,
+                })
                 .into_iter()
                 .collect()
             }
@@ -373,62 +437,57 @@ impl NotificationState {
             provider_ids: vec![pipeline.provider_id],
             kind,
             finish: None,
+            level: None,
+            link: None,
         }
     }
 
-    fn deliver(
-        &mut self, key: &str, alert_key: &str, title: &str, body: &str, provider_ids: &[i64],
-        recovered: bool,
-    ) -> Option<LocalNotification> {
-        let memo = self.delivered.entry(key.to_owned()).or_default();
-        memo.providers = provider_ids.to_vec();
-        let duplicate = if recovered {
+    fn deliver(&mut self, alert: Alert) -> Option<LocalNotification> {
+        let memo = self
+            .delivered
+            .entry(alert.notification_key.clone())
+            .or_default();
+        memo.providers = alert.provider_ids.clone();
+        let duplicate = if alert.recovered {
             memo.recovered
         } else {
-            memo.keys.iter().any(|known| known == alert_key)
+            memo.keys.contains(&alert.alert_key)
         };
         if duplicate {
             return None;
         }
-        if recovered {
+        if alert.recovered {
             memo.keys.clear();
         } else {
             if memo.keys.len() == KEYS_LIMIT {
                 memo.keys.remove(0);
             }
-            memo.keys.push(alert_key.to_owned());
+            memo.keys.push(alert.alert_key);
         }
-        memo.recovered = recovered;
+        memo.recovered = alert.recovered;
 
         Some(LocalNotification {
-            key: key.to_owned(),
-            title: title.to_owned(),
-            body: body.to_owned(),
+            key: alert.notification_key,
+            title: alert.title,
+            body: alert.body,
             pipeline_id: None,
-            provider_id: provider_ids.first().copied(),
-            provider_ids: provider_ids.to_vec(),
-            kind: if recovered {
+            provider_id: alert.provider_ids.first().copied(),
+            provider_ids: alert.provider_ids,
+            kind: if alert.recovered {
                 AlertKind::Recovered
             } else {
                 AlertKind::Outage
             },
             finish: None,
+            level: Some(alert.level),
+            link: alert.link,
         })
     }
 
     fn deliver_all(&mut self, alerts: Vec<Alert>) -> Vec<LocalNotification> {
         alerts
             .into_iter()
-            .filter_map(|alert| {
-                self.deliver(
-                    &alert.notification_key,
-                    &alert.alert_key,
-                    &alert.title,
-                    &alert.body,
-                    &alert.provider_ids,
-                    alert.recovered,
-                )
-            })
+            .filter_map(|alert| self.deliver(alert))
             .collect()
     }
 }

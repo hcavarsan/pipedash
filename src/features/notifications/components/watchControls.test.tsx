@@ -120,3 +120,26 @@ test('settings list watched pipelines and pending requests, and each can be undo
   assert.deepEqual(preferences().watch_once, [])
   assert.ok(view().getByText(/choose Watch all runs/))
 })
+
+test('a request that already fired is not pending in the menu or in settings, and asking again makes a new one', async () => {
+  const user = userEvent.setup({ document })
+  const used = { pipeline_id: pipeline.id, since: '2026-11-01T10:00:00Z', fired_at: '2026-11-01T10:30:00Z' }
+  useNotificationStore.setState({ preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watch_once: [used] } })
+  mount(
+    <>
+      <PipelineNotifyMenu pipeline={{ ...pipeline, status: 'success' }} />
+      <NotificationPreferencesSection />
+    </>
+  )
+
+  assert.ok(view().getByRole('button', { name: 'Notifications, notification options' }))
+  assert.equal(view().queryByText(/Next finish only/), null)
+
+  await user.click(view().getByRole('button', { name: /notification options/ }))
+  await user.click(await view().findByRole('menuitem', { name: 'Notify when the next run finishes' }))
+  assert.deepEqual(
+    preferences().watch_once.map((watch) => watch.fired_at),
+    [undefined]
+  )
+  assert.ok(view().getByRole('button', { name: 'Notify on finish, notification options' }))
+})

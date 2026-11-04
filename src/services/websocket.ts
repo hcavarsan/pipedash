@@ -1,6 +1,7 @@
 import { withBasePath } from '../lib/basePath'
 import { logger } from '../lib/logger'
 import { getToken, useAuthStore } from '../stores/authStore'
+import { useNotificationStore } from '../stores/notificationStore'
 
 type EventCallback<T = unknown> = (payload: T) => void
 type UnlistenFn = () => void
@@ -45,6 +46,9 @@ class WebSocketClient {
   private shouldReconnect = true
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private unsubscribeAuth: (() => void) | null = null
+  private unsubscribePreferences: (() => void) | null = null
+  private authenticated = false
+  private lastNotificationId: number | null = null
   // Prevents reconnection after auth failures exceed threshold
   private isLockedOut = false
   // Track rapid disconnect cycles to detect server rejecting connections
@@ -55,6 +59,19 @@ class WebSocketClient {
 
   constructor() {
     this.setupTokenChangeListener()
+    this.setupPreferencesListener()
+  }
+
+  private setupPreferencesListener(): void {
+    if (isTauriMode() || this.unsubscribePreferences) {
+      return
+    }
+
+    this.unsubscribePreferences = useNotificationStore.subscribe((state, previous) => {
+      if (state.preferences !== previous.preferences) {
+        this.sendPreferences()
+      }
+    })
   }
 
   private setupTokenChangeListener(): void {
@@ -100,6 +117,7 @@ class WebSocketClient {
     }
 
     this.setupTokenChangeListener()
+    this.setupPreferencesListener()
     this.isConnecting = true
     this.shouldReconnect = true
 
@@ -113,6 +131,9 @@ class WebSocketClient {
         if (token && this.ws) {
           this.ws.send(JSON.stringify({ type: 'auth', token }))
         }
+        // An anonymous server sends no auth-ok; only a token waits for one
+        this.authenticated = !token
+        this.sendPreferences()
         logger.debug('WebSocket', 'Connected')
         this.isConnecting = false
         // Don't reset reconnectAttempts here - only after stable connection
@@ -139,6 +160,13 @@ class WebSocketClient {
             return
           }
 
+          if (type === 'auth-ok') {
+            this.authenticated = true
+            this.sendPreferences()
+          } else if (type === 'notification' && typeof payload?.id === 'number') {
+            this.lastNotificationId = payload.id
+          }
+
           if (type) {
             this.events.dispatchEvent(new CustomEvent(type, { detail: payload }))
           }
@@ -151,6 +179,7 @@ class WebSocketClient {
         logger.debug('WebSocket', 'Disconnected', { code: event.code, reason: event.reason })
         this.isConnecting = false
         this.ws = null
+        this.authenticated = false
 
         // Check if this was a rapid disconnect (connection closed too quickly)
         const connectionDuration = this.connectionOpenedAt ? Date.now() - this.connectionOpenedAt : 0
@@ -231,6 +260,7 @@ class WebSocketClient {
 
   disconnect(): void {
     this.shouldReconnect = false
+    this.authenticated = false
     this.clearReconnectTimer()
     if (this.ws) {
       this.ws.close()
@@ -242,8 +272,25 @@ class WebSocketClient {
     this.disconnect()
     this.unsubscribeAuth?.()
     this.unsubscribeAuth = null
+    this.unsubscribePreferences?.()
+    this.unsubscribePreferences = null
+    this.lastNotificationId = null
     this.events = new EventTarget()
     this.listenerCounts.clear()
+  }
+
+  private sendPreferences(): void {
+    if (!this.authenticated || this.ws?.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: 'notification-preferences',
+        preferences: useNotificationStore.getState().preferences,
+        ...(this.lastNotificationId !== null && { after: this.lastNotificationId }),
+      })
+    )
   }
 
   listen<T = unknown>(eventType: string, callback: EventCallback<T>): UnlistenFn {
@@ -330,7 +377,6 @@ export const WS_EVENTS = {
   PROVIDERS_CHANGED: 'providers-changed',
   REFRESH_STATUS: 'refresh-status',
   PROVIDER_STATUS_UPDATED: 'provider-status-updated',
-  PROVIDER_HEALTH_ALERT: 'provider-health-alert',
   PIPELINE_TRIGGERED: 'pipeline-triggered',
   RUN_CANCELLED: 'run-cancelled',
   CONNECTION_STATUS: 'connection-status',

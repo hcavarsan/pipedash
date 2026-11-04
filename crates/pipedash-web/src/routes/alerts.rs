@@ -13,7 +13,6 @@ use axum::{
     Router,
 };
 use pipedash_core::domain::{
-    AlertKind,
     DeviceAlert,
     DomainResult,
     NotificationPreferences,
@@ -123,13 +122,12 @@ async fn shown_after(
         let exhausted = page.len() < size;
         cursor = page.last().map_or(cursor, |alert| alert.seq);
         shown.extend(page.into_iter().filter(|alert| {
-            alert.kind != AlertKind::Finished
-                || preferences.allows(
-                    alert.kind,
-                    &alert.affected_providers(),
-                    alert.pipeline_id.as_deref(),
-                    alert.finish.as_ref(),
-                )
+            preferences.allows(
+                alert.kind,
+                &alert.affected_providers(),
+                alert.pipeline_id.as_deref(),
+                alert.finish.as_ref(),
+            )
         }));
         if exhausted || shown.len() >= size {
             shown.truncate(size);
@@ -258,7 +256,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_device_only_lists_finished_runs_it_watches_and_pages_stay_full() {
+    async fn a_device_lists_only_alerts_its_preferences_allow_and_pages_stay_full() {
         let host = hosted("alerts-finished").await;
         let core = host.state.core().await.unwrap();
         let alerts = core.device_alerts();
@@ -269,6 +267,7 @@ mod tests {
                 &device.id,
                 &NotificationPreferences {
                     watched_pipelines: vec!["pipeline:watched".into()],
+                    muted_pipelines: vec!["pipeline:muted".into()],
                     ..NotificationPreferences::default()
                 },
             )
@@ -276,6 +275,10 @@ mod tests {
             .unwrap();
         let failed = alerts
             .insert(&new_alert(AlertKind::Failed, "pipeline:a"))
+            .await
+            .unwrap();
+        alerts
+            .insert(&new_alert(AlertKind::Failed, "pipeline:muted"))
             .await
             .unwrap();
         for _ in 0..3 {

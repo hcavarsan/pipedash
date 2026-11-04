@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { devtools, persist } from 'zustand/middleware'
 
-import type { AlertKind, NotificationPreferences, PreferenceKind, RunFinish, WatchOnce } from '../types/domain'
+import type { NotificationPreferences, PreferenceKind, WatchOnce } from '../types/domain'
 import { isRecord } from '../utils/isRecord'
 
 type SourceLists = Pick<
@@ -29,7 +29,8 @@ interface NotificationStoreActions {
   setPipelineWatched: (pipelineId: string, watched: boolean) => void
   watchNextFinish: (pipelineId: string) => void
   cancelNextFinish: (pipelineId: string) => void
-  consumeNextFinish: (pipelineId: string) => void
+  markFired: (watches: WatchOnce[]) => void
+  adoptPreferences: (preferences: NotificationPreferences) => void
   dropStaleWatches: () => void
   remapProviders: (mapping: Record<number, number>) => void
   remapProvidersOnRestart: (mapping: Record<number, number>) => void
@@ -75,8 +76,13 @@ const withoutOnce = (watchOnce: WatchOnce[], pipelineId: string): WatchOnce[] =>
 
 const isString = (item: unknown): item is string => typeof item === 'string'
 
+const isDate = (item: unknown): item is string => isString(item) && Number.isFinite(Date.parse(item))
+
 const isWatchOnce = (item: unknown): item is WatchOnce =>
-  isRecord(item) && isString(item.pipeline_id) && isString(item.since) && Number.isFinite(Date.parse(item.since))
+  isRecord(item) && isString(item.pipeline_id) && isDate(item.since)
+
+export const pendingWatches = (preferences: NotificationPreferences): WatchOnce[] =>
+  preferences.watch_once.filter((watch) => !watch.fired_at)
 
 const withoutStaleWatches = <T extends Pick<SourceLists, 'watch_once'>>(lists: T, now: number): T => {
   const watch_once = lists.watch_once.filter((watch) => now - Date.parse(watch.since) <= WATCH_ONCE_TTL_MS)
@@ -102,7 +108,9 @@ function readPreferences(value: unknown): NotificationPreferences {
     muted_providers: list('muted_providers', (item): item is number => Number.isInteger(item)),
     muted_pipelines: list('muted_pipelines', isString),
     watched_pipelines: list('watched_pipelines', isString),
-    watch_once: list('watch_once', isWatchOnce).map(({ pipeline_id, since }) => ({ pipeline_id, since })),
+    watch_once: list('watch_once', isWatchOnce).map(({ pipeline_id, since, fired_at }) =>
+      isDate(fired_at) ? { pipeline_id, since, fired_at } : { pipeline_id, since }
+    ),
   }
 }
 
@@ -148,54 +156,6 @@ export function remapPreferences(
     ),
   }
 }
-
-const onceMatches = (preferences: NotificationPreferences, pipelineId: string, finish: RunFinish): boolean =>
-  preferences.watch_once.some((watch) => {
-    const since = Date.parse(watch.since)
-
-    return (
-      watch.pipeline_id === pipelineId &&
-      Date.parse(finish.at) >= since &&
-      (!finish.previous || Date.parse(finish.previous) < since)
-    )
-  })
-
-export function notificationAllowed(
-  preferences: NotificationPreferences,
-  kind: AlertKind,
-  providerIds: number[],
-  pipelineId: string | null,
-  finish?: RunFinish | null
-): boolean {
-  if (kind === 'test') {
-    return true
-  }
-  if (pipelineId !== null) {
-    if (preferences.muted_pipelines.includes(pipelineId)) {
-      return false
-    }
-    if (preferences.watched_pipelines.includes(pipelineId)) {
-      return true
-    }
-    if (finish && onceMatches(preferences, pipelineId, finish)) {
-      return true
-    }
-  }
-  if (kind === 'finished') {
-    return false
-  }
-
-  const providerMuted = providerIds.length > 0 && providerIds.every((id) => preferences.muted_providers.includes(id))
-
-  return preferences[kind] && !providerMuted
-}
-
-export const shouldNotify = (
-  kind: AlertKind,
-  providerIds: number[],
-  pipelineId: string | null,
-  finish?: RunFinish | null
-): boolean => notificationAllowed(useNotificationStore.getState().preferences, kind, providerIds, pipelineId, finish)
 
 export const useNotificationStore = create<NotificationStore>()(
   devtools(
@@ -258,7 +218,25 @@ export const useNotificationStore = create<NotificationStore>()(
             preferences: { ...preferences, watch_once: withoutOnce(preferences.watch_once, pipelineId) },
           })),
 
-        consumeNextFinish: (pipelineId) => get().cancelNextFinish(pipelineId),
+        markFired: (watches) =>
+          set(({ preferences }) => {
+            const watch_once = preferences.watch_once.map((watch) => {
+              const fired = watch.fired_at
+                ? undefined
+                : watches.find(
+                    (item) =>
+                      item.pipeline_id === watch.pipeline_id && Date.parse(item.since) === Date.parse(watch.since)
+                  )
+
+              return fired ? { ...watch, fired_at: fired.fired_at ?? new Date().toISOString() } : watch
+            })
+
+            return watch_once.some((watch, index) => watch !== preferences.watch_once[index])
+              ? { preferences: { ...preferences, watch_once } }
+              : {}
+          }),
+
+        adoptPreferences: (preferences) => set({ preferences: readPreferences(preferences) }),
 
         dropStaleWatches: () => {
           const now = Date.now()

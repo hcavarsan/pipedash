@@ -6,7 +6,6 @@ import { mobileService } from '../services/mobile'
 import { events } from '../services/service'
 import { WS_EVENTS } from '../services/websocket'
 import { useNotificationCenterStore } from '../stores/notificationCenterStore'
-import { shouldNotify, useNotificationStore } from '../stores/notificationStore'
 
 export function useMissedAlerts(): void {
   useEffect(() => {
@@ -30,10 +29,6 @@ export function useMissedAlerts(): void {
                 ? []
                 : [alert.provider_id]
 
-            if (!shouldNotify(alert.kind, providerIds, alert.pipeline_id, alert.finish ?? null)) {
-              continue
-            }
-
             push({
               key: alert.key,
               at: Date.parse(alert.created_at),
@@ -45,12 +40,6 @@ export function useMissedAlerts(): void {
               pipelineId: alert.pipeline_id,
               link: null,
             })
-          }
-
-          for (const alert of alerts) {
-            if (alert.finish && alert.pipeline_id !== null) {
-              useNotificationStore.getState().consumeNextFinish(alert.pipeline_id)
-            }
           }
         })
         .catch((error: unknown) => logger.warn('useMissedAlerts', "Couldn't read the missed alerts", error))

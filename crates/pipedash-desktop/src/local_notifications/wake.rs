@@ -92,6 +92,8 @@ fn host_notice(alert: HostAlert, standalone: bool) -> LocalNotification {
         provider_ids,
         kind: AlertKind::parse(&alert.kind).unwrap_or(AlertKind::Failed),
         finish,
+        level: None,
+        link: None,
     }
 }
 
@@ -238,6 +240,8 @@ mod tests {
             provider_ids: Vec::new(),
             kind: AlertKind::Failed,
             finish: None,
+            level: None,
+            link: None,
         }
     }
 
