@@ -95,6 +95,7 @@ rust-embed = "8.13"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 rustls-platform-verifier = "0.7"
 secrecy = "0.10"
+semver = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde-saphyr = "2.0.0"
 serde_json = "1.0"
@@ -119,6 +120,8 @@ tauri-plugin-opener = "2"
 tauri-plugin-os = "2"
 tauri-plugin-pipedash-native = { path = "crates/tauri-plugin-pipedash-native" }
 tauri-plugin-pipedash-push = { path = "crates/tauri-plugin-pipedash-push" }
+tauri-plugin-single-instance = "2.5.5"
+tauri-plugin-updater = "~2.14.1"
 tempfile = "3.27"
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }

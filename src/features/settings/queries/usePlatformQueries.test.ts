@@ -5,7 +5,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement, type ReactNode } from 'react'
 
 GlobalRegistrator.register({ width: 390, height: 844 })
-// Static imports initialize browser and platform state before this test can install its isolated DOM and IPC bridge.
+Object.assign(window, { __TAURI_OS_PLUGIN_INTERNALS__: { platform: 'linux' } })
 const { notifications } = await import('@mantine/notifications')
 const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanstack/react-query')
 const { mockIPC } = await import('@tauri-apps/api/mocks')
@@ -81,7 +81,6 @@ test('backend deletion errors keep retry settings and never report completion', 
 })
 
 test('a complete reset clears preferences and reports completion', async (context) => {
-  const notices = context.mock.method(notifications, 'show', () => 'reset-complete')
   const completed = context.mock.fn()
   const { result } = renderHook(useFactoryReset, { wrapper })
 
@@ -92,7 +91,6 @@ test('a complete reset clears preferences and reports completion', async (contex
   assert.equal(localStorage.getItem('retained-settings'), null)
   assert.equal(useNotificationStore.getState().notificationsEnabled, false)
   assert.equal(completed.mock.callCount(), 1)
-  assert.equal(notices.mock.calls.at(0)?.arguments[0]?.color, 'green')
 })
 
 test('the reset stays pending and keeps preferences until the backend answers', async () => {

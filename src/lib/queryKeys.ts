@@ -116,6 +116,12 @@ export const queryKeys = {
     status: () => [...queryKeys.buildWatch.all, 'status'] as const,
   },
 
+  updates: {
+    all: ['updates'] as const,
+    status: () => [...queryKeys.updates.all, 'status'] as const,
+    connection: () => [...queryKeys.updates.all, 'connection'] as const,
+  },
+
   localNotifications: {
     all: ['localNotifications'] as const,
     settings: () => [...queryKeys.localNotifications.all, 'settings'] as const,

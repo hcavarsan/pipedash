@@ -11,6 +11,7 @@ use pipedash_core::domain::{
 use tauri::State;
 
 use crate::commands::ErrorResponse;
+use crate::desktop_lifecycle::OperationLease;
 use crate::MaybeCoreContext;
 
 pub(crate) async fn log_service(
@@ -26,7 +27,8 @@ pub(crate) async fn log_service(
 
 #[tauri::command]
 pub async fn get_run_log_tree(
-    maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String, run_number: i64,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String,
+    run_number: i64,
 ) -> Result<RunLogTree, ErrorResponse> {
     let service = log_service(&maybe_core).await?;
     Ok(service.run_log_tree(&pipeline_id, run_number).await?)
@@ -34,8 +36,8 @@ pub async fn get_run_log_tree(
 
 #[tauri::command]
 pub async fn open_run_log(
-    maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String, run_number: i64, node_id: String,
-    retry: bool,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String,
+    run_number: i64, node_id: String, retry: bool,
 ) -> Result<RunLogDocument, ErrorResponse> {
     let service = log_service(&maybe_core).await?;
     Ok(service
@@ -46,8 +48,8 @@ pub async fn open_run_log(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn read_run_log_lines(
-    maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String, run_number: i64, node_id: String,
-    revision: i64, start: u32, count: u32, max_line_units: u32,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String,
+    run_number: i64, node_id: String, revision: i64, start: u32, count: u32, max_line_units: u32,
 ) -> Result<LogLinesPage, ErrorResponse> {
     let service = log_service(&maybe_core).await?;
     Ok(service
@@ -64,9 +66,10 @@ pub async fn read_run_log_lines(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn search_run_log(
-    maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String, run_number: i64, node_id: String,
-    revision: i64, session_id: String, query: LogSearchQuery,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String,
+    run_number: i64, node_id: String, revision: i64, session_id: String, query: LogSearchQuery,
 ) -> Result<LogSearchResult, ErrorResponse> {
     let service = log_service(&maybe_core).await?;
     Ok(service
@@ -83,7 +86,7 @@ pub async fn search_run_log(
 
 #[tauri::command]
 pub async fn clear_run_logs_cache(
-    maybe_core: State<'_, MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>,
 ) -> Result<(), ErrorResponse> {
     Ok(log_service(&maybe_core).await?.clear().await?)
 }

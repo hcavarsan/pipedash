@@ -127,6 +127,12 @@ pub async fn boot_core(
     let lock = app.state::<AppLockState>();
     let _transition = lock.transition().await;
 
+    #[cfg(desktop)]
+    app.state::<crate::desktop_lifecycle::DesktopLifecycle>()
+        .join_startup()
+        .await
+        .map_err(BootError::Context)?;
+
     if boot_denied(lock.settings().enabled, lock.locked(), authenticated) {
         return Err(BootError::Locked);
     }
@@ -175,7 +181,13 @@ pub async fn boot_core(
              Providers will not be loaded until vault is unlocked."
         );
     } else {
-        spawn_background_tasks(Arc::clone(&core), kind);
+        let startup = spawn_background_tasks(Arc::clone(&core), kind);
+        #[cfg(desktop)]
+        app.state::<crate::desktop_lifecycle::DesktopLifecycle>()
+            .track_startup(startup)
+            .await;
+        #[cfg(mobile)]
+        drop(startup);
     }
 
     tracing::info!("Pipedash initialized with CoreContext ({:?})", kind);
@@ -224,7 +236,9 @@ fn log_choice(choice: StorageChoice, facts: StorageFacts) {
     }
 }
 
-fn spawn_background_tasks(core: Arc<CoreContext>, kind: BootKind) {
+fn spawn_background_tasks(
+    core: Arc<CoreContext>, kind: BootKind,
+) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         if let Err(e) = core.warmup_token_store().await {
             tracing::warn!("Token store warmup failed: {}", e);
@@ -236,12 +250,19 @@ fn spawn_background_tasks(core: Arc<CoreContext>, kind: BootKind) {
             }
         }
 
-        core.start_background_tasks().await;
+        let startup = core.start_background_tasks().await;
+        #[cfg(desktop)]
+        if let Err(error) = startup.await {
+            tracing::error!(%error, "Application background startup failed");
+            std::panic::resume_unwind(Box::new(error));
+        }
+        #[cfg(mobile)]
+        drop(startup);
 
         if kind.announces_unlock() {
             core.event_bus.emit(CoreEvent::VaultUnlocked).await;
         }
-    });
+    })
 }
 
 async fn create_storage_manager(

@@ -4,6 +4,7 @@ use tauri::AppHandle;
 pub use self::imp::{
     core_changed,
     start_if_enabled,
+    status,
     stop,
 };
 #[cfg(desktop)]
@@ -12,6 +13,7 @@ pub use self::imp::{
     HostState,
 };
 use crate::commands::ErrorResponse;
+use crate::desktop_lifecycle::OperationLease;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -300,6 +302,12 @@ mod imp {
     }
 
     pub async fn start_if_enabled(app: &AppHandle) {
+        let Ok(_operation) = app
+            .state::<crate::desktop_lifecycle::DesktopLifecycle>()
+            .operation()
+        else {
+            return;
+        };
         let host = app.state::<HostState>();
         let _op = host.op.lock().await;
         let enabled = host.lock().settings.enabled;
@@ -552,26 +560,36 @@ pub fn get_sharing_status(app: AppHandle) -> Result<SharingStatus, ErrorResponse
 }
 
 #[tauri::command]
-pub async fn set_sharing(app: AppHandle, enabled: bool) -> Result<SharingStatus, ErrorResponse> {
+pub async fn set_sharing(
+    _operation: OperationLease, app: AppHandle, enabled: bool,
+) -> Result<SharingStatus, ErrorResponse> {
     imp::set_sharing(&app, enabled).await
 }
 
 #[tauri::command]
-pub async fn reset_sharing_port(app: AppHandle) -> Result<SharingStatus, ErrorResponse> {
+pub async fn reset_sharing_port(
+    _operation: OperationLease, app: AppHandle,
+) -> Result<SharingStatus, ErrorResponse> {
     imp::reset_port(&app).await
 }
 
 #[tauri::command]
-pub async fn list_paired_devices(app: AppHandle) -> Result<Vec<imp::Device>, ErrorResponse> {
+pub async fn list_paired_devices(
+    _operation: OperationLease, app: AppHandle,
+) -> Result<Vec<imp::Device>, ErrorResponse> {
     imp::list_devices(&app).await
 }
 
 #[tauri::command]
-pub async fn create_pairing_code(app: AppHandle) -> Result<imp::Pairing, ErrorResponse> {
+pub async fn create_pairing_code(
+    _operation: OperationLease, app: AppHandle,
+) -> Result<imp::Pairing, ErrorResponse> {
     imp::create_pairing_code(&app).await
 }
 
 #[tauri::command]
-pub async fn remove_paired_device(app: AppHandle, id: String) -> Result<(), ErrorResponse> {
+pub async fn remove_paired_device(
+    _operation: OperationLease, app: AppHandle, id: String,
+) -> Result<(), ErrorResponse> {
     imp::remove_device(&app, &id).await
 }

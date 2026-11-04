@@ -35,6 +35,7 @@ use tauri_plugin_pipedash_native::{
 };
 use tokio::sync::watch;
 
+use crate::desktop_lifecycle::OperationLease;
 use crate::{
     app_lock::AppLockState,
     commands::ErrorResponse,
@@ -358,7 +359,9 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 }
 
 #[tauri::command]
-pub async fn get_build_watch(app: AppHandle) -> Result<BuildWatchStatus, ErrorResponse> {
+pub async fn get_build_watch(
+    _operation: OperationLease, app: AppHandle,
+) -> Result<BuildWatchStatus, ErrorResponse> {
     let mut status = native_request(app.pipedash_native().build_watch_status()).await?;
     if !status.supported {
         return Ok(status);
@@ -390,7 +393,8 @@ pub async fn get_build_watch(app: AppHandle) -> Result<BuildWatchStatus, ErrorRe
 
 #[tauri::command]
 pub async fn start_build_watch(
-    app: AppHandle, state: State<'_, BuildWatchState>, pipeline_id: String, run_number: i64,
+    _operation: OperationLease, app: AppHandle, state: State<'_, BuildWatchState>,
+    pipeline_id: String, run_number: i64,
 ) -> Result<BuildWatchStatus, ErrorResponse> {
     validate_selection(&pipeline_id, run_number)?;
     let session = state.reserve()?;
@@ -452,7 +456,9 @@ pub async fn start_build_watch(
 }
 
 #[tauri::command]
-pub async fn stop_build_watch(app: AppHandle) -> Result<BuildWatchStatus, ErrorResponse> {
+pub async fn stop_build_watch(
+    _operation: OperationLease, app: AppHandle,
+) -> Result<BuildWatchStatus, ErrorResponse> {
     stop_current(&app, BuildWatchStopReason::Stopped).await
 }
 

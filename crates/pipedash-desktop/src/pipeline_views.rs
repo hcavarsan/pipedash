@@ -17,6 +17,7 @@ use pipedash_core::domain::{
 use tauri::State;
 
 use crate::commands::ErrorResponse;
+use crate::desktop_lifecycle::OperationLease;
 use crate::MaybeCoreContext;
 
 async fn view_service(
@@ -32,28 +33,29 @@ async fn view_service(
 
 #[tauri::command]
 pub async fn list_pipeline_views(
-    maybe_core: State<'_, MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>,
 ) -> Result<Vec<PipelineView>, ErrorResponse> {
     Ok(view_service(&maybe_core).await?.list_views().await?)
 }
 
 #[tauri::command]
 pub async fn get_pipeline_view_page(
-    maybe_core: State<'_, MaybeCoreContext>, query: PipelineViewQuery,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, query: PipelineViewQuery,
 ) -> Result<PipelineViewPage, ErrorResponse> {
     Ok(view_service(&maybe_core).await?.page(query).await?)
 }
 
 #[tauri::command]
 pub async fn create_pipeline_view(
-    maybe_core: State<'_, MaybeCoreContext>, input: CreateViewInput,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, input: CreateViewInput,
 ) -> Result<PipelineView, ErrorResponse> {
     Ok(view_service(&maybe_core).await?.create_view(input).await?)
 }
 
 #[tauri::command]
 pub async fn update_pipeline_view(
-    maybe_core: State<'_, MaybeCoreContext>, id: ViewRef, patch: ViewPatch,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, id: ViewRef,
+    patch: ViewPatch,
 ) -> Result<PipelineView, ErrorResponse> {
     Ok(view_service(&maybe_core)
         .await?
@@ -63,14 +65,14 @@ pub async fn update_pipeline_view(
 
 #[tauri::command]
 pub async fn delete_pipeline_view(
-    maybe_core: State<'_, MaybeCoreContext>, id: ViewRef,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, id: ViewRef,
 ) -> Result<(), ErrorResponse> {
     Ok(view_service(&maybe_core).await?.delete_view(id).await?)
 }
 
 #[tauri::command]
 pub async fn reorder_pipeline_views(
-    maybe_core: State<'_, MaybeCoreContext>, order: Vec<ViewRef>,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, order: Vec<ViewRef>,
 ) -> Result<(), ErrorResponse> {
     Ok(view_service(&maybe_core)
         .await?
@@ -80,14 +82,15 @@ pub async fn reorder_pipeline_views(
 
 #[tauri::command]
 pub async fn list_pipeline_view_members(
-    maybe_core: State<'_, MaybeCoreContext>, id: ViewRef,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, id: ViewRef,
 ) -> Result<Vec<ViewMember>, ErrorResponse> {
     Ok(view_service(&maybe_core).await?.list_members(id).await?)
 }
 
 #[tauri::command]
 pub async fn set_pipeline_view_membership(
-    maybe_core: State<'_, MaybeCoreContext>, id: ViewRef, pipeline_id: String, member: bool,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, id: ViewRef,
+    pipeline_id: String, member: bool,
 ) -> Result<(), ErrorResponse> {
     Ok(view_service(&maybe_core)
         .await?
@@ -97,7 +100,8 @@ pub async fn set_pipeline_view_membership(
 
 #[tauri::command]
 pub async fn set_pipeline_hidden(
-    maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String, hidden: bool,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, pipeline_id: String,
+    hidden: bool,
 ) -> Result<(), ErrorResponse> {
     Ok(view_service(&maybe_core)
         .await?
@@ -107,7 +111,7 @@ pub async fn set_pipeline_hidden(
 
 #[tauri::command]
 pub async fn import_legacy_pipeline_marks(
-    maybe_core: State<'_, MaybeCoreContext>, marks: LegacyMarks,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, marks: LegacyMarks,
 ) -> Result<LegacyImportResult, ErrorResponse> {
     Ok(view_service(&maybe_core)
         .await?
@@ -117,14 +121,15 @@ pub async fn import_legacy_pipeline_marks(
 
 #[tauri::command]
 pub async fn list_pins(
-    maybe_core: State<'_, MaybeCoreContext>,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>,
 ) -> Result<Vec<PinnedItem>, ErrorResponse> {
     Ok(view_service(&maybe_core).await?.list_pins().await?)
 }
 
 #[tauri::command]
 pub async fn set_pin(
-    maybe_core: State<'_, MaybeCoreContext>, kind: PinKind, r#ref: String, pinned: bool,
+    _operation: OperationLease, maybe_core: State<'_, MaybeCoreContext>, kind: PinKind,
+    r#ref: String, pinned: bool,
 ) -> Result<(), ErrorResponse> {
     Ok(view_service(&maybe_core)
         .await?

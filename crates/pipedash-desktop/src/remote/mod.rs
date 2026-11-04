@@ -39,6 +39,7 @@ pub use self::store::{
 use crate::app_lock::AppLockState;
 use crate::commands::ErrorResponse;
 use crate::core_boot::BootKind;
+use crate::desktop_lifecycle::OperationLease;
 use crate::export_file::{
     export_error,
     share_bytes,
@@ -616,7 +617,7 @@ pub fn get_connection(remote: State<'_, RemoteConnection>) -> ConnectionInfo {
 
 #[tauri::command]
 pub async fn run_on_this_device(
-    app: AppHandle, remote: State<'_, RemoteConnection>,
+    _operation: OperationLease, app: AppHandle, remote: State<'_, RemoteConnection>,
 ) -> Result<ConnectionInfo, ErrorResponse> {
     let _op = remote.op.lock().await;
     run_here(&app, &remote).await.map_err(Into::into)
@@ -651,8 +652,8 @@ async fn run_here(
 
 #[tauri::command]
 pub async fn pair_with_server(
-    app: AppHandle, remote: State<'_, RemoteConnection>, address: String, code: Option<String>,
-    allow_private_http: bool,
+    _operation: OperationLease, app: AppHandle, remote: State<'_, RemoteConnection>,
+    address: String, code: Option<String>, allow_private_http: bool,
 ) -> Result<ConnectionInfo, ErrorResponse> {
     let _op = remote.op.lock().await;
     pair(&app, &remote, &address, code.as_deref(), allow_private_http)
@@ -749,7 +750,7 @@ async fn pair(
 
 #[tauri::command]
 pub async fn disconnect_server(
-    app: AppHandle, remote: State<'_, RemoteConnection>,
+    _operation: OperationLease, app: AppHandle, remote: State<'_, RemoteConnection>,
 ) -> Result<ConnectionInfo, ErrorResponse> {
     let _op = remote.op.lock().await;
     disconnect(&app, &remote).await.map_err(Into::into)
@@ -781,7 +782,9 @@ async fn disconnect(
 }
 
 #[tauri::command]
-pub async fn reconnect_server(app: AppHandle) -> Result<(), ErrorResponse> {
+pub async fn reconnect_server(
+    _operation: OperationLease, app: AppHandle,
+) -> Result<(), ErrorResponse> {
     reconnect(&app);
 
     Ok(())
@@ -789,7 +792,7 @@ pub async fn reconnect_server(app: AppHandle) -> Result<(), ErrorResponse> {
 
 #[tauri::command]
 pub async fn set_allow_private_http(
-    app: AppHandle, remote: State<'_, RemoteConnection>, enabled: bool,
+    _operation: OperationLease, app: AppHandle, remote: State<'_, RemoteConnection>, enabled: bool,
 ) -> Result<(), ErrorResponse> {
     let _op = remote.op.lock().await;
     remote.update_saved(&app.state::<AppDataDir>().0, |saved| {
@@ -807,8 +810,8 @@ pub async fn set_allow_private_http(
 
 #[tauri::command]
 pub async fn remote_request(
-    remote: State<'_, RemoteConnection>, method: String, path: String, body: Option<String>,
-    timeout_ms: Option<u64>,
+    _operation: OperationLease, remote: State<'_, RemoteConnection>, method: String, path: String,
+    body: Option<String>, timeout_ms: Option<u64>,
 ) -> Result<RemoteResponse, ErrorResponse> {
     validate_request(&method, &path)?;
     let timeout = Duration::from_millis(
@@ -836,8 +839,8 @@ pub async fn remote_request(
 
 #[tauri::command]
 pub async fn remote_save_download(
-    app: AppHandle, remote: State<'_, RemoteConnection>, ticket: String, file_name: String,
-    destination: Option<String>,
+    _operation: OperationLease, app: AppHandle, remote: State<'_, RemoteConnection>,
+    ticket: String, file_name: String, destination: Option<String>,
 ) -> Result<ExportFileResult, ErrorResponse> {
     if !is_ticket(&ticket) {
         return Err(RemoteError::InvalidRequest.into());

@@ -34,6 +34,7 @@ import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { FieldRow, RowSelect, SwitchRow } from '../../../components/ios/mobileParts'
 import { useFactoryResetConfirm } from '../hooks/useFactoryResetConfirm'
 
+import { DesktopUpdates } from './DesktopUpdates'
 import { ProxySettingsForm } from './ProxySettingsForm'
 
 interface GeneralSectionProps {
@@ -212,6 +213,8 @@ export function GeneralSection({ onRefresh }: GeneralSectionProps): ReactNode {
           )}
         </Stack>
       </Card>
+
+      <DesktopUpdates />
 
       {!isRemoteClient() && (
         <Card padding="md">

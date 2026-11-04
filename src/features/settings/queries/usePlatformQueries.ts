@@ -1,11 +1,13 @@
 import { type UseMutationResult, useMutation, useQueryClient } from '@tanstack/react-query'
 import { notifications } from '../../../lib/notifications'
 
+import { DESKTOP_UPDATE_RESET_EVENT } from '../../../services/desktop'
 import { service } from '../../../services/service'
 import { useLogViewerPrefs } from '../../../stores/logViewerPrefsStore'
 import { useNotificationCenterStore } from '../../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../../stores/notificationStore'
 import { formatCount } from '../../../utils/formatCount'
+import { isDesktopTauri } from '../../../utils/platform'
 
 interface FactoryResetResult {
   providers_removed: number
@@ -34,6 +36,9 @@ export function useFactoryReset(): UseMutationResult<FactoryResetResult, Error, 
       useLogViewerPrefs.setState(useLogViewerPrefs.getInitialState(), true)
       useNotificationCenterStore.setState({ items: [], selection: null })
       localStorage.clear()
+      if (isDesktopTauri()) {
+        window.dispatchEvent(new Event(DESKTOP_UPDATE_RESET_EVENT))
+      }
 
       notifications.show({
         title: 'Factory reset complete',

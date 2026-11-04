@@ -4,6 +4,7 @@ import { after, afterEach, beforeEach, type TestContext, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { createElement } from 'react'
+import { updateStatusFixture } from '../../features/settings/fixtures/updateStatus'
 
 import type { ProviderSummary } from '../../types/domain'
 
@@ -16,6 +17,8 @@ mockIPC(
       case 'list_providers':
       case 'get_available_plugins':
         return []
+      case 'get_update_status':
+        return updateStatusFixture
       case 'get_vault_status':
         return { is_initialized: true, is_unlocked: true, requires_password: false }
       case 'plugin:window|is_focused':

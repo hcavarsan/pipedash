@@ -280,7 +280,7 @@ impl CoreContext {
         ))
     }
 
-    pub async fn start_background_tasks(&self) {
+    pub async fn start_background_tasks(&self) -> tokio::task::JoinHandle<()> {
         let provider_service = Arc::clone(&self.provider_service);
         let refresh_manager = Arc::clone(&self.refresh_manager);
         let health_service = Arc::clone(&self.health_service);
@@ -315,7 +315,7 @@ impl CoreContext {
             });
             refresh_manager.start().await;
             config_watcher.start().await;
-        });
+        })
     }
 
     pub async fn apply_config_file(&self) -> DomainResult<infrastructure::ConfigSyncResult> {

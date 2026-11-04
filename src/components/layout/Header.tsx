@@ -21,6 +21,7 @@ import { lockMeansSomething } from '../../utils/appLock'
 import { isDesktopTauri, platform } from '../../utils/platform'
 import { AppLogo } from '../atoms/AppLogo'
 import { ConnectionStatus } from '../common/ConnectionStatus'
+import { DesktopUpdateIndicator } from '../common/DesktopUpdateIndicator'
 import { RefreshButton } from '../common/RefreshButton'
 import { WindowControls } from '../common/WindowControls'
 
@@ -151,6 +152,7 @@ export function Header({ onToggleNavbar, navbarOpened = false, onOpenSettings }:
           />
 
           <Group gap="sm" wrap="nowrap">
+            <DesktopUpdateIndicator />
             {showLock && (
               <Tooltip
                 label={commandTooltip(lockLabel, showWindowChrome && canLock ? 'mod+L' : undefined)}
