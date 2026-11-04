@@ -163,6 +163,9 @@ impl Inner {
     }
     fn follow(&mut self, link: Option<ClientLink>, server: Option<String>) -> bool {
         self.client = link;
+        self.adopt_server(server)
+    }
+    fn adopt_server(&mut self, server: Option<String>) -> bool {
         let moved = self.server.as_ref().is_some_and(|seen| *seen != server);
         self.server = Some(server);
         if moved {

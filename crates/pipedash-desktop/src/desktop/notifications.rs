@@ -31,6 +31,7 @@ use super::{
     Origin,
 };
 use crate::native::NotificationTarget;
+use crate::remote::RemoteConnection;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -180,10 +181,25 @@ fn record<R: Runtime>(app: &AppHandle<R>, origin: Origin, notice: &DesktopNotice
     let Some(state) = app.try_state::<DesktopState>() else {
         return;
     };
+    let server = match origin {
+        Origin::Server => {
+            match app
+                .try_state::<RemoteConnection>()
+                .and_then(|remote| remote.tray_link())
+            {
+                Some((_, _, server)) => Some(server),
+                None => return,
+            }
+        }
+        Origin::Core(_) => None,
+    };
     let (history, deliver) = {
         let mut inner = state.lock();
         if !inner.accepts(origin) {
             return;
+        }
+        if server.is_some() {
+            inner.adopt_server(server);
         }
         inner.record(notice)
     };

@@ -228,3 +228,25 @@ fn the_first_observation_of_standalone_mode_keeps_notices_and_a_later_client_swi
     assert!(inner.follow(None, Some("d1@https://a.example.com".to_string())));
     assert!(inner.history.items.is_empty());
 }
+
+#[test]
+fn a_notice_from_the_new_server_survives_the_menu_refresh_that_sees_the_switch() {
+    let b = || Some("d2@https://b.example.com".to_string());
+    let mut inner = Inner::default();
+    assert!(!inner.follow(None, Some("d1@https://a.example.com".to_string())));
+    inner.history.push(notice("from-a"));
+
+    assert!(inner.adopt_server(b()));
+    inner.record(&notice("from-b"));
+    assert!(!inner.follow(None, b()));
+
+    assert_eq!(
+        inner
+            .history
+            .items
+            .iter()
+            .map(|item| item.key.as_str())
+            .collect::<Vec<_>>(),
+        ["from-b"]
+    );
+}
