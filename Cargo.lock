@@ -4206,7 +4206,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pipedash-core"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -4259,7 +4259,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-desktop"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "aes-gcm",
  "android-native-keyring-store",
@@ -4321,7 +4321,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-actions"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "chrono",
  "pipedash-plugin-api",
@@ -4332,7 +4332,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-api"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4348,7 +4348,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-argocd"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4364,7 +4364,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-azure-devops"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4381,7 +4381,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-bitbucket"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -4399,7 +4399,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-buildkite"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4415,7 +4415,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-fluxcd"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4436,7 +4436,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-gitea"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4453,7 +4453,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-github"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4472,7 +4472,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-gitlab"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4488,7 +4488,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-jenkins"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -4505,7 +4505,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-komodo"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4520,7 +4520,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-prow"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -4543,7 +4543,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-plugin-tekton"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4564,7 +4564,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-push-relay"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4586,7 +4586,7 @@ dependencies = [
 
 [[package]]
 name = "pipedash-web"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6601,7 +6601,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-pipedash-native"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6612,7 +6612,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-pipedash-push"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "serde",
  "tauri",
