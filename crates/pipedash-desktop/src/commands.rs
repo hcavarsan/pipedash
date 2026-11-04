@@ -812,7 +812,7 @@ pub async fn clear_run_history_cache(
     })?;
     core.pipeline_service
         .clear_run_history_cache(&pipeline_id)
-        .await;
+        .await?;
     Ok(())
 }
 
@@ -884,7 +884,7 @@ pub async fn clear_all_run_history_caches(
         details: None,
         code: None,
     })?;
-    core.pipeline_service.clear_all_run_history_caches().await;
+    core.pipeline_service.clear_all_run_history_caches().await?;
     Ok(())
 }
 
@@ -2039,8 +2039,7 @@ pub struct FactoryResetResult {
 #[tauri::command]
 pub async fn factory_reset(
     _operation: OperationLease, app: tauri::AppHandle,
-    maybe_core: State<'_, crate::MaybeCoreContext>, app_data_dir: State<'_, AppDataDir>,
-    lock: State<'_, app_lock::AppLockState>,
+    maybe_core: State<'_, crate::MaybeCoreContext>, lock: State<'_, app_lock::AppLockState>,
 ) -> Result<FactoryResetResult, ErrorResponse> {
     tracing::info!("[factory_reset] Starting factory reset");
 
@@ -2054,7 +2053,15 @@ pub async fn factory_reset(
 
     let providers_removed = core.factory_reset().await?;
 
-    crate::push::reset(&app_data_dir.0).await?;
+    let devices = core.devices();
+    let paired = devices.list().await?;
+    devices.delete_all().await?;
+    for device in paired {
+        core.event_bus
+            .emit(pipedash_core::event::CoreEvent::DeviceRevoked { id: device.id })
+            .await;
+    }
+
     app_lock::reset(&app, &lock)?;
     #[cfg(desktop)]
     crate::updater::reset(&app).await?;

@@ -71,7 +71,7 @@ impl DesktopLifecycle {
         self.admission_closed.load(Ordering::SeqCst)
     }
 
-    fn operation(&self) -> Result<OperationLease, ErrorResponse> {
+    pub(crate) fn operation(&self) -> Result<OperationLease, ErrorResponse> {
         if self.busy() {
             return Err(updating_error());
         }
@@ -117,6 +117,7 @@ impl DesktopLifecycle {
 
     pub async fn drain_core(&self, app: &AppHandle) -> Result<bool, String> {
         self.join_startup().await?;
+        crate::host::stop(app).await;
         let core = app.state::<MaybeCoreContext>().0.write().await.take();
         let existed = core.is_some();
         crate::build_watch::interrupt(app);

@@ -1,3 +1,4 @@
+import type { CenterNotificationTone } from '../stores/notificationCenterStore'
 import type { ProviderTone } from '../utils/fetchInfo'
 
 export type PipelineStatus = 'success' | 'failed' | 'degraded' | 'running' | 'pending' | 'cancelled' | 'skipped'
@@ -30,10 +31,38 @@ export interface BuildWatchStatus {
   watch: BuildWatchSnapshot | null
 }
 
+export interface AlertHostInfo {
+  name: string
+  push: boolean
+  standalone: boolean
+}
+
 export interface LocalNotificationSettings {
   enabled: boolean
   available: boolean
   reason: string | null
+  alertHost: AlertHostInfo | null
+  pushProblem: string | null
+}
+
+export interface HostAlert {
+  id: string
+  seq: number
+  key: string
+  kind: 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'test'
+  tone: CenterNotificationTone
+  title: string
+  body: string
+  pipeline_id: string | null
+  provider_id: number | null
+  created_at: string
+}
+
+export interface PushRelaySettings {
+  enabled: boolean
+  relay_url: string | null
+  from_env: boolean
+  official_url: string
 }
 
 export type ReviewDecision = 'approve' | 'reject'
@@ -816,20 +845,7 @@ export interface NotificationTarget {
 export type NativeIntent =
   | ({ type: 'notification'; action: string } & Partial<NotificationTarget>)
   | { type: 'link'; path: string; runNumber?: number }
-
-export interface PushServer {
-  id: string
-  url: string
-  label: string
-  paired_at: string
-}
-
-export interface PushStatus {
-  supported: boolean
-  relay_configured: boolean
-  permission: 'granted' | 'denied' | 'prompt'
-  servers: PushServer[]
-}
+  | { type: 'pair'; link: string }
 
 export interface MobileDevice {
   id: string
@@ -842,4 +858,39 @@ export interface MobileDevice {
 export interface MobileDevicesResponse {
   relay_configured: boolean
   subscriptions: MobileDevice[]
+}
+
+export type DevicePlatform = 'macos' | 'windows' | 'linux' | 'ios' | 'android'
+
+export interface PairedDevice {
+  id: string
+  name: string
+  platform: DevicePlatform
+  created_at: string
+  last_seen_at: string | null
+  current: boolean
+  push: boolean
+  removable: boolean
+}
+
+export interface PairingCode {
+  code: string
+  link: string
+  server_url: string
+  expires_at: string
+  loopback: boolean
+  qr_svg: string
+}
+
+export interface RemoteResponse {
+  status: number
+  body: string
+}
+
+export interface SharingStatus {
+  enabled: boolean
+  running: boolean
+  url: string | null
+  error: string | null
+  errorCode: 'PORT_IN_USE' | 'NO_NETWORK' | null
 }

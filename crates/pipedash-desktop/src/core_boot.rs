@@ -173,6 +173,7 @@ pub async fn boot_core(
         old.shutdown().await;
     }
     lock.set_locked(false);
+    crate::host::core_changed(app, Some(&core)).await;
 
     if choice == StorageChoice::Locked {
         tracing::info!(
@@ -249,7 +250,7 @@ fn spawn_background_tasks(
             }
         }
 
-        let startup = core.start_background_tasks();
+        let startup = core.start_background_tasks().await;
         #[cfg(desktop)]
         if let Err(error) = startup.await {
             tracing::error!(%error, "Application background startup failed");

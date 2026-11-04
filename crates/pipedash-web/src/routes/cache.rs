@@ -93,14 +93,14 @@ async fn clear_run_history_cache(
     let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
     core.pipeline_service
         .clear_run_history_cache(&pipeline_id)
-        .await;
+        .await?;
     Ok(())
 }
 
 async fn clear_all_run_history_caches(State(state): State<AppState>) -> ApiResult<()> {
     let inner = state.inner.read().await;
     let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    core.pipeline_service.clear_all_run_history_caches().await;
+    core.pipeline_service.clear_all_run_history_caches().await?;
     Ok(())
 }
 
@@ -128,7 +128,7 @@ async fn clear_run_logs_cache(State(state): State<AppState>) -> ApiResult<()> {
 async fn clear_all_caches(State(state): State<AppState>) -> ApiResult<()> {
     let inner = state.inner.read().await;
     let core = inner.core.as_ref().ok_or_else(AppError::not_initialized)?;
-    core.pipeline_service.clear_all_run_history_caches().await;
+    core.pipeline_service.clear_all_run_history_caches().await?;
     core.pipeline_service.clear_pipelines_cache().await?;
     core.pipeline_service.clear_workflow_params_cache().await?;
     core.log_service.clear().await?;

@@ -1146,12 +1146,12 @@ impl PipelineService {
         Ok(())
     }
 
-    pub async fn clear_run_history_cache(&self, pipeline_id: &str) {
-        let _ = self.repository.clear_cached_run_history(pipeline_id).await;
+    pub async fn clear_run_history_cache(&self, pipeline_id: &str) -> DomainResult<()> {
+        self.repository.clear_cached_run_history(pipeline_id).await
     }
 
-    pub async fn clear_all_run_history_caches(&self) {
-        let _ = self.repository.clear_all_run_history_cache().await;
+    pub async fn clear_all_run_history_caches(&self) -> DomainResult<()> {
+        self.repository.clear_all_run_history_cache().await
     }
 
     pub async fn get_pipelines_cache_count(&self) -> DomainResult<i64> {
@@ -2122,6 +2122,89 @@ mod tests {
         assert_eq!(first[0].state, RefreshState::Ok);
         assert_eq!(again[0].state, RefreshState::Recent);
         assert_eq!(again[1].state, RefreshState::NotFound);
+    }
+
+    async fn cache_with_rejected_deletes() -> Harness {
+        let h = Harness::new().await;
+        for pipeline_id in ["github__1__web", "github__1__api"] {
+            h.repository
+                .cache_run_history(pipeline_id, &[stub_run(pipeline_id, 1, 60)])
+                .await
+                .unwrap();
+        }
+        sqlx::query(
+            "CREATE TRIGGER reject_run_history_delete BEFORE DELETE ON run_history_cache \
+             BEGIN SELECT RAISE(ABORT, 'cache delete rejected'); END",
+        )
+        .execute(&h.pool)
+        .await
+        .unwrap();
+
+        h
+    }
+
+    #[tokio::test]
+    async fn clearing_one_run_history_cache_reports_delete_errors() {
+        let h = cache_with_rejected_deletes().await;
+
+        let result = h
+            .pipeline_service
+            .clear_run_history_cache("github__1__web")
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DomainError::DatabaseError(message)) if message.contains("cache delete rejected")
+        ));
+        assert_eq!(h.repository.get_run_history_cache_count().await.unwrap(), 2);
+
+        sqlx::query("DROP TRIGGER reject_run_history_delete")
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        h.pipeline_service
+            .clear_run_history_cache("github__1__web")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            h.repository
+                .get_cached_run_count("github__1__web")
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            h.repository
+                .get_cached_run_count("github__1__api")
+                .await
+                .unwrap(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn clearing_all_run_history_caches_reports_delete_errors() {
+        let h = cache_with_rejected_deletes().await;
+
+        let result = h.pipeline_service.clear_all_run_history_caches().await;
+
+        assert!(matches!(
+            result,
+            Err(DomainError::DatabaseError(message)) if message.contains("cache delete rejected")
+        ));
+        assert_eq!(h.repository.get_run_history_cache_count().await.unwrap(), 2);
+
+        sqlx::query("DROP TRIGGER reject_run_history_delete")
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        h.pipeline_service
+            .clear_all_run_history_caches()
+            .await
+            .unwrap();
+
+        assert_eq!(h.repository.get_run_history_cache_count().await.unwrap(), 0);
     }
 
     async fn run_history_fixture(h: &Harness, gate: Option<&Arc<Gate>>) -> (i64, String) {

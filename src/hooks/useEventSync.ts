@@ -6,7 +6,7 @@ import { applyProviderStatus } from '../lib/providerStatusSync'
 import { queryKeys } from '../lib/queryKeys'
 import { invalidateProviderPipelines, setProviderPipelines } from '../queries/usePipelinesQueries'
 import { events } from '../services/service'
-import { wsClient } from '../services/websocket'
+import { WS_EVENTS } from '../services/websocket'
 import { useAuthStore } from '../stores/authStore'
 import type { EventPayloadMap } from '../types/events'
 
@@ -300,6 +300,12 @@ export function useEventSync(): void {
       await queryClient.invalidateQueries({ queryKey: queryKeys.vault.all, refetchType: 'active' })
     })
 
+    for (const name of [WS_EVENTS.DEVICE_PAIRED, WS_EVENTS.DEVICE_REVOKED]) {
+      void register<unknown>(name, () => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.devices.all })
+      })
+    }
+
     return () => {
       mounted = false
       logger.debug('EventSync', 'Cleaning up listeners')
@@ -320,32 +326,36 @@ export function useEventSync(): void {
   }, [queryClient, scheduleBatchedInvalidation])
 
   useEffect(() => {
+    let mounted = true
     let wasDisconnected = false
+    let unlisten: (() => void) | undefined
 
     const handleConnectionStatus = (payload: { status: string; reconnectAttempts: number }) => {
       if (payload.status === 'disconnected' || payload.status === 'reconnecting') {
         wasDisconnected = true
-        logger.debug('EventSync', 'WebSocket disconnected', { status: payload.status })
+        logger.debug('EventSync', 'Connection lost', { status: payload.status })
       } else if (payload.status === 'connected' && wasDisconnected) {
-        logger.info('EventSync', 'WebSocket reconnected - invalidating critical queries')
+        logger.info('EventSync', 'Reconnected - invalidating active queries')
         wasDisconnected = false
 
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.providers.all,
-          refetchType: 'active',
-        })
-
-        scheduleBatchedInvalidation()
+        void queryClient.invalidateQueries({ refetchType: 'active' })
       }
     }
 
-    const unlisten = wsClient.listen<{ status: string; reconnectAttempts: number }>(
-      'connection-status',
-      handleConnectionStatus
-    )
+    events
+      .listen<{ status: string; reconnectAttempts: number }>(WS_EVENTS.CONNECTION_STATUS, handleConnectionStatus)
+      .then((stop) => {
+        if (mounted) {
+          unlisten = stop
+        } else {
+          stop()
+        }
+      })
+      .catch((error: unknown) => logger.error('EventSync', 'Failed to listen to connection-status', error))
 
     return () => {
-      unlisten()
+      mounted = false
+      unlisten?.()
     }
-  }, [queryClient, scheduleBatchedInvalidation])
+  }, [queryClient])
 }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{
     extract::State,
     routing::{
@@ -57,6 +59,29 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn get_vault_status(State(state): State<AppState>) -> Json<VaultStatusResponse> {
+    if state.desktop_host.is_some() {
+        let config_state = state
+            .inner
+            .read()
+            .await
+            .core
+            .as_ref()
+            .map(|core| Arc::clone(&core.config_state));
+        let backend = match &config_state {
+            Some(config_state) => config_state.get().await.storage.backend.to_string(),
+            None => "unknown".to_string(),
+        };
+
+        return Json(VaultStatusResponse {
+            is_unlocked: config_state.is_some(),
+            password_source: PasswordSource::None,
+            backend,
+            requires_password: false,
+            is_first_time: false,
+            demo_password: None,
+        });
+    }
+
     let inner = state.inner.read().await;
 
     let (backend, requires_password, is_first_time) =
@@ -174,7 +199,7 @@ async fn unlock_vault(
                                     e
                                 );
                             }
-                            drop(core.start_background_tasks());
+                            drop(core.start_background_tasks().await);
                         }
                     }
 

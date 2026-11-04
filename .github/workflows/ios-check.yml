@@ -40,6 +40,9 @@ jobs:
         with:
           rust-targets: aarch64-apple-ios
 
+      - name: Test notification service logic
+        run: swift test --package-path ios/notification-service
+
       - name: Test iOS release helpers and publishing guards
         working-directory: ios
         run: bundle exec ruby -e 'Dir["fastlane/*_test.rb"].sort.each { |file| require_relative file }'

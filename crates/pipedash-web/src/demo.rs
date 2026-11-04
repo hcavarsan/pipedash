@@ -15,6 +15,7 @@ use crate::error::{
     ApiError,
     AppError,
 };
+use crate::state::CurrentDevice;
 
 pub fn enabled() -> bool {
     std::env::var("PIPEDASH_DEMO_MODE").is_ok_and(|value| crate::env_flag(&value))
@@ -28,7 +29,7 @@ pub fn is_blocked(method: &Method, path: &str) -> bool {
     if matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS) {
         return route.starts_with("storage/")
             || route == "providers/export"
-            || route.starts_with("push/");
+            || (route.starts_with("push/") && route != "push/relay");
     }
 
     !(*method == Method::POST && allows_post(route))
@@ -38,14 +39,39 @@ fn allows_post(route: &str) -> bool {
     route == "vault/unlock"
         || route == "refresh/all"
         || route == "metrics/aggregated"
+        || route == "devices/pairing"
         || (route.starts_with("providers/") && route.ends_with("/refresh"))
         || (route.starts_with("metrics/pipelines/") && route.ends_with("/query"))
         || (route.starts_with("pipelines/")
             && (route.ends_with("/search") || route.ends_with("/download-ticket")))
 }
 
+pub fn device_name(platform: &str) -> String {
+    let label = match platform {
+        "macos" => "Mac",
+        "windows" => "Windows PC",
+        "ios" => "iPhone or iPad",
+        "android" => "Android device",
+        _ => "Linux PC",
+    };
+    format!("Demo {label}")
+}
+
+fn device_owned_write(req: &Request) -> bool {
+    let Some(device) = req.extensions().get::<CurrentDevice>() else {
+        return false;
+    };
+    let path = req.uri().path();
+
+    (*req.method() == Method::DELETE
+        && path
+            .strip_prefix("/api/v1/devices/")
+            .is_some_and(|id| id == device.0))
+        || path.starts_with("/api/v1/devices/current/push")
+}
+
 pub async fn reject_changes(req: Request, next: Next) -> Response {
-    if is_blocked(req.method(), req.uri().path()) {
+    if is_blocked(req.method(), req.uri().path()) && !device_owned_write(&req) {
         return AppError::new(
             StatusCode::FORBIDDEN,
             ApiError::new(
@@ -96,6 +122,8 @@ mod tests {
             (Method::GET, "/api/v1/storage/config/content".to_string()),
             (Method::GET, "/api/v1/providers/export".to_string()),
             (Method::GET, "/api/v1/push/subscriptions".to_string()),
+            (Method::DELETE, "/api/v1/devices/abc".to_string()),
+            (Method::PUT, "/api/v1/push/relay".to_string()),
         ];
 
         for (method, path) in blocked {
@@ -125,6 +153,8 @@ mod tests {
             (Method::POST, "/api/v1/providers/1/refresh"),
             (Method::POST, "/api/v1/refresh/all"),
             (Method::POST, "/api/v1/vault/unlock"),
+            (Method::POST, "/api/v1/devices/pairing"),
+            (Method::GET, "/api/v1/push/relay"),
         ];
 
         for (method, path) in allowed {
@@ -133,6 +163,13 @@ mod tests {
                 "{method} {path} should be allowed"
             );
         }
+    }
+
+    #[test]
+    fn demo_devices_get_a_name_without_the_owner_s_hostname() {
+        assert_eq!(device_name("ios"), "Demo iPhone or iPad");
+        assert_eq!(device_name("macos"), "Demo Mac");
+        assert_eq!(device_name("linux"), "Demo Linux PC");
     }
 
     #[tokio::test]
@@ -156,5 +193,81 @@ mod tests {
 
         let allowed = send("/api/v1/refresh/all").await.unwrap();
         assert_eq!(allowed.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn a_paired_device_can_remove_only_itself() {
+        let app = Router::new()
+            .route(
+                "/api/v1/devices/{id}",
+                axum::routing::delete(|| async { "ok" }),
+            )
+            .layer(axum::middleware::from_fn(reject_changes));
+        let remove = |path: &str, device: Option<&str>| {
+            let mut request = axum::http::Request::delete(path)
+                .body(Body::empty())
+                .unwrap();
+            if let Some(id) = device {
+                request
+                    .extensions_mut()
+                    .insert(CurrentDevice(id.to_string()));
+            }
+            app.clone().oneshot(request)
+        };
+
+        let own = remove("/api/v1/devices/abc", Some("abc")).await.unwrap();
+        assert_eq!(own.status(), StatusCode::OK);
+        for (path, device) in [
+            ("/api/v1/devices/abc", Some("other")),
+            ("/api/v1/devices/abc", None),
+        ] {
+            let response = remove(path, device).await.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{device:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_paired_device_manages_only_its_own_push_registration() {
+        let app = Router::new()
+            .route(
+                "/api/v1/devices/current/push",
+                axum::routing::put(|| async { "ok" }).delete(|| async { "ok" }),
+            )
+            .route("/api/v1/devices/current/push/test", post(|| async { "ok" }))
+            .route("/api/v1/devices/current/push/ack", post(|| async { "ok" }))
+            .route(
+                "/api/v1/devices/other",
+                axum::routing::put(|| async { "ok" }),
+            )
+            .layer(axum::middleware::from_fn(reject_changes));
+        let send = |method: Method, path: &str, device: Option<&str>| {
+            let mut request = axum::http::Request::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            if let Some(id) = device {
+                request
+                    .extensions_mut()
+                    .insert(CurrentDevice(id.to_string()));
+            }
+            app.clone().oneshot(request)
+        };
+
+        for (method, path) in [
+            (Method::PUT, "/api/v1/devices/current/push"),
+            (Method::DELETE, "/api/v1/devices/current/push"),
+            (Method::POST, "/api/v1/devices/current/push/test"),
+            (Method::POST, "/api/v1/devices/current/push/ack"),
+        ] {
+            let own = send(method.clone(), path, Some("abc")).await.unwrap();
+            assert_eq!(own.status(), StatusCode::OK, "{method} {path}");
+            let anonymous = send(method.clone(), path, None).await.unwrap();
+            assert_eq!(anonymous.status(), StatusCode::FORBIDDEN, "{method} {path}");
+        }
+        let other = send(Method::PUT, "/api/v1/devices/other", Some("abc"))
+            .await
+            .unwrap();
+        assert_eq!(other.status(), StatusCode::FORBIDDEN);
     }
 }

@@ -1,7 +1,9 @@
 pub mod credential;
+pub mod device_alert;
 pub mod error;
 pub mod health;
 pub mod metrics;
+pub mod pairing;
 pub mod pipeline;
 pub mod pipeline_view;
 pub mod provider;
@@ -17,6 +19,13 @@ pub use credential::{
     SignInStatus,
     SIGN_IN_CONFIG_KEY,
     SIGN_IN_EXPIRED,
+};
+pub use device_alert::{
+    new_alert_id,
+    AlertKind,
+    DeviceAlert,
+    DevicePush,
+    NewDeviceAlert,
 };
 pub use error::{
     DomainError,
@@ -48,6 +57,10 @@ pub use metrics::{
     MetricsQuery,
     MetricsStats,
     PipelineMetricsStats,
+};
+pub use pairing::{
+    PairedDevice,
+    ServerUrl,
 };
 pub use pipeline::{
     PaginatedAvailablePipelines,

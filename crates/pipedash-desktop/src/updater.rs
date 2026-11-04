@@ -1409,6 +1409,7 @@ async fn install(
     };
     let lock = app.state::<AppLockState>();
     let transition = lock.transition().await;
+    let was_sharing = crate::host::status(app).is_ok_and(|status| status.running);
     let had_core = lifecycle.drain_core(app).await.map_err(|_| {
         UpdateFailure::new(
             "install",
@@ -1470,6 +1471,9 @@ async fn install(
                 inner.status.phase = UpdatePhase::Available;
             }
             drop(exclusive);
+            if was_sharing {
+                crate::host::start_if_enabled(app).await;
+            }
             Err(error)
         }
     }

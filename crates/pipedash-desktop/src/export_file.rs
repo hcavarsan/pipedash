@@ -57,7 +57,7 @@ pub struct ExportFileResult {
     pub shared: bool,
 }
 
-fn export_error(message: String) -> ErrorResponse {
+pub(crate) fn export_error(message: String) -> ErrorResponse {
     ErrorResponse {
         error: message,
         details: None,
@@ -93,19 +93,12 @@ async fn write_export(base: &Path, name: &str, contents: &[u8]) -> std::io::Resu
     Ok(path)
 }
 
-#[tauri::command]
-pub async fn save_export_file(
-    _operation: OperationLease, app: AppHandle, file_name: String, contents: Vec<u8>,
+pub async fn share_bytes(
+    app: &AppHandle, file_name: &str, contents: &[u8],
 ) -> Result<ExportFileResult, ErrorResponse> {
-    if !cfg!(mobile) {
-        return Err(export_error(
-            "Sharing exports is only available on mobile".to_string(),
-        ));
-    }
-
-    let name = validate_file_name(&file_name).map_err(|e| export_error(e.to_string()))?;
+    let name = validate_file_name(file_name).map_err(|e| export_error(e.to_string()))?;
     let base = std::env::temp_dir().join(EXPORT_DIR);
-    let path = write_export(&base, name, &contents)
+    let path = write_export(&base, name, contents)
         .await
         .map_err(|e| export_error(format!("Couldn't prepare the file: {}", e)))?;
 
@@ -120,6 +113,19 @@ pub async fn save_export_file(
         path: path.display().to_string(),
         shared: shared.map_err(|e| export_error(format!("Couldn't share the file: {}", e)))?,
     })
+}
+
+#[tauri::command]
+pub async fn save_export_file(
+    _operation: OperationLease, app: AppHandle, file_name: String, contents: Vec<u8>,
+) -> Result<ExportFileResult, ErrorResponse> {
+    if !cfg!(mobile) {
+        return Err(export_error(
+            "Sharing exports is only available on mobile".to_string(),
+        ));
+    }
+
+    share_bytes(&app, &file_name, &contents).await
 }
 
 fn write_error(e: std::io::Error) -> ErrorResponse {

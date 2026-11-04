@@ -105,6 +105,8 @@ flowchart LR
 
 GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkins, Azure DevOps Pipelines, Tekton CD, ArgoCD, FluxCD, Prow and Komodo Stacks. Each one is a plugin crate. The [providers guide](https://pipedash.app/docs/providers) lists the token and permissions each provider needs.
 
+Buildkite's organization picker and pipeline discovery include organizations from every API page.
+
 ## Features
 
 - See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most. Hide a workflow you don't watch, and it leaves the table and its repository's status until you unhide it under Show hidden.
@@ -118,6 +120,8 @@ GitHub Actions, Gitea Actions, GitLab CI, Bitbucket Pipelines, Buildkite, Jenkin
 - Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
 - See when GitHub disables a workflow and why: after 60 days without repository activity, by hand or in a fork. Enable it again from its row menu with a token that can trigger workflows.
 - Get a notification when a pipeline fails, a run takes far longer than usual or a provider has an outage.
+- Connect a phone or another computer to a Pipedash server, or to a desktop app that shares itself on your network, instead of adding providers on every device. Scan the QR code or enter the address and pairing code from Settings → Devices. The connected app shows the host's pipelines and updates live, and you remove a device at any time.
+- Phones get alerts from a Pipedash server in the background, connected or standalone, and iPhone and iPad can turn on push alerts. The relay never sees pipeline names.
 - Keep provider tokens in the system keyring or in a database encrypted with AES-256-GCM. Pipedash sends no analytics or telemetry.
 
 ## Get started
@@ -127,6 +131,8 @@ Download the [desktop app](https://pipedash.app/downloads), install the [iOS app
 To install the self-hosted web app on iPhone, open it in Safari and choose Share > Add to Home Screen. Keep "Open as Web App" enabled when available. Its manifest covers the deployment base path and starts the app at that root. After deploying changes to scope, status-bar settings or icon artwork, add a new Home Screen icon to avoid cached installation metadata.
 
 When you move storage with "Transfer data", Pipedash keeps retained run history, including archived FluxCD reconciliations.
+
+Clear cached run history in Settings. If the database rejects the delete, Pipedash reports the error instead of success.
 
 - [Configuration](https://pipedash.app/docs/configuration): `config.toml`, environment variables and secrets.
 - [Storage and tokens](https://pipedash.app/docs/configuration/storage-backends): SQLite, PostgreSQL and token encryption.
@@ -145,11 +151,17 @@ Native updates support AppImage, installed macOS applications and Windows NSIS i
 
 Installation waits for active application operations and background startup, stops core services and restarts only after installation succeeds. A returned installation failure restores fresh core services. The next launch checks whether the requested version installed. Updates never install on ordinary quit. Install the first updater-capable release manually if your current version has no Updates controls.
 
+Installation also pauses desktop sharing. If installation fails, Pipedash restores sharing after its core services recover.
+
 ## Contributing
 
 Read the [contribution guide](https://pipedash.app/docs/resources/contributing). For local builds, see [development](https://pipedash.app/docs/resources/development). To add a CI/CD provider, see [plugin development](https://pipedash.app/docs/resources/plugin-development).
 
-Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` in `mise.toml` and `rust-toolchain.toml` because the November 1 nightly fails to compile the Linux `zbus` dependency; keep both pins aligned when upgrading.
+Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` in `mise.toml` and `rust-toolchain.toml` because the November 1 nightly fails to compile the Linux `zbus` dependency; keep both pins aligned when upgrading. Use `cargo fmt` without a toolchain override to keep formatting on the same version.
+
+CI runs backend tests on Linux, macOS and Windows, including log-resume checks that preserve the previous revision while truncating and extending a copied checkpoint.
+
+Run `bun run test` for frontend regressions and `cargo nextest run --workspace --all-features` for Rust regressions. The frontend command isolates each test file, and DOM tests unmount React roots and clear React Query clients before unregistering Happy DOM.
 
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
 

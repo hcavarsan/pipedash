@@ -132,6 +132,20 @@ pub enum CoreEvent {
 
     VaultLocked,
 
+    DevicePaired {
+        id: String,
+        name: String,
+    },
+
+    DeviceRevoked {
+        id: String,
+    },
+
+    AlertRecorded {
+        id: String,
+        seq: i64,
+    },
+
     RunLogProgress {
         pipeline_id: String,
         run_number: i64,
@@ -190,6 +204,9 @@ impl CoreEvent {
             CoreEvent::RunHistoryCacheInvalidated { .. } => "run-history-cache-invalidated",
             CoreEvent::VaultUnlocked => "vault-unlocked",
             CoreEvent::VaultLocked => "vault-locked",
+            CoreEvent::DevicePaired { .. } => "device-paired",
+            CoreEvent::DeviceRevoked { .. } => "device-revoked",
+            CoreEvent::AlertRecorded { .. } => "alert-recorded",
             CoreEvent::RunLogProgress { .. } => "run-log-progress",
             CoreEvent::RunLogReady { .. } => "run-log-ready",
             CoreEvent::RunLogFailed { .. } => "run-log-failed",
@@ -312,6 +329,17 @@ impl CoreEvent {
             }
             CoreEvent::VaultUnlocked => serde_json::json!({}),
             CoreEvent::VaultLocked => serde_json::json!({}),
+            CoreEvent::DevicePaired { id, name } => serde_json::json!({
+                "id": id,
+                "name": name,
+            }),
+            CoreEvent::DeviceRevoked { id } => serde_json::json!({
+                "id": id,
+            }),
+            CoreEvent::AlertRecorded { id, seq } => serde_json::json!({
+                "id": id,
+                "seq": seq,
+            }),
             CoreEvent::RunLogProgress {
                 pipeline_id,
                 run_number,
@@ -474,6 +502,30 @@ mod tests {
         assert_eq!(
             failed.to_json_payload(),
             serde_json::json!({ "pipelines": [] })
+        );
+
+        let paired = CoreEvent::DevicePaired {
+            id: "d1".into(),
+            name: "Pixel".into(),
+        };
+        assert_eq!(paired.event_name(), "device-paired");
+        assert_eq!(
+            paired.to_json_payload(),
+            serde_json::json!({ "id": "d1", "name": "Pixel" })
+        );
+
+        let revoked = CoreEvent::DeviceRevoked { id: "d1".into() };
+        assert_eq!(revoked.event_name(), "device-revoked");
+        assert_eq!(revoked.to_json_payload(), serde_json::json!({ "id": "d1" }));
+
+        let recorded = CoreEvent::AlertRecorded {
+            id: "a1".into(),
+            seq: 7,
+        };
+        assert_eq!(recorded.event_name(), "alert-recorded");
+        assert_eq!(
+            recorded.to_json_payload(),
+            serde_json::json!({ "id": "a1", "seq": 7 })
         );
     }
 }

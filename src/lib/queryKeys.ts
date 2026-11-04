@@ -107,7 +107,7 @@ export const queryKeys = {
 
   push: {
     all: ['push'] as const,
-    status: () => [...queryKeys.push.all, 'status'] as const,
+    relay: () => [...queryKeys.push.all, 'relay'] as const,
     devices: () => [...queryKeys.push.all, 'devices'] as const,
   },
 
@@ -135,5 +135,15 @@ export const queryKeys = {
   platform: {
     all: ['platform'] as const,
     current: () => [...queryKeys.platform.all, 'current'] as const,
+  },
+
+  devices: {
+    all: ['devices'] as const,
+    list: () => [...queryKeys.devices.all, 'list'] as const,
+  },
+
+  sharing: {
+    all: ['sharing'] as const,
+    status: () => [...queryKeys.sharing.all, 'status'] as const,
   },
 } as const

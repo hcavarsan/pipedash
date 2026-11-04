@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 
 import { logger } from '../lib/logger'
 import { queryKeys } from '../lib/queryKeys'
-import { isTauri } from '../services/isTauri'
+import { hasLocalCore } from '../services/connection'
 import { mobileService } from '../services/mobile'
 import type { BuildWatchStatus } from '../types/domain'
 import { displayErrorNotification } from '../utils/errorDisplay'
@@ -13,7 +13,7 @@ import { displayErrorNotification } from '../utils/errorDisplay'
 const mutationKey = [...queryKeys.buildWatch.all, 'change']
 
 function isBuildWatchPlatform() {
-  return isTauri() && platform() === 'ios'
+  return hasLocalCore() && platform() === 'ios'
 }
 
 type UseBuildWatchResult = UseQueryResult<BuildWatchStatus, Error> & {

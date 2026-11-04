@@ -355,6 +355,37 @@ impl ConfigState {
         Ok(())
     }
 
+    pub async fn set_push_relay_url(&self, relay_url: &str) -> DomainResult<()> {
+        let current_config = self.config.read().await;
+        let mut config = (**current_config).clone();
+        drop(current_config);
+
+        config.push.relay_url = relay_url.trim().trim_end_matches('/').to_string();
+
+        self.persist_edit(&config, |doc| {
+            if config.push.relay_url.is_empty() {
+                doc.remove("push");
+            } else {
+                doc.entry("push").or_insert_with(toml_edit::table)["relay_url"] =
+                    toml_edit::value(config.push.relay_url.as_str());
+            }
+        })
+        .await?;
+
+        let _ = self.change_tx.send(ConfigChangeEvent::ValueChanged {
+            key: "push".to_string(),
+            old_value: None,
+            new_value: "updated".to_string(),
+        });
+
+        Ok(())
+    }
+
+    pub fn push_relay_from_env() -> bool {
+        std::env::var(ConfigKey::PushRelayUrl.env_var_name())
+            .is_ok_and(|value| !value.trim().is_empty())
+    }
+
     pub async fn sync_providers_from_toml(
         &self, config_backend: &dyn ConfigBackend, delete_orphans: bool,
     ) -> DomainResult<SyncResult> {
@@ -435,12 +466,21 @@ impl ConfigState {
     }
 
     async fn persist_general(&self, config: &PipedashConfig) -> DomainResult<()> {
+        self.persist_edit(config, |doc| {
+            ConfigLoader::apply_general(doc, &config.general)
+        })
+        .await
+    }
+
+    async fn persist_edit(
+        &self, config: &PipedashConfig, edit: impl FnOnce(&mut toml_edit::DocumentMut),
+    ) -> DomainResult<()> {
         let content = match std::fs::read_to_string(&self.config_path) {
             Ok(existing) => {
                 let mut doc: toml_edit::DocumentMut = existing.parse().map_err(|e| {
                     DomainError::DatabaseError(format!("Failed to parse existing TOML: {}", e))
                 })?;
-                ConfigLoader::apply_general(&mut doc, &config.general);
+                edit(&mut doc);
                 doc.to_string()
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => ConfigLoader::to_toml(config)
@@ -461,7 +501,7 @@ impl ConfigState {
 
         *self.config.write().await = Arc::new(config.clone());
 
-        tracing::debug!("General settings persisted to {:?}", self.config_path);
+        tracing::debug!("Config settings persisted to {:?}", self.config_path);
         Ok(())
     }
 
@@ -762,6 +802,48 @@ mod tests {
             state.get_string(ConfigKey::PushRelayUrl).await,
             "https://env.example.com"
         );
+    }
+
+    #[tokio::test]
+    async fn test_set_push_relay_url_edits_only_the_push_table() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.toml");
+        std::fs::write(&path, "# keep me\n[general]\nmetrics_enabled = false\n").unwrap();
+        let state = ConfigState::from_config(
+            PipedashConfig::default(),
+            path.clone(),
+            Arc::new(MemoryTokenStore::new()),
+        );
+
+        state
+            .set_push_relay_url(" https://relay.pipedash.app/ ")
+            .await
+            .unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains("# keep me"));
+        assert!(written.contains("[push]\nrelay_url = \"https://relay.pipedash.app\""));
+        assert_eq!(
+            state.get().await.push.relay_url,
+            "https://relay.pipedash.app"
+        );
+
+        state.set_push_relay_url("").await.unwrap();
+        let cleared = std::fs::read_to_string(&path).unwrap();
+        assert!(!cleared.contains("push"));
+        assert!(cleared.contains("# keep me"));
+        assert!(state.get().await.push.relay_url.is_empty());
+    }
+
+    #[test]
+    fn test_push_relay_from_env_ignores_blank_values() {
+        for (value, expected) in [
+            (None, false),
+            (Some("  "), false),
+            (Some("https://r"), true),
+        ] {
+            let _env = EnvGuard::set(&[("PIPEDASH_PUSH_RELAY_URL", value)]);
+            assert_eq!(ConfigState::push_relay_from_env(), expected);
+        }
     }
 
     fn update(default_refresh_interval: u32, status_pages_enabled: bool) -> GeneralSettingsUpdate {
