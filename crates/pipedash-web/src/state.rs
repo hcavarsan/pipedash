@@ -15,6 +15,7 @@ use pipedash_core::domain::{
     PairedDevice,
 };
 use pipedash_core::infrastructure::{
+    ConfigKey,
     ConfigState,
     StorageManager,
 };
@@ -31,6 +32,7 @@ use crate::error::{
     AppError,
 };
 use crate::pairing_codes::PairingCodes;
+use crate::push::normalize_relay_url;
 use crate::ws::WebSocketEventBus;
 
 pub struct AppStateInner {
@@ -52,6 +54,7 @@ pub struct AppState {
     pub download_tickets: Arc<DownloadTickets>,
     pub pairing_codes: Arc<PairingCodes>,
     pub desktop_host: Option<Arc<str>>,
+    pub push_relay: Option<Arc<str>>,
     pub closing: Arc<watch::Sender<bool>>,
     api_token: Arc<StdRwLock<Option<Arc<str>>>>,
 }
@@ -67,6 +70,7 @@ impl AppState {
             download_tickets: Arc::default(),
             pairing_codes: Arc::default(),
             desktop_host,
+            push_relay: None,
             closing: Arc::new(watch::channel(false).0),
             api_token: Arc::default(),
         }
@@ -165,6 +169,21 @@ impl AppState {
             .find_by_token(token)
             .await
             .inspect_err(|error| tracing::warn!(%error, "Failed to look up the paired device"))
+    }
+
+    pub fn with_push_relay(mut self, url: &str) -> Self {
+        self.push_relay = Some(url.into());
+        self
+    }
+
+    pub async fn push_relay_url(&self) -> Option<String> {
+        if self.desktop_host.is_some() {
+            return self.push_relay.as_deref().and_then(normalize_relay_url);
+        }
+
+        let config = self.config_state().await.ok()?;
+
+        normalize_relay_url(&config.get_string(ConfigKey::PushRelayUrl).await)
     }
 
     pub async fn core(&self) -> ApiResult<CoreContext> {

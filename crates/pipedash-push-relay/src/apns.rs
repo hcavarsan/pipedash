@@ -137,14 +137,23 @@ pub fn classify(status: u16, reason: Option<&str>) -> Outcome {
 }
 
 pub const FAILURE_CATEGORY: &str = "pipedash-failure";
+pub const ALERT_TITLE: &str = "Pipedash";
+pub const ALERT_BODY: &str = "New alert. Open Pipedash to see it.";
+pub const ALERT_THREAD: &str = "pipedash-alerts";
+pub const ALERT_TTL_SECS: u64 = 24 * 60 * 60;
 
-pub struct Notification<'a> {
-    pub title: &'a str,
-    pub body: &'a str,
-    pub thread_id: Option<&'a str>,
-    pub pipeline_id: Option<&'a str>,
-    pub provider_id: Option<u64>,
-    pub run_number: Option<u64>,
+pub enum Notification<'a> {
+    Legacy {
+        title: &'a str,
+        body: &'a str,
+        thread_id: Option<&'a str>,
+        pipeline_id: Option<&'a str>,
+        provider_id: Option<u64>,
+        run_number: Option<u64>,
+    },
+    Alert {
+        alert_id: &'a str,
+    },
 }
 
 #[derive(Serialize)]
@@ -158,6 +167,8 @@ struct Payload<'a> {
 struct Aps<'a> {
     alert: Alert<'a>,
     sound: &'static str,
+    #[serde(rename = "mutable-content", skip_serializing_if = "Option::is_none")]
+    mutable_content: Option<u8>,
     #[serde(rename = "thread-id", skip_serializing_if = "Option::is_none")]
     thread_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,8 +176,15 @@ struct Aps<'a> {
 }
 
 #[derive(Serialize)]
+#[serde(untagged)]
+enum Destination<'a> {
+    Pipeline(PipelineDestination<'a>),
+    Alert(AlertDestination<'a>),
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Destination<'a> {
+struct PipelineDestination<'a> {
     key: String,
     pipeline_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -175,23 +193,51 @@ struct Destination<'a> {
     run_number: Option<u64>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AlertDestination<'a> {
+    alert_id: &'a str,
+}
+
 fn payload<'a>(notification: &Notification<'a>) -> Payload<'a> {
-    Payload {
-        aps: Aps {
-            alert: Alert {
-                title: notification.title,
-                body: notification.body,
-            },
-            sound: "default",
-            thread_id: notification.thread_id,
-            category: notification.pipeline_id.map(|_| FAILURE_CATEGORY),
-        },
-        pipedash: notification.pipeline_id.map(|pipeline_id| Destination {
-            key: format!("pipeline:{pipeline_id}"),
+    match *notification {
+        Notification::Legacy {
+            title,
+            body,
+            thread_id,
             pipeline_id,
-            provider_id: notification.provider_id,
-            run_number: notification.run_number,
-        }),
+            provider_id,
+            run_number,
+        } => Payload {
+            aps: Aps {
+                alert: Alert { title, body },
+                sound: "default",
+                mutable_content: None,
+                thread_id,
+                category: pipeline_id.map(|_| FAILURE_CATEGORY),
+            },
+            pipedash: pipeline_id.map(|pipeline_id| {
+                Destination::Pipeline(PipelineDestination {
+                    key: format!("pipeline:{pipeline_id}"),
+                    pipeline_id,
+                    provider_id,
+                    run_number,
+                })
+            }),
+        },
+        Notification::Alert { alert_id } => Payload {
+            aps: Aps {
+                alert: Alert {
+                    title: ALERT_TITLE,
+                    body: ALERT_BODY,
+                },
+                sound: "default",
+                mutable_content: Some(1),
+                thread_id: Some(ALERT_THREAD),
+                category: None,
+            },
+            pipedash: Some(Destination::Alert(AlertDestination { alert_id })),
+        },
     }
 }
 
@@ -244,16 +290,19 @@ impl Apns {
         };
         let payload = payload(notification);
 
-        let response = self
+        let mut request = self
             .http
             .post(format!("{base}/3/device/{}", subscription.device_token))
             .bearer_auth(token)
             .header("apns-topic", &subscription.bundle_id)
             .header("apns-push-type", "alert")
-            .header("apns-priority", "10")
-            .json(&payload)
-            .send()
-            .await;
+            .header("apns-priority", "10");
+        if let Notification::Alert { alert_id } = notification {
+            request = request
+                .header("apns-collapse-id", *alert_id)
+                .header("apns-expiration", (unix_now() + ALERT_TTL_SECS).to_string());
+        }
+        let response = request.json(&payload).send().await;
         let response = match response {
             Ok(response) => response,
             Err(error) => {
@@ -410,7 +459,7 @@ mod tests {
         let outcome = apns
             .send(
                 &subscription,
-                &Notification {
+                &Notification::Legacy {
                     title: "build failed",
                     body: "GitHub · main · #7",
                     thread_id: Some("github__1__build"),
@@ -447,7 +496,7 @@ mod tests {
 
     #[test]
     fn a_failure_payload_carries_the_destination_and_the_open_run_category() {
-        let notification = Notification {
+        let notification = Notification::Legacy {
             title: "build failed",
             body: "GitHub · main · #7",
             thread_id: Some("github__1__acme/app/ci.yml"),
@@ -477,7 +526,7 @@ mod tests {
 
     #[test]
     fn a_notification_without_a_pipeline_has_no_destination_or_category() {
-        let notification = Notification {
+        let notification = Notification::Legacy {
             title: "t",
             body: "b",
             thread_id: None,
@@ -492,6 +541,53 @@ mod tests {
                 "aps": { "alert": { "title": "t", "body": "b" }, "sound": "default" }
             })
         );
+    }
+
+    #[test]
+    fn an_alert_payload_is_generic_and_carries_only_the_alert_id() {
+        let notification = Notification::Alert { alert_id: "ab12_-" };
+
+        assert_eq!(
+            serde_json::to_value(payload(&notification)).unwrap(),
+            serde_json::json!({
+                "aps": {
+                    "alert": {
+                        "title": "Pipedash",
+                        "body": "New alert. Open Pipedash to see it.",
+                    },
+                    "sound": "default",
+                    "mutable-content": 1,
+                    "thread-id": "pipedash-alerts",
+                },
+                "pipedash": { "alertId": "ab12_-" },
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn an_alert_goes_out_with_the_collapse_id_and_a_day_of_expiration() {
+        let stub = StubApns::start().await;
+        let (pem, _) = key_pem();
+        let apns = Apns::new(Signer::new(&pem, "K", "T").unwrap(), &stub.url, &stub.url).unwrap();
+        let subscription = Subscription {
+            device_token: "abcd1234".to_string(),
+            environment: Environment::Production,
+            bundle_id: "com.example.app".to_string(),
+        };
+
+        let before = unix_now();
+        let outcome = apns
+            .send(&subscription, &Notification::Alert { alert_id: "ab12" })
+            .await;
+        let after = unix_now();
+
+        assert_eq!(outcome, Outcome::Delivered);
+        let requests = stub.take_requests();
+        assert_eq!(requests[0].push_type.as_deref(), Some("alert"));
+        assert_eq!(requests[0].priority.as_deref(), Some("10"));
+        assert_eq!(requests[0].collapse_id.as_deref(), Some("ab12"));
+        let expiration: u64 = requests[0].expiration.as_deref().unwrap().parse().unwrap();
+        assert!((before + ALERT_TTL_SECS..=after + ALERT_TTL_SECS).contains(&expiration));
     }
 
     #[tokio::test]
@@ -512,7 +608,7 @@ mod tests {
         let outcome = apns
             .send(
                 &subscription,
-                &Notification {
+                &Notification::Legacy {
                     title: "t",
                     body: "b",
                     thread_id: None,

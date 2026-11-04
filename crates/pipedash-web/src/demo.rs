@@ -57,21 +57,21 @@ pub fn device_name(platform: &str) -> String {
     format!("Demo {label}")
 }
 
-fn removes_own_device(req: &Request) -> bool {
-    *req.method() == Method::DELETE
-        && req
-            .uri()
-            .path()
+fn device_owned_write(req: &Request) -> bool {
+    let Some(device) = req.extensions().get::<CurrentDevice>() else {
+        return false;
+    };
+    let path = req.uri().path();
+
+    (*req.method() == Method::DELETE
+        && path
             .strip_prefix("/api/v1/devices/")
-            .is_some_and(|id| {
-                req.extensions()
-                    .get::<CurrentDevice>()
-                    .is_some_and(|device| device.0 == id)
-            })
+            .is_some_and(|id| id == device.0))
+        || path.starts_with("/api/v1/devices/current/push")
 }
 
 pub async fn reject_changes(req: Request, next: Next) -> Response {
-    if is_blocked(req.method(), req.uri().path()) && !removes_own_device(&req) {
+    if is_blocked(req.method(), req.uri().path()) && !device_owned_write(&req) {
         return AppError::new(
             StatusCode::FORBIDDEN,
             ApiError::new(
@@ -222,5 +222,50 @@ mod tests {
             let response = remove(path, device).await.unwrap();
             assert_eq!(response.status(), StatusCode::FORBIDDEN, "{device:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_paired_device_manages_only_its_own_push_registration() {
+        let app = Router::new()
+            .route(
+                "/api/v1/devices/current/push",
+                axum::routing::put(|| async { "ok" }).delete(|| async { "ok" }),
+            )
+            .route("/api/v1/devices/current/push/test", post(|| async { "ok" }))
+            .route("/api/v1/devices/current/push/ack", post(|| async { "ok" }))
+            .route(
+                "/api/v1/devices/other",
+                axum::routing::put(|| async { "ok" }),
+            )
+            .layer(axum::middleware::from_fn(reject_changes));
+        let send = |method: Method, path: &str, device: Option<&str>| {
+            let mut request = axum::http::Request::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .unwrap();
+            if let Some(id) = device {
+                request
+                    .extensions_mut()
+                    .insert(CurrentDevice(id.to_string()));
+            }
+            app.clone().oneshot(request)
+        };
+
+        for (method, path) in [
+            (Method::PUT, "/api/v1/devices/current/push"),
+            (Method::DELETE, "/api/v1/devices/current/push"),
+            (Method::POST, "/api/v1/devices/current/push/test"),
+            (Method::POST, "/api/v1/devices/current/push/ack"),
+        ] {
+            let own = send(method.clone(), path, Some("abc")).await.unwrap();
+            assert_eq!(own.status(), StatusCode::OK, "{method} {path}");
+            let anonymous = send(method.clone(), path, None).await.unwrap();
+            assert_eq!(anonymous.status(), StatusCode::FORBIDDEN, "{method} {path}");
+        }
+        let other = send(Method::PUT, "/api/v1/devices/other", Some("abc"))
+            .await
+            .unwrap();
+        assert_eq!(other.status(), StatusCode::FORBIDDEN);
     }
 }

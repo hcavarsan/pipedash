@@ -7,6 +7,7 @@ require_relative "ios_project"
 require_relative "app_review_demo"
 require_relative "store_text"
 require_relative "store_version"
+require_relative "push_signing"
 
 default_platform(:ios)
 
@@ -17,6 +18,8 @@ APPLE_DIR = File.join(TAURI_DIR, "gen/apple")
 TARGET = IosProject::APP_TARGET
 TARGET_DIR = File.join(APPLE_DIR, TARGET)
 XCODE_FILES = File.join(ROOT, "ios/xcode")
+EXTENSION_DIR = File.join(APPLE_DIR, IosProject::NSE_TARGET)
+ALERT_FETCH = File.join(ROOT, "ios/notification-service/Sources/AlertFetch/AlertFetch.swift")
 APP_ICON = File.join(TAURI_DIR, "icons/ios/app-icon-1024.png")
 # Absolute: lane code runs in ios/fastlane but actions run in ios/, so `__dir__` paths break inside actions.
 FASTLANE_DIR = File.join(ROOT, "ios/fastlane")
@@ -51,13 +54,14 @@ def ios_build(build_number:, sign:)
     archive = Dir[File.join(APPLE_DIR, "**", "#{TARGET}.xcarchive")].max_by { |path| File.mtime(path) } ||
       UI.user_error!("No archive found in #{APPLE_DIR}")
     profile = ENV.fetch("sigh_#{APP_ID}_appstore_profile-name")
+    extension_profile = ENV.fetch("sigh_#{IosProject::NSE_ID}_appstore_profile-name")
     return build_app(
       skip_build_archive: true,
       project: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
       scheme: TARGET,
       archive_path: archive,
       export_method: "app-store",
-      export_options: IosProject.export_options(profile, team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM")),
+      export_options: IosProject.export_options(profile, extension_profile, team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM")),
       skip_profile_detection: true,
       output_directory: File.join(APPLE_DIR, "build/arm64"),
       output_name: "pipedash.ipa",
@@ -69,6 +73,18 @@ end
 
 def plist_to_hash(path)
   JSON.parse(sh("plutil", "-convert", "json", "-o", "-", path, log: false))
+end
+
+def check_required_reasons(binary, manifest_path, name)
+  UI.user_error!("PrivacyInfo.xcprivacy is not bundled in #{name}") unless File.exist?(manifest_path)
+  manifest = plist_to_hash(manifest_path)
+  undefined_symbols = sh("xcrun", "nm", "-u", binary, log: false).split("\n").map(&:strip)
+  selectors = sh("xcrun", "otool", "-v", "-s", "__TEXT", "__objc_methname", binary, log: false)
+              .split("\n").map { |line| line.split("\t").last.to_s.strip }
+  detected = RequiredReasonApis.detect(undefined_symbols: undefined_symbols, selectors: selectors)
+  detected.each { |category, apis| UI.message("Required-reason API #{category}: #{apis.join(", ")}") }
+  undeclared = RequiredReasonApis.undeclared(detected, manifest)
+  UI.user_error!("PrivacyInfo.xcprivacy in #{name} does not declare #{undeclared.keys.join(", ")}") unless undeclared.empty?
 end
 
 platform :ios do
@@ -86,10 +102,14 @@ platform :ios do
     launch_screens.each { |path| FileUtils.cp(File.join(XCODE_FILES, "LaunchScreen.storyboard"), path) }
 
     FileUtils.cp(File.join(XCODE_FILES, "PrivacyInfo.xcprivacy"), TARGET_DIR)
+    FileUtils.mkdir_p(EXTENSION_DIR)
+    FileUtils.cp([*Dir[File.join(XCODE_FILES, "NotificationService/*")].reject { |path| path.end_with?(".entitlements") }, ALERT_FETCH],
+                 EXTENSION_DIR)
     IosProject.write(File.join(APPLE_DIR, "project.yml"),
                      version: ios_version, build_number: options.fetch(:build_number, 1))
     sh("xcodegen", "generate", "--spec", File.join(APPLE_DIR, "project.yml"))
     FileUtils.cp(File.join(XCODE_FILES, "pipedash.entitlements"), File.join(TARGET_DIR, "#{TARGET}.entitlements"))
+    FileUtils.cp(File.join(XCODE_FILES, "NotificationService/NotificationService.entitlements"), EXTENSION_DIR)
   end
 
   desc "Check that an IPA meets the App Store requirements this project depends on"
@@ -109,25 +129,22 @@ platform :ios do
       end
 
       IosProject.verify_metadata!(info)
-      UI.user_error!("Release must not bundle app extensions or Live Activities") unless Dir[File.join(app, "**/*.appex")].empty?
+      extension = File.join(app, "PlugIns/#{IosProject::NSE_TARGET}.appex")
+      UI.user_error!("Release must bundle only the notification service extension") unless Dir[File.join(app, "**/*.appex")] == [extension]
+      extension_info = plist_to_hash(File.join(extension, "Info.plist"))
+      IosProject.verify_extension!(extension_info, info)
 
-      manifest_path = File.join(app, "PrivacyInfo.xcprivacy")
-      UI.user_error!("PrivacyInfo.xcprivacy is not bundled in the app") unless File.exist?(manifest_path)
-      manifest = plist_to_hash(manifest_path)
-
-      binary = File.join(app, info.fetch("CFBundleExecutable"))
-      undefined_symbols = sh("xcrun", "nm", "-u", binary, log: false).split("\n").map(&:strip)
-      selectors = sh("xcrun", "otool", "-v", "-s", "__TEXT", "__objc_methname", binary, log: false)
-                  .split("\n").map { |line| line.split("\t").last.to_s.strip }
-      detected = RequiredReasonApis.detect(undefined_symbols: undefined_symbols, selectors: selectors)
-      detected.each { |category, apis| UI.message("Required-reason API #{category}: #{apis.join(", ")}") }
-      undeclared = RequiredReasonApis.undeclared(detected, manifest)
-      UI.user_error!("PrivacyInfo.xcprivacy does not declare #{undeclared.keys.join(", ")}") unless undeclared.empty?
+      check_required_reasons(File.join(app, info.fetch("CFBundleExecutable")), File.join(app, "PrivacyInfo.xcprivacy"), "the app")
+      check_required_reasons(File.join(extension, extension_info.fetch("CFBundleExecutable")),
+                             File.join(extension, "PrivacyInfo.xcprivacy"), "the notification service extension")
 
       if options[:signed]
         entitlements_path = File.join(dir, "entitlements.plist")
         sh("codesign", "-d", "--entitlements", entitlements_path, "--xml", app, log: false)
         IosProject.verify_entitlements!(plist_to_hash(entitlements_path))
+        extension_entitlements_path = File.join(dir, "extension-entitlements.plist")
+        sh("codesign", "-d", "--entitlements", extension_entitlements_path, "--xml", extension, log: false)
+        IosProject.verify_extension_entitlements!(plist_to_hash(extension_entitlements_path))
         sh("codesign", "--verify", "--deep", "--strict", app)
       end
       UI.success("#{File.basename(ipa)} passed the App Store checks")
@@ -222,7 +239,7 @@ platform :ios do
 
   private_lane :build_signed_ipa do |options|
     setup_ci
-    match(type: "appstore", app_identifier: APP_ID, readonly: true)
+    match(type: "appstore", app_identifier: [APP_ID, IosProject::NSE_ID], readonly: true)
     build_number = latest_testflight_build_number(
       api_key: options.fetch(:api_key),
       app_identifier: APP_ID,
@@ -237,10 +254,39 @@ platform :ios do
       code_sign_identity: ENV.fetch("sigh_#{APP_ID}_appstore_certificate-name"),
       profile_name: ENV.fetch("sigh_#{APP_ID}_appstore_profile-name"),
     )
+    update_code_signing_settings(
+      path: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
+      targets: [IosProject::NSE_TARGET],
+      use_automatic_signing: false,
+      team_id: ENV.fetch("APPLE_DEVELOPMENT_TEAM"),
+      code_sign_identity: ENV.fetch("sigh_#{IosProject::NSE_ID}_appstore_certificate-name"),
+      profile_name: ENV.fetch("sigh_#{IosProject::NSE_ID}_appstore_profile-name"),
+    )
     ENV["IOS_MOBILE_PROVISION"] = [File.binread(ENV.fetch("sigh_#{APP_ID}_appstore_profile-path"))].pack("m0")
     ipa = ios_build(build_number: build_number, sign: true)
     verify_ipa(ipa: ipa, version: ios_version, signed: true)
     ipa
+  end
+
+  desc "Register the notification extension App ID, turn on Push Notifications and renew the App Store profiles"
+  lane :setup_push_signing do
+    api_key = asc_api_key
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: api_key)
+    changes = PushSigning.ensure!(
+      bundle_ids: Spaceship::ConnectAPI::BundleId,
+      app_id: APP_ID,
+      extension_id: IosProject::NSE_ID,
+    )
+    changes.each { |change| UI.success(change) }
+    UI.message("App IDs already set up") if changes.empty?
+    setup_ci
+    match(
+      type: "appstore",
+      app_identifier: [APP_ID, IosProject::NSE_ID],
+      readonly: false,
+      force: true,
+      api_key: api_key,
+    )
   end
 
   desc "Build and upload to TestFlight"

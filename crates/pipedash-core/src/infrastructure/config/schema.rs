@@ -262,6 +262,8 @@ pub struct PostgresConfig {
     pub connection_string: String,
 }
 
+pub const OFFICIAL_PUSH_RELAY_URL: &str = "https://relay.pipedash.app";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PushConfig {
     #[serde(default)]

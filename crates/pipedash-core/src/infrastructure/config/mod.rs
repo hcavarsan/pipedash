@@ -37,6 +37,7 @@ pub use schema::{
     StorageBackend,
     StorageConfig,
     ViewFileConfig,
+    OFFICIAL_PUSH_RELAY_URL,
 };
 pub use state::{
     ConfigChangeEvent,

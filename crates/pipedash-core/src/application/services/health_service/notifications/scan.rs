@@ -69,6 +69,7 @@ use crate::application::services::provider_service::{
     ProviderFactory,
 };
 use crate::domain::{
+    AlertKind,
     DomainError,
     DomainResult,
     FailureKind,
@@ -486,6 +487,7 @@ impl NotificationState {
                 found.push(self.pipeline_notice(
                     &pipeline,
                     format!("{} is running longer than usual", pipeline.name),
+                    AlertKind::LongRun,
                 ));
             }
         }

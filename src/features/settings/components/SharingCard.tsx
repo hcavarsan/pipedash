@@ -56,6 +56,11 @@ export function SharingCard(): ReactNode {
           at any time.
         </Text>
 
+        <Text size="xs" c="dimmed">
+          Phones that turn on notifications also get push alerts through relay.pipedash.app. The relay sees only an
+          alert ID.
+        </Text>
+
         {status.running && status.url && (
           <Group gap="xs" wrap="nowrap">
             <Text size="sm">Sharing at</Text>

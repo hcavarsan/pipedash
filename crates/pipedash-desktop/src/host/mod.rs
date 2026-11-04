@@ -243,7 +243,9 @@ mod imp {
             bus,
             core.map(|core| (*core).clone()),
             &crate::remote::device_name(),
-        );
+        )
+        .with_push_relay(crate::push::relay_url());
+        pipedash_web::push::spawn_alert_push(state.clone());
 
         let (shutdown, stopped) = oneshot::channel();
         let serving = state.clone();
@@ -365,11 +367,22 @@ mod imp {
     }
 
     pub async fn list_devices(app: &AppHandle) -> Result<Vec<Device>, ErrorResponse> {
-        let devices = core(app).await?.devices().list().await?;
+        let core = core(app).await?;
+        let devices = core.devices().list().await?;
+        let pushes: std::collections::HashSet<String> = core
+            .device_pushes()
+            .list()
+            .await?
+            .into_iter()
+            .map(|push| push.device_id)
+            .collect();
 
         Ok(devices
             .into_iter()
-            .map(|device| device_response(device, None))
+            .map(|device| {
+                let push = pushes.contains(&device.id);
+                device_response(device, None, push)
+            })
             .collect())
     }
 

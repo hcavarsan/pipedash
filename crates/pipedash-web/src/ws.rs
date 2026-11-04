@@ -500,7 +500,7 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> 
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-async fn closed(closing: &mut watch::Receiver<bool>) {
+pub(crate) async fn closed(closing: &mut watch::Receiver<bool>) {
     let _ = closing.wait_for(|closed| *closed).await;
 }
 

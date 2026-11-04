@@ -7,8 +7,13 @@ pub mod plugins;
 #[cfg(test)]
 mod test_env;
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    Mutex,
+    PoisonError,
+};
 
+use application::services::device_alerts;
 pub use application::{
     LogExport,
     LogService,
@@ -42,6 +47,8 @@ pub use event::{
 };
 use infrastructure::database::{
     init_database,
+    DeviceAlertRepository,
+    DevicePushRepository,
     DeviceRepository,
     MetricsRepository,
     Repository,
@@ -58,6 +65,9 @@ pub use infrastructure::{
     SyncResult,
     TokenStore,
 };
+use tokio_util::sync::CancellationToken;
+
+type AlertEvents = Arc<Mutex<Option<tokio::sync::mpsc::Receiver<CoreEvent>>>>;
 
 #[derive(Clone)]
 pub struct CoreContext {
@@ -86,6 +96,10 @@ pub struct CoreContext {
     pub pipeline_view_service: Arc<application::PipelineViewService>,
 
     config_watcher: Arc<application::ConfigWatcher>,
+
+    alert_events: AlertEvents,
+
+    alert_stop: CancellationToken,
 }
 
 impl CoreContext {
@@ -94,8 +108,11 @@ impl CoreContext {
         http_client_manager: Arc<infrastructure::HttpClientManager>,
         metrics_service: Option<Arc<application::MetricsService>>,
         config_state: Arc<infrastructure::ConfigState>, services: application::Services,
+        alert_events: AlertEvents,
     ) -> Self {
         Self {
+            alert_events,
+            alert_stop: CancellationToken::new(),
             event_bus,
             token_store,
             http_client_manager,
@@ -170,6 +187,7 @@ impl CoreContext {
             infrastructure::run_logs::CACHE_BUDGET_BYTES,
         )
         .await?;
+        let (event_bus, alert_events) = application::recording_bus(event_bus);
         let services = application::Services::new(
             repository,
             Arc::clone(&http_client_manager),
@@ -186,6 +204,7 @@ impl CoreContext {
             metrics_service,
             config_state,
             services,
+            Arc::new(Mutex::new(Some(alert_events))),
         ))
     }
 
@@ -237,6 +256,7 @@ impl CoreContext {
             infrastructure::run_logs::CACHE_BUDGET_BYTES,
         )
         .await?;
+        let (event_bus, alert_events) = application::recording_bus(event_bus);
         let services = application::Services::new(
             repository,
             Arc::clone(&http_client_manager),
@@ -253,6 +273,7 @@ impl CoreContext {
             metrics_service,
             config_state,
             services,
+            Arc::new(Mutex::new(Some(alert_events))),
         ))
     }
 
@@ -262,6 +283,22 @@ impl CoreContext {
         let health_service = Arc::clone(&self.health_service);
         let config_watcher = Arc::clone(&self.config_watcher);
         let health = self.health.clone();
+        let alert_events = self
+            .alert_events
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(alert_events) = alert_events {
+            let state = device_alerts::seed(&self.pipeline_service, &self.provider_service).await;
+            tokio::spawn(device_alerts::record(
+                alert_events,
+                state,
+                self.alert_stop.clone(),
+                self.device_alerts(),
+                self.devices(),
+                Arc::clone(&self.event_bus),
+            ));
+        }
 
         tokio::spawn(async move {
             if let Err(e) = provider_service.load_all_providers().await {
@@ -304,11 +341,21 @@ impl CoreContext {
         );
         metrics.flush_metrics(None, true).await?;
         metrics.reset_all_processing_states().await?;
+        self.device_alerts().delete_all().await?;
+        self.device_pushes().delete_all().await?;
         Ok(providers_removed)
     }
 
     pub fn devices(&self) -> DeviceRepository {
         DeviceRepository::new(self.provider_service.repository().cache_pool().clone())
+    }
+
+    pub fn device_alerts(&self) -> DeviceAlertRepository {
+        DeviceAlertRepository::new(self.provider_service.repository().cache_pool().clone())
+    }
+
+    pub fn device_pushes(&self) -> DevicePushRepository {
+        DevicePushRepository::new(self.provider_service.repository().cache_pool().clone())
     }
 
     pub async fn pair_device(
@@ -327,6 +374,7 @@ impl CoreContext {
     }
 
     pub async fn revoke_device(&self, id: &str) -> DomainResult<bool> {
+        self.device_pushes().delete(id).await?;
         let removed = self.devices().delete(id).await?;
         if removed {
             self.event_bus
@@ -338,6 +386,7 @@ impl CoreContext {
     }
 
     pub async fn shutdown(&self) {
+        self.alert_stop.cancel();
         self.log_service.shutdown().await;
         self.config_watcher.stop().await;
         self.refresh_manager.stop().await;
@@ -407,7 +456,15 @@ mod reset_tests {
             Arc::clone(&config_state),
             log_store,
         );
-        CoreContext::from_services(bus, tokens, http, None, config_state, services)
+        CoreContext::from_services(
+            bus,
+            tokens,
+            http,
+            None,
+            config_state,
+            services,
+            Arc::default(),
+        )
     }
 
     async fn define_provider(core: &CoreContext, key: &str) {
@@ -571,5 +628,51 @@ mod reset_tests {
             .unwrap();
             assert_eq!(core.factory_reset().await.unwrap(), 0);
         }
+    }
+
+    #[tokio::test]
+    async fn revoking_a_device_removes_its_push_registration() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = context(dir.path(), Arc::new(MemoryTokenStore::new())).await;
+        let (device, _) = core.pair_device("Pixel", "android").await.unwrap();
+        core.device_pushes().set(&device.id, "sub-1").await.unwrap();
+
+        assert!(core.revoke_device(&device.id).await.unwrap());
+
+        assert_eq!(core.device_pushes().get(&device.id).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn factory_reset_clears_alerts_and_push_registrations() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = context(dir.path(), Arc::new(MemoryTokenStore::new())).await;
+        core.device_alerts()
+            .insert(&domain::NewDeviceAlert {
+                key: "pipeline:p".into(),
+                kind: domain::AlertKind::Failed,
+                title: "t".into(),
+                body: "b".into(),
+                pipeline_id: None,
+                provider_id: None,
+            })
+            .await
+            .unwrap();
+        core.device_pushes().set("d1", "sub-1").await.unwrap();
+
+        core.factory_reset().await.unwrap();
+
+        assert!(core.device_alerts().list().await.unwrap().is_empty());
+        assert!(core.device_pushes().list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn shutdown_stops_the_alert_recorder() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = context(dir.path(), Arc::new(MemoryTokenStore::new())).await;
+        assert!(!core.alert_stop.is_cancelled());
+
+        core.shutdown().await;
+
+        assert!(core.alert_stop.is_cancelled());
     }
 }

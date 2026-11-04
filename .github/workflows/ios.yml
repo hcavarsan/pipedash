@@ -7,12 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       lane:
-        description: "beta: TestFlight; release: App Store review; upload_screenshots: images only"
+        description: "beta: TestFlight; release: App Store review; upload_screenshots: images only; setup_push_signing: App IDs, Push and profiles (once)"
         type: choice
         options:
           - beta
           - release
           - upload_screenshots
+          - setup_push_signing
         default: beta
       beta_ref:
         description: "Branch to build for beta; leave blank to use the selected workflow ref"

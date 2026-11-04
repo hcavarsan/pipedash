@@ -1,3 +1,4 @@
+import type { CenterNotificationTone } from '../stores/notificationCenterStore'
 import type { ProviderTone } from '../utils/fetchInfo'
 
 export type PipelineStatus = 'success' | 'failed' | 'degraded' | 'running' | 'pending' | 'cancelled' | 'skipped'
@@ -30,10 +31,38 @@ export interface BuildWatchStatus {
   watch: BuildWatchSnapshot | null
 }
 
+export interface AlertHostInfo {
+  name: string
+  push: boolean
+  standalone: boolean
+}
+
 export interface LocalNotificationSettings {
   enabled: boolean
   available: boolean
   reason: string | null
+  alertHost: AlertHostInfo | null
+  pushProblem: string | null
+}
+
+export interface HostAlert {
+  id: string
+  seq: number
+  key: string
+  kind: 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'test'
+  tone: CenterNotificationTone
+  title: string
+  body: string
+  pipeline_id: string | null
+  provider_id: number | null
+  created_at: string
+}
+
+export interface PushRelaySettings {
+  enabled: boolean
+  relay_url: string | null
+  from_env: boolean
+  official_url: string
 }
 
 export type ReviewDecision = 'approve' | 'reject'
@@ -818,20 +847,6 @@ export type NativeIntent =
   | { type: 'link'; path: string; runNumber?: number }
   | { type: 'pair'; link: string }
 
-export interface PushServer {
-  id: string
-  url: string
-  label: string
-  paired_at: string
-}
-
-export interface PushStatus {
-  supported: boolean
-  relay_configured: boolean
-  permission: 'granted' | 'denied' | 'prompt'
-  servers: PushServer[]
-}
-
 export interface MobileDevice {
   id: string
   device_name: string
@@ -854,6 +869,7 @@ export interface PairedDevice {
   created_at: string
   last_seen_at: string | null
   current: boolean
+  push: boolean
   removable: boolean
 }
 

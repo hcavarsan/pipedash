@@ -11,6 +11,7 @@ import { useLocalNotificationsLifecycle } from './features/notifications/queries
 import { useLegacyPipelineMarksImport, usePipelineViews } from './features/pipelines/queries/usePipelineViewQueries'
 import { useEventSync } from './hooks/useEventSync'
 import { useFailureNotifications } from './hooks/useFailureNotifications'
+import { useMissedAlerts } from './hooks/useMissedAlerts'
 import { useProviderFilterReconciliation } from './hooks/useProviderFilterReconciliation'
 import { useProviderHealthAlerts } from './hooks/useProviderHealthAlerts'
 import { queryKeys } from './lib/queryKeys'
@@ -36,6 +37,7 @@ export function AppContent(): ReactNode {
   const goBack = useGoBack()
   useFailureNotifications()
   useProviderHealthAlerts()
+  useMissedAlerts()
   useProviderFilterReconciliation()
 
   const { data: vaultStatus } = useVaultStatus()

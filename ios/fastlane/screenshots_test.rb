@@ -14,8 +14,8 @@ class ScreenshotLanesTest < Minitest::Test
   FileUtils.mkdir_p([FIXTURE_FASTLANE, File.join(FIXTURE_ROOT, "ios/app-store-screenshots"),
                      File.join(FIXTURE_FASTLANE, "release_notes"), File.join(FIXTURE_ROOT, "crates/pipedash-desktop")])
   FileUtils.cp(File.join(__dir__, "Fastfile"), FIXTURE_FASTLANE)
-  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb store_text.rb store_version.rb review_notes.txt
-     metadata age_rating.json].each do |name|
+  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb store_text.rb store_version.rb
+     push_signing.rb review_notes.txt metadata age_rating.json].each do |name|
     FileUtils.ln_s(File.join(__dir__, name), FIXTURE_FASTLANE)
   end
   File.write(File.join(FIXTURE_ROOT, "crates/pipedash-desktop/tauri.conf.json"), '{"version":"0.9.0"}')
@@ -229,9 +229,13 @@ class ScreenshotLanesTest < Minitest::Test
     assert_empty @events
   end
 
-  def test_packaged_extension_blocks_verification_before_release
+  def stub_ipa(extensions)
+    extension_id = "com.henrique.pipedash.NotificationService"
     info = {
       "CFBundleDisplayName" => "Pipedash",
+      "CFBundleExecutable" => "Pipedash",
+      "CFBundleShortVersionString" => "0.9.0",
+      "CFBundleVersion" => "1",
       "NSFaceIDUsageDescription" => "Use Face ID",
       "NSLocalNetworkUsageDescription" => "Connect to local providers",
       "UIFileSharingEnabled" => true,
@@ -239,18 +243,50 @@ class ScreenshotLanesTest < Minitest::Test
       "ITSAppUsesNonExemptEncryption" => false,
       "CFBundleIcons" => {},
       "PipedashBuildWatchEnabled" => false,
+      "PipedashRemotePushEnabled" => true,
       "BGTaskSchedulerPermittedIdentifiers" => ["com.henrique.pipedash.notifications-refresh"],
       "UIBackgroundModes" => ["fetch"],
     }
-    @file.define_singleton_method(:plist_to_hash) { |_path| info }
-    @file.define_singleton_method(:sh) do |*command|
-      raise "Unexpected shell command" unless command.first == "unzip"
+    extension_info = {
+      "CFBundleExecutable" => "PipedashNotificationService",
+      "CFBundleIdentifier" => extension_id,
+      "CFBundleShortVersionString" => "0.9.0",
+      "CFBundleVersion" => "1",
+      "NSExtension" => { "NSExtensionPointIdentifier" => "com.apple.usernotifications.service" },
+    }
+    @file.define_singleton_method(:plist_to_hash) do |path|
+      next { "NSPrivacyAccessedAPITypes" => [] } if path.end_with?("PrivacyInfo.xcprivacy")
 
-      FileUtils.mkdir_p(File.join(command.last, "Payload/Pipedash.app/PlugIns/BuildActivity.appex"))
+      path.include?("PipedashNotificationService.appex") ? extension_info : info
     end
+    @file.define_singleton_method(:sh) do |*command|
+      case command.first
+      when "unzip"
+        app = File.join(command.last, "Payload/Pipedash.app")
+        FileUtils.mkdir_p(app)
+        FileUtils.touch(File.join(app, "PrivacyInfo.xcprivacy"))
+        extensions.each do |name|
+          FileUtils.mkdir_p(File.join(app, "PlugIns/#{name}.appex"))
+          FileUtils.touch(File.join(app, "PlugIns/#{name}.appex/PrivacyInfo.xcprivacy"))
+        end
+      when "xcrun" then ""
+      else raise "Unexpected shell command"
+      end
+    end
+  end
 
-    error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:verify_ipa, ipa: "fixture.ipa") }
-    assert_includes error.message, "must not bundle app extensions"
+  def test_other_extensions_block_verification_before_release
+    [["BuildActivity"], %w[PipedashNotificationService BuildActivity], []].each do |extensions|
+      stub_ipa(extensions)
+      error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:verify_ipa, ipa: "fixture.ipa") }
+      assert_includes error.message, "must bundle only the notification service extension"
+    end
+    assert_empty @events
+  end
+
+  def test_notification_service_extension_alone_passes_verification
+    stub_ipa(["PipedashNotificationService"])
+    run_lane(:verify_ipa, ipa: "fixture.ipa")
     assert_empty @events
   end
 end

@@ -9,8 +9,9 @@ import {
 import { STALE_TIMES } from '../../../lib/cacheConfig'
 import { queryKeys } from '../../../lib/queryKeys'
 import { type ConnectionInfo, connectionService, sharingService } from '../../../services/connection'
+import { mobileService } from '../../../services/mobile'
 import { service } from '../../../services/service'
-import type { PairedDevice, PairingCode, SharingStatus } from '../../../types/domain'
+import type { AlertHostInfo, PairedDevice, PairingCode, SharingStatus } from '../../../types/domain'
 import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 
 export interface PairInput {
@@ -22,6 +23,12 @@ export interface PairInput {
 export function usePairWithServer(): UseMutationResult<ConnectionInfo, unknown, PairInput> {
   return useMutation<ConnectionInfo, unknown, PairInput>({
     mutationFn: ({ address, code, allowPrivateHttp }) => connectionService.pair(address, code, allowPrivateHttp),
+  })
+}
+
+export function usePairAlertHost(): UseMutationResult<AlertHostInfo, unknown, PairInput> {
+  return useMutation<AlertHostInfo, unknown, PairInput>({
+    mutationFn: ({ address, code, allowPrivateHttp }) => mobileService.pairAlertHost(address, code, allowPrivateHttp),
   })
 }
 

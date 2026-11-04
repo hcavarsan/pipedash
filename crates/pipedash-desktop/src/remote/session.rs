@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{
+    AtomicBool,
     AtomicU64,
     Ordering,
 };
@@ -53,6 +54,7 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
+use super::alerts;
 use super::store::HostKind;
 use super::{
     RemoteConnection,
@@ -303,27 +305,32 @@ pub async fn open(
     Ok((stream, ok))
 }
 
-pub async fn revoke(mut stream: WsStream, device_id: &str) {
-    let path = format!("/devices/{device_id}");
-    let _ = tokio::time::timeout(REVOKE_TIMEOUT, async {
-        if stream
-            .send(request_frame(1, "DELETE", &path, None))
-            .await
-            .is_err()
-        {
-            return;
-        }
-        while let Some(Ok(message)) = stream.next().await {
-            if let Message::Text(text) = message {
-                if matches!(
-                    parse_server_frame(&text),
-                    Some(ServerFrame::Response { .. } | ServerFrame::AuthError { .. })
-                ) {
-                    return;
-                }
+pub async fn request_once(
+    stream: &mut WsStream, method: &str, path: &str, body: Option<&str>,
+) -> Option<(u16, Vec<u8>)> {
+    stream
+        .send(request_frame(1, method, path, body))
+        .await
+        .ok()?;
+    while let Some(Ok(message)) = stream.next().await {
+        if let Message::Text(text) = message {
+            match parse_server_frame(&text) {
+                Some(ServerFrame::Response { status, body, .. }) => return Some((status, body)),
+                Some(ServerFrame::AuthError { .. }) => return None,
+                _ => {}
             }
         }
-    })
+    }
+
+    None
+}
+
+pub async fn revoke(mut stream: WsStream, device_id: &str) {
+    let path = format!("/devices/{device_id}");
+    let _ = tokio::time::timeout(
+        REVOKE_TIMEOUT,
+        request_once(&mut stream, "DELETE", &path, None),
+    )
     .await;
     let _ = stream.close(None).await;
 }
@@ -333,6 +340,8 @@ pub struct Session {
     outgoing: mpsc::Sender<Message>,
     pending: Mutex<HashMap<u64, oneshot::Sender<RpcResult>>>,
     next_id: AtomicU64,
+    alerts_synced: AtomicBool,
+    alerts_gate: tokio::sync::Mutex<()>,
 }
 
 impl Session {
@@ -342,7 +351,21 @@ impl Session {
             outgoing,
             pending: Mutex::default(),
             next_id: AtomicU64::new(1),
+            alerts_synced: AtomicBool::new(false),
+            alerts_gate: tokio::sync::Mutex::new(()),
         }
+    }
+
+    pub(super) fn alerts_synced(&self) -> bool {
+        self.alerts_synced.load(Ordering::Acquire)
+    }
+
+    pub(super) fn mark_alerts_synced(&self) {
+        self.alerts_synced.store(true, Ordering::Release);
+    }
+
+    pub(super) async fn alerts_gate(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.alerts_gate.lock().await
     }
 
     fn pending(&self) -> MutexGuard<'_, HashMap<u64, oneshot::Sender<RpcResult>>> {
@@ -371,7 +394,7 @@ impl Session {
         outcome.unwrap_or(Err(RemoteError::Timeout))
     }
 
-    fn resolve(&self, id: u64, status: u16, body: Vec<u8>) {
+    pub(super) fn resolve(&self, id: u64, status: u16, body: Vec<u8>) {
         if let Some(reply) = self.pending().remove(&id) {
             let _ = reply.send(Ok((status, body)));
         }
@@ -414,6 +437,7 @@ fn remove(app: &AppHandle, generation: u64) {
         if let Err(error) = app.emit(REMOTE_ACCESS_REVOKED_EVENT, json!({})) {
             tracing::warn!(%error, "Couldn't announce the removed device");
         }
+        alerts::spawn_exit_cleanup(app);
     }
 }
 
@@ -426,6 +450,9 @@ fn handle_frame(app: &AppHandle, session: &Session, text: &str) -> Option<Outcom
         ServerFrame::AuthError { .. } => return Some(Outcome::Lost),
         ServerFrame::AuthOk(_) => {}
         ServerFrame::Event { name, payload } => {
+            if name == alerts::ALERT_RECORDED_EVENT {
+                alerts::record_live(app, session, &payload);
+            }
             if let Err(error) = app.emit(&name, payload) {
                 tracing::debug!(%error, event = %name, "Couldn't forward a server event");
             }
@@ -443,6 +470,7 @@ async fn serve(app: &AppHandle, generation: u64, host: &str, stream: WsStream) -
         return Outcome::Superseded;
     }
     emit_status(app, RemoteStatus::Connected, 0);
+    crate::push::spawn_sync_token(app);
 
     let _pending = FailOnDrop(Arc::clone(&session));
     let (mut sink, mut source) = stream.split();
@@ -551,18 +579,13 @@ pub async fn run(
 mod tests {
     use std::sync::Arc;
 
-    use pipedash_core::infrastructure::{
-        PipedashConfig,
-        StorageBackendType,
-        StorageManager,
-    };
-    use pipedash_core::CoreContext;
     use pipedash_web::pairing::create_pairing;
-    use pipedash_web::state::AppState;
-    use pipedash_web::ws::WebSocketEventBus;
-    use tokio::sync::broadcast;
 
     use super::*;
+    use crate::remote::test_host::{
+        claim,
+        start_host,
+    };
 
     #[test]
     fn a_response_carries_its_text_or_base64_body() {
@@ -819,61 +842,6 @@ mod tests {
             panic!("a public address must not get the token");
         };
         assert!(matches!(error, RemoteError::PublicHttp));
-    }
-
-    struct Host {
-        url: ServerUrl,
-        state: AppState,
-        _storage: StorageManager,
-        _dir: tempfile::TempDir,
-    }
-
-    async fn start_host() -> Host {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("config.toml"),
-            format!(
-                "[storage]\ndata_dir = {:?}\n",
-                dir.path().display().to_string()
-            ),
-        )
-        .unwrap();
-        std::env::set_var("PIPEDASH_CONFIG_PATH", dir.path().join("config.toml"));
-        let mut config = PipedashConfig::default();
-        config.storage.backend = StorageBackendType::Sqlite;
-        config.storage.data_dir = dir.path().display().to_string();
-        config.storage.vault_password = Some("vault-password".into());
-        let storage = StorageManager::from_config(config, false).await.unwrap();
-
-        let bus = Arc::new(WebSocketEventBus::from_sender(broadcast::channel(64).0));
-        let core = CoreContext::with_storage_manager(&storage, bus.clone())
-            .await
-            .unwrap();
-        let state = AppState::hosted(bus, Some(core), "Studio");
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = ServerUrl::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
-        tokio::spawn(pipedash_web::serve_host(
-            listener,
-            state.clone(),
-            std::future::pending(),
-        ));
-
-        Host {
-            url,
-            state,
-            _storage: storage,
-            _dir: dir,
-        }
-    }
-
-    fn claim(code: &str) -> ClientHello<'_> {
-        ClientHello::Claim {
-            code,
-            name: "Test phone",
-            platform: "ios",
-        }
     }
 
     #[tokio::test]

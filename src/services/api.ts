@@ -44,6 +44,7 @@ import type {
   ProviderConfig,
   ProviderImportResult,
   ProviderSummary,
+  PushRelaySettings,
   RefreshResult,
   RemoteResponse,
   ReviewDecision,
@@ -915,6 +916,14 @@ class ApiClient {
 
   async testMobileDevice(id: string): Promise<void> {
     await this.requestVoid('POST', `/push/subscriptions/${encodeURIComponent(id)}/test`)
+  }
+
+  async getPushRelay(): Promise<PushRelaySettings> {
+    return this.get<PushRelaySettings>('/push/relay')
+  }
+
+  async setPushRelay(enabled: boolean): Promise<PushRelaySettings> {
+    return this.put<PushRelaySettings>('/push/relay', { enabled })
   }
 
   async listPairedDevices(): Promise<PairedDevice[]> {

@@ -107,7 +107,7 @@ export const queryKeys = {
 
   push: {
     all: ['push'] as const,
-    status: () => [...queryKeys.push.all, 'status'] as const,
+    relay: () => [...queryKeys.push.all, 'relay'] as const,
     devices: () => [...queryKeys.push.all, 'devices'] as const,
   },
 

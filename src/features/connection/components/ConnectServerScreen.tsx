@@ -1,8 +1,9 @@
 import { Alert, Box, Button, Center, Checkbox, Divider, Paper, Stack, Text, TextInput, Title } from '@mantine/core'
 import { IconAlertTriangle, IconArrowLeft, IconChevronLeft, IconCircleCheck, IconQrcode } from '@tabler/icons-react'
+import { useQueryClient } from '@tanstack/react-query'
 import type * as BarcodeScanner from '@tauri-apps/plugin-barcode-scanner'
 import { type ReactNode, startTransition, useActionState, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { AppLogo } from '../../../components/atoms/AppLogo'
 import { DocumentTitle } from '../../../components/common/DocumentTitle'
@@ -11,12 +12,13 @@ import { SubmitButton } from '../../../components/forms/SubmitButton'
 import { useMobileShell } from '../../../hooks/useIsMobile'
 import { withBasePath } from '../../../lib/basePath'
 import { logger } from '../../../lib/logger'
+import { queryKeys } from '../../../lib/queryKeys'
 import { getErrorCode } from '../../../types/errors'
 import { errorMessage } from '../../../utils/errorDisplay'
 import { isRecord } from '../../../utils/isRecord'
 import { isMobilePlatform } from '../../../utils/platform'
 import { Onboarding } from '../../setup/components/SetupWizard/Onboarding'
-import { usePairWithServer } from '../queries/useConnectionQueries'
+import { usePairAlertHost, usePairWithServer } from '../queries/useConnectionQueries'
 
 interface ConnectActionState {
   addressError: string | null
@@ -37,6 +39,7 @@ const CONNECT_FAILED = 'Check the address and the code, then try again.'
 const PRIVATE_HTTP_DISABLED = 'PRIVATE_HTTP_DISABLED'
 const LINK_SCHEME = 'pipedash://'
 const TITLE = 'Connect to a server'
+const ALERTS_TITLE = 'Get alerts from a server'
 
 function fieldValue(formData: FormData, name: string): string {
   const value = formData.get(name)
@@ -47,9 +50,10 @@ function fieldValue(formData: FormData, name: string): string {
 interface ConnectFormProps {
   mobileShell: boolean
   link: string
+  alerts: boolean
 }
 
-function ConnectForm({ mobileShell, link }: ConnectFormProps): ReactNode {
+function ConnectForm({ mobileShell, link, alerts }: ConnectFormProps): ReactNode {
   const [address, setAddress] = useState(link)
   const [code, setCode] = useState('')
   const [allowPrivateHttp, setAllowPrivateHttp] = useState(false)
@@ -57,7 +61,10 @@ function ConnectForm({ mobileShell, link }: ConnectFormProps): ReactNode {
   const [cameraFailed, setCameraFailed] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [dismissed, setDismissed] = useState<ConnectActionState | null>(null)
-  const { mutateAsync } = usePairWithServer()
+  const pairConnection = usePairWithServer()
+  const pairAlerts = usePairAlertHost()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const connectAction = async (_previous: ConnectActionState, formData: FormData): Promise<ConnectActionState> => {
     const submittedAddress = fieldValue(formData, 'address').trim()
@@ -71,13 +78,12 @@ function ConnectForm({ mobileShell, link }: ConnectFormProps): ReactNode {
     }
 
     try {
-      const info = await mutateAsync({
-        address: submittedAddress,
-        code: isLink ? null : submittedCode,
-        allowPrivateHttp,
-      })
+      const input = { address: submittedAddress, code: isLink ? null : submittedCode, allowPrivateHttp }
+      const host = alerts
+        ? (await pairAlerts.mutateAsync(input)).name
+        : await pairConnection.mutateAsync(input).then((info) => info.host ?? info.serverUrl ?? 'the server')
 
-      return { ...INITIAL_STATE, host: info.host ?? info.serverUrl ?? 'the server' }
+      return { ...INITIAL_STATE, host }
     } catch (err) {
       const errorCode = getErrorCode(err) ?? null
 
@@ -153,6 +159,23 @@ function ConnectForm({ mobileShell, link }: ConnectFormProps): ReactNode {
   }
 
   if (state.host) {
+    const done = alerts
+      ? {
+          title: `Alerts from ${state.host} are on`,
+          text: 'This device keeps its own pipelines and also gets alerts from that server.',
+          label: 'Done',
+          onClick: () => {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.localNotifications.settings() })
+            void navigate('/settings/notifications', { replace: true })
+          },
+        }
+      : {
+          title: `Connected to ${state.host}`,
+          text: `This device now shows the pipelines from ${state.host}.`,
+          label: 'Open dashboard',
+          onClick: () => window.location.replace(withBasePath('/pipelines')),
+        }
+
     return (
       <Stack align="center" gap="md" ta="center">
         <Box c="green" lh={0}>
@@ -160,18 +183,14 @@ function ConnectForm({ mobileShell, link }: ConnectFormProps): ReactNode {
         </Box>
         <Stack gap="2xs" align="center">
           <Title order={2} size="h3">
-            Connected to {state.host}
+            {done.title}
           </Title>
           <Text size="sm" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
-            This device now shows the pipelines from {state.host}.
+            {done.text}
           </Text>
         </Stack>
-        <Button
-          fullWidth
-          size={mobileShell ? 'lg' : 'md'}
-          onClick={() => window.location.replace(withBasePath('/pipelines'))}
-        >
-          Open dashboard
+        <Button fullWidth size={mobileShell ? 'lg' : 'md'} onClick={done.onClick}>
+          {done.label}
         </Button>
       </Stack>
     )
@@ -289,6 +308,8 @@ export function ConnectServerScreen(): ReactNode {
   const navigate = useNavigate()
   const location = useLocation()
   const mobileShell = useMobileShell()
+  const alerts = useSearchParams()[0].get('purpose') === 'alerts'
+  const title = alerts ? ALERTS_TITLE : TITLE
 
   const goBack = (): void => {
     if (location.key !== 'default') {
@@ -299,12 +320,12 @@ export function ConnectServerScreen(): ReactNode {
   }
 
   const link = isRecord(location.state) && typeof location.state.link === 'string' ? location.state.link : ''
-  const form = <ConnectForm mobileShell={mobileShell} link={link} />
+  const form = <ConnectForm mobileShell={mobileShell} link={link} alerts={alerts} />
 
   if (mobileShell) {
     return (
       <Onboarding
-        title={TITLE}
+        title={title}
         footer={
           <Button
             fullWidth
@@ -317,7 +338,7 @@ export function ConnectServerScreen(): ReactNode {
           </Button>
         }
       >
-        <DocumentTitle title={TITLE} />
+        <DocumentTitle title={title} />
         {form}
       </Onboarding>
     )
@@ -325,14 +346,14 @@ export function ConnectServerScreen(): ReactNode {
 
   return (
     <Box component="main" h="100vh" className="safe-area">
-      <DocumentTitle title={TITLE} />
+      <DocumentTitle title={title} />
       <Center h="100%" p={{ base: 'md', sm: 'xl' }}>
         <Paper p={{ base: 'lg', sm: 'xl' }} w="100%" maw={480} withBorder>
           <Stack gap="xl">
             <Stack gap="md" align="center">
               <AppLogo size={{ base: 48, sm: 56 }} alt="Pipedash" />
               <Title order={1} size="h2" ta="center">
-                {TITLE}
+                {title}
               </Title>
             </Stack>
 

@@ -1,5 +1,8 @@
+pub(crate) mod alerts;
 mod session;
 mod store;
+#[cfg(test)]
+pub(crate) mod test_host;
 
 use std::path::Path;
 use std::sync::{
@@ -286,6 +289,28 @@ impl RemoteConnection {
         self.lock().saved.clone()
     }
 
+    fn alerts_seen(&self) -> Option<i64> {
+        self.lock().saved.alerts_seen
+    }
+
+    fn move_alerts_seen(&self, dir: &Path, seen: i64, allow_lower: bool) {
+        let mut inner = self.lock();
+        if !matches!(inner.saved.mode, SavedMode::Client { .. }) {
+            return;
+        }
+        let current = inner.saved.alerts_seen;
+        if current == Some(seen) || (!allow_lower && current.is_some_and(|current| current > seen))
+        {
+            return;
+        }
+        let mut saved = inner.saved.clone();
+        saved.alerts_seen = Some(seen);
+        match store::write(dir, &saved) {
+            Ok(()) => inner.saved = saved,
+            Err(error) => tracing::debug!(%error, "Couldn't save the alert position"),
+        }
+    }
+
     fn info(&self) -> ConnectionInfo {
         let inner = self.lock();
         ConnectionInfo::new(&inner.saved, inner.status)
@@ -452,6 +477,7 @@ pub fn startup_mode(dir: &Path, config_path: &Path) -> SavedConnection {
             SavedMode::Unset
         },
         allow_private_http: false,
+        alerts_seen: None,
     })
 }
 
@@ -473,7 +499,9 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
     }
 }
 
-fn check_transport(url: &ServerUrl, allow_private_http: bool) -> Result<(), RemoteError> {
+pub(crate) fn check_transport(
+    url: &ServerUrl, allow_private_http: bool,
+) -> Result<(), RemoteError> {
     if url.scheme == "https" {
         return Ok(());
     }
@@ -571,6 +599,7 @@ async fn run_here(
         SavedMode::Client { .. } => return Err(RemoteError::Connected),
         SavedMode::Unset => {}
     }
+    alerts::exit_cleanup(app).await;
 
     let dir = &app.state::<AppDataDir>().0;
     saved.mode = SavedMode::Standalone;
@@ -609,10 +638,9 @@ fn restore_token(previous: Option<&str>) {
     }
 }
 
-async fn pair(
-    app: &AppHandle, remote: &RemoteConnection, address: &str, code: Option<&str>,
-    allow_private_http: bool,
-) -> Result<ConnectionInfo, RemoteError> {
+pub(crate) fn parse_pairing(
+    address: &str, code: Option<&str>,
+) -> Result<(ServerUrl, String), RemoteError> {
     let link = parse_pairing_link(address);
     let (address, code) = match &link {
         Some((url, code)) => (url.as_str(), code.as_str()),
@@ -623,12 +651,19 @@ async fn pair(
                 .ok_or(RemoteError::CodeRequired)?,
         ),
     };
-
     let url = ServerUrl::parse(address).map_err(RemoteError::InvalidUrl)?;
-    let allow = allow_private_http || remote.saved().allow_private_http;
-    check_transport(&url, allow)?;
     let code = normalize_pairing_code(code).ok_or(RemoteError::InvalidCode)?;
 
+    Ok((url, code))
+}
+
+async fn pair(
+    app: &AppHandle, remote: &RemoteConnection, address: &str, code: Option<&str>,
+    allow_private_http: bool,
+) -> Result<ConnectionInfo, RemoteError> {
+    let (url, code) = parse_pairing(address, code)?;
+    let allow = allow_private_http || remote.saved().allow_private_http;
+    check_transport(&url, allow)?;
     let name = device_name();
     let hello = ClientHello::Claim {
         code: &code,
@@ -657,6 +692,7 @@ async fn pair(
             host_name: ok.name,
         },
         allow_private_http: allow,
+        alerts_seen: None,
     };
     if let Err(error) = store::write(&app.state::<AppDataDir>().0, &next) {
         restore_token(previous_token.as_deref());
@@ -697,6 +733,7 @@ async fn disconnect(
     let next = SavedConnection {
         mode: SavedMode::Unset,
         allow_private_http: saved.allow_private_http,
+        alerts_seen: None,
     };
     store::write(&app.state::<AppDataDir>().0, &next)?;
     let (_, departed) = remote.replace(next, None);
@@ -704,6 +741,7 @@ async fn disconnect(
         tracing::warn!(%error, "Couldn't remove the device token");
     }
     departed.leave(Some(device_id)).await;
+    alerts::exit_cleanup(app).await;
 
     Ok(remote.info())
 }
@@ -824,6 +862,7 @@ mod tests {
                 host_name: host_name.map(str::to_string),
             },
             allow_private_http: true,
+            alerts_seen: None,
         }
     }
 
