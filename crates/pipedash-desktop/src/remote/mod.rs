@@ -293,21 +293,33 @@ impl RemoteConnection {
         self.lock().saved.alerts_seen
     }
 
-    fn move_alerts_seen(&self, dir: &Path, seen: i64, allow_lower: bool) {
+    fn update_saved(
+        &self, dir: &Path, change: impl FnOnce(&mut SavedConnection) -> Result<bool, RemoteError>,
+    ) -> Result<(), RemoteError> {
         let mut inner = self.lock();
-        if !matches!(inner.saved.mode, SavedMode::Client { .. }) {
-            return;
-        }
-        let current = inner.saved.alerts_seen;
-        if current == Some(seen) || (!allow_lower && current.is_some_and(|current| current > seen))
-        {
-            return;
-        }
         let mut saved = inner.saved.clone();
-        saved.alerts_seen = Some(seen);
-        match store::write(dir, &saved) {
-            Ok(()) => inner.saved = saved,
-            Err(error) => tracing::debug!(%error, "Couldn't save the alert position"),
+        if change(&mut saved)? {
+            store::write(dir, &saved)?;
+            inner.saved = saved;
+        }
+
+        Ok(())
+    }
+
+    fn move_alerts_seen(&self, dir: &Path, seen: i64, allow_lower: bool) {
+        let moved = self.update_saved(dir, |saved| {
+            let current = saved.alerts_seen;
+            if !matches!(saved.mode, SavedMode::Client { .. })
+                || current == Some(seen)
+                || (!allow_lower && current.is_some_and(|current| current > seen))
+            {
+                return Ok(false);
+            }
+            saved.alerts_seen = Some(seen);
+            Ok(true)
+        });
+        if let Err(error) = moved {
+            tracing::debug!(%error, "Couldn't save the alert position");
         }
     }
 
@@ -316,17 +328,17 @@ impl RemoteConnection {
     }
 
     pub(crate) fn set_preferences_pending(&self, dir: &Path, pending: bool) {
-        let mut inner = self.lock();
-        if !matches!(inner.saved.mode, SavedMode::Client { .. })
-            || inner.saved.preferences_pending == pending
-        {
-            return;
-        }
-        let mut saved = inner.saved.clone();
-        saved.preferences_pending = pending;
-        match store::write(dir, &saved) {
-            Ok(()) => inner.saved = saved,
-            Err(error) => tracing::debug!(%error, "Couldn't save the preference sync state"),
+        let saved = self.update_saved(dir, |saved| {
+            if !matches!(saved.mode, SavedMode::Client { .. })
+                || saved.preferences_pending == pending
+            {
+                return Ok(false);
+            }
+            saved.preferences_pending = pending;
+            Ok(true)
+        });
+        if let Err(error) = saved {
+            tracing::debug!(%error, "Couldn't save the preference sync state");
         }
     }
 
@@ -613,8 +625,7 @@ pub async fn run_on_this_device(
 async fn run_here(
     app: &AppHandle, remote: &RemoteConnection,
 ) -> Result<ConnectionInfo, RemoteError> {
-    let mut saved = remote.saved();
-    match saved.mode {
+    match remote.saved().mode {
         SavedMode::Standalone => return Ok(remote.info()),
         SavedMode::Client { .. } => return Err(RemoteError::Connected),
         SavedMode::Unset => {}
@@ -622,9 +633,10 @@ async fn run_here(
     alerts::exit_cleanup(app).await;
 
     let dir = &app.state::<AppDataDir>().0;
-    saved.mode = SavedMode::Standalone;
-    store::write(dir, &saved)?;
-    remote.lock().saved = saved;
+    remote.update_saved(dir, |saved| {
+        saved.mode = SavedMode::Standalone;
+        Ok(true)
+    })?;
 
     crate::ensure_desktop_config(dir, &dir.join("config.toml")).map_err(RemoteError::Local)?;
     if !app.state::<AppLockState>().locked() {
@@ -780,16 +792,15 @@ pub async fn set_allow_private_http(
     app: AppHandle, remote: State<'_, RemoteConnection>, enabled: bool,
 ) -> Result<(), ErrorResponse> {
     let _op = remote.op.lock().await;
-    let mut saved = remote.saved();
-    if !enabled
-        && matches!(&saved.mode, SavedMode::Client { server_url, .. } if server_url.starts_with("http://"))
-    {
-        return Err(RemoteError::InsecureInUse.into());
-    }
-
-    saved.allow_private_http = enabled;
-    store::write(&app.state::<AppDataDir>().0, &saved)?;
-    remote.lock().saved = saved;
+    remote.update_saved(&app.state::<AppDataDir>().0, |saved| {
+        if !enabled
+            && matches!(&saved.mode, SavedMode::Client { server_url, .. } if server_url.starts_with("http://"))
+        {
+            return Err(RemoteError::InsecureInUse);
+        }
+        saved.allow_private_http = enabled;
+        Ok(true)
+    })?;
 
     Ok(())
 }
