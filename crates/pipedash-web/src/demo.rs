@@ -29,7 +29,7 @@ pub fn is_blocked(method: &Method, path: &str) -> bool {
     if matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS) {
         return route.starts_with("storage/")
             || route == "providers/export"
-            || route.starts_with("push/");
+            || (route.starts_with("push/") && route != "push/relay");
     }
 
     !(*method == Method::POST && allows_post(route))
@@ -123,6 +123,7 @@ mod tests {
             (Method::GET, "/api/v1/providers/export".to_string()),
             (Method::GET, "/api/v1/push/subscriptions".to_string()),
             (Method::DELETE, "/api/v1/devices/abc".to_string()),
+            (Method::PUT, "/api/v1/push/relay".to_string()),
         ];
 
         for (method, path) in blocked {
@@ -153,6 +154,7 @@ mod tests {
             (Method::POST, "/api/v1/refresh/all"),
             (Method::POST, "/api/v1/vault/unlock"),
             (Method::POST, "/api/v1/devices/pairing"),
+            (Method::GET, "/api/v1/push/relay"),
         ];
 
         for (method, path) in allowed {
