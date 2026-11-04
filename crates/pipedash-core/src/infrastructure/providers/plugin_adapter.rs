@@ -228,6 +228,13 @@ impl Provider for PluginAdapter {
             .map_err(Self::map_error)
     }
 
+    async fn force_cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
+        self.plugin
+            .force_cancel_run(pipeline_id, run_number)
+            .await
+            .map_err(Self::map_error)
+    }
+
     async fn review_run(
         &self, pipeline_id: &str, run_number: i64, decision: pipedash_plugin_api::ReviewDecision,
     ) -> DomainResult<()> {

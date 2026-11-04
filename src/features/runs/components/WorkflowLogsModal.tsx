@@ -6,7 +6,7 @@ import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { usePlugins } from '../../../queries/usePluginsQueries'
 import { useRunLogTree } from '../../../queries/useRunLogQueries'
 import type { Pipeline } from '../../../types/domain'
-import { getPipelineLabels } from '../../../utils/pipelinePresentation'
+import { canForceCancelPipeline, getPipelineLabels } from '../../../utils/pipelinePresentation'
 import { getPluginDisplayName } from '../../../utils/pluginHelpers'
 import { useRunDetailActions } from '../hooks/useRunDetailActions'
 import { useRunDetails } from '../queries/useRunDetailsQuery'
@@ -101,13 +101,18 @@ function WorkflowLogsSession({
     canViewLogs,
     canTrigger,
     canCancel,
+    canForceCancel: !!pipeline && canForceCancelPipeline(plugins, pipeline),
     triggerBlockedReason,
     stopDisabled: !mobileShell && cancellationRequested,
     rerunPending: actions.rerunPending,
     cancelPending: actions.cancelPending,
+    forceCancelPending: actions.forceCancelPending,
     onRerun: requestRerun,
     onCancel: () => {
       actions.cancel().catch(() => undefined)
+    },
+    onForceCancel: () => {
+      actions.forceCancel().catch(() => undefined)
     },
   }
   const nodes = logTree?.nodes ?? []

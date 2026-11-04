@@ -7,13 +7,16 @@ import { DocumentTitle } from './components/common/DocumentTitle'
 import { AppLayout } from './components/layout/AppLayout'
 import { fromOf, pushState } from './components/layout/mobileChrome'
 import { useGoBack, useRecordHistory } from './components/layout/useMobileBack'
+import { NativeIntentBridge } from './components/NativeIntentBridge'
+import { useDesktopNotifications } from './features/notifications/queries/useDesktopNotifications'
 import { useLocalNotificationsLifecycle } from './features/notifications/queries/useLocalNotificationQueries'
+import { useNotificationPreferencesSync } from './features/notifications/queries/useNotificationPreferencesSync'
 import { useLegacyPipelineMarksImport, usePipelineViews } from './features/pipelines/queries/usePipelineViewQueries'
+import { useDesktopLifecycle } from './features/settings/queries/useDesktopQueries'
 import { useEventSync } from './hooks/useEventSync'
-import { useFailureNotifications } from './hooks/useFailureNotifications'
 import { useMissedAlerts } from './hooks/useMissedAlerts'
+import { useNotificationEvents } from './hooks/useNotificationEvents'
 import { useProviderFilterReconciliation } from './hooks/useProviderFilterReconciliation'
-import { useProviderHealthAlerts } from './hooks/useProviderHealthAlerts'
 import { queryKeys } from './lib/queryKeys'
 import { useBuildWatchLifecycle } from './queries/useBuildWatchQueries'
 import { usePipelines } from './queries/usePipelinesQueries'
@@ -33,10 +36,12 @@ export function AppContent(): ReactNode {
   useEventSync()
   useBuildWatchLifecycle()
   useLocalNotificationsLifecycle()
+  useDesktopLifecycle()
+  useDesktopNotifications()
+  useNotificationPreferencesSync()
   useRecordHistory()
   const goBack = useGoBack()
-  useFailureNotifications()
-  useProviderHealthAlerts()
+  useNotificationEvents()
   useMissedAlerts()
   useProviderFilterReconciliation()
 
@@ -89,7 +94,9 @@ export function AppContent(): ReactNode {
           : providerName
             ? `${providerName} Pipelines`
             : 'Pipelines'
-        : 'Page not found'
+        : location.pathname === '/notifications'
+          ? 'Notifications'
+          : 'Page not found'
 
   const invalidateAll = async (): Promise<void> => {
     await Promise.all([
@@ -120,6 +127,7 @@ export function AppContent(): ReactNode {
   return (
     <AppLayout onOpenSettings={handleOpenSettings}>
       <DocumentTitle title={pageTitle} />
+      <NativeIntentBridge />
       <AppRoutes
         providers={providers}
         pipelines={pipelines}

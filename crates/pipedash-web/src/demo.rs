@@ -68,6 +68,7 @@ fn device_owned_write(req: &Request) -> bool {
             .strip_prefix("/api/v1/devices/")
             .is_some_and(|id| id == device.0))
         || path.starts_with("/api/v1/devices/current/push")
+        || path == "/api/v1/devices/current/notification-preferences"
 }
 
 pub async fn reject_changes(req: Request, next: Next) -> Response {
@@ -227,7 +228,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_paired_device_manages_only_its_own_push_registration() {
+    async fn a_paired_device_manages_only_its_own_push_registration_and_preferences() {
         let app = Router::new()
             .route(
                 "/api/v1/devices/current/push",
@@ -235,6 +236,10 @@ mod tests {
             )
             .route("/api/v1/devices/current/push/test", post(|| async { "ok" }))
             .route("/api/v1/devices/current/push/ack", post(|| async { "ok" }))
+            .route(
+                "/api/v1/devices/current/notification-preferences",
+                axum::routing::put(|| async { "ok" }),
+            )
             .route(
                 "/api/v1/devices/other",
                 axum::routing::put(|| async { "ok" }),
@@ -259,6 +264,10 @@ mod tests {
             (Method::DELETE, "/api/v1/devices/current/push"),
             (Method::POST, "/api/v1/devices/current/push/test"),
             (Method::POST, "/api/v1/devices/current/push/ack"),
+            (
+                Method::PUT,
+                "/api/v1/devices/current/notification-preferences",
+            ),
         ] {
             let own = send(method.clone(), path, Some("abc")).await.unwrap();
             assert_eq!(own.status(), StatusCode::OK, "{method} {path}");

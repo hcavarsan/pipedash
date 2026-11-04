@@ -49,6 +49,8 @@ pub struct BuildWatchState(Arc<Mutex<Option<Session>>>);
 struct Session {
     id: String,
     provider_id: Option<i64>,
+    #[cfg(desktop)]
+    generation: Option<u64>,
     cancel: watch::Sender<bool>,
 }
 
@@ -75,6 +77,8 @@ impl BuildWatchState {
         *state = Some(Session {
             id: id.clone(),
             provider_id: None,
+            #[cfg(desktop)]
+            generation: None,
             cancel,
         });
         Ok(SessionGuard {
@@ -88,10 +92,21 @@ impl BuildWatchState {
         self.inner().as_ref().map(|session| session.id.clone())
     }
 
+    #[cfg(any(mobile, test))]
     fn provider_session_id(&self, provider_id: i64) -> Option<String> {
         self.inner()
             .as_ref()
             .filter(|session| session.provider_id == Some(provider_id))
+            .map(|session| session.id.clone())
+    }
+
+    #[cfg(desktop)]
+    fn provider_session_id_generation(&self, generation: u64, provider_id: i64) -> Option<String> {
+        self.inner()
+            .as_ref()
+            .filter(|session| {
+                session.generation == Some(generation) && session.provider_id == Some(provider_id)
+            })
             .map(|session| session.id.clone())
     }
 
@@ -116,6 +131,17 @@ impl BuildWatchState {
 }
 
 impl SessionGuard {
+    #[cfg(desktop)]
+    fn bind_generation(&self, generation: u64) -> Result<(), ErrorResponse> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let session = state
+            .as_mut()
+            .filter(|session| session.id == self.id)
+            .ok_or_else(|| error("Build watching was interrupted"))?;
+        session.generation = Some(generation);
+        Ok(())
+    }
+
     fn bind_provider(&self, provider_id: i64) -> Result<(), ErrorResponse> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let session = state
@@ -254,6 +280,12 @@ async fn available_core(app: &AppHandle) -> Result<Arc<CoreContext>, ErrorRespon
     if app.state::<AppLockState>().locked() {
         return Err(error("Unlock Pipedash before watching a build"));
     }
+    #[cfg(desktop)]
+    if !crate::desktop::ready(app) {
+        return Err(error(
+            "Pipedash is not ready to watch builds. Open General settings to retry.",
+        ));
+    }
     app.state::<MaybeCoreContext>()
         .get()
         .await
@@ -267,6 +299,28 @@ async fn ensure_core(app: &AppHandle, generation: &Weak<CoreContext>) -> Result<
         ));
     }
     Ok(())
+}
+
+async fn unavailable_reason(app: &AppHandle) -> Option<&'static str> {
+    if app.state::<AppLockState>().locked() {
+        return Some("Unlock Pipedash before watching a build");
+    }
+    if app.state::<MaybeCoreContext>().0.read().await.is_none() {
+        return Some("Initialize Pipedash before watching a build");
+    }
+    #[cfg(desktop)]
+    if !crate::desktop::ready(app) {
+        return Some("Pipedash is not ready to watch builds. Open General settings to retry.");
+    }
+    None
+}
+
+#[cfg(desktop)]
+fn unavailable_status(mut status: BuildWatchStatus, reason: &str) -> BuildWatchStatus {
+    status.available = false;
+    status.reason = Some(reason.to_string());
+    status.watch = None;
+    status
 }
 
 async fn next_run(
@@ -298,6 +352,18 @@ async fn stop_current(
     stop_orphan(app, reason).await
 }
 
+#[cfg(desktop)]
+pub async fn stop_matching(app: &AppHandle, session_id: &str) -> Result<(), ErrorResponse> {
+    if app
+        .state::<BuildWatchState>()
+        .cancel(Some(session_id))
+        .is_some()
+    {
+        stop_native(app, session_id, BuildWatchStopReason::Stopped).await?;
+    }
+    Ok(())
+}
+
 async fn stop_orphan<R: Runtime>(
     app: &AppHandle<R>, reason: BuildWatchStopReason,
 ) -> Result<BuildWatchStatus, ErrorResponse> {
@@ -320,11 +386,26 @@ pub fn interrupt<R: Runtime>(app: &AppHandle<R>) {
     spawn_interruption(app, state.cancel(None));
 }
 
+#[cfg(mobile)]
 pub fn interrupt_provider<R: Runtime>(app: &AppHandle<R>, provider_id: i64) {
     let Some(state) = app.try_state::<BuildWatchState>() else {
         return;
     };
     if let Some(session_id) = state.provider_session_id(provider_id) {
+        if let Some(session_id) = state.cancel(Some(&session_id)) {
+            spawn_interruption(app, Some(session_id));
+        }
+    }
+}
+
+#[cfg(desktop)]
+pub fn interrupt_provider_generation<R: Runtime>(
+    app: &AppHandle<R>, generation: u64, provider_id: i64,
+) {
+    let Some(state) = app.try_state::<BuildWatchState>() else {
+        return;
+    };
+    if let Some(session_id) = state.provider_session_id_generation(generation, provider_id) {
         if let Some(session_id) = state.cancel(Some(&session_id)) {
             spawn_interruption(app, Some(session_id));
         }
@@ -349,6 +430,10 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let handle = app.clone();
     app.pipedash_native()
         .on_build_watch_changed(move |status| {
+            #[cfg(desktop)]
+            if !crate::desktop::watch_changed(&handle, &status) {
+                return;
+            }
             handle.state::<BuildWatchState>().native_changed(&status);
             if let Err(error) = handle.emit("build-watch-changed", status) {
                 tracing::warn!(%error, "Could not publish the native build watch status change");
@@ -357,34 +442,51 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .map_err(|error| tauri::Error::Anyhow(error.into()))
 }
 
+#[cfg(desktop)]
+fn desktop_status(app: &AppHandle, mut status: BuildWatchStatus) -> BuildWatchStatus {
+    if status
+        .watch
+        .as_ref()
+        .is_some_and(|watch| !crate::desktop::owns_watch(app, watch))
+    {
+        status.watch = None;
+        status.reason = None;
+    }
+    status
+}
+
 #[tauri::command]
 pub async fn get_build_watch(app: AppHandle) -> Result<BuildWatchStatus, ErrorResponse> {
     let mut status = native_request(app.pipedash_native().build_watch_status()).await?;
     if !status.supported {
         return Ok(status);
     }
-    let unavailable = if app.state::<AppLockState>().locked() {
-        Some("Unlock Pipedash before watching a build")
-    } else if app.state::<MaybeCoreContext>().0.read().await.is_none() {
-        Some("Initialize Pipedash before watching a build")
-    } else {
-        None
-    };
-    if let Some(reason) = unavailable {
+    if let Some(reason) = unavailable_reason(&app).await {
         status = stop_current(&app, BuildWatchStopReason::Interrupted).await?;
-        status.available = false;
-        status.reason = Some(reason.to_string());
+        #[cfg(desktop)]
+        return Ok(unavailable_status(status, reason));
+        #[cfg(mobile)]
+        {
+            status.available = false;
+            status.reason = Some(reason.to_string());
+        }
     } else if let Some(watch) = &status.watch {
         let state = app.state::<BuildWatchState>();
         if watch.monitoring == BuildWatchMonitoring::Watching {
             if state.session_id().is_none() {
                 status =
                     stop_native(&app, &watch.session_id, BuildWatchStopReason::Interrupted).await?;
+                #[cfg(desktop)]
+                if let Some(reason) = unavailable_reason(&app).await {
+                    return Ok(unavailable_status(status, reason));
+                }
             }
         } else {
             state.cancel(Some(&watch.session_id));
         }
     }
+    #[cfg(desktop)]
+    let status = desktop_status(&app, status);
     Ok(status)
 }
 
@@ -394,6 +496,17 @@ pub async fn start_build_watch(
 ) -> Result<BuildWatchStatus, ErrorResponse> {
     validate_selection(&pipeline_id, run_number)?;
     let session = state.reserve()?;
+    #[cfg(desktop)]
+    {
+        let generation = crate::desktop::generation(&app);
+        crate::desktop::reserve_watch(&app, &session.id)?;
+        session.bind_generation(generation)?;
+        if generation != crate::desktop::generation(&app) {
+            return Err(error(
+                "The application session changed; start watching again",
+            ));
+        }
+    }
     let status = session
         .run(native_request(app.pipedash_native().build_watch_status()))
         .await?;
@@ -433,9 +546,14 @@ pub async fn start_build_watch(
         return Err(error("This build has already finished"));
     }
     let started = session
-        .run(native_request(
-            app.pipedash_native().start_build_watch(&selected),
-        ))
+        .run(async {
+            #[cfg(desktop)]
+            ensure_core(&app, &core).await?;
+            let status = native_request(app.pipedash_native().start_build_watch(&selected)).await?;
+            #[cfg(desktop)]
+            ensure_core(&app, &core).await?;
+            Ok(status)
+        })
         .await;
     let status = match started {
         Ok(status) if session.is_current() && is_watching(&status, &session.id) => status,
@@ -443,7 +561,14 @@ pub async fn start_build_watch(
             let stopped = stop_native(&app, &session.id, BuildWatchStopReason::Interrupted).await;
             return match result {
                 Err(failure) => Err(failure),
-                Ok(_) => stopped,
+                Ok(_) => {
+                    let status = stopped?;
+                    #[cfg(desktop)]
+                    if let Some(reason) = unavailable_reason(&app).await {
+                        return Ok(unavailable_status(status, reason));
+                    }
+                    Ok(status)
+                }
             };
         }
     };
@@ -453,7 +578,14 @@ pub async fn start_build_watch(
 
 #[tauri::command]
 pub async fn stop_build_watch(app: AppHandle) -> Result<BuildWatchStatus, ErrorResponse> {
-    stop_current(&app, BuildWatchStopReason::Stopped).await
+    let status = stop_current(&app, BuildWatchStopReason::Stopped).await?;
+    #[cfg(desktop)]
+    if let Some(reason) = unavailable_reason(&app).await {
+        return Ok(unavailable_status(status, reason));
+    }
+    #[cfg(desktop)]
+    let status = desktop_status(&app, status);
+    Ok(status)
 }
 
 async fn monitor(
@@ -567,6 +699,63 @@ mod tests {
             7,
             watched_run(run),
         )
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn unavailable_desktop_status_never_exposes_a_retained_watch() {
+        for monitoring in [
+            BuildWatchMonitoring::Watching,
+            BuildWatchMonitoring::Completed,
+            BuildWatchMonitoring::Stopped,
+            BuildWatchMonitoring::Interrupted,
+        ] {
+            let mut watch = trusted_snapshot(run(PipelineStatus::Running)).unwrap();
+            watch.monitoring = monitoring;
+            if monitoring == BuildWatchMonitoring::Completed {
+                watch.status = BuildWatchRunStatus::Success;
+            }
+            let status = unavailable_status(
+                BuildWatchStatus {
+                    supported: true,
+                    available: true,
+                    reason: None,
+                    watch: Some(watch),
+                },
+                "Unlock Pipedash before watching a build",
+            );
+            assert!(status.supported);
+            assert!(!status.available);
+            assert_eq!(status.watch, None);
+            assert_eq!(
+                status.reason.as_deref(),
+                Some("Unlock Pipedash before watching a build")
+            );
+        }
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn provider_removal_only_cancels_its_reserved_core_generation() {
+        let state = BuildWatchState::default();
+        let old = state.reserve().unwrap();
+        old.bind_generation(1).unwrap();
+        old.bind_provider(7).unwrap();
+        assert_eq!(state.provider_session_id_generation(2, 7), None);
+        assert_eq!(state.provider_session_id_generation(1, 8), None);
+        let removed = state.provider_session_id_generation(1, 7).unwrap();
+        state.cancel(Some(&removed));
+        let current = state.reserve().unwrap();
+        current.bind_generation(2).unwrap();
+        current.bind_provider(7).unwrap();
+        assert_eq!(state.provider_session_id_generation(1, 7), None);
+        assert_eq!(
+            state.provider_session_id_generation(2, 7),
+            Some(current.id.clone())
+        );
+        assert_eq!(state.cancel(Some(&removed)), None);
+        assert!(current.is_current());
+        assert!(old.bind_generation(3).is_err());
     }
 
     #[test]

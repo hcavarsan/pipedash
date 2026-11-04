@@ -214,12 +214,12 @@ type UseCancelRunResult = DistributiveOmit<
   'mutateAsync'
 > & { mutateAsync: (variables: CancelRunVariables) => Promise<boolean> }
 
-export function useCancelRun(): UseCancelRunResult {
+function useRunCancellation(force: boolean): UseCancelRunResult {
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
     mutationFn: ({ pipelineId, runNumber }: { pipelineId: string; runNumber: number }) =>
-      service.cancelPipelineRun(pipelineId, runNumber),
+      force ? service.forceCancelPipelineRun(pipelineId, runNumber) : service.cancelPipelineRun(pipelineId, runNumber),
 
     onSuccess: (_data, { pipelineId, runNumber }) => {
       void queryClient.invalidateQueries({
@@ -229,12 +229,18 @@ export function useCancelRun(): UseCancelRunResult {
         queryKey: queryKeys.runs.list(pipelineId),
       })
 
-      notifyCancellationRequested(`Run #${runNumber} cancellation requested`)
+      if (force) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.pipelines.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.runs.active(pipelineId) })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.runLogs.tree(pipelineId, runNumber) })
+      }
+
+      notifyCancellationRequested(`Run #${runNumber} ${force ? 'force cancellation' : 'cancellation'} requested`)
     },
 
     onError: (error: Error) => {
       notifications.show({
-        title: "Couldn't cancel run",
+        title: force ? "Couldn't force cancel run" : "Couldn't cancel run",
         message: errorMessage(error, 'Check the run in your provider before trying again.'),
         color: 'red',
       })
@@ -243,13 +249,21 @@ export function useCancelRun(): UseCancelRunResult {
 
   const cancel = async (variables: CancelRunVariables) => {
     const { promise, resolve } = Promise.withResolvers<boolean>()
+    const targets = variables.pipeline ? actionTarget(variables.pipeline, variables.run ? [variables.run] : []) : []
+
+    if (force && !targets.some((target) => target.label === 'Branch')) {
+      targets.push({ label: 'Branch', value: variables.pipeline?.branch || 'Unknown' })
+    }
+
     openConfirm({
-      title: 'Cancel run',
+      title: force ? 'Force cancel run' : 'Cancel run',
       children: confirmBody(
-        `This cancels run #${variables.runNumber}. You can't undo this.`,
-        variables.pipeline ? actionTarget(variables.pipeline, variables.run ? [variables.run] : []) : []
+        force
+          ? `Force cancel run #${variables.runNumber} only after normal cancellation fails. GitHub bypasses conditions such as always(). You can't undo this.`
+          : `This cancels run #${variables.runNumber}. You can't undo this.`,
+        targets
       ),
-      labels: { confirm: 'Cancel run', cancel: 'Keep running' },
+      labels: { confirm: force ? 'Force cancel' : 'Cancel run', cancel: 'Keep running' },
       confirmProps: { color: 'red' },
       onConfirm: () => resolve(true),
       onCancel: () => resolve(false),
@@ -267,6 +281,14 @@ export function useCancelRun(): UseCancelRunResult {
   }
 
   return { ...mutation, mutateAsync: cancel }
+}
+
+export function useCancelRun(): UseCancelRunResult {
+  return useRunCancellation(false)
+}
+
+export function useForceCancelRun(): UseCancelRunResult {
+  return useRunCancellation(true)
 }
 
 export function useReviewRun(): UseMutationResult<

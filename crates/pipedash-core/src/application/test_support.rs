@@ -175,6 +175,7 @@ pub(crate) struct StubProvider {
     pub(crate) pipelines: Mutex<DomainResult<Vec<Pipeline>>>,
     pub(crate) runs: Mutex<Vec<PipelineRun>>,
     pub(crate) run_response: Mutex<Option<DomainResult<PipelineRun>>>,
+    pub(crate) force_cancel_rejected: AtomicBool,
     pub(crate) parameters: Mutex<DomainResult<Vec<WorkflowParameter>>>,
     pub(crate) rate_limit: Mutex<Option<RateLimit>>,
     pub(crate) capabilities: PluginCapabilities,
@@ -214,6 +215,7 @@ impl StubProvider {
             )])),
             runs: Mutex::new(Vec::new()),
             run_response: Mutex::new(None),
+            force_cancel_rejected: AtomicBool::new(false),
             parameters: Mutex::new(Ok(vec![parameter("branch")])),
             rate_limit: Mutex::new(None),
             capabilities: PluginCapabilities::default(),
@@ -417,6 +419,15 @@ impl Provider for StubProvider {
 
     async fn cancel_run(&self, _pipeline_id: &str, _run_number: i64) -> DomainResult<()> {
         Err(DomainError::NotSupported("stub".to_string()))
+    }
+
+    async fn force_cancel_run(&self, _pipeline_id: &str, _run_number: i64) -> DomainResult<()> {
+        if self.force_cancel_rejected.load(Ordering::SeqCst) {
+            return Err(DomainError::PermissionDenied(
+                "force cancellation refused".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     async fn review_run(

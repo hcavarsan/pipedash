@@ -1,4 +1,4 @@
-import type { Pipeline, PipelineRun, ProviderHealthAlert, ProviderSummary } from './domain'
+import type { Pipeline, PipelineRun, ProviderSummary, ShownNotification } from './domain'
 
 export interface PipelinesUpdatedPayload {
   pipelines: Pipeline[]
@@ -32,17 +32,17 @@ export interface PipelineStatusChangedPayload {
 
 export type EventPayloadMap = {
   'pipelines-updated': PipelinesUpdatedPayload
-  'pipelines-failed': { pipelines: Pipeline[] }
+  notification: ShownNotification
   'provider-added': ProviderChangedPayload
   'provider-updated': ProviderChangedPayload
   'provider-removed': ProviderChangedPayload
   'provider-status-updated': ProviderStatusUpdatedPayload
-  'provider-health-alert': ProviderHealthAlert
   'alert-recorded': { id: string; seq: number }
   'providers-changed': undefined
   'pipeline-views-changed': undefined
   'pipeline-cache-invalidated': CacheInvalidatedPayload
   'pipeline-status-changed': PipelineStatusChangedPayload
+  'run-history-cache-invalidated': { pipeline_id?: string }
   'refresh-status': RefreshStatusPayload
   'run-log-progress': { pipelineId: string; runNumber: number; nodeId: string; receivedBytes: number }
   'run-log-ready': { pipelineId: string; runNumber: number; nodeId: string; revision: number }

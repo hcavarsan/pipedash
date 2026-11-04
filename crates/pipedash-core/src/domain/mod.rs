@@ -26,6 +26,9 @@ pub use device_alert::{
     DeviceAlert,
     DevicePush,
     NewDeviceAlert,
+    NotificationPreferences,
+    OnceWatch,
+    RunFinish,
 };
 pub use error::{
     DomainError,
@@ -81,6 +84,8 @@ pub use pipeline_view::{
     PinKind,
     PinnedBlock,
     PinnedItem,
+    PipelineMenuEntry,
+    PipelineMenuSnapshot,
     PipelineView,
     PipelineViewPage,
     PipelineViewQuery,

@@ -1,7 +1,10 @@
 use std::path::Path;
 use std::time::Duration;
 
-use pipedash_core::domain::ServerUrl;
+use pipedash_core::domain::{
+    RunFinish,
+    ServerUrl,
+};
 use serde::{
     Deserialize,
     Serialize,
@@ -51,6 +54,10 @@ pub struct HostAlert {
     pub body: String,
     pub pipeline_id: Option<String>,
     pub provider_id: Option<i64>,
+    #[serde(default)]
+    pub provider_ids: Vec<i64>,
+    #[serde(default)]
+    pub finish: Option<RunFinish>,
     pub created_at: String,
 }
 
@@ -91,6 +98,21 @@ pub async fn host_request(
         Ok(None) => Err(RemoteError::Unreachable(host.host_name.clone())),
         Err(_) => Err(RemoteError::Timeout),
     }
+}
+
+pub(crate) async fn client_request(
+    remote: &RemoteConnection, method: &str, path: &str, body: Option<&str>,
+) -> Result<(u16, String), RemoteError> {
+    client_request_within(remote, method, path, body, REQUEST_TIMEOUT).await
+}
+
+pub(crate) async fn client_request_within(
+    remote: &RemoteConnection, method: &str, path: &str, body: Option<&str>, timeout: Duration,
+) -> Result<(u16, String), RemoteError> {
+    let session = remote.ready_session(session::CONNECT_TIMEOUT).await?;
+    let (status, body) = session.request(method, path, body, timeout).await?;
+
+    Ok((status, String::from_utf8_lossy(&body).into_owned()))
 }
 
 pub async fn fetch(host: &AlertHost, after: i64, limit: u32) -> Result<AlertPage, RemoteError> {
@@ -347,6 +369,8 @@ mod tests {
                 body: "body".to_owned(),
                 pipeline_id: None,
                 provider_id: None,
+                provider_ids: Vec::new(),
+                finish: None,
             })
             .await
             .unwrap()
@@ -514,6 +538,7 @@ mod tests {
             },
             allow_private_http: true,
             alerts_seen: seen,
+            preferences_pending: false,
         };
         remote
     }

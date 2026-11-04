@@ -19,12 +19,15 @@ interface RunActionsProps {
   canViewLogs: boolean
   canTrigger: boolean
   canCancel: boolean
+  canForceCancel: boolean
   triggerBlockedReason: string | undefined
   stopDisabled: boolean
   rerunPending: boolean
   cancelPending: boolean
+  forceCancelPending: boolean
   onRerun: () => void
   onCancel: () => void
+  onForceCancel: () => void
 }
 
 const FLUX_NOTE = 'Reconcile uses the current resource configuration. It does not restore this historical revision.'
@@ -39,12 +42,15 @@ export function RunActionsFooter({
   canViewLogs,
   canTrigger,
   canCancel,
+  canForceCancel,
   triggerBlockedReason,
   stopDisabled,
   rerunPending,
   cancelPending,
+  forceCancelPending,
   onRerun,
   onCancel,
+  onForceCancel,
 }: RunActionsProps): ReactNode {
   const isRunning = run.status === 'running' || run.status === 'pending'
   const isPending = run.status === 'pending'
@@ -87,6 +93,18 @@ export function RunActionsFooter({
             {isMobile ? 'Stop' : 'Stop workflow'}
           </Button>
         )}
+        {run.status === 'running' && canForceCancel && (
+          <Button
+            color="red"
+            variant="outline"
+            size="sm"
+            onClick={onForceCancel}
+            loading={forceCancelPending}
+            disabled={cancelPending}
+          >
+            Force cancel
+          </Button>
+        )}
         {!isRunning && canTrigger && (
           <Button
             size="sm"
@@ -108,11 +126,14 @@ export function MobileRunActions({
   triggerLabel,
   canTrigger,
   canCancel,
+  canForceCancel,
   triggerBlockedReason,
   rerunPending,
   cancelPending,
+  forceCancelPending,
   onRerun,
   onCancel,
+  onForceCancel,
 }: RunActionsProps): ReactNode {
   const clipboard = useClipboard({ timeout: 2000 })
   const isRunning = run.status === 'running' || run.status === 'pending'
@@ -198,6 +219,17 @@ export function MobileRunActions({
             accessory={cancelPending ? <Loader size="sm" /> : undefined}
             disabled={isPending || cancelPending}
             onClick={onCancel}
+          />
+        </IosGroup>
+      )}
+      {run.status === 'running' && canForceCancel && (
+        <IosGroup>
+          <IosRow
+            title="Force cancel"
+            destructive
+            accessory={forceCancelPending ? <Loader size="sm" /> : undefined}
+            disabled={cancelPending || forceCancelPending}
+            onClick={onForceCancel}
           />
         </IosGroup>
       )}

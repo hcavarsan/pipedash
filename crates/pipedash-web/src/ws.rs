@@ -35,11 +35,14 @@ use futures_util::{
     SinkExt,
     StreamExt,
 };
+use pipedash_core::application::ObservedNotification;
 use pipedash_core::domain::pairing::validate_device;
+use pipedash_core::domain::NotificationPreferences;
 use pipedash_core::event::{
     CoreEvent,
     EventBus,
 };
+use pipedash_core::CoreContext;
 use serde::{
     Deserialize,
     Serialize,
@@ -86,6 +89,11 @@ enum ClientFrame {
         path: String,
         #[serde(default)]
         body: Option<String>,
+    },
+    NotificationPreferences {
+        preferences: NotificationPreferences,
+        #[serde(default)]
+        after: Option<u64>,
     },
 }
 
@@ -254,6 +262,8 @@ struct Connection {
     permits: Arc<Semaphore>,
     admitted: Arc<Semaphore>,
     requests: JoinSet<()>,
+    preferences: NotificationPreferences,
+    last_notification: u64,
 }
 
 impl Connection {
@@ -270,6 +280,8 @@ impl Connection {
             permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
             admitted: Arc::new(Semaphore::new(MAX_ADMITTED)),
             requests: JoinSet::new(),
+            preferences: NotificationPreferences::default(),
+            last_notification: 0,
         }
     }
 
@@ -333,6 +345,9 @@ impl Connection {
                 path,
                 body,
             } => self.on_request(id, method, path, body).await,
+            ClientFrame::NotificationPreferences { preferences, after } => {
+                self.on_notification_preferences(preferences, after).await
+            }
         }
     }
 
@@ -468,8 +483,76 @@ impl Connection {
         true
     }
 
+    async fn on_notification_preferences(
+        &mut self, mut preferences: NotificationPreferences, after: Option<u64>,
+    ) -> bool {
+        match self.identity {
+            None => {
+                self.reject("AUTH_FAILED", AUTH_FAILED_MESSAGE).await;
+                return false;
+            }
+            Some(Identity::Device { .. }) => return true,
+            Some(_) => {}
+        }
+        preferences.keep_fired(&self.preferences);
+        self.preferences = preferences;
+
+        let Some(after) = after else {
+            return true;
+        };
+        let Ok(core) = self.state.core().await else {
+            return true;
+        };
+        for observed in core.notifications_after(after) {
+            if !self.show(&core, &observed).await {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    async fn on_notification(&mut self, observed: &ObservedNotification) -> bool {
+        match self.state.core().await {
+            Ok(core) => self.show(&core, observed).await,
+            Err(_) => true,
+        }
+    }
+
+    async fn show(&mut self, core: &CoreContext, observed: &ObservedNotification) -> bool {
+        if observed.id <= self.last_notification {
+            return true;
+        }
+        let shown = match &self.identity {
+            None => return true,
+            Some(Identity::Device { id, .. }) => {
+                let mut preferences = match core.devices().notification_preferences().await {
+                    Ok(mut stored) => stored.remove(id).unwrap_or_default(),
+                    Err(error) => {
+                        tracing::warn!(%error, "Couldn't load device notification preferences");
+                        return true;
+                    }
+                };
+                observed.admit(&mut preferences)
+            }
+            Some(_) => observed.admit(&mut self.preferences),
+        };
+        let Some(shown) = shown else {
+            return true;
+        };
+        self.last_notification = observed.id;
+
+        self.out
+            .send(text(json!({ "type": "notification", "payload": shown })))
+            .await
+            .is_ok()
+    }
+
     async fn on_event(&mut self, event: Result<CoreEvent, broadcast::error::RecvError>) -> bool {
         match event {
+            Ok(CoreEvent::NotificationObserved { notification }) => {
+                self.on_notification(&notification).await
+            }
             Ok(event) => {
                 if let (CoreEvent::DeviceRevoked { id }, Some(Identity::Device { id: own, .. })) =
                     (&event, &self.identity)
@@ -1048,5 +1131,230 @@ mod tests {
         assert_eq!(timed_out["type"], "auth-error");
         assert_eq!(timed_out["payload"]["code"], "AUTH_TIMEOUT");
         assert_closed(&mut stream).await;
+    }
+
+    fn failed_pipeline(name: &str) -> pipedash_core::Pipeline {
+        serde_json::from_value(json!({
+            "id": format!("jenkins__1__{name}"),
+            "provider_id": 1,
+            "provider_type": "jenkins",
+            "name": name,
+            "status": "failed",
+            "last_run": null,
+            "last_updated": chrono::Utc::now(),
+            "repository": "",
+            "branch": null,
+            "workflow_file": null,
+        }))
+        .unwrap()
+    }
+
+    async fn started(name: &str) -> (crate::test_support::Hosted, CoreContext) {
+        let host = crate::test_support::server(name).await;
+        let core = host.state.core().await.unwrap();
+        core.start_background_tasks().await;
+
+        (host, core)
+    }
+
+    async fn fail(core: &CoreContext, names: &[&str]) {
+        core.event_bus
+            .emit(CoreEvent::PipelinesFailed {
+                pipelines: names.iter().copied().map(failed_pipeline).collect(),
+            })
+            .await;
+    }
+
+    async fn recorded(core: &CoreContext, count: usize) -> Vec<ObservedNotification> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let seen = core.notifications_after(0);
+                if seen.len() >= count {
+                    return seen;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the recorder never observed the failures")
+    }
+
+    async fn next_notification(stream: &mut TcpStream) -> Value {
+        loop {
+            let message = next_message(stream).await;
+            assert_ne!(message["type"], "notification-observed");
+            if message["type"] == "notification" {
+                return message["payload"].clone();
+            }
+        }
+    }
+
+    async fn synced(stream: &mut TcpStream) {
+        send_json(
+            stream,
+            json!({ "type": "request", "id": 99, "method": "GET", "path": "/providers" }),
+        )
+        .await;
+        loop {
+            let message = next_message(stream).await;
+            if message["type"] == "response" && message["id"] == 99 {
+                return;
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_browser_that_muted_a_pipeline_gets_no_notification_for_it() {
+        let (host, core) = started("ws-notify-muted").await;
+        host.state.set_api_token("vault-password");
+        let mut stream = connect_state(host.state.clone()).await;
+        send_json(
+            &mut stream,
+            json!({ "type": "auth", "token": "vault-password" }),
+        )
+        .await;
+        assert_eq!(next_message(&mut stream).await["type"], "auth-ok");
+        send_json(
+            &mut stream,
+            json!({
+                "type": "notification-preferences",
+                "preferences": { "muted_pipelines": ["jenkins__1__muted"] },
+            }),
+        )
+        .await;
+        synced(&mut stream).await;
+
+        fail(&core, &["muted", "other"]).await;
+
+        let shown = next_notification(&mut stream).await;
+        assert_eq!(shown["pipeline_id"], "jenkins__1__other");
+        assert_eq!(shown["kind"], "failed");
+        assert_eq!(shown["tone"], "danger");
+        assert_eq!(shown["fired"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn a_reconnecting_browser_gets_the_missed_notifications_once() {
+        let (host, core) = started("ws-notify-replay").await;
+        fail(&core, &["a", "b"]).await;
+        let seen = recorded(&core, 2).await;
+        let mut stream = connect_state(host.state.clone()).await;
+
+        send_json(
+            &mut stream,
+            json!({ "type": "notification-preferences", "preferences": {}, "after": seen[0].id }),
+        )
+        .await;
+        let replayed = next_notification(&mut stream).await;
+        assert_eq!(replayed["id"], seen[1].id);
+        assert_eq!(replayed["pipeline_id"], "jenkins__1__b");
+
+        fail(&core, &["c"]).await;
+        assert_eq!(
+            next_notification(&mut stream).await["pipeline_id"],
+            "jenkins__1__c"
+        );
+
+        send_json(
+            &mut stream,
+            json!({ "type": "notification-preferences", "preferences": {}, "after": 0 }),
+        )
+        .await;
+        synced(&mut stream).await;
+        fail(&core, &["d"]).await;
+        assert_eq!(
+            next_notification(&mut stream).await["pipeline_id"],
+            "jenkins__1__d"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_replay_goes_through_the_preferences_the_browser_sent() {
+        let (host, core) = started("ws-notify-replay-muted").await;
+        fail(&core, &["muted", "other"]).await;
+        recorded(&core, 2).await;
+        let mut stream = connect_state(host.state.clone()).await;
+
+        send_json(
+            &mut stream,
+            json!({
+                "type": "notification-preferences",
+                "preferences": { "muted_pipelines": ["jenkins__1__muted"] },
+                "after": 0,
+            }),
+        )
+        .await;
+
+        assert_eq!(
+            next_notification(&mut stream).await["pipeline_id"],
+            "jenkins__1__other"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_device_connection_uses_the_preferences_stored_for_it() {
+        let (host, core) = started("ws-notify-device").await;
+        let (device, token) = core.pair_device("Pixel", "android").await.unwrap();
+        core.devices()
+            .set_notification_preferences(
+                &device.id,
+                &NotificationPreferences {
+                    muted_pipelines: vec!["jenkins__1__muted".into()],
+                    ..NotificationPreferences::default()
+                },
+            )
+            .await
+            .unwrap();
+        let mut stream = connect_state(host.state.clone()).await;
+        send_json(&mut stream, json!({ "type": "auth", "token": token })).await;
+        assert_eq!(next_message(&mut stream).await["type"], "auth-ok");
+        send_json(
+            &mut stream,
+            json!({
+                "type": "notification-preferences",
+                "preferences": { "muted_pipelines": ["jenkins__1__other"] },
+            }),
+        )
+        .await;
+        synced(&mut stream).await;
+
+        fail(&core, &["muted", "other"]).await;
+
+        assert_eq!(
+            next_notification(&mut stream).await["pipeline_id"],
+            "jenkins__1__other"
+        );
+        let stored = core.devices().notification_preferences().await.unwrap();
+        assert_eq!(stored[&device.id].muted_pipelines, ["jenkins__1__muted"]);
+    }
+
+    #[tokio::test]
+    async fn the_raw_notification_event_is_never_sent_and_needs_a_core() {
+        let bus = Arc::new(WebSocketEventBus::new());
+        let mut stream = connect(&bus).await;
+        let notice = pipedash_core::application::LocalNotification {
+            key: "pipeline:x".into(),
+            title: "x failed".into(),
+            body: String::new(),
+            pipeline_id: Some("x".into()),
+            provider_id: Some(1),
+            provider_ids: vec![1],
+            kind: pipedash_core::domain::AlertKind::Failed,
+            finish: None,
+            level: None,
+            link: None,
+        };
+
+        bus.emit(CoreEvent::NotificationObserved {
+            notification: ObservedNotification {
+                id: 1,
+                at: chrono::Utc::now(),
+                notice,
+            },
+        })
+        .await;
+        bus.emit(CoreEvent::ProvidersChanged).await;
+
+        assert_eq!(next_message(&mut stream).await["type"], "providers-changed");
     }
 }

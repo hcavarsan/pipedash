@@ -5,6 +5,7 @@ import type { PluginMetadata } from '../types/domain'
 import {
   canCancelPipeline,
   canEnablePipeline,
+  canForceCancelPipeline,
   getPipelineStatusLabel,
   getReconcileBlockReason,
   getRunStatusLabel,
@@ -53,6 +54,7 @@ test('read-only pipelines block triggering with the reason and refuse cancelling
         pipeline_runs: true,
         trigger: false,
         cancel,
+        force_cancel: true,
         agents: false,
         artifacts: false,
         queues: false,
@@ -73,6 +75,21 @@ test('read-only pipelines block triggering with the reason and refuse cancelling
   assert.equal(canCancelPipeline(plugins, readOnly), false)
   assert.equal(canCancelPipeline(plugins, open), true)
   assert.equal(canCancelPipeline(plugin(false), open), false)
+  assert.equal(canForceCancelPipeline(plugins, open), false)
+
+  const github = { ...open, provider_type: 'github' }
+  const githubPlugins = plugins.map((entry) => ({ ...entry, provider_type: 'github' }))
+
+  assert.equal(canForceCancelPipeline(githubPlugins, github), true)
+  assert.equal(canForceCancelPipeline(githubPlugins, { ...github, metadata: { read_only: true } }), false)
+  assert.equal(canForceCancelPipeline(undefined, github), false)
+  assert.equal(
+    canForceCancelPipeline(
+      githubPlugins.map((entry) => ({ ...entry, capabilities: { ...entry.capabilities, force_cancel: false } })),
+      github
+    ),
+    false
+  )
 })
 
 test('only a pending pipeline with no run and no resource state has never run', () => {

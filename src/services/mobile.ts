@@ -7,8 +7,10 @@ import type {
   ExportFileResult,
   HostAlert,
   LocalNotificationSettings,
-  NativeIntent,
+  NotificationPreferences,
+  PendingNativeIntent,
   UnlockVaultResponse,
+  WatchOnce,
 } from '../types/domain'
 import { toPipedashError } from '../types/errors'
 
@@ -72,6 +74,11 @@ export const mobileService = {
 
   takeMissedAlerts: (): Promise<HostAlert[]> => call('take_missed_alerts'),
 
+  setNotificationPreferences: (preferences: NotificationPreferences): Promise<WatchOnce[]> =>
+    call('set_notification_preferences', { preferences }),
+
+  loadNotificationPreferences: (): Promise<NotificationPreferences | null> => call('load_notification_preferences'),
+
   haptic: (kind: HapticKind): Promise<void> => call('native_haptic', { kind }),
 
   setAppearance: (scheme: NativeAppearance): Promise<void> => call('native_set_appearance', { scheme }),
@@ -84,5 +91,7 @@ export const mobileService = {
 
   releasePrivacyCover: (): Promise<void> => call('native_release_privacy_cover'),
 
-  takePendingIntent: (): Promise<NativeIntent | null> => call('native_take_pending_intent'),
+  peekPendingIntent: (): Promise<PendingNativeIntent | null> => call('native_peek_pending_intent'),
+
+  ackPendingIntent: (id: number): Promise<void> => call('native_ack_pending_intent', { id }),
 }

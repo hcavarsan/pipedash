@@ -29,7 +29,9 @@ const context = (overrides: Partial<RunActionsValue> = {}): RunActionsValue => (
   isFlux: false,
   canRerun: true,
   canCancel: true,
+  canForceCancel: false,
   cancellingRun: null,
+  forceCancellingRun: null,
   reviewingRun: null,
   rerunningFailedRun: null,
   rerunningRuns: new Set<number>(),
@@ -38,6 +40,7 @@ const context = (overrides: Partial<RunActionsValue> = {}): RunActionsValue => (
   openRun: () => undefined,
   openTrigger: () => undefined,
   cancel: async () => undefined,
+  forceCancel: async () => undefined,
   review: async () => undefined,
   requestRerun: () => undefined,
   rerunTarget: null,
@@ -78,4 +81,38 @@ test('a pending review disables both review decisions', () => {
   assert.equal(actions.find((action) => action.id === 'approve')?.disabled, true)
   assert.equal(actions.find((action) => action.id === 'reject')?.disabled, true)
   assert.deepEqual(swipeKeys(value, awaiting), [])
+})
+
+test('force cancel is a separate action for running runs with the capability', async () => {
+  let calls = 0
+  const value = context({
+    canForceCancel: true,
+    forceCancel: async () => {
+      calls += 1
+    },
+  })
+  const running = run({ status: 'running' })
+  const actions = buildRunActions(value, running)
+
+  assert.ok(actions.find((action) => action.id === 'cancel'))
+  assert.equal(actions.find((action) => action.id === 'force-cancel')?.label, 'Force cancel run #7')
+  await actions.find((action) => action.id === 'force-cancel')?.execute()
+  assert.equal(calls, 1)
+  assert.deepEqual(swipeKeys(value, running), ['cancel'])
+  assert.equal(
+    buildRunActions(context(), running).some((action) => action.id === 'force-cancel'),
+    false
+  )
+  for (const status of ['pending', 'success', 'failed', 'cancelled', 'skipped'] as const) {
+    assert.equal(
+      buildRunActions(value, run({ status })).some((action) => action.id === 'force-cancel'),
+      false
+    )
+  }
+  assert.equal(
+    buildRunActions(context({ canForceCancel: true, forceCancellingRun: 7 }), running).find(
+      (action) => action.id === 'force-cancel'
+    )?.disabled,
+    true
+  )
 })

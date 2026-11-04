@@ -90,6 +90,14 @@ export const canCancelPipeline = (
   pipeline: Pick<Pipeline, 'metadata' | 'provider_type'>
 ): boolean => !isReadOnlyPipeline(pipeline) && !!getPluginByType(plugins, pipeline.provider_type)?.capabilities.cancel
 
+export const canForceCancelPipeline = (
+  plugins: PluginMetadata[] | undefined,
+  pipeline: Pick<Pipeline, 'metadata' | 'provider_type'>
+): boolean =>
+  pipeline.provider_type === 'github' &&
+  !isReadOnlyPipeline(pipeline) &&
+  !!getPluginByType(plugins, pipeline.provider_type)?.capabilities.force_cancel
+
 export const canEnablePipeline = (pipeline: Pick<Pipeline, 'metadata'>): boolean =>
   !isReadOnlyPipeline(pipeline) && pipeline.metadata?.can_enable === true
 

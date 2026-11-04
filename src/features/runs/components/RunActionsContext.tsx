@@ -5,7 +5,13 @@ import { queryKeys } from '../../../lib/queryKeys'
 import { useBuildWatch } from '../../../queries/useBuildWatchQueries'
 import { usePlugins } from '../../../queries/usePluginsQueries'
 import { useRefreshProvider } from '../../../queries/useRefreshQueries'
-import { useCancelRun, useRerunFailedJobs, useRerunRun, useReviewRun } from '../../../queries/useRunHistoryQueries'
+import {
+  useCancelRun,
+  useForceCancelRun,
+  useRerunFailedJobs,
+  useRerunRun,
+  useReviewRun,
+} from '../../../queries/useRunHistoryQueries'
 import { service } from '../../../services/service'
 import { useModalStore } from '../../../stores/modalStore'
 import type { Pipeline, PipelineRun, ReviewDecision } from '../../../types/domain'
@@ -13,6 +19,7 @@ import { displayErrorNotification } from '../../../utils/errorDisplay'
 import { isRecord } from '../../../utils/isRecord'
 import {
   canCancelPipeline,
+  canForceCancelPipeline,
   canRerunInPlace,
   getPipelineLabels,
   getReconcileBlockReason,
@@ -41,6 +48,7 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
   const { data: plugins } = usePlugins()
   const buildWatch = useBuildWatch()
   const cancelRun = useCancelRun()
+  const forceCancelRun = useForceCancelRun()
   const reviewRun = useReviewRun()
   const rerunFailedJobs = useRerunFailedJobs()
   const rerunRun = useRerunRun()
@@ -123,6 +131,20 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
     }
   }
 
+  const forceCancel = async (run: PipelineRun): Promise<void> => {
+    if (!pipeline || !canForceCancelPipeline(plugins, pipeline) || run.status !== 'running') {
+      return
+    }
+
+    const cancelled = await forceCancelRun
+      .mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number, pipeline, run })
+      .catch(() => false)
+
+    if (cancelled) {
+      refreshProvider(pipeline.provider_id)
+    }
+  }
+
   const review = async (run: PipelineRun, decision: ReviewDecision): Promise<void> => {
     await reviewRun
       .mutateAsync({ pipelineId: run.pipeline_id, runNumber: run.run_number, decision })
@@ -136,7 +158,9 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
     isFlux: pipeline?.provider_type === 'fluxcd',
     canRerun: !!pipeline && !getReconcileBlockReason(pipeline),
     canCancel: !!pipeline && canCancelPipeline(plugins, pipeline),
+    canForceCancel: !!pipeline && canForceCancelPipeline(plugins, pipeline),
     cancellingRun: pendingNumber(cancelRun),
+    forceCancellingRun: pendingNumber(forceCancelRun),
     reviewingRun: pendingNumber(reviewRun),
     rerunningFailedRun: pendingNumber(rerunFailedJobs),
     rerunningRuns,
@@ -164,6 +188,7 @@ export function RunActionsProvider({ pipeline, children }: RunActionsProviderPro
       }
     },
     cancel,
+    forceCancel,
     review,
     requestRerun: (run) => {
       if (pipeline && canRerunInPlace(pipeline)) {

@@ -78,6 +78,10 @@ pub fn router() -> Router<AppState> {
         .route("/{id}/runs/{run_number}", get(get_run_details))
         .route("/{id}/trigger", post(trigger_pipeline))
         .route("/{id}/runs/{run_number}/cancel", post(cancel_run))
+        .route(
+            "/{id}/runs/{run_number}/force-cancel",
+            post(force_cancel_run),
+        )
         .route("/{id}/runs/{run_number}/review", post(review_run))
         .route(
             "/{id}/runs/{run_number}/rerun-failed-jobs",
@@ -146,6 +150,17 @@ async fn cancel_run(
         .cancel_run(&pipeline_id, run_number)
         .await?;
     pipeline_service.invalidate_run_cache(&pipeline_id).await;
+    Ok(())
+}
+
+async fn force_cancel_run(
+    State(state): State<AppState>, Path((pipeline_id, run_number)): Path<(String, i64)>,
+) -> ApiResult<()> {
+    state
+        .pipeline_service()
+        .await?
+        .force_cancel_run(&pipeline_id, run_number)
+        .await?;
     Ok(())
 }
 

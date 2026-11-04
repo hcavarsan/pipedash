@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom'
 
 import { App } from './App'
 import { LazyRoute } from './components/common/LazyRoute'
+import { NativeIntentBridge } from './components/NativeIntentBridge'
 import { ServerAccessGate } from './features/connection/components/ServerAccessGate'
 import { WelcomeScreen } from './features/connection/components/WelcomeScreen'
 import { getConnection } from './services/connection'
@@ -14,6 +15,15 @@ const ConnectServerScreen = lazy(() =>
 )
 
 export function Root(): ReactNode {
+  return (
+    <>
+      <NativeIntentBridge pairing />
+      <RootScreens />
+    </>
+  )
+}
+
+function RootScreens(): ReactNode {
   const { mode } = getConnection()
 
   if (mode === 'unset') {

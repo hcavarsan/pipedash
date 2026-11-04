@@ -29,6 +29,8 @@ use crate::domain::{
     DomainError,
     DomainResult,
     MetricsQuery,
+    NotificationPreferences,
+    OnceWatch,
     ProviderConfig,
 };
 use crate::event::EventBus;
@@ -227,10 +229,44 @@ fn remap_pipeline_id(pipeline_id: &str, provider_ids: &HashMap<i64, i64>) -> Opt
     Some(format!("{provider_type}__{new_id}__{rest}"))
 }
 
+fn remap_preferences(
+    mut preferences: NotificationPreferences, providers: &HashMap<i64, i64>,
+) -> NotificationPreferences {
+    preferences.muted_providers = preferences
+        .muted_providers
+        .iter()
+        .filter_map(|id| providers.get(id).copied())
+        .collect();
+    let pipelines = |ids: &[String]| -> Vec<String> {
+        ids.iter()
+            .filter_map(|id| remap_pipeline_id(id, providers))
+            .collect()
+    };
+    preferences.muted_pipelines = pipelines(&preferences.muted_pipelines);
+    preferences.watched_pipelines = pipelines(&preferences.watched_pipelines);
+    preferences.watch_once = preferences
+        .watch_once
+        .into_iter()
+        .filter_map(|once| {
+            Some(OnceWatch {
+                pipeline_id: remap_pipeline_id(&once.pipeline_id, providers)?,
+                ..once
+            })
+        })
+        .collect();
+
+    preferences
+}
+
 fn remap_alert(mut alert: DeviceAlert, providers: &HashMap<i64, i64>) -> Option<DeviceAlert> {
     if let Some(provider_id) = alert.provider_id {
         alert.provider_id = Some(*providers.get(&provider_id)?);
     }
+    alert.provider_ids = alert
+        .provider_ids
+        .iter()
+        .filter_map(|id| providers.get(id).copied())
+        .collect();
     if let Some(pipeline_id) = alert.pipeline_id.take() {
         let next = remap_pipeline_id(&pipeline_id, providers)?;
         if alert.key == format!("pipeline:{pipeline_id}") {
@@ -739,11 +775,17 @@ impl MigrationOrchestrator {
                 }
 
                 if !same_database(&plan.from, &plan.to) {
-                    let devices = DeviceRepository::new(self.source_pool.clone())
-                        .list()
-                        .await?;
+                    let source_devices = DeviceRepository::new(self.source_pool.clone());
+                    let devices = source_devices.list().await?;
                     let target_devices = DeviceRepository::new(target_manager.database_pool());
                     target_devices.import(&devices).await?;
+                    for (id, preferences) in source_devices.notification_preferences().await? {
+                        let preferences =
+                            remap_preferences(preferences, &result.provider_id_mapping);
+                        target_devices
+                            .set_notification_preferences(&id, &preferences)
+                            .await?;
+                    }
                     if options.clean_target {
                         for stale in target_devices.list().await? {
                             if !devices.iter().any(|d| d.id == stale.id) {
@@ -1662,6 +1704,8 @@ mod tests {
                     body: "body".to_string(),
                     pipeline_id: pipeline_id.map(str::to_string),
                     provider_id: Some(provider_id),
+                    provider_ids: vec![provider_id],
+                    finish: None,
                 }
             };
         let alerts = DeviceAlertRepository::new(manager.database_pool());
@@ -1679,12 +1723,15 @@ mod tests {
                 Some(&pipeline),
                 provider,
             ),
-            new_alert(
-                &format!("connection:{provider}"),
-                AlertKind::Outage,
-                None,
-                provider,
-            ),
+            NewDeviceAlert {
+                provider_ids: vec![provider, gone],
+                ..new_alert(
+                    &format!("connection:{provider}"),
+                    AlertKind::Outage,
+                    None,
+                    provider,
+                )
+            },
             new_alert("connection:99", AlertKind::Outage, None, gone),
         ] {
             alerts.insert(&new).await.unwrap();
@@ -1693,6 +1740,27 @@ mod tests {
         pushes.set("device-1", "sub-1").await.unwrap();
         pushes.mark_success("device-1").await.unwrap();
         let expected_pushes = pushes.list().await.unwrap();
+        let (device, _) = crate::domain::PairedDevice::issue("Pixel", "android");
+        let devices = DeviceRepository::new(manager.database_pool());
+        devices.insert(&device).await.unwrap();
+        devices
+            .set_notification_preferences(
+                &device.id,
+                &NotificationPreferences {
+                    outage: false,
+                    muted_providers: vec![provider, gone],
+                    muted_pipelines: vec![pipeline.clone()],
+                    watched_pipelines: vec![pipeline.clone(), format!("github__{gone}__x")],
+                    watch_once: vec![OnceWatch {
+                        pipeline_id: pipeline.clone(),
+                        since: chrono::DateTime::UNIX_EPOCH,
+                        fired_at: Some(chrono::DateTime::UNIX_EPOCH),
+                    }],
+                    ..NotificationPreferences::default()
+                },
+            )
+            .await
+            .unwrap();
 
         let target_manager = StorageManager::from_config(target.clone(), false)
             .await
@@ -1754,6 +1822,27 @@ mod tests {
             moved[0].pipeline_id.as_deref(),
             Some(format!("github__{target_provider}__o__r__1").as_str())
         );
+        assert_eq!(moved[0].provider_ids, vec![target_provider]);
+        assert_eq!(moved[1].provider_ids, vec![target_provider]);
+        assert_ne!(target_provider, provider);
+        assert_eq!(
+            DeviceRepository::new(target_manager.database_pool())
+                .notification_preferences()
+                .await
+                .unwrap()[&device.id],
+            NotificationPreferences {
+                outage: false,
+                muted_providers: vec![target_provider],
+                muted_pipelines: vec![format!("github__{target_provider}__o__r__1")],
+                watched_pipelines: vec![format!("github__{target_provider}__o__r__1")],
+                watch_once: vec![OnceWatch {
+                    pipeline_id: format!("github__{target_provider}__o__r__1"),
+                    since: chrono::DateTime::UNIX_EPOCH,
+                    fired_at: Some(chrono::DateTime::UNIX_EPOCH),
+                }],
+                ..NotificationPreferences::default()
+            }
+        );
         assert_eq!(
             DevicePushRepository::new(target_manager.database_pool())
                 .list()
@@ -1794,6 +1883,8 @@ mod tests {
             body: "body".to_string(),
             pipeline_id: None,
             provider_id: None,
+            provider_ids: Vec::new(),
+            finish: None,
         };
         let manager = StorageManager::from_config(source, false).await.unwrap();
         let source_alerts = DeviceAlertRepository::new(manager.database_pool());

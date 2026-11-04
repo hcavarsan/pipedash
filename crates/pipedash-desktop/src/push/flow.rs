@@ -150,26 +150,25 @@ mod saved {
 
 #[cfg(test)]
 mod saved {
-    use std::sync::{
-        Mutex,
-        PoisonError,
-    };
+    use std::cell::RefCell;
 
     use super::Result;
 
-    static SAVED: Mutex<Option<String>> = Mutex::new(None);
+    thread_local! {
+        static SAVED: RefCell<Option<String>> = const { RefCell::new(None) };
+    }
 
     pub(super) fn read() -> Result<Option<String>> {
-        Ok(SAVED.lock().unwrap_or_else(PoisonError::into_inner).clone())
+        Ok(SAVED.with_borrow(Clone::clone))
     }
 
     pub(super) fn write(value: &str) -> Result<()> {
-        *SAVED.lock().unwrap_or_else(PoisonError::into_inner) = Some(value.to_owned());
+        SAVED.set(Some(value.to_owned()));
         Ok(())
     }
 
     pub(super) fn delete() -> Result<()> {
-        *SAVED.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        SAVED.set(None);
         Ok(())
     }
 }

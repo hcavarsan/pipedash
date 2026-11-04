@@ -7,6 +7,7 @@ import { fromOf } from '../../../components/layout/mobileChrome'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import { useProviderStore } from '../../../stores/providerStore'
 import type { PinKind, PipelineView, ProviderSummary } from '../../../types/domain'
+import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { useConfirmRemoveProvider } from '../../providers/components/ProviderModals'
 import { useProviderCancelItems } from '../hooks/useCancelActiveRuns'
 import { useViewMenuItems } from '../hooks/useViewMenuItems'
@@ -48,7 +49,9 @@ export const Navbar = ({ compact = false }: NavbarProps): ReactNode => {
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const contextMenu = useContextMenu()
   const { providerItems, dialog } = useProviderCancelItems(providers)
-  const providerMenu = (provider: ProviderSummary) => contextMenu(() => providerItems(provider))
+  const { providerItem } = useNotifyItems()
+  const providerMenu = (provider: ProviderSummary) =>
+    contextMenu(() => [...providerItems(provider), providerItem(provider)])
   const menuItems = useViewMenuItems(views ?? [], 'vertical')
   const viewMenu = (view: PipelineView | undefined) => (view ? contextMenu(() => menuItems(view)) : undefined)
   const pinMenu = (pin: { kind: PinKind; ref: string; name: string }) => {

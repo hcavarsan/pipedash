@@ -5,6 +5,8 @@ mod build_watch;
 mod commands;
 mod core_boot;
 mod credential;
+#[cfg(desktop)]
+mod desktop;
 mod export_file;
 pub mod fallback_store;
 mod host;
@@ -73,13 +75,14 @@ fn install_app_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
         let command = event.id().as_ref();
-        if matches!(
-            command,
-            "refresh-all" | "toggle-sidebar" | "settings" | "lock" | "find"
-        ) {
-            if let Err(error) = app.emit("menu-command", command) {
-                tracing::error!("Could not dispatch menu command: {}", error);
+        match command {
+            "settings" | "lock" | "refresh-all" => desktop::dispatch_app_menu(app, command),
+            "toggle-sidebar" | "find" => {
+                if let Err(error) = app.emit("menu-command", command) {
+                    tracing::error!(%error, "Could not dispatch menu command");
+                }
             }
+            _ => {}
         }
     });
     Ok(())
@@ -228,6 +231,7 @@ use commands::{
     fetch_provider_organizations,
     fetch_run_history,
     flush_pipeline_metrics,
+    force_cancel_pipeline_run,
     get_available_plugins,
     get_cache_stats,
     get_cached_pipelines,
@@ -357,7 +361,16 @@ pub fn run() {
         );
     }
 
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Err(error) = desktop::show_main_window(app) {
+                tracing::warn!(%error, "Couldn't restore the running Pipedash instance");
+            }
+        }))
+        .on_window_event(desktop::handle_window_event);
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_notification::init())
@@ -466,6 +479,16 @@ pub fn run() {
             #[cfg(target_os = "android")]
             local_notifications::set_storage_dir(&app_data_dir);
             local_notifications::register(app.handle())?;
+            #[cfg(desktop)]
+            {
+                tauri::async_runtime::block_on(desktop::initialize(
+                    app.handle(),
+                    app_data_dir.clone(),
+                ))
+                .map_err(|error| error.error)?;
+                system_notifications::register(app.handle())?;
+                build_watch::register(app.handle())?;
+            }
 
             match saved.mode {
                 SavedMode::Unset => {
@@ -485,9 +508,19 @@ pub fn run() {
                     } else {
                         tracing::info!("Configuration found - initializing application");
 
-                        core_boot::launch_outcome(tauri::async_runtime::block_on(
-                            core_boot::boot_core(app.handle(), BootKind::Launch, false),
-                        ))?;
+                        let outcome = tauri::async_runtime::block_on(core_boot::boot_core(
+                            app.handle(),
+                            BootKind::Launch,
+                            false,
+                        ));
+                        #[cfg(desktop)]
+                        if matches!(&outcome, Err(core_boot::BootError::Config(_))) {
+                            desktop::initialization_failed(
+                                app.handle(),
+                                "Configuration needs attention",
+                            );
+                        }
+                        core_boot::launch_outcome(outcome)?;
                     }
 
                     let handle = app.handle().clone();
@@ -497,8 +530,11 @@ pub fn run() {
                 }
             }
 
-            system_notifications::register(app.handle())?;
-            build_watch::register(app.handle())?;
+            #[cfg(mobile)]
+            {
+                system_notifications::register(app.handle())?;
+                build_watch::register(app.handle())?;
+            }
 
             push::spawn_legacy_cleanup(&app_data_dir);
             if matches!(saved.mode, SavedMode::Standalone) {
@@ -543,6 +579,7 @@ pub fn run() {
             stop_build_watch,
             trigger_pipeline,
             cancel_pipeline_run,
+            force_cancel_pipeline_run,
             review_pipeline_run,
             rerun_failed_jobs,
             rerun_pipeline_run,
@@ -630,6 +667,8 @@ pub fn run() {
             local_notifications::set_local_notifications_enabled,
             local_notifications::pair_alert_host,
             local_notifications::remove_alert_host,
+            local_notifications::set_notification_preferences,
+            local_notifications::load_notification_preferences,
             remote::alerts::take_missed_alerts,
             system_notifications::show_system_notification,
             native::native_haptic,
@@ -639,11 +678,30 @@ pub fn run() {
             native::native_share_link,
             native::native_set_badge,
             native::native_release_privacy_cover,
-            native::native_take_pending_intent,
+            native::native_peek_pending_intent,
+            native::native_ack_pending_intent,
+            #[cfg(desktop)]
+            desktop::get_desktop_status,
+            #[cfg(desktop)]
+            desktop::update_desktop_settings,
+            #[cfg(desktop)]
+            desktop::import_desktop_notification_preference,
+            #[cfg(desktop)]
+            desktop::test_desktop_notification,
+            #[cfg(desktop)]
+            desktop::notifications::get_desktop_notifications,
+            #[cfg(desktop)]
+            desktop::notifications::mark_desktop_notifications_read,
+            #[cfg(desktop)]
+            desktop::notifications::clear_desktop_notifications,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| native::on_run_event(app, &event));
+        .run(|app, event| {
+            native::on_run_event(app, &event);
+            #[cfg(desktop)]
+            desktop::on_run_event(app, &event);
+        });
 }
 
 #[cfg(test)]

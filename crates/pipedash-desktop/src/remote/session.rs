@@ -61,6 +61,8 @@ use super::{
     RemoteError,
     RemoteStatus,
 };
+#[cfg(desktop)]
+use crate::tauri_event_bus::NOTIFICATION_EVENT;
 
 pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -453,6 +455,12 @@ fn handle_frame(app: &AppHandle, session: &Session, text: &str) -> Option<Outcom
             if name == alerts::ALERT_RECORDED_EVENT {
                 alerts::record_live(app, session, &payload);
             }
+            #[cfg(desktop)]
+            if name == NOTIFICATION_EVENT {
+                crate::desktop::notifications::record_received(app, &payload);
+            }
+            #[cfg(desktop)]
+            crate::desktop::observe_server_event(app, &name);
             if let Err(error) = app.emit(&name, payload) {
                 tracing::debug!(%error, event = %name, "Couldn't forward a server event");
             }

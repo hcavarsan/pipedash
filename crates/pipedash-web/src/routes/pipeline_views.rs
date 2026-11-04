@@ -19,6 +19,7 @@ use pipedash_core::domain::{
     LegacyMarks,
     PinKind,
     PinnedItem,
+    PipelineMenuSnapshot,
     PipelineView,
     PipelineViewPage,
     PipelineViewQuery,
@@ -63,6 +64,7 @@ pub fn router() -> Router<AppState> {
         .route("/order", put(reorder_views))
         .route("/hidden", put(set_hidden))
         .route("/pins", get(list_pins).put(set_pin))
+        .route("/menu", get(menu))
         .route("/legacy-import", post(import_legacy_marks))
         .route("/{id}", put(update_view).delete(delete_view))
         .route("/{id}/members", get(list_members))
@@ -91,6 +93,12 @@ async fn page(
 ) -> ApiResult<Json<PipelineViewPage>> {
     Ok(Json(
         state.pipeline_view_service().await?.page(query).await?,
+    ))
+}
+
+async fn menu(State(state): State<AppState>) -> ApiResult<Json<PipelineMenuSnapshot>> {
+    Ok(Json(
+        state.pipeline_view_service().await?.menu_snapshot().await?,
     ))
 }
 
@@ -478,5 +486,57 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let (_, pins) = call(&h.app, Method::GET, "/pipeline-views/pins", None).await;
         assert_eq!(pins, json!([]));
+    }
+
+    #[tokio::test]
+    async fn pipeline_view_menu_returns_the_snapshot_the_desktop_tray_uses() {
+        let h = harness("menu").await;
+
+        let (status, empty) = call(&h.app, Method::GET, "/pipeline-views/menu", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(empty, json!({ "pipelines": [], "shortcuts": [] }));
+
+        let (status, _) = call(
+            &h.app,
+            Method::PUT,
+            "/pipeline-views/pinned/membership",
+            Some(json!({ "pipeline_id": h.pipeline_ids[0], "member": true })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = call(
+            &h.app,
+            Method::PUT,
+            "/pipeline-views/pins",
+            Some(json!({ "kind": "repository", "ref": "acme/web", "pinned": true })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, menu) = call(&h.app, Method::GET, "/pipeline-views/menu", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let snapshot: PipelineMenuSnapshot = serde_json::from_value(menu.clone()).unwrap();
+        assert_eq!(snapshot.pipelines.len(), 1);
+        assert_eq!(snapshot.pipelines[0].pipeline_id, h.pipeline_ids[0]);
+        assert_eq!(
+            snapshot.pipelines[0]
+                .pipeline
+                .as_ref()
+                .map(|pipeline| pipeline.name.as_str()),
+            Some("api")
+        );
+        assert_eq!(snapshot.shortcuts[0].reference, "acme/web");
+        assert_eq!(menu["pipelines"][0]["pipeline_id"], h.pipeline_ids[0]);
+
+        let (status, _) = call(
+            &h.app,
+            Method::PUT,
+            "/pipeline-views/pinned/membership",
+            Some(json!({ "pipeline_id": h.pipeline_ids[0], "member": false })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, menu) = call(&h.app, Method::GET, "/pipeline-views/menu", None).await;
+        assert_eq!(menu["pipelines"], json!([]));
     }
 }

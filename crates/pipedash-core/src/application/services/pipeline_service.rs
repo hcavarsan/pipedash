@@ -108,6 +108,7 @@ struct Applied {
     pipelines: Vec<Pipeline>,
     changed_ids: Vec<String>,
     failed: Vec<Pipeline>,
+    finished: Vec<Pipeline>,
 }
 
 pub struct PipelineService {
@@ -330,11 +331,21 @@ impl PipelineService {
         );
 
         let failed = needing_attention(&old_by_id, &pipelines);
+        let finished = pipelines
+            .iter()
+            .filter(|pipeline| {
+                old_by_id.get(pipeline.id.as_str()).is_some_and(|previous| {
+                    pipeline.finished_since(&previous.status, previous.last_run)
+                })
+            })
+            .cloned()
+            .collect();
 
         Ok(Applied {
             pipelines,
             changed_ids,
             failed,
+            finished,
         })
     }
 
@@ -363,6 +374,13 @@ impl PipelineService {
             self.event_bus
                 .emit(CoreEvent::PipelinesFailed {
                     pipelines: applied.failed,
+                })
+                .await;
+        }
+        if !applied.finished.is_empty() {
+            self.event_bus
+                .emit(CoreEvent::PipelinesFinished {
+                    pipelines: applied.finished,
                 })
                 .await;
         }
@@ -1064,6 +1082,34 @@ impl PipelineService {
         Ok(())
     }
 
+    pub async fn force_cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()> {
+        let cached_pipelines = self.repository.get_cached_pipelines(None).await?;
+        let pipeline = cached_pipelines
+            .iter()
+            .find(|p| p.id == pipeline_id)
+            .ok_or_else(|| DomainError::PipelineNotFound(pipeline_id.to_string()))?;
+        self.refuse_read_only(pipeline.provider_id).await?;
+
+        let provider = self
+            .provider_service
+            .get_provider(pipeline.provider_id)
+            .await?;
+        if !provider.capabilities().force_cancel {
+            return Err(DomainError::NotSupported(
+                "Force cancellation is not supported by this provider".to_string(),
+            ));
+        }
+        provider.force_cancel_run(pipeline_id, run_number).await?;
+        self.invalidate_run_cache(pipeline_id).await;
+        self.event_bus
+            .emit(CoreEvent::RunCancelled {
+                pipeline_id: pipeline_id.to_string(),
+            })
+            .await;
+
+        Ok(())
+    }
+
     pub async fn review_run(
         &self, pipeline_id: &str, run_number: i64, decision: pipedash_plugin_api::ReviewDecision,
     ) -> DomainResult<()> {
@@ -1287,6 +1333,9 @@ fn archived_flux_run(pipeline: &Pipeline, mut run: PipelineRun) -> Option<Pipeli
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
+    use pipedash_plugin_api::PluginError;
     use serde_json::json;
 
     use super::*;
@@ -1650,6 +1699,7 @@ mod tests {
 
         assert!(refused(triggered));
         assert!(refused(service.cancel_run(&public, 1).await));
+        assert!(refused(service.force_cancel_run(&public, 1).await));
         assert!(refused(service.rerun_run(&public, 1).await));
         assert!(refused(service.rerun_failed_jobs(&public, 1).await));
         assert!(refused(
@@ -1659,6 +1709,95 @@ mod tests {
         ));
         assert!(refused(service.enable_pipeline(&public).await));
         assert!(!refused(service.cancel_run(&signed, 1).await));
+    }
+
+    #[tokio::test]
+    async fn force_cancellation_only_invalidates_history_after_provider_acceptance() {
+        let h = Harness::new().await;
+        let (provider_id, stub) = h
+            .add_stub(|id| {
+                let mut provider = StubProvider::new(id);
+                provider.capabilities.force_cancel = true;
+                provider
+            })
+            .await;
+        let target = pipeline(provider_id, "build", PipelineStatus::Running);
+        let pipeline_id = target.id.clone();
+        h.repository
+            .update_pipelines_cache(provider_id, &[target])
+            .await
+            .unwrap();
+        let mut cached_run = run(7, "running", 5, None);
+        cached_run.pipeline_id.clone_from(&pipeline_id);
+        h.repository
+            .cache_run_history(&pipeline_id, &[cached_run])
+            .await
+            .unwrap();
+        stub.force_cancel_rejected.store(true, Ordering::SeqCst);
+
+        let rejected = h.pipeline_service.force_cancel_run(&pipeline_id, 7).await;
+        assert!(matches!(rejected, Err(DomainError::PermissionDenied(_))));
+        assert_eq!(
+            h.repository
+                .get_cached_run_count(&pipeline_id)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(h.bus.count("run-cancelled"), 0);
+
+        stub.force_cancel_rejected.store(false, Ordering::SeqCst);
+        h.pipeline_service
+            .force_cancel_run(&pipeline_id, 7)
+            .await
+            .unwrap();
+        assert_eq!(
+            h.repository
+                .get_cached_run_count(&pipeline_id)
+                .await
+                .unwrap(),
+            0
+        );
+        assert!(h.bus.events().iter().any(|event| {
+            matches!(event, CoreEvent::RunCancelled { pipeline_id: id } if id == &pipeline_id)
+        }));
+    }
+
+    #[tokio::test]
+    async fn force_cancellation_requires_provider_support_and_a_known_pipeline() {
+        let h = Harness::new().await;
+        let (provider_id, _) = h.add_stub(StubProvider::new).await;
+        let target = pipeline(provider_id, "build", PipelineStatus::Running);
+        let pipeline_id = target.id.clone();
+        h.repository
+            .update_pipelines_cache(provider_id, &[target])
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            h.pipeline_service.force_cancel_run(&pipeline_id, 7).await,
+            Err(DomainError::NotSupported(_))
+        ));
+        assert!(matches!(
+            h.pipeline_service.force_cancel_run("missing", 7).await,
+            Err(DomainError::PipelineNotFound(_))
+        ));
+        assert_eq!(h.bus.count("run-cancelled"), 0);
+    }
+
+    #[tokio::test]
+    async fn other_plugins_reject_force_cancellation_without_initialization() {
+        for metadata in crate::plugins::get_all_plugin_metadata() {
+            if metadata.provider_type == "github" {
+                continue;
+            }
+            let plugin = crate::plugins::create_plugin(&metadata.provider_type).unwrap();
+            assert!(!metadata.capabilities.force_cancel);
+            assert!(matches!(
+                plugin.force_cancel_run("unused", 7).await,
+                Err(PluginError::NotSupported(_))
+            ));
+        }
     }
 
     #[tokio::test]
@@ -1946,6 +2085,47 @@ mod tests {
         stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Failed)]);
         h.fetch_directly(id).await;
         assert_eq!(reported(), vec![vec![web.clone()], vec![web]]);
+    }
+
+    #[tokio::test]
+    async fn a_run_that_finishes_is_reported_once() {
+        let h = Harness::new().await;
+        let (id, stub) = h.add_stub(StubProvider::new).await;
+        let finished = || -> Vec<Vec<(String, PipelineStatus)>> {
+            h.bus
+                .events()
+                .iter()
+                .filter_map(|event| match event {
+                    CoreEvent::PipelinesFinished { pipelines } => Some(
+                        pipelines
+                            .iter()
+                            .map(|p| (p.name.clone(), p.status.clone()))
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Running)]);
+        h.fetch_directly(id).await;
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Success)]);
+        h.fetch_directly(id).await;
+        h.fetch_directly(id).await;
+        assert_eq!(
+            finished(),
+            vec![vec![("web".to_owned(), PipelineStatus::Success)]]
+        );
+
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Pending)]);
+        h.fetch_directly(id).await;
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Failed)]);
+        h.fetch_directly(id).await;
+        assert_eq!(finished().len(), 2);
+        assert_eq!(
+            finished()[1],
+            vec![("web".to_owned(), PipelineStatus::Failed)]
+        );
     }
 
     #[tokio::test]

@@ -33,6 +33,7 @@ export function pluginFixture(overrides: Partial<PluginMetadata> = {}): PluginMe
       pipeline_runs: true,
       trigger: true,
       cancel: true,
+      force_cancel: false,
       agents: false,
       artifacts: false,
       queues: false,

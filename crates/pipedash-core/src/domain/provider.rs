@@ -223,6 +223,8 @@ pub trait Provider: Send + Sync {
 
     async fn cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()>;
 
+    async fn force_cancel_run(&self, pipeline_id: &str, run_number: i64) -> DomainResult<()>;
+
     async fn review_run(
         &self, pipeline_id: &str, run_number: i64, decision: pipedash_plugin_api::ReviewDecision,
     ) -> DomainResult<()>;

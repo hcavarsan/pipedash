@@ -267,9 +267,95 @@ async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
             body: BODY.to_owned(),
             pipeline_id: Some("github__1__api".to_owned()),
             provider_id: Some(1),
+            provider_ids: vec![1],
             kind: AlertKind::Failed,
+            finish: found[0].finish,
+            level: None,
+            link: None,
         }]
     );
+    assert!(found[0]
+        .finish
+        .is_some_and(|finish| finish.previous.is_none()));
+}
+
+#[test]
+fn a_finished_run_names_its_outcome_and_remembers_the_previous_finish() {
+    let mut state = NotificationState::default();
+    state.seed(&[run(1, "api", PipelineStatus::Running, 1)], &[summary(1)]);
+
+    let first = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 1)]));
+    assert_eq!(titles(&first), ["api succeeded"]);
+    assert_eq!(first[0].kind, AlertKind::Finished);
+    let first_at = first[0].finish.map(|finish| finish.at);
+    assert!(first_at.is_some());
+    assert_eq!(first[0].finish.and_then(|finish| finish.previous), None);
+
+    state = reload(&state);
+    let skipped = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Skipped, 2)]));
+    assert_eq!(titles(&skipped), ["api was skipped"]);
+    assert_eq!(
+        skipped[0].finish.and_then(|finish| finish.previous),
+        first_at
+    );
+
+    let flipped = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Failed, 2)]));
+    assert_eq!(titles(&flipped), ["api failed"]);
+    assert_eq!(flipped[0].finish, None);
+
+    state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Running, 3)]));
+    let cancelled = state.observe_event(&updated(
+        1,
+        vec![run(1, "api", PipelineStatus::Cancelled, 3)],
+    ));
+    assert_eq!(titles(&cancelled), ["api was cancelled"]);
+    assert!(state
+        .observe_event(&updated(
+            1,
+            vec![run(1, "api", PipelineStatus::Cancelled, 3)]
+        ))
+        .is_empty());
+}
+
+#[test]
+fn admission_shows_a_watched_finish_once_and_reports_the_request_it_used() {
+    let mut state = NotificationState::default();
+    state.seed(&[run(1, "api", PipelineStatus::Running, 1)], &[summary(1)]);
+    let notice = state
+        .observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 1)]))
+        .remove(0);
+    let finish = notice.finish.unwrap();
+    let observed = ObservedNotification {
+        id: 7,
+        at: finish.at,
+        notice,
+    };
+    let request = crate::domain::OnceWatch {
+        pipeline_id: "github__1__api".into(),
+        since: finish.at - chrono::Duration::minutes(1),
+        fired_at: None,
+    };
+    let mut preferences = NotificationPreferences {
+        muted_providers: vec![1],
+        watch_once: vec![request.clone()],
+        ..NotificationPreferences::default()
+    };
+
+    assert!(observed
+        .admit(&mut NotificationPreferences::default())
+        .is_none());
+    let shown = observed.admit(&mut preferences).unwrap();
+    assert_eq!((shown.id, shown.tone), (7, "success"));
+    assert_eq!(
+        shown.fired,
+        Some(crate::domain::OnceWatch {
+            fired_at: Some(finish.at),
+            ..request
+        })
+    );
+    assert_eq!(observed.admit(&mut preferences).unwrap().fired, None);
+    preferences.muted_pipelines = vec!["github__1__api".into()];
+    assert!(observed.admit(&mut preferences).is_none());
 }
 
 #[tokio::test]
@@ -373,13 +459,21 @@ fn a_failed_pipeline_notifies_once_when_it_passes_again() {
                 body: BODY.to_owned(),
                 pipeline_id: Some(success.id.clone()),
                 provider_id: Some(1),
+                provider_ids: vec![1],
                 kind: AlertKind::Recovered,
+                finish: found[0].finish,
+                level: None,
+                link: None,
             }]
         );
+        assert!(found[0].finish.is_some());
         assert!(state.observe_event(&updated(1, vec![success])).is_empty());
-        assert!(state
-            .observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 3)]))
-            .is_empty());
+        assert_eq!(
+            titles(
+                &state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 3)]))
+            ),
+            ["api succeeded"]
+        );
         state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Failed, 4)]));
         assert_eq!(
             titles(
@@ -391,7 +485,7 @@ fn a_failed_pipeline_notifies_once_when_it_passes_again() {
 }
 
 #[test]
-fn passing_without_a_known_failure_stays_silent() {
+fn passing_without_a_known_failure_is_an_ordinary_finish() {
     for initial in [
         PipelineStatus::Success,
         PipelineStatus::Running,
@@ -399,9 +493,10 @@ fn passing_without_a_known_failure_stays_silent() {
     ] {
         let mut state = NotificationState::default();
         state.seed(&[run(1, "api", initial, 1)], &[summary(1)]);
-        assert!(state
-            .observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 2)]))
-            .is_empty());
+        let found =
+            state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 2)]));
+        assert_eq!(titles(&found), ["api succeeded"]);
+        assert_eq!(found[0].kind, AlertKind::Finished);
     }
     let mut state = NotificationState::default();
     assert!(state

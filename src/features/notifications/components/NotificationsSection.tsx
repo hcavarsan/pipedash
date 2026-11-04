@@ -14,7 +14,7 @@ import { useNotificationStore } from '@/stores/notificationStore'
 import type { AlertHostInfo } from '@/types/domain'
 import { openConfirm } from '@/utils/confirm'
 import { displayWarningNotification } from '@/utils/errorDisplay'
-import { isAndroidPlatform, isMobilePlatform } from '@/utils/platform'
+import { isAndroidPlatform, isDesktopTauri, isMobilePlatform } from '@/utils/platform'
 import {
   notificationProblem,
   requestSystemNotificationPermission,
@@ -24,11 +24,12 @@ import {
 import { ErrorBoundary } from '../../../components/ErrorBoundary/ErrorBoundary'
 import { IosGroup, IosRow } from '../../../components/ios/IosList'
 import { SwitchRow } from '../../../components/ios/mobileParts'
+import { DesktopNotificationsCard } from './DesktopNotificationsCard'
 import { MobileDevicesCard } from './MobileDevicesCard'
+import { NotificationPreferencesSection } from './NotificationPreferencesSection'
 import { NotificationsBlockedRows } from './NotificationsBlockedRows'
 
-const DESCRIPTION =
-  'Get alerts for failed pipelines and pipelines that pass again. Alerts also cover long runs, provider outages and provider recoveries.'
+const DESCRIPTION = 'Get a system notification for the alerts you choose below.'
 const CONNECT_PATH = '/connect?purpose=alerts'
 const CONNECT_SUBTITLE =
   "Get alerts from a Pipedash server or a computer that shares Pipedash, even when its pipelines aren't on this device."
@@ -121,6 +122,17 @@ function AlertHostGroup({ mobileShell, alertHost, removing, onRemove }: AlertHos
 }
 
 export function NotificationsSection(): ReactNode {
+  return isDesktopTauri() ? (
+    <Stack gap="md">
+      <DesktopNotificationsCard />
+      <NotificationPreferencesSection />
+    </Stack>
+  ) : (
+    <DeviceNotificationsSection />
+  )
+}
+
+function DeviceNotificationsSection(): ReactNode {
   const mobileShell = useMobileShell()
   const client = isRemoteClient()
   const background = isMobilePlatform() && (hasLocalCore() || client)
@@ -145,7 +157,7 @@ export function NotificationsSection(): ReactNode {
     const delivery = alertHost?.push
       ? " Alerts arrive through Apple's push service. Pipedash's relay only sees an alert ID."
       : ` Pipedash checks ${host} in the background when ${system} allows it, so alerts can be delayed.`
-    description = `Get a notification when a pipeline on ${host} fails or runs longer than usual, and when a provider has an outage or recovers.${delivery}`
+    description = `Get a notification for the alerts from ${host} you choose below.${delivery}`
   } else if (background) {
     description = `${DESCRIPTION} Pipedash also checks in the background when ${system} allows it.`
   }
@@ -208,6 +220,11 @@ export function NotificationsSection(): ReactNode {
       onRemove={(name) => confirmRemoveAlertHost(name, () => removeAlertHost.mutate())}
     />
   )
+  const preferencesSection = (
+    <NotificationPreferencesSection
+      hostNote={alertHost?.standalone ? `Alerts from ${alertHost.name} follow the types you choose here.` : undefined}
+    />
+  )
   const canTest = background && alertHost?.push === true
   const devicesCard = !isTauri() && (
     <ErrorBoundary scope="feature" name="Mobile devices">
@@ -237,6 +254,7 @@ export function NotificationsSection(): ReactNode {
           </IosGroup>
         )}
 
+        {preferencesSection}
         {alertHostGroup}
         {devicesCard}
       </Stack>
@@ -262,6 +280,7 @@ export function NotificationsSection(): ReactNode {
         </Stack>
       </Card>
 
+      {preferencesSection}
       {alertHostGroup}
       {devicesCard}
     </Stack>

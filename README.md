@@ -111,15 +111,16 @@ Buildkite's organization picker and pipeline discovery include organizations fro
 
 - See the status of every pipeline, grouped by repository and workflow, and pin the ones you watch most. Hide a workflow you don't watch, and it leaves the table and its repository's status until you unhide it under Show hidden.
 - Organize pipelines into your own views, shown as tabs and in the sidebar, and nest views up to three levels deep. A parent view lists its sub-views as sections first, then its own pipelines, and you can open any sub-view from its section. Add pipelines by hand or by rules (provider, repository pattern such as `acme/*`, name and status), or define read-only views under `[views.<key>]` in `config.toml`. Each view keeps its own sort, sections and table or card layout. Pin views and repositories to the sidebar. Select several pipelines to pin, hide, add them to a view or create a new view from them at once.
-- Open the run history with commits, branches and durations, and track build metrics per pipeline.
+- Open the run history with commits, branches and durations, and track build metrics per pipeline. The run history updates when another connected client discovers new runs.
 - Read, search and download job logs without leaving Pipedash. Live reads stop after 45 seconds without a viewer, so abandoned requests don't block other logs.
 - Open an ArgoCD sync to read its per-resource results, the app's recent events and the last 1000 lines of each pod container. A restarted container also shows its previous attempt. Pod logs need the `logs, get` permission in ArgoCD RBAC.
 - Sign in to ArgoCD with its SSO (bundled Dex or an external OIDC provider), or to a Prow Deck behind any OpenID Connect provider, instead of pasting a token. Pipedash renews the session before it expires and asks you to sign in again when the identity provider ends it. In the self-hosted web app, you paste the address of the page the browser opens after sign-in, unless Pipedash runs on the same machine as the browser.
 - Add a public Prow Deck such as prow.k8s.io with No auth. Pipedash reads its jobs, runs and logs without credentials and turns off starting and stopping runs.
 - Trigger a workflow with the inputs Pipedash loads from the provider, or rerun a past run with the same inputs.
 - Cancel one run or several at once. On GitHub, approve deployment reviews and rerun only the failed jobs.
+- On GitHub, Force cancel stops a run that ignores normal cancellation after you confirm its repository, branch and run number. GitHub bypasses conditions such as `always()`.
 - See when GitHub disables a workflow and why: after 60 days without repository activity, by hand or in a fork. Enable it again from its row menu with a token that can trigger workflows.
-- Get notifications for pipeline failures and recoveries, unusually long runs and provider outages. Pipeline recovery alerts use the existing notification toggle and stay out of self-hosted push.
+- Get a notification when a pipeline fails or passes again, a run takes far longer than usual or a provider has an outage. Choose which alerts each device gets, turn off providers and mute single pipelines. Watch a pipeline to hear about every run that finishes, or get one notification when the run you started finishes.
 - Connect a phone or another computer to a Pipedash server, or to a desktop app that shares itself on your network, instead of adding providers on every device. Scan the QR code or enter the address and pairing code from Settings → Devices. The connected app shows the host's pipelines and updates live, and you remove a device at any time.
 - Phones get alerts from a Pipedash server in the background, connected or standalone, and iPhone and iPad can turn on push alerts. The relay never sees pipeline names.
 - Keep provider tokens in the system keyring or in a database encrypted with AES-256-GCM. Pipedash sends no analytics or telemetry.
@@ -141,6 +142,18 @@ Clear cached run history in Settings. If the database rejects the delete, Pipeda
 - [Security](https://pipedash.app/docs/resources/security): encryption, API authentication and vulnerability reports.
 - [Releases](https://github.com/hcavarsan/pipedash/releases): changes and release assets.
 
+## Desktop menu and background monitoring
+
+In Settings > General, turn on "Show in menu bar" on macOS or "Show in system tray" on Windows and Linux. The menu shows the first 8 pinned pipelines, an overflow link and your pinned views and repositories. It uses the same pins as the main window.
+
+Background mode is a separate opt-in. On macOS and Windows, closing the window hides it while monitoring continues. On Linux, closing minimizes the window so it stays accessible without a tray host. Your desktop may need an indicator extension. Use "Quit Pipedash" to stop the app.
+
+Choose a run from its history to watch that exact run. Pipedash watches 1 run at a time, with or without the tray. Stopping a watch does not cancel the provider's run. The native menu has shortcuts to the watched run, refresh, settings and vault locking.
+
+Turn on system notifications in Settings > Notifications. Desktop alerts and watch completion notices work without a visible window. The notification center keeps the latest 50 notices for the current session, including notices received while system notifications are off. Locking, changing storage, resetting or quitting clears that history. A watched failure and a general pipeline failure are separate notices.
+
+The operating system decides whether to display an alert. Do Not Disturb may suppress it. On Windows, install Pipedash for its notification identity. Open a Windows notification while its toast is visible. Action Center cannot reopen Pipedash after that toast disappears, so the app and native menu remain the navigation paths.
+
 ## Contributing
 
 Read the [contribution guide](https://pipedash.app/docs/resources/contributing). For local builds, see [development](https://pipedash.app/docs/resources/development). To add a CI/CD provider, see [plugin development](https://pipedash.app/docs/resources/plugin-development).
@@ -150,6 +163,8 @@ Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` i
 CI runs backend tests on Linux, macOS and Windows, including log-resume checks that preserve the previous revision while truncating and extending a copied checkpoint.
 
 Run `bun run test` for frontend regressions and `cargo nextest run --workspace --all-features` for Rust regressions. The frontend command isolates each test file, and DOM tests unmount React roots and clear React Query clients before unregistering Happy DOM.
+
+Run `mise run icons` to regenerate app icons from `app-icon.png` into `crates/pipedash-desktop/icons` with the Tauri CLI. Run `python3 scripts/test_icons.py` to check icon generation in a temporary checkout without changing tracked icons. CI runs the same check after installing frontend dependencies.
 
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
 
