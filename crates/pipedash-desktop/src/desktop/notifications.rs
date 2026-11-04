@@ -193,18 +193,20 @@ fn record<R: Runtime>(app: &AppHandle<R>, origin: Origin, notice: &DesktopNotice
         }
         Origin::Core(_) => None,
     };
-    let (history, deliver) = {
+    let (history, deliver, moved) = {
         let mut inner = state.lock();
         if !inner.accepts(origin) {
             return;
         }
-        if server.is_some() {
-            inner.adopt_server(server);
-        }
-        inner.record(notice)
+        let moved = server.is_some() && inner.adopt_server(server);
+        let (history, deliver) = inner.record(notice);
+        (history, deliver, moved)
     };
     announce(app, notice, &history, deliver);
     super::tray_changed(app);
+    if moved {
+        super::wake(app);
+    }
 }
 
 pub fn record_shown<R: Runtime>(app: &AppHandle<R>, generation: u64, shown: &ShownNotification) {

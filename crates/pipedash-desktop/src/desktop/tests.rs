@@ -250,3 +250,27 @@ fn a_notice_from_the_new_server_survives_the_menu_refresh_that_sees_the_switch()
         ["from-b"]
     );
 }
+
+#[test]
+fn a_server_switch_drops_the_old_pins_and_a_menu_reply_fetched_before_it() {
+    use crate::remote::RemoteStatus;
+
+    let pins = || PipelineMenuSnapshot {
+        pipelines: Vec::new(),
+        shortcuts: Vec::new(),
+    };
+    let mut inner = Inner::default();
+    inner.follow(
+        Some(ClientLink {
+            host: "a.example.com".to_string(),
+            status: RemoteStatus::Connected,
+        }),
+        Some("d1@https://a.example.com".to_string()),
+    );
+    inner.apply_menu_result(Ok(pins()));
+    let fetched_for_a = inner.ticket();
+
+    assert!(inner.adopt_server(Some("d2@https://b.example.com".to_string())));
+    assert!(inner.snapshot.is_none());
+    assert!(!inner.current(fetched_for_a));
+}

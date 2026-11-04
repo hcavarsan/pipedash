@@ -171,6 +171,8 @@ impl Inner {
         if moved {
             self.epoch += 1;
             self.history.clear();
+            self.snapshot = None;
+            self.data_error = None;
         }
         moved
     }
@@ -466,15 +468,18 @@ async fn refresh_projection(app: &AppHandle) {
         }
         publish_status(app);
     } else {
-        let connected = state
-            .lock()
-            .client
-            .as_ref()
-            .is_some_and(ClientLink::connected);
-        if connected {
+        let ticket = {
+            let inner = state.lock();
+            inner
+                .client
+                .as_ref()
+                .is_some_and(ClientLink::connected)
+                .then(|| inner.ticket())
+        };
+        if let Some(ticket) = ticket {
             let projection = client_menu(app).await;
             let mut inner = state.lock();
-            if inner.client.as_ref().is_some_and(ClientLink::connected) {
+            if inner.current(ticket) {
                 inner.apply_menu_result(projection);
             }
         }
