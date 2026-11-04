@@ -15,7 +15,7 @@ const KINDS: Record<PreferenceKind, { title: string; description: string }> = {
   degraded: { title: 'Degraded workloads', description: 'A deployed workload reports it is unhealthy.' },
   long_run: { title: 'Slow runs', description: 'A run takes far longer than usual.' },
   outage: { title: 'Provider outages', description: "A provider can't be reached or reports an incident." },
-  recovered: { title: 'Recoveries', description: 'A provider outage ends.' },
+  recovered: { title: 'Recoveries', description: 'A failed pipeline passes again or a provider outage ends.' },
 }
 
 const KINDS_NOTE =

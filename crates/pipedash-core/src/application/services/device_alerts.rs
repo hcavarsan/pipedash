@@ -465,6 +465,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_pipeline_that_passes_again_is_recorded_once_as_a_recovery_with_its_finish() {
+        let h = Harness::new().await;
+        let events = vec![
+            updated(run(PipelineStatus::Failed, 0)),
+            updated(run(PipelineStatus::Running, 1)),
+            updated(run(PipelineStatus::Success, 1)),
+            updated(run(PipelineStatus::Success, 1)),
+        ];
+
+        let stored = recorded(&h, true, events).await;
+
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].kind, AlertKind::Recovered);
+        assert_eq!(stored[0].title, "api passed again");
+        assert_eq!(stored[0].pipeline_id.as_deref(), Some("github__1__api"));
+        assert!(stored[0].finish.is_some());
+    }
+
+    #[tokio::test]
     async fn nothing_is_recorded_without_a_paired_device() {
         let h = Harness::new().await;
         let events = vec![

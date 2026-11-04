@@ -39,7 +39,7 @@ function confirmBackgroundAccess(system: string, host: string | null): Promise<b
   const { promise, resolve } = Promise.withResolvers<boolean>()
   const access =
     host === null
-      ? 'uses the provider credentials saved on it to check for failed pipelines, long-running runs, and provider outages'
+      ? 'uses the provider credentials saved on it to check for pipeline failures and recoveries, long runs and provider outages'
       : `uses the access token it saved for ${host} to check for new alerts`
 
   openConfirm({

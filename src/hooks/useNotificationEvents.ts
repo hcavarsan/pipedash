@@ -21,7 +21,7 @@ export function useNotificationEvents(): void {
         }
 
         const { key, title, body, pipeline_id, provider_id, provider_ids, link, fired } = notification
-        const health = notification.kind === 'outage' || notification.kind === 'recovered'
+        const health = !pipeline_id && (notification.kind === 'outage' || notification.kind === 'recovered')
 
         if (health && !link && isTauri() && !navigator.onLine) {
           return

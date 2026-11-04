@@ -119,6 +119,8 @@ struct PipelineMark {
     overdue: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     checked_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    awaiting_success: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     finished_at: Option<DateTime<Utc>>,
 }
@@ -130,6 +132,7 @@ impl PipelineMark {
             last_run: pipeline.last_run,
             overdue: pipeline.overdue_run.clone(),
             checked_at: None,
+            awaiting_success: pipeline.status == PipelineStatus::Failed,
             finished_at: None,
         }
     }
@@ -329,6 +332,11 @@ impl NotificationState {
             if let Some(old) = previous.get(&pipeline.id) {
                 let finish = old.finish_of(pipeline);
                 mark.finished_at = finish.map(|finish| finish.at).or(old.finished_at);
+                let awaiting_success = old.awaiting_success || old.status == PipelineStatus::Failed;
+                let recovered = awaiting_success && pipeline.status == PipelineStatus::Success;
+                if pipeline.status != PipelineStatus::Success {
+                    mark.awaiting_success |= awaiting_success;
+                }
                 let needs_attention = pipeline.status.needs_attention()
                     && (old.status != pipeline.status || old.last_run != pipeline.last_run);
                 if needs_attention {
@@ -338,6 +346,15 @@ impl NotificationState {
                             pipeline,
                             attention_title(pipeline),
                             attention_kind(pipeline),
+                        )
+                    });
+                } else if recovered {
+                    found.push(LocalNotification {
+                        finish,
+                        ..self.pipeline_notice(
+                            pipeline,
+                            format!("{} passed again", pipeline.name),
+                            AlertKind::Recovered,
                         )
                     });
                 } else if let Some(finish) = finish {
@@ -388,6 +405,7 @@ impl NotificationState {
                 mark.overdue = old.and_then(|old| old.overdue.clone());
             }
             mark.checked_at = old.and_then(|old| old.checked_at);
+            mark.awaiting_success |= old.is_some_and(|old| old.awaiting_success);
             mark.finished_at = finish
                 .map(|finish| finish.at)
                 .or(old.and_then(|old| old.finished_at));

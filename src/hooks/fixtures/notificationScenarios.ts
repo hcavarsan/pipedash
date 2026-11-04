@@ -134,6 +134,28 @@ test('a provider outage reaches the center without a webview delivery or Remote 
   assert.deepEqual(delivered, [])
 })
 
+test('offline, a provider recovery without a link is dropped but a pipeline that passes again still shows', async () => {
+  Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+  try {
+    await mount()
+    const { link: _link, ...unlinked } = outageNotification
+    await publish('notification', { ...unlinked, id: 21, kind: 'recovered', tone: 'success' })
+    await publish('notification', {
+      ...failedNotification,
+      id: 22,
+      kind: 'recovered',
+      tone: 'success',
+      title: 'Build passed again',
+    })
+    assert.deepEqual(
+      useNotificationCenterStore.getState().items.map((item) => item.title),
+      ['Build passed again']
+    )
+  } finally {
+    Reflect.deleteProperty(navigator, 'onLine')
+  }
+})
+
 test('a degraded notice keeps the title and reason Rust wrote', async () => {
   await mount()
   const body = 'owner/repo · github · Pod apps/web-7f9c: CrashLoopBackOff'
