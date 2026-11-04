@@ -77,6 +77,18 @@ pub struct Pipeline {
     pub typical_duration_seconds: Option<i64>,
 }
 
+impl Pipeline {
+    pub fn finished_since(&self, status: &PipelineStatus, last_run: Option<DateTime<Utc>>) -> bool {
+        matches!(
+            self.status,
+            PipelineStatus::Success
+                | PipelineStatus::Failed
+                | PipelineStatus::Cancelled
+                | PipelineStatus::Skipped
+        ) && (!status.is_terminal() || last_run != self.last_run)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PipelineRun {
     pub id: String,

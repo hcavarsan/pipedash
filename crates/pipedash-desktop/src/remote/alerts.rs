@@ -1,7 +1,10 @@
 use std::path::Path;
 use std::time::Duration;
 
-use pipedash_core::domain::ServerUrl;
+use pipedash_core::domain::{
+    RunFinish,
+    ServerUrl,
+};
 use serde::{
     Deserialize,
     Serialize,
@@ -51,6 +54,10 @@ pub struct HostAlert {
     pub body: String,
     pub pipeline_id: Option<String>,
     pub provider_id: Option<i64>,
+    #[serde(default)]
+    pub provider_ids: Vec<i64>,
+    #[serde(default)]
+    pub finish: Option<RunFinish>,
     pub created_at: String,
 }
 
@@ -347,6 +354,8 @@ mod tests {
                 body: "body".to_owned(),
                 pipeline_id: None,
                 provider_id: None,
+                provider_ids: Vec::new(),
+                finish: None,
             })
             .await
             .unwrap()

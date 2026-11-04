@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,12 +9,18 @@ use tokio::sync::mpsc::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::health_service::NotificationState;
+use super::health_service::{
+    LocalNotification,
+    NotificationState,
+};
 use super::pipeline_service::PipelineService;
 use super::provider_service::ProviderService;
 use crate::domain::{
+    AlertKind,
     DomainError,
     NewDeviceAlert,
+    NotificationPreferences,
+    RunFinish,
 };
 use crate::event::{
     CoreEvent,
@@ -124,7 +131,24 @@ async fn record_pruning(
                 continue;
             }
         }
+        let mut watchers = if notices.iter().any(|notice| notice.finish.is_some()) {
+            match devices.notification_preferences().await {
+                Ok(preferences) => preferences,
+                Err(error) => {
+                    tracing::warn!(%error, "Failed to load who watches finished runs");
+                    HashMap::new()
+                }
+            }
+        } else {
+            HashMap::new()
+        };
         for notice in notices {
+            if notice.kind == AlertKind::Finished && !wanted_by_any(&watchers, &notice) {
+                continue;
+            }
+            if let (Some(pipeline_id), Some(finish)) = (&notice.pipeline_id, &notice.finish) {
+                fire_once(&devices, &mut watchers, pipeline_id, finish).await;
+            }
             let alert = NewDeviceAlert {
                 key: notice.key,
                 kind: notice.kind,
@@ -132,6 +156,8 @@ async fn record_pruning(
                 body: notice.body,
                 pipeline_id: notice.pipeline_id,
                 provider_id: notice.provider_id,
+                provider_ids: notice.provider_ids,
+                finish: notice.finish,
             };
             match alerts.insert(&alert).await {
                 Ok(stored) => {
@@ -143,6 +169,40 @@ async fn record_pruning(
                 }
                 Err(error) => tracing::warn!(%error, "Failed to record a device alert"),
             }
+        }
+    }
+}
+
+fn wanted_by_any(
+    watchers: &HashMap<String, NotificationPreferences>, notice: &LocalNotification,
+) -> bool {
+    watchers.values().any(|preferences| {
+        preferences.allows(
+            notice.kind,
+            &notice.provider_ids,
+            notice.pipeline_id.as_deref(),
+            notice.finish.as_ref(),
+        )
+    })
+}
+
+async fn fire_once(
+    devices: &DeviceRepository, watchers: &mut HashMap<String, NotificationPreferences>,
+    pipeline_id: &str, finish: &RunFinish,
+) {
+    for (device_id, preferences) in watchers.iter_mut() {
+        if !preferences.fire_once(pipeline_id, finish) {
+            continue;
+        }
+        match devices
+            .update_notification_preferences(device_id, |stored| {
+                stored.fire_once(pipeline_id, finish)
+            })
+            .await
+        {
+            Ok(Some(saved)) => *preferences = saved,
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "Failed to mark a one-time watch as used"),
         }
     }
 }
@@ -249,6 +309,8 @@ mod tests {
                 body: "b".into(),
                 pipeline_id: None,
                 provider_id: None,
+                provider_ids: Vec::new(),
+                finish: None,
             })
             .await
             .unwrap();
@@ -342,5 +404,83 @@ mod tests {
         let events = vec![updated(run(PipelineStatus::Failed, 1))];
 
         assert!(recorded(&h, true, events).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_finished_run_is_recorded_only_while_a_device_watches_it() {
+        let h = Harness::new().await;
+        let devices = DeviceRepository::new(DatabasePool::Sqlite(h.pool.clone()));
+        let device = PairedDevice::issue("Pixel", "android").0;
+        devices.insert(&device).await.unwrap();
+        let finishing = |minute| {
+            vec![
+                updated(run(PipelineStatus::Running, minute)),
+                updated(run(PipelineStatus::Success, minute)),
+            ]
+        };
+
+        assert!(recorded(&h, false, finishing(1)).await.is_empty());
+
+        devices
+            .set_notification_preferences(
+                &device.id,
+                &NotificationPreferences {
+                    watched_pipelines: vec!["github__1__api".into()],
+                    ..NotificationPreferences::default()
+                },
+            )
+            .await
+            .unwrap();
+        let stored = recorded(&h, false, finishing(2)).await;
+
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].kind, AlertKind::Finished);
+        assert_eq!(stored[0].title, "api succeeded");
+        assert!(stored[0].finish.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_one_time_watch_is_used_once_even_when_the_server_restarts() {
+        let h = Harness::new().await;
+        let devices = DeviceRepository::new(DatabasePool::Sqlite(h.pool.clone()));
+        let device = PairedDevice::issue("Pixel", "android").0;
+        devices.insert(&device).await.unwrap();
+        devices
+            .set_notification_preferences(
+                &device.id,
+                &NotificationPreferences {
+                    watch_once: vec![crate::domain::OnceWatch {
+                        pipeline_id: "github__1__api".into(),
+                        since: Utc::now() - Duration::minutes(1),
+                        fired_at: None,
+                    }],
+                    ..NotificationPreferences::default()
+                },
+            )
+            .await
+            .unwrap();
+        let finishing = |minute| {
+            vec![
+                updated(run(PipelineStatus::Running, minute)),
+                updated(run(PipelineStatus::Success, minute)),
+            ]
+        };
+
+        let first = recorded(&h, false, finishing(1)).await;
+        let after_restart = recorded(&h, false, finishing(2)).await;
+
+        assert_eq!(first.len(), 1);
+        assert_eq!(after_restart, first);
+        let saved = devices.notification_preferences().await.unwrap()[&device.id].clone();
+        assert_eq!(
+            saved.watch_once[0].fired_at,
+            first[0].finish.map(|finish| finish.at)
+        );
+        assert!(saved.allows(
+            AlertKind::Finished,
+            &[1],
+            Some("github__1__api"),
+            first[0].finish.as_ref()
+        ));
     }
 }

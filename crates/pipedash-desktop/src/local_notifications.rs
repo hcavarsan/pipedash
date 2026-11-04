@@ -23,9 +23,16 @@ use pipedash_core::application::{
     LocalNotification,
     NotificationState,
 };
+use pipedash_core::domain::{
+    NotificationPreferences,
+    RunFinish,
+};
 use pipedash_core::event::CoreEvent;
 use pipedash_core::CoreContext;
-use serde::Serialize;
+use serde::{
+    Deserialize,
+    Serialize,
+};
 pub(crate) use store::AlertHost;
 use tauri::{
     AppHandle,
@@ -51,6 +58,7 @@ use crate::native::NotificationTarget;
 use crate::remote::alerts::{
     claim_alert_host,
     client_alert_host,
+    host_request,
     revoke_device,
 };
 use crate::remote::{
@@ -64,6 +72,10 @@ const REFRESH_BUDGET: Duration = Duration::from_secs(23);
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(26);
 
 type Result<T, E = ErrorResponse> = std::result::Result<T, E>;
+
+static PREFERENCES_SYNC: AsyncMutex<()> = AsyncMutex::const_new(());
+static HOST_PREFERENCES_PENDING: AtomicBool = AtomicBool::new(true);
+const PREFERENCES_RETRY_BUDGET: Duration = Duration::from_secs(3);
 
 #[cfg(target_os = "android")]
 pub(crate) use headless::{
@@ -401,8 +413,10 @@ pub async fn set_local_notifications_enabled(
     set_push_problem(&app, None);
     if remote.is_client() {
         let host = client_alert_host(&remote).await?;
-        storage(move || store::save_alert_host(&host)).await?;
+        let saved = host.clone();
+        storage(move || store::save_alert_host(&saved)).await?;
         let native = activate(&app).await?;
+        sync_host_preferences(&host).await;
         enable_push(&app).await;
         return Ok(settings_view(&app, native).await);
     }
@@ -462,6 +476,7 @@ pub async fn pair_alert_host(
         revoke_device(&host).await;
         return Err(failure);
     }
+    sync_host_preferences(&host).await;
     set_push_problem(&app, None);
     enable_push(&app).await;
 
@@ -572,10 +587,113 @@ pub fn schedule_sync<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
-async fn deliver<R: Runtime>(app: &AppHandle<R>, notices: Vec<LocalNotification>) -> Result<()> {
-    if notices.is_empty() || !permission_granted(app).await? {
-        return Ok(());
+fn wanted(
+    preferences: &NotificationPreferences, notices: Vec<LocalNotification>,
+) -> Vec<LocalNotification> {
+    notices
+        .into_iter()
+        .filter(|notice| {
+            preferences.allows(
+                notice.kind,
+                &notice.provider_ids,
+                notice.pipeline_id.as_deref(),
+                notice.finish.as_ref(),
+            )
+        })
+        .collect()
+}
+
+async fn remember_finishes(finishes: Vec<(String, RunFinish)>) {
+    if finishes.is_empty() {
+        return;
     }
+    let _sync = PREFERENCES_SYNC.lock().await;
+    if storage(move || store::fire_once(&finishes)).await.is_err() {
+        tracing::warn!("Couldn't mark a one-time watch as used");
+    }
+}
+
+#[derive(Deserialize)]
+struct SavedPreferences {
+    #[serde(default)]
+    fired: Vec<String>,
+}
+
+async fn send_preferences(host: &AlertHost, preferences: &NotificationPreferences) -> Vec<String> {
+    let preferences = if host.standalone {
+        preferences.kinds_only()
+    } else {
+        preferences.clone()
+    };
+    let saved = match serde_json::to_string(&preferences) {
+        Ok(body) => match host_request(
+            host,
+            "PUT",
+            "/devices/current/notification-preferences",
+            Some(&body),
+        )
+        .await
+        {
+            Ok((200, body)) => serde_json::from_str::<SavedPreferences>(&body).ok(),
+            _ => None,
+        },
+        Err(_) => None,
+    };
+    if saved.is_none() {
+        tracing::debug!("Couldn't send the notification preferences to the alert host");
+    }
+    HOST_PREFERENCES_PENDING.store(saved.is_none(), Ordering::Release);
+
+    saved.map(|saved| saved.fired).unwrap_or_default()
+}
+
+async fn sync_host_preferences(host: &AlertHost) {
+    let _sync = PREFERENCES_SYNC.lock().await;
+    if let Ok(preferences) = storage(store::preferences).await {
+        send_preferences(host, &preferences).await;
+    }
+}
+
+async fn retry_host_preferences(host: &AlertHost) {
+    if HOST_PREFERENCES_PENDING.load(Ordering::Acquire)
+        && tokio::time::timeout(PREFERENCES_RETRY_BUDGET, sync_host_preferences(host))
+            .await
+            .is_err()
+    {
+        tracing::debug!("The alert host took too long to take the notification preferences");
+    }
+}
+
+#[tauri::command]
+pub async fn set_notification_preferences(
+    preferences: NotificationPreferences,
+) -> Result<Vec<String>> {
+    if !cfg!(mobile) {
+        return Ok(Vec::new());
+    }
+    let _sync = PREFERENCES_SYNC.lock().await;
+    let (preferences, changed) = storage(move || store::merge_preferences(&preferences)).await?;
+    let mut fired = preferences.fired_pipelines();
+    if changed || HOST_PREFERENCES_PENDING.load(Ordering::Acquire) {
+        match current_alert_host().await {
+            Some(host) => fired.extend(send_preferences(&host, &preferences).await),
+            None => HOST_PREFERENCES_PENDING.store(false, Ordering::Release),
+        }
+    }
+    fired.sort();
+    fired.dedup();
+
+    Ok(fired)
+}
+
+async fn deliver<R: Runtime>(
+    app: &AppHandle<R>, preferences: &NotificationPreferences, notices: Vec<LocalNotification>,
+) -> Result<Vec<(String, RunFinish)>> {
+    let notices = wanted(preferences, notices);
+    if notices.is_empty() || !permission_granted(app).await? {
+        return Ok(Vec::new());
+    }
+    let mut shown = Vec::new();
     for notice in notices {
         if !app
             .state::<LocalNotificationsState>()
@@ -584,6 +702,7 @@ async fn deliver<R: Runtime>(app: &AppHandle<R>, notices: Vec<LocalNotification>
         {
             break;
         }
+        let finished = notice.pipeline_id.clone().zip(notice.finish);
         let app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
             crate::system_notifications::show_system_notification(
@@ -600,8 +719,9 @@ async fn deliver<R: Runtime>(app: &AppHandle<R>, notices: Vec<LocalNotification>
         })
         .await
         .map_err(|_| error("A local notification could not be delivered"))??;
+        shown.extend(finished);
     }
-    Ok(())
+    Ok(shown)
 }
 
 pub async fn on_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) {
@@ -684,20 +804,25 @@ async fn process_event<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) -> Res
 async fn observe<R: Runtime>(
     app: &AppHandle<R>, change: impl FnOnce(&mut NotificationState) -> Vec<LocalNotification>,
 ) -> Result<()> {
-    let (lock, mut observations) = storage(store::lock_observations).await?;
+    let (lock, mut observations, preferences) = storage(store::lock_observations).await?;
     let notices = change(&mut observations);
-    deliver(app, notices).await?;
-    storage(move || lock.save(&observations)).await
+    let shown = deliver(app, &preferences, notices).await?;
+    storage(move || lock.save(&observations)).await?;
+    tauri::async_runtime::spawn(remember_finishes(shown));
+    Ok(())
 }
 
 #[cfg(not(all(target_os = "android", not(test))))]
 async fn observe<R: Runtime>(
     app: &AppHandle<R>, change: impl FnOnce(&mut NotificationState) -> Vec<LocalNotification>,
 ) -> Result<()> {
-    let mut observations = storage(store::observations).await?;
+    let (mut observations, preferences) =
+        storage(|| Ok((store::observations()?, store::preferences()?))).await?;
     let notices = change(&mut observations);
-    deliver(app, notices).await?;
-    storage(move || store::save_observations(&observations)).await
+    let shown = deliver(app, &preferences, notices).await?;
+    storage(move || store::save_observations(&observations)).await?;
+    tauri::async_runtime::spawn(remember_finishes(shown));
+    Ok(())
 }
 
 async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
@@ -764,12 +889,14 @@ async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         }
     }
     let notices = wake.take_notices();
-    deliver(app, notices).await?;
+    let preferences = storage(store::preferences).await?;
+    let used = deliver(app, &preferences, notices).await?;
     let scanned = wake.scanned.is_some();
     let cursor = wake.hosted;
     let shown = host
         .clone()
         .zip(cursor.as_ref().and_then(|batch| batch.ack));
+    let retry = host.clone();
     storage(move || {
         let _guard = guard;
         if scanned {
@@ -781,8 +908,12 @@ async fn refresh<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         }
     })
     .await?;
+    tauri::async_runtime::spawn(remember_finishes(used));
     if let Some((host, through)) = shown {
         wake::acknowledge(&host, through).await;
+    }
+    if let Some(host) = &retry {
+        retry_host_preferences(host).await;
     }
     state.revision.fetch_add(1, Ordering::AcqRel);
     Ok(())

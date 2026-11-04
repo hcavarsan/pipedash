@@ -6,20 +6,40 @@ import { queryKeys } from '../lib/queryKeys'
 import { isTauri } from '../services/isTauri'
 import { events } from '../services/service'
 import { type CenterNotificationTone, useNotificationCenterStore } from '../stores/notificationCenterStore'
-import type { Pipeline, ProviderSummary } from '../types/domain'
+import { shouldNotify, useNotificationStore } from '../stores/notificationStore'
+import type { AlertKind, Pipeline, PipelineStatus, ProviderSummary } from '../types/domain'
 import type { EventPayloadMap } from '../types/events'
 import { showSystemNotification, systemDeliveryEnabled } from '../utils/systemNotifications'
 
 const alertTitle = (pipeline: Pipeline) =>
   pipeline.status === 'degraded' ? `${pipeline.name} is degraded` : `${pipeline.name} failed`
 
+const FINISH_OUTCOMES: Partial<Record<PipelineStatus, string>> = {
+  success: 'succeeded',
+  cancelled: 'was cancelled',
+  skipped: 'was skipped',
+}
+
+const attentionKind = (pipeline: Pipeline): AlertKind => (pipeline.status === 'degraded' ? 'degraded' : 'failed')
+
 const notify = (
   pipeline: Pipeline,
+  kind: AlertKind,
   tone: CenterNotificationTone,
   title: string,
   provider: ProviderSummary | undefined,
   system: boolean
 ) => {
+  const finish = kind === 'failed' || kind === 'finished' ? { at: new Date().toISOString(), previous: null } : null
+  const allowed = shouldNotify(kind, [pipeline.provider_id], pipeline.id, finish)
+
+  if (finish) {
+    useNotificationStore.getState().consumeNextFinish(pipeline.id)
+  }
+  if (!allowed) {
+    return
+  }
+
   const body = [pipeline.repository, provider?.name || pipeline.provider_type, pipeline.resource_state?.message]
     .filter(Boolean)
     .join(' · ')
@@ -51,34 +71,58 @@ export function useFailureNotifications(): void {
     const native = isTauri()
     const lastPipelines = new Map<string, Pipeline>()
     const notifiedOverdueRuns = new Map<string, string>()
+    const unlisteners: Array<() => void> = []
     let active = true
-    let unlisten: (() => void) | undefined
 
-    if (native) {
+    const listen = (event: 'pipelines-failed' | 'pipelines-finished', handle: (pipeline: Pipeline) => void): void => {
       events
-        .listen<EventPayloadMap['pipelines-failed']>('pipelines-failed', ({ pipelines }) => {
-          if (!active) {
-            return
-          }
-          const enabled = systemDeliveryEnabled()
-          const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
-
-          for (const pipeline of pipelines) {
-            const provider = providers?.find((item) => item.id === pipeline.provider_id)
-            notify(pipeline, 'danger', alertTitle(pipeline), provider, enabled)
+        .listen<EventPayloadMap[typeof event]>(event, ({ pipelines }) => {
+          if (active) {
+            pipelines.forEach(handle)
           }
         })
         .then((fn) => {
           if (active) {
-            unlisten = fn
+            unlisteners.push(fn)
           } else {
             fn()
           }
         })
-        .catch((error: unknown) =>
-          logger.warn('useFailureNotifications', "Couldn't listen for pipeline failures", error)
-        )
+        .catch((error: unknown) => logger.warn('useFailureNotifications', `Couldn't listen for ${event}`, error))
     }
+
+    const providerOf = (pipeline: Pipeline) =>
+      queryClient
+        .getQueryData<ProviderSummary[]>(queryKeys.providers.list())
+        ?.find((item) => item.id === pipeline.provider_id)
+
+    if (native) {
+      listen('pipelines-failed', (pipeline) =>
+        notify(
+          pipeline,
+          attentionKind(pipeline),
+          'danger',
+          alertTitle(pipeline),
+          providerOf(pipeline),
+          systemDeliveryEnabled()
+        )
+      )
+    }
+
+    listen('pipelines-finished', (pipeline) => {
+      const outcome = FINISH_OUTCOMES[pipeline.status]
+
+      if (outcome) {
+        notify(
+          pipeline,
+          'finished',
+          'success',
+          `${pipeline.name} ${outcome}`,
+          providerOf(pipeline),
+          systemDeliveryEnabled()
+        )
+      }
+    })
 
     const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
       if (event.type !== 'updated' || event.action.type !== 'success') {
@@ -120,17 +164,19 @@ export function useFailureNotifications(): void {
 
         const provider = providers?.find((p) => p.id === pipeline.provider_id)
         if (failed) {
-          notify(pipeline, 'danger', alertTitle(pipeline), provider, enabled)
+          notify(pipeline, attentionKind(pipeline), 'danger', alertTitle(pipeline), provider, enabled)
         }
         if (newOverdueRun) {
-          notify(pipeline, 'warning', `${pipeline.name} is running longer than usual`, provider, enabled)
+          notify(pipeline, 'long_run', 'warning', `${pipeline.name} is running longer than usual`, provider, enabled)
         }
       }
     })
 
     return () => {
       active = false
-      unlisten?.()
+      for (const unlisten of unlisteners) {
+        unlisten()
+      }
       unsubscribe()
     }
   }, [queryClient])

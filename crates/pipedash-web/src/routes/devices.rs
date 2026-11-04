@@ -9,6 +9,7 @@ use axum::routing::{
     delete,
     get,
     post,
+    put,
 };
 use axum::{
     Extension,
@@ -18,6 +19,7 @@ use axum::{
 use pipedash_core::domain::{
     AlertKind,
     NewDeviceAlert,
+    NotificationPreferences,
 };
 use serde::{
     Deserialize,
@@ -71,6 +73,11 @@ pub struct AckDevicePushRequest {
     pub through: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NotificationPreferencesResponse {
+    pub fired: Vec<String>,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_devices))
@@ -84,6 +91,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/current/push/test", post(test_device_push))
         .route("/current/push/ack", post(ack_device_push))
+        .route(
+            "/current/notification-preferences",
+            put(set_notification_preferences),
+        )
 }
 
 async fn list_devices(
@@ -203,6 +214,29 @@ async fn clear_device_push(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn set_notification_preferences(
+    State(state): State<AppState>, current: Option<Extension<CurrentDevice>>,
+    Json(preferences): Json<NotificationPreferences>,
+) -> ApiResult<Json<NotificationPreferencesResponse>> {
+    let Extension(CurrentDevice(device_id)) = current.ok_or_else(device_only)?;
+    let saved = state
+        .core()
+        .await?
+        .devices()
+        .update_notification_preferences(&device_id, |stored| {
+            let mut next = preferences.clone();
+            next.keep_fired(stored);
+            *stored = next;
+            true
+        })
+        .await?
+        .unwrap_or_default();
+
+    Ok(Json(NotificationPreferencesResponse {
+        fired: saved.fired_pipelines(),
+    }))
+}
+
 async fn ack_device_push(
     State(state): State<AppState>, current: Option<Extension<CurrentDevice>>,
     Json(req): Json<AckDevicePushRequest>,
@@ -245,6 +279,8 @@ async fn test_device_push(
             body: "Push alerts from this host work.".into(),
             pipeline_id: None,
             provider_id: None,
+            provider_ids: Vec::new(),
+            finish: None,
         })
         .await?;
 
@@ -450,6 +486,7 @@ mod tests {
     const PUSH: &str = "/api/v1/devices/current/push";
     const PUSH_TEST: &str = "/api/v1/devices/current/push/test";
     const PUSH_ACK: &str = "/api/v1/devices/current/push/ack";
+    const PREFERENCES: &str = "/api/v1/devices/current/notification-preferences";
 
     #[tokio::test]
     async fn only_a_paired_device_manages_its_push_registration() {
@@ -462,6 +499,7 @@ mod tests {
             (Method::DELETE, PUSH),
             (Method::POST, PUSH_TEST),
             (Method::POST, PUSH_ACK),
+            (Method::PUT, PREFERENCES),
         ] {
             let (status, response) = call_as(
                 &p.app,
@@ -476,6 +514,79 @@ mod tests {
             assert_eq!(response["code"], "DEVICE_ONLY");
             assert_eq!(response["message"], "Only a paired device can do this.");
         }
+    }
+
+    #[tokio::test]
+    async fn a_device_saves_its_notification_preferences() {
+        let p = paired("device-preferences", false).await;
+
+        let (status, body) = call_as(
+            &p.app,
+            Method::PUT,
+            PREFERENCES,
+            &p.token,
+            Some(json!({ "outage": false, "muted_pipelines": ["github__1__api"] })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, json!({ "fired": [] }));
+        let saved = p._host.state.core().await.unwrap().devices();
+        assert_eq!(
+            saved.notification_preferences().await.unwrap()[&p.device_id],
+            NotificationPreferences {
+                outage: false,
+                muted_pipelines: vec!["github__1__api".into()],
+                ..NotificationPreferences::default()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn resending_preferences_keeps_a_used_one_time_watch_used() {
+        let p = paired("device-preferences-once", false).await;
+        let request = json!({ "pipeline_id": "github__1__api", "since": "2026-11-04T10:00:00Z" });
+        let devices = p._host.state.core().await.unwrap().devices();
+        let saved = || async {
+            devices.notification_preferences().await.unwrap()[&p.device_id]
+                .watch_once
+                .clone()
+        };
+
+        call_as(
+            &p.app,
+            Method::PUT,
+            PREFERENCES,
+            &p.token,
+            Some(json!({ "watch_once": [request] })),
+        )
+        .await;
+        let mut used = devices.notification_preferences().await.unwrap()[&p.device_id].clone();
+        let fired_at = chrono::Utc::now();
+        assert!(used.fire_once(
+            "github__1__api",
+            &pipedash_core::domain::RunFinish {
+                at: fired_at,
+                previous: None,
+            }
+        ));
+        devices
+            .set_notification_preferences(&p.device_id, &used)
+            .await
+            .unwrap();
+
+        let (status, body) = call_as(
+            &p.app,
+            Method::PUT,
+            PREFERENCES,
+            &p.token,
+            Some(json!({ "watch_once": [request] })),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, json!({ "fired": ["github__1__api"] }));
+        assert_eq!(saved().await[0].fired_at, Some(fired_at));
     }
 
     #[tokio::test]

@@ -53,6 +53,10 @@ pub enum CoreEvent {
         pipelines: Vec<Pipeline>,
     },
 
+    PipelinesFinished {
+        pipelines: Vec<Pipeline>,
+    },
+
     RunTriggered {
         workflow_id: String,
     },
@@ -187,6 +191,7 @@ impl CoreEvent {
             CoreEvent::PipelinesUpdated { .. } => "pipelines-updated",
             CoreEvent::PipelineStatusChanged { .. } => "pipeline-status-changed",
             CoreEvent::PipelinesFailed { .. } => "pipelines-failed",
+            CoreEvent::PipelinesFinished { .. } => "pipelines-finished",
             CoreEvent::RunTriggered { .. } => "run-triggered",
             CoreEvent::RunCancelled { .. } => "run-cancelled",
             CoreEvent::MetricsGenerated { .. } => "metrics-generated",
@@ -231,9 +236,12 @@ impl CoreEvent {
             CoreEvent::PipelineStatusChanged { pipeline_ids } => serde_json::json!({
                 "pipeline_ids": pipeline_ids,
             }),
-            CoreEvent::PipelinesFailed { pipelines } => serde_json::json!({
-                "pipelines": pipelines,
-            }),
+            CoreEvent::PipelinesFailed { pipelines }
+            | CoreEvent::PipelinesFinished { pipelines } => {
+                serde_json::json!({
+                    "pipelines": pipelines,
+                })
+            }
             CoreEvent::RunTriggered { workflow_id } => serde_json::json!(workflow_id),
             CoreEvent::RunCancelled { pipeline_id } => serde_json::json!(pipeline_id),
             CoreEvent::MetricsGenerated { pipeline_id } => serde_json::json!(pipeline_id),

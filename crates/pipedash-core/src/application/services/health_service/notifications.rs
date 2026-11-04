@@ -31,6 +31,7 @@ use crate::domain::{
     Pipeline,
     PipelineStatus,
     ProviderSummary,
+    RunFinish,
     SignalKind,
 };
 use crate::event::CoreEvent;
@@ -44,7 +45,11 @@ pub struct LocalNotification {
     pub body: String,
     pub pipeline_id: Option<String>,
     pub provider_id: Option<i64>,
+    #[serde(default)]
+    pub provider_ids: Vec<i64>,
     pub kind: AlertKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish: Option<RunFinish>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +60,8 @@ struct PipelineMark {
     overdue: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     checked_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    finished_at: Option<DateTime<Utc>>,
 }
 
 impl PipelineMark {
@@ -64,7 +71,17 @@ impl PipelineMark {
             last_run: pipeline.last_run,
             overdue: pipeline.overdue_run.clone(),
             checked_at: None,
+            finished_at: None,
         }
+    }
+
+    fn finish_of(&self, pipeline: &Pipeline) -> Option<RunFinish> {
+        pipeline
+            .finished_since(&self.status, self.last_run)
+            .then(|| RunFinish {
+                at: Utc::now(),
+                previous: self.finished_at,
+            })
     }
 }
 
@@ -246,14 +263,28 @@ impl NotificationState {
         for pipeline in pipelines {
             let mut mark = PipelineMark::of(pipeline);
             if let Some(old) = previous.get(&pipeline.id) {
+                let finish = old.finish_of(pipeline);
+                mark.finished_at = finish.map(|finish| finish.at).or(old.finished_at);
                 let needs_attention = pipeline.status.needs_attention()
                     && (old.status != pipeline.status || old.last_run != pipeline.last_run);
                 if needs_attention {
-                    found.push(self.pipeline_notice(
-                        pipeline,
-                        attention_title(pipeline),
-                        attention_kind(pipeline),
-                    ));
+                    found.push(LocalNotification {
+                        finish,
+                        ..self.pipeline_notice(
+                            pipeline,
+                            attention_title(pipeline),
+                            attention_kind(pipeline),
+                        )
+                    });
+                } else if let Some(finish) = finish {
+                    found.push(LocalNotification {
+                        finish: Some(finish),
+                        ..self.pipeline_notice(
+                            pipeline,
+                            finished_title(pipeline),
+                            AlertKind::Finished,
+                        )
+                    });
                 }
                 if pipeline.overdue_run.is_some() && old.overdue != pipeline.overdue_run {
                     found.push(self.pipeline_notice(
@@ -287,18 +318,25 @@ impl NotificationState {
             let handled = old.is_some_and(|old| {
                 old.status == pipeline.status && old.last_run == pipeline.last_run
             });
+            let finish = old.and_then(|old| old.finish_of(pipeline));
             let mut mark = PipelineMark::of(pipeline);
             if mark.overdue.is_none() {
                 mark.overdue = old.and_then(|old| old.overdue.clone());
             }
             mark.checked_at = old.and_then(|old| old.checked_at);
+            mark.finished_at = finish
+                .map(|finish| finish.at)
+                .or(old.and_then(|old| old.finished_at));
             marks.insert(pipeline.id.clone(), mark);
             if !handled {
-                found.push(self.pipeline_notice(
-                    pipeline,
-                    attention_title(pipeline),
-                    attention_kind(pipeline),
-                ));
+                found.push(LocalNotification {
+                    finish,
+                    ..self.pipeline_notice(
+                        pipeline,
+                        attention_title(pipeline),
+                        attention_kind(pipeline),
+                    )
+                });
             }
         }
 
@@ -332,7 +370,9 @@ impl NotificationState {
             body,
             pipeline_id: Some(pipeline.id.clone()),
             provider_id: Some(pipeline.provider_id),
+            provider_ids: vec![pipeline.provider_id],
             kind,
+            finish: None,
         }
     }
 
@@ -366,11 +406,13 @@ impl NotificationState {
             body: body.to_owned(),
             pipeline_id: None,
             provider_id: provider_ids.first().copied(),
+            provider_ids: provider_ids.to_vec(),
             kind: if recovered {
                 AlertKind::Recovered
             } else {
                 AlertKind::Outage
             },
+            finish: None,
         })
     }
 
@@ -395,6 +437,14 @@ fn attention_title(pipeline: &Pipeline) -> String {
     match pipeline.status {
         PipelineStatus::Degraded => format!("{} is degraded", pipeline.name),
         _ => format!("{} failed", pipeline.name),
+    }
+}
+
+fn finished_title(pipeline: &Pipeline) -> String {
+    match pipeline.status {
+        PipelineStatus::Cancelled => format!("{} was cancelled", pipeline.name),
+        PipelineStatus::Skipped => format!("{} was skipped", pipeline.name),
+        _ => format!("{} succeeded", pipeline.name),
     }
 }
 

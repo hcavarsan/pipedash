@@ -16,7 +16,7 @@ import { notifications } from '../../lib/notifications'
 import { queryKeys } from '../../lib/queryKeys'
 import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import { useNotificationStore } from '../../stores/notificationStore'
+import { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } from '../../stores/notificationStore'
 import type { LocalNotificationSettings, Pipeline, ProviderHealthAlert } from '../../types/domain'
 import { showSystemNotification } from '../../utils/systemNotifications'
 import { useFailureNotifications } from '../useFailureNotifications'
@@ -67,7 +67,7 @@ async function mount() {
   await act(async () => {
     render(createElement(QueryClientProvider, { client }, createElement(Hooks)))
   })
-  await waitFor(() => assert.ok(listeners.has('provider-health-alert')))
+  await waitFor(() => assert.ok(listeners.has('provider-health-alert') && listeners.has('pipelines-finished')))
 }
 
 async function mountLifecycle() {
@@ -89,12 +89,13 @@ afterEach(async () => {
   await act(async () => cleanup())
   client.clear()
   useNotificationCenterStore.setState({ items: [], selection: null })
-  useNotificationStore.setState({ notificationsEnabled: false })
+  useNotificationStore.setState({ notificationsEnabled: false, preferences: DEFAULT_NOTIFICATION_PREFERENCES })
   delivered.length = 0
   mutation = undefined
   native.settings = { enabled: false, available: true, reason: null }
   native.calls.length = 0
   native.failure = null
+  native.fired = []
   permission.granted = true
   cachedPermission.permission = 'default'
   listeners.clear()
@@ -197,6 +198,73 @@ test('a provider outage reaches the center without a webview delivery or Remote 
   assert.deepEqual(delivered, [])
 })
 
+test('a finished run of a watched pipeline reaches the center as a success', async () => {
+  await mount()
+  useNotificationStore.setState({
+    preferences: {
+      ...DEFAULT_NOTIFICATION_PREFERENCES,
+      muted_providers: [pipeline.provider_id],
+      watched_pipelines: [pipeline.id],
+    },
+  })
+  await publish('pipelines-finished', { pipelines: [{ ...pipeline, status: 'success' }] })
+  const { items } = useNotificationCenterStore.getState()
+  assert.equal(items.length, 1)
+  assert.equal(items[0]?.title, 'Build succeeded')
+  assert.equal(items[0]?.tone, 'success')
+  assert.equal(items[0]?.pipelineId, pipeline.id)
+})
+
+test('cancelled and skipped runs of a watched pipeline are worded as such, and a failed one is left to the failure alert', async () => {
+  await mount()
+  const runs = (['cancelled', 'skipped', 'failed'] as const).map((status) => ({
+    ...pipeline,
+    id: `github__1__owner/repo/${status}.yml`,
+    status,
+  }))
+  useNotificationStore.setState({
+    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watched_pipelines: runs.map((run) => run.id) },
+  })
+  await publish('pipelines-finished', { pipelines: runs })
+  assert.deepEqual(
+    useNotificationCenterStore
+      .getState()
+      .items.map((item) => item.title)
+      .sort(),
+    ['Build was cancelled', 'Build was skipped']
+  )
+})
+
+test('a finished run of a pipeline nobody asked about stays silent', async () => {
+  await mount()
+  await publish('pipelines-finished', { pipelines: [{ ...pipeline, status: 'success' }] })
+  assert.deepEqual(useNotificationCenterStore.getState().items, [])
+  assert.deepEqual(delivered, [])
+})
+
+test('a pending one-time request notifies about a failure even with failed alerts off, then is used up', async () => {
+  await mount()
+  const since = new Date(Date.now() - 60_000).toISOString()
+  useNotificationStore.setState({
+    preferences: {
+      ...DEFAULT_NOTIFICATION_PREFERENCES,
+      failed: false,
+      watch_once: [
+        { pipeline_id: pipeline.id, since },
+        { pipeline_id: 'github__1__owner/repo/other.yml', since },
+      ],
+    },
+  })
+  await publish('pipelines-failed', { pipelines: [pipeline] })
+  assert.deepEqual(
+    useNotificationCenterStore.getState().items.map((item) => item.title),
+    ['Build failed']
+  )
+  assert.deepEqual(useNotificationStore.getState().preferences.watch_once, [
+    { pipeline_id: 'github__1__owner/repo/other.yml', since },
+  ])
+})
+
 test('a permission grant in iOS Settings takes effect without reloading the webview', async () => {
   cachedPermission.permission = 'denied'
   permission.granted = true
@@ -225,6 +293,17 @@ test('a legacy enabled preference never provisions background access and the que
     native.calls.map((call) => call.command),
     ['get_local_notification_settings']
   )
+})
+
+test('a one-time request the device already used is dropped when the app syncs, and the others stay', async () => {
+  const used = { pipeline_id: pipeline.id, since: '2026-11-04T10:00:00.000Z' }
+  const waiting = { pipeline_id: 'github__1__owner/repo/deploy.yml', since: '2026-11-04T10:05:00.000Z' }
+  native.fired = [pipeline.id]
+  useNotificationStore.setState({ preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watch_once: [used, waiting] } })
+
+  await mountLifecycle()
+
+  await waitFor(() => assert.deepEqual(useNotificationStore.getState().preferences.watch_once, [waiting]))
 })
 
 test('a backend that already has notifications on reports them on', async () => {

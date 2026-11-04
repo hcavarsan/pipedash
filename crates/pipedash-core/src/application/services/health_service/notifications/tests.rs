@@ -267,9 +267,52 @@ async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
             body: BODY.to_owned(),
             pipeline_id: Some("github__1__api".to_owned()),
             provider_id: Some(1),
+            provider_ids: vec![1],
             kind: AlertKind::Failed,
+            finish: found[0].finish,
         }]
     );
+    assert!(found[0]
+        .finish
+        .is_some_and(|finish| finish.previous.is_none()));
+}
+
+#[test]
+fn a_finished_run_names_its_outcome_and_remembers_the_previous_finish() {
+    let mut state = NotificationState::default();
+    state.seed(&[run(1, "api", PipelineStatus::Running, 1)], &[summary(1)]);
+
+    let first = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 1)]));
+    assert_eq!(titles(&first), ["api succeeded"]);
+    assert_eq!(first[0].kind, AlertKind::Finished);
+    let first_at = first[0].finish.map(|finish| finish.at);
+    assert!(first_at.is_some());
+    assert_eq!(first[0].finish.and_then(|finish| finish.previous), None);
+
+    state = reload(&state);
+    let skipped = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Skipped, 2)]));
+    assert_eq!(titles(&skipped), ["api was skipped"]);
+    assert_eq!(
+        skipped[0].finish.and_then(|finish| finish.previous),
+        first_at
+    );
+
+    let flipped = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Failed, 2)]));
+    assert_eq!(titles(&flipped), ["api failed"]);
+    assert_eq!(flipped[0].finish, None);
+
+    state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Running, 3)]));
+    let cancelled = state.observe_event(&updated(
+        1,
+        vec![run(1, "api", PipelineStatus::Cancelled, 3)],
+    ));
+    assert_eq!(titles(&cancelled), ["api was cancelled"]);
+    assert!(state
+        .observe_event(&updated(
+            1,
+            vec![run(1, "api", PipelineStatus::Cancelled, 3)]
+        ))
+        .is_empty());
 }
 
 #[tokio::test]
@@ -1006,7 +1049,7 @@ fn notices_carry_the_kind_that_matches_their_cause() {
         vec![run(1, "api", PipelineStatus::Degraded, 2)],
     ));
     let failed = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Failed, 3)]));
-    let mut slow = run(1, "api", PipelineStatus::Success, 4);
+    let mut slow = run(1, "api", PipelineStatus::Running, 4);
     slow.overdue_run = Some("run-9".to_owned());
     let long_run = state.observe_event(&updated(1, vec![slow]));
     let outage = state.observe_event(&alert_event("status:feed", "incident:1", "Down", false));

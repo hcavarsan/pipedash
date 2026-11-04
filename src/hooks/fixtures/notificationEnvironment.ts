@@ -14,6 +14,7 @@ interface NativeState {
   settings: { enabled: boolean; available: boolean; reason: string | null }
   calls: Array<{ command: string; args: Record<string, unknown> }>
   failure: Error | null
+  fired: string[]
 }
 
 export const callbacks = new Map<number, (event: unknown) => void>()
@@ -25,6 +26,7 @@ export const native: NativeState = {
   settings: { enabled: false, available: true, reason: null },
   calls: [],
   failure: null,
+  fired: [],
 }
 interface Registration {
   mode: 'immediate' | 'reject' | 'deferred'
@@ -100,6 +102,9 @@ Object.assign(window, {
         }
         native.settings = { ...native.settings, enabled: args.enabled === true }
         return { ...native.settings }
+      }
+      if (command === 'set_notification_preferences') {
+        return [...native.fired]
       }
       throw new Error(`Unexpected command: ${command}`)
     },

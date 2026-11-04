@@ -48,6 +48,7 @@ const { notifyManager, QueryClient, QueryClientProvider } = await import('@tanst
 const { TriggerWorkflowModal } = await import('./TriggerWorkflowModal')
 const { apiService } = await import('../../../services/api')
 const { tauriService } = await import('../../../services/tauri')
+const { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } = await import('../../../stores/notificationStore')
 const view = () => within(document.body)
 
 const branchParam: WorkflowParameter = {
@@ -79,6 +80,7 @@ beforeEach(() => {
   state.paramsFailure = false
   state.triggerFailure = false
   triggers.length = 0
+  useNotificationStore.setState({ preferences: DEFAULT_NOTIFICATION_PREFERENCES, notifyTriggeredRuns: true })
   mock.method(apiService, 'getWorkflowParameters', tauriService.getWorkflowParameters)
   mock.method(apiService, 'triggerPipeline', tauriService.triggerPipeline)
   notifyManager.setNotifyFunction((callback) => act(callback))
@@ -204,4 +206,61 @@ test('a background parameter refetch does not overwrite a dirty draft', async ()
   const refreshed = view().getByRole('textbox', { name: 'Ref name' })
   assert.ok(refreshed instanceof HTMLInputElement)
   assert.equal(refreshed.value, 'release')
+})
+
+const pendingFinishes = () => useNotificationStore.getState().preferences.watch_once.map((watch) => watch.pipeline_id)
+
+async function triggerWithBranch() {
+  const user = userEvent.setup({ document })
+
+  await user.type(await view().findByRole('textbox', { name: 'Branch' }), 'release')
+  await user.click(view().getByRole('button', { name: 'Trigger workflow' }))
+}
+
+test('a triggered run asks to be notified when it finishes by default', async () => {
+  const { closed } = renderModal()
+
+  const box = await view().findByRole('checkbox', { name: 'Notify me when it finishes' })
+  assert.ok(box instanceof HTMLInputElement)
+  assert.equal(box.checked, true)
+  await triggerWithBranch()
+
+  await waitFor(() => assert.equal(closed.value, true))
+  assert.deepEqual(pendingFinishes(), [pipeline.id])
+})
+
+test('unchecking the box skips the request and is remembered for the next trigger', async () => {
+  const user = userEvent.setup({ document })
+  const { closed } = renderModal()
+
+  await user.click(await view().findByRole('checkbox', { name: 'Notify me when it finishes' }))
+  await triggerWithBranch()
+
+  await waitFor(() => assert.equal(closed.value, true))
+  assert.deepEqual(pendingFinishes(), [])
+  assert.equal(useNotificationStore.getState().notifyTriggeredRuns, false)
+})
+
+test('a rejected trigger leaves no pending finish notification', async () => {
+  state.triggerFailure = true
+  renderModal()
+
+  await triggerWithBranch()
+
+  await waitFor(() => assert.equal(triggers.length, 1))
+  assert.deepEqual(pendingFinishes(), [])
+})
+
+test('a watched pipeline needs no checkbox and gets no extra request', async () => {
+  useNotificationStore.setState({
+    preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watched_pipelines: [pipeline.id] },
+  })
+  const { closed } = renderModal()
+
+  await view().findByRole('textbox', { name: 'Branch' })
+  assert.equal(view().queryByRole('checkbox', { name: 'Notify me when it finishes' }), null)
+  await triggerWithBranch()
+
+  await waitFor(() => assert.equal(closed.value, true))
+  assert.deepEqual(pendingFinishes(), [])
 })

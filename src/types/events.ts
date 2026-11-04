@@ -33,6 +33,7 @@ export interface PipelineStatusChangedPayload {
 export type EventPayloadMap = {
   'pipelines-updated': PipelinesUpdatedPayload
   'pipelines-failed': { pipelines: Pipeline[] }
+  'pipelines-finished': { pipelines: Pipeline[] }
   'provider-added': ProviderChangedPayload
   'provider-updated': ProviderChangedPayload
   'provider-removed': ProviderChangedPayload
