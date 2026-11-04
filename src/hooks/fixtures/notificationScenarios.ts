@@ -173,6 +173,17 @@ test('loading existing failed pipelines does not replay historical alerts', asyn
   assert.deepEqual(delivered, [])
 })
 
+test('an iPhone recovery reaches the center and leaves system delivery to Rust', async () => {
+  await mount()
+  setProviderPipelines(client, pipeline.provider_id, [pipeline])
+  setProviderPipelines(client, pipeline.provider_id, [{ ...pipeline, status: 'running' }])
+  setProviderPipelines(client, pipeline.provider_id, [{ ...pipeline, status: 'success' }])
+  const [item] = useNotificationCenterStore.getState().items
+  assert.equal(item?.title, 'Build passed again')
+  assert.equal(item?.tone, 'success')
+  assert.deepEqual(delivered, [])
+})
+
 test('a failure still reaches the center when notifications are off', async () => {
   await mount()
   useNotificationStore.setState({ notificationsEnabled: false })

@@ -7,8 +7,9 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
-
 import { useLocalNotificationsLifecycle } from '../../features/notifications/queries/useLocalNotificationQueries'
+import { queryKeys } from '../../lib/queryKeys'
+import { setProviderPipelines } from '../../queries/usePipelinesQueries'
 import { useNotificationCenterStore } from '../../stores/notificationCenterStore'
 import { useNotificationStore } from '../../stores/notificationStore'
 import type { Pipeline, ProviderHealthAlert } from '../../types/domain'
@@ -126,5 +127,17 @@ test('a denied permission keeps the in-app failure', async () => {
 test('the desktop keeps its saved flag and never calls the iOS commands', async () => {
   await mount(true)
   assert.equal(useNotificationStore.getState().notificationsEnabled, true)
+  assert.deepEqual(native.calls, [])
+})
+
+test('desktop recovery alerts deliver once with the existing notification flag', async () => {
+  await mount(true)
+  client.setQueryData(queryKeys.pipelines.list(), [pipeline])
+  setProviderPipelines(client, 1, [{ ...pipeline, status: 'running' }])
+  setProviderPipelines(client, 1, [{ ...pipeline, status: 'success' }])
+  setProviderPipelines(client, 1, [{ ...pipeline, status: 'success' }])
+  await waitFor(() => assert.equal(delivered.length, 1))
+  assert.equal(delivered[0]?.title, 'Build passed again')
+  assert.equal(useNotificationCenterStore.getState().items[0]?.tone, 'success')
   assert.deepEqual(native.calls, [])
 })

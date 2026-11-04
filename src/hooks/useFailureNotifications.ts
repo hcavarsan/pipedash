@@ -51,6 +51,7 @@ export function useFailureNotifications(): void {
     const native = isTauri()
     const lastPipelines = new Map<string, Pipeline>()
     const notifiedOverdueRuns = new Map<string, string>()
+    const failedPipelines = new Set<string>()
     let active = true
     let unlisten: (() => void) | undefined
 
@@ -64,6 +65,9 @@ export function useFailureNotifications(): void {
           const providers = queryClient.getQueryData<ProviderSummary[]>(queryKeys.providers.list())
 
           for (const pipeline of pipelines) {
+            if (pipeline.status === 'failed') {
+              failedPipelines.add(pipeline.id)
+            }
             const provider = providers?.find((item) => item.id === pipeline.provider_id)
             notify(pipeline, 'danger', alertTitle(pipeline), provider, enabled)
           }
@@ -108,19 +112,29 @@ export function useFailureNotifications(): void {
           previous !== undefined &&
           (pipeline.status === 'failed' || pipeline.status === 'degraded') &&
           (previous.status !== pipeline.status || previous.last_run !== pipeline.last_run)
+        const recovered = pipeline.status === 'success' && failedPipelines.has(pipeline.id)
+
+        if (pipeline.status === 'failed') {
+          failedPipelines.add(pipeline.id)
+        } else if (pipeline.status === 'success') {
+          failedPipelines.delete(pipeline.id)
+        }
 
         lastPipelines.set(pipeline.id, pipeline)
         if (overdueRun) {
           notifiedOverdueRuns.set(pipeline.id, overdueRun)
         }
 
-        if (!failed && !newOverdueRun) {
+        if (!failed && !newOverdueRun && !recovered) {
           continue
         }
 
         const provider = providers?.find((p) => p.id === pipeline.provider_id)
         if (failed) {
           notify(pipeline, 'danger', alertTitle(pipeline), provider, enabled)
+        }
+        if (recovered) {
+          notify(pipeline, 'success', `${pipeline.name} passed again`, provider, enabled)
         }
         if (newOverdueRun) {
           notify(pipeline, 'warning', `${pipeline.name} is running longer than usual`, provider, enabled)

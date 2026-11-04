@@ -55,6 +55,8 @@ struct PipelineMark {
     overdue: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     checked_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    awaiting_success: bool,
 }
 
 impl PipelineMark {
@@ -64,6 +66,7 @@ impl PipelineMark {
             last_run: pipeline.last_run,
             overdue: pipeline.overdue_run.clone(),
             checked_at: None,
+            awaiting_success: pipeline.status == PipelineStatus::Failed,
         }
     }
 }
@@ -246,6 +249,18 @@ impl NotificationState {
         for pipeline in pipelines {
             let mut mark = PipelineMark::of(pipeline);
             if let Some(old) = previous.get(&pipeline.id) {
+                let awaiting_success = old.awaiting_success || old.status == PipelineStatus::Failed;
+                if pipeline.status == PipelineStatus::Success {
+                    if awaiting_success {
+                        found.push(self.pipeline_notice(
+                            pipeline,
+                            format!("{} passed again", pipeline.name),
+                            AlertKind::Recovered,
+                        ));
+                    }
+                } else {
+                    mark.awaiting_success |= awaiting_success;
+                }
                 let needs_attention = pipeline.status.needs_attention()
                     && (old.status != pipeline.status || old.last_run != pipeline.last_run);
                 if needs_attention {
@@ -292,6 +307,7 @@ impl NotificationState {
                 mark.overdue = old.and_then(|old| old.overdue.clone());
             }
             mark.checked_at = old.and_then(|old| old.checked_at);
+            mark.awaiting_success |= old.is_some_and(|old| old.awaiting_success);
             marks.insert(pipeline.id.clone(), mark);
             if !handled {
                 found.push(self.pipeline_notice(

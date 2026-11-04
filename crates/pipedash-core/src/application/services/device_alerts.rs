@@ -12,6 +12,7 @@ use super::health_service::NotificationState;
 use super::pipeline_service::PipelineService;
 use super::provider_service::ProviderService;
 use crate::domain::{
+    AlertKind,
     DomainError,
     NewDeviceAlert,
 };
@@ -125,6 +126,9 @@ async fn record_pruning(
             }
         }
         for notice in notices {
+            if notice.kind == AlertKind::Recovered && notice.pipeline_id.is_some() {
+                continue;
+            }
             let alert = NewDeviceAlert {
                 key: notice.key,
                 kind: notice.kind,
@@ -322,6 +326,19 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(announced, vec![(stored[0].id.clone(), stored[0].seq)]);
+    }
+
+    #[tokio::test]
+    async fn pipeline_recoveries_do_not_add_hosted_push_alerts() {
+        let h = Harness::new().await;
+        let events = vec![
+            updated(run(PipelineStatus::Failed, 0)),
+            updated(run(PipelineStatus::Running, 1)),
+            updated(run(PipelineStatus::Success, 1)),
+        ];
+
+        assert!(recorded(&h, true, events).await.is_empty());
+        assert_eq!(h.bus.count("alert-recorded"), 0);
     }
 
     #[tokio::test]

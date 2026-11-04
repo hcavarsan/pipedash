@@ -28,7 +28,7 @@ import { MobileDevicesCard } from './MobileDevicesCard'
 import { NotificationsBlockedRows } from './NotificationsBlockedRows'
 
 const DESCRIPTION =
-  'Get a system notification when a pipeline fails or runs longer than usual, and when a provider has an outage or recovers.'
+  'Get alerts for failed pipelines and pipelines that pass again. Alerts also cover long runs, provider outages and provider recoveries.'
 const CONNECT_PATH = '/connect?purpose=alerts'
 const CONNECT_SUBTITLE =
   "Get alerts from a Pipedash server or a computer that shares Pipedash, even when its pipelines aren't on this device."
@@ -38,7 +38,7 @@ function confirmBackgroundAccess(system: string, host: string | null): Promise<b
   const { promise, resolve } = Promise.withResolvers<boolean>()
   const access =
     host === null
-      ? 'uses the provider credentials saved on it to check for failed pipelines, long-running runs, and provider outages'
+      ? 'uses the provider credentials saved on it to check for pipeline failures and recoveries, long runs and provider outages'
       : `uses the access token it saved for ${host} to check for new alerts`
 
   openConfirm({

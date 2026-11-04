@@ -192,3 +192,42 @@ test('a slow initial list does not announce an already failed pipeline when it a
   assert.deepEqual(delivered, [])
   assert.deepEqual(useNotificationCenterStore.getState().items, [])
 })
+
+test('a failed pipeline passing again notifies once across live updates and refetches', async () => {
+  const socket = await mount({ ...baseline, status: 'failed' })
+  backend = [{ ...baseline, status: 'success' }]
+  await act(async () => {
+    socket.emit('pipelines-updated', { pipelines: backend, providerId: 1, timestamp: Date.now() })
+    await client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
+  })
+  await waitFor(() => assert.equal(delivered.length, 1))
+  const [item] = useNotificationCenterStore.getState().items
+  assert.equal(item?.title, 'Build passed again')
+  assert.equal(item?.tone, 'success')
+  assert.equal(item?.pipelineId, baseline.id)
+  await act(async () => {
+    setProviderPipelines(client, 1, backend)
+    await client.invalidateQueries({ queryKey: queryKeys.pipelines.list() })
+  })
+  assert.equal(delivered.length, 1)
+})
+
+test('a recovery remembers a failure through the next running build and respects the notification flag', async () => {
+  await mount({ ...baseline, status: 'failed' })
+  useNotificationStore.setState({ notificationsEnabled: false })
+  await act(async () => {
+    setProviderPipelines(client, 1, [baseline])
+    setProviderPipelines(client, 1, [{ ...baseline, status: 'success' }])
+  })
+  assert.equal(useNotificationCenterStore.getState().items[0]?.title, 'Build passed again')
+  assert.deepEqual(delivered, [])
+})
+
+test('loading and refreshing passing pipelines stays silent', async () => {
+  await mount({ ...baseline, status: 'success' })
+  await act(async () => {
+    setProviderPipelines(client, 1, [{ ...baseline, status: 'success', last_run: '2026-10-26T12:05:00Z' }])
+  })
+  assert.deepEqual(useNotificationCenterStore.getState().items, [])
+  assert.deepEqual(delivered, [])
+})
