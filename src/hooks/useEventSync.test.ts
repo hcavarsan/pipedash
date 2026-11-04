@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { after, afterEach, mock, test } from 'node:test'
 
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { InfiniteQueryObserver, QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 import { act, cleanup, render } from '@testing-library/react'
 import { createElement } from 'react'
 
@@ -122,4 +122,78 @@ test('batched invalidations scheduled before an unmount do not leak into the nex
   }
   assert.equal(client.getQueryState(queryKeys.pipelines.list({ providerId: 2 }))?.isInvalidated, true)
   assert.equal(client.getQueryState(queryKeys.pipelines.list({ providerId: 1 }))?.isInvalidated, false)
+})
+
+test('a history invalidation refreshes paged and infinite lists only for its pipeline', async () => {
+  let runs = [3, 2, 1]
+  let unrelatedFetches = 0
+  const page = (number: number) => ({
+    runs: runs.slice((number - 1) * 2, number * 2).map((run_number) => ({ run_number })),
+    total_count: runs.length,
+  })
+  const paged = new QueryObserver(client, {
+    queryKey: queryKeys.runs.list(pipeline.id, 2, 2),
+    queryFn: async () => page(2),
+  })
+  const infinite = new InfiniteQueryObserver(client, {
+    queryKey: queryKeys.runs.infinite(pipeline.id, 2),
+    queryFn: async ({ pageParam }) => page(pageParam),
+    initialPageParam: 1,
+    getNextPageParam: (_lastPage, _pages, lastPageParam) => (lastPageParam < 2 ? lastPageParam + 1 : undefined),
+  })
+  const unrelated = new QueryObserver(client, {
+    queryKey: queryKeys.runs.list('other-pipeline', 1, 2),
+    queryFn: async () => {
+      unrelatedFetches += 1
+
+      return { runs: [{ run_number: 99 }], total_count: 1 }
+    },
+  })
+  const inactiveKey = queryKeys.runs.list(pipeline.id, 1, 20)
+  client.setQueryData(inactiveKey, page(1))
+  const stops = [paged, infinite, unrelated].map((observer) => observer.subscribe(() => undefined))
+
+  try {
+    await Promise.all([paged.refetch(), infinite.refetch(), unrelated.refetch()])
+    await infinite.fetchNextPage()
+    assert.deepEqual(paged.getCurrentResult().data?.runs, [{ run_number: 1 }])
+    assert.deepEqual(
+      infinite.getCurrentResult().data?.pages.map((entry) => entry.runs),
+      [[{ run_number: 3 }, { run_number: 2 }], [{ run_number: 1 }]]
+    )
+    mount()
+    const socket = openSocket()
+    await flush()
+    runs = [4, 3, 2, 1]
+    socket.emit('run-history-cache-invalidated', { pipeline_id: pipeline.id })
+    await flush()
+
+    assert.deepEqual(paged.getCurrentResult().data, page(2))
+    assert.deepEqual(infinite.getCurrentResult().data?.pages, [page(1), page(2)])
+    assert.equal(unrelatedFetches, 1)
+    assert.deepEqual(unrelated.getCurrentResult().data, { runs: [{ run_number: 99 }], total_count: 1 })
+    assert.equal(client.getQueryState(inactiveKey)?.isInvalidated, true)
+  } finally {
+    for (const stop of stops) {
+      stop()
+    }
+  }
+})
+
+test('a history invalidation without a pipeline expires all lists but keeps run details', async () => {
+  const histories = [queryKeys.runs.list(pipeline.id, 1, 20), queryKeys.runs.infinite('other-pipeline', 20)]
+  const detailKey = queryKeys.runs.detail(pipeline.id, 1)
+  for (const key of [...histories, detailKey]) {
+    client.setQueryData(key, { run_number: 1 })
+  }
+  mount()
+  const socket = openSocket()
+  await flush()
+  socket.emit('run-history-cache-invalidated', {})
+  await flush()
+
+  for (const key of histories) {
+    assert.equal(client.getQueryState(key)?.isInvalidated, true)
+  }
+  assert.equal(client.getQueryState(detailKey)?.isInvalidated, false)
 })

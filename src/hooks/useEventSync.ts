@@ -211,6 +211,12 @@ export function useEventSync(): void {
       }
     })
 
+    void register<EventPayloadMap['run-history-cache-invalidated']>('run-history-cache-invalidated', (payload) => {
+      void queryClient.invalidateQueries({
+        queryKey: payload.pipeline_id ? queryKeys.runs.list(payload.pipeline_id) : [...queryKeys.runs.all, 'list'],
+      })
+    })
+
     void register<unknown>('storage-updated', () => {
       logger.debug('EventSync', 'storage-updated')
       void queryClient.invalidateQueries({ queryKey: queryKeys.storage.all })
