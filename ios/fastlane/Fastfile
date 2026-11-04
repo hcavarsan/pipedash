@@ -162,7 +162,7 @@ platform :ios do
     prepare_project
     out_dir = File.expand_path(options.fetch(:output, File.join(ROOT, "ios/screenshots")))
     FileUtils.mkdir_p(out_dir)
-    tauri("ios", "build", "--target", "aarch64-sim", "--debug", "--no-sign", "--config", ios_config(1))
+    tauri("ios", "build", "--target", "aarch64-sim", "--debug", "--no-sign", "--config", ios_config(1, ios_version))
     app = Dir[File.join(APPLE_DIR, "build/arm64-sim/*.app")].first || UI.user_error!("No simulator app built")
 
     devices = JSON.parse(sh("xcrun", "simctl", "list", "devices", "available", "--json", log: false))

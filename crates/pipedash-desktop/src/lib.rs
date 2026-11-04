@@ -630,6 +630,8 @@ pub fn run() {
             local_notifications::set_local_notifications_enabled,
             local_notifications::pair_alert_host,
             local_notifications::remove_alert_host,
+            local_notifications::set_notification_preferences,
+            local_notifications::load_notification_preferences,
             remote::alerts::take_missed_alerts,
             system_notifications::show_system_notification,
             native::native_haptic,

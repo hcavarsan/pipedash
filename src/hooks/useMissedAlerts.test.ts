@@ -54,6 +54,7 @@ const { act, cleanup, render } = await import('@testing-library/react')
 const { createElement } = await import('react')
 const { loadConnection } = await import('../services/connection')
 const { useNotificationCenterStore } = await import('../stores/notificationCenterStore')
+const { DEFAULT_NOTIFICATION_PREFERENCES, useNotificationStore } = await import('../stores/notificationStore')
 const { useMissedAlerts } = await import('./useMissedAlerts')
 
 await loadConnection()
@@ -109,6 +110,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => cleanup())
   useNotificationCenterStore.setState({ items: [], selection: null })
+  useNotificationStore.setState({ preferences: DEFAULT_NOTIFICATION_PREFERENCES })
 })
 
 after(() => GlobalRegistrator.unregister())
@@ -184,4 +186,38 @@ test('a failed pull is logged and the next connection pulls again', async () => 
     useNotificationCenterStore.getState().items.map(({ key }) => key),
     ['status-page:github']
   )
+})
+
+test('every alert the host sends is pushed, with no rule applied and no one-time request consumed', async () => {
+  const preferences = {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    failed: false,
+    recovered: false,
+    muted_providers: [1],
+    muted_pipelines: ['p1', 'p2'],
+    watch_once: [{ pipeline_id: 'p2', since: '2026-11-03T11:00:00.000Z' }],
+  }
+  useNotificationStore.setState({ preferences })
+  const finished: HostAlert = {
+    ...failed,
+    id: '00000000000000000000000000000003',
+    seq: 3,
+    key: 'pipeline:p2',
+    kind: 'finished',
+    tone: 'success',
+    pipeline_id: 'p2',
+    finish: { at: '2026-11-03T12:10:00Z', previous: null },
+    created_at: '2026-11-03T12:10:00Z',
+  }
+  batches = [[failed, recovered, finished]]
+
+  await act(async () => {
+    render(createElement(Probe))
+  })
+
+  assert.deepEqual(
+    useNotificationCenterStore.getState().items.map(({ key }) => key),
+    ['pipeline:p2', 'status-page:github', 'pipeline:p1']
+  )
+  assert.equal(useNotificationStore.getState().preferences, preferences)
 })

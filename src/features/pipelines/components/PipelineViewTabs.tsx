@@ -8,6 +8,7 @@ import { usePipelineViewQuery } from '../../../hooks/useUrlState'
 import { useProviders } from '../../../queries/useProvidersQueries'
 import type { PipelineView, ProviderSummary } from '../../../types/domain'
 import { providerTone } from '../../../utils/fetchInfo'
+import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { useProviderCancelItems } from '../hooks/useCancelActiveRuns'
 import { useViewMenuItems } from '../hooks/useViewMenuItems'
 import { usePipelineViews, useReorderPipelineViews } from '../queries/usePipelineViewQueries'
@@ -25,6 +26,7 @@ export function PipelineViewTabs(): ReactNode {
   const now = useNow(30_000)
   const { mutate: reorder } = useReorderPipelineViews()
   const { providerItems, dialog } = useProviderCancelItems(providers)
+  const { providerItem } = useNotifyItems()
   const openEditor = usePipelineViewStore((s) => s.openEditor)
   const openManage = usePipelineViewStore((s) => s.openManage)
   const contextMenu = useContextMenu()
@@ -46,7 +48,7 @@ export function PipelineViewTabs(): ReactNode {
       key={provider.id}
       value={providerTabId(provider.id)}
       className="interactive-surface"
-      {...contextMenu(() => providerItems(provider))}
+      {...contextMenu(() => [...providerItems(provider), providerItem(provider)])}
     >
       <Group gap="3xs" wrap="nowrap">
         <ToneDot tone={providerTone(provider, now)} />

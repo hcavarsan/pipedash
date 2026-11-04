@@ -8,13 +8,16 @@ use axum::extract::{
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{
+    Extension,
     Json,
     Router,
 };
 use pipedash_core::domain::{
     DeviceAlert,
     DomainResult,
+    NotificationPreferences,
 };
+use pipedash_core::infrastructure::database::DeviceAlertRepository;
 use serde::{
     Deserialize,
     Serialize,
@@ -25,7 +28,10 @@ use crate::error::{
     ApiResult,
     AppError,
 };
-use crate::state::AppState;
+use crate::state::{
+    AppState,
+    CurrentDevice,
+};
 
 const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 100;
@@ -77,15 +83,57 @@ async fn read_page(
 }
 
 async fn list_alerts(
-    State(state): State<AppState>, Query(query): Query<AlertsQuery>,
+    State(state): State<AppState>, current: Option<Extension<CurrentDevice>>,
+    Query(query): Query<AlertsQuery>,
 ) -> ApiResult<Json<AlertsResponse>> {
-    let alerts = state.core().await?.device_alerts();
+    let core = state.core().await?;
+    let alerts = core.device_alerts();
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let after = query.after.unwrap_or(0);
+    let Some(Extension(CurrentDevice(device_id))) = current else {
+        return Ok(Json(
+            read_page(alerts.latest_seq(), alerts.after(after, limit)).await?,
+        ));
+    };
+    let preferences = core
+        .devices()
+        .notification_preferences()
+        .await?
+        .remove(&device_id)
+        .unwrap_or_default();
 
     Ok(Json(
-        read_page(alerts.latest_seq(), alerts.after(after, limit)).await?,
+        read_page(
+            alerts.latest_seq(),
+            shown_after(&alerts, &preferences, after, limit),
+        )
+        .await?,
     ))
+}
+
+async fn shown_after(
+    alerts: &DeviceAlertRepository, preferences: &NotificationPreferences, after: i64, limit: i64,
+) -> DomainResult<Vec<DeviceAlert>> {
+    let size = usize::try_from(limit).unwrap_or(1);
+    let mut cursor = after;
+    let mut shown = Vec::new();
+    loop {
+        let page = alerts.after(cursor, limit).await?;
+        let exhausted = page.len() < size;
+        cursor = page.last().map_or(cursor, |alert| alert.seq);
+        shown.extend(page.into_iter().filter(|alert| {
+            preferences.allows(
+                alert.kind,
+                &alert.affected_providers(),
+                alert.pipeline_id.as_deref(),
+                alert.finish.as_ref(),
+            )
+        }));
+        if exhausted || shown.len() >= size {
+            shown.truncate(size);
+            return Ok(shown);
+        }
+    }
 }
 
 async fn get_alert(
@@ -161,6 +209,8 @@ mod tests {
             body: format!("{key} body"),
             pipeline_id: Some(key.into()),
             provider_id: Some(7),
+            provider_ids: vec![7],
+            finish: None,
         }
     }
 
@@ -206,6 +256,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_device_lists_only_alerts_its_preferences_allow_and_pages_stay_full() {
+        let host = hosted("alerts-finished").await;
+        let core = host.state.core().await.unwrap();
+        let alerts = core.device_alerts();
+        let (app, token) = device_app(&host).await;
+        let device = core.devices().list().await.unwrap().remove(0);
+        core.devices()
+            .set_notification_preferences(
+                &device.id,
+                &NotificationPreferences {
+                    watched_pipelines: vec!["pipeline:watched".into()],
+                    muted_pipelines: vec!["pipeline:muted".into()],
+                    ..NotificationPreferences::default()
+                },
+            )
+            .await
+            .unwrap();
+        let failed = alerts
+            .insert(&new_alert(AlertKind::Failed, "pipeline:a"))
+            .await
+            .unwrap();
+        alerts
+            .insert(&new_alert(AlertKind::Failed, "pipeline:muted"))
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            alerts
+                .insert(&new_alert(AlertKind::Finished, "pipeline:other"))
+                .await
+                .unwrap();
+        }
+        let watched = alerts
+            .insert(&new_alert(AlertKind::Finished, "pipeline:watched"))
+            .await
+            .unwrap();
+        let later = alerts
+            .insert(&new_alert(AlertKind::Failed, "pipeline:b"))
+            .await
+            .unwrap();
+
+        let ids = |body: &Value| {
+            body["alerts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|alert| alert["id"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        let (_, body) = get_json(&app, "/api/v1/alerts?limit=2", &token).await;
+        assert_eq!(ids(&body), [failed.id.clone(), watched.id.clone()]);
+        assert_eq!(body["latest_seq"], later.seq);
+
+        let uri = format!("/api/v1/alerts?after={}&limit=2", watched.seq);
+        let (_, body) = get_json(&app, &uri, &token).await;
+        assert_eq!(ids(&body), [later.id]);
+    }
+
+    #[tokio::test]
     async fn one_alert_is_fetched_by_id_and_a_missing_one_is_not_found() {
         let host = hosted("alerts-get").await;
         let alerts = host.state.core().await.unwrap().device_alerts();
@@ -246,6 +354,8 @@ mod page_order_tests {
             body: key.into(),
             pipeline_id: None,
             provider_id: None,
+            provider_ids: Vec::new(),
+            finish: None,
         }
     }
 

@@ -19,7 +19,7 @@ test('desktop notification scenarios deliver through the single flag', () => {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
 })
 
-test('web notification scenarios recover missed events after reconnect', () => {
+test('web notification scenarios render frames and send the preferences after reconnecting', () => {
   const scenarios = fileURLToPath(new URL('./fixtures/notificationWebScenarios.ts', import.meta.url))
   const result = spawnSync(process.execPath, ['test', '--isolate', scenarios], { encoding: 'utf8', timeout: 30000 })
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
