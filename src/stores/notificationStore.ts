@@ -17,6 +17,7 @@ interface NotificationStoreActions {
   setPipelineMuted: (pipelineId: string, muted: boolean) => void
   remapProviders: (mapping: Record<number, number>) => void
   remapProvidersOnRestart: (mapping: Record<number, number>) => void
+  applyPendingRemap: () => void
 }
 
 type NotificationStore = NotificationStoreState & NotificationStoreActions
@@ -118,7 +119,7 @@ export const shouldNotify = (kind: AlertKind, providerIds: number[], pipelineId:
 export const useNotificationStore = create<NotificationStore>()(
   devtools(
     persist(
-      (set) => ({
+      (set, get) => ({
         ...initialState,
 
         setNotificationsEnabled: (enabled) => set({ notificationsEnabled: enabled }),
@@ -145,6 +146,14 @@ export const useNotificationStore = create<NotificationStore>()(
           set((state) => ({ preferences: remapPreferences(state.preferences, mapping), pendingRemap: undefined })),
 
         remapProvidersOnRestart: (mapping) => set({ pendingRemap: mapping }),
+
+        applyPendingRemap: () => {
+          const { pendingRemap, remapProviders } = get()
+
+          if (pendingRemap) {
+            remapProviders(pendingRemap)
+          }
+        },
       }),
       {
         name: 'pipedash-notifications',
@@ -155,11 +164,7 @@ export const useNotificationStore = create<NotificationStore>()(
           preferences: state.preferences,
           pendingRemap: state.pendingRemap,
         }),
-        onRehydrateStorage: () => (state) => {
-          if (state?.pendingRemap) {
-            state.remapProviders(state.pendingRemap)
-          }
-        },
+        onRehydrateStorage: () => (state) => state?.applyPendingRemap(),
       }
     ),
     { name: 'NotificationStore' }

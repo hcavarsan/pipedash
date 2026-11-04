@@ -218,7 +218,6 @@ export function useExecuteMigration(): UseMutationResult<
     onSuccess: (result) => {
       if (result.success) {
         if (Object.keys(result.provider_id_mapping).length > 0) {
-          // A local core keeps the old database until the app restarts; a server switches right away.
           const { remapProviders, remapProvidersOnRestart } = useNotificationStore.getState()
           const remap = hasLocalCore() ? remapProvidersOnRestart : remapProviders
 

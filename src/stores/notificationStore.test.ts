@@ -6,7 +6,6 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 GlobalRegistrator.register()
 after(() => GlobalRegistrator.unregister())
 
-// The store only persists when it finds localStorage as it loads, so it loads after happy-dom registers.
 const {
   DEFAULT_NOTIFICATION_PREFERENCES,
   migrateNotificationSettings,
@@ -95,16 +94,32 @@ test('a storage migration moves mutes to the new provider IDs and drops removed 
   })
 })
 
-test('a local-core migration keeps the old mutes until the next launch, then remaps them once', async () => {
+const deferredRemap = () => {
   const preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, muted_providers: [2, 5] }
   useNotificationStore.setState({ preferences })
-
   useNotificationStore.getState().remapProvidersOnRestart({ 2: 1, 3: 2 })
   assert.deepEqual(useNotificationStore.getState().preferences, preferences)
+}
+const mutedProviders = () => useNotificationStore.getState().preferences.muted_providers
+
+test('a local-core migration keeps the old mutes until the next launch, then remaps them once', async () => {
+  deferredRemap()
 
   await useNotificationStore.persist.rehydrate()
-  assert.deepEqual(useNotificationStore.getState().preferences.muted_providers, [1])
+  assert.deepEqual(mutedProviders(), [1])
 
   await useNotificationStore.persist.rehydrate()
-  assert.deepEqual(useNotificationStore.getState().preferences.muted_providers, [1])
+  assert.deepEqual(mutedProviders(), [1])
+})
+
+test('a phone remaps its mutes as soon as the core reloads on the new database', async () => {
+  Object.assign(window, { __TAURI_INTERNALS__: { invoke: async () => undefined } })
+  const { tauriService } = await import('../services/tauri')
+  deferredRemap()
+
+  await tauriService.restartApp()
+  assert.deepEqual(mutedProviders(), [1])
+
+  await useNotificationStore.persist.rehydrate()
+  assert.deepEqual(mutedProviders(), [1])
 })
