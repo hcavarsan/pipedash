@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use pipedash_core::domain::pairing::parse_pairing_link;
 use serde::{
     Deserialize,
     Serialize,
@@ -119,6 +120,9 @@ pub enum NativeIntent {
     Ui {
         action: NativeUiAction,
     },
+    Pair {
+        link: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -221,6 +225,9 @@ pub fn parse_deep_link(url: &Url) -> Option<NativeIntent> {
         ("settings", [section]) if is_section(section) => {
             link(format!("/settings/{section}"), None)
         }
+        ("pair", _) if parse_pairing_link(url.as_str()).is_some() => Some(NativeIntent::Pair {
+            link: url.to_string(),
+        }),
         _ => None,
     }
 }
@@ -416,6 +423,23 @@ mod tests {
     }
 
     #[test]
+    fn a_pairing_link_opens_the_connect_screen() {
+        let raw = "pipedash://pair?url=http%3A%2F%2F192.168.1.20%3A8080&code=ABCDEFGH";
+        let intent = link(raw).unwrap();
+
+        assert_eq!(
+            intent,
+            NativeIntent::Pair {
+                link: raw.to_string()
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(intent).unwrap(),
+            json!({ "type": "pair", "link": raw })
+        );
+    }
+
+    #[test]
     fn links_the_app_cannot_route_are_ignored() {
         for raw in [
             "https://pipelines/abc",
@@ -426,6 +450,8 @@ mod tests {
             "pipedash://pipelines/abc/runs/-1",
             "pipedash://settings/Bad_Section",
             "pipedash://settings/a/b",
+            "pipedash://pair",
+            "pipedash://pair?url=http%3A%2F%2Fhost",
         ] {
             assert_eq!(link(raw), None, "{raw}");
         }

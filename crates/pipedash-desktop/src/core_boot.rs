@@ -177,6 +177,7 @@ pub async fn boot_core(
         old.shutdown().await;
     }
     lock.set_locked(false);
+    crate::host::core_changed(app, Some(&core)).await;
 
     #[cfg(desktop)]
     {

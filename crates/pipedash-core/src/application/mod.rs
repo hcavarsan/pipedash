@@ -19,6 +19,7 @@ pub use fetch_scheduler::{
     Outcome,
     ScheduleView,
 };
+pub use services::device_alerts::recording_bus;
 pub use services::health_service::{
     refresh_notifications,
     HealthHandle,
@@ -27,10 +28,11 @@ pub use services::health_service::{
     HealthSnapshot,
     LocalNotification,
     NotificationState,
-    NotificationTone,
+    ObservedNotification,
     ProviderHealthInput,
     ProviderHealthService,
     ProviderHealthState,
+    ShownNotification,
 };
 pub use services::log_service::{
     LogExport,

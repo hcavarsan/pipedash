@@ -13,7 +13,6 @@ use pipedash_core::infrastructure::{
     ConfigLoader,
     PipedashConfig,
     SetupStatus,
-    StorageBackendType,
     StorageManager,
 };
 use pipedash_core::CoreContext;
@@ -148,7 +147,7 @@ async fn start_core(state: &AppState, config: PipedashConfig) -> ApiResult<()> {
     );
 
     #[cfg(feature = "postgres")]
-    if config.storage.backend == StorageBackendType::Postgres {
+    if config.storage.backend == pipedash_core::infrastructure::StorageBackendType::Postgres {
         use pipedash_core::infrastructure::database::init_postgres_database;
 
         tracing::info!("Running PostgreSQL migrations...");
@@ -295,7 +294,7 @@ mod tests {
 
         let (broken_status, broken_body) = get_json(&app, "/setup/status").await;
         let mut config = PipedashConfig::default();
-        config.storage.backend = StorageBackendType::Sqlite;
+        config.storage.backend = pipedash_core::infrastructure::StorageBackendType::Sqlite;
         config.storage.data_dir = data_dir.display().to_string();
         config.storage.vault_password = Some("vault-password".into());
         std::fs::write(&config_path, ConfigLoader::to_toml(&config).unwrap()).unwrap();

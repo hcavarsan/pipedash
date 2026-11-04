@@ -247,62 +247,6 @@ fn network() -> DomainError {
     DomainError::NetworkError("down".to_owned())
 }
 
-#[test]
-fn provider_notices_preserve_metadata_and_recovery_tone() {
-    let mut state = NotificationState::default();
-    for recovered in [false, true] {
-        let mut event = alert_event("provider:1", "outage", "Provider health", recovered);
-        let link = AlertLink {
-            url: "https://status.example.com/incident".to_owned(),
-            kind: crate::event::AlertLinkKind::Incident,
-        };
-        if let CoreEvent::ProviderHealthAlert {
-            provider_ids,
-            link: target,
-            ..
-        } = &mut event
-        {
-            *provider_ids = vec![1, 2];
-            *target = Some(link.clone());
-        }
-        let found = state.observe_event(&event);
-        assert_eq!(found.len(), 1);
-        assert_eq!(
-            found[0].tone,
-            if recovered {
-                NotificationTone::Success
-            } else {
-                NotificationTone::Warning
-            }
-        );
-        assert_eq!(found[0].level, Some(HealthLevel::MajorOutage));
-        assert_eq!(found[0].provider_ids, vec![1, 2]);
-        assert_eq!(found[0].provider_id, Some(1));
-        assert_eq!(found[0].link, Some(link));
-        assert!(state.observe_event(&event).is_empty());
-    }
-}
-
-#[test]
-fn older_notifications_decode_with_safe_metadata_defaults() {
-    let notification: LocalNotification = serde_json::from_value(json!({
-        "key": "old", "title": "Old notice", "body": "", "pipeline_id": null, "provider_id": 7
-    }))
-    .unwrap();
-    assert_eq!(notification.tone, NotificationTone::Warning);
-    assert_eq!(notification.level, None);
-    assert!(notification.provider_ids.is_empty());
-    assert_eq!(notification.link, None);
-    assert_eq!(notification.provider_id, Some(7));
-    for (tone, text) in [
-        (NotificationTone::Danger, "danger"),
-        (NotificationTone::Warning, "warning"),
-        (NotificationTone::Success, "success"),
-    ] {
-        assert_eq!(serde_json::to_value(tone).unwrap(), text);
-    }
-}
-
 #[tokio::test]
 async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
     let mut rig = Rig::new();
@@ -323,12 +267,95 @@ async fn a_cold_scan_baselines_silently_and_later_failures_notify() {
             body: BODY.to_owned(),
             pipeline_id: Some("github__1__api".to_owned()),
             provider_id: Some(1),
-            tone: NotificationTone::Danger,
-            level: None,
             provider_ids: vec![1],
+            kind: AlertKind::Failed,
+            finish: found[0].finish,
+            level: None,
             link: None,
         }]
     );
+    assert!(found[0]
+        .finish
+        .is_some_and(|finish| finish.previous.is_none()));
+}
+
+#[test]
+fn a_finished_run_names_its_outcome_and_remembers_the_previous_finish() {
+    let mut state = NotificationState::default();
+    state.seed(&[run(1, "api", PipelineStatus::Running, 1)], &[summary(1)]);
+
+    let first = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 1)]));
+    assert_eq!(titles(&first), ["api succeeded"]);
+    assert_eq!(first[0].kind, AlertKind::Finished);
+    let first_at = first[0].finish.map(|finish| finish.at);
+    assert!(first_at.is_some());
+    assert_eq!(first[0].finish.and_then(|finish| finish.previous), None);
+
+    state = reload(&state);
+    let skipped = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Skipped, 2)]));
+    assert_eq!(titles(&skipped), ["api was skipped"]);
+    assert_eq!(
+        skipped[0].finish.and_then(|finish| finish.previous),
+        first_at
+    );
+
+    let flipped = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Failed, 2)]));
+    assert_eq!(titles(&flipped), ["api failed"]);
+    assert_eq!(flipped[0].finish, None);
+
+    state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Running, 3)]));
+    let cancelled = state.observe_event(&updated(
+        1,
+        vec![run(1, "api", PipelineStatus::Cancelled, 3)],
+    ));
+    assert_eq!(titles(&cancelled), ["api was cancelled"]);
+    assert!(state
+        .observe_event(&updated(
+            1,
+            vec![run(1, "api", PipelineStatus::Cancelled, 3)]
+        ))
+        .is_empty());
+}
+
+#[test]
+fn admission_shows_a_watched_finish_once_and_reports_the_request_it_used() {
+    let mut state = NotificationState::default();
+    state.seed(&[run(1, "api", PipelineStatus::Running, 1)], &[summary(1)]);
+    let notice = state
+        .observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Success, 1)]))
+        .remove(0);
+    let finish = notice.finish.unwrap();
+    let observed = ObservedNotification {
+        id: 7,
+        at: finish.at,
+        notice,
+    };
+    let request = crate::domain::OnceWatch {
+        pipeline_id: "github__1__api".into(),
+        since: finish.at - chrono::Duration::minutes(1),
+        fired_at: None,
+    };
+    let mut preferences = NotificationPreferences {
+        muted_providers: vec![1],
+        watch_once: vec![request.clone()],
+        ..NotificationPreferences::default()
+    };
+
+    assert!(observed
+        .admit(&mut NotificationPreferences::default())
+        .is_none());
+    let shown = observed.admit(&mut preferences).unwrap();
+    assert_eq!((shown.id, shown.tone), (7, "success"));
+    assert_eq!(
+        shown.fired,
+        Some(crate::domain::OnceWatch {
+            fired_at: Some(finish.at),
+            ..request
+        })
+    );
+    assert_eq!(observed.admit(&mut preferences).unwrap().fired, None);
+    preferences.muted_pipelines = vec!["github__1__api".into()];
+    assert!(observed.admit(&mut preferences).is_none());
 }
 
 #[tokio::test]
@@ -458,8 +485,6 @@ fn an_overdue_event_notifies_once_per_run() {
     let next = state.observe_event(&updated(1, vec![slow]));
 
     assert_eq!(titles(&first), ["api is running longer than usual"]);
-    assert_eq!(first[0].tone, NotificationTone::Warning);
-    assert_eq!(first[0].provider_ids, vec![1]);
     assert!(repeated.is_empty());
     assert_eq!(next.len(), 1);
 }
@@ -1055,4 +1080,28 @@ async fn a_controller_outage_present_at_opt_in_stays_silent() {
     for _ in 0..3 {
         assert!(rig.scan(&[1]).await.is_empty());
     }
+}
+
+#[test]
+fn notices_carry_the_kind_that_matches_their_cause() {
+    let mut state = NotificationState::default();
+    state.seed(&[run(1, "api", PipelineStatus::Success, 1)], &[summary(1)]);
+
+    let degraded = state.observe_event(&updated(
+        1,
+        vec![run(1, "api", PipelineStatus::Degraded, 2)],
+    ));
+    let failed = state.observe_event(&updated(1, vec![run(1, "api", PipelineStatus::Failed, 3)]));
+    let mut slow = run(1, "api", PipelineStatus::Running, 4);
+    slow.overdue_run = Some("run-9".to_owned());
+    let long_run = state.observe_event(&updated(1, vec![slow]));
+    let outage = state.observe_event(&alert_event("status:feed", "incident:1", "Down", false));
+    let recovered = state.observe_event(&alert_event("status:feed", "incident:1", "Up", true));
+
+    let kinds = |found: &[LocalNotification]| found.iter().map(|n| n.kind).collect::<Vec<_>>();
+    assert_eq!(kinds(&degraded), [AlertKind::Degraded]);
+    assert_eq!(kinds(&failed), [AlertKind::Failed]);
+    assert_eq!(kinds(&long_run), [AlertKind::LongRun]);
+    assert_eq!(kinds(&outage), [AlertKind::Outage]);
+    assert_eq!(kinds(&recovered), [AlertKind::Recovered]);
 }

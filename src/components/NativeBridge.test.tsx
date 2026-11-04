@@ -258,6 +258,13 @@ test('Manage views opens the existing manager', async () => {
   assert.equal(usePipelineViewStore.getState().manageOpen, true)
 })
 
+test('a pairing link opens the connect screen with the link', async () => {
+  pending = { id: 12, intent: { type: 'pair', link: 'pipedash://pair?code=ABCD' } }
+  mount()
+  await waitFor(() => assert.deepEqual(acknowledged, [12]))
+  assert.equal(view().getByRole('status', { name: 'Location' }).textContent, '/connect')
+})
+
 for (const [target, destination] of [
   [{ key: 'desktop-test' }, '/notifications'],
   [{ providerId: 3 }, '/settings/providers'],

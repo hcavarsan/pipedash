@@ -291,6 +291,7 @@ export interface PipelineActions {
   isRefreshing: (providerIds: number[]) => boolean
   pinItem: (kind: PinKind, ref: string) => WorkflowMenuItem
   cancelItem: (label: string, pipelines: ViewPipeline[]) => WorkflowMenuItem | null
+  notifyItems: (pipeline: ViewPipeline) => WorkflowMenuItem[]
 }
 
 export interface PipelineSelection {
@@ -413,7 +414,7 @@ export function workflowMenuItems(
     })
   }
 
-  items.push({
+  items.push(...actions.notifyItems(pipeline), {
     label: pipeline.hidden ? 'Unhide' : 'Hide',
     icon: pipeline.hidden ? <IconEye size={16} aria-hidden /> : <IconEyeOff size={16} aria-hidden />,
     onClick: () => actions.onToggleHidden(pipeline),

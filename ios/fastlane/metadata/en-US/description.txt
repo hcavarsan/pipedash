@@ -13,6 +13,7 @@ STATUS AND NOTIFICATIONS
 - Refresh pipeline status manually or at each provider's configured interval while the app runs.
 - See provider outage and recovery alerts in the notification inbox.
 - Turn on optional local notifications for failed pipelines, long-running runs and provider outages.
+- Get alerts from a Pipedash server, as push alerts on iPhone and iPad, whether the app is connected to it or runs on its own.
 
 With notifications on, Pipedash also checks in the background when iOS allows it, so alerts can be delayed.
 

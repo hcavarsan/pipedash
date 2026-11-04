@@ -7,7 +7,7 @@ import { ErrorState } from '../../../../components/common/ErrorState'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
 import { logger } from '../../../../lib/logger'
-import { isTauri } from '../../../../services/isTauri'
+import { hasLocalCore } from '../../../../services/connection'
 import { service } from '../../../../services/service'
 import { isMobilePlatform } from '../../../../utils/platform'
 
@@ -49,7 +49,7 @@ export function SuccessStep({
     : []
 
   if (mobileShell) {
-    const needsReload = migrationStats !== null && isTauri()
+    const needsReload = migrationStats !== null && hasLocalCore()
 
     return (
       <Stack gap="xl" style={{ flex: 1 }}>
@@ -178,7 +178,7 @@ export function SuccessStep({
         </Card>
       )}
 
-      {migrationStats !== null && isTauri() ? (
+      {migrationStats !== null && hasLocalCore() ? (
         <>
           <Text size="sm" c="dimmed" ta="center">
             {onDevice ? 'Reload' : 'Restart'} required to load the new database

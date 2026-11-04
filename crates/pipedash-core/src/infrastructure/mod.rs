@@ -35,6 +35,7 @@ pub use config::{
     SyncResult as ConfigSyncResult,
     TokenReference,
     ViewFileConfig,
+    OFFICIAL_PUSH_RELAY_URL,
 };
 pub use config_backend::{
     ConfigBackend,

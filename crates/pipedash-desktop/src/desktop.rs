@@ -19,7 +19,6 @@ use std::{
 };
 
 use pipedash_core::{
-    application::services::health_service::NotificationState,
     domain::{
         DomainResult,
         PipelineMenuSnapshot,
@@ -62,6 +61,12 @@ struct Ticket {
     epoch: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    Core(u64),
+    Server,
+}
+
 #[derive(Clone, Serialize)]
 pub struct DesktopStatus {
     revision: u64,
@@ -81,8 +86,6 @@ struct Inner {
     vault_ready: bool,
     core: Option<Arc<CoreContext>>,
     snapshot: Option<PipelineMenuSnapshot>,
-    baseline: Option<NotificationState>,
-    change_revision: u64,
     settings_error: Option<String>,
     data_error: Option<String>,
     tray_error: Option<String>,
@@ -104,6 +107,21 @@ impl Inner {
     }
     fn matches(&self, ticket: Ticket) -> bool {
         self.vault_ready && self.core.is_some() && self.ticket() == ticket
+    }
+    fn accepts(&self, origin: Origin) -> bool {
+        match origin {
+            Origin::Core(generation) => {
+                generation == self.generation && self.vault_ready && self.core.is_some()
+            }
+            Origin::Server => self.core.is_none(),
+        }
+    }
+    fn record(&mut self, notice: &DesktopNotice) -> (DesktopNotificationSnapshot, bool) {
+        self.history.push(notice.clone());
+        (
+            self.history.clone(),
+            self.saved.settings.notifications_enabled,
+        )
     }
     fn apply_menu_result(&mut self, result: DomainResult<PipelineMenuSnapshot>) {
         match result {
@@ -276,7 +294,6 @@ pub async fn attach(app: &AppHandle, core: Arc<CoreContext>, generation: u64, va
         inner.core = Some(core);
         inner.vault_ready = vault_ready;
         inner.snapshot = None;
-        inner.baseline = None;
         inner.data_error = None;
         inner.watch = None;
         inner.watch_session = None;
@@ -298,7 +315,6 @@ pub fn detach<R: Runtime>(app: &AppHandle<R>) {
         inner.vault_ready = false;
         inner.core = None;
         inner.snapshot = None;
-        inner.baseline = None;
         inner.watch_session = None;
         inner.watch = None;
         inner.refresh_active = false;
@@ -323,100 +339,24 @@ async fn refresh_projection(app: &AppHandle) {
             .core
             .as_ref()
             .filter(|_| inner.vault_ready)
-            .map(|core| {
-                (
-                    Arc::clone(core),
-                    inner.ticket(),
-                    inner.baseline.is_none(),
-                    inner.change_revision,
-                )
-            })
+            .map(|core| (Arc::clone(core), inner.ticket()))
     };
-    if let Some((core, ticket, needs_seed, revision)) = input {
+    if let Some((core, ticket)) = input {
         let projection = core.pipeline_view_service.menu_snapshot().await;
-        let baseline = if needs_seed {
-            Some(
-                async {
-                    let pipelines = core.pipeline_service.get_cached_pipelines(None).await?;
-                    let providers = core.provider_service.list_providers().await?;
-                    let mut baseline = NotificationState::default();
-                    baseline.seed(&pipelines, &providers);
-                    Ok::<_, pipedash_core::domain::DomainError>(baseline)
-                }
-                .await,
-            )
-        } else {
-            None
-        };
-        let state = app.state::<DesktopState>();
         {
+            let state = app.state::<DesktopState>();
             let mut inner = state.lock();
             if !inner.matches(ticket) {
                 return;
             }
             inner.apply_menu_result(projection);
-            if let Some(result) = baseline {
-                match result {
-                    Ok(baseline) if revision == inner.change_revision => {
-                        inner.baseline = Some(baseline)
-                    }
-                    Ok(_) => state.refresh.notify_one(),
-                    Err(_) => {
-                        inner.data_error = Some(
-                            "Couldn't prepare desktop notifications. Retry in General settings."
-                                .to_string(),
-                        )
-                    }
-                }
-            }
         }
         publish_status(app);
     }
     menu::render(app);
 }
 
-pub fn observe<R: Runtime>(app: &AppHandle<R>, generation: u64, event: &CoreEvent) {
-    let Some(state) = app.try_state::<DesktopState>() else {
-        return;
-    };
-    let (ticket, notices, history) = {
-        let mut inner = state.lock();
-        if generation != inner.generation || !inner.vault_ready || inner.core.is_none() {
-            return;
-        }
-        if matches!(
-            event,
-            CoreEvent::PipelinesUpdated { .. }
-                | CoreEvent::PipelinesFailed { .. }
-                | CoreEvent::ProviderAdded { .. }
-                | CoreEvent::ProviderUpdated { .. }
-                | CoreEvent::ProviderStatusUpdated { .. }
-                | CoreEvent::ProviderRemoved { .. }
-                | CoreEvent::ProviderHealthAlert { .. }
-        ) {
-            inner.change_revision += 1;
-        }
-        let notices: Vec<DesktopNotice> = inner
-            .baseline
-            .as_mut()
-            .map(|baseline| {
-                baseline
-                    .observe_event(event)
-                    .into_iter()
-                    .map(DesktopNotice::from)
-                    .collect()
-            })
-            .unwrap_or_default();
-        for notice in &notices {
-            inner.history.push(notice.clone());
-        }
-        let history = (!notices.is_empty()).then(|| inner.history.clone());
-        (inner.ticket(), notices, history)
-    };
-    if let Some(history) = history {
-        notifications::publish(app, &history);
-        notifications::deliver(app, ticket, &notices);
-    }
+pub fn observe<R: Runtime>(app: &AppHandle<R>, event: &CoreEvent) {
     if matches!(
         event,
         CoreEvent::PipelineViewsChanged
@@ -461,7 +401,7 @@ pub fn watch_changed<R: Runtime>(app: &AppHandle<R>, status: &BuildWatchStatus) 
         return false;
     };
     let state = app.state::<DesktopState>();
-    let (ticket, notice, history) = {
+    let (notice, delivery) = {
         let mut inner = state.lock();
         let Some((session, ticket)) = &inner.watch_session else {
             return false;
@@ -469,7 +409,6 @@ pub fn watch_changed<R: Runtime>(app: &AppHandle<R>, status: &BuildWatchStatus) 
         if session != &watch.session_id || !inner.matches(*ticket) {
             return false;
         }
-        let ticket = *ticket;
         if inner
             .watch
             .as_ref()
@@ -488,16 +427,12 @@ pub fn watch_changed<R: Runtime>(app: &AppHandle<R>, status: &BuildWatchStatus) 
                 .filter(|old| old.session_id == watch.session_id)
                 .is_none_or(|old| old.monitoring == BuildWatchMonitoring::Watching);
         let notice = completed.then(|| DesktopNotice::watched(watch));
-        if let Some(notice) = &notice {
-            inner.history.push(notice.clone());
-        }
+        let delivery = notice.as_ref().map(|notice| inner.record(notice));
         inner.watch = Some(watch.clone());
-        let history = notice.as_ref().map(|_| inner.history.clone());
-        (ticket, notice, history)
+        (notice, delivery)
     };
-    if let (Some(notice), Some(history)) = (notice, history) {
-        notifications::publish(app, &history);
-        notifications::deliver(app, ticket, &[notice]);
+    if let (Some(notice), Some((history, deliver))) = (notice, delivery) {
+        notifications::announce(app, &notice, &history, deliver);
     }
     menu::schedule_render(app);
     true

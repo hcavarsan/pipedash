@@ -4,6 +4,7 @@ use axum::{
     Json,
     Router,
 };
+use pipedash_core::event::CoreEvent;
 use pipedash_core::infrastructure::database::PushRepository;
 use serde::Serialize;
 
@@ -33,6 +34,15 @@ async fn factory_reset(State(state): State<AppState>) -> ApiResult<Json<FactoryR
     PushRepository::new(core.provider_service.repository().cache_pool().clone())
         .delete_all()
         .await?;
+
+    let devices = core.devices();
+    let paired = devices.list().await?;
+    devices.delete_all().await?;
+    for device in paired {
+        core.event_bus
+            .emit(CoreEvent::DeviceRevoked { id: device.id })
+            .await;
+    }
 
     Ok(Json(FactoryResetResponse {
         providers_removed: providers_removed as i64,

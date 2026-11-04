@@ -9,6 +9,7 @@ import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
 import { STATUS_META } from '../../../theme/status'
 import type { Pipeline } from '../../../types/domain'
 import { getPipelineStatusLabel } from '../../../utils/pipelinePresentation'
+import { PipelineNotifyMenu } from '../../notifications/components/PipelineNotifyMenu'
 import { useRunActions } from './RunActionsContext'
 
 interface RunHistoryHeaderProps {
@@ -51,6 +52,7 @@ function HeaderActions({
           Customize columns
         </Button>
       )}
+      <PipelineNotifyMenu pipeline={pipeline} />
       <Tooltip label={triggerBlockedReason} disabled={!triggerBlockedReason} multiline w={280}>
         <Button
           type="button"

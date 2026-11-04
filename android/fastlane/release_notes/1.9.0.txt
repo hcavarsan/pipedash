@@ -1,0 +1,5 @@
+- Connect to a Pipedash server or a sharing computer by QR code or pairing code.
+- Get server alerts in the background, including when Pipedash runs on your phone.
+- See when GitHub disables a workflow and why.
+- Sign in again when a provider session expires.
+- Find Buildkite organizations beyond the first page.

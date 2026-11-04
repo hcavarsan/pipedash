@@ -33,6 +33,11 @@ async function handleIntent(
     }
   }
 
+  if (intent.type === 'pair') {
+    await navigate('/connect', { state: { link: intent.link } })
+    return
+  }
+
   if (intent.type === 'ui') {
     await navigate(intent.action === 'managePins' ? '/pipelines?view=pinned' : '/pipelines')
     if (active()) {

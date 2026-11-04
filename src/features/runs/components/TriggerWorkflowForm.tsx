@@ -1,4 +1,4 @@
-import { Button, Group, Stack, Text } from '@mantine/core'
+import { Button, Checkbox, Group, Stack, Text } from '@mantine/core'
 import { type ReactNode, useActionState, useId, useRef, useState } from 'react'
 import { ActionTargetRows } from '../../../components/common/ActionTargetRows'
 import { ErrorState } from '../../../components/common/ErrorState'
@@ -8,6 +8,7 @@ import { LiveStatus, useErrorAnnouncement } from '../../../components/forms/Live
 import { IosGroup } from '../../../components/ios/IosList'
 import { useFormEnterNavigation } from '../../../hooks/useFormEnterNavigation'
 import { useIsMobile, useMobileShell } from '../../../hooks/useIsMobile'
+import { useNotificationStore } from '../../../stores/notificationStore'
 import type { Pipeline, WorkflowParameter } from '../../../types/domain'
 import { actionTarget } from '../../../utils/actionTarget'
 import { displayWarningNotification } from '../../../utils/errorDisplay'
@@ -55,6 +56,9 @@ export function TriggerWorkflowForm({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const announcement = useErrorAnnouncement(errors)
   const triggerMutation = useTriggerWorkflow()
+  const notifyTriggeredRuns = useNotificationStore((state) => state.notifyTriggeredRuns)
+  const setNotifyTriggeredRuns = useNotificationStore((state) => state.setNotifyTriggeredRuns)
+  const watched = useNotificationStore((state) => state.preferences.watched_pipelines.includes(pipeline.id))
   const labels = getPipelineLabels(pipeline.provider_type)
   const isFlux = pipeline.provider_type === 'fluxcd'
   const isRerun = initialInputs !== undefined
@@ -102,6 +106,10 @@ export function TriggerWorkflowForm({
     const runNumber = parseRunNumber(result)
 
     onClose()
+
+    if (notifyTriggeredRuns && !watched) {
+      useNotificationStore.getState().watchNextFinish(pipeline.id)
+    }
 
     if (runNumber > 0) {
       onSuccess?.(pipeline.id, runNumber)
@@ -218,6 +226,15 @@ export function TriggerWorkflowForm({
           <IosGroup>{fields}</IosGroup>
         ) : (
           <Stack gap={isMobile ? 'xs' : 'sm'}>{fields}</Stack>
+        )}
+        {draft && !fetchError && !watched && (
+          <Checkbox
+            mt="md"
+            label="Notify me when it finishes"
+            checked={notifyTriggeredRuns}
+            disabled={isPending}
+            onChange={(event) => setNotifyTriggeredRuns(event.currentTarget.checked)}
+          />
         )}
         <LiveStatus message={announcement} />
       </form>

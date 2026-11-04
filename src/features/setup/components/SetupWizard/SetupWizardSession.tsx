@@ -2,7 +2,7 @@ import { IconDatabase, IconListCheck, IconTransfer } from '@tabler/icons-react'
 import { type ReactNode, useId, useRef, useState } from 'react'
 import type { ModalAction } from '../../../../components/common/StandardModal'
 import { useIsMobile, useMobileShell } from '../../../../hooks/useIsMobile'
-import { isTauri } from '../../../../services/isTauri'
+import { hasLocalCore } from '../../../../services/connection'
 import type { StorageConfigResponse } from '../../../../types/domain'
 import { isMobilePlatform } from '../../../../utils/platform'
 
@@ -52,7 +52,11 @@ export function SetupWizardSession(props: SetupWizardSessionProps): ReactNode {
   const currentBackend = currentConfig?.config.storage.backend || 'sqlite'
   const currentDataDir = currentConfig?.config.storage.data_dir || defaultDataDir
   const isFromKeyring =
-    Boolean(currentConfig) && isTauri() && !isMobilePlatform() && currentBackend === 'sqlite' && !vaultPasswordFromEnv
+    Boolean(currentConfig) &&
+    hasLocalCore() &&
+    !isMobilePlatform() &&
+    currentBackend === 'sqlite' &&
+    !vaultPasswordFromEnv
   const reconfigured = Boolean(currentConfig)
   const isDatabaseBackendChange = reconfigured && currentBackend !== draft.backend
   const isDataDirChange = reconfigured && currentDataDir !== draft.dataDir

@@ -16,18 +16,19 @@ import {
   useNotificationItems,
 } from '../../features/notifications/queries/useDesktopNotifications'
 import { useLocalNotificationsLifecycle } from '../../features/notifications/queries/useLocalNotificationQueries'
+import { useNotificationPreferencesSync } from '../../features/notifications/queries/useNotificationPreferencesSync'
 import { useDesktopLifecycle, useDesktopStatus } from '../../features/settings/queries/useDesktopQueries'
 import { useFactoryReset } from '../../features/settings/queries/usePlatformQueries'
 import { notifications } from '../../lib/notifications'
 import { type DesktopNotificationSnapshot, desktopService } from '../../services/desktop'
 import { service } from '../../services/service'
 import { type CenterNotification, useNotificationCenterStore } from '../../stores/notificationCenterStore'
-import { useNotificationStore } from '../../stores/notificationStore'
+import { DEFAULT_NOTIFICATION_PREFERENCES, pendingWatches, useNotificationStore } from '../../stores/notificationStore'
 import type { DesktopStatus } from '../../types/domain'
-import { useFailureNotifications } from '../useFailureNotifications'
-import { useProviderHealthAlerts } from '../useProviderHealthAlerts'
+import { useNotificationEvents } from '../useNotificationEvents'
 
 import { callbacks, delivered, desktop, listeners, native, permission } from './notificationEnvironment'
+import { failedNotification, outageNotification } from './notificationPayloads'
 import { defineRegistrationScenarios } from './notificationRegistrationScenarios'
 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -46,10 +47,11 @@ const notice: CenterNotification = {
   link: null,
   runNumber: 42,
 }
+const watch = { pipeline_id: failedNotification.pipeline_id ?? '', since: '2026-10-26T11:00:00.000Z' }
 
 function Screen() {
-  useFailureNotifications()
-  useProviderHealthAlerts()
+  useNotificationEvents()
+  useNotificationPreferencesSync()
   useLocalNotificationsLifecycle()
   useDesktopLifecycle()
   useDesktopNotifications()
@@ -68,7 +70,11 @@ async function mount(notificationsEnabled = false) {
     render(createElement(QueryClientProvider, { client }, createElement(Screen)))
   })
   await waitFor(() =>
-    assert.ok(listeners.has('desktop-status-changed') && listeners.has('desktop-notifications-changed'))
+    assert.ok(
+      listeners.has('desktop-status-changed') &&
+        listeners.has('desktop-notifications-changed') &&
+        listeners.has('notification')
+    )
   )
 }
 
@@ -85,13 +91,15 @@ afterEach(async () => {
   await act(async () => cleanup())
   client.clear()
   useNotificationCenterStore.setState({ items: [], selection: null })
-  useNotificationStore.setState({ notificationsEnabled: false })
+  useNotificationStore.setState({ notificationsEnabled: false, preferences: DEFAULT_NOTIFICATION_PREFERENCES })
   desktop.status = structuredClone(initialStatus)
   desktop.snapshot = { revision: 0, items: [] }
   desktop.readGate = null
   desktop.statusGate = null
   delivered.length = 0
   native.calls.length = 0
+  native.sent.length = 0
+  native.fired = []
   native.failure = null
   permission.granted = true
   listeners.clear()
@@ -206,6 +214,38 @@ for (const enabled of [true, false]) {
     )
   })
 }
+
+test('a notification event on the desktop never reaches the local center or the system from the frontend', async () => {
+  await mount(true)
+  desktop.status.settings.notifications_enabled = true
+  await publish('notification', failedNotification)
+  await publish('notification', outageNotification)
+  assert.deepEqual(useNotificationCenterStore.getState().items, [])
+  assert.deepEqual(delivered, [])
+  assert.equal(client.getQueryData<DesktopNotificationSnapshot>(desktopNotificationsKey)?.items.length, 0)
+})
+
+test('a fired one-time request is marked used and stops being pending', async () => {
+  useNotificationStore.setState({ preferences: { ...DEFAULT_NOTIFICATION_PREFERENCES, watch_once: [watch] } })
+  await mount(true)
+  const fired = { ...watch, fired_at: '2026-10-26T12:01:00.000Z' }
+  await publish('notification', { ...failedNotification, fired })
+  const { preferences } = useNotificationStore.getState()
+  assert.deepEqual(preferences.watch_once, [fired])
+  assert.deepEqual(pendingWatches(preferences), [])
+  assert.deepEqual(useNotificationCenterStore.getState().items, [])
+  assert.deepEqual(delivered, [])
+})
+
+test('the desktop sends its preferences on mount and applies the used requests Rust reports', async () => {
+  const fired = { ...watch, fired_at: '2026-10-26T12:01:00.000Z' }
+  native.fired = [fired]
+  const preferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, watch_once: [watch] }
+  useNotificationStore.setState({ preferences })
+  await mount(true)
+  await waitFor(() => assert.deepEqual(useNotificationStore.getState().preferences.watch_once, [fired]))
+  assert.deepEqual(native.sent[0], preferences)
+})
 
 test('desktop read, open and clear actions use native snapshots rather than optimistic edits', async () => {
   desktop.snapshot = { revision: 1, items: [notice, { ...notice, key: 'second', runNumber: null }] }

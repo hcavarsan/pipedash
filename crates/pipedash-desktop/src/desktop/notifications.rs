@@ -1,12 +1,20 @@
+use chrono::{
+    DateTime,
+    Utc,
+};
 use pipedash_core::{
-    application::services::health_service::{
+    application::{
         LocalNotification,
-        NotificationTone,
+        ShownNotification,
     },
     domain::HealthLevel,
     event::AlertLink,
 };
-use serde::Serialize;
+use serde::{
+    Deserialize,
+    Serialize,
+};
+use serde_json::Value;
 use tauri::{
     AppHandle,
     Emitter,
@@ -20,7 +28,7 @@ use tauri_plugin_pipedash_native::{
 
 use super::{
     DesktopState,
-    Ticket,
+    Origin,
 };
 use crate::native::NotificationTarget;
 
@@ -30,7 +38,7 @@ pub struct DesktopNotice {
     pub key: String,
     pub at: i64,
     pub read: bool,
-    pub tone: NotificationTone,
+    pub tone: &'static str,
     pub level: Option<HealthLevel>,
     pub title: String,
     pub body: String,
@@ -40,34 +48,43 @@ pub struct DesktopNotice {
     pub run_number: Option<i64>,
 }
 
-impl From<LocalNotification> for DesktopNotice {
-    fn from(notice: LocalNotification) -> Self {
+impl DesktopNotice {
+    fn shown(at: DateTime<Utc>, notice: &LocalNotification) -> Self {
         Self {
-            key: notice.key,
-            at: chrono::Utc::now().timestamp_millis(),
+            key: notice.key.clone(),
+            at: at.timestamp_millis(),
             read: false,
-            tone: notice.tone,
+            tone: notice.kind.tone(),
             level: notice.level,
-            title: notice.title,
-            body: notice.body,
-            provider_ids: notice.provider_ids,
-            pipeline_id: notice.pipeline_id,
-            link: notice.link,
+            title: notice.title.clone(),
+            body: notice.body.clone(),
+            provider_ids: notice.provider_ids.clone(),
+            pipeline_id: notice.pipeline_id.clone(),
+            link: notice.link.clone(),
             run_number: None,
         }
     }
-}
 
-impl DesktopNotice {
+    pub fn received(payload: &Value) -> Option<Self> {
+        #[derive(Deserialize)]
+        struct Received {
+            at: DateTime<Utc>,
+            #[serde(flatten)]
+            notice: LocalNotification,
+        }
+
+        let received = Received::deserialize(payload).ok()?;
+
+        Some(Self::shown(received.at, &received.notice))
+    }
+
     pub fn watched(watch: &BuildWatchSnapshot) -> Self {
         let (tone, result) = match watch.status {
-            BuildWatchRunStatus::Success => (NotificationTone::Success, "succeeded"),
-            BuildWatchRunStatus::Failed => (NotificationTone::Danger, "failed"),
-            BuildWatchRunStatus::Cancelled => (NotificationTone::Warning, "was cancelled"),
-            BuildWatchRunStatus::Skipped => (NotificationTone::Warning, "was skipped"),
-            BuildWatchRunStatus::Pending | BuildWatchRunStatus::Running => {
-                (NotificationTone::Warning, "finished")
-            }
+            BuildWatchRunStatus::Success => ("success", "succeeded"),
+            BuildWatchRunStatus::Failed => ("danger", "failed"),
+            BuildWatchRunStatus::Cancelled => ("warning", "was cancelled"),
+            BuildWatchRunStatus::Skipped => ("warning", "was skipped"),
+            BuildWatchRunStatus::Pending | BuildWatchRunStatus::Running => ("warning", "finished"),
         };
         Self {
             key: format!("watch:{}", watch.session_id),
@@ -96,6 +113,12 @@ impl DesktopNotice {
                 .run_number
                 .and_then(|number| u64::try_from(number).ok()),
         }
+    }
+}
+
+impl From<&ShownNotification> for DesktopNotice {
+    fn from(shown: &ShownNotification) -> Self {
+        Self::shown(shown.at, &shown.notice)
     }
 }
 
@@ -138,26 +161,42 @@ pub(super) fn publish<R: Runtime>(app: &AppHandle<R>, snapshot: &DesktopNotifica
     }
 }
 
-pub(super) fn deliver<R: Runtime>(app: &AppHandle<R>, ticket: Ticket, notices: &[DesktopNotice]) {
-    for notice in notices {
-        let allowed = {
-            let state = app.state::<DesktopState>();
-            let inner = state.lock();
-            inner.matches(ticket)
-                && inner.baseline.is_some()
-                && inner.saved.settings.notifications_enabled
-        };
-        if !allowed {
-            break;
+pub(super) fn announce<R: Runtime>(
+    app: &AppHandle<R>, notice: &DesktopNotice, history: &DesktopNotificationSnapshot,
+    deliver: bool,
+) {
+    publish(app, history);
+    if !deliver {
+        return;
+    }
+    if let Err(error) =
+        crate::system_notifications::send(app, &notice.title, &notice.body, Some(&notice.target()))
+    {
+        tracing::warn!(error = %error.error, "Desktop notification submission failed");
+    }
+}
+
+fn record<R: Runtime>(app: &AppHandle<R>, origin: Origin, notice: &DesktopNotice) {
+    let Some(state) = app.try_state::<DesktopState>() else {
+        return;
+    };
+    let (history, deliver) = {
+        let mut inner = state.lock();
+        if !inner.accepts(origin) {
+            return;
         }
-        if let Err(error) = crate::system_notifications::send(
-            app,
-            &notice.title,
-            &notice.body,
-            Some(&notice.target()),
-        ) {
-            tracing::warn!(error = %error.error, "Desktop notification submission failed");
-        }
+        inner.record(notice)
+    };
+    announce(app, notice, &history, deliver);
+}
+
+pub fn record_shown<R: Runtime>(app: &AppHandle<R>, generation: u64, shown: &ShownNotification) {
+    record(app, Origin::Core(generation), &DesktopNotice::from(shown));
+}
+
+pub fn record_received<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
+    if let Some(notice) = DesktopNotice::received(payload) {
+        record(app, Origin::Server, &notice);
     }
 }
 
@@ -194,6 +233,12 @@ pub fn clear_desktop_notifications(app: AppHandle) -> DesktopNotificationSnapsho
 
 #[cfg(test)]
 mod tests {
+    use chrono::DateTime;
+    use pipedash_core::{
+        domain::AlertKind,
+        event::AlertLinkKind,
+    };
+
     use super::*;
 
     fn notice(key: &str) -> DesktopNotice {
@@ -201,7 +246,7 @@ mod tests {
             key: key.to_string(),
             at: 1,
             read: false,
-            tone: NotificationTone::Warning,
+            tone: "warning",
             level: None,
             title: key.to_string(),
             body: String::new(),
@@ -210,6 +255,68 @@ mod tests {
             link: None,
             run_number: None,
         }
+    }
+
+    fn shown(kind: AlertKind) -> ShownNotification {
+        ShownNotification {
+            id: 3,
+            at: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            tone: kind.tone(),
+            notice: LocalNotification {
+                key: "provider:1".to_string(),
+                title: "Provider health".to_string(),
+                body: "API down".to_string(),
+                pipeline_id: None,
+                provider_id: Some(1),
+                provider_ids: vec![1, 2],
+                kind,
+                finish: None,
+                level: Some(HealthLevel::MajorOutage),
+                link: Some(AlertLink {
+                    url: "https://status.example.com".to_string(),
+                    kind: AlertLinkKind::Incident,
+                }),
+            },
+            fired: None,
+        }
+    }
+
+    #[test]
+    fn a_shown_notification_keeps_its_metadata_and_takes_its_tone_from_the_kind() {
+        for (kind, tone) in [
+            (AlertKind::Failed, "danger"),
+            (AlertKind::Outage, "warning"),
+            (AlertKind::Recovered, "success"),
+        ] {
+            let source = shown(kind);
+            let notice = DesktopNotice::from(&source);
+
+            assert_eq!(notice.tone, tone);
+            assert_eq!(notice.key, "provider:1");
+            assert_eq!(notice.at, 1_700_000_000_000);
+            assert!(!notice.read);
+            assert_eq!(notice.level, Some(HealthLevel::MajorOutage));
+            assert_eq!(notice.provider_ids, vec![1, 2]);
+            assert_eq!(notice.link, source.notice.link);
+            assert_eq!(notice.run_number, None);
+        }
+    }
+
+    #[test]
+    fn a_notification_frame_from_a_server_maps_like_the_local_one() {
+        let source = shown(AlertKind::Degraded);
+        let payload = serde_json::to_value(&source).unwrap();
+
+        let received = DesktopNotice::received(&payload).unwrap();
+        let local = DesktopNotice::from(&source);
+
+        assert_eq!(received.key, local.key);
+        assert_eq!(received.at, local.at);
+        assert_eq!(received.tone, "danger");
+        assert_eq!(received.title, local.title);
+        assert_eq!(received.provider_ids, local.provider_ids);
+        assert_eq!(received.link, local.link);
+        assert!(DesktopNotice::received(&serde_json::json!({ "key": "x" })).is_none());
     }
 
     #[test]

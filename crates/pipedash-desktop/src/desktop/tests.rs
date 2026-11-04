@@ -1,68 +1,61 @@
-use std::collections::HashMap;
-
-use chrono::DateTime;
-use pipedash_core::{
-    application::NotificationTone,
-    domain::{
-        DomainError,
-        Pipeline,
-        PipelineStatus,
-    },
-};
+use pipedash_core::domain::DomainError;
 
 use super::*;
 
-fn pipeline(status: PipelineStatus) -> Pipeline {
-    let at = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
-    Pipeline {
-        id: "jenkins__1__ci".to_string(),
-        provider_id: 1,
-        provider_type: "jenkins".to_string(),
-        name: "ci".to_string(),
-        status,
-        last_run: Some(at),
-        last_updated: at,
-        repository: "project".to_string(),
-        branch: None,
-        workflow_file: None,
-        resource_state: None,
-        metadata: HashMap::new(),
-        overdue_run: None,
-        typical_duration_seconds: None,
+fn notice(key: &str) -> DesktopNotice {
+    DesktopNotice {
+        key: key.to_string(),
+        at: 1,
+        read: false,
+        tone: "danger",
+        level: None,
+        title: key.to_string(),
+        body: String::new(),
+        provider_ids: Vec::new(),
+        pipeline_id: None,
+        link: None,
+        run_number: None,
     }
 }
 
 #[test]
-fn menu_read_failure_keeps_tracking_alerts_and_recovery_does_not_replay_them() {
-    let mut baseline = NotificationState::default();
-    baseline.seed(&[pipeline(PipelineStatus::Running)], &[]);
-    let mut inner = Inner {
-        baseline: Some(baseline),
-        ..Default::default()
-    };
+fn menu_read_failure_reports_the_error_and_recovery_clears_it() {
+    let mut inner = Inner::default();
     inner.apply_menu_result(Err(DomainError::DatabaseError(
         "Pinned view unavailable".to_string(),
     )));
     assert!(inner.snapshot.is_none());
     assert!(inner.data_error.is_some());
 
-    let failed = CoreEvent::PipelinesFailed {
-        pipelines: vec![pipeline(PipelineStatus::Failed)],
-    };
-    let notices = inner.baseline.as_mut().unwrap().observe_event(&failed);
-    assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0].pipeline_id.as_deref(), Some("jenkins__1__ci"));
-    assert_eq!(notices[0].tone, NotificationTone::Danger);
-
     inner.apply_menu_result(Ok(PipelineMenuSnapshot {
         pipelines: Vec::new(),
         shortcuts: Vec::new(),
     }));
+    assert!(inner.snapshot.is_some());
     assert!(inner.data_error.is_none());
-    assert!(inner
-        .baseline
-        .as_mut()
-        .unwrap()
-        .observe_event(&failed)
-        .is_empty());
+}
+
+#[test]
+fn server_notifications_need_no_local_core_and_core_ones_need_an_attached_core() {
+    let inner = Inner::default();
+
+    assert!(inner.accepts(Origin::Server));
+    assert!(!inner.accepts(Origin::Core(0)));
+}
+
+#[test]
+fn recorded_notifications_reach_the_history_and_follow_the_system_switch() {
+    let mut inner = Inner::default();
+
+    let (history, deliver) = inner.record(&notice("first"));
+    assert!(!deliver);
+    assert_eq!(history.items.len(), 1);
+    assert_eq!(history.items[0].key, "first");
+
+    inner.saved.settings.notifications_enabled = true;
+    let (history, deliver) = inner.record(&notice("second"));
+    assert!(deliver);
+    assert_eq!(history.items.len(), 2);
+    assert_eq!(history.items[0].key, "second");
+    assert_eq!(inner.history.items.len(), 2);
 }

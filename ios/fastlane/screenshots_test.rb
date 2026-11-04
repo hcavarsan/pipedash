@@ -14,8 +14,8 @@ class ScreenshotLanesTest < Minitest::Test
   FileUtils.mkdir_p([FIXTURE_FASTLANE, File.join(FIXTURE_ROOT, "ios/app-store-screenshots"),
                      File.join(FIXTURE_FASTLANE, "release_notes"), File.join(FIXTURE_ROOT, "crates/pipedash-desktop")])
   FileUtils.cp(File.join(__dir__, "Fastfile"), FIXTURE_FASTLANE)
-  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb store_text.rb store_version.rb review_notes.txt
-     metadata age_rating.json].each do |name|
+  %w[app_icon_appearances.rb required_reason_apis.rb ios_project.rb app_review_demo.rb store_text.rb store_version.rb
+     push_signing.rb review_notes.txt metadata age_rating.json].each do |name|
     FileUtils.ln_s(File.join(__dir__, name), FIXTURE_FASTLANE)
   end
   File.write(File.join(FIXTURE_ROOT, "crates/pipedash-desktop/tauri.conf.json"), '{"version":"0.9.0"}')
@@ -40,7 +40,12 @@ class ScreenshotLanesTest < Minitest::Test
       runner.lanes.fetch(:ios).fetch(:prepare_screenshots).call({})
     end
     @file.define_singleton_method(:asc_api_key) { events << :authenticate; {} }
-    @file.define_singleton_method(:build_signed_ipa) { |**_| events << :sign; "test.ipa" }
+    @file.define_singleton_method(:store_versions) { |**_| scenario.fetch(:store_versions, []) }
+    @file.define_singleton_method(:build_signed_ipa) do |**options|
+      events << :sign
+      scenario[:signed] = options
+      "test.ipa"
+    end
     @file.define_singleton_method(:upload_to_app_store) do |**options|
       events << :app_store
       scenario[:published] = options
@@ -108,6 +113,34 @@ class ScreenshotLanesTest < Minitest::Test
     end
   end
 
+  def stub_push_signing(saved:)
+    events = @events
+    @file.define_singleton_method(:register_push_ids) { |**_| events << :register }
+    @file.define_singleton_method(:setup_ci) { events << :setup_ci }
+    @file.define_singleton_method(:match) do |**options|
+      events << (options.fetch(:readonly) ? :read_profiles : :write_profiles)
+      FastlaneCore::UI.user_error!("No matching provisioning profiles found") if options.fetch(:readonly) && !saved
+    end
+  end
+
+  def test_push_signing_setup_checks_that_the_profiles_were_saved
+    stub_push_signing(saved: true)
+
+    run_lane(:setup_push_signing)
+
+    assert_equal %i[authenticate register setup_ci write_profiles read_profiles], @events
+  end
+
+  def test_push_signing_setup_fails_when_the_profiles_did_not_reach_the_repository
+    stub_push_signing(saved: false)
+
+    error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:setup_push_signing) }
+
+    assert_includes error.message, "No matching provisioning profiles found"
+    assert_includes error.message, "MATCH_DEPLOY_KEY is read-only"
+    assert_equal %i[authenticate register setup_ci write_profiles read_profiles], @events
+  end
+
   def test_extra_locale_blocks_upload_without_deleting_existing_images
     foreign = File.join(@output, "fr-FR")
     FileUtils.mkdir_p(foreign)
@@ -151,6 +184,16 @@ class ScreenshotLanesTest < Minitest::Test
     assert_includes @events, :testflight
     refute_includes @events, :app_store
     assert_nil @scenario[:published]
+    assert_equal "1.9.0", @scenario[:signed].fetch(:version)
+  end
+
+  def test_beta_moves_past_a_version_apple_already_approved
+    @scenario[:store_versions] = [["1.9.0", "READY_FOR_SALE"], ["1.8.0", "REPLACED_WITH_NEW_VERSION"]]
+
+    run_lane(:beta)
+
+    assert_equal "1.9.1", @scenario[:signed].fetch(:version)
+    assert_includes @events, :testflight
   end
 
   def test_release_checks_demo_before_signing_and_interpolates_review_credentials
@@ -229,9 +272,13 @@ class ScreenshotLanesTest < Minitest::Test
     assert_empty @events
   end
 
-  def test_packaged_extension_blocks_verification_before_release
+  def stub_ipa(extensions)
+    extension_id = "com.henrique.pipedash.NotificationService"
     info = {
       "CFBundleDisplayName" => "Pipedash",
+      "CFBundleExecutable" => "Pipedash",
+      "CFBundleShortVersionString" => "0.9.0",
+      "CFBundleVersion" => "1",
       "NSFaceIDUsageDescription" => "Use Face ID",
       "NSLocalNetworkUsageDescription" => "Connect to local providers",
       "UIFileSharingEnabled" => true,
@@ -239,18 +286,50 @@ class ScreenshotLanesTest < Minitest::Test
       "ITSAppUsesNonExemptEncryption" => false,
       "CFBundleIcons" => {},
       "PipedashBuildWatchEnabled" => false,
+      "PipedashRemotePushEnabled" => true,
       "BGTaskSchedulerPermittedIdentifiers" => ["com.henrique.pipedash.notifications-refresh"],
       "UIBackgroundModes" => ["fetch"],
     }
-    @file.define_singleton_method(:plist_to_hash) { |_path| info }
-    @file.define_singleton_method(:sh) do |*command|
-      raise "Unexpected shell command" unless command.first == "unzip"
+    extension_info = {
+      "CFBundleExecutable" => "PipedashNotificationService",
+      "CFBundleIdentifier" => extension_id,
+      "CFBundleShortVersionString" => "0.9.0",
+      "CFBundleVersion" => "1",
+      "NSExtension" => { "NSExtensionPointIdentifier" => "com.apple.usernotifications.service" },
+    }
+    @file.define_singleton_method(:plist_to_hash) do |path|
+      next { "NSPrivacyAccessedAPITypes" => [] } if path.end_with?("PrivacyInfo.xcprivacy")
 
-      FileUtils.mkdir_p(File.join(command.last, "Payload/Pipedash.app/PlugIns/BuildActivity.appex"))
+      path.include?("PipedashNotificationService.appex") ? extension_info : info
     end
+    @file.define_singleton_method(:sh) do |*command|
+      case command.first
+      when "unzip"
+        app = File.join(command.last, "Payload/Pipedash.app")
+        FileUtils.mkdir_p(app)
+        FileUtils.touch(File.join(app, "PrivacyInfo.xcprivacy"))
+        extensions.each do |name|
+          FileUtils.mkdir_p(File.join(app, "PlugIns/#{name}.appex"))
+          FileUtils.touch(File.join(app, "PlugIns/#{name}.appex/PrivacyInfo.xcprivacy"))
+        end
+      when "xcrun" then ""
+      else raise "Unexpected shell command"
+      end
+    end
+  end
 
-    error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:verify_ipa, ipa: "fixture.ipa") }
-    assert_includes error.message, "must not bundle app extensions"
+  def test_other_extensions_block_verification_before_release
+    [["BuildActivity"], %w[PipedashNotificationService BuildActivity], []].each do |extensions|
+      stub_ipa(extensions)
+      error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:verify_ipa, ipa: "fixture.ipa") }
+      assert_includes error.message, "must bundle only the notification service extension"
+    end
+    assert_empty @events
+  end
+
+  def test_notification_service_extension_alone_passes_verification
+    stub_ipa(["PipedashNotificationService"])
+    run_lane(:verify_ipa, ipa: "fixture.ipa")
     assert_empty @events
   end
 end

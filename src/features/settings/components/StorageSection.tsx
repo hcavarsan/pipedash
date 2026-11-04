@@ -1,5 +1,5 @@
 import { Alert, Box, Button, Card, Group, Loader, SimpleGrid, Stack, Text } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconCloudUpload, IconLock, IconSettings } from '@tabler/icons-react'
+import { IconAlertCircle, IconCheck, IconCloudUpload, IconLock, IconServer2, IconSettings } from '@tabler/icons-react'
 import { type ReactNode, useState } from 'react'
 import { EmptyState } from '../../../components/common/EmptyState'
 import { ErrorState } from '../../../components/common/ErrorState'
@@ -18,7 +18,7 @@ import {
   useTestStorageConnection,
 } from '../../../queries/useStorageQueries'
 import { useLockVault, useVaultStatus } from '../../../queries/useVaultQueries'
-import { isTauri } from '../../../services/isTauri'
+import { getConnection, hasLocalCore, isRemoteClient } from '../../../services/connection'
 import { formatErrorMessage } from '../../../types/errors'
 import { lockMeansSomething } from '../../../utils/appLock'
 import { isMobilePlatform, secureStoreLabel } from '../../../utils/platform'
@@ -27,7 +27,7 @@ import { AppLockCard } from '../../vault/components/AppLockCard'
 import { ConfigEditorModal } from './ConfigEditorModal'
 import { StoragePathsDisplay } from './StoragePathsDisplay'
 
-export const StorageSection = (): ReactNode => {
+const LocalStorageSection = (): ReactNode => {
   const mobileShell = useMobileShell()
   const {
     data: storageConfig,
@@ -274,7 +274,7 @@ export const StorageSection = (): ReactNode => {
               )}
             </Group>
 
-            {isTauri() && !isMobilePlatform() && backend === 'sqlite' && !vaultStatus?.requires_password && (
+            {hasLocalCore() && !isMobilePlatform() && backend === 'sqlite' && !vaultStatus?.requires_password && (
               <Text size="xs" c="dimmed" ta="center">
                 Configure storage to migrate to an encrypted database or PostgreSQL
               </Text>
@@ -291,7 +291,7 @@ export const StorageSection = (): ReactNode => {
 
       {renderContent()}
 
-      {isMobilePlatform() && (
+      {isMobilePlatform() && hasLocalCore() && (
         <Box mt={mobileShell ? 'lg' : 'md'}>
           <AppLockCard />
         </Box>
@@ -315,4 +315,18 @@ export const StorageSection = (): ReactNode => {
       )}
     </Box>
   )
+}
+
+export const StorageSection = (): ReactNode => {
+  if (isRemoteClient()) {
+    return (
+      <EmptyState
+        title={`Storage is on ${getConnection().host}`}
+        description={`Change storage on ${getConnection().host}.`}
+        icon={<IconServer2 size={24} aria-hidden />}
+      />
+    )
+  }
+
+  return <LocalStorageSection />
 }

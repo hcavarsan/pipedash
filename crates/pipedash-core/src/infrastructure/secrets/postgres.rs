@@ -393,7 +393,13 @@ mod tests {
             .expect("TEST_DATABASE_URL must be set to run the PostgreSQL tests")
     }
 
-    async fn create_test_pool() -> Pool<Postgres> {
+    async fn create_test_pool() -> (Pool<Postgres>, [i64; 2]) {
+        crate::infrastructure::database::init_postgres_database(&test_database_url())
+            .await
+            .expect("Failed to migrate test database")
+            .close()
+            .await;
+
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .connect(&test_database_url())
@@ -406,46 +412,43 @@ mod tests {
             .await
             .expect("Failed to take test lock");
 
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS encrypted_tokens (
-                provider_id BIGINT PRIMARY KEY,
-                nonce BYTEA NOT NULL,
-                ciphertext BYTEA NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )",
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create test table");
-
-        sqlx::query(include_str!(
-            "../../../migrations/postgres/20261020000002_vault_verifier.sql"
-        ))
-        .execute(&pool)
-        .await
-        .expect("Failed to create vault verifier table");
+        let mut providers = [0; 2];
+        for (provider, name) in providers
+            .iter_mut()
+            .zip(["secrets-test-1", "secrets-test-2"])
+        {
+            *provider = sqlx::query_scalar(
+                "INSERT INTO providers (name, provider_type, token_encrypted)
+                 VALUES ($1, 'test', '')
+                 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+                 RETURNING id",
+            )
+            .bind(name)
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to create test provider");
+        }
 
         sqlx::query("TRUNCATE TABLE encrypted_tokens, vault_verifier")
             .execute(&pool)
             .await
             .expect("Failed to truncate test tables");
 
-        pool
+        (pool, providers)
     }
 
     #[tokio::test]
     #[ignore = "requires TEST_DATABASE_URL"]
     async fn test_postgres_basic() {
-        let pool = create_test_pool().await;
+        let (pool, [first, _]) = create_test_pool().await;
         let connection_string = test_database_url();
 
         let store = PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
             .await
             .unwrap();
 
-        store.store_token(1, "test-token").await.unwrap();
-        let token = store.get_token(1).await.unwrap();
+        store.store_token(first, "test-token").await.unwrap();
+        let token = store.get_token(first).await.unwrap();
         assert_eq!(token, "test-token");
 
         pool.close().await;
@@ -454,7 +457,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires TEST_DATABASE_URL"]
     async fn test_postgres_persistence() {
-        let pool = create_test_pool().await;
+        let (pool, [first, _]) = create_test_pool().await;
         let connection_string = test_database_url();
 
         {
@@ -462,7 +465,7 @@ mod tests {
                 PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
                     .await
                     .unwrap();
-            store.store_token(1, "persistent-token").await.unwrap();
+            store.store_token(first, "persistent-token").await.unwrap();
         }
 
         {
@@ -470,7 +473,7 @@ mod tests {
                 PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
                     .await
                     .unwrap();
-            let token = store2.get_token(1).await.unwrap();
+            let token = store2.get_token(first).await.unwrap();
             assert_eq!(token, "persistent-token");
         }
 
@@ -480,14 +483,14 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires TEST_DATABASE_URL"]
     async fn test_postgres_export_import() {
-        let pool = create_test_pool().await;
+        let (pool, [first, second]) = create_test_pool().await;
         let connection_string = test_database_url();
 
         let store = PostgresTokenStore::new(&connection_string, Some("test-password".to_string()))
             .await
             .unwrap();
-        store.store_token(1, "export-token").await.unwrap();
-        store.store_token(2, "export-token-2").await.unwrap();
+        store.store_token(first, "export-token").await.unwrap();
+        store.store_token(second, "export-token-2").await.unwrap();
 
         let encrypted = store.export_encrypted("backup-password").await.unwrap();
 
@@ -505,8 +508,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(store2.get_token(1).await.unwrap(), "export-token");
-        assert_eq!(store2.get_token(2).await.unwrap(), "export-token-2");
+        assert_eq!(store2.get_token(first).await.unwrap(), "export-token");
+        assert_eq!(store2.get_token(second).await.unwrap(), "export-token-2");
 
         pool.close().await;
     }
@@ -514,7 +517,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires TEST_DATABASE_URL"]
     async fn test_postgres_empty_vault_rejects_another_password() {
-        let pool = create_test_pool().await;
+        let (pool, _) = create_test_pool().await;
         let connection_string = test_database_url();
 
         PostgresTokenStore::new(&connection_string, Some("operator-password".to_string()))

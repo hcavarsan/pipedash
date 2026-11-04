@@ -9,51 +9,28 @@ import {
 import { STALE_TIMES } from '../../../lib/cacheConfig'
 import { queryKeys } from '../../../lib/queryKeys'
 import { apiService } from '../../../services/api'
-import { mobileService } from '../../../services/mobile'
-import type { MobileDevicesResponse, PushStatus } from '../../../types/domain'
+import type { MobileDevicesResponse, PushRelaySettings } from '../../../types/domain'
 import { displayErrorNotification, displaySuccessNotification } from '../../../utils/errorDisplay'
 
-export function usePushStatus(): UseQueryResult<PushStatus, Error> {
-  return useQuery<PushStatus>({
-    queryKey: queryKeys.push.status(),
-    queryFn: () => mobileService.getPushStatus(),
+export function usePushRelay(): UseQueryResult<PushRelaySettings, Error> {
+  return useQuery<PushRelaySettings>({
+    queryKey: queryKeys.push.relay(),
+    queryFn: () => apiService.getPushRelay(),
     staleTime: STALE_TIMES.FAST_CHANGING,
   })
 }
 
-export function usePairPushServer(): UseMutationResult<
-  PushStatus,
-  unknown,
-  { serverUrl: string; apiToken: string; label?: string },
-  unknown
-> {
+export function useSetPushRelay(): UseMutationResult<PushRelaySettings, unknown, boolean, unknown> {
   const queryClient = useQueryClient()
 
-  return useMutation<PushStatus, unknown, { serverUrl: string; apiToken: string; label?: string }>({
-    mutationFn: ({ serverUrl, apiToken, label }) => mobileService.pushPairServer(serverUrl, apiToken, label),
-    onSuccess: (status) => {
-      queryClient.setQueryData(queryKeys.push.status(), status)
-      displaySuccessNotification('This device will get a push when a pipeline fails on that server.', 'Server paired')
+  return useMutation<PushRelaySettings, unknown, boolean>({
+    mutationFn: (enabled) => apiService.setPushRelay(enabled),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(queryKeys.push.relay(), settings)
+
+      return queryClient.invalidateQueries({ queryKey: queryKeys.push.devices() })
     },
-    onError: (error) => displayErrorNotification(error, "Couldn't pair server"),
-  })
-}
-
-export function useUnpairPushServer(): UseMutationResult<PushStatus, unknown, string, unknown> {
-  const queryClient = useQueryClient()
-
-  return useMutation<PushStatus, unknown, string>({
-    mutationFn: (id) => mobileService.pushUnpairServer(id),
-    onSuccess: (status) => queryClient.setQueryData(queryKeys.push.status(), status),
-    onError: (error) => displayErrorNotification(error, "Couldn't remove server"),
-  })
-}
-
-export function usePushSendTest(): UseMutationResult<void, unknown, string, unknown> {
-  return useMutation<void, unknown, string>({
-    mutationFn: (id) => mobileService.pushSendTest(id),
-    onSuccess: () => displaySuccessNotification('Check your notifications in a moment.', 'Test push sent'),
-    onError: (error) => displayErrorNotification(error, "Couldn't send test push"),
+    onError: (error) => displayErrorNotification(error, "Couldn't change push alerts"),
   })
 }
 

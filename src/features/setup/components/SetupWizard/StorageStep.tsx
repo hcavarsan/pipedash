@@ -5,7 +5,7 @@ import { LiveStatus } from '../../../../components/forms/LiveStatus'
 import { IosGroup, IosRow } from '../../../../components/ios/IosList'
 import { STORAGE_BACKEND_LABELS } from '../../../../constants/storageLabels'
 import { useMobileShell } from '../../../../hooks/useIsMobile'
-import { isTauri } from '../../../../services/isTauri'
+import { hasLocalCore } from '../../../../services/connection'
 import { isAndroidPlatform, isMobilePlatform, secureStoreLabel } from '../../../../utils/platform'
 import { typedKeys } from '../../../../utils/typedKeys'
 
@@ -51,7 +51,7 @@ export function StorageStep({
 
   const currentBackend = currentConfig?.config.storage.backend
 
-  const isFromKeyring = isTauri() && currentBackend === 'sqlite' && !vaultPasswordFromEnv
+  const isFromKeyring = hasLocalCore() && currentBackend === 'sqlite' && !vaultPasswordFromEnv
 
   const passwordWarnings = state.vaultPassword.length < 12 ? [] : analyzePasswordStrength(state.vaultPassword)
 

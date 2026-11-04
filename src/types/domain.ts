@@ -1,3 +1,4 @@
+import type { CenterNotificationTone } from '../stores/notificationCenterStore'
 import type { ProviderTone } from '../utils/fetchInfo'
 
 export type PipelineStatus = 'success' | 'failed' | 'degraded' | 'running' | 'pending' | 'cancelled' | 'skipped'
@@ -30,10 +31,62 @@ export interface BuildWatchStatus {
   watch: BuildWatchSnapshot | null
 }
 
+export interface AlertHostInfo {
+  name: string
+  push: boolean
+  standalone: boolean
+}
+
 export interface LocalNotificationSettings {
   enabled: boolean
   available: boolean
   reason: string | null
+  alertHost: AlertHostInfo | null
+  pushProblem: string | null
+}
+
+export type AlertKind = 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'finished' | 'test'
+
+export type PreferenceKind = Exclude<AlertKind, 'test' | 'finished'>
+
+export interface WatchOnce {
+  pipeline_id: string
+  since: string
+  fired_at?: string | null
+}
+
+export type NotificationPreferences = Record<PreferenceKind, boolean> & {
+  muted_providers: number[]
+  muted_pipelines: string[]
+  watched_pipelines: string[]
+  watch_once: WatchOnce[]
+}
+
+export interface RunFinish {
+  at: string
+  previous: string | null
+}
+
+export interface HostAlert {
+  id: string
+  seq: number
+  key: string
+  kind: AlertKind
+  tone: CenterNotificationTone
+  title: string
+  body: string
+  pipeline_id: string | null
+  provider_id: number | null
+  provider_ids?: number[]
+  created_at: string
+  finish?: RunFinish | null
+}
+
+export interface PushRelaySettings {
+  enabled: boolean
+  relay_url: string | null
+  from_env: boolean
+  official_url: string
 }
 
 export type ReviewDecision = 'approve' | 'reject'
@@ -342,15 +395,26 @@ export interface RefreshResult {
   message: string | null
 }
 
-export interface ProviderHealthAlert {
-  alert_id: string
-  notification_key: string
-  provider_ids: number[]
-  level: HealthLevel
+export interface AlertLink {
+  url: string
+  kind: 'incident' | 'status_page'
+}
+
+export interface ShownNotification {
+  id: number
+  at: string
+  tone: CenterNotificationTone
+  key: string
   title: string
   body: string
-  link: { url: string; kind: 'incident' | 'status_page' } | null
-  recovered: boolean
+  kind: AlertKind
+  pipeline_id: string | null
+  provider_id: number | null
+  provider_ids: number[]
+  finish?: RunFinish
+  level?: HealthLevel
+  link?: AlertLink
+  fired: WatchOnce | null
 }
 
 export type ProviderRecovery = 'sign_in' | 'settings'
@@ -819,6 +883,7 @@ export type NativeIntent =
   | ({ type: 'notification'; action: string } & Partial<NotificationTarget>)
   | { type: 'link'; path: string; runNumber?: number }
   | { type: 'ui'; action: NativeUiAction }
+  | { type: 'pair'; link: string }
 
 export interface PendingNativeIntent {
   id: number
@@ -842,20 +907,6 @@ export interface DesktopStatus {
   error: string | null
 }
 
-export interface PushServer {
-  id: string
-  url: string
-  label: string
-  paired_at: string
-}
-
-export interface PushStatus {
-  supported: boolean
-  relay_configured: boolean
-  permission: 'granted' | 'denied' | 'prompt'
-  servers: PushServer[]
-}
-
 export interface MobileDevice {
   id: string
   device_name: string
@@ -867,4 +918,39 @@ export interface MobileDevice {
 export interface MobileDevicesResponse {
   relay_configured: boolean
   subscriptions: MobileDevice[]
+}
+
+export type DevicePlatform = 'macos' | 'windows' | 'linux' | 'ios' | 'android'
+
+export interface PairedDevice {
+  id: string
+  name: string
+  platform: DevicePlatform
+  created_at: string
+  last_seen_at: string | null
+  current: boolean
+  push: boolean
+  removable: boolean
+}
+
+export interface PairingCode {
+  code: string
+  link: string
+  server_url: string
+  expires_at: string
+  loopback: boolean
+  qr_svg: string
+}
+
+export interface RemoteResponse {
+  status: number
+  body: string
+}
+
+export interface SharingStatus {
+  enabled: boolean
+  running: boolean
+  url: string | null
+  error: string | null
+  errorCode: 'PORT_IN_USE' | 'NO_NETWORK' | null
 }

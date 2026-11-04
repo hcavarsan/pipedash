@@ -820,8 +820,6 @@ mod tests {
                     name: "A & B".to_string(),
                 }],
             }),
-            baseline: None,
-            change_revision: 0,
             settings_error: None,
             data_error: None,
             tray_error: None,

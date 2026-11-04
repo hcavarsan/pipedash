@@ -394,6 +394,7 @@ pub(crate) mod test_idp {
 
     impl Idp {
         pub(crate) async fn start() -> Self {
+            let _ = rustls::crypto::ring::default_provider().install_default();
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let base_url = format!("http://{}", listener.local_addr().unwrap());
             let idp = Self {

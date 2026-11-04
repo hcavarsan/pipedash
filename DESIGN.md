@@ -135,7 +135,8 @@ Run status uses its own tokens, `--status-success`, `--status-failed`, `--status
 
 ### Build watching
 
-- `PipedashBuildWatchEnabled` is `false` in the iOS release and also gates remote push. Both features stay hidden and their native entry points reject starts or registration. Remote push skips token synchronization and preserves saved pairings. Local notifications remain independent. The bundle omits their entitlements and background declarations, and release validation rejects reactivation. See [release restrictions](https://pipedash.app/docs/resources/ios-release#disabled-build-watching).
+- `PipedashBuildWatchEnabled` is `false` in the iOS release. Build watching and Live Activities stay hidden, their native entry points reject starts, and release validation rejects reactivation. See [release restrictions](https://pipedash.app/docs/resources/ios-release#disabled-build-watching).
+- `PipedashRemotePushEnabled` turns on remote push for alerts from a Pipedash server. The only bundled extension is `PipedashNotificationService`. The relay must never receive alert text: hosts send it only an alert id, and the extension downloads the text from the host. Local notifications stay independent.
 - Watch follows one exact pipeline and run number. A Watching section shows its pipeline above Pinned on the main pipelines page only. It uses the same row and card style as pinned pipelines, with actions to open the run or stop watching.
 - Core owns watch scheduling and applies provider quota, rate-limit and concurrency controls. Desktop forwards observations to the native background task and cancels on lifecycle changes.
 - A refresh waiting on a run-detail request retries through core policy after that request releases its claim. Run details never count as refreshed pipelines.

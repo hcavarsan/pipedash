@@ -19,7 +19,7 @@ export const TONE_COLORS: Record<CenterNotification['tone'], string> = {
 
 export function notificationLabel({ tone, level, pipelineId }: CenterNotification): string {
   if (tone === 'success') {
-    return 'Resolved'
+    return pipelineId ? 'Pipeline finished' : 'Resolved'
   }
 
   if (pipelineId) {

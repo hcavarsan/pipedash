@@ -48,6 +48,9 @@ pub(crate) struct Recorded {
     pub authorization: Option<String>,
     pub topic: Option<String>,
     pub push_type: Option<String>,
+    pub priority: Option<String>,
+    pub collapse_id: Option<String>,
+    pub expiration: Option<String>,
     pub body: serde_json::Value,
 }
 
@@ -82,6 +85,9 @@ async fn record(State(shared): State<Shared>, request: Request) -> (StatusCode, 
         authorization: header("authorization"),
         topic: header("apns-topic"),
         push_type: header("apns-push-type"),
+        priority: header("apns-priority"),
+        collapse_id: header("apns-collapse-id"),
+        expiration: header("apns-expiration"),
         body: serde_json::from_slice(&body).unwrap(),
     });
     let gate = shared.gate.lock().unwrap().clone();

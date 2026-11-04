@@ -4,6 +4,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { platform } from '@tauri-apps/plugin-os'
 import { REFRESH_TIMEOUT_MS } from '../constants/timeouts'
 import { logger } from '../lib/logger'
+import { useNotificationStore } from '../stores/notificationStore'
 import type {
   AggregatedMetrics,
   AggregationPeriod,
@@ -28,6 +29,8 @@ import type {
   Organization,
   PaginatedAvailablePipelines,
   PaginatedRunHistory,
+  PairedDevice,
+  PairingCode,
   PermissionCheckResult,
   PermissionStatus,
   PinKind,
@@ -111,6 +114,14 @@ async function invokeWithTimeout<T>(
   }
 
   return executeCommand()
+}
+
+export async function promptLogDestination(fileName: string): Promise<string | null | undefined> {
+  if (isMobilePlatform()) {
+    return null
+  }
+
+  return (await save({ defaultPath: fileName, filters: [{ name: 'Log', extensions: ['log'] }] })) ?? undefined
 }
 
 export const tauriService = {
@@ -566,14 +577,9 @@ export const tauriService = {
     fileName: string
   ): Promise<boolean> => {
     const args = { pipelineId, runNumber, nodeId, revision, fileName }
+    const destination = await promptLogDestination(fileName)
 
-    if (isMobilePlatform()) {
-      return (await invoke<ExportFileResult>('export_run_log', { ...args, destination: null })).shared
-    }
-
-    const destination = await save({ defaultPath: fileName, filters: [{ name: 'Log', extensions: ['log'] }] })
-
-    if (!destination) {
+    if (destination === undefined) {
       return false
     }
 
@@ -741,6 +747,19 @@ export const tauriService = {
   },
 
   restartApp: async (): Promise<void> => {
-    return invoke<void>('restart_app')
+    await invoke<void>('restart_app')
+    useNotificationStore.getState().applyPendingRemap()
+  },
+
+  listPairedDevices: async (): Promise<PairedDevice[]> => {
+    return invoke<PairedDevice[]>('list_paired_devices')
+  },
+
+  createPairingCode: async (): Promise<PairingCode> => {
+    return invoke<PairingCode>('create_pairing_code')
+  },
+
+  removePairedDevice: async (id: string): Promise<void> => {
+    return invoke<void>('remove_paired_device', { id })
   },
 }

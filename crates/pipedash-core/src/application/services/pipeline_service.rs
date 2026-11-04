@@ -108,6 +108,7 @@ struct Applied {
     pipelines: Vec<Pipeline>,
     changed_ids: Vec<String>,
     failed: Vec<Pipeline>,
+    finished: Vec<Pipeline>,
 }
 
 pub struct PipelineService {
@@ -330,11 +331,21 @@ impl PipelineService {
         );
 
         let failed = needing_attention(&old_by_id, &pipelines);
+        let finished = pipelines
+            .iter()
+            .filter(|pipeline| {
+                old_by_id.get(pipeline.id.as_str()).is_some_and(|previous| {
+                    pipeline.finished_since(&previous.status, previous.last_run)
+                })
+            })
+            .cloned()
+            .collect();
 
         Ok(Applied {
             pipelines,
             changed_ids,
             failed,
+            finished,
         })
     }
 
@@ -363,6 +374,13 @@ impl PipelineService {
             self.event_bus
                 .emit(CoreEvent::PipelinesFailed {
                     pipelines: applied.failed,
+                })
+                .await;
+        }
+        if !applied.finished.is_empty() {
+            self.event_bus
+                .emit(CoreEvent::PipelinesFinished {
+                    pipelines: applied.finished,
                 })
                 .await;
         }
@@ -1146,12 +1164,12 @@ impl PipelineService {
         Ok(())
     }
 
-    pub async fn clear_run_history_cache(&self, pipeline_id: &str) {
-        let _ = self.repository.clear_cached_run_history(pipeline_id).await;
+    pub async fn clear_run_history_cache(&self, pipeline_id: &str) -> DomainResult<()> {
+        self.repository.clear_cached_run_history(pipeline_id).await
     }
 
-    pub async fn clear_all_run_history_caches(&self) {
-        let _ = self.repository.clear_all_run_history_cache().await;
+    pub async fn clear_all_run_history_caches(&self) -> DomainResult<()> {
+        self.repository.clear_all_run_history_cache().await
     }
 
     pub async fn get_pipelines_cache_count(&self) -> DomainResult<i64> {
@@ -1949,6 +1967,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_run_that_finishes_is_reported_once() {
+        let h = Harness::new().await;
+        let (id, stub) = h.add_stub(StubProvider::new).await;
+        let finished = || -> Vec<Vec<(String, PipelineStatus)>> {
+            h.bus
+                .events()
+                .iter()
+                .filter_map(|event| match event {
+                    CoreEvent::PipelinesFinished { pipelines } => Some(
+                        pipelines
+                            .iter()
+                            .map(|p| (p.name.clone(), p.status.clone()))
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Running)]);
+        h.fetch_directly(id).await;
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Success)]);
+        h.fetch_directly(id).await;
+        h.fetch_directly(id).await;
+        assert_eq!(
+            finished(),
+            vec![vec![("web".to_owned(), PipelineStatus::Success)]]
+        );
+
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Pending)]);
+        h.fetch_directly(id).await;
+        stub.set_pipelines(vec![pipeline(id, "web", PipelineStatus::Failed)]);
+        h.fetch_directly(id).await;
+        assert_eq!(finished().len(), 2);
+        assert_eq!(
+            finished()[1],
+            vec![("web".to_owned(), PipelineStatus::Failed)]
+        );
+    }
+
+    #[tokio::test]
     async fn a_pipeline_seen_for_the_first_time_is_not_reported_as_failed() {
         let h = Harness::new().await;
         let (id, stub) = h.add_stub(StubProvider::new).await;
@@ -2122,6 +2181,89 @@ mod tests {
         assert_eq!(first[0].state, RefreshState::Ok);
         assert_eq!(again[0].state, RefreshState::Recent);
         assert_eq!(again[1].state, RefreshState::NotFound);
+    }
+
+    async fn cache_with_rejected_deletes() -> Harness {
+        let h = Harness::new().await;
+        for pipeline_id in ["github__1__web", "github__1__api"] {
+            h.repository
+                .cache_run_history(pipeline_id, &[stub_run(pipeline_id, 1, 60)])
+                .await
+                .unwrap();
+        }
+        sqlx::query(
+            "CREATE TRIGGER reject_run_history_delete BEFORE DELETE ON run_history_cache \
+             BEGIN SELECT RAISE(ABORT, 'cache delete rejected'); END",
+        )
+        .execute(&h.pool)
+        .await
+        .unwrap();
+
+        h
+    }
+
+    #[tokio::test]
+    async fn clearing_one_run_history_cache_reports_delete_errors() {
+        let h = cache_with_rejected_deletes().await;
+
+        let result = h
+            .pipeline_service
+            .clear_run_history_cache("github__1__web")
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(DomainError::DatabaseError(message)) if message.contains("cache delete rejected")
+        ));
+        assert_eq!(h.repository.get_run_history_cache_count().await.unwrap(), 2);
+
+        sqlx::query("DROP TRIGGER reject_run_history_delete")
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        h.pipeline_service
+            .clear_run_history_cache("github__1__web")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            h.repository
+                .get_cached_run_count("github__1__web")
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            h.repository
+                .get_cached_run_count("github__1__api")
+                .await
+                .unwrap(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn clearing_all_run_history_caches_reports_delete_errors() {
+        let h = cache_with_rejected_deletes().await;
+
+        let result = h.pipeline_service.clear_all_run_history_caches().await;
+
+        assert!(matches!(
+            result,
+            Err(DomainError::DatabaseError(message)) if message.contains("cache delete rejected")
+        ));
+        assert_eq!(h.repository.get_run_history_cache_count().await.unwrap(), 2);
+
+        sqlx::query("DROP TRIGGER reject_run_history_delete")
+            .execute(&h.pool)
+            .await
+            .unwrap();
+        h.pipeline_service
+            .clear_all_run_history_caches()
+            .await
+            .unwrap();
+
+        assert_eq!(h.repository.get_run_history_cache_count().await.unwrap(), 0);
     }
 
     async fn run_history_fixture(h: &Harness, gate: Option<&Arc<Gate>>) -> (i64, String) {
