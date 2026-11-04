@@ -45,17 +45,41 @@ export interface LocalNotificationSettings {
   pushProblem: string | null
 }
 
+export type AlertKind = 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'finished' | 'test'
+
+export type PreferenceKind = Exclude<AlertKind, 'test' | 'finished'>
+
+export interface WatchOnce {
+  pipeline_id: string
+  since: string
+  fired_at?: string | null
+}
+
+export type NotificationPreferences = Record<PreferenceKind, boolean> & {
+  muted_providers: number[]
+  muted_pipelines: string[]
+  watched_pipelines: string[]
+  watch_once: WatchOnce[]
+}
+
+export interface RunFinish {
+  at: string
+  previous: string | null
+}
+
 export interface HostAlert {
   id: string
   seq: number
   key: string
-  kind: 'failed' | 'degraded' | 'long_run' | 'outage' | 'recovered' | 'test'
+  kind: AlertKind
   tone: CenterNotificationTone
   title: string
   body: string
   pipeline_id: string | null
   provider_id: number | null
+  provider_ids?: number[]
   created_at: string
+  finish?: RunFinish | null
 }
 
 export interface PushRelaySettings {
@@ -371,15 +395,26 @@ export interface RefreshResult {
   message: string | null
 }
 
-export interface ProviderHealthAlert {
-  alert_id: string
-  notification_key: string
-  provider_ids: number[]
-  level: HealthLevel
+export interface AlertLink {
+  url: string
+  kind: 'incident' | 'status_page'
+}
+
+export interface ShownNotification {
+  id: number
+  at: string
+  tone: CenterNotificationTone
+  key: string
   title: string
   body: string
-  link: { url: string; kind: 'incident' | 'status_page' } | null
-  recovered: boolean
+  kind: AlertKind
+  pipeline_id: string | null
+  provider_id: number | null
+  provider_ids: number[]
+  finish?: RunFinish
+  level?: HealthLevel
+  link?: AlertLink
+  fired: WatchOnce | null
 }
 
 export type ProviderRecovery = 'sign_in' | 'settings'

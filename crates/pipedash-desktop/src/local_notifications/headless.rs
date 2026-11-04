@@ -37,6 +37,9 @@ pub fn run(data_dir: &Path) -> Vec<LocalNotification> {
     if authorization.is_none() && host.is_none() {
         return Vec::new();
     }
+    let Ok(preferences) = store::preferences() else {
+        return Vec::new();
+    };
     let mut observations = if authorization.is_some() {
         let Ok(observations) = store::observations() else {
             return Vec::new();
@@ -107,5 +110,17 @@ pub fn run(data_dir: &Path) -> Vec<LocalNotification> {
         }
     }
 
-    notices
+    let shown = super::wanted(&preferences, notices);
+    let finishes: Vec<_> = shown
+        .iter()
+        .filter_map(|notice| notice.pipeline_id.clone().zip(notice.finish))
+        .collect();
+    if !finishes.is_empty() {
+        let _sync = super::PREFERENCES_SYNC.blocking_lock();
+        if store::fire_once(&finishes).is_err() {
+            tracing::warn!("Couldn't mark a one-time watch as used");
+        }
+    }
+
+    shown
 }

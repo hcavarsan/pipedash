@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import type { PipelineActions } from '../../../components/common/PipelineRowParts'
 import { useRefreshProviders } from '../../../queries/useRefreshQueries'
 import type { Pipeline, PipelineView, ViewDisplay } from '../../../types/domain'
+import { useNotifyItems } from '../../notifications/hooks/useNotifyItems'
 import { useEnableWorkflow } from '../../runs/queries/useWorkflowQueries'
 import {
   useSetViewMembership,
@@ -40,6 +41,7 @@ export function usePipelineActions({
   const { refresh: refreshProviders, refreshing } = useRefreshProviders()
   const { mutate: enableWorkflow } = useEnableWorkflow()
   const pinItem = usePinning()
+  const { notifyItems } = useNotifyItems()
   const { cancelItem, dialog: cancelDialog } = useCancelActiveRuns()
   const [, setSearchParams] = useSearchParams()
   const canRemove = view?.kind === 'custom' && view.capabilities.edit_members
@@ -72,6 +74,7 @@ export function usePipelineActions({
     isRefreshing: (ids) => ids.some((id) => refreshing.has(id)),
     pinItem,
     cancelItem,
+    notifyItems,
   }
 
   const changeDisplay = (next: ViewDisplay) => {

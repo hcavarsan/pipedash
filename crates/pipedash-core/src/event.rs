@@ -4,6 +4,7 @@ use serde::{
     Serialize,
 };
 
+use crate::application::ObservedNotification;
 use crate::domain::{
     provider::ProviderSummary,
     HealthLevel,
@@ -50,6 +51,10 @@ pub enum CoreEvent {
     },
 
     PipelinesFailed {
+        pipelines: Vec<Pipeline>,
+    },
+
+    PipelinesFinished {
         pipelines: Vec<Pipeline>,
     },
 
@@ -146,6 +151,10 @@ pub enum CoreEvent {
         seq: i64,
     },
 
+    NotificationObserved {
+        notification: ObservedNotification,
+    },
+
     RunLogProgress {
         pipeline_id: String,
         run_number: i64,
@@ -187,6 +196,7 @@ impl CoreEvent {
             CoreEvent::PipelinesUpdated { .. } => "pipelines-updated",
             CoreEvent::PipelineStatusChanged { .. } => "pipeline-status-changed",
             CoreEvent::PipelinesFailed { .. } => "pipelines-failed",
+            CoreEvent::PipelinesFinished { .. } => "pipelines-finished",
             CoreEvent::RunTriggered { .. } => "run-triggered",
             CoreEvent::RunCancelled { .. } => "run-cancelled",
             CoreEvent::MetricsGenerated { .. } => "metrics-generated",
@@ -207,6 +217,7 @@ impl CoreEvent {
             CoreEvent::DevicePaired { .. } => "device-paired",
             CoreEvent::DeviceRevoked { .. } => "device-revoked",
             CoreEvent::AlertRecorded { .. } => "alert-recorded",
+            CoreEvent::NotificationObserved { .. } => "notification-observed",
             CoreEvent::RunLogProgress { .. } => "run-log-progress",
             CoreEvent::RunLogReady { .. } => "run-log-ready",
             CoreEvent::RunLogFailed { .. } => "run-log-failed",
@@ -231,9 +242,12 @@ impl CoreEvent {
             CoreEvent::PipelineStatusChanged { pipeline_ids } => serde_json::json!({
                 "pipeline_ids": pipeline_ids,
             }),
-            CoreEvent::PipelinesFailed { pipelines } => serde_json::json!({
-                "pipelines": pipelines,
-            }),
+            CoreEvent::PipelinesFailed { pipelines }
+            | CoreEvent::PipelinesFinished { pipelines } => {
+                serde_json::json!({
+                    "pipelines": pipelines,
+                })
+            }
             CoreEvent::RunTriggered { workflow_id } => serde_json::json!(workflow_id),
             CoreEvent::RunCancelled { pipeline_id } => serde_json::json!(pipeline_id),
             CoreEvent::MetricsGenerated { pipeline_id } => serde_json::json!(pipeline_id),
@@ -340,6 +354,9 @@ impl CoreEvent {
                 "id": id,
                 "seq": seq,
             }),
+            CoreEvent::NotificationObserved { notification } => {
+                serde_json::to_value(notification).unwrap_or_default()
+            }
             CoreEvent::RunLogProgress {
                 pipeline_id,
                 run_number,

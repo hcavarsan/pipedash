@@ -45,6 +45,9 @@ jobs:
       - name: Install dependencies
         run: mise run install
 
+      - name: Test icon generation
+        run: python3 scripts/test_icons.py
+
       - name: Lint and format check
         run: mise run lint:front
 
