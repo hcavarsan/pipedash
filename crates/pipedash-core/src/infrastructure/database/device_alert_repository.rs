@@ -1,6 +1,7 @@
 use chrono::{
     DateTime,
     Duration,
+    SubsecRound,
     Utc,
 };
 
@@ -116,7 +117,7 @@ impl DeviceAlertRepository {
             .bind(&input.body)
             .bind(input.pipeline_id.as_deref())
             .bind(input.provider_id)
-            .bind(Utc::now())
+            .bind(Utc::now().trunc_subsecs(6))
             .fetch_one(p)
             .await)
         .map_err(db_error)?;

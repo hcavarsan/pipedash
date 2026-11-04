@@ -1,5 +1,6 @@
 use chrono::{
     DateTime,
+    SubsecRound,
     Utc,
 };
 
@@ -78,7 +79,7 @@ impl DevicePushRepository {
         on_pool!(&self.pool, p => sqlx::query(sqlx::AssertSqlSafe(upsert))
             .bind(device_id)
             .bind(relay_subscription_id)
-            .bind(Utc::now())
+            .bind(Utc::now().trunc_subsecs(6))
             .execute(p)
             .await
             .map(|_| ()))
@@ -152,7 +153,7 @@ impl DevicePushRepository {
             self.placeholder(2)
         );
         on_pool!(&self.pool, p => sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(Utc::now())
+            .bind(Utc::now().trunc_subsecs(6))
             .bind(device_id)
             .execute(p)
             .await
