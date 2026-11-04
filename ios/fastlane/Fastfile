@@ -42,12 +42,12 @@ def tauri(*args)
   Dir.chdir(ROOT) { sh("bun", "run", "tauri", *args) }
 end
 
-def ios_config(build_number)
-  JSON.generate({ version: ios_version, bundle: { iOS: { bundleVersion: build_number.to_s } } })
+def ios_config(build_number, version)
+  JSON.generate({ version: version, bundle: { iOS: { bundleVersion: build_number.to_s } } })
 end
 
-def ios_build(build_number:, sign:)
-  args = ["ios", "build", "--export-method", "app-store-connect", "--config", ios_config(build_number)]
+def ios_build(build_number:, sign:, version: ios_version)
+  args = ["ios", "build", "--export-method", "app-store-connect", "--config", ios_config(build_number, version)]
   args << (sign ? "--archive-only" : "--no-sign")
   tauri(*args)
   if sign
@@ -106,7 +106,7 @@ platform :ios do
     FileUtils.cp([*Dir[File.join(XCODE_FILES, "NotificationService/*")].reject { |path| path.end_with?(".entitlements") }, ALERT_FETCH],
                  EXTENSION_DIR)
     IosProject.write(File.join(APPLE_DIR, "project.yml"),
-                     version: ios_version, build_number: options.fetch(:build_number, 1))
+                     version: options.fetch(:version) { ios_version }, build_number: options.fetch(:build_number, 1))
     sh("xcodegen", "generate", "--spec", File.join(APPLE_DIR, "project.yml"))
     FileUtils.cp(File.join(XCODE_FILES, "pipedash.entitlements"), File.join(TARGET_DIR, "#{TARGET}.entitlements"))
     FileUtils.cp(File.join(XCODE_FILES, "NotificationService/NotificationService.entitlements"), EXTENSION_DIR)
@@ -245,7 +245,8 @@ platform :ios do
       app_identifier: APP_ID,
       initial_build_number: 0,
     ).to_i + 1
-    prepare_project(build_number: build_number)
+    version = options.fetch(:version) { ios_version }
+    prepare_project(build_number: build_number, version: version)
     update_code_signing_settings(
       path: File.join(APPLE_DIR, "pipedash-desktop.xcodeproj"),
       targets: [TARGET],
@@ -263,8 +264,8 @@ platform :ios do
       profile_name: ENV.fetch("sigh_#{IosProject::NSE_ID}_appstore_profile-name"),
     )
     ENV["IOS_MOBILE_PROVISION"] = [File.binread(ENV.fetch("sigh_#{APP_ID}_appstore_profile-path"))].pack("m0")
-    ipa = ios_build(build_number: build_number, sign: true)
-    verify_ipa(ipa: ipa, version: ios_version, signed: true)
+    ipa = ios_build(build_number: build_number, sign: true, version: version)
+    verify_ipa(ipa: ipa, version: version, signed: true)
     ipa
   end
 
@@ -277,6 +278,14 @@ platform :ios do
     )
     changes.each { |change| UI.success(change) }
     UI.message("App IDs already set up") if changes.empty?
+  end
+
+  private_lane :store_versions do |options|
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.from(hash: options.fetch(:api_key))
+    app = Spaceship::ConnectAPI::App.find(APP_ID) || UI.user_error!("#{APP_ID} is not in App Store Connect")
+    app.get_app_store_versions(filter: { platform: "IOS" }).map do |store_version|
+      [store_version.version_string, store_version.app_version_state || store_version.app_store_state]
+    end
   end
 
   desc "Register the notification extension App ID, turn on Push Notifications and renew the App Store profiles"
@@ -297,10 +306,12 @@ platform :ios do
     end
   end
 
-  desc "Build and upload to TestFlight"
+  desc "Build and upload to TestFlight, moving past an App Store version Apple already approved"
   lane :beta do
     api_key = asc_api_key
-    ipa = build_signed_ipa(api_key: api_key)
+    version = StoreVersion.beta(ios_version, store_versions(api_key: api_key))
+    UI.important("#{ios_version} is already approved, so this beta uses #{version}") if version != ios_version
+    ipa = build_signed_ipa(api_key: api_key, version: version)
     upload_to_testflight(api_key: api_key, ipa: ipa, skip_waiting_for_build_processing: true)
   end
 

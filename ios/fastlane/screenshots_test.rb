@@ -40,7 +40,12 @@ class ScreenshotLanesTest < Minitest::Test
       runner.lanes.fetch(:ios).fetch(:prepare_screenshots).call({})
     end
     @file.define_singleton_method(:asc_api_key) { events << :authenticate; {} }
-    @file.define_singleton_method(:build_signed_ipa) { |**_| events << :sign; "test.ipa" }
+    @file.define_singleton_method(:store_versions) { |**_| scenario.fetch(:store_versions, []) }
+    @file.define_singleton_method(:build_signed_ipa) do |**options|
+      events << :sign
+      scenario[:signed] = options
+      "test.ipa"
+    end
     @file.define_singleton_method(:upload_to_app_store) do |**options|
       events << :app_store
       scenario[:published] = options
@@ -179,6 +184,16 @@ class ScreenshotLanesTest < Minitest::Test
     assert_includes @events, :testflight
     refute_includes @events, :app_store
     assert_nil @scenario[:published]
+    assert_equal "1.9.0", @scenario[:signed].fetch(:version)
+  end
+
+  def test_beta_moves_past_a_version_apple_already_approved
+    @scenario[:store_versions] = [["1.9.0", "READY_FOR_SALE"], ["1.8.0", "REPLACED_WITH_NEW_VERSION"]]
+
+    run_lane(:beta)
+
+    assert_equal "1.9.1", @scenario[:signed].fetch(:version)
+    assert_includes @events, :testflight
   end
 
   def test_release_checks_demo_before_signing_and_interpolates_review_credentials
