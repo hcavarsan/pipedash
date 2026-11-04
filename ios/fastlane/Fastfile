@@ -288,10 +288,11 @@ platform :ios do
     match(type: "appstore", app_identifier: identifiers, readonly: false, force: true, api_key: api_key)
     begin
       match(type: "appstore", app_identifier: identifiers, readonly: true)
-    rescue FastlaneCore::Interface::FastlaneError
+    rescue FastlaneCore::Interface::FastlaneError => e
       UI.user_error!(
-        "match created the profiles but couldn't save them to the certificates repository. " \
-        "Give MATCH_DEPLOY_KEY write access and run setup_push_signing again.",
+        "Reading back the new profiles failed: #{e.message} " \
+        "If match logged \"Couldn't commit or push changes back to git\" above, MATCH_DEPLOY_KEY is read-only. " \
+        "Give it write access and run setup_push_signing again.",
       )
     end
   end

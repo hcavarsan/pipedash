@@ -131,7 +131,8 @@ class ScreenshotLanesTest < Minitest::Test
 
     error = assert_raises(FastlaneCore::Interface::FastlaneError) { run_lane(:setup_push_signing) }
 
-    assert_includes error.message, "MATCH_DEPLOY_KEY write access"
+    assert_includes error.message, "No matching provisioning profiles found"
+    assert_includes error.message, "MATCH_DEPLOY_KEY is read-only"
     assert_equal %i[authenticate register setup_ci write_profiles read_profiles], @events
   end
 
