@@ -143,6 +143,8 @@ Read the [contribution guide](https://pipedash.app/docs/resources/contributing).
 
 Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` in `mise.toml` and `rust-toolchain.toml` because the November 1 nightly fails to compile the Linux `zbus` dependency; keep both pins aligned when upgrading.
 
+Run `bun run test` for frontend regressions and `cargo nextest run --workspace --all-features` for Rust regressions. The frontend command isolates each test file, and DOM tests unmount React roots and clear React Query clients before unregistering Happy DOM.
+
 Report bugs or request features through [GitHub issues](https://github.com/hcavarsan/pipedash/issues). For help, see [support](https://pipedash.app/support).
 
 ## License

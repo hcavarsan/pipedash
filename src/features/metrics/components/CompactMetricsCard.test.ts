@@ -4,6 +4,8 @@ import { after, afterEach, test } from 'node:test'
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { createElement } from 'react'
 
+import type { AggregatedMetrics } from '../../../types/domain'
+
 GlobalRegistrator.register({ width: 1400, height: 900 })
 
 const { act, cleanup, render, within } = await import('@testing-library/react')
@@ -21,36 +23,41 @@ after(async () => {
   await GlobalRegistrator.unregister()
 })
 
-test('a crashing chart shows its fallback outside the expand button and the card still expands', async () => {
+test('invalid chart timestamps show a fallback outside the expand button and the card still expands', async () => {
   const user = userEvent.setup({ document })
   let expanded = 0
-  const brokenData = JSON.parse(
-    JSON.stringify({
-      metric_type: 'unsupported',
-      aggregation_period: 'hourly',
-      total_count: 1,
-      metrics: [{ timestamp: '2026-10-25T12:00:00Z', value: 42, count: 1, min: 42, max: 42, avg: 42 }],
-    })
-  )
+  const brokenData: AggregatedMetrics = {
+    metric_type: 'run_duration',
+    aggregation_period: 'hourly',
+    total_count: 1,
+    metrics: [{ timestamp: 'invalid timestamp', value: 42, count: 1, min: 42, max: 42, avg: 42 }],
+  }
 
-  render(
-    createElement(
-      MantineProvider,
-      null,
-      createElement(CompactMetricsCard, {
-        metricType: 'run_duration',
-        data: brokenData,
-        title: 'Duration',
-        loading: false,
-        onExpand: () => {
-          expanded += 1
-        },
-      })
+  await act(async () => {
+    render(
+      createElement(
+        MantineProvider,
+        null,
+        createElement(CompactMetricsCard, {
+          metricType: 'run_duration',
+          data: brokenData,
+          title: 'Duration',
+          loading: false,
+          onExpand: () => {
+            expanded += 1
+          },
+        })
+      )
     )
-  )
+    await import('./MetricsChart')
+  })
 
   const retry = await view().findByRole('button', { name: 'Try again' })
   assert.equal(retry.parentElement?.closest('button'), null)
+
+  await user.click(retry)
+  assert.equal(expanded, 0)
+  assert.ok(view().getByRole('button', { name: 'Try again' }))
 
   await user.click(view().getByRole('button', { name: 'Expand Duration' }))
   assert.equal(expanded, 1)
