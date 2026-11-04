@@ -83,6 +83,7 @@ pipedash-plugin-tekton = { version = "0.8.0", path = "crates/pipedash-plugin-tek
 pipedash-web = { version = "0.8.0", path = "crates/pipedash-web", default-features = false }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.10"
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
 regex = "1.13"
 reqwest = { version = "0.13", default-features = false, features = [
   "form",

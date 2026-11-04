@@ -237,16 +237,28 @@ mod tests {
         }
     }
 
+    static HTTPS_CERTIFICATE: std::sync::LazyLock<rcgen::CertifiedKey<rcgen::KeyPair>> =
+        std::sync::LazyLock::new(|| {
+            let now = std::time::SystemTime::now();
+            let mut params =
+                rcgen::CertificateParams::new(vec!["localhost".into(), "127.0.0.1".into()])
+                    .unwrap();
+            params.not_before = (now - Duration::from_secs(60)).into();
+            params.not_after = (now + Duration::from_secs(86400)).into();
+            params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
+            params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+            let signing_key = rcgen::KeyPair::generate().unwrap();
+            let cert = params.self_signed(&signing_key).unwrap();
+            rcgen::CertifiedKey { cert, signing_key }
+        });
+
     fn https_only_client() -> Client {
         HttpClientManager::base_builder(None)
             .unwrap()
             .https_only(true)
             .no_proxy()
             .add_root_certificate(
-                reqwest::Certificate::from_der(include_bytes!(
-                    "../../tests/fixtures/https_server_cert.der"
-                ))
-                .unwrap(),
+                reqwest::Certificate::from_der(HTTPS_CERTIFICATE.cert.der()).unwrap(),
             )
             .timeout(Duration::from_secs(2))
             .build()
@@ -260,14 +272,10 @@ mod tests {
         };
 
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let cert = rustls::pki_types::CertificateDer::from(
-            include_bytes!("../../tests/fixtures/https_server_cert.der").to_vec(),
-        );
-        let key = rustls::pki_types::PrivateKeyDer::Pkcs8(
-            include_bytes!("../../tests/fixtures/self_signed_key.der")
-                .to_vec()
-                .into(),
-        );
+        let certificate = &*HTTPS_CERTIFICATE;
+        let cert = certificate.cert.der().clone();
+        let key =
+            rustls::pki_types::PrivateKeyDer::Pkcs8(certificate.signing_key.serialize_der().into());
         let config = Arc::new(
             rustls::ServerConfig::builder()
                 .with_no_client_auth()

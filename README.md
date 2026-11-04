@@ -145,7 +145,9 @@ Clear cached run history in Settings. If the database rejects the delete, Pipeda
 
 Read the [contribution guide](https://pipedash.app/docs/resources/contributing). For local builds, see [development](https://pipedash.app/docs/resources/development). To add a CI/CD provider, see [plugin development](https://pipedash.app/docs/resources/plugin-development).
 
-Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` in `mise.toml` and `rust-toolchain.toml` because the November 1 nightly fails to compile the Linux `zbus` dependency; keep both pins aligned when upgrading.
+Run `mise install` before local checks. Rust is pinned to `nightly-2026-10-31` in `mise.toml` and `rust-toolchain.toml` because the November 1 nightly fails to compile the Linux `zbus` dependency; keep both pins aligned when upgrading. Use `cargo fmt` without a toolchain override to keep formatting on the same version.
+
+CI runs backend tests on Linux, macOS and Windows, including log-resume checks that preserve the previous revision while truncating and extending a copied checkpoint.
 
 Run `bun run test` for frontend regressions and `cargo nextest run --workspace --all-features` for Rust regressions. The frontend command isolates each test file, and DOM tests unmount React roots and clear React Query clients before unregistering Happy DOM.
 
